@@ -15,11 +15,10 @@ import (
 type Kind string
 
 const (
-	KindPlanLegs     Kind = "plan_legs"     // one planTrip call (the requester keeps the cache and the quota)
-	KindFreshState   Kind = "fresh_state"   // one vehicle-state fetch
-	KindAdminRefresh Kind = "admin_refresh" // an admin-triggered Rivian session refresh
-	KindAdopt        Kind = "adopt"         // best-effort nudge after a login: user and group only, never credentials
-	KindOTANotes     Kind = "ota_notes"     // one OTA release-notes URL lookup (not stored, not cached by the requester)
+	KindPlanLegs   Kind = "plan_legs"   // one planTrip call (the requester keeps the cache and the quota)
+	KindFreshState Kind = "fresh_state" // one vehicle-state fetch
+	KindAdopt      Kind = "adopt"       // best-effort nudge after a login: user and group only, never credentials
+	KindOTANotes   Kind = "ota_notes"   // one OTA release-notes URL lookup (not stored, not cached by the requester)
 )
 
 // Spec is what the allowlist holds for a kind.
@@ -37,11 +36,10 @@ type Spec struct {
 
 // Kinds is the allowlist.
 var Kinds = map[Kind]Spec{
-	KindPlanLegs:     {Timeout: 28 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[PlanLegsArgs](a) }},
-	KindFreshState:   {Timeout: 10 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[FreshStateArgs](a) }},
-	KindAdminRefresh: {Timeout: 15 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[AdminRefreshArgs](a) }},
-	KindAdopt:        {Timeout: 5 * time.Second, Retry: false, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[AdoptArgs](a) }},
-	KindOTANotes:     {Timeout: 15 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[OTANotesArgs](a) }},
+	KindPlanLegs:   {Timeout: 28 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[PlanLegsArgs](a) }},
+	KindFreshState: {Timeout: 10 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[FreshStateArgs](a) }},
+	KindAdopt:      {Timeout: 5 * time.Second, Retry: false, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[AdoptArgs](a) }},
+	KindOTANotes:   {Timeout: 15 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[OTANotesArgs](a) }},
 }
 
 // ErrBadArgs: args that fail the kind's schema.
@@ -180,11 +178,6 @@ func (a *FreshStateArgs) validate() error {
 	}
 	return nil
 }
-
-// AdminRefreshArgs: refresh a user's Rivian session. The user is the message's `user`; there is nothing else to say.
-type AdminRefreshArgs struct{}
-
-func (a *AdminRefreshArgs) validate() error { return nil }
 
 // AdoptArgs: nothing. The message's user and group are the whole content, and no credential, token or cookie ever rides it.
 type AdoptArgs struct{}

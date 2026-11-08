@@ -201,20 +201,6 @@ func TestRequesterFailsSoft(t *testing.T) {
 	}
 }
 
-// T16: an admin pod (NoLocal) never serves locally: the same cases are a 503.
-func TestRequesterNoLocalAnswers503(t *testing.T) {
-	f := newFleet(t)
-	f.view.SetOwner(group, forward.LeaseOwner{})
-	var local localCounter
-	res, outcome, err := f.requester(func(c *forward.RequesterConfig) { c.NoLocal = true; c.Pod = "" }).Do(context.Background(), callFresh, local.fn)
-	if err != nil || outcome != "unavailable" || res.Status != forward.StatusUnavailable || res.Class != forward.ClassUnavailable || local.n.Load() != 0 {
-		t.Fatalf("outcome=%q res=%+v local=%d err=%v", outcome, res, local.n.Load(), err)
-	}
-	if f.out(forward.KindFreshState, "unavailable") != 1 {
-		t.Error("unavailable counted")
-	}
-}
-
 // T15: a full queue is refused with a 503 whatever the pod; nothing is pushed.
 func TestRequesterRefusesAFullQueue(t *testing.T) {
 	f := newFleet(t)
@@ -282,7 +268,7 @@ func TestRequesterTimesOutCleanly(t *testing.T) {
 	}
 }
 
-// The user's concurrency cap: still busy after the one jittered retry is served on this pod as `local_busy` (a NoLocal pod: 503).
+// The user's concurrency cap: still busy after the one jittered retry is served on this pod as `local_busy`.
 func TestRequesterBusyThenLocalBusy(t *testing.T) {
 	release := make(chan struct{})
 	f := newFleet(t)
@@ -308,13 +294,6 @@ func TestRequesterBusyThenLocalBusy(t *testing.T) {
 	}
 	if f.out(forward.KindFreshState, "local_busy") != 1 {
 		t.Error("local_busy counted")
-	}
-	// A NoLocal pod does not serve it.
-	nl := f.requester(func(c *forward.RequesterConfig) { c.NoLocal = true; c.Pod = "" })
-	var local2 localCounter
-	res, outcome, _ := nl.Do(context.Background(), callFresh, local2.fn)
-	if outcome != "unavailable" || res.Status != forward.StatusUnavailable || local2.n.Load() != 0 {
-		t.Errorf("NoLocal: outcome=%q res=%+v local=%d", outcome, res, local2.n.Load())
 	}
 	close(release)
 	if o := <-first; o != "ok" {

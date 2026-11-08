@@ -25,16 +25,13 @@ type LeaseForgetter interface{ Forget(group string) }
 
 // RequesterConfig wires a Forwarder.
 type RequesterConfig struct {
-	Pod     string // this pod (the lease holder name); empty on an admin pod
+	Pod     string // this pod (the lease holder name)
 	Keys    Keys
 	Signer  *Signer
 	Redis   redis.Cmdable
 	Leases  LeaseView
 	Metrics *Metrics
 	Logger  *slog.Logger
-	// NoLocal is for pods that hold no Rivian session (the admin deployment): where a normal pod serves a call itself (no owner, owner
-	// not ready, Redis down, still busy), these answer 503.
-	NoLocal bool
 	// Timeouts overrides a kind's wait (tests). Zero or missing: the kind's own.
 	Timeouts map[Kind]time.Duration
 	// Jitter is the pause before the one retry after a `busy` reply (default 200-500 ms).
@@ -85,7 +82,7 @@ func (f *Forwarder) wait(k Kind) time.Duration {
 
 // Do runs the call and reports who served it. local is the code the handler runs today on a pod that holds the group; Do calls it when
 // this pod holds the group, and as the fail-soft path when the call cannot be forwarded (outcome `local`), or the owner stays busy
-// (`local_busy`). On a NoLocal pod those cases return a 503 unavailable result instead, never calling local.
+// (`local_busy`).
 //
 // Order: held here (no Redis) -> lease row (system pool, cached) -> the owner's readiness marker -> the owner's queue length -> push,
 // wait for the signed reply -> on `moved` or a timeout re-read the lease once and retry if the owner or epoch changed.
@@ -108,7 +105,7 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 		f.cfg.Logger.Warn("forward: lease read failed", "err", err.Error())
 		return f.soft(ctx, c, "local", local)
 	}
-	if !owner.Found || (f.cfg.Pod != "" && owner.Pod == f.cfg.Pod) || !ValidPod(owner.Pod) {
+	if !owner.Found || owner.Pod == f.cfg.Pod || !ValidPod(owner.Pod) {
 		return f.soft(ctx, c, "local", local)
 	}
 	attempts := 0
@@ -156,12 +153,8 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 	}
 }
 
-// soft is the fail-soft path: serve here (tokens are still on every pod until M4), or 503 on a pod that cannot.
+// soft is the fail-soft path: serve here (tokens are still on every pod until M4; M4 turns this into a 503).
 func (f *Forwarder) soft(ctx context.Context, c Call, outcome string, local func(context.Context) (Result, error)) (Result, string, error) {
-	if f.cfg.NoLocal {
-		f.count(c.Kind, "unavailable")
-		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "unavailable", nil
-	}
 	f.count(c.Kind, outcome)
 	res, err := local(ctx)
 	return res, outcome, err
@@ -249,7 +242,7 @@ func (f *Forwarder) attempt(ctx context.Context, c Call, owner LeaseOwner) (Resu
 // It reports whether a message was pushed to the group's ready owner.
 func (f *Forwarder) Nudge(ctx context.Context, user, group string) bool {
 	owner, err := f.cfg.Leases.Owner(ctx, group)
-	if err != nil || !owner.Found || !ValidPod(owner.Pod) || (f.cfg.Pod != "" && owner.Pod == f.cfg.Pod) {
+	if err != nil || !owner.Found || !ValidPod(owner.Pod) || owner.Pod == f.cfg.Pod {
 		return false
 	}
 	rdb := f.cfg.Redis

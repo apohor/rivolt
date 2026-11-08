@@ -19,7 +19,6 @@ func TestForwardKindTimeoutsFitTheirRoutes(t *testing.T) {
 	}{
 		{forward.KindPlanLegs, map[string]time.Duration{"POST /trips/plan": routeDeadline, "POST /trips/plan-multiday (per leg)": longRouteDeadline}},
 		{forward.KindFreshState, map[string]time.Duration{"GET /state/{id}": routeDeadline, "GET /state/{id}/fresh": routeDeadline}},
-		{forward.KindAdminRefresh, map[string]time.Duration{"POST /admin/users/{id}/refresh-rivian-session": routeDeadline}},
 		{forward.KindOTANotes, map[string]time.Duration{"GET /vehicles/{id}/ota/notes": routeDeadline}},
 		// adopt follows a login in the background: no route waits for it, but it must not outlast the main group's deadline either.
 		{forward.KindAdopt, map[string]time.Duration{"after POST /settings/rivian login (best effort)": routeDeadline}},

@@ -14,7 +14,7 @@ import (
 // look like an upstream failure.
 func TestForwardRunnerKinds(t *testing.T) {
 	r := &forwardRunner{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	for _, k := range []forward.Kind{forward.KindPlanLegs, forward.KindFreshState, forward.KindAdminRefresh, forward.KindOTANotes} {
+	for _, k := range []forward.Kind{forward.KindPlanLegs, forward.KindFreshState, forward.KindOTANotes} {
 		res, err := r.Run(context.Background(), k, "11111111-2222-3333-4444-555555555555", "g", nil)
 		if err != nil || res.Status != 501 || res.Class != "not_implemented" {
 			t.Errorf("%s: %+v %v, want 501 not_implemented", k, res, err)

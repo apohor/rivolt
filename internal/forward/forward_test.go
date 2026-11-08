@@ -46,14 +46,13 @@ func TestAllowlistAndSchemas(t *testing.T) {
 	}{
 		{"plan_legs", KindPlanLegs, plan, true},
 		{"fresh_state", KindFreshState, `{"vehicle_id":"v-1","max_age_ms":30000}`, true},
-		{"admin_refresh", KindAdminRefresh, `{}`, true},
 		{"adopt", KindAdopt, `{}`, true},
 		{"ota_notes", KindOTANotes, `{"vehicle_id":"v-1","release_id":"r.2026.40"}`, true},
 		{"unknown kind", Kind("exec"), `{}`, false},
 		{"empty kind", Kind(""), `{}`, false},
 		{"adopt may not carry a credential", KindAdopt, `{"token":"x"}`, false},
 		{"adopt may not carry a password", KindAdopt, `{"password":"x"}`, false},
-		{"admin_refresh takes no args", KindAdminRefresh, `{"user":"x"}`, false},
+		{"adopt takes no args at all", KindAdopt, `{"user":"x"}`, false},
 		{"unknown field", KindFreshState, `{"vehicle_id":"v-1","max_age_ms":1,"extra":1}`, false},
 		{"wrong type", KindFreshState, `{"vehicle_id":5,"max_age_ms":1}`, false},
 		{"vehicle id charset", KindFreshState, `{"vehicle_id":"v/../1","max_age_ms":1}`, false},
@@ -242,7 +241,7 @@ func TestExpiryUsesTheRedisClock(t *testing.T) {
 	if Expired(now+27_999, exp) || !Expired(now+28_000, exp) || !Expired(now+99_000, exp) {
 		t.Error("an item is expired at its expiry, not before")
 	}
-	if ExpiresMS(now, KindFreshState)-now != 10_000 || ExpiresMS(now, KindAdminRefresh)-now != 15_000 {
+	if ExpiresMS(now, KindFreshState)-now != 10_000 || ExpiresMS(now, KindOTANotes)-now != 15_000 {
 		t.Error("per-kind timeouts")
 	}
 }
