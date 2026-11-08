@@ -53,9 +53,9 @@ final class PlanCorridorTests: XCTestCase {
     func testTheCalloutNamesKindPowerNetworkAndDetourButNeverFreeOrWorking() {
         let c = AlongCharger(lat: 1, lon: 2, name: "Sample Inn", isDCFC: false, maxPowerKW: 7, evNetwork: nil, kind: "hotel", preferred: false, offKm: 1.2, networkName: nil)
         let t = PlanSheetLogic.chargerDetail(c, offRoute: "about 1 mi off the route")
-        XCTAssertTrue(t.contains("Hotel with a listed Level 2 charger"))
+        XCTAssertTrue(t.contains("Hotel · listed charger, up to 7 kW"))
         XCTAssertNil(t.range(of: "free|working|available", options: [.regularExpression, .caseInsensitive]))
         let pref = AlongCharger(lat: 1, lon: 2, name: "X", isDCFC: true, maxPowerKW: 250, evNetwork: "Raw", kind: "dcfc", preferred: true, offKm: nil, networkName: "Electrify America")
-        XCTAssertEqual(PlanSheetLogic.chargerDetail(pref, offRoute: nil), "250 kW · Electrify America · a preferred network")
+        XCTAssertEqual(PlanSheetLogic.chargerDetail(pref, offRoute: nil), "Fast · station up to 250 kW · Electrify America · a preferred network")
     }
 }

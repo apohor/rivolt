@@ -210,7 +210,7 @@ extension TripPlanMapTests {
     }
 
     func testAChargerPickedOnTheMapIsDescribed() {
-        XCTAssertEqual(TripPlanLogic.alongLine(charger("Sample Fast Charge", 250)), "Sample Fast Charge · 250 kW · Example Network")
+        XCTAssertEqual(TripPlanLogic.alongLine(charger("Sample Fast Charge", 250)), "Sample Fast Charge · Fast · station up to 250 kW · Example Network")
         XCTAssertTrue(TripPlanLogic.alongCount(12).hasPrefix("12 fast chargers of 100 kW or more near the route."))
         XCTAssertTrue(TripPlanLogic.alongCount(1).hasPrefix("1 fast charger of"))
         XCTAssertEqual(TripPlanLogic.alongCount(0), "No fast chargers of 100 kW or more are listed near this route.")

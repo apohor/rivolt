@@ -46,9 +46,9 @@ struct MapCharge: Decodable, Equatable, Identifiable {
 
         var label: String {
             switch self {
-            case .fast: return "Fast"
-            case .l2: return "Level 2"
-            case .l1: return "Household outlet (Level 1)"
+            case .fast: return ChargerLabels.label(.fast)
+            case .l2: return ChargerLabels.label(.medium)
+            case .l1: return ChargerLabels.label(.outlet)
             }
         }
     }
@@ -56,8 +56,10 @@ struct MapCharge: Decodable, Equatable, Identifiable {
     var bucket: Bucket {
         if kind == "dcfc" { return .fast }
         let kw = maxPowerKW ?? .nan
-        if kind == nil, kw.isFinite, kw >= 50 { return .fast }
+        if kind == nil, kw.isFinite, kw >= ChargerLabels.dcfcMinKw { return .fast }
         if !kw.isFinite || kw < 3 { return .l1 }
+        // Above what a vehicle takes on AC it is DC, whatever the ledger's bucket: Fast, with the peak next to it (as on the web).
+        if kw > ChargerLabels.acMaxKw { return .fast }
         return .l2
     }
 

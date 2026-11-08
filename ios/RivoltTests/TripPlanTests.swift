@@ -64,7 +64,7 @@ final class TripPlanLogicTests: XCTestCase {
         XCTAssertEqual(arrival, "12:55 PM", "the destination's arrival, in the zone asked")
         XCTAssertEqual(TripPlanLogic.stopsTitle(r), "1 charging stop")
         let stop = try XCTUnwrap(r.chargingStops.first)
-        XCTAssertEqual(TripPlanLogic.stopDetail(stop), "200 kW · 25 min · 31% to 72%")
+        XCTAssertEqual(TripPlanLogic.stopDetail(stop), "Fast · 200 kW · 25 min · 31% to 72%")
         XCTAssertNil(TripPlanLogic.shortfall(r, metric: false), "this route reaches the destination")
     }
 

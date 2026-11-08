@@ -776,6 +776,7 @@ private struct MoneySplitBar: View {
             }
             Text(text(s.totals)).themeText(.subline, color: Theme.textPrimary)
             Text("\(s.totals.sessions) \(MoneyLogic.plural(s.totals.sessions, "session", "sessions"))").themeText(.subline, color: Theme.textTertiary)
+            if s.key == .dcfc { Text(ChargerLabels.moneyFastNote).themeText(.subline, color: Theme.textTertiary) }
         }
         .accessibilityElement(children: .combine)
     }

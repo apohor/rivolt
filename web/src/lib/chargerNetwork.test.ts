@@ -36,8 +36,8 @@ describe("choosePin", () => {
     expect(choosePin(tesla, null, true)).toEqual({ snap: true, label: "Tesla Supercharger" });
     expect(choosePin({ name: "Joe's Chargers" }, "unknown", true)).toEqual({ snap: true, label: "Joe's Chargers" });
   });
-  it("unknown network and no POI: a generic label, no brand; 'DC fast charger' only for DC", () => {
-    expect(choosePin(null, null, true)).toEqual({ snap: false, label: "DC fast charger" });
+  it("unknown network and no POI: a generic label, no brand; 'Fast charger' only for DC", () => {
+    expect(choosePin(null, null, true)).toEqual({ snap: false, label: "Fast charger" });
     expect(choosePin(null, null, false)).toEqual({ snap: false, label: "Charging station" });
     expect(choosePin(null, null)).toEqual({ snap: false, label: "Charging station" });
   });

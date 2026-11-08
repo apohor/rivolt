@@ -87,7 +87,7 @@ enum ChargerPin {
         }
         let snappedLabel = (poi?.name).flatMap { $0.isEmpty ? nil : $0 } ?? "Charging station"
         if unknown {
-            return poi != nil ? Choice(snap: true, label: snappedLabel) : Choice(snap: false, label: isDC ? "DC fast charger" : "Charging station")
+            return poi != nil ? Choice(snap: true, label: snappedLabel) : Choice(snap: false, label: isDC ? "Fast charger" : "Charging station")
         }
         guard let poi else { return Choice(snap: false, label: displayNetwork(known)) }
         let want = networkKey(known)

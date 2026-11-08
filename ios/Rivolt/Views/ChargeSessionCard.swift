@@ -29,8 +29,12 @@ enum ChargeSessionRows {
         let network = c.network.flatMap { $0.isEmpty ? nil : $0 }
         var session: [InsightRow] = [
             InsightRow(label: "Type", value: type, hint: network, tag: i.placeByYou.map { "\($0) · set by you" }),
-            InsightRow(label: "Charging tier", value: i.tier.label, hint: i.tier.label == "—" ? nil : i.tier.hint),
+            InsightRow(label: "Charger type", value: i.tier.label, hint: i.tier.label == "—" ? nil : i.tier.hint),
         ]
+        // Fast here means over the AC ceiling; Money's Fast starts at 50 kW. Say where Money counted a session in between.
+        if let note = ChargerLabels.moneyNote(peakKw: c.maxPowerKw, ledgerIsDC: place == "Fast", place: i.placeByYou ?? place) {
+            session.append(InsightRow(label: "In Money", value: note))
+        }
         if let state = i.finalState { session.append(InsightRow(label: "Final state", value: state)) }
         if let source = i.source { session.append(InsightRow(label: "Source", value: source)) }
         groups.append(Group(title: "Session", rows: session))

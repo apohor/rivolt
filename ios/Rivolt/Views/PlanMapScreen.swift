@@ -200,12 +200,14 @@ enum PlanSheetLogic {
     /// "250 kW · Example Network · about 3 mi off the route": power and the detour, never whether the charger is free.
     static func chargerDetail(_ c: AlongCharger, offRoute: String?) -> String {
         var parts: [String] = []
+        let kw = c.maxPowerKW ?? 0
         switch c.kind {
-        case "hotel": parts.append("Hotel with a listed Level 2 charger")
-        case "camp": parts.append("Campground with an electric hookup")
-        default: break
+        case "hotel": parts.append(ChargerLabels.label(.hotel) + (kw > 0 ? " · listed charger, up to \(Int(kw.rounded())) kW" : ""))
+        case "camp": parts.append(ChargerLabels.label(.camping))
+        default:
+            // The station's rating, said as the station's, next to its type (Fast, or Medium for a Level 2 one).
+            if let kind = ChargerLabels.kind(kw: kw, dc: c.isDCFC ?? (c.kind == "dcfc" ? true : nil)) { parts.append(ChargerLabels.stationLine(kind, ratedKw: kw)) }
         }
-        if let kw = c.maxPowerKW, kw > 0 { parts.append("\(Int(kw.rounded())) kW") }
         if let n = c.networkName ?? c.evNetwork, !n.isEmpty { parts.append(n) }
         if c.preferred { parts.append("a preferred network") }
         if let offRoute { parts.append(offRoute) }
@@ -242,6 +244,7 @@ struct PlanLayerChips: View {
                         if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
                             chip("Preferred only", on: model.preferredOnly) { model.setPreferredOnly(!model.preferredOnly) }
                         }
+                        ChargerTypeInfoButton(kinds: [.fast, .medium, .hotel, .camping])
                     }
                 }
                 if let note = PlanSheetLogic.layerNote(model) {

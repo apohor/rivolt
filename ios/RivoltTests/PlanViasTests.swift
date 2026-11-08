@@ -34,7 +34,7 @@ final class PlanViasTests: XCTestCase {
     func testTheCalloutSaysPowerNetworkAndDetourButNeverFreeOrWorking() {
         let c = AlongCharger(lat: 1, lon: 2, name: "Sample Fast Charge", isDCFC: true, maxPowerKW: 250, evNetwork: "Example Network")
         let text = PlanSheetLogic.chargerDetail(c, offRoute: "about 2 mi off the route")
-        XCTAssertEqual(text, "250 kW · Example Network · about 2 mi off the route")
+        XCTAssertEqual(text, "Fast · station up to 250 kW · Example Network · about 2 mi off the route")
         XCTAssertNil(text.range(of: "free|working|available|stalls", options: [.regularExpression, .caseInsensitive]))
         XCTAssertTrue(PlanSheetLogic.passThrough.contains("doesn't promise a charge"))
         XCTAssertEqual(PlanSheetLogic.chargerDetail(AlongCharger(lat: 1, lon: 2), offRoute: nil), "Fast charger")

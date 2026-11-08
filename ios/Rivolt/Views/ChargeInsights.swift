@@ -35,14 +35,9 @@ struct ChargeInsights: Equatable {
 
     /// The charger class by its peak power, in the web's words.
     static func tier(maxKw: Double) -> Tier {
-        if maxKw <= 0 { return Tier(label: "—", hint: "no power data") }
-        if maxKw <= 2 { return Tier(label: "Household outlet (Level 1)", hint: "wall outlet") }
-        if maxKw <= 12 { return Tier(label: "Level 2", hint: "7–12 kW range") }
-        if maxKw <= 25 { return Tier(label: "Level 2, high power", hint: "12–25 kW range") }
-        if maxKw <= 60 { return Tier(label: "DC slow", hint: "~50 kW fast charging") }
-        if maxKw <= 150 { return Tier(label: "DC standard", hint: "100–150 kW fast charging") }
-        if maxKw <= 250 { return Tier(label: "DC fast", hint: "150–250 kW fast charging") }
-        return Tier(label: "DC ultra", hint: "350 kW+ fast charging")
+        // The app-wide words (ChargerLabels), with the vehicle's measured peak: "Fast · peak 40 kW"; the hint is the optional explanation.
+        guard let kind = ChargerLabels.kind(kw: maxKw), let line = ChargerLabels.sessionLine(peakKw: maxKw) else { return Tier(label: "—", hint: "no power data") }
+        return Tier(label: line, hint: ChargerLabels.sentence(kind))
     }
 
     /// A step between two samples counts as charging time up to this long, so a dropout isn't counted as charging.

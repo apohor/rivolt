@@ -19,8 +19,8 @@ struct ChargeLocation: Decodable, Equatable {
     /// The line under the map when the user placed the pin.
     static let recordedNote = "Pin placed where the truck was recorded."
 
-    /// The web's rule for "may say DC fast charger": a peak of 30 kW or more.
-    var isDC: Bool { (maxPowerKW ?? 0) >= 30 }
+    /// The web's rule for "may say Fast charger": a peak at the ledger's DC threshold (50 kW) or more.
+    var isDC: Bool { (maxPowerKW ?? 0) >= ChargerLabels.dcfcMinKw }
 
     /// A real fix (not 0,0 or out of range).
     var hasFix: Bool { lat.isFinite && lon.isFinite && !(lat == 0 && lon == 0) && abs(lat) <= 90 && abs(lon) <= 180 }

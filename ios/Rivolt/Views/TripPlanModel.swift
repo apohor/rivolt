@@ -26,7 +26,7 @@ enum MapLayer: String, CaseIterable, Equatable {
     case chargers, hotels, camps
 
     var kind: String { self == .chargers ? "dcfc" : self == .hotels ? "hotels" : "camp" }
-    var title: String { self == .chargers ? "Chargers" : self == .hotels ? "Hotels" : "Campgrounds" }
+    var title: String { self == .chargers ? ChargerLabels.label(.fast) : self == .hotels ? ChargerLabels.label(.hotel) : ChargerLabels.label(.camping) }
 }
 
 protocol TripSource: Sendable {
