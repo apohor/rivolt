@@ -58,4 +58,29 @@ final class PlanCorridorTests: XCTestCase {
         let pref = AlongCharger(lat: 1, lon: 2, name: "X", isDCFC: true, maxPowerKW: 250, evNetwork: "Raw", kind: "dcfc", preferred: true, offKm: nil, networkName: "Electrify America")
         XCTAssertEqual(PlanSheetLogic.chargerDetail(pref, offRoute: nil), "Fast · station up to 250 kW · Electrify America · a preferred network")
     }
+
+    func testTheLayerChipsAreTheChargerWordsWithAMediumLayerForLevelTwo() {
+        XCTAssertEqual(MapLayer.allCases.map(\.title), ["Fast", "Medium", "Hotel", "Camping"])
+        XCTAssertEqual(MapLayer.allCases.map(\.kind), ["dcfc", "l2", "hotels", "camp"], "the server's own layer kinds")
+    }
+
+    func testTheAllChipTurnsEveryLayerOnOrOff() async {
+        let src = Fake()
+        let m = TripPlanModel()
+        XCTAssertFalse(m.allLayersOn)
+        await m.setAllLayers(on: true, source: src)
+        XCTAssertEqual(m.layers, Set(MapLayer.allCases))
+        XCTAssertTrue(m.allLayersOn)
+        await m.setLayer(.medium, on: false, source: src)
+        XCTAssertFalse(m.allLayersOn, "one layer off: All is no longer on")
+        await m.setAllLayers(on: false, source: src)
+        XCTAssertTrue(m.layers.isEmpty)
+    }
+
+    func testAMediumStationIsSaidAsMediumWithItsRating() {
+        let l2 = AlongCharger(lat: 1, lon: 2, name: "Sample Garage", isDCFC: false, maxPowerKW: 11, evNetwork: nil, kind: "l2", preferred: false, offKm: nil, networkName: nil)
+        XCTAssertEqual(PlanSheetLogic.chargerDetail(l2, offRoute: nil), "Medium · station up to 11 kW")
+        let ac22 = AlongCharger(lat: 1, lon: 2, name: "Sample Lot", isDCFC: false, maxPowerKW: 22, evNetwork: nil, kind: "l2", preferred: false, offKm: nil, networkName: nil)
+        XCTAssertEqual(PlanSheetLogic.chargerDetail(ac22, offRoute: nil), "Medium · station up to 22 kW", "an AC station stays Medium above the AC ceiling")
+    }
 }

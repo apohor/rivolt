@@ -241,6 +241,7 @@ struct PlanLayerChips: View {
                         ForEach(MapLayer.allCases, id: \.self) { layer in
                             chip(layer.title, on: model.layers.contains(layer)) { Task { await model.setLayer(layer, on: !model.layers.contains(layer), source: state.client) } }
                         }
+                        chip(ChargerLabels.all, on: model.allLayersOn) { Task { await model.setAllLayers(on: !model.allLayersOn, source: state.client) } }
                         if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
                             chip("Preferred only", on: model.preferredOnly) { model.setPreferredOnly(!model.preferredOnly) }
                         }
