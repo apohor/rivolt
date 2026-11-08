@@ -341,3 +341,66 @@ func TestCappedCorridorSpreadsAlongTheWholeRoute(t *testing.T) {
 		t.Errorf("under the cap: %d of %d, next %v", len(u.POIs), u.Total, u.NextAfterKm)
 	}
 }
+
+// Chargers and hotels together over the cap: every kind is spread on its own, so dense chargers do not push the hotels out (hotels have no
+// power to rank by, and used to lose every stretch to a charger).
+func TestCappedCorridorKeepsEveryKindAlongTheRoute(t *testing.T) {
+	const row, x0, n = 6000, 1000, 100
+	var all []station
+	for i := 0; i < n; i++ {
+		for off := -1; off <= 1; off++ {
+			all = append(all, station{x: x0 + uint32(i), y: uint32(int(row) + off), props: map[string]any{
+				"@id": fmt.Sprintf("d%03d_%d", i, off), "dcfc_count": 2, "max_power_kw": 150.0}})
+		}
+	}
+	for i := 3; i < n; i += 3 { // a hotel every third tile, 33 along the route
+		all = append(all, station{x: x0 + uint32(i), y: row + 2, props: map[string]any{"@id": fmt.Sprintf("h%03d", i), "facility_type": "HOTEL", "l2_count": 1}})
+	}
+	a := loaded(t, archiveAt(t, all))
+	path := make([][2]float64, 0, n)
+	for i := 0; i < n; i++ {
+		c := maptile.New(uint32(x0+i), row, 14).Bound().Center()
+		path = append(path, [2]float64{c[1], c[0]})
+	}
+	const limit = 60
+	r, err := a.QueryLayers(path, []string{"dcfc", "hotels"}, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 6}, Limit: limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.POIs) > limit || len(r.POIs) < limit-2 {
+		t.Fatalf("returned %d, want about the cap of %d", len(r.POIs), limit)
+	}
+	has := func(kind string, lo, hi float64) bool {
+		for _, p := range r.POIs {
+			if p.AlongKm >= lo && p.AlongKm < hi+0.001 {
+				for _, k := range p.Kinds {
+					if k == kind {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	for tenth := 0; tenth < 10; tenth++ {
+		lo, hi := r.RouteKm*float64(tenth)/10, r.RouteKm*float64(tenth+1)/10
+		if !has("hotels", lo, hi) {
+			t.Errorf("no hotel in the tenth %d of the route", tenth)
+		}
+		if !has("dcfc", lo, hi) {
+			t.Errorf("no charger in the tenth %d of the route", tenth)
+		}
+	}
+	// A kind that is small hands its unused share to the others: 33 hotels are all kept, and the chargers take the rest.
+	hotels := 0
+	for _, p := range r.POIs {
+		for _, k := range p.Kinds {
+			if k == "hotels" {
+				hotels++
+			}
+		}
+	}
+	if hotels < 30 {
+		t.Errorf("%d hotels kept, want all of the 33 that fit in their share", hotels)
+	}
+}
