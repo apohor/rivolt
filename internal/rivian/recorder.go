@@ -14,7 +14,6 @@ import (
 
 	"github.com/apohor/rivolt/internal/bg"
 	"github.com/apohor/rivolt/internal/charges"
-	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/samples"
@@ -262,20 +261,9 @@ type liveCharge struct {
 	// the UI can show real charging time instead of time-plugged-in.
 	activeSeconds float64
 
-	// dcfcPriced caches the fast-charge network price once resolved, so
-	// the per-frame upserts of an open session don't re-run the station
-	// lookup. Unset until the session first qualifies as DCFC.
-	dcfcPriced  bool
-	dcfcRate    float64
-	dcfcCur     string
-	dcfcNetwork string
-	// dcfcVerdict is network detection's verdict once made (auto-detect
-	// on for the user), with the peak it was made at: a co-located site
-	// is looked at again when the peak has grown, since a peak only one
-	// network could deliver can settle it.
-	dcfcVerdict       *DCFCVerdict
-	dcfcPeakKW        float64
-	dcfcRivianCharger bool // the verdict saw isRivianCharger
+	// net is the per-charge network pricing state (the cached station rate and the detection verdict), kept
+	// between the builds of an open session; see NetworkMemo.
+	net NetworkMemo
 
 	// lastMeaningfulAt tracks the last frame where something real
 	// happened: SoC moved up, charger power was above the idle floor,
@@ -2161,74 +2149,9 @@ func (m *StateMonitor) buildChargeRow(vehicleID string, c *liveCharge, peer bool
 	}
 	if row.Cost == 0 && energy > 0 {
 		m.mu.RLock()
-		lookup, dcfc, home, detect, estimate := m.priceLookup, m.dcfcPrice, m.homeLookup, m.dcfcDetect, m.dcfcEstimate
+		set := PriceSettings{Home: m.priceLookup, DCFC: m.dcfcPrice, Detect: m.dcfcDetect, Estimate: m.dcfcEstimate, HomeLoc: m.homeLookup}
 		m.mu.RUnlock()
-		fast := (dcfc != nil || detect != nil) && IsDCFCSession(row.MaxPowerKW, energy, row.ActiveSeconds, row.EndedAt.Sub(row.StartedAt))
-		// Network detection with a verify state, where it's on for the
-		// user. Rivian's isRivianCharger (this charge's own session,
-		// see sessionPredatesCharge) is its strongest signal, so a
-		// verdict made without it is made again once it arrives.
-		ranCharger := row.RivianCharger != nil && *row.RivianCharger
-		if fast && detect != nil && (c.dcfcVerdict == nil ||
-			(ranCharger && !c.dcfcRivianCharger) ||
-			(c.dcfcVerdict.Confidence < dcfcrates.ConfidentAt && row.MaxPowerKW > c.dcfcPeakKW*1.1)) {
-			if v, on := detect(c.lat, c.lon, ranCharger, row.MaxPowerKW); on {
-				c.dcfcVerdict, c.dcfcPeakKW, c.dcfcRivianCharger = &v, row.MaxPowerKW, ranCharger
-			}
-		}
-		if fast && c.dcfcVerdict != nil {
-			v := c.dcfcVerdict
-			row.NetworkState, row.NetworkEvidence = v.State, v.Evidence
-			conf := v.Confidence
-			row.NetworkConfidence = &conf
-			if v.Priced && v.Rate > 0 {
-				row.PricePerKWh = v.Rate
-				row.Currency = v.Currency
-				row.Cost = v.Rate * energy
-				row.CostSource = CostSourceNetworkEstimate
-				row.Network = v.Network
-			}
-			// No rate of the user's: a typical public price for the
-			// detected network, when there is one for the session date.
-			if row.CostSource != CostSourceNetworkEstimate && v.Slug != "" && estimate != nil {
-				applyDCFCEstimate(&row, energy, estimate, v.Slug)
-			}
-			// Still unpriced (nothing matched, no typical price): the row
-			// waits for the user, network_state says so.
-		} else if fast && dcfc != nil {
-			if !c.dcfcPriced {
-				if rate, cur, network, ok := dcfc(row.Lat, row.Lon); ok && rate > 0 {
-					c.dcfcPriced, c.dcfcRate, c.dcfcCur, c.dcfcNetwork = true, rate, cur, network
-				}
-			}
-			if c.dcfcPriced {
-				row.PricePerKWh = c.dcfcRate
-				row.Currency = c.dcfcCur
-				row.Cost = c.dcfcRate * energy
-				row.CostSource = CostSourceNetworkEstimate
-				row.Network = c.dcfcNetwork
-			}
-			if !c.dcfcPriced && estimate != nil {
-				applyDCFCEstimate(&row, energy, estimate, "")
-			}
-			// No station matched (or the archive isn't loaded): leave
-			// it unpriced rather than at the home rate or a guessed
-			// network. The ledger shows "unknown", and `rivolt reprice`
-			// can price it later; nothing is stamped.
-		}
-		// AC charging away from home (a destination L1/L2, a friend's
-		// outlet, a paid public L2) has no known price: leave it unpriced
-		// for the user to fill in rather than stamp the home rate on it.
-		// Without a saved home location or a session position we can't
-		// tell, so slow charging keeps the home rate.
-		if !fast && row.Cost == 0 && lookup != nil && !AwayFromHome(row.Lat, row.Lon, home) {
-			if rate, cur := lookup(); rate > 0 {
-				row.PricePerKWh = rate
-				row.Currency = cur
-				row.Cost = rate * energy
-				row.CostSource = CostSourceHomeRate
-			}
-		}
+		PriceUnbilled(&row, set, &c.net)
 	}
 	// Snapshot where it happened (migration 0044) so the ledger keeps
 	// classifying it the same way if the user later moves home.
