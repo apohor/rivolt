@@ -44,9 +44,9 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
 
   return (
     <section id="truck-drain" aria-label="Parked drain" className="scroll-mt-20 rounded-xl border border-neutral-800 bg-neutral-900/50 p-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
         <h2 className="text-base font-semibold text-neutral-100">Parked drain</h2>
-        <div role="tablist" aria-label="Window" className="inline-flex rounded-lg border border-neutral-800 p-0.5 text-xs">
+        <div role="tablist" aria-label="Window" className="inline-flex max-w-full rounded-lg border border-neutral-800 p-0.5 text-xs">
           {(["7d", "30d"] as const).map((k) => (
             <button
               key={k}

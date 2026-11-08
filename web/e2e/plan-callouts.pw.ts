@@ -140,4 +140,28 @@ for (const v of [
       await ctx.close();
     });
   }
+
+  // A pinned side must still lean left or right at the map's edges: a callout never runs past the screen (#1644).
+  for (const [edge, fx] of [["left", 0.02], ["right", 0.98]] as const) {
+    for (const fy of [0.3, 0.5]) {
+      test(`@webkit iphone: a pin dropped at the ${edge} edge, ${fy * 100}% down, keeps its callout on screen · ${v.n}`, async ({ browser }) => {
+        const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
+        const page = await ctx.newPage();
+        await planned(page);
+        const map = page.locator("[data-plan-area='map'] .maplibregl-map").first();
+        await expect(map.locator(".maplibregl-marker").first()).toBeVisible();
+        const mb = (await map.boundingBox())!;
+        const popup = page.locator(".maplibregl-popup");
+        await rightClickUntilCallout(page, mb.x + mb.width * fx, mb.y + mb.height * fy);
+        await expect(popup.locator(".drop-preview")).toContainText("(estimate)");
+        await expect
+          .poll(async () => {
+            const b = (await popup.boundingBox())!;
+            return b.x >= -1 && b.x + b.width <= v.vp.width + 1;
+          })
+          .toBe(true);
+        await ctx.close();
+      });
+    }
+  }
 }

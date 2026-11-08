@@ -173,10 +173,17 @@ export function TripRouteMap({
     const sheet = document.querySelector("[data-plan-sheet]")?.getBoundingClientRect().top;
     return sheet != null && sheet > top ? Math.min(map.getContainer().clientHeight, sheet - top) : map.getContainer().clientHeight;
   };
+  // A pinned vertical side (top = below the point, bottom = above it) must still lean left or right near the map's edges, as MapLibre's own pick would,
+  // or the popup runs past the edge: a point in the left or right half-width of the popup anchors it by that corner.
+  const pinSide = (map: MLMap, vertical: "top" | "bottom", ll: { lng: number; lat: number }, widthPx: number): "top" | "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right" => {
+    const x = map.project(ll).x;
+    const w = map.getContainer().clientWidth;
+    return x < widthPx / 2 ? `${vertical}-left` : x > w - widthPx / 2 ? `${vertical}-right` : vertical;
+  };
   const keepClearOfChips = (map: MLMap, p: Popup, ll: { lng: number; lat: number }) => {
     const h = mapRoomBottom(map);
     const y = map.project(ll).y;
-    if (p.options) p.options.anchor = y < h * 0.45 && y + 300 < h ? "top" : undefined;
+    if (p.options) p.options.anchor = y < h * 0.45 && y + 300 < h ? pinSide(map, "top", ll, 280) : undefined;
   };
   // A popup's text can arrive after it opens (the what-if line, a charger's preview) and grow it into the chips above or under the phone's bottom sheet.
   // MapLibre re-picks an unset anchor on every move, so pin one: below the point when it fits there, else above it when that clears the chips, else below
@@ -195,11 +202,11 @@ export function TripRouteMap({
     const room = limit - pointY - 24;
     const roomAbove = pointY - c.bottom - 24;
     if (b.height <= room) {
-      p.options.anchor = "top";
+      p.options.anchor = pinSide(map, "top", ll, b.width + 16);
     } else if (b.height <= roomAbove) {
-      p.options.anchor = "bottom";
+      p.options.anchor = pinSide(map, "bottom", ll, b.width + 16);
     } else {
-      p.options.anchor = "top";
+      p.options.anchor = pinSide(map, "top", ll, b.width + 16);
       p.setLngLat(ll);
       map.panBy([0, Math.ceil(b.height - room) + 8], { duration: 200 }, { rivoltPan: true }); // a positive y moves the content, and the popup with it, up
       return;
