@@ -57,11 +57,58 @@ type Row struct {
 	HasRestamp bool
 	HasReceipt bool
 	Edited     bool
+
+	// The split's evidence (loaded for rows with plugged frames after a drive).
+	RivianVehicleID        string
+	PackKWh                float64
+	EnergyKWh              float64
+	StartSoC, EndSoC       float64
+	PricePerKWh            float64
+	LastPluggedBeforeDrive time.Time
+	Frames                 []Frame
+	Locs                   []Loc
+	// Taken is the set of external ids already used by the vehicle's charges (a new row must not collide).
+	Taken map[string]bool
+}
+
+// Loc is a frame's position, for placing a new row.
+type Loc struct {
+	At       time.Time
+	Lat, Lon float64
+}
+
+// NewRow is a charge the split creates from a parked segment after a drive.
+type NewRow struct {
+	ExternalID       string
+	Start, End       time.Time
+	SoCStart, SoCEnd float64
+	KWh              float64
+	MaxPowerKW       float64
+	ActiveSeconds    float64
+	Lat, Lon         float64
+}
+
+// Split is the plan for a row that holds absorbed charges: the original keeps what was before the first drive
+// (energy conserved: stored minus the new rows), and each parked segment after a drive becomes a row.
+type Split struct {
+	OrigEndSoC float64
+	OrigKWh    float64
+	OrigCost   *float64 // set when the original is auto-priced and re-priced by energy share
+	News       []NewRow
+}
+
+// Options select the optional behaviour of a plan.
+type Options struct {
+	// Flag replaces DefaultFlagger.
+	Flag Flagger
+	// Split turns rows with plugged frames after a drive into splits instead of flags.
+	Split bool
 }
 
 // Verdict is the rule's answer for one row.
 type Verdict struct {
 	CapTo  time.Time // set when the row is capped
+	Split  *Split    // set when the row is split (CapTo is the original's new end)
 	Reason string    // why a row is skipped or flagged ("" when capped)
 	Flag   bool      // skipped because it may hold an absorbed charge
 }
@@ -80,7 +127,11 @@ func DefaultFlagger(r Row) string {
 }
 
 // Classify applies the rule at time now.
-func Classify(r Row, now time.Time, flag Flagger) Verdict {
+func Classify(r Row, now time.Time, opt Options) Verdict {
+	flag := opt.Flag
+	if flag == nil {
+		flag = DefaultFlagger
+	}
 	skip := func(s string) Verdict { return Verdict{Reason: s} }
 	switch {
 	case r.Source != "live":
@@ -102,10 +153,15 @@ func Classify(r Row, now time.Time, flag Flagger) Verdict {
 	case r.LastPlugged.IsZero():
 		return skip("no plugged frame inside")
 	}
-	if flag != nil {
-		if why := flag(r); why != "" {
-			return Verdict{Reason: why, Flag: true}
+	if why := flag(r); why != "" {
+		if opt.Split {
+			if sp, cut, reason := trySplit(r); reason == "" {
+				return Verdict{CapTo: cut, Split: sp}
+			} else {
+				return Verdict{Reason: reason, Flag: true}
+			}
 		}
+		return Verdict{Reason: why, Flag: true}
 	}
 	switch {
 	case r.EndedAt.Sub(r.LastPlugged) <= MinStretch:
@@ -128,9 +184,10 @@ type Queryer interface {
 const pluggedFrame = `(s.charger_status LIKE 'chrgr_sts_connected%'
     OR (s.charging_state IN ('charging_active','charging_connecting') AND COALESCE(s.charger_power_kw,0) > 0))`
 
-// Select loads every live charge with a same-vehicle drive starting strictly inside it, with the evidence.
-// With forUpdate the charge rows are locked, for the apply transaction.
-func Select(ctx context.Context, q Queryer, forUpdate bool) ([]Row, error) {
+// Select loads every live charge with a same-vehicle drive starting strictly inside it, with the evidence. With
+// forUpdate the charge rows are locked, for the apply transaction. With frames the rows that have plugged frames
+// after a drive also carry their vehicle_state frames and the vehicle's taken external ids, for the split.
+func Select(ctx context.Context, q Queryer, forUpdate, frames bool) ([]Row, error) {
 	lock := ""
 	if forUpdate {
 		lock = " FOR UPDATE OF c"
@@ -139,6 +196,8 @@ func Select(ctx context.Context, q Queryer, forUpdate bool) ([]Row, error) {
 		WITH cand AS (
 		  SELECT c.id, c.user_id, c.vehicle_id, c.started_at, c.ended_at, c.updated_at,
 		         COALESCE(c.final_state,'') AS final_state, c.source, COALESCE(c.cost_source,'') AS cost_source,
+		         COALESCE(c.energy_added_kwh,0) AS kwh, COALESCE(c.start_soc_pct,0) AS soc0, COALESCE(c.end_soc_pct,0) AS soc1,
+		         COALESCE(c.price_per_kwh,0)::float8 AS ppk,
 		         (SELECT min(d.started_at) FROM drives d
 		           WHERE d.vehicle_id = c.vehicle_id AND d.started_at > c.started_at AND d.started_at < c.ended_at) AS first_drive,
 		         EXISTS (SELECT 1 FROM charge_restamps r WHERE r.charge_id = c.id) AS restamp,
@@ -152,49 +211,125 @@ func Select(ctx context.Context, q Queryer, forUpdate bool) ([]Row, error) {
 		       cand.final_state, cand.source, cand.cost_source, cand.first_drive,
 		       (SELECT max(s.at) FROM vehicle_state s
 		         WHERE s.vehicle_id = cand.vehicle_id AND s.at BETWEEN cand.started_at AND cand.ended_at AND `+pluggedFrame+`),
+		       (SELECT max(s.at) FROM vehicle_state s
+		         WHERE s.vehicle_id = cand.vehicle_id AND s.at BETWEEN cand.started_at AND cand.first_drive AND `+pluggedFrame+`),
 		       EXISTS (SELECT 1 FROM vehicle_state s
 		         WHERE s.vehicle_id = cand.vehicle_id AND s.at > cand.first_drive AND s.at <= cand.ended_at AND `+pluggedFrame+`),
-		       cand.restamp, cand.receipt, cand.edited
-		  FROM cand WHERE cand.first_drive IS NOT NULL
+		       cand.restamp, cand.receipt, cand.edited,
+		       cand.kwh, cand.soc0, cand.soc1, cand.ppk,
+		       COALESCE(v.pack_kwh,0), v.rivian_vehicle_id
+		  FROM cand JOIN vehicles v ON v.id = cand.vehicle_id
+		 WHERE cand.first_drive IS NOT NULL
 		 ORDER BY cand.vehicle_id, cand.started_at, cand.id`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []Row
 	for rows.Next() {
 		var r Row
-		var drive, plugged sql.NullTime
+		var drive, plugged, pluggedBefore sql.NullTime
 		if err := rows.Scan(&r.ID, &r.UserID, &r.VehicleID, &r.StartedAt, &r.EndedAt, &r.UpdatedAt, &r.FinalState, &r.Source, &r.CostSource,
-			&drive, &plugged, &r.PluggedAfterDrive, &r.HasRestamp, &r.HasReceipt, &r.Edited); err != nil {
+			&drive, &plugged, &pluggedBefore, &r.PluggedAfterDrive, &r.HasRestamp, &r.HasReceipt, &r.Edited,
+			&r.EnergyKWh, &r.StartSoC, &r.EndSoC, &r.PricePerKWh, &r.PackKWh, &r.RivianVehicleID); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		r.FirstDrive, r.LastPlugged = drive.Time, plugged.Time
+		r.FirstDrive, r.LastPlugged, r.LastPluggedBeforeDrive = drive.Time, plugged.Time, pluggedBefore.Time
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	if frames {
+		taken := map[uuid.UUID]map[string]bool{}
+		for i := range out {
+			r := &out[i]
+			if !r.PluggedAfterDrive {
+				continue
+			}
+			if err := loadFrames(ctx, q, r); err != nil {
+				return nil, err
+			}
+			if taken[r.VehicleID] == nil {
+				t, err := takenIDs(ctx, q, r.VehicleID)
+				if err != nil {
+					return nil, err
+				}
+				taken[r.VehicleID] = t
+			}
+			r.Taken = taken[r.VehicleID]
+		}
+	}
+	return out, nil
+}
+
+// loadFrames reads the vehicle_state frames inside the row (ascending), and their positions.
+func loadFrames(ctx context.Context, q Queryer, r *Row) error {
+	rs, err := q.QueryContext(ctx, `
+		SELECT s.at, COALESCE(s.speed_mph,0), COALESCE(s.charger_power_kw,0), COALESCE(s.battery_level_pct,0),
+		       COALESCE(s.shift_state,''), COALESCE(s.charging_state,''), COALESCE(s.lat,0), COALESCE(s.lon,0)
+		  FROM vehicle_state s
+		 WHERE s.vehicle_id = $1 AND s.at BETWEEN $2 AND $3
+		 ORDER BY s.at`, r.VehicleID, r.StartedAt, r.EndedAt)
+	if err != nil {
+		return err
+	}
+	defer rs.Close()
+	for rs.Next() {
+		var f Frame
+		var lat, lon float64
+		if err := rs.Scan(&f.At, &f.SpeedMph, &f.PowerKW, &f.SoC, &f.Gear, &f.ChargingState, &lat, &lon); err != nil {
+			return err
+		}
+		r.Frames = append(r.Frames, f)
+		if lat != 0 || lon != 0 {
+			r.Locs = append(r.Locs, Loc{At: f.At, Lat: lat, Lon: lon})
+		}
+	}
+	return rs.Err()
+}
+
+// takenIDs is the set of external ids the vehicle's charges already use.
+func takenIDs(ctx context.Context, q Queryer, vehicleID uuid.UUID) (map[string]bool, error) {
+	rs, err := q.QueryContext(ctx, `SELECT external_id FROM charges WHERE vehicle_id = $1`, vehicleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rs.Close()
+	m := map[string]bool{}
+	for rs.Next() {
+		var e string
+		if err := rs.Scan(&e); err != nil {
+			return nil, err
+		}
+		m[e] = true
+	}
+	return m, rs.Err()
 }
 
 // Plan is the classified candidates.
 type Plan struct {
 	Cap     []Row
 	CapTo   map[uuid.UUID]time.Time
-	Skipped map[string]int // reason -> count (flagged reasons included)
+	Splits  map[uuid.UUID]*Split // the capped rows that also create new rows
+	Skipped map[string]int       // reason -> count (flagged reasons included)
 	Flagged []Row
 }
 
-// MakePlan classifies rows at time now. A nil flag means DefaultFlagger.
-func MakePlan(rows []Row, now time.Time, flag Flagger) Plan {
-	if flag == nil {
-		flag = DefaultFlagger
-	}
-	p := Plan{CapTo: map[uuid.UUID]time.Time{}, Skipped: map[string]int{}}
+// MakePlan classifies rows at time now.
+func MakePlan(rows []Row, now time.Time, opt Options) Plan {
+	p := Plan{CapTo: map[uuid.UUID]time.Time{}, Splits: map[uuid.UUID]*Split{}, Skipped: map[string]int{}}
 	for _, r := range rows {
-		v := Classify(r, now, flag)
+		v := Classify(r, now, opt)
 		switch {
 		case !v.CapTo.IsZero():
 			p.Cap = append(p.Cap, r)
 			p.CapTo[r.ID] = v.CapTo
+			if v.Split != nil {
+				p.Splits[r.ID] = v.Split
+			}
 		case v.Flag:
 			p.Flagged = append(p.Flagged, r)
 			p.Skipped[v.Reason]++
@@ -225,15 +360,40 @@ func (p Plan) FlaggedIDs() []uuid.UUID {
 	return ids
 }
 
-// Digest is the sha256 of the capped ids AND their new ended_at, so a changed cap point drifts the digest.
+// Digest is the sha256 over the whole plan: for each capped row (sorted by id) its new ended_at and, for a split,
+// the original's new end SoC, energy and cost and each new row's external id, start, end and kWh. A moved cap point, a
+// different segment or a different energy figure changes it.
 func (p Plan) Digest() string {
 	ids := p.IDs()
 	lines := make([]string, len(ids))
 	for i, id := range ids {
-		lines[i] = id.String() + " " + p.CapTo[id].UTC().Format(time.RFC3339Nano)
+		line := id.String() + " " + p.CapTo[id].UTC().Format(time.RFC3339Nano)
+		if sp := p.Splits[id]; sp != nil {
+			cost := "-"
+			if sp.OrigCost != nil {
+				cost = fmt.Sprintf("%.4f", *sp.OrigCost)
+			}
+			line += fmt.Sprintf(" split soc=%.2f kwh=%.4f cost=%s", sp.OrigEndSoC, sp.OrigKWh, cost)
+			for _, n := range sp.News {
+				line += fmt.Sprintf(" | %s %s %s %.4f", n.ExternalID, n.Start.UTC().Format(time.RFC3339Nano), n.End.UTC().Format(time.RFC3339Nano), n.KWh)
+			}
+		}
+		lines[i] = line
 	}
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n") + "\n"))
 	return hex.EncodeToString(sum[:])
+}
+
+// SplitTotals is the number of rows split, the rows they create, and the energy re-attributed to the new rows.
+func (p Plan) SplitTotals() (rows, created int, kwh float64) {
+	for _, sp := range p.Splits {
+		rows++
+		created += len(sp.News)
+		for _, n := range sp.News {
+			kwh += n.KWh
+		}
+	}
+	return
 }
 
 // ByVehicle counts the rows to cap per vehicle id.
@@ -273,11 +433,13 @@ var ErrDrift = errors.New("stretched: the rows to cap differ from the approved d
 // ErrOpenCharge: a truck is charging now; the repair does not run.
 var ErrOpenCharge = errors.New("stretched: a live charge was written in the last 15 minutes; run in a quiet hour")
 
-// Apply caps ended_at in ONE transaction. It locks and re-selects the candidates, re-applies the rule at the
-// current time, and aborts unless the count AND the digest equal the approved dry run's. The old rows (to_jsonb)
-// go to sink (the durable CSV; an error aborts before anything is changed) and to charges_capped_backup. Each
-// update asserts the cap is earlier than the old ended_at and not before started_at, and touches exactly one row.
-func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wantDigest, reason string, allowOpen bool, flag Flagger, sink func([]phantom.BackupRow) error) (int, error) {
+// Apply caps (and splits) in ONE transaction. It locks and re-selects the candidates, re-applies the rule at the
+// current time, and aborts unless the count AND the digest equal the approved dry run's. The old rows (to_jsonb) go
+// to sink (the durable CSV; an error aborts before anything is changed) and to charges_capped_backup. Each update
+// asserts the cap is earlier than the old ended_at and not before started_at, and touches exactly one row; a split
+// asserts the energy is conserved. New rows are plain inserts (no hooks, pushes or events fire) and are listed in the
+// backup row so the undo deletes exactly them.
+func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wantDigest, reason string, allowOpen bool, opt Options, sink func([]phantom.BackupRow) error) (int, error) {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -291,11 +453,11 @@ func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wan
 			return 0, fmt.Errorf("%w (%d open)", ErrOpenCharge, n)
 		}
 	}
-	rows, err := Select(ctx, tx, true)
+	rows, err := Select(ctx, tx, true, opt.Split)
 	if err != nil {
 		return 0, err
 	}
-	plan := MakePlan(rows, time.Now(), flag)
+	plan := MakePlan(rows, time.Now(), opt)
 	ids := plan.IDs()
 	if len(ids) != wantCount || plan.Digest() != wantDigest {
 		return 0, fmt.Errorf("%w: found %d (sha256 %s), approved %d (sha256 %s)", ErrDrift, len(ids), plan.Digest(), wantCount, wantDigest)
@@ -324,18 +486,66 @@ func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wan
 			return 0, err
 		}
 	}
+	mark := fmt.Sprintf(`{"stretched_repair":{"batch":%q}}`, batchID.String())
 	n := 0
 	for _, r := range plan.Cap {
 		to := plan.CapTo[r.ID]
+		sp := plan.Splits[r.ID]
 		// The assertions are in the statement: never later than the old end, never before the start.
-		res, err := tx.ExecContext(ctx, `
-			UPDATE charges SET ended_at = $2, updated_at = now()
-			 WHERE id = $1 AND source = 'live' AND ended_at = $3 AND $2 < ended_at AND $2 >= started_at`, r.ID, to, r.EndedAt)
+		var res sql.Result
+		if sp == nil {
+			res, err = tx.ExecContext(ctx, `
+				UPDATE charges SET ended_at = $2, metadata = metadata || $4::jsonb, updated_at = now()
+				 WHERE id = $1 AND source = 'live' AND ended_at = $3 AND $2 < ended_at AND $2 >= started_at`, r.ID, to, r.EndedAt, mark)
+		} else {
+			// Energy is conserved: what the original keeps plus what the new rows take is what it stored.
+			var moved float64
+			for _, nr := range sp.News {
+				moved += nr.KWh
+			}
+			if diff := sp.OrigKWh + moved - r.EnergyKWh; diff > 1e-6 || diff < -1e-6 || sp.OrigKWh < 0 {
+				return 0, fmt.Errorf("stretched: row %s energy not conserved (keeps %.4f + moves %.4f vs stored %.4f); rolling back", r.ID, sp.OrigKWh, moved, r.EnergyKWh)
+			}
+			var cost any // nil keeps the stored cost
+			if sp.OrigCost != nil {
+				cost = *sp.OrigCost
+			}
+			res, err = tx.ExecContext(ctx, `
+				UPDATE charges SET ended_at = $2, end_soc_pct = $5, energy_added_kwh = $6, cost = COALESCE($7::numeric, cost),
+				       metadata = metadata || $4::jsonb, updated_at = now()
+				 WHERE id = $1 AND source = 'live' AND ended_at = $3 AND $2 < ended_at AND $2 >= started_at`,
+				r.ID, to, r.EndedAt, mark, sp.OrigEndSoC, sp.OrigKWh, cost)
+		}
 		if err != nil {
 			return 0, err
 		}
 		if k, _ := res.RowsAffected(); k != 1 {
 			return 0, fmt.Errorf("stretched: row %s changed %d rows; rolling back", r.ID, k)
+		}
+		if sp != nil {
+			created := make([]string, 0, len(sp.News))
+			for _, nr := range sp.News {
+				var id uuid.UUID
+				avg := 0.0
+				if h := nr.End.Sub(nr.Start).Hours(); h > 0 {
+					avg = nr.KWh / h
+				}
+				// No cost, place or network: the new row is priced by the normal detection afterwards (never a copied home_rate).
+				if err := tx.QueryRowContext(ctx, `
+					INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, start_soc_pct, end_soc_pct,
+					                     energy_added_kwh, max_power_kw, avg_power_kw, final_state, lat, lon, source, active_seconds, metadata)
+					VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,0),NULLIF($13,0),'live',$14,$15::jsonb)
+					RETURNING id`,
+					r.UserID, r.VehicleID, nr.ExternalID, nr.Start, nr.End, nr.SoCStart, nr.SoCEnd,
+					nr.KWh, nr.MaxPowerKW, avg, r.FinalState, nr.Lat, nr.Lon, nr.ActiveSeconds, mark).Scan(&id); err != nil {
+					return 0, fmt.Errorf("stretched: creating %s: %w", nr.ExternalID, err)
+				}
+				created = append(created, id.String())
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE charges_capped_backup SET created_ids = $3::uuid[] WHERE batch_id = $1 AND charge_id = $2`,
+				batchID, r.ID, "{"+strings.Join(created, ",")+"}"); err != nil {
+				return 0, err
+			}
 		}
 		n++
 	}
@@ -345,37 +555,100 @@ func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wan
 	return n, nil
 }
 
-// Restore puts a batch's rows back from charges_capped_backup: ended_at as it was (updated_at is touched by the
-// table's trigger on every update, so it reads the restore time; the old value stays in the backup row). A row whose
-// ended_at is no longer the capped value (it changed since) is left alone and counted in skipped. A restored
-// batch is refused.
+// Restore undoes a batch from charges_capped_backup: the original row's columns the repair changed (ended_at,
+// end_soc_pct, energy_added_kwh, cost, metadata) go back, and the rows it created are deleted. updated_at is touched
+// by the table's trigger on every update, so it reads the restore time (the old value stays in the backup row). A
+// group is left alone, and counted in skipped, when the original's ended_at is no longer the capped value or a
+// created row has been touched since (a user price, override, note, tag, place correction or receipt): nothing is
+// deleted that a person has built on. A restored batch is refused.
 func Restore(ctx context.Context, d *sql.DB, batchID uuid.UUID) (restored, skipped int, err error) {
 	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var open int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM charges_capped_backup WHERE batch_id = $1 AND restored_at IS NULL`, batchID).Scan(&open); err != nil {
-		return 0, 0, err
+	type grp struct {
+		charge  uuid.UUID
+		created []string
 	}
-	if open == 0 {
-		return 0, 0, fmt.Errorf("stretched: batch %s has nothing to restore (unknown or already restored)", batchID)
-	}
-	res, err := tx.ExecContext(ctx, `
-		UPDATE charges c
-		   SET ended_at = (b.row->>'ended_at')::timestamptz
-		  FROM charges_capped_backup b
-		 WHERE b.batch_id = $1 AND b.restored_at IS NULL AND c.id = b.charge_id AND c.ended_at = b.capped_to`, batchID)
+	rs, err := tx.QueryContext(ctx, `SELECT charge_id, COALESCE(array_to_string(created_ids, ','), '') FROM charges_capped_backup WHERE batch_id = $1 AND restored_at IS NULL ORDER BY charge_id`, batchID)
 	if err != nil {
 		return 0, 0, err
 	}
-	n, _ := res.RowsAffected()
-	if _, err := tx.ExecContext(ctx, `UPDATE charges_capped_backup SET restored_at = now() WHERE batch_id = $1 AND restored_at IS NULL`, batchID); err != nil {
+	var groups []grp
+	for rs.Next() {
+		var g grp
+		var created string
+		if err := rs.Scan(&g.charge, &created); err != nil {
+			rs.Close()
+			return 0, 0, err
+		}
+		if created != "" {
+			g.created = strings.Split(created, ",")
+		}
+		groups = append(groups, g)
+	}
+	rs.Close()
+	if err := rs.Err(); err != nil {
 		return 0, 0, err
+	}
+	if len(groups) == 0 {
+		return 0, 0, fmt.Errorf("stretched: batch %s has nothing to restore (unknown or already restored)", batchID)
+	}
+	for _, g := range groups {
+		arr := "{" + strings.Join(g.created, ",") + "}"
+		var touched int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT count(*) FROM charges x
+			 WHERE x.id = ANY($1::uuid[])
+			   AND (COALESCE(x.cost_source,'') = 'user' OR x.place_override IS NOT NULL OR x.location_override IS NOT NULL
+			        OR COALESCE(x.notes,'') <> '' OR cardinality(x.tags) > 0
+			        OR EXISTS (SELECT 1 FROM charge_restamps r WHERE r.charge_id = x.id)
+			        OR EXISTS (SELECT 1 FROM rivian_receipts rr WHERE rr.charge_id = x.id))`, arr).Scan(&touched); err != nil {
+			return 0, 0, err
+		}
+		if touched > 0 {
+			skipped++
+			continue
+		}
+		var intact int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM charges c JOIN charges_capped_backup b ON b.charge_id = c.id
+			 WHERE b.batch_id = $1 AND b.charge_id = $2 AND c.ended_at = b.capped_to`, batchID, g.charge).Scan(&intact); err != nil {
+			return 0, 0, err
+		}
+		if intact != 1 {
+			skipped++
+			continue
+		}
+		// The created rows go first: the original's old end overlaps them (charges_live_no_overlap).
+		if len(g.created) > 0 {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM charges WHERE id = ANY($1::uuid[])`, arr); err != nil {
+				return 0, 0, err
+			}
+		}
+		res, err := tx.ExecContext(ctx, `
+			UPDATE charges c
+			   SET ended_at = (b.row->>'ended_at')::timestamptz,
+			       end_soc_pct = (b.row->>'end_soc_pct')::double precision,
+			       energy_added_kwh = (b.row->>'energy_added_kwh')::double precision,
+			       cost = (b.row->>'cost')::numeric,
+			       metadata = b.row->'metadata'
+			  FROM charges_capped_backup b
+			 WHERE b.batch_id = $1 AND b.charge_id = $2 AND c.id = b.charge_id AND c.ended_at = b.capped_to`, batchID, g.charge)
+		if err != nil {
+			return 0, 0, err
+		}
+		if k, _ := res.RowsAffected(); k != 1 {
+			skipped++
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE charges_capped_backup SET restored_at = now() WHERE batch_id = $1 AND charge_id = $2`, batchID, g.charge); err != nil {
+			return 0, 0, err
+		}
+		restored++
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, 0, err
 	}
-	return int(n), open - int(n), nil
+	return restored, skipped, nil
 }

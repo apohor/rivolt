@@ -2,7 +2,7 @@
 --
 -- The repair caps ended_at on charge rows the stale-charge janitor stretched past their real end. Before it
 -- changes a row it copies the whole old row here, in the SAME transaction, so a batch can be restored exactly
--- (`--restore BATCH`).
+-- (`--restore BATCH`). A split also creates rows (created_ids); the undo deletes exactly those.
 --   row         to_jsonb of the charge row before the cap
 --   capped_to   the ended_at the repair wrote
 --   restored_at set when a batch is restored; a restored batch is refused
@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS charges_capped_backup (
     row         JSONB       NOT NULL,
     capped_to   TIMESTAMPTZ NOT NULL,
     reason      TEXT,
+    created_ids UUID[]      NOT NULL DEFAULT '{}',
     capped_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     restored_at TIMESTAMPTZ,
     PRIMARY KEY (batch_id, charge_id)

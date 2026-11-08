@@ -87,11 +87,11 @@ func TestStretchedRepair(t *testing.T) {
 	_ = userPrice
 
 	digestOf := func() (stretched.Plan, string) {
-		rows, err := stretched.Select(ctx, pool, false)
+		rows, err := stretched.Select(ctx, pool, false, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := stretched.MakePlan(rows, time.Now(), nil)
+		p := stretched.MakePlan(rows, time.Now(), stretched.Options{})
 		return p, p.Digest()
 	}
 	plan, digest := digestOf()
@@ -126,10 +126,10 @@ func TestStretchedRepair(t *testing.T) {
 	before := snapshot()
 
 	// A wrong count or digest: nothing changed.
-	if _, err := stretched.Apply(ctx, pool, uuid.New(), 2, digest, "t", false, nil, nil); err == nil || !strings.Contains(err.Error(), "differ from the approved dry run") {
+	if _, err := stretched.Apply(ctx, pool, uuid.New(), 2, digest, "t", false, stretched.Options{}, nil); err == nil || !strings.Contains(err.Error(), "differ from the approved dry run") {
 		t.Fatalf("wrong count: %v", err)
 	}
-	if _, err := stretched.Apply(ctx, pool, uuid.New(), 1, strings.Repeat("0", 64), "t", false, nil, nil); err == nil {
+	if _, err := stretched.Apply(ctx, pool, uuid.New(), 1, strings.Repeat("0", 64), "t", false, stretched.Options{}, nil); err == nil {
 		t.Fatal("a wrong digest must abort")
 	}
 	for id, j := range snapshot() {
@@ -138,7 +138,7 @@ func TestStretchedRepair(t *testing.T) {
 		}
 	}
 	// A failing backup sink aborts before anything changes.
-	if _, err := stretched.Apply(ctx, pool, uuid.New(), 1, digest, "t", false, nil, func([]phantom.BackupRow) error { return context.Canceled }); err == nil {
+	if _, err := stretched.Apply(ctx, pool, uuid.New(), 1, digest, "t", false, stretched.Options{}, func([]phantom.BackupRow) error { return context.Canceled }); err == nil {
 		t.Fatal("a failing backup sink must abort")
 	}
 	for id, j := range snapshot() {
@@ -149,7 +149,7 @@ func TestStretchedRepair(t *testing.T) {
 
 	batch := uuid.New()
 	var sunk []phantom.BackupRow
-	n, err := stretched.Apply(ctx, pool, batch, 1, digest, "t", false, nil, func(r []phantom.BackupRow) error { sunk = r; return nil })
+	n, err := stretched.Apply(ctx, pool, batch, 1, digest, "t", false, stretched.Options{}, func(r []phantom.BackupRow) error { sunk = r; return nil })
 	if err != nil || n != 1 || len(sunk) != 1 {
 		t.Fatalf("apply: %d %v (sunk %d)", n, err, len(sunk))
 	}
@@ -185,5 +185,141 @@ func TestStretchedRepair(t *testing.T) {
 	// The restore touched updated_at, so the row is quiet for an hour before a dry run would pick it up again.
 	if p, _ := digestOf(); len(p.Cap) != 0 || p.Skipped["written in the last hour"] != 1 || p.Skipped["carries a user-entered price"] != 1 {
 		t.Fatalf("after restore: cap %d, skipped %v; want the row held back as just written and the user price refused", len(p.Cap), p.Skipped)
+	}
+}
+
+// The split against Postgres: a stretched row that swallowed a real charge after a drive becomes two rows. The original
+// keeps the stretch before the drive (ended at its last plugged frame, with the SoC there), the parked segment after the
+// drive becomes a new row with its own external id, energy is conserved, nothing is priced by copy, and the undo
+// deletes the created row and puts the original back. A user's later price on the created row blocks the undo for that
+// row instead of being deleted with it (#1630).
+func TestStretchedSplit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUser(ctx, pool, "split-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vid uuid.UUID
+	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, pack_kwh) VALUES ($1,'rv-split',91) RETURNING id`, uid).Scan(&vid); err != nil {
+		t.Fatal(err)
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.ExecContext(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	base := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Hour)
+	var orig uuid.UUID
+	if err := pool.QueryRowContext(ctx, `
+		INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source, energy_added_kwh, start_soc_pct, end_soc_pct, final_state, cost, cost_source, price_per_kwh, created_at, updated_at)
+		VALUES ($1,$2,'live_rv-split_c_1',$3,$4,'live',40,40,70,'charging_user_stopped',10,'home_rate',0.25,$3,$5) RETURNING id`,
+		uid, vid, base, base.Add(20*time.Hour), time.Now().Add(-30*time.Hour)).Scan(&orig); err != nil {
+		t.Fatal(err)
+	}
+	frame := func(at time.Time, soc float64, gear string, speed float64, state, status string, kw float64) {
+		exec(`INSERT INTO vehicle_state (vehicle_id, at, user_id, source, battery_level_pct, shift_state, speed_mph, charging_state, charger_status, charger_power_kw, lat, lon)
+		      VALUES ($1,$2,$3,'t',$4,$5,$6,$7,$8,$9,34.1,-118.1)`, vid, at, uid, soc, gear, speed, state, status, kw)
+	}
+	// 0-2 h: plugged and charging 47 -> 55 at 4 kW. 2 h-3 h: parked, plugged (ready).
+	for m := 0; m <= 120; m += 10 {
+		frame(base.Add(time.Duration(m)*time.Minute), 47+8*float64(m)/120, "P", 0, "charging_active", "chrgr_sts_connected_charging", 4)
+	}
+	frame(base.Add(150*time.Minute), 55, "P", 0, "charging_ready", "chrgr_sts_connected_no_chrg", 0)
+	// 3 h: a 30 min drive, SoC 55 -> 50, unplugged.
+	exec(`INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source) VALUES ($1,$2,'d1',$3,$4,9,'live')`, uid, vid, base.Add(3*time.Hour), base.Add(3*time.Hour+30*time.Minute))
+	for m := 0; m <= 30; m += 5 {
+		frame(base.Add(3*time.Hour+time.Duration(m)*time.Minute), 55-5*float64(m)/30, "D", 30, "charging_ready", "chrgr_sts_not_connected", 0)
+	}
+	// 3.5 h-8.5 h: parked and charging again, 50 -> 70 over 5 h at 3.7 kW (18.5 kWh against 18.2 kWh of SoC gain).
+	for m := 0; m <= 300; m += 10 {
+		frame(base.Add(215*time.Minute+time.Duration(m)*time.Minute), 50+20*float64(m)/300, "P", 0, "charging_active", "chrgr_sts_connected_charging", 3.7)
+	}
+	frame(base.Add(525*time.Minute), 70, "P", 0, "charging_ready", "chrgr_sts_not_connected", 0)
+
+	rows, err := stretched.Select(ctx, pool, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt := stretched.Options{Split: true}
+	plan := stretched.MakePlan(rows, time.Now(), opt)
+	sp := plan.Splits[orig]
+	if sp == nil || len(sp.News) != 1 {
+		t.Fatalf("want one split with one new row, got cap=%d flagged=%d skipped=%v", len(plan.Cap), len(plan.Flagged), plan.Skipped)
+	}
+	nr := sp.News[0]
+	if nr.KWh < 17 || nr.KWh > 19.5 || nr.SoCStart < 49 || nr.SoCEnd < 69 {
+		t.Fatalf("new row = %+v", nr)
+	}
+	if got := sp.OrigKWh + nr.KWh; got < 39.999 || got > 40.001 {
+		t.Fatalf("energy not conserved: %v", got)
+	}
+	digest := plan.Digest()
+
+	snapshot := func() string {
+		var j string
+		if err := pool.QueryRowContext(ctx, `SELECT (to_jsonb(c.*) - 'updated_at')::text FROM charges c WHERE id = $1`, orig).Scan(&j); err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	count := func() int {
+		var n int
+		_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE user_id=$1`, uid).Scan(&n)
+		return n
+	}
+	before := snapshot()
+
+	batch := uuid.New()
+	if n, err := stretched.Apply(ctx, pool, batch, 1, digest, "t", false, opt, func([]phantom.BackupRow) error { return nil }); err != nil || n != 1 {
+		t.Fatalf("apply: %d %v", n, err)
+	}
+	if count() != 2 {
+		t.Fatalf("rows after apply: %d, want original + 1 new", count())
+	}
+	var cost *float64
+	var kwh, endSoC float64
+	var ext, meta string
+	_ = pool.QueryRowContext(ctx, `SELECT cost::float8, energy_added_kwh, end_soc_pct, metadata::text FROM charges WHERE id=$1`, orig).Scan(&cost, &kwh, &endSoC, &meta)
+	if cost == nil || *cost < 5 || *cost > 6.6 || kwh > 23 || endSoC < 54 || endSoC > 56 || !strings.Contains(meta, "stretched_repair") {
+		t.Fatalf("original after split: cost=%v kwh=%v end soc=%v meta=%s", cost, kwh, endSoC, meta)
+	}
+	var newID uuid.UUID
+	var newCost, newPlace, newNet *string
+	if err := pool.QueryRowContext(ctx, `SELECT id, external_id, cost::text, place, network FROM charges WHERE user_id=$1 AND id<>$2`, uid, orig).Scan(&newID, &ext, &newCost, &newPlace, &newNet); err != nil {
+		t.Fatal(err)
+	}
+	if ext != nr.ExternalID || newCost != nil {
+		t.Fatalf("new row: ext=%q cost=%v; want external id %q and no copied price", ext, newCost, nr.ExternalID)
+	}
+	// A second pass finds nothing more to do.
+	if rows, _ := stretched.Select(ctx, pool, false, true); len(stretched.MakePlan(rows, time.Now(), opt).Cap) != 0 {
+		t.Fatal("second pass would change more")
+	}
+
+	// A user prices the created row: the undo leaves that group alone.
+	exec(`UPDATE charges SET cost_source = 'user' WHERE id = $1`, newID)
+	if r, s, err := stretched.Restore(ctx, pool, batch); err != nil || r != 0 || s != 1 {
+		t.Fatalf("restore with a user-priced created row: %d %d %v, want 0 restored 1 skipped", r, s, err)
+	}
+	if count() != 2 {
+		t.Fatalf("the user-priced row was deleted: %d rows", count())
+	}
+	// Without the user's price the undo is exact: the created row goes, the original comes back.
+	exec(`UPDATE charges SET cost_source = NULL WHERE id = $1`, newID)
+	if r, s, err := stretched.Restore(ctx, pool, batch); err != nil || r != 1 || s != 0 {
+		t.Fatalf("restore: %d %d %v", r, s, err)
+	}
+	if got := snapshot(); got != before {
+		t.Fatalf("after restore the original differs:\n before %s\n after  %s", before, got)
+	}
+	if count() != 1 {
+		t.Fatalf("rows after restore: %d, want 1", count())
 	}
 }
