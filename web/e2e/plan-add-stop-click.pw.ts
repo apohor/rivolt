@@ -59,12 +59,23 @@ for (const v of [
     // artifact only has the page snapshot). Click again until it does, and record that the first one missed, with a screenshot, so the report counts it.
     let missed = 0;
     await expect(async () => {
-      await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.3, { button: "right" });
+      // Measure the map again on every try: a layout shift after the first measure would send a click to the wrong element.
+      const now = (await map.boundingBox())!;
+      const x = now.x + now.width * 0.6;
+      const y = now.y + now.height * 0.3;
+      await page.mouse.click(x, y, { button: "right" });
       try {
         await expect(add).toBeVisible({ timeout: 1500 });
       } catch (e) {
         if (missed++ === 0) {
-          test.info().annotations.push({ type: "first right click opened no callout", description: `${v.n}, popups in DOM: ${await page.locator(".maplibregl-popup").count()}` });
+          const diag = await page.evaluate(([px, py]) => {
+            const el = document.elementFromPoint(px, py) as HTMLElement | null;
+            return { under: el ? `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)}` : null, scrollY: Math.round(window.scrollY), popups: document.querySelectorAll(".maplibregl-popup").length };
+          }, [x, y]);
+          test.info().annotations.push({
+            type: "first right click opened no callout",
+            description: `${v.n}; point ${Math.round(x)},${Math.round(y)} under ${diag.under}; map moved ${Math.round(now.x - box.x)},${Math.round(now.y - box.y)} since measured; scrollY ${diag.scrollY}; popups ${diag.popups}`,
+          });
           await test.info().attach("first-miss", { body: await page.screenshot(), contentType: "image/png" });
         }
         throw e;
