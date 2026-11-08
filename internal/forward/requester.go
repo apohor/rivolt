@@ -36,6 +36,12 @@ type RequesterConfig struct {
 	Timeouts map[Kind]time.Duration
 	// Jitter is the pause before the one retry after a `busy` reply (default 200-500 ms).
 	Jitter func() time.Duration
+	// Acquire takes a group whose lease is absent or expired, by the database clock, and reports whether this pod now holds it (single-owner
+	// M4-2, the acquire half). Nil, or AcquireOnRequest false: the M3 behaviour, the fail-soft cases run the call here.
+	Acquire func(ctx context.Context, group string) (bool, error)
+	// AcquireOnRequest (RIVOLT_ACQUIRE_ON_REQUEST) replaces the fail-soft "run it here" with acquire-or-503: the only trigger for an
+	// acquire is a lease row absent or expired; a live lease (owner not ready, Redis down, busy, moved to someone) is a 503, never an acquire.
+	AcquireOnRequest bool
 }
 
 // Forwarder is the requester side: it decides whether a call that needs Rivian is served here or by the group's owner, and if by the
@@ -108,10 +114,11 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 	owner, err := f.cfg.Leases.Owner(ctx, c.Group)
 	if err != nil {
 		f.cfg.Logger.Warn("forward: lease read failed", "err", err.Error())
-		return f.soft(ctx, c, "local", local)
+		return f.fallback(ctx, c, "local", false, local)
 	}
 	if !owner.Found || owner.Pod == f.cfg.Pod || !ValidPod(owner.Pod) {
-		return f.soft(ctx, c, "local", local)
+		// Only an absent or expired row (Found false) may be acquired; a live row that names this pod or an invalid pod may not.
+		return f.fallback(ctx, c, "local", !owner.Found, local)
 	}
 	attempts := 0
 	var sawBusy bool
@@ -126,10 +133,10 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 			f.count(c.Kind, "unavailable")
 			return res, "unavailable", nil
 		case "redis":
-			return f.soft(ctx, c, "local", local)
+			return f.fallback(ctx, c, "local", false, local) // the lease is live: not ready, or Redis is down
 		case "busy":
 			if sawBusy {
-				return f.soft(ctx, c, "local_busy", local)
+				return f.fallback(ctx, c, "local_busy", false, local)
 			}
 			sawBusy = true
 			select {
@@ -152,7 +159,8 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 				if outcome == "moved" {
 					// The owner has just said it does not hold the group and the lease shows nobody else to ask: the "no owner" case, which M3
 					// serves here (counted local). A timeout with nobody new stays a 503: that owner may still be inside a slow Rivian call.
-					return f.soft(ctx, c, "local", local)
+					// With acquire-on-request the row is acquired only if it is absent or expired; a live row (the old owner, this pod) is a 503.
+					return f.fallback(ctx, c, "local", err == nil && !again.Found, local)
 				}
 				f.count(c.Kind, outcome) // nobody new to ask
 				return Result{Status: StatusUnavailable, Class: ClassUnavailable}, outcome, nil
@@ -161,6 +169,31 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 			continue
 		}
 	}
+}
+
+// fallback is what a call does when it cannot be forwarded and the lease says there is nobody to ask. M3: run it here (soft). With
+// acquire-on-request (M4-2): acquire the group when its lease is absent or expired (mayAcquire), then run it as the owner (`acquired`);
+// otherwise answer 503 (`unavailable`). A live lease is never taken.
+func (f *Forwarder) fallback(ctx context.Context, c Call, softOutcome string, mayAcquire bool, local func(context.Context) (Result, error)) (Result, string, error) {
+	if !f.cfg.AcquireOnRequest || f.cfg.Acquire == nil {
+		return f.soft(ctx, c, softOutcome, local)
+	}
+	if mayAcquire {
+		ok, err := f.cfg.Acquire(ctx, c.Group)
+		if err != nil {
+			f.cfg.Logger.Warn("forward: acquire on request failed", "err", err.Error())
+		}
+		if ok {
+			if lf, isLF := f.cfg.Leases.(LeaseForgetter); isLF {
+				lf.Forget(c.Group)
+			}
+			f.count(c.Kind, "acquired")
+			res, lerr := local(ctx)
+			return res, "acquired", lerr
+		}
+	}
+	f.count(c.Kind, "unavailable")
+	return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "unavailable", nil
 }
 
 // soft is the fail-soft path: serve here (tokens are still on every pod until M4; M4 turns this into a 503).

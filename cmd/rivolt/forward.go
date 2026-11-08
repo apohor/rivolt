@@ -184,6 +184,10 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 		logger.Error("forward: owner", "err", err.Error())
 		os.Exit(1)
 	}
+	acquireOnRequest := os.Getenv("RIVOLT_ACQUIRE_ON_REQUEST") == "1"
+	if acquireOnRequest {
+		logger.Info("forward: acquire-on-request is on: a call whose group has no live owner acquires it; every other fallback is a 503")
+	}
 	fwd, err := forward.NewForwarder(forward.RequesterConfig{
 		Pod:     store.PodID(),
 		Keys:    forward.Keys{Prefix: keyPrefix},
@@ -192,6 +196,10 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 		Leases:  leaseView,
 		Metrics: fm,
 		Logger:  logger,
+		// M4-2: the only acquire trigger is a lease row absent or expired by the database clock; AcquireGroups takes a free row only (and a
+		// draining pod acquires nothing), so a live lease is never taken.
+		AcquireOnRequest: acquireOnRequest,
+		Acquire:          func(ctx context.Context, group string) (bool, error) { return acquireGroup(ctx, store, group) },
 	})
 	if err != nil {
 		logger.Error("forward: requester", "err", err.Error())
@@ -217,4 +225,16 @@ func forwardReplayTest(getenv func(string) string) (bool, error) {
 		return false, errors.New("RIVOLT_FORWARD_REPLAY_TEST needs RIVIAN_CLIENT=replay")
 	}
 	return true, nil
+}
+
+// acquireGroup asks the lease store for one group, outside the fair share, and reports whether this pod now holds it.
+func acquireGroup(ctx context.Context, store interface {
+	AcquireGroups(context.Context, []string) (map[string]int64, error)
+}, group string) (bool, error) {
+	got, err := store.AcquireGroups(ctx, []string{group})
+	if err != nil {
+		return false, err
+	}
+	_, ok := got[group]
+	return ok, nil
 }
