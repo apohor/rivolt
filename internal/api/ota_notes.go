@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -129,12 +130,20 @@ func otaNotesClass(err error) (int, string) {
 		return http.StatusServiceUnavailable, "release notes unavailable right now"
 	case errors.Is(err, rivian.ErrNeedsReauth), errors.Is(err, rivian.ErrNotAuthenticated):
 		return http.StatusUnauthorized, "reconnect Rivian to open release notes"
+	case errors.Is(err, errOwnerUnavailable):
+		return http.StatusServiceUnavailable, "release notes unavailable right now"
 	default:
 		return http.StatusBadGateway, "release notes unavailable right now"
 	}
 }
 
 func handleOTANotes(source func(uuid.UUID) rivian.OTASource, cache *otaNotesCache, logger *slog.Logger) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+	return handleOTANotesForwarded(source, cache, logger, nil)
+}
+
+// handleOTANotesForwarded is handleOTANotes with its one Rivian read routed to the vehicle's group owner when this pod does not hold the
+// group (single-owner M3-4b). The cache, the spacing of reads and the host check stay on the requester. forward nil: unchanged.
+func handleOTANotesForwarded(source func(uuid.UUID) rivian.OTASource, cache *otaNotesCache, logger *slog.Logger, forwardFor func(uuid.UUID) *stateForward) func(uuid.UUID, http.ResponseWriter, *http.Request) {
 	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 		vehicleID := chi.URLParam(r, "vehicleID")
 		which := r.URL.Query().Get("which")
@@ -166,22 +175,23 @@ func handleOTANotes(source func(uuid.UUID) rivian.OTASource, cache *otaNotesCach
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), otaNotesTimeout)
 			defer cancel()
-			info, err := src.OTAUpdateDetails(ctx, vehicleID)
+			var sf *stateForward
+			if forwardFor != nil {
+				sf = forwardFor(uid)
+			}
+			links, err := sf.forwardOTANotes(ctx, src, vehicleID)
 			if err != nil {
 				status, msg := otaNotesClass(err)
 				if logger != nil {
 					logger.Warn("ota notes: upstream read failed", "user_id", uid.String(), "status", status)
 				}
+				if errors.Is(err, errOwnerUnavailable) {
+					w.Header().Set("Retry-After", strconv.Itoa(forward.RetryAfterSeconds))
+				}
 				writeJSON(w, status, map[string]string{"error": msg})
 				return
 			}
-			var cur, avail string
-			if info != nil && info.Current != nil && otaNotesHostOK(info.Current.ReleaseNotesURL) {
-				cur = info.Current.ReleaseNotesURL
-			}
-			if info != nil && info.Available != nil && otaNotesHostOK(info.Available.ReleaseNotesURL) {
-				avail = info.Available.ReleaseNotesURL
-			}
+			cur, avail := links.Current, links.Available
 			cache.put(uid, vehicleID, cur, avail)
 			link = cur
 			if which == "available" {
