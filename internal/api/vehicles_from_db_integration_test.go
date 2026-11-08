@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -245,4 +246,89 @@ type failingListing struct {
 func (f *failingListing) Vehicles(context.Context) ([]rivian.Vehicle, error) {
 	f.calls.Add(1)
 	return nil, errors.New("rivian is down")
+}
+
+// publishedStateStore is a LiveStateStore that only holds the live State the owner pod published.
+type publishedStateStore struct {
+	mu sync.Mutex
+	st *rivian.State
+}
+
+func (p *publishedStateStore) Save(context.Context, string, rivian.LiveStateSnapshot, time.Duration) error {
+	return nil
+}
+func (p *publishedStateStore) Load(context.Context, string) (rivian.LiveStateSnapshot, bool, error) {
+	return rivian.LiveStateSnapshot{}, false, nil
+}
+func (p *publishedStateStore) Delete(context.Context, string) error { return nil }
+func (p *publishedStateStore) PutState(_ context.Context, _ string, st *rivian.State, _ time.Duration) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cp := *st
+	p.st = &cp
+	return nil
+}
+func (p *publishedStateStore) GetState(context.Context, string) (*rivian.State, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.st == nil {
+		return nil, nil
+	}
+	cp := *p.st
+	return &cp, nil
+}
+
+// The list's OTA card and field support come out the same on the pod that streams the vehicle and on one that does not: the stored release
+// details are in Postgres for both, and the live install progress is read from the state the owner published.
+func TestVehicleListOTAMatchesOnAPeerPod(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid := acceptedUser(ctx, t, pool, "veh-ota-peer")
+	if err := db.UpsertVehicleFromSync(ctx, pool, uid, db.VehicleSync{RivianID: "rv-ota-1", Name: "Truck", Model: "R1T", ModelYear: 2024, Trim: "PKG-ADV"}); err != nil {
+		t.Fatal(err)
+	}
+	// What the owner's OTA sync stored (version and available release), plus the live install progress it publishes.
+	if _, err := pool.ExecContext(ctx, `UPDATE vehicles SET metadata = metadata || jsonb_build_object('ota',
+		jsonb_build_object('current', jsonb_build_object('version', '2026.34.1'), 'available', jsonb_build_object('version', '2026.38.1')))
+		WHERE user_id = $1 AND rivian_vehicle_id = 'rv-ota-1'`, uid); err != nil {
+		t.Fatal(err)
+	}
+	live := &rivian.State{VehicleID: "rv-ota-1", OtaStatus: "Install_Pending", OtaCurrentVersion: "2026.34.1", OtaAvailableVersion: "2026.38.1"}
+	store := &publishedStateStore{}
+	if err := store.PutState(ctx, "rv-ota-1", live, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	owner, peer := rivian.NewStateMonitor(nil, nil), rivian.NewStateMonitor(nil, nil)
+	owner.SetLiveStateStore(store)
+	peer.SetLiveStateStore(store)
+	owner.Prime("rv-ota-1", live) // the owner has it in its own cache; the peer only has what was published
+	list := func(m *rivian.StateMonitor) string {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil).WithContext(auth.WithUser(ctx, uid))
+		handleVehicles(&countingRivian{}, m, pool, nil, nil, nil, &vehiclesFromDB{})(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%d %s", rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	o, p := list(owner), list(peer)
+	if o != p {
+		t.Errorf("the pods disagree:\nowner %s\npeer  %s", o, p)
+	}
+	var vs []struct {
+		OTA *struct {
+			Current *struct {
+				Version string `json:"version"`
+			} `json:"current"`
+			Status string `json:"status"`
+		} `json:"ota"`
+	}
+	if err := json.Unmarshal([]byte(p), &vs); err != nil || len(vs) != 1 || vs[0].OTA == nil || vs[0].OTA.Current == nil || vs[0].OTA.Current.Version != "2026.34.1" || vs[0].OTA.Status != "Install_Pending" {
+		t.Errorf("peer list lacks the OTA card or its live status: %s (%v)", p, err)
+	}
 }

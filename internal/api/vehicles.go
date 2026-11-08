@@ -559,21 +559,24 @@ func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.St
 		}
 		vs = append(vs, v)
 	}
-	if stored, oerr := db.ListVehicleOTAs(r.Context(), sqlDB, userID); oerr == nil {
-		attachOTA(vs, stored, func(id string) *rivian.State {
-			if mon == nil {
-				return nil
-			}
-			st, _ := mon.Latest(id)
+	// The live state: this pod's own when it streams the vehicle, else the one the owner published to the shared store, so the install
+	// progress and the live field support read the same on every pod (a peer used to leave them out).
+	live := func(id string) *rivian.State {
+		if mon == nil {
+			return nil
+		}
+		if st, _ := mon.Latest(id); st != nil {
 			return st
-		})
+		}
+		return mon.RemoteLatest(r.Context(), id)
+	}
+	if stored, oerr := db.ListVehicleOTAs(r.Context(), sqlDB, userID); oerr == nil {
+		attachOTA(vs, stored, live)
 	}
 	for i := range vs {
 		vs[i].FieldSupport = rivian.FieldSupport(vs[i].Model)
-		if mon != nil {
-			if st, _ := mon.Latest(vs[i].ID); st != nil {
-				liveFieldSupport(vs[i].FieldSupport, st)
-			}
+		if st := live(vs[i].ID); st != nil {
+			liveFieldSupport(vs[i].FieldSupport, st)
 		}
 	}
 	if onlyVehicle != nil {
