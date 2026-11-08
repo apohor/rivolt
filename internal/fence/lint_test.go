@@ -135,6 +135,8 @@ var notOwnerSide = map[string]string{
 	"cmd/rivolt.runRepriceRestore": "operator CLI",
 	"repair.Apply":                 "operator CLI (repair)",
 	"repair/blips.Apply":           "operator CLI (repair)",
+	"repair/closestale.Apply":      "operator CLI (repair)",
+	"repair/closestale.Restore":    "operator CLI (repair undo)",
 	"repair/stretched.Apply":       "operator CLI (repair)",
 	"repair/stretched.Restore":     "operator CLI (repair undo)",
 	"repair/routegaps.Apply":       "operator CLI (repair)",

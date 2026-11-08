@@ -128,6 +128,8 @@ func main() {
 			os.Exit(runRepairPhantoms(os.Args[2:]))
 		case "repair-charge-blips":
 			os.Exit(runRepairBlips(os.Args[2:]))
+		case "repair-charge-close-stale":
+			os.Exit(runRepairCloseStale(os.Args[2:]))
 		case "repair-charge-stretched":
 			os.Exit(runRepairStretched(os.Args[2:]))
 		case "repair-r2-history":
@@ -178,6 +180,9 @@ Usage:
   rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE] | --restore-csv FILE
                   Classify legacy charge prices and re-price DC fast
                   charges stored at the home rate (dry run unless --apply)
+  rivolt repair-charge-close-stale [--ids-out FILE]                       (dry run: counts and the sha256; closes open-state rows of dormant accounts)
+  rivolt repair-charge-close-stale --apply --expect-count N --expect-sha SHA --backup CSV
+  rivolt repair-charge-close-stale --restore BATCH [--apply]
   rivolt repair-charge-stretched [--ids-out FILE] [--flagged-out FILE]    (dry run: counts and the sha256 of the capped ids)
   rivolt repair-charge-stretched --apply --expect-count N --expect-sha SHA --backup CSV
   rivolt repair-charge-stretched --restore BATCH [--apply]
