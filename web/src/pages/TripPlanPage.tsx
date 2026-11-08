@@ -1396,7 +1396,7 @@ function LocationSearch({
         </ul>
       ) : !pending && results.isFetched ? (
         <div className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-500 shadow-lg">
-          No results
+          {results.isError ? "Place search is unavailable right now" : "No results"}
         </div>
       ) : null)}
     </div>

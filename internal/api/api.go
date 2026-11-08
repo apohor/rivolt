@@ -408,6 +408,8 @@ type Deps struct {
 	// the client disables; /api/geocode falls through to
 	// Open-Meteo's city-level service.
 	Photon *geocoding.PhotonClient
+	// GeocodeOpenMeteo (RIVOLT_GEOCODE_OPEN_METEO=true) lets /api/geocode fall back to Open-Meteo's geocoding API, a third-party call. Off by default.
+	GeocodeOpenMeteo bool
 	// WeatherClient is the shared Open-Meteo HTTP client used by
 	// trip-planner weather adjustment. Distinct from the per-callsite
 	// weather.NewClient() instances used elsewhere because the
@@ -1744,7 +1746,7 @@ func New(d Deps) http.Handler {
 			// Returns city-level matches sorted by population so the
 			// SPA can render a sensible suggestion dropdown.
 			r.With(ls.user("geocode", geocodePerMin).Middleware).Get("/geocode", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleGeocode(d.Photon)(w, r)
+				handleGeocode(d.Photon, d.GeocodeOpenMeteo)(w, r)
 			}))
 		}) // end of timed authenticated /api group
 
