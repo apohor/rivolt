@@ -606,13 +606,15 @@ func TestCloseCustomerVoidsOpenInvoices(t *testing.T) {
 	}
 
 	stays := map[string]func(f *fakeStripe, cust string){
-		"paid":              func(f *fakeStripe, cust string) { f.invoicePaid = map[string]int64{cust: 500} },
-		"payment_in_flight": func(f *fakeStripe, cust string) { f.invoicePI = map[string]string{cust: "processing"} },
-		"over_cap":          func(f *fakeStripe, cust string) { f.invoiceSubtotal = map[string]int64{cust: 3500} },
-		"currency":          func(f *fakeStripe, cust string) { f.invoiceCurrency = map[string]string{cust: "eur"} },
+		"paid":                      func(f *fakeStripe, cust string) { f.invoicePaid = map[string]int64{cust: 500} },
+		"payment_in_flight":         func(f *fakeStripe, cust string) { f.invoicePI = map[string]string{cust: "processing"} },
+		"payment_in_flight_capture": func(f *fakeStripe, cust string) { f.invoicePI = map[string]string{cust: "requires_capture"} },
+		"over_cap":                  func(f *fakeStripe, cust string) { f.invoiceSubtotal = map[string]int64{cust: 3500} },
+		"currency":                  func(f *fakeStripe, cust string) { f.invoiceCurrency = map[string]string{cust: "eur"} },
 	}
-	for reason, set := range stays {
-		cust := "cus_" + reason
+	for name, set := range stays {
+		reason := strings.TrimSuffix(name, "_capture")
+		cust := "cus_" + name
 		f = newFakeStripe(t)
 		f.openInvoices = map[string]int{cust: 1}
 		set(f, cust)

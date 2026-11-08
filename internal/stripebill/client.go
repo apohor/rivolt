@@ -343,7 +343,8 @@ type VoidCap struct {
 
 // VoidOpenInvoices voids the invoices still open on a customer whose account is deleted. A deleted account will not pay, and an open invoice
 // would hold the customer record (its name, email and address) in Stripe for ever. The caller has already cancelled the subscriptions, so
-// nothing new accrues. Only an invoice Stripe reports as status=open that nothing has been paid on (amount_paid 0), with no payment in flight,
+// nothing new accrues. Only an invoice Stripe reports as status=open that nothing has been paid on (amount_paid 0), with no payment in flight
+// (a PaymentIntent processing or awaiting capture),
 // whose subtotal before tax is within cap (same currency), is voided; every other open invoice is returned in Left and stays open, which holds
 // the customer record back (DeleteCustomerIfClear, ErrOpenItems) and so keeps the cancel queued for a person. A refund is never made. Idempotent:
 // an invoice that is already void is fine. At most one page (100) per call; a leftover is handled by the next retry.
@@ -374,7 +375,7 @@ func (c *Client) VoidOpenInvoices(ctx context.Context, customer string, limit Vo
 		case in.AmountPaid != 0:
 			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "paid"})
 			continue
-		case in.Payment != nil && in.Payment.Status == "processing":
+		case in.Payment != nil && (in.Payment.Status == "processing" || in.Payment.Status == "requires_capture"):
 			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "payment_in_flight"})
 			continue
 		case limit.Cents <= 0 || cur != limit.Currency:
