@@ -323,6 +323,9 @@ type VehicleSync struct {
 	// because the vehicle-reported capacity may already be stored.
 	PackKWh  float64
 	ImageURL string
+	// Info is the JSON of what only Rivian's vehicle list and image service carry (trim name, make, the image gallery), stored in
+	// vehicles.metadata under "vehicle_info" so /api/vehicles can answer from Postgres on any pod. Merged key by key; empty keeps what is stored.
+	Info json.RawMessage
 }
 
 // UpsertVehicleFromSync creates or refreshes the vehicles row for one
@@ -333,9 +336,10 @@ type VehicleSync struct {
 // and /api/vehicles call it without one, as before.
 func UpsertVehicleFromSync(ctx context.Context, d *sql.DB, userID uuid.UUID, v VehicleSync) error {
 	_, err := fence.Exec(ctx, d, `
-		INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, trim, pack_kwh, image_url)
+		INSERT INTO vehicles (user_id, rivian_vehicle_id, vin, display_name, model, model_year, trim, pack_kwh, image_url, metadata)
 		SELECT $1::uuid, $2::text, NULLIF($3::text, ''), NULLIF($4::text, ''), NULLIF($5::text, ''), NULLIF($6::int, 0),
-		       NULLIF($7::text, ''), NULLIF($8::double precision, 0), NULLIF($9::text, '')
+		       NULLIF($7::text, ''), NULLIF($8::double precision, 0), NULLIF($9::text, ''),
+		       CASE WHEN NULLIF($10::text, '') IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('vehicle_info', NULLIF($10::text, '')::jsonb) END
 		 WHERE `+fence.OK+`
 		ON CONFLICT (user_id, rivian_vehicle_id) DO UPDATE SET
 			vin          = COALESCE(EXCLUDED.vin,          vehicles.vin),
@@ -348,9 +352,54 @@ func UpsertVehicleFromSync(ctx context.Context, d *sql.DB, userID uuid.UUID, v V
 			-- capacity (write-through from observeBatteryCapacity), which
 			-- must not be clobbered by InferPackKWh. Only seed when null.
 			pack_kwh     = COALESCE(vehicles.pack_kwh,     EXCLUDED.pack_kwh),
+			-- vehicle_info is merged key by key when given (a login's list has no images and must not drop the gallery the owner stored); the
+			-- rest of metadata (profile, ota) is untouched.
+			metadata     = CASE WHEN NULLIF($10::text, '') IS NULL THEN vehicles.metadata
+			                    ELSE vehicles.metadata || jsonb_build_object('vehicle_info',
+			                         COALESCE(vehicles.metadata->'vehicle_info', '{}'::jsonb) || NULLIF($10::text, '')::jsonb) END,
 			updated_at   = NOW()
-	`, userID, v.RivianID, v.VIN, v.Name, v.Model, v.ModelYear, v.Trim, v.PackKWh, v.ImageURL)
+	`, userID, v.RivianID, v.VIN, v.Name, v.Model, v.ModelYear, v.Trim, v.PackKWh, v.ImageURL, string(v.Info))
 	return err
+}
+
+// VehicleAPIRow is one vehicle as /api/vehicles serves it from Postgres: the columns the sync keeps current plus the stored "vehicle_info"
+// (trim name, make, image gallery).
+type VehicleAPIRow struct {
+	RivianVehicleID string
+	VIN             string
+	DisplayName     string
+	Model           string
+	ModelYear       int
+	Trim            string
+	PackKWh         float64
+	ImageURL        string
+	Info            json.RawMessage
+}
+
+// ListUserVehiclesForAPI returns the user's real vehicles in the order they were first stored (the order Rivian listed them),
+// without the legacy electrafi-<hash> rows.
+func ListUserVehiclesForAPI(ctx context.Context, d *sql.DB, userID uuid.UUID) ([]VehicleAPIRow, error) {
+	rows, err := d.QueryContext(ctx, `
+		SELECT rivian_vehicle_id, COALESCE(vin,''), COALESCE(display_name,''), COALESCE(model,''), COALESCE(model_year,0), COALESCE(trim,''),
+		       COALESCE(pack_kwh,0), COALESCE(image_url,''), metadata->'vehicle_info'
+		  FROM vehicles
+		 WHERE user_id = $1 AND rivian_vehicle_id <> '' AND rivian_vehicle_id NOT LIKE 'electrafi-%'
+		 ORDER BY created_at, id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []VehicleAPIRow
+	for rows.Next() {
+		var r VehicleAPIRow
+		var info []byte
+		if err := rows.Scan(&r.RivianVehicleID, &r.VIN, &r.DisplayName, &r.Model, &r.ModelYear, &r.Trim, &r.PackKWh, &r.ImageURL, &info); err != nil {
+			return nil, err
+		}
+		r.Info = json.RawMessage(info)
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // SetVehiclePackKWh mirrors the vehicle-reported pack capacity into

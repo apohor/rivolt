@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -250,4 +251,37 @@ func FieldSupport(model string) map[string]string {
 		out["pack_capacity_estimate"] = FieldUnavailable
 	}
 	return out
+}
+
+// vehicleStoredInfo is what only Rivian's vehicle list and image service carry, kept in vehicles.metadata under "vehicle_info" so any pod
+// can serve /api/vehicles from Postgres without a Rivian call (single-owner M3-5a).
+type vehicleStoredInfo struct {
+	TrimName string         `json:"trim_name,omitempty"`
+	Make     string         `json:"make,omitempty"`
+	Images   []VehicleImage `json:"images,omitempty"`
+}
+
+// StoredInfo is the JSON to store for v (nil when there is nothing beyond the columns).
+func (v Vehicle) StoredInfo() json.RawMessage {
+	si := vehicleStoredInfo{TrimName: v.TrimName, Make: v.Make, Images: v.Images}
+	if si.TrimName == "" && si.Make == "" && len(si.Images) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(si)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// ApplyStoredInfo fills v's trim name, make and image gallery from stored JSON; bad or empty JSON leaves v alone.
+func (v *Vehicle) ApplyStoredInfo(raw json.RawMessage) {
+	if len(raw) == 0 {
+		return
+	}
+	var si vehicleStoredInfo
+	if json.Unmarshal(raw, &si) != nil {
+		return
+	}
+	v.TrimName, v.Make, v.Images = si.TrimName, si.Make, si.Images
 }

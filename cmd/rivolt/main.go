@@ -534,6 +534,10 @@ func runServer() {
 		}}
 		go stripeClosure.RunRetrier(ctx, 5*time.Minute)
 	}
+	// The fallback outcomes of /api/vehicles exist at 0 from boot, so the first one is an increase.
+	for _, outcome := range []string{"stored", "empty", "error", "skipped"} {
+		appMetrics.VehiclesFallbackTotal.WithLabelValues(outcome).Add(0)
+	}
 	// The open live charge rows now, by what the vehicle's latest frame says (#1670). Every replica exports the same figures, so the series
 	// does not drop out when one pod does.
 	if pgPool != nil {
@@ -1470,7 +1474,7 @@ func runServer() {
 							}
 							if err := db.UpsertVehicleFromSync(ctx, pgPool, uid, db.VehicleSync{
 								RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear,
-								Trim: v.TrimID, PackKWh: v.PackKWh, ImageURL: v.ImageURL,
+								Trim: v.TrimID, PackKWh: v.PackKWh, ImageURL: v.ImageURL, Info: v.StoredInfo(),
 							}); err != nil {
 								logger.Warn("persist vehicle info", "user_id", uid.String(), "rivian_vehicle_id", v.ID, "err", err.Error())
 							}
