@@ -20,6 +20,29 @@ type LeaseView struct {
 	OwnerErr error
 }
 
+// SetOwner sets the lease row a group shows; DeleteOwner removes it; SetPast sets the local deadline verdict. They are safe to call
+// while an Owner reads the view.
+func (l *LeaseView) SetOwner(group string, o forward.LeaseOwner) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.Owners == nil {
+		l.Owners = map[string]forward.LeaseOwner{}
+	}
+	l.Owners[group] = o
+}
+
+func (l *LeaseView) DeleteOwner(group string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.Owners, group)
+}
+
+func (l *LeaseView) SetPast(p bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Past = p
+}
+
 func (l *LeaseView) Owner(_ context.Context, group string) (forward.LeaseOwner, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

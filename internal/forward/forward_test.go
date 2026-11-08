@@ -284,12 +284,12 @@ func TestDecodeCapsAndStrictness(t *testing.T) {
 func TestMetricsAreZeroFilled(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
-	want := len(Kinds) * len(Outcomes)
+	want := (len(Kinds) + 1) * len(Outcomes) // every kind plus "unknown" (undecodable or unknown-kind messages)
 	if got := testutil.CollectAndCount(m.Total); got != want {
 		t.Errorf("forward_total series = %d, want %d (every kind x outcome at 0)", got, want)
 	}
-	if got := testutil.CollectAndCount(m.Seconds); got != len(Kinds) {
-		t.Errorf("forward_seconds series = %d, want %d", got, len(Kinds))
+	if got := testutil.CollectAndCount(m.Seconds); got != len(Kinds)+1 {
+		t.Errorf("forward_seconds series = %d, want %d", got, len(Kinds)+1)
 	}
 	m.Total.WithLabelValues(string(KindPlanLegs), "ok").Inc()
 	if testutil.ToFloat64(m.Total.WithLabelValues(string(KindPlanLegs), "ok")) != 1 {

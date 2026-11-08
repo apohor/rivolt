@@ -13,11 +13,11 @@ var Outcomes = []string{"ok", "timeout", "moved", "local", "unavailable", "rejec
 
 // MetricKinds are the kind label values.
 func MetricKinds() []string {
-	out := make([]string, 0, len(Kinds))
+	out := make([]string, 0, len(Kinds)+1)
 	for k := range Kinds {
 		out = append(out, string(k))
 	}
-	return out
+	return append(out, KindUnknown)
 }
 
 // Metrics are the forwarder's instruments. No label carries a user, vehicle or group (/metrics is public).

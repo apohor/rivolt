@@ -97,3 +97,25 @@ func TestRedisPasswordNeverInLogsOrErrors(t *testing.T) {
 		t.Errorf("boot log does not say auth on and the user:\n%s", buf.String())
 	}
 }
+
+// Single-owner C5: every Redis client sets its pool size, so the connection count is a number someone chose and not 10 x GOMAXPROCS.
+func TestRedisPoolSizesAreExplicit(t *testing.T) {
+	if o := redisOptions("r:6379", envOf(nil)); o.PoolSize != 20 {
+		t.Errorf("shared client pool = %d, want 20", o.PoolSize)
+	}
+	if o := redisOptions("r:6379", envOf(map[string]string{"RIVOLT_REDIS_POOL_SIZE": " 30\n"})); o.PoolSize != 30 {
+		t.Errorf("RIVOLT_REDIS_POOL_SIZE=30 gave %d", o.PoolSize)
+	}
+	for _, bad := range []string{"0", "-3", "101", "many", ""} {
+		if o := redisOptions("r:6379", envOf(map[string]string{"RIVOLT_REDIS_POOL_SIZE": bad})); o.PoolSize != 20 {
+			t.Errorf("RIVOLT_REDIS_POOL_SIZE=%q gave %d, want the default 20", bad, o.PoolSize)
+		}
+	}
+	f := forwardRedisOptions("r:6379", envOf(map[string]string{"RIVOLT_REDIS_USERNAME": "rivolt", "RIVOLT_REDIS_POOL_SIZE": "50"}))
+	if f.PoolSize != 10 || !f.ContextTimeoutEnabled || f.Username != "rivolt" {
+		t.Errorf("forwarder client = pool %d, context timeout %v, user %q; want 10, true, rivolt (its own size, not the shared override)", f.PoolSize, f.ContextTimeoutEnabled, f.Username)
+	}
+	if o := oneShotRedisOptions("r:6379", envOf(nil)); o.PoolSize != 2 {
+		t.Errorf("one-shot client pool = %d, want 2", o.PoolSize)
+	}
+}
