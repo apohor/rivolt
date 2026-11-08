@@ -35,7 +35,7 @@ jobs that reach Rivian without a request. "Owner" means the pod that holds the u
 
 | Path | Where | End state |
 |---|---|---|
-| Admin refresh of a user's session | `internal/api/admin.go` (`RefreshSession`, `SystemSecrets`) | forwarded `admin_refresh` (M3-2) |
+| Admin refresh of a user's session, and admin vehicle sync | `internal/api/admin.go`: `POST /api/admin/users/{id}/refresh-rivian-session` (`RefreshSession`) and `POST /api/admin/users/{id}/sync-rivian` (`primeUserVehicles`), both behind `requireRivianActions` | **dead on prod today**: the admin deployment runs `RIVIAN_CLIENT=stub` and `RIVOLT_RIVIAN_LIVE_FORBIDDEN=true` (and builds no Redis client), so both answer 409 "Rivian is disabled on this host", and the public hosts 404 `/admin`. Forwarding them would switch on a capability that is off by design; DA decides whether they get a kind (`admin_refresh`, `admin_sync`) or stay dead (M3-2c, optional) |
 | Login, MFA, logout under `/settings/rivian` | `d.Accounts` | any pod, throwaway client; the `adopt` nudge afterwards (M3-1) |
 | Connection-state fallback | api.go `d.Accounts.For(uid).NeedsReauth()` | reads the local account object; moves to the Postgres `needs_reauth` column at M4 |
 | Stale-charge janitor REST confirm | `internal/rivian/monitor.go` `sweepStaleCharges` -> `confirmStillCharging` -> `restState` | owner-only: the sweep skips a group this pod does not hold before it asks. Proved by `TestJanitorSkipIsNotAFence`, which now also asserts zero REST calls from a Lost or Warming pod. Stays owner-only under M4 |

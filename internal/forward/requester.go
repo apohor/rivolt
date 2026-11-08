@@ -1,0 +1,277 @@
+package forward
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"math/rand/v2"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// Statuses and classes the requester itself produces (an owner's replies carry their own).
+const (
+	StatusUnavailable = 503
+	ClassUnavailable  = "unavailable"
+	StatusBadReply    = 502
+	ClassBadReply     = "bad_reply"
+	RetryAfterSeconds = 5 // the Retry-After a handler sends with a 503 from here
+)
+
+// LeaseForgetter is implemented by a LeaseView that caches: Forget drops a group's cached row so the next Owner call reads it fresh.
+type LeaseForgetter interface{ Forget(group string) }
+
+// RequesterConfig wires a Forwarder.
+type RequesterConfig struct {
+	Pod     string // this pod (the lease holder name); empty on an admin pod
+	Keys    Keys
+	Signer  *Signer
+	Redis   redis.Cmdable
+	Leases  LeaseView
+	Metrics *Metrics
+	Logger  *slog.Logger
+	// NoLocal is for pods that hold no Rivian session (the admin deployment): where a normal pod serves a call itself (no owner, owner
+	// not ready, Redis down, still busy), these answer 503.
+	NoLocal bool
+	// Timeouts overrides a kind's wait (tests). Zero or missing: the kind's own.
+	Timeouts map[Kind]time.Duration
+	// Jitter is the pause before the one retry after a `busy` reply (default 200-500 ms).
+	Jitter func() time.Duration
+}
+
+// Forwarder is the requester side: it decides whether a call that needs Rivian is served here or by the group's owner, and if by the
+// owner pushes it, waits for the signed reply and verifies it. Nothing is acquired (C2): no owner means the call is served here.
+type Forwarder struct{ cfg RequesterConfig }
+
+// NewForwarder validates cfg.
+func NewForwarder(cfg RequesterConfig) (*Forwarder, error) {
+	if cfg.Signer == nil || cfg.Redis == nil || cfg.Leases == nil {
+		return nil, errors.New("forward: a requester needs a signer, a redis client and a lease view")
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.New(slog.DiscardHandler)
+	}
+	if cfg.Jitter == nil {
+		cfg.Jitter = func() time.Duration {
+			return 200*time.Millisecond + time.Duration(rand.Int64N(int64(300*time.Millisecond)))
+		}
+	}
+	return &Forwarder{cfg: cfg}, nil
+}
+
+// Call is one operation that needs Rivian: the kind, the user and the group it is for, and the kind's args (a value that marshals to
+// the kind's schema).
+type Call struct {
+	Kind  Kind
+	User  string
+	Group string
+	Args  any
+}
+
+func (f *Forwarder) count(kind Kind, outcome string) {
+	if f.cfg.Metrics != nil {
+		f.cfg.Metrics.Total.WithLabelValues(string(kind), outcome).Inc()
+	}
+}
+
+func (f *Forwarder) wait(k Kind) time.Duration {
+	if d := f.cfg.Timeouts[k]; d > 0 {
+		return d
+	}
+	return Kinds[k].Timeout
+}
+
+// Do runs the call and reports who served it. local is the code the handler runs today on a pod that holds the group; Do calls it when
+// this pod holds the group, and as the fail-soft path when the call cannot be forwarded (outcome `local`), or the owner stays busy
+// (`local_busy`). On a NoLocal pod those cases return a 503 unavailable result instead, never calling local.
+//
+// Order: held here (no Redis) -> lease row (system pool, cached) -> the owner's readiness marker -> the owner's queue length -> push,
+// wait for the signed reply -> on `moved` or a timeout re-read the lease once and retry if the owner or epoch changed.
+func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) (Result, error)) (Result, string, error) {
+	start := time.Now()
+	defer func() {
+		if f.cfg.Metrics != nil {
+			f.cfg.Metrics.Seconds.WithLabelValues(string(c.Kind)).Observe(time.Since(start).Seconds())
+		}
+	}()
+	if _, ok := Kinds[c.Kind]; !ok {
+		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "rejected", errors.New("forward: not an allowlisted kind")
+	}
+	if epoch, ok := f.cfg.Leases.Held(c.Group); ok && !f.cfg.Leases.PastDeadline() && epoch > 0 {
+		res, err := local(ctx) // the normal case on the owner: not a fail-soft path, not counted
+		return res, "owner", err
+	}
+	owner, err := f.cfg.Leases.Owner(ctx, c.Group)
+	if err != nil {
+		f.cfg.Logger.Warn("forward: lease read failed", "err", err.Error())
+		return f.soft(ctx, c, "local", local)
+	}
+	if !owner.Found || (f.cfg.Pod != "" && owner.Pod == f.cfg.Pod) || !ValidPod(owner.Pod) {
+		return f.soft(ctx, c, "local", local)
+	}
+	attempts := 0
+	var sawBusy bool
+	for {
+		attempts++
+		res, outcome := f.attempt(ctx, c, owner)
+		switch outcome {
+		case "ok", "error", "rejected":
+			f.count(c.Kind, outcome)
+			return res, outcome, nil
+		case "unavailable":
+			f.count(c.Kind, "unavailable")
+			return res, "unavailable", nil
+		case "redis":
+			return f.soft(ctx, c, "local", local)
+		case "busy":
+			if sawBusy {
+				return f.soft(ctx, c, "local_busy", local)
+			}
+			sawBusy = true
+			select {
+			case <-ctx.Done():
+				f.count(c.Kind, "timeout")
+				return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "timeout", nil
+			case <-time.After(f.cfg.Jitter()):
+			}
+			continue
+		case "moved", "timeout":
+			if attempts >= 2 || !Kinds[c.Kind].Retry {
+				f.count(c.Kind, outcome)
+				return Result{Status: StatusUnavailable, Class: ClassUnavailable}, outcome, nil
+			}
+			if lf, ok := f.cfg.Leases.(LeaseForgetter); ok {
+				lf.Forget(c.Group)
+			}
+			again, err := f.cfg.Leases.Owner(ctx, c.Group)
+			if err != nil || !again.Found || (again.Pod == owner.Pod && again.Epoch == owner.Epoch) || !ValidPod(again.Pod) {
+				f.count(c.Kind, outcome) // nobody new to ask
+				return Result{Status: StatusUnavailable, Class: ClassUnavailable}, outcome, nil
+			}
+			owner = again
+			continue
+		}
+	}
+}
+
+// soft is the fail-soft path: serve here (tokens are still on every pod until M4), or 503 on a pod that cannot.
+func (f *Forwarder) soft(ctx context.Context, c Call, outcome string, local func(context.Context) (Result, error)) (Result, string, error) {
+	if f.cfg.NoLocal {
+		f.count(c.Kind, "unavailable")
+		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "unavailable", nil
+	}
+	f.count(c.Kind, outcome)
+	res, err := local(ctx)
+	return res, outcome, err
+}
+
+// attempt pushes one request to owner and waits. Its outcome is one of ok, error, rejected, unavailable, busy, moved, timeout, redis
+// (Redis failed or the owner is not ready: the caller falls soft).
+func (f *Forwarder) attempt(ctx context.Context, c Call, owner LeaseOwner) (Result, string) {
+	rdb := f.cfg.Redis
+	if n, err := rdb.Exists(ctx, f.cfg.Keys.Ready(owner.Pod)).Result(); err != nil || n == 0 {
+		return Result{}, "redis" // not ready (an old image, a crashed loop, the flag off there) or Redis is down: serve here
+	}
+	if n, err := rdb.LLen(ctx, f.cfg.Keys.Queue(owner.Pod)).Result(); err != nil {
+		return Result{}, "redis"
+	} else if n > MaxQueue {
+		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "unavailable"
+	}
+	now, err := rdb.Time(ctx).Result()
+	if err != nil {
+		return Result{}, "redis"
+	}
+	args, err := json.Marshal(c.Args)
+	if err != nil {
+		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "rejected"
+	}
+	id, err := NewID()
+	if err != nil {
+		return Result{}, "redis"
+	}
+	req := &Request{V: Version, ID: id, User: c.User, Group: c.Group, Epoch: owner.Epoch, Kind: c.Kind, Args: args,
+		ExpiresMS: now.UnixMilli() + f.wait(c.Kind).Milliseconds()}
+	f.cfg.Signer.SignRequest(req)
+	body, err := json.Marshal(req)
+	if err != nil || len(body) > MaxRequestBytes {
+		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "rejected"
+	}
+	queue, replyKey, userSet := f.cfg.Keys.Queue(owner.Pod), f.cfg.Keys.Reply(id), f.cfg.Keys.UserSet(c.User)
+	pipe := rdb.Pipeline()
+	pipe.RPush(ctx, queue, body)
+	pipe.Expire(ctx, queue, RequestListTTL*time.Second)
+	pipe.SAdd(ctx, userSet, id)
+	pipe.Expire(ctx, userSet, UserSetTTL*time.Second)
+	if _, err := pipe.Exec(ctx); err != nil {
+		return Result{}, "redis"
+	}
+	cleanup := func() {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer cancel()
+		pipe := rdb.Pipeline()
+		pipe.SRem(cctx, userSet, id)
+		pipe.Del(cctx, replyKey)
+		_, _ = pipe.Exec(cctx)
+	}
+	defer cleanup()
+	got, err := rdb.BLPop(ctx, f.wait(c.Kind)+time.Second, replyKey).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) || ctx.Err() == nil {
+			return Result{}, "timeout"
+		}
+		return Result{}, "timeout"
+	}
+	if len(got) != 2 {
+		return Result{}, "timeout"
+	}
+	rep, err := DecodeReply([]byte(got[1]))
+	if err != nil || rep.ID != id || rep.User != c.User || f.cfg.Signer.VerifyReply(rep) != nil {
+		f.cfg.Logger.Warn("forward: a reply was refused", "kind", string(c.Kind))
+		return Result{Status: StatusBadReply, Class: ClassBadReply}, "rejected"
+	}
+	res := Result{Status: rep.Status, Class: rep.Class, Body: rep.Body}
+	switch {
+	case rep.Class == ClassMoved:
+		return res, "moved"
+	case rep.Class == ClassBusy:
+		return res, "busy"
+	case rep.Class == "timeout":
+		return res, "timeout"
+	case rep.Class == ClassInternal && rep.Status == StatusInternal:
+		return res, "error"
+	}
+	return res, "ok"
+}
+
+// Nudge is the best-effort `adopt` push: user and group only, no reply is awaited, nothing is retried and nothing is served locally.
+// It reports whether a message was pushed to the group's ready owner.
+func (f *Forwarder) Nudge(ctx context.Context, user, group string) bool {
+	owner, err := f.cfg.Leases.Owner(ctx, group)
+	if err != nil || !owner.Found || !ValidPod(owner.Pod) || (f.cfg.Pod != "" && owner.Pod == f.cfg.Pod) {
+		return false
+	}
+	rdb := f.cfg.Redis
+	if n, err := rdb.Exists(ctx, f.cfg.Keys.Ready(owner.Pod)).Result(); err != nil || n == 0 {
+		return false
+	}
+	now, err := rdb.Time(ctx).Result()
+	if err != nil {
+		return false
+	}
+	id, err := NewID()
+	if err != nil {
+		return false
+	}
+	req := &Request{V: Version, ID: id, User: user, Group: group, Epoch: owner.Epoch, Kind: KindAdopt, Args: json.RawMessage(`{}`),
+		ExpiresMS: ExpiresMS(now.UnixMilli(), KindAdopt)}
+	f.cfg.Signer.SignRequest(req)
+	body, _ := json.Marshal(req)
+	queue := f.cfg.Keys.Queue(owner.Pod)
+	pipe := rdb.Pipeline()
+	pipe.RPush(ctx, queue, body)
+	pipe.Expire(ctx, queue, RequestListTTL*time.Second)
+	_, err = pipe.Exec(ctx)
+	return err == nil
+}
