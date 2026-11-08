@@ -28,7 +28,7 @@ export default function DrainCard({ vehicleID }: { vehicleID: string }) {
       >
         <h2 className="text-base font-semibold text-neutral-100">Parked drain</h2>
         <div className="mt-3 space-y-2 animate-pulse" aria-hidden>
-          <div className="h-8 w-40 rounded-sm bg-neutral-800/70" />
+          <div className="h-8 w-40 max-w-full rounded-sm bg-neutral-800/70" />
           <div className="h-3 w-3/4 rounded-sm bg-neutral-800/60" />
           <div className="h-12 w-full rounded-sm bg-neutral-800/50" />
         </div>

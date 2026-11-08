@@ -28,3 +28,20 @@ test("Settings at 320 px and 200% text: no section runs off the side", async ({ 
   }
   await ctx.close();
 });
+
+// The parked-drain card's loading placeholder (w-40, 10rem) is 320 px wide at 200% text, wider than the card in a 320 px window. It showed on
+// /truck only while the drain request was in flight, so the Settings sweep above caught it now and then; this holds the request to test it.
+test("Truck page at 320 px and 200% text: the drain card's loading placeholder stays inside the window", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 640 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  await page.route("**/api/vehicles/*/drain", () => {}); // never answers: the skeleton stays
+  await page.goto("/truck");
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+  const skeleton = page.getByTestId("drain-skeleton");
+  await expect(skeleton).toBeVisible();
+  const box = await skeleton.locator("div.h-8").boundingBox();
+  expect(box, "the placeholder is laid out").not.toBeNull();
+  expect(box!.x + box!.width, "the placeholder's right edge").toBeLessThanOrEqual(320 + 1);
+  await ctx.close();
+});
