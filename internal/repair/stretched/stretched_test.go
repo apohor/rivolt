@@ -365,3 +365,76 @@ func TestCapBySoC(t *testing.T) {
 		t.Error("CapBySoC changed the plan of a row with a plugged frame")
 	}
 }
+
+// The new rows' energy a little above the row's stored energy is the figures' noise: the new rows are scaled to the stored
+// energy, the original keeps exactly 0 and is an empty one, conservation is exact, and the pricing sees the clamped energy.
+// A larger excess stays flagged.
+func TestSplitClampsASmallExcess(t *testing.T) {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	t0 := time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC)
+	seg1 := Segment{Start: t0.Add(5 * time.Hour), FirstActive: t0.Add(5*time.Hour + 5*time.Minute), End: t0.Add(8 * time.Hour), SoCStart: 40, SoCEnd: 52, IntegralKWh: 12}
+	seg2 := seg1
+	seg2.FirstActive, seg2.End, seg2.IntegralKWh, seg2.SoCStart, seg2.SoCEnd = t0.Add(10*time.Hour), t0.Add(12*time.Hour), 6, 52, 59
+	mk := func(stored float64) Row {
+		r := base()
+		r.PluggedAfterDrive = true
+		r.LastPlugged, r.LastPluggedBeforeDrive = time.Time{}, time.Time{}
+		r.PackKWh, r.EnergyKWh, r.RivianVehicleID = 91, stored, "rv-fake-1"
+		r.StartSoC, r.EndSoC, r.CostSource, r.PricePerKWh = 40, 60, "home_rate", 0.25
+		r.FirstDrive = t0.Add(3 * time.Hour)
+		r.Frames = []Frame{{At: t0.Add(time.Hour), SoC: 40}, {At: t0.Add(2 * time.Hour), SoC: 40.1},
+			{At: seg1.FirstActive, SoC: 40, PowerKW: 7, ChargingState: "charging_active"}, {At: seg1.FirstActive.Add(5 * time.Minute), SoC: 41, PowerKW: 7, ChargingState: "charging_active"},
+			{At: seg2.FirstActive, SoC: 41, PowerKW: 7, ChargingState: "charging_active"}, {At: seg2.FirstActive.Add(5 * time.Minute), SoC: 42, PowerKW: 7, ChargingState: "charging_active"}}
+		r.Taken = map[string]bool{}
+		return r
+	}
+	defer func() { detectSegments = DetectSegments }()
+	detectSegments = func([]Frame, time.Time) []Segment { return []Segment{seg1, seg2} }
+	priced := 0.0
+	opt := Options{Split: true, Price: func(_ uuid.UUID, c *charges.Charge) { priced += c.EnergyAddedKWh }}
+
+	// 18 kWh of new rows against 17.5 stored: excess 0.5 <= max(1, 5% of 17.5): clamped.
+	r := mk(17.5)
+	p := MakePlan([]Row{r}, now, opt)
+	sp := p.Splits[r.ID]
+	if sp == nil || sp.ClampedKWh < 0.499 || sp.ClampedKWh > 0.501 || sp.OrigKWh != 0 || !sp.EmptyOriginal || sp.OrigFinalState != "abandoned" {
+		t.Fatalf("want a clamped split with an empty original, got %+v skipped=%v", sp, p.Skipped)
+	}
+	if sum := sp.News[0].KWh + sp.News[1].KWh; sum != 17.5 {
+		t.Errorf("the new rows must sum to the stored energy exactly: %v", sum)
+	}
+	if want := 12 * 17.5 / 18; sp.News[0].KWh < want-1e-9 || sp.News[0].KWh > want+1e-9 {
+		t.Errorf("rows are scaled proportionally: first = %v, want %v", sp.News[0].KWh, want)
+	}
+	if priced < 17.499 || priced > 17.501 {
+		t.Errorf("pricing must see the clamped energy, saw %v", priced)
+	}
+	if n, kwh := p.ClampTotals(); n != 1 || kwh < 0.499 || kwh > 0.501 {
+		t.Errorf("clamp totals %d %v", n, kwh)
+	}
+	if sp.OrigCost == nil || *sp.OrigCost != 0 {
+		t.Errorf("an auto-priced original keeps nothing: %v", sp.OrigCost)
+	}
+	// The digest covers the clamped values.
+	d1 := p.Digest()
+	p.Splits[r.ID].News[0].KWh += 0.1
+	if p.Digest() == d1 {
+		t.Error("the digest must cover the clamped energy")
+	}
+	// Excess 1.5 > max(1, 5% of 16.5): stays flagged. Excess just inside 5% of a big row is clamped.
+	if q := MakePlan([]Row{mk(16.5)}, now, opt); len(q.Cap) != 0 || q.Skipped["flagged: the new rows' energy exceeds the row's stored energy"] != 1 {
+		t.Errorf("a large excess stays flagged: %v", q.Skipped)
+	}
+	// The SoC rose before the drive: not an empty original.
+	rr := mk(17.5)
+	rr.Frames[1].SoC = 44
+	if q := MakePlan([]Row{rr}, now, opt); len(q.Cap) != 0 {
+		t.Errorf("a clamp with an SoC rise before the drive must stay flagged: %v", q.Skipped)
+	}
+	// No excess: unchanged (the remainder is stored minus new, not clamped).
+	if q := MakePlan([]Row{mk(18.2)}, now, opt); q.Splits[r.ID] != nil {
+		if sp := q.Splits[mk(18.2).ID]; sp != nil && sp.ClampedKWh != 0 {
+			t.Errorf("no excess, no clamp")
+		}
+	}
+}

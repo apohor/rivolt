@@ -446,6 +446,13 @@ func TestStretchedPriceFn(t *testing.T) {
 // original is kept as a zero-energy abandoned row ended at the first drive, the real charge becomes its own priced row, and
 // the undo returns the original exactly and deletes the created row (#1630).
 func TestStretchedSplitEmptyOriginal(t *testing.T) {
+	t.Run("remainder kept", func(t *testing.T) { runEmptyOriginal(t, "split-empty", 18.6, false) })
+	// Stored energy a little below the new row's: the new row is scaled to it and the original keeps exactly 0.
+	t.Run("clamped", func(t *testing.T) { runEmptyOriginal(t, "split-clamp", 18.0, true) })
+}
+
+func runEmptyOriginal(t *testing.T, name string, stored float64, wantClamp bool) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	pool, err := db.Open(ctx, startPostgres(ctx, t))
@@ -453,7 +460,7 @@ func TestStretchedSplitEmptyOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pool.Close() })
-	uid, err := db.EnsureUser(ctx, pool, "split-empty")
+	uid, err := db.EnsureUser(ctx, pool, name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,8 +485,8 @@ func TestStretchedSplitEmptyOriginal(t *testing.T) {
 	var orig uuid.UUID
 	if err := pool.QueryRowContext(ctx, `
 		INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source, energy_added_kwh, start_soc_pct, end_soc_pct, final_state, cost, cost_source, price_per_kwh, created_at, updated_at)
-		VALUES ($1,$2,'live_rv-empty_c_1',$3,$4,'live',18.6,50,70,'charging_user_stopped',4.65,'home_rate',0.25,$3,$5) RETURNING id`,
-		uid, vid, base, base.Add(20*time.Hour), time.Now().Add(-30*time.Hour)).Scan(&orig); err != nil {
+		VALUES ($1,$2,'live_rv-empty_c_1',$3,$4,'live',$6,50,70,'charging_user_stopped',4.65,'home_rate',0.25,$3,$5) RETURNING id`,
+		uid, vid, base, base.Add(20*time.Hour), time.Now().Add(-30*time.Hour), stored).Scan(&orig); err != nil {
 		t.Fatal(err)
 	}
 	frame := func(at time.Time, soc float64, gear string, speed float64, state, status string, kw float64) {
@@ -530,6 +537,12 @@ func TestStretchedSplitEmptyOriginal(t *testing.T) {
 	if err := pool.QueryRowContext(ctx, `SELECT final_state, ended_at, energy_added_kwh FROM charges WHERE id = $1`, orig).Scan(&state, &ended, &kwh); err != nil {
 		t.Fatal(err)
 	}
+	if wantClamp && kwh != 0 {
+		t.Fatalf("a clamped original must keep exactly 0 kWh, kept %v", kwh)
+	}
+	if n, _ := plan.ClampTotals(); (n == 1) != wantClamp {
+		t.Fatalf("clamped rows = %d, want clamped=%v", n, wantClamp)
+	}
 	if state != "abandoned" || !ended.Equal(base.Add(3*time.Hour)) || kwh > 0.5 {
 		t.Fatalf("empty original after apply: state=%s ended=%v (want %v) kwh=%v", state, ended, base.Add(3*time.Hour), kwh)
 	}
@@ -538,7 +551,7 @@ func TestStretchedSplitEmptyOriginal(t *testing.T) {
 	if err := pool.QueryRowContext(ctx, `SELECT energy_added_kwh, cost_source, place FROM charges WHERE user_id=$1 AND id<>$2`, uid, orig).Scan(&newKWh, &src, &place); err != nil {
 		t.Fatal(err)
 	}
-	if got := kwh + newKWh; got < 18.599 || got > 18.601 || src == nil || *src != "home_rate" || place == nil || *place != "home" {
+	if got := kwh + newKWh; got < stored-0.001 || got > stored+0.001 || src == nil || *src != "home_rate" || place == nil || *place != "home" {
 		t.Fatalf("new row: kwh %v (sum %v) source %v place %v", newKWh, kwh+newKWh, src, place)
 	}
 	if r, err := stretched.Restore(ctx, pool, batch); err != nil || r != 1 {

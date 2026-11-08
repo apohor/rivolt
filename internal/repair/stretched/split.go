@@ -28,6 +28,31 @@ func firstSoC(frames []Frame, fallback float64) float64 {
 	return frames[0].SoC
 }
 
+// A split whose new rows exceed the stored energy by no more than max(clampMinKWh, clampShare of stored) is scaled down to it.
+const (
+	clampMinKWh = 1.0
+	clampShare  = 0.05
+)
+
+// scaleNewRows scales the new rows' kWh proportionally so they sum to exactly total (the last takes the rounding), and
+// recomputes their average power.
+func scaleNewRows(news []NewRow, total, moved float64) {
+	if moved <= 0 || len(news) == 0 {
+		return
+	}
+	scale := total / moved
+	var sum float64
+	for i := range news {
+		if i == len(news)-1 {
+			news[i].KWh = total - sum
+		} else {
+			news[i].KWh *= scale
+			sum += news[i].KWh
+		}
+		news[i].AvgPowerKW = avgKW(news[i].KWh, news[i].ActiveSeconds)
+	}
+}
+
 // maxActiveGap caps the time one active frame stands for, so a hole in the data is not integrated as charging.
 const maxActiveGap = 10 * time.Minute
 
@@ -102,30 +127,46 @@ func trySplit(r Row, opt Options) (*Split, time.Time, string) {
 			n.FinalState = r.FinalState // the stretched row's last state belongs to its last charge
 		}
 		n.Lat, n.Lon = nearestLoc(r.Locs, n.Start)
-		n.priceWith(r, opt) // after the position: the place and the home rate depend on it
 		sp.News = append(sp.News, n)
 		moved += n.KWh
 		prevEnd = end
 	}
 	sp.OrigKWh = r.EnergyKWh - moved
+	clamped := false
 	if sp.OrigKWh < 0 {
-		return flag("the new rows' energy exceeds the row's stored energy")
+		// A small excess is the figures' noise (a power integral against an integrated total): the new rows are scaled to the
+		// stored energy, the original keeps exactly 0 and becomes an empty one, and conservation stays exact. A larger excess means
+		// the stored energy missed part of a real charge: a separate energy repair, so the row stays flagged.
+		excess := moved - r.EnergyKWh
+		if excess > math.Max(clampMinKWh, clampShare*r.EnergyKWh) {
+			return flag("the new rows' energy exceeds the row's stored energy")
+		}
+		if gain := socAt(r.Frames, r.FirstDrive, r.StartSoC) - firstSoC(r.Frames, r.StartSoC); gain >= emptyMaxSoCGain {
+			return flag("the new rows' energy exceeds the stored energy and the SoC rose before the first drive")
+		}
+		scaleNewRows(sp.News, r.EnergyKWh, moved)
+		sp.OrigKWh, sp.ClampedKWh, clamped = 0, excess, true
+	}
+	for i := range sp.News {
+		sp.News[i].priceWith(r, opt) // after the position and the final energy: the place and the cost depend on them
 	}
 	sp.OrigEndSoC = socAt(r.Frames, cut, r.EndSoC)
-	sp.EmptyOriginal = empty
-	if empty {
-		// The remainder is kept (conservation stays exact), but an empty original must not be left holding real energy.
-		if sp.OrigKWh > math.Max(emptyMaxRemainderKWh, emptyMaxRemainderShare*r.EnergyKWh) {
-			return flag("an empty original would keep energy the new rows do not account for")
+	sp.EmptyOriginal = empty || clamped
+	if !clamped { // a clamped original has remainder 0 by construction: nothing to compare with its own SoC gain
+		if empty {
+			// The remainder is kept (conservation stays exact), but an empty original must not be left holding real energy.
+			if sp.OrigKWh > math.Max(emptyMaxRemainderKWh, emptyMaxRemainderShare*r.EnergyKWh) {
+				return flag("an empty original would keep energy the new rows do not account for")
+			}
+		} else if !Agree(sp.OrigKWh, (sp.OrigEndSoC-r.StartSoC)/100*r.PackKWh) {
+			// The remainder must agree with the original's own SoC gain, or the stored energy may not have held the tail.
+			return flag("the original's remainder disagrees with its own SoC gain")
 		}
-	} else if !Agree(sp.OrigKWh, (sp.OrigEndSoC-r.StartSoC)/100*r.PackKWh) {
-		// The remainder must agree with the original's own SoC gain, or the stored energy may not have held the tail.
-		return flag("the original's remainder disagrees with its own SoC gain")
 	}
 	sp.OrigMaxKW, sp.OrigActiveSec = activeStats(r.Frames, r.StartedAt, cut)
 	sp.OrigAvgKW = avgKW(sp.OrigKWh, sp.OrigActiveSec)
 	sp.OrigFinalState = "abandoned"
-	if !empty && sp.OrigEndSoC > r.StartSoC {
+	if !empty && !clamped && sp.OrigEndSoC > r.StartSoC {
 		sp.OrigFinalState = "charging_complete"
 	}
 	// An auto-priced original is re-priced by energy share (its own rate times what it keeps); a user's price never gets here.

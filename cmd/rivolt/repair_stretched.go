@@ -133,6 +133,8 @@ func runRepairStretched(args []string) int {
 		acHome, acAway, acOther, dc := plan.NewRowTypes()
 		fmt.Printf("new rows by type: %d AC at home, %d AC away, %d AC with no place, %d DC fast (DC fast rows are left unpriced here: `rivolt reprice --detect` prices them)\n", acHome, acAway, acOther, dc)
 		fmt.Printf("split originals that are empty (no charge before the first drive; kept as zero-energy abandoned rows ended at the first drive): %d\n", plan.EmptyOriginals())
+		cr, ck := plan.ClampTotals()
+		fmt.Printf("clamped (new rows scaled down to the stored energy, excess within max(1 kWh, 5%% of stored)): %d row(s), %.1f kWh\n", cr, ck)
 		origDelta, newCost := plan.CostDelta()
 		fmt.Printf("cost delta: originals %+.2f, new rows %+.2f, net %+.2f\n", origDelta, newCost, origDelta+newCost)
 		byV := plan.SplitsByVehicle()
