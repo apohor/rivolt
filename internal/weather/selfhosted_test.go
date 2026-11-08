@@ -2,9 +2,11 @@ package weather
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -30,10 +32,11 @@ func (o *obsLog) list() string {
 
 // A self-hosted client sends recent times to its own server's forecast API, with the usual variables, and counts the call.
 func TestSelfHostedClientUsesItsServerForRecentTimes(t *testing.T) {
-	var path, vars string
+	var path, vars, models string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path, vars = r.URL.Path, r.URL.Query().Get("hourly")
-		_, _ = w.Write([]byte(`{"hourly":{"time":["` + r.URL.Query().Get("start_date") + `T00:00"],"temperature_2m":[11.5]}}`))
+		path, vars, models = r.URL.Path, r.URL.Query().Get("hourly"), r.URL.Query().Get("models")
+		// A chain request is answered with one series per model, suffixed by the model id.
+		_, _ = w.Write([]byte(`{"hourly":{"time":["` + r.URL.Query().Get("start_date") + `T00:00"],"temperature_2m_ncep_rrfs_conus":[null],"temperature_2m_ncep_gfs013":[11.5],"temperature_2m_gem_seamless":[9]}}`))
 	}))
 	defer srv.Close()
 	c := NewSelfHostedClient(srv.URL + "/")
@@ -45,6 +48,9 @@ func TestSelfHostedClientUsesItsServerForRecentTimes(t *testing.T) {
 	}
 	if path != "/v1/forecast" {
 		t.Errorf("path %q, want /v1/forecast", path)
+	}
+	if models != "ncep_rrfs_conus,ncep_gfs013,gem_seamless" {
+		t.Errorf("models %q, want the chain (without a models parameter the server answers all-null)", models)
 	}
 	for _, v := range []string{"temperature_2m", "apparent_temperature", "wind_speed_10m", "wind_direction_10m", "precipitation", "relative_humidity_2m", "weather_code"} {
 		if !strings.Contains(vars, v) {
@@ -120,5 +126,134 @@ func TestSnapshotSnowing(t *testing.T) {
 	}
 	if (&Snapshot{TempC: -20, HasTemp: true}).Snowing() {
 		t.Error("a cold snapshot with no weather code reads as snow")
+	}
+}
+
+// The series request carries the same model, and the public client sends none (its own best_match is right for the public API).
+func TestModelsParameterOnlyOnTheSelfHostedClient(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.Query().Get("models"))
+		_, _ = w.Write([]byte(`{"minutely_15":{"time":["2026-01-01T00:00"],"temperature_2m":[1],"temperature_2m_gem_seamless":[1]}}`))
+	}))
+	defer srv.Close()
+	self := NewSelfHostedClient(srv.URL)
+	now := time.Now()
+	_, _ = self.FetchRange(context.Background(), 30, -97, now.Add(-time.Hour), now, 0, false)
+	pub := NewClient()
+	pub.ForecastURL = srv.URL
+	pub.HTTP = srv.Client()
+	_, _ = pub.FetchRange(context.Background(), 30, -97, now.Add(-time.Hour), now, 0, false)
+	if len(got) != 2 || got[0] != selfHostedChain || got[1] != "" {
+		t.Errorf("models sent: %q, want [chain \"\"]", got)
+	}
+}
+
+// The chain merges per hour and per variable, first non-null wins, in chain order whatever order the keys arrive in.
+func TestMergeChain(t *testing.T) {
+	models := chainModels(selfHostedChain)
+	body := []byte(`{"latitude":1,"hourly":{"time":["t0","t1","t2","t3"],
+	  "temperature_2m_gem_seamless":[1,2,3,4],
+	  "temperature_2m_ncep_gfs013":[10,20,null,40],
+	  "temperature_2m_ncep_rrfs_conus":[100,null,null,null],
+	  "weather_code_gem_seamless":[3,3,71,3],
+	  "weather_code_ncep_rrfs_conus":[null,null,null,null],
+	  "wind_speed_10m_ncep_gfs013":[null,null,null,null],
+	  "wind_speed_10m_gem_seamless":[null,null,null,null]}}`)
+	out, err := mergeChain(body, models)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Latitude float64                    `json:"latitude"`
+		Hourly   map[string]json.RawMessage `json:"hourly"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	val := func(k string) []string {
+		var r []string
+		var ps []*float64
+		_ = json.Unmarshal(got.Hourly[k], &ps)
+		for _, p := range ps {
+			if p == nil {
+				r = append(r, "-")
+			} else {
+				r = append(r, strconv.FormatFloat(*p, 'f', -1, 64))
+			}
+		}
+		return r
+	}
+	eq := func(a, b []string) bool { return strings.Join(a, ",") == strings.Join(b, ",") }
+	if v := val("temperature_2m"); !eq(v, []string{"100", "20", "3", "40"}) {
+		t.Errorf("temperature: %v, want [100 20 3 40] (rrfs, else gfs, else gem)", v)
+	}
+	if v := val("weather_code"); !eq(v, []string{"3", "3", "71", "3"}) {
+		t.Errorf("weather_code: %v (rrfs has none: gem's)", v)
+	}
+	if v := val("wind_speed_10m"); !eq(v, []string{"-", "-", "-", "-"}) {
+		t.Errorf("a variable no model answered must stay null: %v", v)
+	}
+	if got.Latitude != 1 {
+		t.Errorf("other top-level fields lost")
+	}
+	// A single model is returned untouched.
+	same, _ := mergeChain(body, []string{"gem_seamless"})
+	if string(same) != string(body) {
+		t.Error("single-model body was rewritten")
+	}
+}
+
+// An hour no model answered is "no value", not 0 C.
+func TestFetchHourNullIsNotZero(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"hourly":{"time":["` + r.URL.Query().Get("start_date") + `T00:00"],"temperature_2m_ncep_rrfs_conus":[null],"temperature_2m_ncep_gfs013":[null],"temperature_2m_gem_seamless":[null]}}`))
+	}))
+	defer srv.Close()
+	snap, _, err := NewSelfHostedClient(srv.URL).FetchHour(context.Background(), 30, -97, time.Now().Add(-time.Hour), 0, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.HasTemp {
+		t.Errorf("a null temperature read as %v C", snap.TempC)
+	}
+}
+
+// Wind speed and direction come from the same model at every hour: the first model that has BOTH.
+func TestMergeChainTakesWindAsAPair(t *testing.T) {
+	models := chainModels(selfHostedChain)
+	body := []byte(`{"hourly":{"time":["t0","t1","t2"],
+	  "wind_speed_10m_ncep_rrfs_conus":[10,11,null],"wind_direction_10m_ncep_rrfs_conus":[100,null,null],
+	  "wind_speed_10m_ncep_gfs013":[20,21,22],"wind_direction_10m_ncep_gfs013":[200,210,220],
+	  "wind_speed_10m_gem_seamless":[30,31,32],"wind_direction_10m_gem_seamless":[300,310,null]}}`)
+	out, err := mergeChain(body, models)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Hourly map[string][]*float64 `json:"hourly"`
+	}
+	// time is strings: decode the wind arrays only
+	var raw struct {
+		Hourly map[string]json.RawMessage `json:"hourly"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		t.Fatal(err)
+	}
+	got.Hourly = map[string][]*float64{}
+	for _, k := range []string{"wind_speed_10m", "wind_direction_10m"} {
+		var v []*float64
+		if err := json.Unmarshal(raw.Hourly[k], &v); err != nil {
+			t.Fatal(err)
+		}
+		got.Hourly[k] = v
+	}
+	// t0: rrfs has both -> 10/100. t1: rrfs lacks direction -> the pair comes from gfs: 21/210 (never rrfs 11 with gfs 210). t2: gfs has both.
+	want := [][2]float64{{10, 100}, {21, 210}, {22, 220}}
+	for i, w := range want {
+		s, d := got.Hourly["wind_speed_10m"][i], got.Hourly["wind_direction_10m"][i]
+		if s == nil || d == nil || *s != w[0] || *d != w[1] {
+			t.Errorf("hour %d: speed %v direction %v, want %v", i, s, d, w)
+		}
 	}
 }

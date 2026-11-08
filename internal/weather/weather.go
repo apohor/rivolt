@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -388,12 +389,20 @@ type Client struct {
 	// SelfHosted marks a client pointed at our own Open-Meteo (NewSelfHostedClient): the server keeps only a few days of past hours and has
 	// no archive, so a request older than selfHostedWindowDays is skipped (ErrTooOld) instead of sent.
 	SelfHosted bool
+	// Models is sent as the forecast API's `models` parameter when set. A self-hosted server holds only the models we sync, and without the
+	// parameter its default model choice picks ones it lacks and answers all-null; NewSelfHostedClient sets selfHostedModels.
+	Models string
 	// Observe is told the outcome of every upstream call ("forecast" or "archive"; "ok", "error", "skipped_old"); nil is fine.
 	Observe func(endpoint, outcome string)
 }
 
 // ErrTooOld is returned, without a request, by a self-hosted client for a time older than its server keeps.
 var ErrTooOld = errors.New("weather: older than the self-hosted window")
+
+// selfHostedModels is the model chain our server is asked for (chain.go): RRFS, then GFS 0.11, then GEM seamless, merged per hour and per
+// variable. Without a models parameter the server answers all-null; with GEM alone US temperature moved 1.3 to 6.1 C against the public
+// default (preview diff, rounds 1 to 4).
+const selfHostedModels = selfHostedChain
 
 // selfHostedWindowDays is how many past days our Open-Meteo keeps (sync --past-days 7) less a day of margin.
 const selfHostedWindowDays = 6
@@ -410,6 +419,15 @@ func (c *Client) forecastBase() string {
 		return strings.TrimRight(c.ForecastURL, "/")
 	}
 	return "https://api.open-meteo.com"
+}
+
+// readBody reads a forecast response (bounded) and, for a model chain, merges the per-model series into one (see mergeChain).
+func (c *Client) readBody(r io.Reader) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, 16<<20))
+	if err != nil {
+		return nil, fmt.Errorf("weather: read: %w", err)
+	}
+	return mergeChain(b, chainModels(c.Models))
 }
 
 func (c *Client) observe(endpoint, outcome string) {
@@ -438,6 +456,7 @@ func NewSelfHostedClient(base string) *Client {
 	c.ForecastURL = base
 	c.BaseURL = base
 	c.SelfHosted = true
+	c.Models = selfHostedModels
 	return c
 }
 
@@ -547,6 +566,9 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	q.Set("temperature_unit", "celsius")
 	q.Set("precipitation_unit", "mm")
 	q.Set("timezone", "UTC")
+	if c.Models != "" {
+		q.Set("models", c.Models)
+	}
 	var endpoint string
 	if useForecast {
 		endpoint = c.forecastBase() + "/v1/forecast?" + q.Encode()
@@ -567,17 +589,21 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	}
 	var body struct {
 		Hourly struct {
-			Time        []string  `json:"time"`
-			Temperature []float64 `json:"temperature_2m"`
-			Apparent    []float64 `json:"apparent_temperature"`
-			WindSpeed   []float64 `json:"wind_speed_10m"`
-			WindDir     []float64 `json:"wind_direction_10m"`
-			Precip      []float64 `json:"precipitation"`
-			Humidity    []float64 `json:"relative_humidity_2m"`
-			WeatherCode []float64 `json:"weather_code"`
+			Time        []string   `json:"time"`
+			Temperature []*float64 `json:"temperature_2m"`
+			Apparent    []*float64 `json:"apparent_temperature"`
+			WindSpeed   []*float64 `json:"wind_speed_10m"`
+			WindDir     []*float64 `json:"wind_direction_10m"`
+			Precip      []*float64 `json:"precipitation"`
+			Humidity    []*float64 `json:"relative_humidity_2m"`
+			WeatherCode []*float64 `json:"weather_code"`
 		} `json:"hourly"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	raw, err := c.readBody(resp.Body)
+	if err != nil {
+		return nil, hour, err
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
 		return nil, hour, fmt.Errorf("weather: decode: %w", err)
 	}
 	// Pick the index whose time string matches our truncated hour;
@@ -593,9 +619,10 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	if len(body.Hourly.Time) == 0 {
 		return nil, hour, fmt.Errorf("weather: empty response")
 	}
-	pick := func(arr []float64, i int) (float64, bool) {
-		if i < len(arr) {
-			return arr[i], true
+	// A null is "no value", not zero: an hour no model answered must not read as 0 C.
+	pick := func(arr []*float64, i int) (float64, bool) {
+		if i < len(arr) && arr[i] != nil {
+			return *arr[i], true
 		}
 		return 0, false
 	}
@@ -676,6 +703,9 @@ func (c *Client) FetchRange(ctx context.Context, lat, lon float64, start, end ti
 	q.Set("temperature_unit", "celsius")
 	q.Set("precipitation_unit", "mm")
 	q.Set("timezone", "UTC")
+	if c.Models != "" {
+		q.Set("models", c.Models)
+	}
 	vars := []string{
 		"temperature_2m", "apparent_temperature",
 		"wind_speed_10m", "wind_direction_10m",
@@ -724,7 +754,11 @@ func (c *Client) FetchRange(ctx context.Context, lat, lon float64, start, end ti
 		Hourly     map[string]json.RawMessage `json:"hourly"`
 		Minutely15 map[string]json.RawMessage `json:"minutely_15"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	rawBody, err := c.readBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(rawBody, &raw); err != nil {
 		return nil, fmt.Errorf("weather: decode: %w", err)
 	}
 	block := raw.Hourly
