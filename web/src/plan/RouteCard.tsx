@@ -15,6 +15,8 @@ import { routeDiff, routeLabel } from "./RouteChooser";
 import { StopPriceNote, stopCostOrDash } from "./StopPrice";
 import { estimateLabel, fmtRange, spendView } from "../lib/planCost";
 import { Stat } from "./Stat";
+import { climbLine, legEstimateLine, legWeatherFacts } from "./legWeather";
+import type { LegWeatherInfo } from "../map/legBadges";
 
 // Lazy-load TripRouteMap so the MapLibre
 // chunk (several hundred KB) only ships when the user actually opens
@@ -71,7 +73,7 @@ export function RouteCard({
   // The route chooser, shown at the top of the summary.
   chooser?: React.ReactNode;
 }) {
-  const { distanceUnit } = usePreferences();
+  const { distanceUnit, temperatureUnit } = usePreferences();
   // Map-first layout is for the primary route; alternatives and stacked days keep the in-flow card.
   const next = !stacked && (index === 0 || forceNext);
   const [expanded, setExpanded] = useState(!defaultCollapsed);
@@ -213,8 +215,24 @@ export function RouteCard({
       compact={next || stacked}
     />
   );
+  // Leg i of the weather adjustment runs from waypoint i to i+1, so the weather on the way to waypoint idx is leg idx-1.
+  const legTo = (idx: number) => (adjustment && idx > 0 ? adjustment.legs[idx - 1] : undefined);
+  const weatherNoteTo = (idx: number) => {
+    const leg = legTo(idx);
+    if (!leg) return undefined;
+    return [legEstimateLine(leg.multiplier, (adjustment?.profile_multiplier ?? 1) !== 1), climbLine(leg.climb_m, leg.descent_m, distanceUnit)].filter((l): l is string => !!l);
+  };
+  const shortPlace = (i: number) => (route.Waypoints[i]?.Name ?? "").split(",")[0].trim() || "the stop";
+  const legWeather: (LegWeatherInfo | null)[] | undefined = adjustment
+    ? route.Waypoints.slice(1).map((_, k) => {
+        const facts = legWeatherFacts(adjustment.legs[k], temperatureUnit, distanceUnit);
+        return facts ? { facts, title: `${shortPlace(k)} to ${shortPlace(k + 1)}`, note: weatherNoteTo(k + 1) ?? [] } : null;
+      })
+    : undefined;
   const row = (idx: number, kind: "start" | "stop" | "via" | "end", name: string, n?: number) => (
     <StopCard
+      weather={legWeatherFacts(legTo(idx), temperatureUnit, distanceUnit)}
+      weatherNote={weatherNoteTo(idx)}
       key={idx}
       kind={kind}
       name={name}
@@ -279,6 +297,7 @@ export function RouteCard({
               dayLabel={dayLabel}
               originLabel={originLabel}
               destLabel={destLabel}
+              legWeather={legWeather}
             />
           </Suspense>
         </div>
@@ -344,6 +363,7 @@ export function RouteCard({
             dayLabel={dayLabel}
             originLabel={originLabel}
             destLabel={destLabel}
+            legWeather={legWeather}
           />
         </Suspense>
       </div>

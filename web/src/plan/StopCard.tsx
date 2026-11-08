@@ -8,6 +8,7 @@ import { StopPriceNote } from "./StopPrice";
 import { stopCostText } from "../lib/planCost";
 import { usePreferences } from "../lib/preferences";
 import { distanceIn } from "./units";
+import { legWeatherTags, type LegWeatherFacts } from "./legWeather";
 
 // StopCard: one itinerary entry for the planner (start, charging
 // stop, arrival). A charging stop expands when selected (from here or from the
@@ -26,6 +27,8 @@ export function StopCard({
   selected,
   onSelect,
   showLeg,
+  weather,
+  weatherNote,
 }: {
   kind: "start" | "stop" | "via" | "end";
   name: string;
@@ -37,6 +40,9 @@ export function StopCard({
   selected: boolean;
   onSelect: () => void;
   showLeg: boolean;
+  // The weather on the leg that arrives here: tags in the row, and (for a charging stop) the estimate and climb lines in its detail.
+  weather?: LegWeatherFacts | null;
+  weatherNote?: string[];
 }) {
   const { distanceUnit } = usePreferences();
   const money = (v: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(v);
@@ -51,6 +57,7 @@ export function StopCard({
   // The stop's own station rating says what kind of charger it is (Fast from 50 kW, else Medium); no rating, no word.
   const stopType = chargerKindOfKw(w.MaxPowerKW);
   const detail = isStop && selected;
+  const weatherTags = kind === "start" ? [] : legWeatherTags(weather ?? null);
   const cardRef = useRef<HTMLLIElement>(null);
   const titleRef = useRef<HTMLButtonElement>(null);
   // When the detail opens (a tap here, or a tap on the stop's map marker),
@@ -106,6 +113,9 @@ export function StopCard({
             </span>
           )}
         </span>
+        {weatherTags.length > 0 && (
+          <span data-leg-weather className="pt-sub mt-0.5 block text-neutral-400">{weatherTags.join(" · ")}</span>
+        )}
         {isStop && (
           <span className="pt-sub mt-1.5 flex items-center gap-2 text-neutral-400" data-plan-soc>
             <span className="w-10 shrink-0 text-right">{inSoc.toFixed(0)}<Unit>%</Unit></span>
@@ -119,6 +129,12 @@ export function StopCard({
       </button>
       {detail && (
         <dl data-plan-stop-detail className="pt-sub mx-3 mb-2 mt-1 grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-neutral-800 p-3">
+          {weatherNote && weatherNote.length > 0 && (
+            <div data-leg-weather-note className="col-span-2">
+              <dt className="ui-label">Leg to here</dt>
+              <dd className="text-neutral-300">{weatherNote.map((l) => <span key={l} className="block">{l}</span>)}</dd>
+            </div>
+          )}
           {stopCost && (
             <div className="col-span-2">
               <dt className="ui-label">Charger</dt>

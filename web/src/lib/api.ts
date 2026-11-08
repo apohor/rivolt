@@ -2679,6 +2679,11 @@ export type TripWeatherAdjLeg = {
   temp_c?: number;
   headwind_kph?: number;
   precip_mm?: number;
+  // True only when the forecast says snow. Shown as "snow expected", never as a number.
+  snow?: boolean;
+  // The leg's total climb and descent from the elevation model, in metres.
+  climb_m?: number;
+  descent_m?: number;
 };
 
 export type TripRoute = {
