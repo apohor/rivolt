@@ -20,10 +20,13 @@ import (
 
 // planForwarder answers every plan_legs with a canned plan and counts the calls.
 type planForwarder struct {
-	mu    sync.Mutex
-	res   forward.Result
-	calls int
+	mu      sync.Mutex
+	res     forward.Result
+	calls   int
+	noGroup []forward.Kind
 }
+
+func (f *planForwarder) NoGroup(k forward.Kind) { f.noGroup = append(f.noGroup, k) }
 
 func (f *planForwarder) Do(_ context.Context, _ forward.Call, _ func(context.Context) (forward.Result, error)) (forward.Result, string, error) {
 	f.mu.Lock()
@@ -138,13 +141,17 @@ func TestForwardPlannerRouting(t *testing.T) {
 	if plan, err := p.PlanTrip(context.Background(), sampleInput()); err != nil || plan.Status != "OK" || local != 0 || ok.count() != 1 {
 		t.Errorf("forwarded: %+v %v local=%d forwards=%d", plan, err, local, ok.count())
 	}
-	// No group, nil requester: the pod plans itself.
+	// No group, nil requester: the pod plans itself; an unknown group is counted as no_group for plan_legs, once.
+	ok.noGroup = nil
 	for name, sf := range map[string]*stateForward{"no group": newSF(ok, false), "nil": nil} {
 		before := ok.count()
 		p := &forwardPlanner{inner: inner, sf: sf}
 		if plan, err := p.PlanTrip(context.Background(), sampleInput()); err != nil || plan.Status != "LOCAL" || ok.count() != before {
 			t.Errorf("%s: %+v %v", name, plan, err)
 		}
+	}
+	if len(ok.noGroup) != 1 || ok.noGroup[0] != forward.KindPlanLegs {
+		t.Errorf("no_group counted %v, want one plan_legs", ok.noGroup)
 	}
 	// The owner did not answer: an outage the handler reports as 503, never a silent local call.
 	down := &planForwarder{res: forward.Result{Status: forward.StatusUnavailable, Class: forward.ClassUnavailable}}

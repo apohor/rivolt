@@ -30,6 +30,7 @@ func (p *forwardPlanner) PlanTrip(ctx context.Context, in rivian.PlanTripInput) 
 	}
 	group, ok := sf.groupOf(in.VehicleID)
 	if !ok {
+		sf.fw.NoGroup(forward.KindPlanLegs)
 		return p.inner.PlanTrip(ctx, in)
 	}
 	var (
