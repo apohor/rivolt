@@ -254,7 +254,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			origin = tripmultiday.Waypoint{Latitude: pos.Lat, Longitude: pos.Lon, Label: "Current location"}
 			// An explicit starting_soc wins over the reading.
 			if req.StartingSoC == nil {
-				rv.StartingSoC = pos.SoC
+				rv.StartingSoC = clampSoC(pos.SoC)
 			}
 			// Planning from where the truck is leaves now: a past start is stale.
 			if startAt.Before(time.Now()) {

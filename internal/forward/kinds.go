@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"time"
 	"unicode/utf8"
+
+	"github.com/apohor/rivolt/internal/settings"
 )
 
 // Kind is a forwarded operation. The allowlist is closed: an unknown kind is dropped and counted rejected.
@@ -120,10 +122,16 @@ type RoutePrefs struct {
 	AvoidHighways bool `json:"avoid_highways"`
 }
 
-// driveModes are the drive modes a planner request may carry: exactly the ones the trip handlers let through (settings.DriveModes), and none
-// else, because the handlers drop anything unknown to "". TestForwardedDriveModesMatchTheHandlers keeps the two lists equal. (This list was once
-// Rivian's older enum, CONSERVE/SPORT/ALL_PURPOSE, which rejected EVERYDAY and DISTANCE, the web's defaults: the cause of the Nov 8 preview rollback.)
-var driveModes = map[string]bool{"": true, "EVERYDAY": true, "DISTANCE": true, "SPORT": true, "WINTER": true, "OFF_ROAD_AUTO": true}
+// driveModes are the drive modes a planner request may carry: built from settings.DriveModes, the list the trip handlers let through (they drop
+// anything unknown to ""), so the two cannot differ. (This was once a copy of Rivian's older enum, CONSERVE/SPORT/ALL_PURPOSE, which rejected
+// EVERYDAY and DISTANCE, the web's defaults: the cause of the Nov 8 preview rollback.)
+var driveModes = func() map[string]bool {
+	m := map[string]bool{"": true}
+	for _, d := range settings.DriveModes {
+		m[d] = true
+	}
+	return m
+}()
 
 // ValidDriveMode reports whether a forwarded plan may carry mode.
 func ValidDriveMode(mode string) bool { return driveModes[mode] }

@@ -35,6 +35,19 @@ func validLatLon(lat, lon float64) bool {
 }
 
 // validPct reports a finite percentage in (0, 100].
+// clampSoC bounds a charge that comes from telemetry (the vehicle's last state, or its position) to [0, 100]. Telemetry can read a hair over 100
+// (100.4 from rounding); the planner and the forwarded schema both take 0..100, and sending 100 instead of 100.4 changes nothing. A charge the
+// caller typed is not clamped: it is validated (validPct) and refused if out of range.
+func clampSoC(v float64) float64 {
+	switch {
+	case v > 100:
+		return 100
+	case v < 0:
+		return 0
+	}
+	return v
+}
+
 func validPct(v float64) bool { return !math.IsNaN(v) && v > 0 && v <= 100 }
 
 // validTargetPct reports a finite arrival target in [0, 100].
