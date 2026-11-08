@@ -87,7 +87,7 @@ func TestSplit(t *testing.T) {
 		r.PackKWh, r.EnergyKWh, r.RivianVehicleID = 91, 25.3, "rv-fake-1"
 		r.StartSoC, r.EndSoC = 47, 70
 		r.CostSource, r.PricePerKWh = "home_rate", 0.25
-		r.Frames = []Frame{{At: t0.Add(time.Hour), SoC: 47, PowerKW: 7, ChargingState: "charging_active"}, {At: t0.Add(90 * time.Minute), SoC: 51, PowerKW: 7, ChargingState: "charging_active"}, {At: t0.Add(2 * time.Hour), SoC: 55}}
+		r.Frames = []Frame{{At: t0.Add(time.Hour), SoC: 47, PowerKW: 7, ChargingState: "charging_active"}, {At: t0.Add(65 * time.Minute), SoC: 51, PowerKW: 7, ChargingState: "charging_active"}, {At: t0.Add(2 * time.Hour), SoC: 55}}
 		r.Taken = map[string]bool{}
 		return r
 	}
@@ -115,7 +115,7 @@ func TestSplit(t *testing.T) {
 	if sp.OrigFinalState != "charging_complete" || sp.News[0].FinalState != r.FinalState {
 		t.Errorf("final states: original %q, last new row %q (want complete / the stretched row's %q)", sp.OrigFinalState, sp.News[0].FinalState, r.FinalState)
 	}
-	if sp.OrigActiveSec != 1800 || sp.OrigMaxKW != 7 || sp.OrigAvgKW != sp.OrigKWh/0.5 {
+	if sp.OrigActiveSec != 300 || sp.OrigMaxKW != 7 || sp.OrigAvgKW != sp.OrigKWh/(300.0/3600) {
 		t.Errorf("original figures from its own window: active %v max %v avg %v", sp.OrigActiveSec, sp.OrigMaxKW, sp.OrigAvgKW)
 	}
 	if n, c, kwh := p.SplitTotals(); n != 1 || c != 1 || kwh != 18 {
