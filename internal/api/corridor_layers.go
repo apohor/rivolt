@@ -20,6 +20,9 @@ type corridorLayersRequest struct {
 	MinPowerKW float64      `json:"min_power_kw,omitempty"`
 	Limit      int          `json:"limit,omitempty"`
 	AfterKm    float64      `json:"after_km,omitempty"`
+	// Paged asks for route-ordered pages (first Limit, then next_after_km). Without it a corridor with more stations than the limit comes back
+	// spread along the whole route, so a client showing one capped answer shows the entire route and not just its first stretch.
+	Paged bool `json:"paged,omitempty"`
 	// Networks keeps only stations of these networks (slugs of the user's price book: ea, tesla_sc, ran, evgo, shell_recharge,
 	// chargepoint, ionna, flo, ev_connect, walmart). Empty: every network.
 	Networks []string `json:"networks,omitempty"`
@@ -107,7 +110,7 @@ func handleCorridorLayers(a *chargers.Archive) http.HandlerFunc {
 			QueryCorridorOptions: chargers.QueryCorridorOptions{
 				CorridorKm: req.CorridorKm, MinPowerKW: req.MinPowerKW, IncludeEndpoints: true, Context: r.Context(),
 			},
-			AfterKm: req.AfterKm, Limit: req.Limit, Accept: accept,
+			AfterKm: req.AfterKm, Limit: req.Limit, Paged: req.Paged, Accept: accept,
 		})
 		if errors.Is(err, chargers.ErrBadKinds) {
 			http.Error(w, "kinds must be one or more of dcfc, l2, hotels, camp", http.StatusBadRequest)

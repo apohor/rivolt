@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -183,7 +184,7 @@ func TestPagingAlongTheRouteLosesAndRepeatsNothing(t *testing.T) {
 	after := 0.0
 	for pages := 0; pages < 10; pages++ {
 		r, err := a.QueryLayers(path, []string{"dcfc", "hotels", "camp"}, LayerOptions{
-			QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 10}, AfterKm: after, Limit: 2})
+			QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 10}, AfterKm: after, Limit: 2, Paged: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -256,5 +257,196 @@ func TestAsOfFallsBackToTheArchivesOwnDate(t *testing.T) {
 	r, _ = a.QueryLayers(p2, []string{"dcfc", "camp"}, opts)
 	if r.AsOf != "2026-10-21" {
 		t.Errorf("a station's date should win: %q", r.AsOf)
+	}
+}
+
+// A long corridor with many more stations than the cap: the capped answer covers the whole route, not its first stretch.
+func TestCappedCorridorSpreadsAlongTheWholeRoute(t *testing.T) {
+	const row, x0, n = 6000, 1000, 100
+	var all []station
+	add := func(i int, off int, id string, kw float64) {
+		all = append(all, station{x: x0 + uint32(i), y: uint32(int(row) + off), props: map[string]any{"@id": id, "dcfc_count": 2, "max_power_kw": kw}})
+	}
+	for i := 0; i < n; i++ {
+		// Three chargers a tile (rows -1, 0, +1 about 2.4 km apart): 300 along about 240 km; the middle one is the strong one.
+		add(i, -1, fmt.Sprintf("s%03d-a", i), 50)
+		add(i, 0, fmt.Sprintf("s%03d-b", i), 150)
+		add(i, 1, fmt.Sprintf("s%03d-c", i), 50)
+	}
+	// A big city at the start: two more rows on each of the first 20 tiles. It must not use up the cap.
+	for i := 0; i < 20; i++ {
+		add(i, -2, fmt.Sprintf("city%03d-a", i), 50)
+		add(i, 2, fmt.Sprintf("city%03d-b", i), 50)
+	}
+	a := loaded(t, archiveAt(t, all))
+	path := make([][2]float64, 0, n)
+	for i := 0; i < n; i++ {
+		c := maptile.New(uint32(x0+i), row, 14).Bound().Center()
+		path = append(path, [2]float64{c[1], c[0]})
+	}
+	const limit = 60
+	r, err := a.QueryLayers(path, []string{"dcfc"}, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 6}, Limit: limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Total < 300 || len(r.POIs) != limit || r.NextAfterKm != nil {
+		t.Fatalf("total %d, returned %d, next %v: want the cap exactly, no cursor", r.Total, len(r.POIs), r.NextAfterKm)
+	}
+	first, last := r.POIs[0].AlongKm, r.POIs[len(r.POIs)-1].AlongKm
+	if first > r.RouteKm*0.1 || last < r.RouteKm*0.9 {
+		t.Errorf("the capped set spans %.0f to %.0f km of a %.0f km route", first, last, r.RouteKm)
+	}
+	// No stretch of 1/10 of the route is empty (taking the first 60 in route order would leave everything past the city empty).
+	for tenth := 0; tenth < 10; tenth++ {
+		lo, hi := r.RouteKm*float64(tenth)/10, r.RouteKm*float64(tenth+1)/10
+		found := false
+		for _, p := range r.POIs {
+			if p.AlongKm >= lo && p.AlongKm < hi+0.001 {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no station in the tenth %d of the route (%.0f to %.0f km)", tenth, lo, hi)
+		}
+	}
+	// Route order, no duplicates.
+	seen := map[string]bool{}
+	for i, p := range r.POIs {
+		if seen[p.EntityID] {
+			t.Errorf("%s twice", p.EntityID)
+		}
+		seen[p.EntityID] = true
+		if i > 0 && p.AlongKm < r.POIs[i-1].AlongKm {
+			t.Errorf("not in route order at %d", i)
+		}
+	}
+	// Outside the city the strong charger of a stretch is the one kept.
+	strong := 0
+	for _, p := range r.POIs {
+		if p.MaxPowerKW >= 150 {
+			strong++
+		}
+	}
+	if strong < limit/3 {
+		t.Errorf("only %d of %d kept stations are the strong ones", strong, limit)
+	}
+	// Paged mode is unchanged: the first stretch of the route in order, with a cursor.
+	p, _ := a.QueryLayers(path, []string{"dcfc"}, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 6}, Limit: limit, Paged: true})
+	if p.NextAfterKm == nil || p.POIs[len(p.POIs)-1].AlongKm > r.RouteKm*0.5 {
+		t.Errorf("paged: next %v, last %.0f km", p.NextAfterKm, p.POIs[len(p.POIs)-1].AlongKm)
+	}
+	// Under the cap nothing is dropped.
+	u, _ := a.QueryLayers(path, []string{"dcfc"}, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 6}, Limit: 1000})
+	if len(u.POIs) != u.Total || u.NextAfterKm != nil {
+		t.Errorf("under the cap: %d of %d, next %v", len(u.POIs), u.Total, u.NextAfterKm)
+	}
+}
+
+// Chargers and hotels together over the cap: every kind is spread on its own, so dense chargers do not push the hotels out (hotels have no
+// power to rank by, and used to lose every stretch to a charger).
+func TestCappedCorridorKeepsEveryKindAlongTheRoute(t *testing.T) {
+	const row, x0, n = 6000, 1000, 100
+	var all []station
+	for i := 0; i < n; i++ {
+		for off := -1; off <= 1; off++ {
+			all = append(all, station{x: x0 + uint32(i), y: uint32(int(row) + off), props: map[string]any{
+				"@id": fmt.Sprintf("d%03d_%d", i, off), "dcfc_count": 2, "max_power_kw": 150.0}})
+		}
+	}
+	for i := 3; i < n; i += 3 { // a hotel every third tile, 33 along the route
+		all = append(all, station{x: x0 + uint32(i), y: row + 2, props: map[string]any{"@id": fmt.Sprintf("h%03d", i), "facility_type": "HOTEL", "l2_count": 1}})
+	}
+	a := loaded(t, archiveAt(t, all))
+	path := make([][2]float64, 0, n)
+	for i := 0; i < n; i++ {
+		c := maptile.New(uint32(x0+i), row, 14).Bound().Center()
+		path = append(path, [2]float64{c[1], c[0]})
+	}
+	const limit = 60
+	r, err := a.QueryLayers(path, []string{"dcfc", "hotels"}, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 6}, Limit: limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.POIs) > limit || len(r.POIs) < limit-2 {
+		t.Fatalf("returned %d, want about the cap of %d", len(r.POIs), limit)
+	}
+	has := func(kind string, lo, hi float64) bool {
+		for _, p := range r.POIs {
+			if p.AlongKm >= lo && p.AlongKm < hi+0.001 {
+				for _, k := range p.Kinds {
+					if k == kind {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	for tenth := 0; tenth < 10; tenth++ {
+		lo, hi := r.RouteKm*float64(tenth)/10, r.RouteKm*float64(tenth+1)/10
+		if !has("hotels", lo, hi) {
+			t.Errorf("no hotel in the tenth %d of the route", tenth)
+		}
+		if !has("dcfc", lo, hi) {
+			t.Errorf("no charger in the tenth %d of the route", tenth)
+		}
+	}
+	// A kind that is small hands its unused share to the others: 33 hotels are all kept, and the chargers take the rest.
+	hotels := 0
+	for _, p := range r.POIs {
+		for _, k := range p.Kinds {
+			if k == "hotels" {
+				hotels++
+			}
+		}
+	}
+	if hotels < 30 {
+		t.Errorf("%d hotels kept, want all of the 33 that fit in their share", hotels)
+	}
+}
+
+// The cap is never exceeded, whatever the number of kinds: a limit below the number of kinds, equal to it, and just above it.
+func TestCappedCorridorNeverExceedsTheLimitWithManyKinds(t *testing.T) {
+	const row, x0, n = 6000, 1000, 100
+	var all []station
+	for i := 0; i < n; i++ {
+		for off := -1; off <= 1; off++ {
+			all = append(all, station{x: x0 + uint32(i), y: uint32(int(row) + off), props: map[string]any{
+				"@id": fmt.Sprintf("d%03d_%d", i, off), "dcfc_count": 2, "l2_count": 1, "max_power_kw": 150.0}})
+		}
+		all = append(all, station{x: x0 + uint32(i), y: row + 2, props: map[string]any{"@id": fmt.Sprintf("h%03d", i), "facility_type": "HOTEL", "l2_count": 1}})
+		all = append(all, station{x: x0 + uint32(i), y: row - 2, props: map[string]any{"@id": fmt.Sprintf("c%03d", i), "facility_type": "CAMPGROUND", "hookup_amps": 50}})
+	}
+	a := loaded(t, archiveAt(t, all))
+	path := make([][2]float64, 0, n)
+	for i := 0; i < n; i++ {
+		c := maptile.New(uint32(x0+i), row, 14).Bound().Center()
+		path = append(path, [2]float64{c[1], c[0]})
+	}
+	kinds := []string{"dcfc", "l2", "hotels", "camp"}
+	for _, limit := range []int{1, 2, 3, 4, 5, 6, 10, 37, 100} {
+		r, err := a.QueryLayers(path, kinds, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 6}, Limit: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.POIs) > limit {
+			t.Errorf("limit %d returned %d", limit, len(r.POIs))
+		}
+		if len(r.POIs) == 0 {
+			t.Errorf("limit %d returned nothing", limit)
+		}
+		if limit >= len(kinds) {
+			seen := map[string]bool{}
+			for _, p := range r.POIs {
+				for _, k := range p.Kinds {
+					seen[k] = true
+				}
+			}
+			for _, k := range kinds {
+				if !seen[k] {
+					t.Errorf("limit %d: no %s kept", limit, k)
+				}
+			}
+		}
 	}
 }
