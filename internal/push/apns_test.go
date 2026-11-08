@@ -125,7 +125,7 @@ func TestAPNsSendRequest(t *testing.T) {
 	if !strings.HasPrefix(auth, "bearer ") {
 		t.Fatalf("authorization = %q", auth)
 	}
-	jws, err := jose.ParseSigned(strings.TrimPrefix(auth, "bearer "), []jose.SignatureAlgorithm{jose.ES256})
+	jws, err := jose.ParseSignedCompact(strings.TrimPrefix(auth, "bearer "), []jose.SignatureAlgorithm{jose.ES256})
 	if err != nil {
 		t.Fatal(err)
 	}
