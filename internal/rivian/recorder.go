@@ -297,13 +297,14 @@ type liveCharge struct {
 	clampedSeconds float64
 	resumes        int
 	// baselineKWh and baselineAt are the stored row's energy and last write when this charge was resumed from it (0 and zero
-	// otherwise); sessionBase is the energy of earlier plug-ins that Rivian's per-plug-in session total does not carry,
-	// decided once (sessionBaseSet) at the first build that sees the session. Energy from a session total is
-	// sessionBase + total, never below baselineKWh (see resumedEnergy).
-	baselineKWh    float64
-	baselineAt     time.Time
-	sessionBase    float64
-	sessionBaseSet bool
+	// otherwise). sessionBases remembers, per Rivian session (its start instant), the energy of earlier plug-ins that the
+	// session's per-plug-in total does not carry (the last few sessions), and lastResumed the energy last returned: a session
+	// seen for the first time decides its base from the energy held at that moment, one seen again reuses it (the feeds can
+	// disagree about the current session during a lag), and the energy never goes down (see resumedEnergy).
+	baselineKWh  float64
+	baselineAt   time.Time
+	sessionBases []sessionBaseEntry
+	lastResumed  float64
 
 	// floorNoted is set once the energy floor's counter and log have been written for this charge.
 	floorNoted atomic.Bool
@@ -2459,39 +2460,69 @@ func liveChargeFromRow(row *charges.Charge) *liveCharge {
 	return c
 }
 
+// sessionBaseEntry is one remembered session base: the session's start instant (RFC 3339, UTC) and the energy added to its total.
+type sessionBaseEntry struct {
+	Key  string  `json:"key"`
+	Base float64 `json:"base"`
+}
+
+// maxSessionBases bounds the sessions remembered per charge.
+const maxSessionBases = 4
+
 // resumedEnergy is the energy of a resumed charge when Rivian's session total is available. The total counts per plug-in and
-// restarts at a re-plug, so on its own it would replace what the stored row already holds. The first build that sees the
-// session decides what the total does not carry (sessionBase):
-//   - the session started after the row's last write (a new plug-in, a re-plug inside the resume window): all the row's
-//     stored energy, baseline + total;
+// restarts at a re-plug, so on its own it would replace what the stored row already holds. A session's base (what its total
+// does not carry) is decided the first time the session is seen, from the energy the row holds at that moment, and remembered
+// by the session's start instant, so any number of plug-ins chain and a session that reappears (the WS, REST and Parallax feeds
+// can disagree about the current session while the live one lags a re-plug) reuses its base instead of being decided again:
+//   - the session started after the row's last write (a new plug-in): all the held energy, held + total;
 //   - it started before (the same plug-in: a restart or a handoff): only what the total does not explain, which is nothing
 //     for a plain single-plug-in row and the earlier plug-ins' energy when a row already holds some, so a second restart
 //     neither double counts nor drops the first part;
-//   - the start is unknown: a total below the stored energy is a reset and is added.
+//   - the start is unknown: a total below the held energy is a reset and is added.
 //
-// The energy never goes below what the row stored when it was resumed, and one log line (no ids beyond the vehicle) notes a reset.
+// The energy never goes down: it is at least what the row stored when it was resumed and at least what was last returned. One
+// log line (no ids beyond the vehicle) notes a base.
 func (m *StateMonitor) resumedEnergy(vehicleID string, c *liveCharge, sess *LiveSession) float64 {
 	total := sess.TotalChargedEnergyKWh
-	if !c.sessionBaseSet {
-		c.sessionBaseSet = true
-		start, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime))
-		noise := math.Max(1, 0.05*c.baselineKWh)
-		switch {
-		case err == nil && start.After(c.baselineAt):
-			c.sessionBase = c.baselineKWh
-		case err == nil:
-			if c.baselineKWh-total > noise {
-				c.sessionBase = c.baselineKWh - total
-			}
-		case total < c.baselineKWh-noise:
-			c.sessionBase = c.baselineKWh
-		}
-		if c.sessionBase > 0 && m.logger != nil {
-			m.logger.Info("resumed charge: the session total restarts at a plug-in, so the stored energy is added",
-				"vehicle", vehicleID, "baseline_kwh", c.baselineKWh, "session_total_kwh", total, "added_kwh", c.sessionBase)
+	start, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime))
+	// The session's identity is its start instant, not its spelling: the feeds format the same time differently, and a changed
+	// spelling must not look like a new plug-in (the held energy would be added twice).
+	key := strings.TrimSpace(sess.StartTime)
+	if err == nil {
+		key = start.UTC().Format(time.RFC3339Nano)
+	}
+	base, known := 0.0, false
+	for _, e := range c.sessionBases {
+		if e.Key == key {
+			base, known = e.Base, true
+			break
 		}
 	}
-	return math.Max(c.sessionBase+total, c.baselineKWh)
+	if !known {
+		held := math.Max(c.lastResumed, c.baselineKWh)
+		noise := math.Max(1, 0.05*held)
+		switch {
+		case err == nil && start.After(c.baselineAt):
+			base = held
+		case err == nil:
+			if held-total > noise {
+				base = held - total
+			}
+		case total < held-noise:
+			base = held
+		}
+		c.sessionBases = append(c.sessionBases, sessionBaseEntry{Key: key, Base: base})
+		if len(c.sessionBases) > maxSessionBases {
+			c.sessionBases = c.sessionBases[len(c.sessionBases)-maxSessionBases:]
+		}
+		if base > 0 && m.logger != nil {
+			m.logger.Info("resumed charge: the session total restarts at a plug-in, so the held energy is added",
+				"vehicle", vehicleID, "held_kwh", held, "session_total_kwh", total, "added_kwh", base)
+		}
+	}
+	e := math.Max(base+total, math.Max(c.lastResumed, c.baselineKWh))
+	c.lastResumed = e
+	return e
 }
 
 // closeStaleOpenCharges marks every live charge row for the vehicle
