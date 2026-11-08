@@ -214,3 +214,79 @@ func TestSplitPricingHook(t *testing.T) {
 		t.Errorf("without a hook the new row stays unpriced: %+v", q.Splits[r.ID].News[0])
 	}
 }
+
+// A row whose only charging came after its first drive: the original is kept as a zero-energy abandoned row ended at the
+// first drive, the remainder stays stored minus the new rows (conservation exact), and the dry run counts it.
+func TestEmptyOriginal(t *testing.T) {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	t0 := time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC)
+	seg := Segment{Start: t0.Add(5 * time.Hour), FirstActive: t0.Add(5*time.Hour + 5*time.Minute), End: t0.Add(8 * time.Hour), SoCStart: 40, SoCEnd: 60, IntegralKWh: 18}
+	mk := func() Row {
+		r := base()
+		r.PluggedAfterDrive = true
+		r.LastPlugged, r.LastPluggedBeforeDrive = time.Time{}, time.Time{} // nothing plugged before the drive
+		r.PackKWh, r.EnergyKWh, r.RivianVehicleID = 91, 18.2, "rv-fake-1"
+		r.StartSoC, r.EndSoC, r.Cost, r.PricePerKWh, r.CostSource = 40, 60, 4.55, 0.25, "home_rate"
+		r.FirstDrive = t0.Add(3 * time.Hour)
+		r.Frames = []Frame{{At: t0.Add(time.Hour), SoC: 40}, {At: t0.Add(2 * time.Hour), SoC: 40.2}, {At: seg.FirstActive, SoC: 40, PowerKW: 7, ChargingState: "charging_active"}, {At: seg.FirstActive.Add(5 * time.Minute), SoC: 41, PowerKW: 7, ChargingState: "charging_active"}}
+		r.Taken = map[string]bool{}
+		return r
+	}
+	defer func() { detectSegments = DetectSegments }()
+	detectSegments = func([]Frame, time.Time) []Segment { return []Segment{seg} }
+
+	r := mk()
+	p := MakePlan([]Row{r}, now, Options{Split: true})
+	sp := p.Splits[r.ID]
+	if sp == nil || !sp.EmptyOriginal || sp.OrigFinalState != "abandoned" || !p.CapTo[r.ID].Equal(r.FirstDrive) {
+		t.Fatalf("want an empty original ended at the first drive, got %+v cap=%v skipped=%v", sp, p.CapTo[r.ID], p.Skipped)
+	}
+	if got := sp.OrigKWh + sp.News[0].KWh; got < r.EnergyKWh-1e-9 || got > r.EnergyKWh+1e-9 {
+		t.Errorf("energy not conserved: %v", got)
+	}
+	if sp.OrigKWh < 0.19 || sp.OrigKWh > 0.21 {
+		t.Errorf("the remainder must stay stored minus new, not be zeroed: %v", sp.OrigKWh)
+	}
+	if sp.OrigCost == nil || *sp.OrigCost > 0.06 { // 0.25 * 0.2
+		t.Errorf("the original goes by energy share: %v", sp.OrigCost)
+	}
+	if p.EmptyOriginals() != 1 {
+		t.Errorf("empty originals = %d", p.EmptyOriginals())
+	}
+	if o, n := p.CostDelta(); o > -4.4 || n != 0 {
+		t.Errorf("cost delta originals %v new %v", o, n)
+	}
+	// Without --split the row stays skipped, as before.
+	if q := MakePlan([]Row{r}, now, Options{}); len(q.Cap) != 0 || q.Skipped["no plugged frame inside"] != 1 {
+		t.Errorf("without Split: %v", q.Skipped)
+	}
+	for _, c := range []struct {
+		name string
+		mut  func(*Row)
+	}{
+		{"the SoC rose before the drive", func(r *Row) { r.Frames[1].SoC = 44 }},
+		{"the original would keep real energy", func(r *Row) { r.EnergyKWh = 40 }},
+		{"no pack size", func(r *Row) { r.PackKWh = 0 }},
+	} {
+		r := mk()
+		c.mut(&r)
+		if q := MakePlan([]Row{r}, now, Options{Split: true}); len(q.Cap) != 0 || len(q.Flagged) != 1 {
+			t.Errorf("%s: want flagged, got cap=%d skipped=%v", c.name, len(q.Cap), q.Skipped)
+		}
+	}
+}
+
+func TestNewRowTypesAndPerVehicle(t *testing.T) {
+	r1, r2 := base(), base()
+	r2.VehicleID = r1.VehicleID
+	p := Plan{Cap: []Row{r1, r2}, Splits: map[uuid.UUID]*Split{
+		r1.ID: {News: []NewRow{{Place: "home", MaxPowerKW: 7}, {Place: "away", MaxPowerKW: 11}, {Place: "", MaxPowerKW: 7}}},
+		r2.ID: {News: []NewRow{{Place: "home", MaxPowerKW: 150}}},
+	}}
+	if h, a, o, dc := p.NewRowTypes(); h != 1 || a != 1 || o != 1 || dc != 1 {
+		t.Errorf("types: home %d away %d other %d dc %d", h, a, o, dc)
+	}
+	if p.SplitsByVehicle()[r1.VehicleID] != 2 {
+		t.Errorf("per vehicle: %v", p.SplitsByVehicle())
+	}
+}

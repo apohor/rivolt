@@ -435,3 +435,115 @@ func TestStretchedPriceFn(t *testing.T) {
 		t.Fatalf("a DC fast charge must be left unpriced and unplaced: %+v", dc)
 	}
 }
+
+// A stretched row whose only charging came after its first drive (nothing plugged before it, SoC flat): with --split the
+// original is kept as a zero-energy abandoned row ended at the first drive, the real charge becomes its own priced row, and
+// the undo returns the original exactly and deletes the created row (#1630).
+func TestStretchedSplitEmptyOriginal(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUser(ctx, pool, "split-empty")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vid uuid.UUID
+	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, pack_kwh) VALUES ($1,'rv-empty',91) RETURNING id`, uid).Scan(&vid); err != nil {
+		t.Fatal(err)
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.ExecContext(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	ss := settings.NewFactory(pool).For(uid)
+	if err := settings.SetChargingConfig(ctx, ss, settings.ChargingConfig{HomePricePerKWh: 0.25, HomeCurrency: "USD"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.SetHomeLocation(ctx, ss, settings.HomeLocation{Set: true, Latitude: 34.1, Longitude: -118.1, Source: settings.HomeSourceCoordinates}); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Hour)
+	var orig uuid.UUID
+	if err := pool.QueryRowContext(ctx, `
+		INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source, energy_added_kwh, start_soc_pct, end_soc_pct, final_state, cost, cost_source, price_per_kwh, created_at, updated_at)
+		VALUES ($1,$2,'live_rv-empty_c_1',$3,$4,'live',18.6,50,70,'charging_user_stopped',4.65,'home_rate',0.25,$3,$5) RETURNING id`,
+		uid, vid, base, base.Add(20*time.Hour), time.Now().Add(-30*time.Hour)).Scan(&orig); err != nil {
+		t.Fatal(err)
+	}
+	frame := func(at time.Time, soc float64, gear string, speed float64, state, status string, kw float64) {
+		exec(`INSERT INTO vehicle_state (vehicle_id, at, user_id, source, battery_level_pct, shift_state, speed_mph, charging_state, charger_status, charger_power_kw, lat, lon)
+		      VALUES ($1,$2,$3,'t',$4,$5,$6,$7,$8,$9,34.1,-118.1)`, vid, at, uid, soc, gear, speed, state, status, kw)
+	}
+	// Before the drive: parked, never plugged, SoC flat at 50.
+	for m := 0; m <= 120; m += 30 {
+		frame(base.Add(time.Duration(m)*time.Minute), 50, "P", 0, "charging_ready", "chrgr_sts_not_connected", 0)
+	}
+	exec(`INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source) VALUES ($1,$2,'d1',$3,$4,9,'live')`, uid, vid, base.Add(3*time.Hour), base.Add(3*time.Hour+30*time.Minute))
+	for m := 0; m <= 30; m += 5 {
+		frame(base.Add(3*time.Hour+time.Duration(m)*time.Minute), 50, "D", 30, "charging_ready", "chrgr_sts_not_connected", 0)
+	}
+	// After it: parked and charging, 50 -> 70 over 5 h at 3.7 kW.
+	for m := 0; m <= 300; m += 10 {
+		frame(base.Add(215*time.Minute+time.Duration(m)*time.Minute), 50+20*float64(m)/300, "P", 0, "charging_active", "chrgr_sts_connected_charging", 3.7)
+	}
+
+	opt := stretched.Options{Split: true, Price: stretched.NewPriceFn(ctx, pool)}
+	rows, err := stretched.Select(ctx, pool, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain := stretched.MakePlan(rows, time.Now(), stretched.Options{}); len(plain.Cap) != 0 || plain.Skipped["no plugged frame inside"] != 1 {
+		t.Fatalf("without --split the row stays skipped: %v", plain.Skipped)
+	}
+	plan := stretched.MakePlan(rows, time.Now(), opt)
+	sp := plan.Splits[orig]
+	if sp == nil || !sp.EmptyOriginal || len(sp.News) != 1 || plan.EmptyOriginals() != 1 {
+		t.Fatalf("want one split with an empty original, got cap=%d flagged=%d skipped=%v", len(plan.Cap), len(plan.Flagged), plan.Skipped)
+	}
+	snap := func() string {
+		var j string
+		if err := pool.QueryRowContext(ctx, `SELECT (to_jsonb(c.*) - 'updated_at')::text FROM charges c WHERE id = $1`, orig).Scan(&j); err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	before := snap()
+	batch := uuid.New()
+	if n, err := stretched.Apply(ctx, pool, batch, 1, plan.Digest(), "t", false, opt, func([]phantom.BackupRow) error { return nil }); err != nil || n != 1 {
+		t.Fatalf("apply: %d %v", n, err)
+	}
+	var state string
+	var ended time.Time
+	var kwh float64
+	if err := pool.QueryRowContext(ctx, `SELECT final_state, ended_at, energy_added_kwh FROM charges WHERE id = $1`, orig).Scan(&state, &ended, &kwh); err != nil {
+		t.Fatal(err)
+	}
+	if state != "abandoned" || !ended.Equal(base.Add(3*time.Hour)) || kwh > 0.5 {
+		t.Fatalf("empty original after apply: state=%s ended=%v (want %v) kwh=%v", state, ended, base.Add(3*time.Hour), kwh)
+	}
+	var newKWh float64
+	var src, place *string
+	if err := pool.QueryRowContext(ctx, `SELECT energy_added_kwh, cost_source, place FROM charges WHERE user_id=$1 AND id<>$2`, uid, orig).Scan(&newKWh, &src, &place); err != nil {
+		t.Fatal(err)
+	}
+	if got := kwh + newKWh; got < 18.599 || got > 18.601 || src == nil || *src != "home_rate" || place == nil || *place != "home" {
+		t.Fatalf("new row: kwh %v (sum %v) source %v place %v", newKWh, kwh+newKWh, src, place)
+	}
+	if r, err := stretched.Restore(ctx, pool, batch); err != nil || r != 1 {
+		t.Fatalf("restore: %d %v", r, err)
+	}
+	if got := snap(); got != before {
+		t.Fatalf("after restore the original differs:\n before %s\n after  %s", before, got)
+	}
+	var n int
+	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE user_id = $1`, uid).Scan(&n)
+	if n != 1 {
+		t.Fatalf("rows after restore: %d, want 1", n)
+	}
+}

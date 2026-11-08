@@ -12,6 +12,22 @@ import (
 // detectSegments is DetectSegments; a variable so tests can feed a plan without frames.
 var detectSegments = DetectSegments
 
+// An original is "empty" when nothing before the first drive was a charge: no plugged frame and an SoC gain under this
+// many points. Its remainder (stored minus the new rows) may be at most the larger of the two bounds below.
+const (
+	emptyMaxSoCGain        = 0.5
+	emptyMaxRemainderKWh   = 1.0
+	emptyMaxRemainderShare = 0.25
+)
+
+// firstSoC is the SoC of the first frame (fallback when there is none).
+func firstSoC(frames []Frame, fallback float64) float64 {
+	if len(frames) == 0 {
+		return fallback
+	}
+	return frames[0].SoC
+}
+
 // maxActiveGap caps the time one active frame stands for, so a hole in the data is not integrated as charging.
 const maxActiveGap = 10 * time.Minute
 
@@ -32,14 +48,21 @@ func trySplit(r Row, opt Options) (*Split, time.Time, string) {
 	switch {
 	case len(r.Frames) == 0:
 		return flag("no frames loaded for the split")
-	case r.LastPluggedBeforeDrive.IsZero():
-		return flag("no plugged frame before the first drive")
 	case r.PackKWh <= 0:
 		return flag("no pack size to cross-check the energy")
 	case r.RivianVehicleID == "":
 		return flag("no Rivian vehicle id for the external id")
 	}
 	cut := r.LastPluggedBeforeDrive
+	// Nothing plugged before the first drive: the original may be empty (the real charge came after the drive). It is
+	// then kept as a zero-energy abandoned row ended at the first drive, if the SoC did not rise before it either.
+	empty := cut.IsZero()
+	if empty {
+		cut = r.FirstDrive
+		if gain := socAt(r.Frames, r.FirstDrive, r.StartSoC) - firstSoC(r.Frames, r.StartSoC); gain >= emptyMaxSoCGain {
+			return flag("no plugged frame before the first drive, but the SoC rose before it")
+		}
+	}
 	if cut.Before(r.StartedAt) || !cut.Before(r.EndedAt) {
 		return flag("cap outside the row")
 	}
@@ -89,14 +112,20 @@ func trySplit(r Row, opt Options) (*Split, time.Time, string) {
 		return flag("the new rows' energy exceeds the row's stored energy")
 	}
 	sp.OrigEndSoC = socAt(r.Frames, cut, r.EndSoC)
-	// The remainder must agree with the original's own SoC gain, or the stored energy may not have held the tail.
-	if !Agree(sp.OrigKWh, (sp.OrigEndSoC-r.StartSoC)/100*r.PackKWh) {
+	sp.EmptyOriginal = empty
+	if empty {
+		// The remainder is kept (conservation stays exact), but an empty original must not be left holding real energy.
+		if sp.OrigKWh > math.Max(emptyMaxRemainderKWh, emptyMaxRemainderShare*r.EnergyKWh) {
+			return flag("an empty original would keep energy the new rows do not account for")
+		}
+	} else if !Agree(sp.OrigKWh, (sp.OrigEndSoC-r.StartSoC)/100*r.PackKWh) {
+		// The remainder must agree with the original's own SoC gain, or the stored energy may not have held the tail.
 		return flag("the original's remainder disagrees with its own SoC gain")
 	}
 	sp.OrigMaxKW, sp.OrigActiveSec = activeStats(r.Frames, r.StartedAt, cut)
 	sp.OrigAvgKW = avgKW(sp.OrigKWh, sp.OrigActiveSec)
 	sp.OrigFinalState = "abandoned"
-	if sp.OrigEndSoC > r.StartSoC {
+	if !empty && sp.OrigEndSoC > r.StartSoC {
 		sp.OrigFinalState = "charging_complete"
 	}
 	// An auto-priced original is re-priced by energy share (its own rate times what it keeps); a user's price never gets here.
