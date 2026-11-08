@@ -218,9 +218,9 @@ func TestRequesterNoLocalAnswers503(t *testing.T) {
 // T15: a full queue is refused with a 503 whatever the pod; nothing is pushed.
 func TestRequesterRefusesAFullQueue(t *testing.T) {
 	f := newFleet(t)
-	f.mr.Set(f.keys.Ready("pod-a"), "1") // ready, but no loop is draining it
+	_ = f.mr.Set(f.keys.Ready("pod-a"), "1") // ready, but no loop is draining it
 	for i := 0; i < forward.MaxQueue+1; i++ {
-		f.mr.Push(f.keys.Queue("pod-a"), "x")
+		_, _ = f.mr.Push(f.keys.Queue("pod-a"), "x")
 	}
 	var local localCounter
 	res, outcome, _ := f.requester(nil).Do(context.Background(), callFresh, local.fn)
@@ -265,7 +265,7 @@ func TestRequesterMovedWithNoNewOwnerIs503(t *testing.T) {
 // behind that names a reply key.
 func TestRequesterTimesOutCleanly(t *testing.T) {
 	f := newFleet(t)
-	f.mr.Set(f.keys.Ready("pod-a"), "1")
+	_ = f.mr.Set(f.keys.Ready("pod-a"), "1")
 	req := f.requester(func(c *forward.RequesterConfig) {
 		c.Timeouts = map[forward.Kind]time.Duration{forward.KindFreshState: 300 * time.Millisecond}
 	})
@@ -345,7 +345,7 @@ func TestRequesterRefusesABadReply(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFleet(t)
-			f.mr.Set(f.keys.Ready("pod-a"), "1")
+			_ = f.mr.Set(f.keys.Ready("pod-a"), "1")
 			// A fake owner: take the request, push a forged reply.
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
