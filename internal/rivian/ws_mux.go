@@ -422,6 +422,7 @@ func (c *LiveClient) wsDialOptions() *websocket.DialOptions {
 	return &websocket.DialOptions{
 		Subprotocols: []string{"graphql-transport-ws"},
 		HTTPHeader:   h,
+		HTTPClient:   c.wsHTTPClient,
 	}
 }
 
