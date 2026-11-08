@@ -243,16 +243,44 @@ func TestRequesterRetriesOnMovedWhenTheOwnerChanged(t *testing.T) {
 	}
 }
 
-// moved with the owner unchanged: no second try, a 503, counted moved. The call is not run twice anywhere.
-func TestRequesterMovedWithNoNewOwnerIs503(t *testing.T) {
+// moved with nobody new to ask (the lease still names the old owner, the row is gone, or it names this pod): the owner has just said it does
+// not hold the group and the lease shows no one else, which is the "no owner" case, served here and counted local. The old owner ran nothing;
+// the call runs once, here.
+func TestRequesterMovedWithNoNewOwnerIsServedLocally(t *testing.T) {
+	for name, prep := range map[string]func(f *fleet){
+		"unchanged": func(*fleet) {},
+		"row gone":  func(f *fleet) { f.view.next = nil; f.view.DeleteOwner(group) },
+		"this pod":  func(f *fleet) { f.view.next = &forward.LeaseOwner{Found: true, Pod: "pod-c", Epoch: 9} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFleet(t)
+			f.owner("pod-a", 7, false, nil)
+			prep(f)
+			var local localCounter
+			res, outcome, err := f.requester(nil).Do(context.Background(), callFresh, local.fn)
+			if err != nil || outcome != "local" || res.Status == forward.StatusUnavailable {
+				t.Fatalf("outcome=%q res=%+v err=%v, want a local run", outcome, res, err)
+			}
+			if local.n.Load() != 1 || len(f.runners["pod-a"].Calls()) != 0 {
+				t.Errorf("local runs %d, owner runs %d; want 1 and 0", local.n.Load(), len(f.runners["pod-a"].Calls()))
+			}
+			if f.out(forward.KindFreshState, "local") != 1 || f.out(forward.KindFreshState, "moved") != 0 {
+				t.Errorf("local=%v moved=%v, want 1 and 0", f.out(forward.KindFreshState, "local"), f.out(forward.KindFreshState, "moved"))
+			}
+		})
+	}
+}
+
+// moved twice (the new owner also says moved) is still a 503: two owners in a row disagree with the lease, and the call is not run anywhere.
+func TestRequesterMovedTwiceIs503(t *testing.T) {
 	f := newFleet(t)
 	f.owner("pod-a", 7, false, nil)
-	res, outcome, _ := f.requester(nil).Do(context.Background(), callFresh, (&localCounter{}).fn)
-	if outcome != "moved" || res.Status != forward.StatusUnavailable {
-		t.Fatalf("outcome=%q res=%+v", outcome, res)
-	}
-	if f.out(forward.KindFreshState, "moved") != 1 || len(f.runners["pod-a"].Calls()) != 0 {
-		t.Error("moved counted once, nothing run")
+	f.owner("pod-b", 9, false, nil)
+	f.view.next = &forward.LeaseOwner{Found: true, Pod: "pod-b", Epoch: 9}
+	var local localCounter
+	res, outcome, _ := f.requester(nil).Do(context.Background(), callFresh, local.fn)
+	if outcome != "moved" || res.Status != forward.StatusUnavailable || local.n.Load() != 0 {
+		t.Fatalf("outcome=%q res=%+v local=%d", outcome, res, local.n.Load())
 	}
 }
 

@@ -88,7 +88,8 @@ func (f *Forwarder) wait(k Kind) time.Duration {
 // (`local_busy`).
 //
 // Order: held here (no Redis) -> lease row (system pool, cached) -> the owner's readiness marker -> the owner's queue length -> push,
-// wait for the signed reply -> on `moved` or a timeout re-read the lease once and retry if the owner or epoch changed.
+// wait for the signed reply -> on `moved` or a timeout re-read the lease once and retry if the owner or epoch changed. With nobody new to ask,
+// `moved` is served here (`local`: the owner has just said it is not the owner, which is the no-owner case); a timeout is a 503.
 func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) (Result, error)) (Result, string, error) {
 	start := time.Now()
 	defer func() {
@@ -148,6 +149,11 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 			}
 			again, err := f.cfg.Leases.Owner(ctx, c.Group)
 			if err != nil || !again.Found || (again.Pod == owner.Pod && again.Epoch == owner.Epoch) || !ValidPod(again.Pod) {
+				if outcome == "moved" {
+					// The owner has just said it does not hold the group and the lease shows nobody else to ask: the "no owner" case, which M3
+					// serves here (counted local). A timeout with nobody new stays a 503: that owner may still be inside a slow Rivian call.
+					return f.soft(ctx, c, "local", local)
+				}
 				f.count(c.Kind, outcome) // nobody new to ask
 				return Result{Status: StatusUnavailable, Class: ClassUnavailable}, outcome, nil
 			}
