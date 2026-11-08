@@ -2377,6 +2377,15 @@ func (m *StateMonitor) resumeOpenCharge(ctx context.Context, curr *State) *liveC
 	if row == nil || m.since(row.StartedAt) > 24*time.Hour {
 		return nil
 	}
+	// A restart or a handoff leaves a gap of seconds to minutes. A row whose last write is older than the stale gap is not
+	// this charge: the truck was unplugged, drove and plugged in again, and Rivian's session total restarts at a plug-in,
+	// so resuming would replace the row's energy with the new plug-in's total (the first part lost) and glue two charges
+	// and the drive between them into one row. closeStaleOpenCharges retires the old row once the new charge opens.
+	if !curr.At.IsZero() && curr.At.Sub(row.EndedAt) > liveChargeMaxGap {
+		m.logger.Info("not resuming an open charge row: its last write is older than the stale gap",
+			"vehicle", curr.VehicleID, "id", row.ID, "last_write_age", curr.At.Sub(row.EndedAt).Round(time.Second))
+		return nil
+	}
 	c := liveChargeFromRow(row)
 	m.logger.Info("resumed open charge from DB",
 		"vehicle", curr.VehicleID,
