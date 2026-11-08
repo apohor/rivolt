@@ -10,6 +10,12 @@
 --   * A trigger on the tables the repairs write refuses every INSERT, UPDATE and DELETE by the repair role unless that setting names a row that
 --     is open (not ended) and less than 12 hours old. Other roles are untouched: the WHEN clause keeps the trigger off their writes entirely.
 -- Additive: one table, three functions, five triggers. Nothing is dropped, renamed or rewritten.
+-- CREATE TRIGGER takes SHARE ROW EXCLUSIVE on the table it is created on, which waits behind a long write and then queues every recorder write behind
+-- itself. A bounded lock_timeout (SET LOCAL: each migration runs in its own transaction) makes a busy table fail the migration, which retries on the
+-- next boot, instead of stalling recording. The migrator keys migrations by id only (no checksum), so adding this to a migration that has not reached
+-- prod changes nothing for installs that already applied it.
+SET LOCAL lock_timeout = '5s';
+
 CREATE TABLE IF NOT EXISTS operator_actions (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     role_label  TEXT        NOT NULL CHECK (role_label IN ('lead', 'owner')),
