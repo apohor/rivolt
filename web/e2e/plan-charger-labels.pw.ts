@@ -42,3 +42,73 @@ for (const v of [
     await ctx.close();
   });
 }
+
+// The (i) popover on a phone: it is drawn in the page, inside the window, never cut off by the map it opened over (the Hotel sentence was clipped at the
+// map's bottom edge), and a tap anywhere outside closes it, including a tap on the map itself.
+async function planned(browser: import("@playwright/test").Browser, vp: { width: number; height: number }, touch = false) {
+  const ctx = await browser.newContext({ viewport: vp, colorScheme: "dark", hasTouch: touch });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  await page.route("**/api/trips/saved", (r) => r.fulfill(j([{ id: "st-a", name: "Old trip", inputs: INPUTS, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])));
+  await page.route("**/api/trips/plan", (r) => r.fulfill(j(DEMO_PLAN)));
+  await page.goto("/trips/plan");
+  await page.getByRole("tab", { name: "Saved" }).click();
+  await page.getByRole("button", { name: /Old trip/ }).click();
+  await page.getByRole("tab", { name: "Planner" }).click();
+  await page.getByRole("button", { name: "Plan trip" }).click();
+  await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
+  await expect(page.locator("[data-map-chips]").first()).toBeVisible();
+  return { ctx, page };
+}
+
+for (const vp of [
+  { width: 390, height: 844 },
+  { width: 390, height: 560 },
+  { width: 320, height: 640 },
+]) {
+  test(`@webkit iphone: the (i) popover stays inside the window, whole or scrollable · ${vp.width}x${vp.height}`, async ({ browser }) => {
+    const { ctx, page } = await planned(browser, vp);
+    await page.locator("[data-map-chips]").first().getByRole("button", { name: "What the charger types mean" }).click();
+    const pop = page.locator("[data-charger-info-popover]");
+    await expect(pop).toBeVisible();
+    // The last sentence on the chips (Hotel) is reachable: all of it shows, or the popover scrolls.
+    await expect(pop).toContainText("If it's free and working, a night adds 100 miles or more.");
+    const b = (await pop.boundingBox())!;
+    expect(b.x, "left edge").toBeGreaterThanOrEqual(0);
+    expect(b.y, "top edge").toBeGreaterThanOrEqual(0);
+    expect(b.x + b.width, "right edge").toBeLessThanOrEqual(vp.width);
+    expect(b.y + b.height, "bottom edge").toBeLessThanOrEqual(vp.height);
+    const { sh, ch } = await pop.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+    if (sh > ch) {
+      await pop.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+      const last = (await pop.locator("p").last().boundingBox())!;
+      expect(last.y + last.height, "the last sentence scrolls into view").toBeLessThanOrEqual(b.y + b.height + 1);
+    }
+    await ctx.close();
+  });
+}
+
+test("@webkit iphone: a tap on the map closes the (i) popover, and so does a tap on the page", async ({ browser }) => {
+  const { ctx, page } = await planned(browser, { width: 390, height: 844 }, true);
+  const info = page.locator("[data-map-chips]").first().getByRole("button", { name: "What the charger types mean" });
+  const pop = page.locator("[data-charger-info-popover]");
+  for (const where of ["map", "page"]) {
+    await info.tap();
+    await expect(pop).toBeVisible();
+    await expect(info).toHaveAttribute("aria-expanded", "true");
+    if (where === "map") {
+      const m = (await page.locator("[data-plan-area='map'] .maplibregl-map").first().boundingBox())!;
+      await page.touchscreen.tap(m.x + m.width * 0.5, m.y + m.height * 0.7);
+    } else {
+      await page.touchscreen.tap(200, 8);
+    }
+    await expect(pop).toHaveCount(0);
+    await expect(info).toHaveAttribute("aria-expanded", "false");
+  }
+  // A tap inside the popover leaves it open.
+  await info.tap();
+  await pop.locator("p").first().tap();
+  await expect(pop).toBeVisible();
+  await ctx.close();
+});
+
