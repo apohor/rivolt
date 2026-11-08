@@ -277,6 +277,20 @@ func TestOwnerRejectsWhatFailsAdmission(t *testing.T) {
 	}
 }
 
+// A runner that fails (not a timeout) is counted `error`, never `ok`: "ok" means served. The requester gets a signed 500 `internal`.
+func TestOwnerRunnerErrorIsItsOwnOutcome(t *testing.T) {
+	r := newRig(t, nil)
+	r.runner.Err = context.Canceled // any non-timeout failure
+	r.start()
+	rep := r.reply(r.push(forward.KindFreshState, fresh, nil))
+	if rep == nil || rep.OK || rep.Status != forward.StatusInternal || rep.Class != forward.ClassInternal {
+		t.Fatalf("reply = %+v, want a signed 500 internal", rep)
+	}
+	if count(r, forward.KindFreshState, "error") != 1 || count(r, forward.KindFreshState, "ok") != 0 {
+		t.Errorf("a failed run counts error (%v) and not ok (%v)", count(r, forward.KindFreshState, "error"), count(r, forward.KindFreshState, "ok"))
+	}
+}
+
 // adopt is best effort: it runs, and no reply is written.
 func TestOwnerAdoptRunsWithoutAReply(t *testing.T) {
 	r := newRig(t, nil)

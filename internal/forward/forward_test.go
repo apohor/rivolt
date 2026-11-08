@@ -180,7 +180,10 @@ func TestKeyParsing(t *testing.T) {
 	if _, err := ParseKey(" " + good + "\n"); err != nil {
 		t.Errorf("surrounding whitespace is trimmed: %v", err)
 	}
-	for _, bad := range []string{"", "not base64!!", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 31)), base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 33))} {
+	if _, err := ParseKey(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 48))); err != nil {
+		t.Errorf("a key of more than 32 bytes is valid (at least 32): %v", err)
+	}
+	for _, bad := range []string{"", "not base64!!", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 31)), base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16))} {
 		_, err := ParseKey(bad)
 		if !errors.Is(err, ErrBadKey) {
 			t.Errorf("%q: err=%v, want ErrBadKey", bad, err)

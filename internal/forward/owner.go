@@ -292,7 +292,7 @@ func (o *Owner) run(ctx context.Context, req *Request, args any, nowMS int64) {
 		o.reply(ctx, req, Reply{OK: false, Status: 504, Class: "timeout"})
 		return
 	case err != nil:
-		o.count(req.Kind, "ok") // the call completed with an error the requester maps; the outcome counts the forward, not the upstream
+		o.count(req.Kind, "error")
 		o.reply(ctx, req, Reply{OK: false, Status: StatusInternal, Class: ClassInternal})
 		return
 	}

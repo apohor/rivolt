@@ -63,8 +63,14 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 	}
 	addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR"))
 	key, kerr := forward.ParseKey(os.Getenv(forward.EnvKey))
-	if addr == "" || kerr != nil {
-		logger.Error("forward: RIVOLT_FORWARD=1 needs RIVOLT_REDIS_ADDR and a valid "+forward.EnvKey+" (32 random bytes, base64)", "redis_addr_set", addr != "", "key_valid", kerr == nil)
+	// Fail closed: a rolling deploy then stalls with the old pods serving, which is the safe failure. One clear line each, naming the
+	// variable and never its value.
+	if addr == "" {
+		logger.Error("forward: RIVOLT_FORWARD=1 but RIVOLT_REDIS_ADDR is not set; refusing to start")
+		os.Exit(1)
+	}
+	if kerr != nil {
+		logger.Error("forward: RIVOLT_FORWARD=1 but " + forward.EnvKey + " is missing or not at least 32 random bytes in base64; refusing to start")
 		os.Exit(1)
 	}
 	signer, err := forward.NewSigner(key)
