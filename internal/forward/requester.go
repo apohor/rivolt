@@ -73,6 +73,9 @@ func (f *Forwarder) count(kind Kind, outcome string) {
 	}
 }
 
+// NoGroup counts a call the handler served on this pod because it could not tell which group the vehicle belongs to (it never reaches Do).
+func (f *Forwarder) NoGroup(kind Kind) { f.count(kind, "no_group") }
+
 func (f *Forwarder) wait(k Kind) time.Duration {
 	if d := f.cfg.Timeouts[k]; d > 0 {
 		return d

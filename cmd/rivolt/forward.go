@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/metrics"
@@ -18,19 +20,57 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 )
 
-// forwardRunner runs the forwarded kinds on this pod, the owner of the group. In M3-1 only adopt exists; the other kinds answer 501
-// until their steps (fresh_state M3-2b, plan_legs M3-4, ota_notes M3-4b), and nothing sends them before then.
+// forwardRunner runs the forwarded kinds on this pod, the owner of the group. adopt (M3-1) and fresh_state (M3-2b) exist; the other kinds
+// answer 501 until their steps (plan_legs M3-4, ota_notes M3-4b), and nothing sends them before then.
 type forwardRunner struct {
+	store    *leases.Store
 	secrets  *secrets.Store
 	accounts rivian.AccountRegistry
 	monitors *rivian.MonitorRegistry
 	logger   *slog.Logger
 }
 
-func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, _ string, _ any) (forward.Result, error) {
-	if kind != forward.KindAdopt {
-		return forward.Result{Status: 501, Class: "not_implemented"}, nil
+func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group string, args any) (forward.Result, error) {
+	switch kind {
+	case forward.KindAdopt:
+		return r.adopt(ctx, user)
+	case forward.KindFreshState:
+		return r.freshState(ctx, user, group, args)
 	}
+	return forward.Result{Status: 501, Class: "not_implemented"}, nil
+}
+
+// freshState serves one vehicle-state fetch for a requester that does not hold the group: the same fetch the handler makes, answered from
+// this pod's cache when it is fresh enough. The vehicle must belong to the group the request names, so a request cannot make this pod
+// call Rivian for a vehicle it does not own.
+func (r *forwardRunner) freshState(ctx context.Context, user, group string, args any) (forward.Result, error) {
+	a, ok := args.(*forward.FreshStateArgs)
+	uid, err := uuid.Parse(user)
+	if !ok || err != nil || r.accounts == nil || r.store == nil {
+		return forward.Result{Status: 400, Class: "bad_request"}, nil
+	}
+	if g, known := r.store.GroupOfVehicle(a.VehicleID); !known || g != group {
+		return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
+	}
+	var c rivian.Client
+	if acct := r.accounts.For(uid); acct != nil {
+		c, _ = acct.(rivian.Client)
+	}
+	var hasSession func(context.Context) (bool, error)
+	if r.secrets != nil {
+		hasSession = func(ctx context.Context) (bool, error) {
+			sess, err := secrets.LoadRivianSession(ctx, r.secrets, uid)
+			return sess.UserSessionToken != "", err
+		}
+	}
+	var mon *rivian.StateMonitor
+	if r.monitors != nil {
+		mon = r.monitors.For(uid)
+	}
+	return api.ServeFreshState(ctx, c, mon, hasSession, a.VehicleID, time.Duration(a.MaxAgeMS)*time.Millisecond), nil
+}
+
+func (r *forwardRunner) adopt(ctx context.Context, user string) (forward.Result, error) {
 	uid, err := uuid.Parse(user)
 	if err != nil || r.secrets == nil || r.accounts == nil || r.monitors == nil {
 		return forward.Result{Status: 400, Class: "bad_request"}, nil
@@ -50,16 +90,22 @@ func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, _ stri
 	return forward.Result{Status: 200, Body: json.RawMessage(`{}`)}, nil
 }
 
+// forwardRuntime is what startForwardOwner hands back: the drain switch, and the requester side for the handlers (nil with the flag off,
+// where every handler calls Rivian itself as before).
+type forwardRuntime struct {
+	setDraining func()
+	forwarder   *forward.Forwarder
+}
+
 // startForwardOwner creates the forwarder's metrics (always, so the series exist at 0 on every pod) and, only when RIVOLT_FORWARD=1,
-// runs the owner loop on its own Redis client. It returns the function to call when the pod starts draining. With the flag off (the
+// runs the owner loop on its own Redis client. It returns the drain switch and the requester. With the flag off (the
 // default) nothing runs and no key is read; with the flag on and no valid key the process refuses to start, so a pod never believes
 // it forwards while it does not.
 func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *metrics.Metrics, pool *sql.DB, store *leases.Store,
-	accounts rivian.AccountRegistry, monitors *rivian.MonitorRegistry, secretsStore *secrets.Store, keyPrefix string) (setDraining func()) {
+	accounts rivian.AccountRegistry, monitors *rivian.MonitorRegistry, secretsStore *secrets.Store, keyPrefix string) forwardRuntime {
 	fm := forward.NewMetrics(appMetrics.Registry())
-	setDraining = func() {}
 	if os.Getenv("RIVOLT_FORWARD") != "1" {
-		return setDraining
+		return forwardRuntime{setDraining: func() {}}
 	}
 	addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR"))
 	key, kerr := forward.ParseKey(os.Getenv(forward.EnvKey))
@@ -80,13 +126,15 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 	}
 	ropts := forwardRedisOptions(addr, os.Getenv)
 	logger.Info("forward: redis client", append([]any{"addr", addr, "pool", ropts.PoolSize}, redisAuthAttrs(ropts)...)...)
+	rc := redis.NewClient(ropts)
+	leaseView := forward.NewPGLeaseView(pool, store)
 	owner, err := forward.NewOwner(forward.OwnerConfig{
 		Pod:     store.PodID(),
 		Keys:    forward.Keys{Prefix: keyPrefix},
 		Signer:  signer,
-		Redis:   redis.NewClient(ropts),
-		Leases:  forward.NewPGLeaseView(pool, store),
-		Runner:  &forwardRunner{secrets: secretsStore, accounts: accounts, monitors: monitors, logger: logger},
+		Redis:   rc,
+		Leases:  leaseView,
+		Runner:  &forwardRunner{store: store, secrets: secretsStore, accounts: accounts, monitors: monitors, logger: logger},
 		Metrics: fm,
 		Logger:  logger,
 	})
@@ -94,7 +142,20 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 		logger.Error("forward: owner", "err", err.Error())
 		os.Exit(1)
 	}
+	fwd, err := forward.NewForwarder(forward.RequesterConfig{
+		Pod:     store.PodID(),
+		Keys:    forward.Keys{Prefix: keyPrefix},
+		Signer:  signer,
+		Redis:   rc,
+		Leases:  leaseView,
+		Metrics: fm,
+		Logger:  logger,
+	})
+	if err != nil {
+		logger.Error("forward: requester", "err", err.Error())
+		os.Exit(1)
+	}
 	go owner.Run(ctx)
 	logger.Info("forward: owner loop on", "pod", store.PodID())
-	return owner.SetDraining
+	return forwardRuntime{setDraining: owner.SetDraining, forwarder: fwd}
 }

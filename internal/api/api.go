@@ -98,6 +98,10 @@ const (
 // user's uid — there is no singleton "current user" anywhere in
 // the API surface.
 type Deps struct {
+	// StateForward and GroupOfVehicle route the one Rivian call of GET /api/state/{id} to the vehicle's group owner (single-owner M3-2b).
+	// Both nil (RIVOLT_FORWARD off): the pod calls Rivian itself, as before.
+	StateForward   StateForwarder
+	GroupOfVehicle func(vehicleID string) (group string, ok bool)
 	// SampleRetentionMonths is RIVOLT_SAMPLE_RETENTION_MONTHS (0 keeps raw
 	// samples forever). A restore skips samples older than the cutoff, which
 	// the next retention sweep would delete anyway.
@@ -1150,7 +1154,7 @@ func New(d Deps) http.Handler {
 			r.With(vehicleScoped, vehicleGate, proOnlyMiddleware(d.Entitlements), defaultUnits).Get("/vehicles/{vehicleID}/trends", withUser(handleVehicleTrends(d.DB)))
 			r.With(vehicleScoped, vehicleGate, proOnlyMiddleware(d.Entitlements), defaultUnits).Get("/vehicles/{vehicleID}/cold-range", withUser(handleColdRange(d.DB)))
 			r.With(vehicleScoped, vehicleGate).Get("/state/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleVehicleState(clientFor(d, uid), monitorFor(d, uid), d.rivianSessionCheck(uid))(w, r)
+				handleVehicleStateForwarded(clientFor(d, uid), monitorFor(d, uid), d.rivianSessionCheck(uid), d.stateForward(uid))(w, r)
 			}))
 			// The raw probes below send arbitrary or exploratory calls to Rivian as the signed-in user (two of them open a Parallax
 			// subscription per call) and no client uses them. They are mounted only where the debug probes are on (preview, local), never on

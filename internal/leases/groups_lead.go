@@ -452,6 +452,15 @@ func (s *Store) SetVehicleGroups(vg map[string]string) {
 	s.groupMu.Unlock()
 }
 
+// GroupOfVehicle is the id of the group a vehicle belongs to, as of the last lead pass (the map SetVehicleGroups recorded). A read-only
+// accessor for the forwarder, which needs the group of a vehicle this pod may not hold; ok is false for a vehicle the last pass did not see.
+func (s *Store) GroupOfVehicle(vehicleID string) (string, bool) {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	g, ok := s.vehicleGroup[vehicleID]
+	return g, ok
+}
+
 // Fence says what this pod may write for a vehicle (fence.Source). Lead mode off: Off. In lead
 // mode a write needs a held group for the vehicle, renewed within the local deadline; a group
 // stolen within the warm-up window waits.

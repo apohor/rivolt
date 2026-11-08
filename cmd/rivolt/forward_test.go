@@ -2,23 +2,32 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"log/slog"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/apohor/rivolt/internal/forward"
+	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/metrics"
+	"github.com/apohor/rivolt/internal/rivian"
 )
 
-// Only adopt exists in M3-1; the other kinds answer 501 and a request that cannot be served answers 400, never an error that would
+// Only adopt and fresh_state exist (M3-2b); the other kinds answer 501 and a request that cannot be served answers 400, never an error that would
 // look like an upstream failure.
 func TestForwardRunnerKinds(t *testing.T) {
 	r := &forwardRunner{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	for _, k := range []forward.Kind{forward.KindPlanLegs, forward.KindFreshState, forward.KindOTANotes} {
+	for _, k := range []forward.Kind{forward.KindPlanLegs, forward.KindOTANotes} {
 		res, err := r.Run(context.Background(), k, "11111111-2222-3333-4444-555555555555", "g", nil)
 		if err != nil || res.Status != 501 || res.Class != "not_implemented" {
 			t.Errorf("%s: %+v %v, want 501 not_implemented", k, res, err)
 		}
+	}
+	// fresh_state with nothing wired, or args of the wrong type: 400; a vehicle outside the named group: 404.
+	if res, err := r.Run(context.Background(), forward.KindFreshState, "11111111-2222-3333-4444-555555555555", "g", &forward.FreshStateArgs{VehicleID: "v-fake-1"}); err != nil || res.Status != 400 {
+		t.Errorf("fresh_state with nothing wired: %+v %v, want 400", res, err)
 	}
 	// adopt with nothing wired, and with a user that is not a uuid: 400.
 	for _, user := range []string{"11111111-2222-3333-4444-555555555555", "not-a-uuid"} {
@@ -33,8 +42,11 @@ func TestForwardRunnerKinds(t *testing.T) {
 func TestStartForwardOwnerIsOffByDefault(t *testing.T) {
 	t.Setenv("RIVOLT_FORWARD", "")
 	m := metrics.New()
-	drain := startForwardOwner(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), m, nil, nil, nil, nil, nil, "rivolt")
-	drain() // must not panic
+	rt := startForwardOwner(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), m, nil, nil, nil, nil, nil, "rivolt")
+	rt.setDraining() // must not panic
+	if rt.forwarder != nil {
+		t.Error("no requester with the flag off")
+	}
 	mfs, err := m.Registry().Gather()
 	if err != nil {
 		t.Fatal(err)
@@ -50,5 +62,64 @@ func TestStartForwardOwnerIsOffByDefault(t *testing.T) {
 	}
 	if !found {
 		t.Error("rivolt_rivian_forward_total must be registered even with the flag off")
+	}
+}
+
+// stateAcct is an account that is also a rivian.Client and counts State calls.
+type stateAcct struct {
+	rivian.Account
+	rivian.Client
+	calls int
+}
+
+func (a *stateAcct) State(context.Context, string) (*rivian.State, error) {
+	a.calls++
+	return &rivian.State{VehicleID: "v-fake-1"}, nil
+}
+
+func (a *stateAcct) Login(ctx context.Context, c rivian.Credentials) error {
+	return a.Account.Login(ctx, c)
+}
+func (a *stateAcct) Logout()                     { a.Account.Logout() }
+func (a *stateAcct) Authenticated() bool         { return true }
+func (a *stateAcct) MFAPending() bool            { return false }
+func (a *stateAcct) Email() string               { return "" }
+func (a *stateAcct) NeedsReauth() (bool, string) { return false, "" }
+func (a *stateAcct) Snapshot() rivian.Session    { return rivian.Session{} }
+func (a *stateAcct) Restore(rivian.Session)      {}
+func (a *stateAcct) AuthReady() <-chan struct{}  { return nil }
+
+type oneAcctRegistry struct{ a *stateAcct }
+
+func (r oneAcctRegistry) For(uuid.UUID) rivian.Account { return r.a }
+func (r oneAcctRegistry) Loaded() []uuid.UUID          { return nil }
+
+// A signed fresh_state request cannot make this pod call Rivian for a vehicle outside the group it names: a different group, or a
+// vehicle the pod does not know, is 404 not_found with no Rivian call; the right group is one call.
+func TestForwardRunnerFreshStateGroupGuard(t *testing.T) {
+	store, err := leases.NewStore(new(sql.DB), "pod-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetVehicleGroups(map[string]string{"v-fake-1": "grp-1"})
+	acct := &stateAcct{}
+	r := &forwardRunner{store: store, accounts: oneAcctRegistry{acct}, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	const user = "11111111-2222-3333-4444-555555555555"
+	for _, tc := range []struct {
+		name, vehicle, group string
+		status, calls        int
+	}{
+		{"other group", "v-fake-1", "grp-2", 404, 0},
+		{"unknown vehicle", "v-fake-9", "grp-1", 404, 0},
+		{"right group", "v-fake-1", "grp-1", 200, 1},
+	} {
+		acct.calls = 0
+		res, err := r.Run(context.Background(), forward.KindFreshState, user, tc.group, &forward.FreshStateArgs{VehicleID: tc.vehicle})
+		if err != nil || res.Status != tc.status || acct.calls != tc.calls {
+			t.Errorf("%s: status %d err %v, %d Rivian calls; want %d and %d", tc.name, res.Status, err, acct.calls, tc.status, tc.calls)
+		}
+		if tc.status == 404 && res.Class != "not_found" {
+			t.Errorf("%s: class %q, want not_found", tc.name, res.Class)
+		}
 	}
 }
