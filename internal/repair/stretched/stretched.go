@@ -796,6 +796,15 @@ func lockRestore(ctx context.Context, tx *sql.Tx, batchID uuid.UUID) ([]restoreG
 		if intact != 1 {
 			blockers = append(blockers, Blocker{g.charge, "the original's ended_at changed since the repair (or the row is gone)"})
 		}
+		// The original must carry THIS repair's mark for this batch: another repair's batch in the shared backup table (a close-stale
+		// batch) matches on ended_at and would be reverted, leaving that repair's mark behind.
+		var marked int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM charges c WHERE c.id = $1 AND c.metadata #>> '{stretched_repair,batch}' = $2`, g.charge, batchID.String()).Scan(&marked); err != nil {
+			return nil, nil, err
+		}
+		if marked != 1 {
+			blockers = append(blockers, Blocker{g.charge, "the row does not carry this batch's stretched-repair mark"})
+		}
 		var touched int
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*) FROM charges x
