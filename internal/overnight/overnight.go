@@ -549,7 +549,7 @@ func collect(a Archive, pth *path, kinds []string, lo, hi float64) ([]scored, er
 					kw = maxScoredL2KW
 				}
 				c = Candidate{
-					Name: p.Name, Lat: p.Lat, Lon: p.Lon, EntityID: p.EntityID, FacilityType: p.FacilityType,
+					Name: cleanHotelName(p.Name), Lat: p.Lat, Lon: p.Lon, EntityID: p.EntityID, FacilityType: p.FacilityType,
 					Kind: KindHotel, L2KW: round1(kw), L2KWAssumed: assumed, L2Count: p.L2Count,
 				}
 			}
