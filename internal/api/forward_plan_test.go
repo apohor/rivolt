@@ -16,11 +16,13 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/apohor/rivolt/internal/dcfcrates"
 	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/forward/forwardtest"
 	"github.com/apohor/rivolt/internal/planleg"
@@ -397,7 +399,7 @@ func TestForwardedSchemaAcceptsEveryInputTheHandlersProduce(t *testing.T) {
 	}
 }
 
-// The schema's drive modes are the settings' list: neither can grow without the other.
+// The schema's drive modes are the settings' list (it is built from it): every one is accepted, and what the handlers drop is not.
 func TestForwardedDriveModesMatchTheHandlers(t *testing.T) {
 	for _, m := range settings.DriveModes {
 		if !forward.ValidDriveMode(m) {
@@ -409,4 +411,133 @@ func TestForwardedDriveModesMatchTheHandlers(t *testing.T) {
 			t.Errorf("%q is accepted by the forwarded schema but the handlers drop it", m)
 		}
 	}
+}
+
+// The other bounds against what the callers can send. Network preferences: the full list the handler injects when the user prefers every
+// network (all Rivian ids of dcfcrates.Networks, preference 1). Starting charge: the handler accepts 0 < soc <= 100 for a typed value and clamps a
+// telemetry-derived one to [0, 100] (TestTelemetryChargeOverOneHundredIsClampedAndPassesTheSchema), so the schema's own bound is never hit.
+func TestForwardedSchemaBoundsMatchWhatCallersSend(t *testing.T) {
+	signer, _ := forward.NewSigner(bytes.Repeat([]byte{7}, forward.KeyLen))
+	ok := func(what string, in rivian.PlanTripInput) bool {
+		t.Helper()
+		args, _ := json.Marshal(planLegsArgs(in))
+		req := &forward.Request{V: forward.Version, ID: strings.Repeat("a", 32), User: uuid.NewString(), Group: "g", Epoch: 1, Kind: forward.KindPlanLegs, Args: args}
+		signer.SignRequest(req)
+		_, err := forward.Check(signer, req)
+		return err == nil
+	}
+	base := sampleInput()
+	base.DepartureTime = time.Time{}
+
+	var nets []settings.ChargingNetwork
+	for _, n := range dcfcrates.Networks {
+		nets = append(nets, settings.ChargingNetwork{Slug: n.Slug, Preferred: true})
+	}
+	prefs := settings.NetworkPreferenceList(nets)
+	if len(prefs) == 0 {
+		t.Fatal("no network preferences built")
+	}
+	in := base
+	for _, p := range prefs {
+		in.NetworkPreferences = append(in.NetworkPreferences, rivian.NetworkPreference{NetworkID: p.NetworkID, Preference: p.Preference})
+	}
+	if !ok("every network preferred", in) {
+		t.Errorf("the owner would refuse the full network preference list (%d entries)", len(in.NetworkPreferences))
+	}
+	for _, soc := range []float64{0.5, 1, 50, 99.9, 100} {
+		in := base
+		in.StartingSoC = soc
+		if !ok("soc", in) {
+			t.Errorf("starting soc %v refused", soc)
+		}
+	}
+	// The schema itself still refuses a charge over 100 (the handler never sends one).
+	over := base
+	over.StartingSoC = 100.4
+	if ok("soc over 100", over) {
+		t.Error("a charge over 100 was accepted by the schema")
+	}
+}
+
+// The same handler-driven check for fresh_state and ota_notes: the arguments the state and release-notes handlers hand the forwarder, for the
+// vehicle ids Rivian issues, pass the owner's own admission test (the harness that missed the drive mode only ever sent one kind of input).
+func TestForwardedSchemaAcceptsWhatTheStateAndNotesHandlersSend(t *testing.T) {
+	signer, _ := forward.NewSigner(bytes.Repeat([]byte{7}, forward.KeyLen))
+	check := func(what string, c forward.Call) {
+		t.Helper()
+		args, _ := json.Marshal(c.Args)
+		req := &forward.Request{V: forward.Version, ID: strings.Repeat("a", 32), User: c.User, Group: c.Group, Epoch: 1, Kind: c.Kind, Args: args}
+		signer.SignRequest(req)
+		if _, err := forward.Check(signer, req); err != nil {
+			t.Errorf("%s: the owner would refuse %+v: %v", what, c.Args, err)
+		}
+	}
+	for _, vid := range []string{"01-000000001", "01-000000002", "v-fake-1", "R1S.sample_vehicle-2"} {
+		// fresh_state: GET /api/state/{id} on a pod with no cached state.
+		fw := &fakeStateForwarder{res: forward.Result{Status: 200, Body: json.RawMessage(`{}`)}}
+		sf := &stateForward{fw: fw, user: uuid.New(), groupOf: func(string) (string, bool) { return "g", true }, forwardClient: anyClient}
+		r := httptest.NewRequest(http.MethodGet, "/api/state/"+vid, nil)
+		rc := chi.NewRouteContext()
+		rc.URLParams.Add("vehicleID", vid)
+		r = r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, rc))
+		handleVehicleStateForwarded(&restStateClient{}, rivian.NewStateMonitor(nil, nil), nil, sf)(httptest.NewRecorder(), r)
+		if len(fw.calls) != 1 {
+			t.Fatalf("fresh_state for %q: %d forwards", vid, len(fw.calls))
+		}
+		check("fresh_state "+vid, fw.calls[0])
+
+		// ota_notes: the release-notes tap.
+		fw2 := &fakeStateForwarder{res: forward.Result{Status: 200, Body: json.RawMessage(`{}`)}}
+		sf2 := &stateForward{fw: fw2, user: uuid.New(), groupOf: func(string) (string, bool) { return "g", true }, forwardClient: anyClient}
+		if _, err := sf2.forwardOTANotes(context.Background(), &fakeOTA{}, vid); err != nil {
+			_ = err // a failed decode of the canned empty answer is fine: only the arguments are under test
+		}
+		if len(fw2.calls) != 1 {
+			t.Fatalf("ota_notes for %q: %d forwards", vid, len(fw2.calls))
+		}
+		check("ota_notes "+vid, fw2.calls[0])
+	}
+}
+
+// A charge taken from telemetry can read a hair over 100 (rounding): the handler clamps it to [0, 100], so the planner is sent 100 and the
+// forwarded schema accepts it (otherwise the owner would refuse it, the call would be counted rejected, and rejected > 0 is the rollback
+// trigger). A charge the caller typed is validated, not clamped.
+func TestTelemetryChargeOverOneHundredIsClampedAndPassesTheSchema(t *testing.T) {
+	signer, _ := forward.NewSigner(bytes.Repeat([]byte{7}, forward.KeyLen))
+	for _, tc := range []struct {
+		soc  float64
+		want float64
+	}{{100.4, 100}, {100, 100}, {63.5, 63.5}} {
+		mon := rivian.NewStateMonitor(nil, nil)
+		mon.SetVehicleInfoLoader(func(context.Context) ([]rivian.Vehicle, error) { return []rivian.Vehicle{{ID: "v1"}}, nil })
+		mon.Prime("v1", &rivian.State{VehicleID: "v1", BatteryLevelPct: tc.soc, PowerState: "ready"})
+		var seen []rivian.PlanTripInput
+		planner := planFuncAPI(func(_ context.Context, in rivian.PlanTripInput) (*rivian.TripPlan, error) {
+			seen = append(seen, in)
+			return samplePlan(), nil
+		})
+		rec := httptest.NewRecorder()
+		handleTripPlan(plannerClient{Client: rivian.NewStub(), TripPlanner: planner}, mon, nil, uuid.New(), nil, nil, nil, nil)(rec,
+			httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(`{"waypoints":[
+			 {"latitude":34.0562,"longitude":-118.2427,"waypoint_type":"origin"},{"latitude":32.7157,"longitude":-117.1611,"waypoint_type":"destination"}]}`)))
+		if len(seen) != 1 || seen[0].StartingSoC != tc.want {
+			t.Fatalf("telemetry %v: planner calls %d (status %d: %s), starting soc %v, want %v", tc.soc, len(seen), rec.Code, rec.Body, startingSoCOf(seen), tc.want)
+		}
+		args, _ := json.Marshal(planLegsArgs(seen[0]))
+		req := &forward.Request{V: forward.Version, ID: strings.Repeat("a", 32), User: uuid.NewString(), Group: "g", Epoch: 1, Kind: forward.KindPlanLegs, Args: args}
+		signer.SignRequest(req)
+		if _, err := forward.Check(signer, req); err != nil {
+			t.Errorf("telemetry %v: the owner would refuse the input: %v", tc.soc, err)
+		}
+	}
+	if clampSoC(-3) != 0 || clampSoC(100.0001) != 100 {
+		t.Error("clampSoC bounds")
+	}
+}
+
+func startingSoCOf(in []rivian.PlanTripInput) any {
+	if len(in) == 0 {
+		return nil
+	}
+	return in[0].StartingSoC
 }

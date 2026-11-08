@@ -86,7 +86,7 @@ func resolveVehicle(ctx context.Context, mon *rivian.StateMonitor, pool *sql.DB,
 	}
 	if mon != nil && !have && out.VehicleID != "" {
 		if st, _ := mon.Latest(out.VehicleID); st != nil {
-			out.StartingSoC, have = st.BatteryLevelPct, true
+			out.StartingSoC, have = clampSoC(st.BatteryLevelPct), true
 			if out.RangeMeters == 0 && st.DistanceToEmpty > 0 {
 				out.RangeMeters = st.DistanceToEmpty * 1000
 			}
@@ -116,7 +116,7 @@ func resolveVehicle(ctx context.Context, mon *rivian.StateMonitor, pool *sql.DB,
 			 ORDER BY at DESC
 			 LIMIT 1`, uid, out.VehicleID).Scan(&s, &rangeMi)
 		if err == nil && s.Valid {
-			out.StartingSoC, have = s.Float64, true
+			out.StartingSoC, have = clampSoC(s.Float64), true
 			if rangeMi.Valid && out.RangeMeters == 0 {
 				out.RangeMeters = rangeMi.Float64 * 1609.34 // mi to m
 			}

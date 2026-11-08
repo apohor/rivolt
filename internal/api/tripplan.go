@@ -149,7 +149,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			}
 			req.Waypoints[0] = tripPlanWaypoint{Latitude: pos.Lat, Longitude: pos.Lon, WaypointType: "origin"}
 			if !explicitSoC {
-				startingSoC = pos.SoC
+				startingSoC = clampSoC(pos.SoC)
 			}
 			req.StartingRangeMeters = 0 // the reading's range is not the position's: derive it from the charge
 			fromPos = pos.echo()
