@@ -194,22 +194,50 @@ describe("hostile input", () => {
     expect(eventAttrs(html('[a](/x "t\\" onclick=\\"x")'))).toEqual([]);
   });
 
-  it("is quick on pathological input", () => {
+  // Linear-time, not fast: a shared CI runner can be 10 times slower than a laptop, so a wall-clock limit on one run flakes (1.5 s against a
+  // 1.5 s limit on two unrelated PRs). Backtracking shows as growth instead: render each hostile shape at size k and 2k and compare. Linear
+  // work doubles (ratio about 2), quadratic quadruples, exponential explodes. Best of three runs per size takes the noise out; a case that
+  // renders in a few milliseconds is too small to measure a ratio on and only has to stay far below any real budget.
+  it("is linear on pathological input", () => {
     const big = (s: string, n: number) => s.repeat(n);
-    const cases = [big("[", 30000), big("]", 30000), big("*", 30000), big("*a ", 10000), big("_a_", 10000), big("`", 30000), big("`a", 15000), big("[a](", 8000), big("[a](<", 8000),
-      big("![", 15000), big("(", 30000), big("<", 30000), big("<a ", 10000), big("&", 30000), big("&#x", 10000), big("\\", 30000), big("> ", 5000), big("- ", 5000), big("1. ", 5000),
-      big("#", 30000), big("\n", 30000), big("  \n", 10000), big("* ", 10000) + "a", big("**a ", 5000), big("[**a](", 4000), "[".repeat(5000) + "a" + "](x)".repeat(5000),
+    const cases: Array<[string, (k: number) => string]> = [
+      ["[", (k) => big("[", 30000 * k)], ["]", (k) => big("]", 30000 * k)], ["*", (k) => big("*", 30000 * k)], ["*a ", (k) => big("*a ", 10000 * k)],
+      ["_a_", (k) => big("_a_", 10000 * k)], ["`", (k) => big("`", 30000 * k)], ["`a", (k) => big("`a", 15000 * k)], ["[a](", (k) => big("[a](", 8000 * k)],
+      ["[a](<", (k) => big("[a](<", 8000 * k)], ["![", (k) => big("![", 15000 * k)], ["(", (k) => big("(", 30000 * k)], ["<", (k) => big("<", 30000 * k)],
+      ["<a ", (k) => big("<a ", 10000 * k)], ["&", (k) => big("&", 30000 * k)], ["&#x", (k) => big("&#x", 10000 * k)], ["\\", (k) => big("\\", 30000 * k)],
+      ["> ", (k) => big("> ", 5000 * k)], ["- ", (k) => big("- ", 5000 * k)], ["1. ", (k) => big("1. ", 5000 * k)], ["#", (k) => big("#", 30000 * k)],
+      ["\\n", (k) => big("\n", 30000 * k)], ["  \\n", (k) => big("  \n", 10000 * k)], ["* a", (k) => big("* ", 10000 * k) + "a"], ["**a ", (k) => big("**a ", 5000 * k)],
+      ["[**a](", (k) => big("[**a](", 4000 * k)], ["nested", (k) => "[".repeat(5000 * k) + "a" + "](x)".repeat(5000 * k)],
       // A heading line with a very long run of spaces or tabs (DA: the HEADING pattern must stay linear if it is ever edited).
-      "# " + " ".repeat(50000) + "x", "#\t" + "\t".repeat(50000) + "x", "# a" + " ".repeat(50000) + "#" + " ".repeat(50000) + "x", "# a " + "# ".repeat(25000),
-      "```" + " ".repeat(50000) + "`", "~~~" + " ".repeat(50000) + "x~", "a" + " ".repeat(50000) + "x\ny", "a" + " ".repeat(50000) + "\nb", "- - ".repeat(15000) + "x", "* * ".repeat(15000) + "x", "1. ".repeat(15000) + "x"];
-    for (const md of cases) {
+      ["# spaces", (k) => "# " + " ".repeat(50000 * k) + "x"], ["#\\t tabs", (k) => "#\t" + "\t".repeat(50000 * k) + "x"],
+      ["# a  # x", (k) => "# a" + " ".repeat(50000 * k) + "#" + " ".repeat(50000 * k) + "x"], ["# a # # #", (k) => "# a " + "# ".repeat(25000 * k)],
+      ["``` spaces", (k) => "```" + " ".repeat(50000 * k) + "`"], ["~~~ spaces", (k) => "~~~" + " ".repeat(50000 * k) + "x~"],
+      ["a spaces x", (k) => "a" + " ".repeat(50000 * k) + "x\ny"], ["a spaces nl", (k) => "a" + " ".repeat(50000 * k) + "\nb"],
+      ["- - ", (k) => "- - ".repeat(15000 * k) + "x"], ["* * ", (k) => "* * ".repeat(15000 * k) + "x"], ["1. 1. ", (k) => "1. ".repeat(15000 * k) + "x"],
+    ];
+    const once = (md: string) => {
       const t0 = performance.now();
-      const h = html(md);
-      const ms = performance.now() - t0;
-      expect(ms, `${md.slice(0, 12)}… took ${ms.toFixed(0)} ms`).toBeLessThan(1500);
-      expect(tagsOf(h).filter((t) => !ALLOWED_TAGS.has(t))).toEqual([]);
+      html(md);
+      return performance.now() - t0;
+    };
+    const best = (md: string) => Math.min(once(md), once(md), once(md));
+    const slow: string[] = [];
+    for (const [name, make] of cases) {
+      const small = make(1), large = make(2);
+      expect(tagsOf(html(large)).filter((t) => !ALLOWED_TAGS.has(t)), name).toEqual([]);
+      let t1 = once(small);
+      // Too small to measure a ratio on (under a second at twice the size is far from any real budget): only the absolute ceiling.
+      if (t1 < 40) {
+        const t2 = once(large);
+        expect(t2, `${name} at 2n took ${t2.toFixed(0)} ms`).toBeLessThan(1000);
+        continue;
+      }
+      t1 = Math.min(t1, best(small));
+      const t2 = best(large);
+      if (t2 / t1 > 3.2) slow.push(`${name}: ${t1.toFixed(0)} ms -> ${t2.toFixed(0)} ms at twice the size (x${(t2 / t1).toFixed(1)})`);
     }
-  });
+    expect(slow, "work that grows faster than linearly").toEqual([]);
+  }, 120_000);
 
   it("fuzz: random hostile Markdown never throws, never emits a tag or a link outside the allowed set", () => {
     // A small seeded generator (mulberry32) so a failure reproduces.
