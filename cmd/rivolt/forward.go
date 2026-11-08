@@ -134,6 +134,9 @@ func (r *forwardRunner) adopt(ctx context.Context, user string) (forward.Result,
 	}
 	acct.Restore(sess)
 	r.monitors.Start(ctx, uid)
+	if j := ownerDiscoveryJob.Load(); j != nil {
+		j.NudgeUser(uid) // owner discovery: a user with no vehicle yet is looked up now (it only acts for a user in a group this pod holds)
+	}
 	r.logger.Info("forward: adopted a user's monitor on request", "user_id", uid.String())
 	return forward.Result{Status: 200, Body: json.RawMessage(`{}`)}, nil
 }

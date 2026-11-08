@@ -1832,6 +1832,7 @@ func runServer() {
 	var leaseCoordinator *leases.Coordinator
 	// Single-owner M3: the requester side for handlers (nil unless RIVOLT_FORWARD=1 and leases are on) and the vehicle->group lookup.
 	var stateForward api.StateForwarder
+	var ownerDiscoveryUsers func(context.Context) ([]vehiclediscovery.OwnedUser, error) // the users of the groups this pod holds (RIVOLT_OWNER_DISCOVERY)
 	var groupOfVehicle func(string) (string, bool)
 
 	// Keep `vehicle_state` monthly partitions rolling. Without
@@ -2102,10 +2103,23 @@ func runServer() {
 				os.Exit(1)
 			}
 		}
+		// Single-owner M4-2b: a linked account with no vehicle yet is a group of one, so it has an owner and the owner looks its vehicles up.
+		// Before any lease pass runs (the SQL that defines the groups is chosen here).
+		if os.Getenv("RIVOLT_OWNER_DISCOVERY") == "1" {
+			leases.SetUserLevelGroups(true)
+		}
 		leaseStore, err := leases.NewStore(pgPool, podID)
 		if err != nil {
 			logger.Error("lease store", "err", err.Error())
 			os.Exit(1)
+		}
+		ownerDiscoveryUsers = func(ctx context.Context) ([]vehiclediscovery.OwnedUser, error) {
+			hs, err := leaseStore.HeldGroupUsers(ctx)
+			out := make([]vehiclediscovery.OwnedUser, len(hs))
+			for i, h := range hs {
+				out[i] = vehiclediscovery.OwnedUser{UID: h.User, Token: h.Token}
+			}
+			return out, err
 		}
 		// Single-owner M2: the group lease decides ownership and the pods spread the groups.
 		// On: TTL 30 s, ticks every 5 s +-1 s. Off by default, in every environment, until the chart's
@@ -3200,18 +3214,26 @@ func runServer() {
 	}
 	// Single-owner M3-6: linked users with no vehicle row have no group, so no lease and no owner. One pod (a Postgres advisory lock) looks them up
 	// every 30 minutes and primes their rows.
+	ownerDiscovery := os.Getenv("RIVOLT_OWNER_DISCOVERY") == "1" && ownerDiscoveryUsers != nil
 	if pgPool != nil && accountRegistry != nil {
-		startVehicleDiscovery(ctx, logger, appMetrics, &vehiclediscovery.Job{
+		job := &vehiclediscovery.Job{
 			DB:      pgPool,
 			Lookup:  discoveryLookup(accountRegistry, secretsStore),
 			Backoff: vehiclediscovery.NewRedisBackoff(sharedRedis, redisKeyPrefix, api.FailLimiterKey(cookieSecret)),
-		})
+		}
+		if ownerDiscovery {
+			// M4-2b: every pod looks up the vehicles of the linked users in the groups it owns (no advisory lock; the answers are kept in Postgres).
+			job.Users, job.Backoff = ownerDiscoveryUsers, nil
+			ownerDiscoveryJob.Store(job)
+		}
+		startVehicleDiscovery(ctx, logger, appMetrics, job)
 	}
 	appBuild := api.NewAppBuildCounter()
 	appMetrics.Registry().MustRegister(appBuild.Collector())
 	handler := api.New(api.Deps{
 		AppBuild:              appBuild,
 		StateForward:          stateForward,
+		OwnerDiscovery:        ownerDiscovery,
 		GroupOfVehicle:        groupOfVehicle,
 		ForwardReplayTest:     forwardReplayTestOn,
 		AuditKey:              deriveKey(cookieSecret, "rivolt/audit/v1"),

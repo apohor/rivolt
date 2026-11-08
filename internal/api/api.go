@@ -102,6 +102,9 @@ type Deps struct {
 	// Both nil (RIVOLT_FORWARD off): the pod calls Rivian itself, as before.
 	StateForward   StateForwarder
 	GroupOfVehicle func(vehicleID string) (group string, ok bool)
+	// OwnerDiscovery is RIVOLT_OWNER_DISCOVERY (single-owner M4-2b): the owner of a group looks up the vehicles of its linked users that have none yet,
+	// /api/vehicles no longer asks Rivian for them, and /api/vehicles/discovery says whether the lookup is still going.
+	OwnerDiscovery bool
 	// ForwardReplayTest is RIVOLT_FORWARD_REPLAY_TEST: also forward the replay client's calls (see stateForward.replayTest).
 	ForwardReplayTest bool
 	// SampleRetentionMonths is RIVOLT_SAMPLE_RETENTION_MONTHS (0 keeps raw
@@ -1087,16 +1090,17 @@ func New(d Deps) http.Handler {
 				// no write); everyone else, including demo, replay and self-hosted users, gets the old answer byte for byte (single-owner M3-5a).
 				var fromDB *vehiclesFromDB
 				if d.DB != nil && d.Accounts != nil {
-					fromDB = &vehiclesFromDB{gate: vehiclesFallback, account: func(ctx context.Context) (linked, needsReauth, ok bool) {
-						st, ok := freshAccountState(auth.WithUser(ctx, uid), d.Accounts, uid)
-						if !ok {
-							return false, false, false
-						}
-						return !st.SessionVersion.IsZero(), st.NeedsReauth, true // from the users row, not this pod's memory
-					}}
+					fromDB = &vehiclesFromDB{gate: vehiclesFallback, account: d.vehiclesAccountState(uid), ownerDiscovery: d.OwnerDiscovery}
 				}
 				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession, pv.lockedID, fromDB)(w, r)
 			}))
+			// What the owner's lookup has found for a linked account with no vehicle yet: found, looking, none, reauth or unlinked (single-owner
+			// M4-2b). Mounted only with owner discovery; clients ask it when the list is empty.
+			if d.OwnerDiscovery && d.DB != nil && d.Accounts != nil {
+				r.Get("/vehicles/discovery", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleVehicleDiscovery(d.vehiclesAccountState(uid), d.DB)(w, r)
+				}))
+			}
 			// /api/vehicles/owned reads straight from the local
 			// vehicles table — used by the import picker so the
 			// user can pick a target vehicle even when Rivian is

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 
@@ -13,6 +14,10 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/vehiclediscovery"
 )
+
+// ownerDiscoveryJob is this pod's owner-mode discovery job (RIVOLT_OWNER_DISCOVERY), set before it starts; the forward runner's adopt nudges it so
+// a user who has just signed in is looked up at once rather than at the next tick.
+var ownerDiscoveryJob atomic.Pointer[vehiclediscovery.Job]
 
 // startVehicleDiscovery runs the vehicle discovery job (internal/vehiclediscovery) on this pod; the job takes a Postgres advisory lock, so
 // only one pod's pass does anything. It finds the linked users nobody records (a stored Rivian session, no vehicle row, so no group, no lease
