@@ -45,6 +45,7 @@ import (
 	"github.com/apohor/rivolt/internal/changelog"
 	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/charges"
+	"github.com/apohor/rivolt/internal/chargewatch"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/demo"
@@ -527,6 +528,20 @@ func runServer() {
 			appMetrics.StripeCancelOldestSeconds.Set(oldest.Seconds())
 		}}
 		go stripeClosure.RunRetrier(ctx, 5*time.Minute)
+	}
+	// The open live charge rows now, by what the vehicle's latest frame says (#1670). Every replica exports the same figures, so the series
+	// does not drop out when one pod does.
+	if pgPool != nil {
+		appMetrics.OpenCharges.WithLabelValues("charging").Set(0)
+		appMetrics.OpenCharges.WithLabelValues("not_charging").Set(0)
+		appMetrics.OpenChargesOldestSeconds.WithLabelValues("charging").Set(0)
+		appMetrics.OpenChargesOldestSeconds.WithLabelValues("not_charging").Set(0)
+		go chargewatch.Run(ctx, pgPool, 5*time.Minute, time.Now, func(s chargewatch.Summary) {
+			appMetrics.OpenCharges.WithLabelValues("charging").Set(float64(s.Charging))
+			appMetrics.OpenCharges.WithLabelValues("not_charging").Set(float64(s.NotCharging))
+			appMetrics.OpenChargesOldestSeconds.WithLabelValues("charging").Set(s.OldestChargingSec)
+			appMetrics.OpenChargesOldestSeconds.WithLabelValues("not_charging").Set(s.OldestNotChargingSec)
+		})
 	}
 	// The launch dashboard's counts (entitlement rows by source and status, accounts), no user labels, refreshed every five minutes.
 	if rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")) {

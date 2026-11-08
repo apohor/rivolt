@@ -1233,6 +1233,14 @@ func stillChargingFrame(st *State) bool {
 	return !isDrivingGear(st.Gear) && chargerPlugged(st, false)
 }
 
+// FrameStillCharging is the janitor's verdict on a frame, for callers outside this package (the open-charge gauge): the charger state is
+// charging_* AND the frame passes stillChargingFrame (plugged in with the recorder's rule, judged as if no charge were open, and not in a
+// driving gear). One rule, so a metric about stuck rows can never drift from what the janitor itself would do.
+func FrameStillCharging(chargerState, chargerStatus string, chargerPowerKW float64, gear string) bool {
+	st := &State{ChargerState: chargerState, ChargerStatus: chargerStatus, ChargerPowerKW: chargerPowerKW, Gear: gear}
+	return isChargingCS(st.ChargerState) && stillChargingFrame(st)
+}
+
 // confirmStillCharging asks the Rivian REST gateway whether the
 // vehicle is still in a charging_* non-terminal state right now.
 // Returns (true, currentChargerState) only on a clean response that
