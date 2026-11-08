@@ -895,6 +895,9 @@ function SessionInsights({
       : place === "Away" && charge.km_from_home != null
         ? `Away · ${formatDistance(charge.km_from_home, distanceUnit)} from home`
         : place || "—";
+  // The label calls anything over the AC ceiling Fast; Money's Fast bucket starts at DCFC_MIN_KW. A session between the two is Fast here and Home or Away there.
+  const bucketPlace = own || place;
+  const fastButCountedElsewhere = tier.kind === "fast" && charge.MaxPowerKW < DCFC_MIN_KW && charge.kind !== "dcfc" && (bucketPlace === "Home" || bucketPlace === "Away");
   return (
     <div className="space-y-4 text-sm text-neutral-300">
       <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -908,16 +911,20 @@ function SessionInsights({
           value={
             tier.kind ? (
               <span>
-                {chargerLabel(tier.kind)} <ChargerTypeInfo kinds={[tier.kind]} />
+                {chargerLabel(tier.kind)} · peak {Math.round(charge.MaxPowerKW)} kW <ChargerTypeInfo kinds={[tier.kind]} />
               </span>
             ) : (
               "—"
             )
           }
         />
-        <Row label="Peak power" value={tier.kind ? `${Math.round(charge.MaxPowerKW)} kW` : "—"} />
         <Row label="Source" value={charge.Source} />
       </dl>
+      {fastButCountedElsewhere && (
+        <p data-money-bucket-note className="-mt-2 text-[11px] text-neutral-500">
+          Counted as {bucketPlace} in Money (Fast there means {DCFC_MIN_KW} kW and up).
+        </p>
+      )}
 
       <div>
         <h4 className="text-[11px] uppercase tracking-[0.12em] text-neutral-500 mb-2">

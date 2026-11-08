@@ -72,7 +72,7 @@ export function StopCard({
           <span className="pt-value min-w-0 text-neutral-100">
             {name}
             {isStop && stopType && (
-              <span data-charger-type className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[11px] font-normal uppercase tracking-wide text-neutral-300">{chargerLabel(stopType)}</span>
+              <span data-charger-type className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[11px] font-normal uppercase tracking-wide text-neutral-300">{chargerLabel(stopType)} · {Math.round(w.MaxPowerKW)} kW</span>
             )}
             {adapter && (
               <span className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[11px] font-normal uppercase tracking-wide text-neutral-300">adapter</span>

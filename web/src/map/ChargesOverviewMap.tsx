@@ -21,24 +21,23 @@ import { webglAvailable } from "./webgl";
 //   - "l1":   < 3 kW peak (110 V trickle / unknown)
 // "fast" is the server's DC fast charge (kind, the ledger's rule, as on Money and every other page); only without a classification does it fall
 // back to peak power.
-export function chargeBucket(c: { MaxPowerKW: number; kind?: "ac" | "dcfc" }): "fast" | "slowdc" | "l2" | "l1" {
+export function chargeBucket(c: { MaxPowerKW: number; kind?: "ac" | "dcfc" }): "fast" | "l2" | "l1" {
   if (c.kind === "dcfc") return "fast";
   const maxKW = c.MaxPowerKW;
   if (c.kind === undefined && Number.isFinite(maxKW) && maxKW >= DCFC_MIN_KW) return "fast";
   if (!Number.isFinite(maxKW) || maxKW < 3) return "l1";
-  // Above what a vehicle takes on AC, and not classed fast: DC that stayed under the fast threshold, not Level 2.
-  if (maxKW > AC_MAX_KW) return "slowdc";
+  // Above what a vehicle takes on AC it is DC, whatever the ledger's bucket: the label says Fast, with the peak next to it.
+  if (maxKW > AC_MAX_KW) return "fast";
   return "l2";
 }
 
-export const CHARGE_BUCKET_COLOR: Record<"fast" | "slowdc" | "l2" | "l1", string> = {
+export const CHARGE_BUCKET_COLOR: Record<"fast" | "l2" | "l1", string> = {
   fast: "#f43f5e",
-  slowdc: "#fb7185",
   l2: "#06b6d4",
   l1: "#a3a3a3",
 };
 
-const BUCKET_LABEL = { fast: chargerLabel("fast"), slowdc: chargerLabel("slowdc"), l2: chargerLabel("medium"), l1: chargerLabel("outlet") } as const;
+const BUCKET_LABEL = { fast: chargerLabel("fast"), l2: chargerLabel("medium"), l1: chargerLabel("outlet") } as const;
 const SOURCE = "rivolt-charges";
 const LAYER = "rivolt-charges-dots";
 
@@ -91,7 +90,7 @@ export function ChargesOverviewMap({
         }),
       };
 
-      const legend = chipLegend((["fast", "slowdc", "l2", "l1"] as const).map((k) => ({ color: CHARGE_BUCKET_COLOR[k], label: BUCKET_LABEL[k] })));
+      const legend = chipLegend((["fast", "l2", "l1"] as const).map((k) => ({ color: CHARGE_BUCKET_COLOR[k], label: BUCKET_LABEL[k] })));
       map.addControl(legend, "bottom-left");
       const drawn = watchDrawn(map, el, LAYER);
       cleanups.push(drawn.stop);

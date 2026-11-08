@@ -4,11 +4,7 @@
   "types": {
     "fast": {
       "label": "Fast",
-      "sentence": "DC, 50 kW and up. About 100 miles in 15 to 30 minutes at 150 kW or faster, closer to an hour at 50 kW."
-    },
-    "slowdc": {
-      "label": "Slow DC",
-      "sentence": "DC under 50 kW: an older or low-power station, or a session the vehicle held back (cold or nearly full battery). About 100 miles takes an hour or more."
+      "sentence": "DC fast charging, usually 50 kW and up; a few older stations are slower, and each pin shows its rating. About 100 miles in 15 to 30 minutes at 150 kW or faster, closer to an hour at 50 kW."
     },
     "medium": {
       "label": "Medium",
@@ -16,7 +12,7 @@
     },
     "hotel": {
       "label": "Hotel",
-      "sentence": "Lists a Level 2 charger, which may be taken or out of date, so check with the hotel. If it's free and working, a night adds 100+ miles."
+      "sentence": "A hotel with a listed Level 2 charger, which may be taken or out of date: check with the hotel. If it's free and working, a night adds 100 miles or more."
     },
     "camping": {
       "label": "Camping",

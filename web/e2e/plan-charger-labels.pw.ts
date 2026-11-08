@@ -30,14 +30,14 @@ for (const v of [
     await info.click();
     const group = page.getByRole("group", { name: "What the charger types mean" });
     await expect(group).toBeVisible();
-    await expect(group).toContainText("DC, 50 kW and up.");
+    await expect(group).toContainText("DC fast charging, usually 50 kW and up");
     await expect(group).toContainText("Level 2 (AC), 7 to 11 kWh per hour.");
-    await expect(group).toContainText("Lists a Level 2 charger, which may be taken or out of date");
+    await expect(group).toContainText("A hotel with a listed Level 2 charger, which may be taken or out of date");
     await page.keyboard.press("Escape");
     await expect(group).toHaveCount(0);
     await expect(info).toBeFocused();
     // The charging stop in the itinerary says what kind it is.
-    await expect(page.locator("[data-charger-type]").first()).toHaveText(/^(Fast|Medium)$/i);
+    await expect(page.locator("[data-charger-type]").first()).toHaveText(/^(Fast|Medium) · \d+ kW$/i);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await ctx.close();
   });

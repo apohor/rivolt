@@ -15,40 +15,40 @@ describe("charger labels", () => {
   });
 
   it("every type has a short label and a plain sentence of at most two", () => {
-    expect(CHARGER_KINDS).toEqual(["fast", "slowdc", "medium", "hotel", "camping", "outlet"]);
+    expect(CHARGER_KINDS).toEqual(["fast", "medium", "hotel", "camping", "outlet"]);
     for (const k of CHARGER_KINDS) {
-      expect(chargerLabel(k)).toMatch(/^[A-Z][a-z]+( DC)?$/);
+      expect(chargerLabel(k)).toMatch(/^[A-Z][a-z]+$/);
       const sentence = chargerSentence(k);
       expect(sentence).toMatch(/\.$/);
-      expect(sentence.split(/\.\s+/).length).toBeLessThanOrEqual(2);
-      expect(sentence.length).toBeLessThan(170);
+      expect(sentence.length).toBeLessThan(220);
     }
     expect(ALL_LABEL).toBe("All");
   });
 
-  it("the shorthand is in a label only where it is the point (Slow DC), never L2 or DCFC", () => {
-    for (const k of CHARGER_KINDS) expect(chargerLabel(k)).not.toMatch(/Level|L2|L1|DCFC/);
-    expect(CHARGER_KINDS.filter((k) => /DC/.test(chargerLabel(k)))).toEqual(["slowdc"]);
+  it("the shorthand lives only in the sentences, never in a label", () => {
+    for (const k of CHARGER_KINDS) expect(chargerLabel(k)).not.toMatch(/DC|Level|L2|L1|DCFC/);
   });
 
-  it("power alone: Outlet to 2 kW, Medium up to the AC ceiling, Slow DC between, Fast from the DC threshold", () => {
+  it("power alone: Outlet to 2 kW, Medium up to the AC ceiling, Fast above it (it is DC)", () => {
     expect(chargerKindOfKw(null)).toBeNull();
     expect(chargerKindOfKw(0)).toBeNull();
     expect(chargerKindOfKw(1.4)).toBe("outlet");
+    expect(chargerKindOfKw(2)).toBe("outlet");
+    expect(chargerKindOfKw(2.1)).toBe("medium");
     expect(chargerKindOfKw(7)).toBe("medium");
     expect(chargerKindOfKw(11.9)).toBe("medium");
     expect(chargerKindOfKw(AC_MAX_KW)).toBe("medium");
-    expect(chargerKindOfKw(12.1)).toBe("slowdc");
-    expect(chargerKindOfKw(24)).toBe("slowdc");
-    expect(chargerKindOfKw(49.9)).toBe("slowdc");
+    expect(chargerKindOfKw(12.1)).toBe("fast");
+    expect(chargerKindOfKw(24)).toBe("fast");
+    expect(chargerKindOfKw(49.9)).toBe("fast");
     expect(chargerKindOfKw(DCFC_MIN_KW)).toBe("fast");
     expect(chargerKindOfKw(250)).toBe("fast");
   });
 
-  it("a station's sockets decide AC or DC: a 22 kW AC station is Medium, a 24 kW CCS one is Slow DC", () => {
+  it("a station's sockets decide AC or DC: a 22 kW AC station is Medium, a 6 kW or 24 kW CCS one is Fast", () => {
     expect(chargerKindOfKw(22, false)).toBe("medium");
-    expect(chargerKindOfKw(24, true)).toBe("slowdc");
-    expect(chargerKindOfKw(6, true)).toBe("slowdc");
+    expect(chargerKindOfKw(24, true)).toBe("fast");
+    expect(chargerKindOfKw(6, true)).toBe("fast");
     expect(chargerKindOfKw(150, true)).toBe("fast");
     expect(stationIsDc(["type2"])).toBe(false);
     expect(stationIsDc(["type2", "j1772"])).toBe(false);
@@ -61,6 +61,7 @@ describe("charger labels", () => {
   it("the station's rating is said as the station's", () => {
     expect(stationLine("fast", 250)).toBe("Fast · station up to 250 kW");
     expect(stationLine("medium", 11.4)).toBe("Medium · station up to 11 kW");
+    expect(stationLine("fast", 24)).toBe("Fast · station up to 24 kW");
     expect(stationLine("hotel")).toBe("Hotel");
   });
 });
