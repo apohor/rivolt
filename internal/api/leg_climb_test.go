@@ -7,6 +7,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/weather"
 )
 
 // fakeDEM answers a height from the latitude; missingAbove makes every point north of it unreadable.
@@ -114,5 +115,26 @@ func TestAddLegClimbFillsTheAdjustment(t *testing.T) {
 	addLegClimb(ctx, adj2, plan)
 	if adj2.Legs[0].ClimbM != nil {
 		t.Error("figures assigned to a mismatched leg list")
+	}
+}
+
+// air_temp_c is the plain air temperature; temp_c stays the apparent one when there is one.
+func TestLegDTOCarriesAirAndApparentTemperature(t *testing.T) {
+	s := &weather.Snapshot{TempC: -2, HasTemp: true, ApparentTempC: -8, HasApparent: true, Conditions: "snow", HasConditions: true}
+	leg := legDTO(1.2, s)
+	if leg.AirTempC == nil || *leg.AirTempC != -2 || leg.TempC == nil || *leg.TempC != -8 || !leg.Snow || leg.Multiplier != 1.2 {
+		t.Errorf("%+v", leg)
+	}
+	// No apparent value: temp_c falls back to the air temperature; no air value: no air_temp_c.
+	leg = legDTO(1, &weather.Snapshot{TempC: 5, HasTemp: true})
+	if leg.TempC == nil || *leg.TempC != 5 || leg.AirTempC == nil || *leg.AirTempC != 5 {
+		t.Errorf("%+v", leg)
+	}
+	leg = legDTO(1, &weather.Snapshot{ApparentTempC: 3, HasApparent: true})
+	if leg.TempC == nil || leg.AirTempC != nil {
+		t.Errorf("apparent only: %+v", leg)
+	}
+	if leg := legDTO(1, nil); leg.TempC != nil || leg.AirTempC != nil || leg.Snow {
+		t.Errorf("nil snapshot: %+v", leg)
 	}
 }
