@@ -210,7 +210,13 @@ export function TripRouteMap({
     } else {
       p.options.anchor = pinSide(map, "top", ll, b.width + 16);
       p.setLngLat(ll);
-      map.panBy([0, Math.ceil(b.height - room) + 8], { duration: 200 }, { rivoltPan: true }); // a positive y moves the content, and the popup with it, up
+      // Below its point the popup spans pointY + 8 (the popup's offset) to that plus its height. Move the map up by what lifts its bottom 8 px clear of the
+      // limit, but never so far that its top leaves the map (the old height-based sum overshot when the popup had been above its point). A positive y moves
+      // the content, and the popup with it, up.
+      const top = pointY + 8;
+      const needUp = Math.ceil(top + b.height - (limit - 8));
+      const maxUp = Math.max(0, Math.floor(top - (cr.top + 4)));
+      map.panBy([0, Math.max(0, Math.min(needUp, maxUp))], { duration: 200 }, { rivoltPan: true });
       return;
     }
     p.setLngLat(ll);
