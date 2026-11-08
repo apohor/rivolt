@@ -26,6 +26,15 @@ describe("legWeatherFacts", () => {
   });
 });
 
+describe("air temperature", () => {
+  it("shows the air temperature and keeps feels-like for the details", () => {
+    const f = legWeatherFacts({ multiplier: 1, temp_c: -6, air_temp_c: 0, headwind_kph: 20 }, "f", "mi");
+    expect(f?.temp).toBe("32 °F");
+    expect(f?.feels).toBe("21 °F");
+    expect(legWeatherFacts({ multiplier: 1, temp_c: 5, air_temp_c: 5 }, "f", "mi")?.feels).toBeUndefined();
+  });
+});
+
 describe("legEstimateLine", () => {
   it("is one estimate line, with or without a setup factor", () => {
     expect(legEstimateLine(1.14, true)).toBe("Weather and your setup: +14% (estimate)");

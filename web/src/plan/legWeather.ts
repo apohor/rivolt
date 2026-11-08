@@ -12,6 +12,8 @@ export type LegWeatherFacts = {
   // "41 °F" (tag) and "41°" (badge); absent when the leg has no temperature.
   temp?: string;
   tempShort?: string;
+  // "14 °F" when the air temperature and the feels-like differ; the leg's details say it, the badge and tags do not.
+  feels?: string;
   // Along the direction of travel: "head" blows against it, "tail" with it. speed is in the account's unit.
   wind?: { kind: "head" | "tail"; speed: number; unit: "mph" | "km/h" };
   rain: boolean;
@@ -25,10 +27,16 @@ const signed = (n: number) => (n < 0 ? "−" : "") + Math.abs(n);
 export function legWeatherFacts(leg: TripWeatherAdjLeg | undefined, tempUnit: TemperatureUnit, distUnit: DistanceUnit): LegWeatherFacts | null {
   if (!leg) return null;
   const out: LegWeatherFacts = { rain: false, snow: leg.snow === true };
-  if (leg.temp_c != null && Number.isFinite(leg.temp_c)) {
-    const t = roundTemp(leg.temp_c, tempUnit);
+  // The air temperature is what the truck shows; until the server sends it, temp_c (feels like, when there is one) stands in.
+  const air = leg.air_temp_c ?? leg.temp_c;
+  if (air != null && Number.isFinite(air)) {
+    const t = roundTemp(air, tempUnit);
     out.temp = `${signed(t)} °${tempUnit === "f" ? "F" : "C"}`;
     out.tempShort = `${signed(t)}°`;
+    if (leg.air_temp_c != null && leg.temp_c != null && Number.isFinite(leg.temp_c)) {
+      const f = roundTemp(leg.temp_c, tempUnit);
+      if (f !== t) out.feels = `${signed(f)} °${tempUnit === "f" ? "F" : "C"}`;
+    }
   }
   const hw = leg.headwind_kph;
   if (hw != null && Number.isFinite(hw) && Math.abs(hw) >= WIND_MIN_KPH) {

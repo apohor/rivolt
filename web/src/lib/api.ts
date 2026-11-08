@@ -2676,7 +2676,9 @@ export type TripWeatherAdjustment = {
 
 export type TripWeatherAdjLeg = {
   multiplier: number;
+  // temp_c is the "feels like" temperature when the forecast has one; air_temp_c is the plain air temperature (what the truck shows).
   temp_c?: number;
+  air_temp_c?: number;
   headwind_kph?: number;
   precip_mm?: number;
   // True only when the forecast says snow. Shown as "snow expected", never as a number.

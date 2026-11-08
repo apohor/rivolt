@@ -15,7 +15,7 @@ const PLAN = {
     target_arrival_soc: 10,
     profile_multiplier: 1.03,
     legs: [
-      { multiplier: 1.14, temp_c: 5, headwind_kph: 40, precip_mm: 2 },
+      { multiplier: 1.14, temp_c: 3, air_temp_c: 5, headwind_kph: 40, precip_mm: 2, climb_m: 579, descent_m: 100 },
       { multiplier: 1.2, temp_c: -6, headwind_kph: -20, precip_mm: 3, snow: true },
     ],
   },
@@ -57,6 +57,9 @@ for (const v of [
     const pop = page.locator("[data-leg-popup]");
     await expect(pop).toContainText("Los Angeles to Sample Fast Charge");
     await expect(pop).toContainText("Weather and your setup: +14% (estimate)");
+    await expect(pop).toContainText("Feels like 37 °F");
+    await expect(pop).toContainText("Climb +1,900 ft · descent −328 ft");
+    await expect(pop).toContainText("Terrain: USGS 3DEP");
 
     // The chip turns them off and on.
     const chip = page.getByRole("button", { name: "Weather", exact: true });

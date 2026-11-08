@@ -17,6 +17,7 @@ import { estimateLabel, fmtRange, spendView } from "../lib/planCost";
 import { Stat } from "./Stat";
 import { climbLine, legEstimateLine, legWeatherFacts } from "./legWeather";
 import type { LegWeatherInfo } from "../map/legBadges";
+import { TERRAIN_ATTRIBUTION } from "../map/style";
 
 // Lazy-load TripRouteMap so the MapLibre
 // chunk (several hundred KB) only ships when the user actually opens
@@ -220,7 +221,15 @@ export function RouteCard({
   const weatherNoteTo = (idx: number) => {
     const leg = legTo(idx);
     if (!leg) return undefined;
-    return [legEstimateLine(leg.multiplier, (adjustment?.profile_multiplier ?? 1) !== 1), climbLine(leg.climb_m, leg.descent_m, distanceUnit)].filter((l): l is string => !!l);
+    const facts = legWeatherFacts(leg, temperatureUnit, distanceUnit);
+    const climb = climbLine(leg.climb_m, leg.descent_m, distanceUnit);
+    return [
+      facts?.feels ? `Feels like ${facts.feels}` : null,
+      legEstimateLine(leg.multiplier, (adjustment?.profile_multiplier ?? 1) !== 1),
+      climb,
+      // The terrain data asks to be credited wherever the climb shows.
+      climb ? TERRAIN_ATTRIBUTION : null,
+    ].filter((l): l is string => !!l);
   };
   const shortPlace = (i: number) => (route.Waypoints[i]?.Name ?? "").split(",")[0].trim() || "the stop";
   const legWeather: (LegWeatherInfo | null)[] | undefined = adjustment
