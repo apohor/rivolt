@@ -1462,6 +1462,24 @@ func runServer() {
 			}
 			otaSyncer.SetFence(&liveFence) // before Run and before the first OnConnect; it reads the lease store once installed
 			go otaSyncer.Run(ctx)
+			// What every monitor starts from: the vehicle info stored in Postgres (columns and vehicle_info), read without a Rivian call.
+			// The owner's pack size for its first frame comes from here, and so does the cache of a pod that only reads (single-owner M3-6).
+			monitorRegistry.SetVehicleInfoLoaderFactory(func(uid uuid.UUID) func(context.Context) ([]rivian.Vehicle, error) {
+				return func(ctx context.Context) ([]rivian.Vehicle, error) {
+					rows, err := db.ListUserVehiclesForAPI(ctx, pgPool, uid)
+					if err != nil {
+						return nil, err
+					}
+					out := make([]rivian.Vehicle, 0, len(rows))
+					for _, r := range rows {
+						v := rivian.Vehicle{ID: r.RivianVehicleID, VIN: r.VIN, Name: r.DisplayName, Model: r.Model, ModelYear: r.ModelYear,
+							TrimID: r.Trim, PackKWh: r.PackKWh, ImageURL: r.ImageURL}
+						v.ApplyStoredInfo(r.Info)
+						out = append(out, v)
+					}
+					return out, nil
+				}
+			})
 			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func(context.Context, []rivian.Vehicle) {
 				return func(hctx context.Context, vs []rivian.Vehicle) {
 					bg.Go(func() {
@@ -2092,24 +2110,10 @@ func runServer() {
 				logger.Warn("lease coordinator exited", "err", err.Error())
 			}
 		}()
-		// Prime per-vehicle metadata across every running monitor,
-		// then poke the coordinator so it reconciles immediately
-		// once AllVehicleInfo() is populated.
+		// The vehicle info no longer comes from a Rivian call on every pod at boot (every pod, for every loaded user, whether or not it
+		// owns any of their vehicles). Each monitor hydrates it from Postgres, and the owner refreshes from Rivian when its subscription
+		// starts and daily after (single-owner M3-6). Here the coordinator is only poked to reconcile.
 		go func() {
-			rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-			defer cancel()
-			// Refresh runs per-monitor inside RefreshAll; we just
-			// trigger it through each loaded user.
-			for _, uid := range accountRegistry.Loaded() {
-				m := monitorRegistry.For(uid)
-				if m == nil {
-					continue
-				}
-				if err := m.RefreshVehicleInfo(rctx); err != nil {
-					logger.Warn("vehicle info refresh failed",
-						"user_id", uid.String(), "err", err.Error())
-				}
-			}
 			coord.TriggerReconcile()
 		}()
 		leaseCoordinator = coord

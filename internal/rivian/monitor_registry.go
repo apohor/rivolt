@@ -67,6 +67,7 @@ type MonitorRegistry struct {
 	extraChargeClose   []func(uid uuid.UUID) ChargeCloseHook
 	batteryCapacityFor func(uid uuid.UUID) func(ctx context.Context, vehicleID string, kwh float64)
 	vehicleInfoFor     func(uid uuid.UUID) func(context.Context, []Vehicle)
+	vehicleInfoLoadFor func(uid uuid.UUID) func(context.Context) ([]Vehicle, error)
 	dcfcPriceFor       func(uid uuid.UUID) DCFCPriceLookup
 	dcfcDetectFor      func(uid uuid.UUID) DCFCDetector
 	dcfcEstimateFor    func(uid uuid.UUID) DCFCEstimator
@@ -265,6 +266,15 @@ func (r *MonitorRegistry) SetVehicleInfoHookFactory(factory func(uid uuid.UUID) 
 	r.mu.Lock()
 	r.wiring("SetVehicleInfoHookFactory")
 	r.vehicleInfoFor = factory
+	r.mu.Unlock()
+}
+
+// SetVehicleInfoLoaderFactory wires the per-user reader of the stored vehicle info (Postgres, no Rivian call) each monitor hydrates its
+// vehicle info cache from (StateMonitor.hydrateVehicleInfo).
+func (r *MonitorRegistry) SetVehicleInfoLoaderFactory(factory func(uid uuid.UUID) func(context.Context) ([]Vehicle, error)) {
+	r.mu.Lock()
+	r.wiring("SetVehicleInfoLoaderFactory")
+	r.vehicleInfoLoadFor = factory
 	r.mu.Unlock()
 }
 
@@ -467,6 +477,11 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	if r.vehicleInfoFor != nil {
 		if h := r.vehicleInfoFor(uid); h != nil {
 			mon.SetVehicleInfoHook(h)
+		}
+	}
+	if r.vehicleInfoLoadFor != nil {
+		if f := r.vehicleInfoLoadFor(uid); f != nil {
+			mon.SetVehicleInfoLoader(f)
 		}
 	}
 	if r.batteryCapacityFor != nil {
