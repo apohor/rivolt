@@ -2,7 +2,12 @@ package stripebill
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -35,4 +40,110 @@ func TestCheckoutAgainstTheStripeSandbox(t *testing.T) {
 	if !strings.HasPrefix(url, "https://checkout.stripe.com/") {
 		t.Errorf("the session URL is not Stripe's hosted Checkout")
 	}
+}
+
+// Opt-in, same key as above (test mode only): the void of a deleted account's open invoices against Stripe's real API. The fake in the unit
+// tests answers whatever the code expects; this replays the three cases that matter on the real thing: an open renewal-sized invoice (voided,
+// the customer deleted), an invoice over the Pro annual cap (left open, the customer kept) and a partly paid one (left open, the customer
+// kept). It creates test customers with invoices, runs CloseCustomer, logs the outcomes (ids and statuses only) and cleans up.
+// RIVOLT_STRIPE_SANDBOX_PRICE is only read for the cap: its amount and currency are the Pro annual price of that account.
+func TestVoidOpenInvoicesAgainstTheStripeSandbox(t *testing.T) {
+	key := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SANDBOX_KEY"))
+	price := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SANDBOX_PRICE"))
+	if key == "" || price == "" {
+		t.Skip("opt-in: set RIVOLT_STRIPE_SANDBOX_KEY and RIVOLT_STRIPE_SANDBOX_PRICE to run against Stripe's test mode")
+	}
+	if !strings.HasPrefix(key, "sk_test_") && !strings.HasPrefix(key, "rk_test_") {
+		t.Fatal("RIVOLT_STRIPE_SANDBOX_KEY must be a test-mode key: this test creates and voids invoices")
+	}
+	ctx := context.Background()
+	c := &Client{SecretKey: key}
+	p, err := c.Price(ctx, price)
+	if err != nil {
+		t.Fatalf("cannot read the price: %v", err)
+	}
+	limit := VoidCap{Cents: p.UnitAmount, Currency: p.Currency}
+	t.Logf("cap = %d %s", limit.Cents, limit.Currency)
+
+	call := func(method, path string, form url.Values) map[string]any {
+		t.Helper()
+		var req *http.Request
+		if form != nil {
+			req, _ = http.NewRequestWithContext(ctx, method, DefaultAPIBase+path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		} else {
+			req, _ = http.NewRequestWithContext(ctx, method, DefaultAPIBase+path, nil)
+		}
+		req.Header.Set("Authorization", "Bearer "+key)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		if resp.StatusCode/100 != 2 {
+			e, _ := out["error"].(map[string]any)
+			t.Fatalf("%s %s: %d %v", method, path, resp.StatusCode, e["code"])
+		}
+		return out
+	}
+	// A customer with one open invoice of the given subtotal: a send_invoice invoice is finalized and open with no payment attempt.
+	openInvoice := func(cents int64) (cust, inv string) {
+		cust = call("POST", "/v1/customers", url.Values{"description": {"rivolt void replay"}})["id"].(string)
+		t.Cleanup(func() { // best effort; a customer with an open invoice cannot always be deleted
+			if out := call("GET", "/v1/invoices?status=open&customer="+cust, nil); out["data"] != nil {
+				for _, d := range out["data"].([]any) {
+					_ = call("POST", "/v1/invoices/"+d.(map[string]any)["id"].(string)+"/void", url.Values{})
+				}
+			}
+			req, _ := http.NewRequestWithContext(ctx, "DELETE", DefaultAPIBase+"/v1/customers/"+cust, nil)
+			req.Header.Set("Authorization", "Bearer "+key)
+			if r, err := http.DefaultClient.Do(req); err == nil {
+				r.Body.Close()
+			}
+		})
+		call("POST", "/v1/invoiceitems", url.Values{"customer": {cust}, "amount": {strconv.FormatInt(cents, 10)}, "currency": {limit.Currency}, "description": {"replay"}})
+		in := call("POST", "/v1/invoices", url.Values{"customer": {cust}, "collection_method": {"send_invoice"}, "days_until_due": {"7"}, "auto_advance": {"false"}, "pending_invoice_items_behavior": {"include"}})
+		inv = in["id"].(string)
+		call("POST", "/v1/invoices/"+inv+"/finalize", url.Values{})
+		return cust, inv
+	}
+	status := func(inv string) string { return call("GET", "/v1/invoices/"+inv, nil)["status"].(string) }
+	gone := func(cust string) bool {
+		out := call("GET", "/v1/customers/"+cust, nil)
+		d, _ := out["deleted"].(bool)
+		return d
+	}
+
+	t.Run("open renewal invoice is voided and the customer deleted", func(t *testing.T) {
+		cust, inv := openInvoice(limit.Cents)
+		rep, err := c.CloseCustomer(ctx, cust, limit)
+		t.Logf("voided=%d left=%d err=%v invoice=%s", len(rep.Voided), len(rep.Left), err, status(inv))
+		if err != nil || len(rep.Voided) != 1 || status(inv) != "void" || !gone(cust) {
+			t.Errorf("want the invoice void and the customer deleted: %+v %v", rep, err)
+		}
+	})
+	t.Run("over-cap invoice is left open", func(t *testing.T) {
+		cust, inv := openInvoice(limit.Cents + 1)
+		rep, err := c.CloseCustomer(ctx, cust, limit)
+		t.Logf("voided=%d left=%v err=%v invoice=%s", len(rep.Voided), rep.Left, err, status(inv))
+		if !errors.Is(err, ErrOpenItems) || len(rep.Voided) != 0 || status(inv) != "open" || gone(cust) {
+			t.Errorf("want the invoice open and the customer kept: %+v %v", rep, err)
+		}
+	})
+	t.Run("part-paid invoice is left open", func(t *testing.T) {
+		cust, inv := openInvoice(limit.Cents)
+		// A partial payment: a succeeded PaymentIntent for less than the invoice, attached to it.
+		pm := call("POST", "/v1/payment_intents", url.Values{"amount": {"500"}, "currency": {limit.Currency}, "customer": {cust}, "payment_method": {"pm_card_visa"}, "confirm": {"true"}, "automatic_payment_methods[enabled]": {"true"}, "automatic_payment_methods[allow_redirects]": {"never"}})
+		call("POST", "/v1/invoices/"+inv+"/attach_payment", url.Values{"payment_intent": {pm["id"].(string)}})
+		if got := call("GET", "/v1/invoices/"+inv, nil); got["status"] != "open" || got["amount_paid"].(float64) == 0 {
+			t.Skipf("could not make a part-paid open invoice here (status %v, amount_paid %v)", got["status"], got["amount_paid"])
+		}
+		rep, err := c.CloseCustomer(ctx, cust, limit)
+		t.Logf("voided=%d left=%v err=%v invoice=%s", len(rep.Voided), rep.Left, err, status(inv))
+		if !errors.Is(err, ErrOpenItems) || len(rep.Voided) != 0 || status(inv) != "open" || gone(cust) {
+			t.Errorf("want the invoice open and the customer kept: %+v %v", rep, err)
+		}
+	})
 }

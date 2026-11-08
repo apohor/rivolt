@@ -560,7 +560,7 @@ func TestAccountClosureWaitsForOpenInvoices(t *testing.T) {
 	f.openInvoices = map[string]int{cust: 1}
 	var logs bytes.Buffer
 	var pending int
-	c := &AccountClosure{DB: r.pool, Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, Report: func(p int, _ time.Duration) { pending = p },
+	c := &AccountClosure{DB: r.pool, Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, CapPriceID: priceYear, Report: func(p int, _ time.Duration) { pending = p },
 		Log: slog.New(slog.NewTextHandler(&logs, nil))}
 	if err := c.BeforeDelete(ctx, r.uid); err != nil {
 		t.Fatalf("an open invoice must not block the deletion: %v", err)
@@ -575,7 +575,7 @@ func TestAccountClosureWaitsForOpenInvoices(t *testing.T) {
 	if err := r.pool.QueryRow(`SELECT count(*) FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&queued); err != nil || queued != 0 {
 		t.Errorf("queued rows = %d (%v); want none", queued, err)
 	}
-	if got := logs.String(); !strings.Contains(got, "voided open invoices") || !strings.Contains(got, "count=1") || !strings.Contains(got, "in_open_") || strings.Contains(strings.ReplaceAll(got, "in_open_"+cust, ""), cust) { // the fake's invoice ids embed the customer; real ones do not
+	if got := logs.String(); !strings.Contains(got, "voided an open invoice") || !strings.Contains(got, "amount_cents=3499") || !strings.Contains(got, "invoice_id=in_open_") || strings.Contains(strings.ReplaceAll(got, "in_open_"+cust, ""), cust) { // the fake's invoice ids embed the customer; real ones do not
 		t.Errorf("audit line = %q; want the count and the invoice id, never the customer id", got)
 	}
 
@@ -589,7 +589,7 @@ func TestAccountClosureWaitsForOpenInvoices(t *testing.T) {
 	f2.subs = map[string][][2]string{cust2: {{"sub_o", "past_due"}}}
 	f2.openInvoices = map[string]int{cust2: 1}
 	f2.invoicePaid = map[string]int64{cust2: 500}
-	c2 := &AccountClosure{DB: r2.pool, Client: &Client{BaseURL: f2.srv.URL, SecretKey: testKey}, Report: func(p int, _ time.Duration) { pending = p }}
+	c2 := &AccountClosure{DB: r2.pool, Client: &Client{BaseURL: f2.srv.URL, SecretKey: testKey}, CapPriceID: priceYear, Report: func(p int, _ time.Duration) { pending = p }}
 	if err := c2.BeforeDelete(ctx, r2.uid); err != nil {
 		t.Fatalf("a part-paid invoice must queue, not block the deletion: %v", err)
 	}

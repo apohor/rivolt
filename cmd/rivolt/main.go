@@ -522,7 +522,7 @@ func runServer() {
 		if key := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SECRET_KEY")); key != "" {
 			sc = &stripebill.Client{SecretKey: key}
 		}
-		stripeClosure = &stripebill.AccountClosure{DB: pgPool, Client: sc, Log: logger, Report: func(pending int, oldest time.Duration) {
+		stripeClosure = &stripebill.AccountClosure{DB: pgPool, Client: sc, Log: logger, CapPriceID: strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_PRICE_YEARLY")), Report: func(pending int, oldest time.Duration) {
 			appMetrics.StripeCancelPending.Set(float64(pending))
 			appMetrics.StripeCancelOldestSeconds.Set(oldest.Seconds())
 		}}

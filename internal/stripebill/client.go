@@ -315,50 +315,109 @@ func treatMissing(err error) error {
 	return err
 }
 
-// VoidOpenInvoices voids the invoices still open on a customer whose account is deleted, and returns the ids it voided. Only invoices Stripe
-// reports as status=open with nothing paid on them (amount_paid 0) are touched: a paid or part-paid invoice is never voided and a refund is
-// never made, so the money that moved stays where it is. A deleted account will not pay, and an open invoice would hold the customer record
-// (its name, email and address) in Stripe for ever. The caller has already cancelled the subscriptions, so nothing new accrues. At most one page
-// (100) per call; a leftover one is voided by the next retry, and DeleteCustomerIfClear still refuses while any is open.
-func (c *Client) VoidOpenInvoices(ctx context.Context, customer string) ([]string, error) {
+// VoidedInvoice is one invoice voided for a deleted account: the audit record (ids and amounts only, nothing that names a person).
+type VoidedInvoice struct {
+	ID          string
+	AmountCents int64 // the subtotal before tax
+	Currency    string
+}
+
+// LeftInvoice is an open invoice that was NOT voided and why; it holds the customer record back until a person decides.
+type LeftInvoice struct {
+	ID     string
+	Reason string // paid, payment_in_flight, over_cap, currency
+}
+
+// CloseReport is what closing a customer did to its open invoices.
+type CloseReport struct {
+	Voided []VoidedInvoice
+	Left   []LeftInvoice
+}
+
+// VoidCap is the most an open invoice may be, before tax, for it to be voided without a person: the Pro annual price. A deleted account's
+// last renewal invoice is at most one year; anything larger is not a renewal and stays for a human. The zero value voids nothing.
+type VoidCap struct {
+	Cents    int64
+	Currency string // lower case
+}
+
+// VoidOpenInvoices voids the invoices still open on a customer whose account is deleted. A deleted account will not pay, and an open invoice
+// would hold the customer record (its name, email and address) in Stripe for ever. The caller has already cancelled the subscriptions, so
+// nothing new accrues. Only an invoice Stripe reports as status=open that nothing has been paid on (amount_paid 0), with no payment in flight,
+// whose subtotal before tax is within cap (same currency), is voided; every other open invoice is returned in Left and stays open, which holds
+// the customer record back (DeleteCustomerIfClear, ErrOpenItems) and so keeps the cancel queued for a person. A refund is never made. Idempotent:
+// an invoice that is already void is fine. At most one page (100) per call; a leftover is handled by the next retry.
+func (c *Client) VoidOpenInvoices(ctx context.Context, customer string, limit VoidCap) (CloseReport, error) {
+	var rep CloseReport
 	var inv struct {
 		Data []struct {
 			ID         string `json:"id"`
 			Status     string `json:"status"`
 			AmountPaid int64  `json:"amount_paid"`
+			Subtotal   int64  `json:"subtotal"`
+			Currency   string `json:"currency"`
+			Payment    *struct {
+				Status string `json:"status"`
+			} `json:"payment_intent"`
 		} `json:"data"`
 	}
-	if err := c.do(ctx, http.MethodGet, "/v1/invoices?limit=100&status=open&customer="+url.QueryEscape(customer), nil, "", &inv); err != nil {
-		return nil, treatMissing(err)
+	path := "/v1/invoices?limit=100&status=open&expand[]=data.payment_intent&customer=" + url.QueryEscape(customer)
+	if err := c.do(ctx, http.MethodGet, path, nil, "", &inv); err != nil {
+		return rep, treatMissing(err)
 	}
-	var voided []string
 	for _, in := range inv.Data {
-		if in.Status != "open" || in.AmountPaid != 0 {
+		if in.Status != "open" {
 			continue
 		}
-		if err := c.do(ctx, http.MethodPost, "/v1/invoices/"+url.PathEscape(in.ID)+"/void", url.Values{}, "rivolt-void-"+in.ID, nil); err != nil {
+		cur := strings.ToLower(in.Currency)
+		switch {
+		case in.AmountPaid != 0:
+			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "paid"})
+			continue
+		case in.Payment != nil && in.Payment.Status == "processing":
+			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "payment_in_flight"})
+			continue
+		case limit.Cents <= 0 || cur != limit.Currency:
+			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "currency"})
+			continue
+		case in.Subtotal > limit.Cents:
+			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "over_cap"})
+			continue
+		}
+		err := c.do(ctx, http.MethodPost, "/v1/invoices/"+url.PathEscape(in.ID)+"/void", url.Values{}, "rivolt-void-"+in.ID, nil)
+		if err != nil {
 			if treatMissing(err) == nil {
 				continue // already gone
 			}
-			return voided, err
+			// A void refused because the invoice is no longer open: fine if it is void now (an earlier attempt, or the webhook of one), else an error.
+			var se *Error
+			if errors.As(err, &se) && se.Status == http.StatusBadRequest {
+				var cur2 struct {
+					Status string `json:"status"`
+				}
+				if gerr := c.do(ctx, http.MethodGet, "/v1/invoices/"+url.PathEscape(in.ID), nil, "", &cur2); gerr == nil && cur2.Status == "void" {
+					continue
+				}
+			}
+			return rep, err
 		}
-		voided = append(voided, in.ID)
+		rep.Voided = append(rep.Voided, VoidedInvoice{ID: in.ID, AmountCents: in.Subtotal, Currency: cur})
 	}
-	return voided, nil
+	return rep, nil
 }
 
 // CloseCustomer is everything the deletion of an account asks of Stripe, in this order: cancel the subscriptions, void the invoices still open
-// (the ids voided are returned for the audit log), then delete the customer record once nothing is open (a part-paid invoice or an
-// unresolved dispute still holds it back: ErrOpenItems). Idempotent, so a retry repeats it safely.
-func (c *Client) CloseCustomer(ctx context.Context, customer string) ([]string, error) {
+// that are safe to void (see VoidOpenInvoices; the report goes to the audit log), then delete the customer record once nothing is open (a
+// part-paid or over-cap invoice, a payment in flight or an unresolved dispute holds it back: ErrOpenItems). Idempotent, so a retry repeats it.
+func (c *Client) CloseCustomer(ctx context.Context, customer string, limit VoidCap) (CloseReport, error) {
 	if _, err := c.CancelCustomerSubscriptions(ctx, customer); err != nil {
-		return nil, err
+		return CloseReport{}, err
 	}
-	voided, err := c.VoidOpenInvoices(ctx, customer)
+	rep, err := c.VoidOpenInvoices(ctx, customer, limit)
 	if err != nil {
-		return voided, err
+		return rep, err
 	}
-	return voided, c.DeleteCustomerIfClear(ctx, customer)
+	return rep, c.DeleteCustomerIfClear(ctx, customer)
 }
 
 // PortalFacts is what the default Customer Portal configuration says about the things the launch pre-flight checks. Booleans only.
