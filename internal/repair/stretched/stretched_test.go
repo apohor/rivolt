@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/charges"
 )
 
 func base() Row {
@@ -169,3 +171,46 @@ func TestSplit(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// The pricing hook sees the new row's own window and position, its result lands on the new row, and the digest covers it.
+func TestSplitPricingHook(t *testing.T) {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	t0 := time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC)
+	seg := Segment{Start: t0.Add(5 * time.Hour), FirstActive: t0.Add(5*time.Hour + 5*time.Minute), End: t0.Add(8 * time.Hour), SoCStart: 40, SoCEnd: 60, IntegralKWh: 18}
+	r := base()
+	r.PluggedAfterDrive = true
+	r.LastPluggedBeforeDrive = r.LastPlugged
+	r.PackKWh, r.EnergyKWh, r.RivianVehicleID = 91, 25.3, "rv-fake-1"
+	r.StartSoC, r.EndSoC = 47, 70
+	r.Frames = []Frame{{At: t0.Add(time.Hour), SoC: 47, PowerKW: 7, ChargingState: "charging_active"}, {At: t0.Add(65 * time.Minute), SoC: 51, PowerKW: 7, ChargingState: "charging_active"}, {At: t0.Add(2 * time.Hour), SoC: 55}, {At: seg.FirstActive, SoC: 40, PowerKW: 7, ChargingState: "charging_active"}, {At: seg.FirstActive.Add(5 * time.Minute), SoC: 41, PowerKW: 7, ChargingState: "charging_active"}}
+	r.Locs = []Loc{{At: seg.FirstActive, Lat: 1.5, Lon: 2.5}}
+	r.Taken = map[string]bool{}
+	defer func() { detectSegments = DetectSegments }()
+	detectSegments = func([]Frame, time.Time) []Segment { return []Segment{seg} }
+
+	var seen charges.Charge
+	var seenUser uuid.UUID
+	price := func(rate float64) PriceFn {
+		return func(uid uuid.UUID, c *charges.Charge) {
+			seen, seenUser = *c, uid
+			c.PricePerKWh, c.Currency, c.CostSource, c.Cost, c.Place = rate, "USD", "home_rate", rate*c.EnergyAddedKWh, "home"
+		}
+	}
+	p := MakePlan([]Row{r}, now, Options{Split: true, Price: price(0.25)})
+	n := p.Splits[r.ID].News[0]
+	if seenUser != r.UserID || seen.Lat != 1.5 || seen.Lon != 2.5 || seen.EnergyAddedKWh != 18 || !seen.StartedAt.Equal(n.Start) || seen.MaxPowerKW != 7 {
+		t.Errorf("the hook saw %+v for user %v", seen, seenUser)
+	}
+	if n.CostSource != "home_rate" || n.PricePerKW != 0.25 || n.Cost != 4.5 || n.Place != "home" {
+		t.Errorf("new row not priced: %+v", n)
+	}
+	if by := p.PricedBySource(); by["home_rate"] != 1 {
+		t.Errorf("priced by source %v", by)
+	}
+	if MakePlan([]Row{r}, now, Options{Split: true, Price: price(0.25)}).Digest() == MakePlan([]Row{r}, now, Options{Split: true, Price: price(0.30)}).Digest() {
+		t.Error("a changed rate must change the digest")
+	}
+	if q := MakePlan([]Row{r}, now, Options{Split: true}); q.Splits[r.ID].News[0].CostSource != "" || q.PricedBySource()["unpriced"] != 1 {
+		t.Errorf("without a hook the new row stays unpriced: %+v", q.Splits[r.ID].News[0])
+	}
+}

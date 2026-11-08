@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"github.com/apohor/rivolt/internal/charges"
 )
 
 // detectSegments is DetectSegments; a variable so tests can feed a plan without frames.
@@ -25,7 +27,7 @@ func liveSessionID(rivianVehicleID string, t time.Time) string {
 // returns the plan and the original's new end, or a reason the row is flagged instead. Energy is conserved: the new
 // rows' kWh (the power integral, cross-checked against the SoC gain) is taken off the original's stored energy,
 // which must stay >= 0.
-func trySplit(r Row) (*Split, time.Time, string) {
+func trySplit(r Row, opt Options) (*Split, time.Time, string) {
 	flag := func(why string) (*Split, time.Time, string) { return nil, time.Time{}, "flagged: " + why }
 	switch {
 	case len(r.Frames) == 0:
@@ -77,6 +79,7 @@ func trySplit(r Row) (*Split, time.Time, string) {
 			n.FinalState = r.FinalState // the stretched row's last state belongs to its last charge
 		}
 		n.Lat, n.Lon = nearestLoc(r.Locs, n.Start)
+		n.priceWith(r, opt) // after the position: the place and the home rate depend on it
 		sp.News = append(sp.News, n)
 		moved += n.KWh
 		prevEnd = end
@@ -179,4 +182,15 @@ func lastActive(frames []Frame, from, to time.Time) time.Time {
 		return to
 	}
 	return last
+}
+
+// priceWith prices and places the new row through opt.Price, as a charge built from it.
+func (n *NewRow) priceWith(r Row, opt Options) {
+	if opt.Price == nil {
+		return
+	}
+	c := charges.Charge{StartedAt: n.Start, EndedAt: n.End, Lat: n.Lat, Lon: n.Lon, MaxPowerKW: n.MaxPowerKW,
+		ActiveSeconds: n.ActiveSeconds, EnergyAddedKWh: n.KWh}
+	opt.Price(r.UserID, &c)
+	n.Cost, n.PricePerKW, n.Currency, n.CostSource, n.Network, n.Place = c.Cost, c.PricePerKWh, c.Currency, c.CostSource, c.Network, c.Place
 }

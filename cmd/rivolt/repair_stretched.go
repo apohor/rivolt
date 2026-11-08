@@ -91,12 +91,16 @@ func runRepairStretched(args []string) int {
 		fmt.Fprintln(os.Stderr, "repair-charge-stretched: --apply requires --backup <csv path>")
 		return 2
 	}
+	opts := stretched.Options{Split: *split}
+	if *split {
+		opts.Price = stretched.NewPriceFn(ctx, pool)
+	}
 	rows, err := stretched.Select(ctx, pool, false, *split)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-charge-stretched: select:", err)
 		return 1
 	}
-	plan := stretched.MakePlan(rows, time.Now(), stretched.Options{Split: *split})
+	plan := stretched.MakePlan(rows, time.Now(), opts)
 	ids := plan.IDs()
 	open, err := blips.OpenCharges(ctx, pool)
 	if err != nil {
@@ -122,8 +126,17 @@ func runRepairStretched(args []string) int {
 	if *split {
 		n, created, kwh := plan.SplitTotals()
 		l2, dc := plan.NewRowKinds()
-		fmt.Printf("new rows by type: %d L2/AC, %d DC fast (neither is priced or given a place by this repair)\n", l2, dc)
-		fmt.Printf("split: %d row(s) create %d new row(s), %.1f kWh re-attributed, %.1f h of idle inside the new rows (new rows are unpriced: run rivolt reprice --detect on them afterwards)\n", n, created, kwh, plan.IdleHoursInNewRows())
+		fmt.Printf("new rows by type: %d L2/AC, %d DC fast (DC fast rows are left unpriced here: `rivolt reprice --detect` prices them)\n", l2, dc)
+		bySrc := plan.PricedBySource()
+		srcs := make([]string, 0, len(bySrc))
+		for k := range bySrc {
+			srcs = append(srcs, k)
+		}
+		sort.Strings(srcs)
+		for _, k := range srcs {
+			fmt.Printf("  new rows by cost source %s: %d\n", k, bySrc[k])
+		}
+		fmt.Printf("split: %d row(s) create %d new row(s), %.1f kWh re-attributed, %.1f h of idle inside the new rows (AC rows are priced at the home rate where the vehicle was at home, and placed; the rest stay unpriced)\n", n, created, kwh, plan.IdleHoursInNewRows())
 	}
 	fmt.Printf("capped rows priced from the home rate or a network estimate (re-price candidates): %d\n", plan.Repriceable())
 	reasons := make([]string, 0, len(plan.Skipped))
@@ -172,7 +185,7 @@ func runRepairStretched(args []string) int {
 	}
 	defer func() { _ = bk.Close() }() // error paths; the end checks the close below
 	fmt.Printf("backup file: %s (batch %s)\n", *backup, batch)
-	n, err := stretched.Apply(ctx, pool, batch, *expectCount, *expectSHA, "stretched charge row: ended_at capped at the last plugged frame", *allowOpen, stretched.Options{Split: *split}, bk.sink(batch))
+	n, err := stretched.Apply(ctx, pool, batch, *expectCount, *expectSHA, "stretched charge row: ended_at capped at the last plugged frame", *allowOpen, opts, bk.sink(batch))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-charge-stretched: NOT applied:", err)
 		return 1

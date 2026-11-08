@@ -12,9 +12,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/repair/phantom"
 	"github.com/apohor/rivolt/internal/repair/stretched"
+	"github.com/apohor/rivolt/internal/settings"
 )
 
 // The stretched-row repair against Postgres: it caps exactly the closed, untouched rows whose ended_at ran past the
@@ -231,6 +233,14 @@ func TestStretchedSplit(t *testing.T) {
 			t.Fatalf("%s: %v", q, err)
 		}
 	}
+	// The user's home is where the truck sat, at 25 cents.
+	ss := settings.NewFactory(pool).For(uid)
+	if err := settings.SetChargingConfig(ctx, ss, settings.ChargingConfig{HomePricePerKWh: 0.25, HomeCurrency: "USD"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.SetHomeLocation(ctx, ss, settings.HomeLocation{Set: true, Latitude: 34.1, Longitude: -118.1, Source: settings.HomeSourceCoordinates}); err != nil {
+		t.Fatal(err)
+	}
 	base := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Hour)
 	var orig uuid.UUID
 	if err := pool.QueryRowContext(ctx, `
@@ -263,7 +273,7 @@ func TestStretchedSplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opt := stretched.Options{Split: true}
+	opt := stretched.Options{Split: true, Price: stretched.NewPriceFn(ctx, pool)}
 	plan := stretched.MakePlan(rows, time.Now(), opt)
 	sp := plan.Splits[orig]
 	if sp == nil || len(sp.News) != 1 {
@@ -316,8 +326,18 @@ func TestStretchedSplit(t *testing.T) {
 	if newState != "charging_user_stopped" || newActive == nil || *newActive < 17000 || newMax == nil || *newMax != 3.7 || newAvg == nil || *newAvg < 3.5 || *newAvg > 3.9 {
 		t.Fatalf("new row figures: state=%s active=%v max=%v avg=%v", newState, newActive, newMax, newAvg)
 	}
-	if ext != nr.ExternalID || newCost != nil {
-		t.Fatalf("new row: ext=%q cost=%v; want external id %q and no copied price", ext, newCost, nr.ExternalID)
+	if ext != nr.ExternalID {
+		t.Fatalf("new row: ext=%q, want external id %q", ext, nr.ExternalID)
+	}
+	// Priced by the recorder's own function at the user's home rate, and placed: not a copy of the original's price.
+	var newPPK *float64
+	var newSrc *string
+	_ = pool.QueryRowContext(ctx, `SELECT price_per_kwh::float8, cost_source FROM charges WHERE id = $1`, newID).Scan(&newPPK, &newSrc)
+	if newCost == nil || newSrc == nil || *newSrc != "home_rate" || newPPK == nil || *newPPK != 0.25 || newPlace == nil || *newPlace != "home" {
+		t.Fatalf("new row pricing: cost=%v source=%v ppk=%v place=%v; want home_rate at 0.25, placed home (plan: %+v)", newCost, newSrc, newPPK, newPlace, nr)
+	}
+	if by := plan.PricedBySource(); by["home_rate"] != 1 {
+		t.Fatalf("priced by source = %v", by)
 	}
 	// A second pass finds nothing more to do.
 	if rows, _ := stretched.Select(ctx, pool, false, true); len(stretched.MakePlan(rows, time.Now(), opt).Cap) != 0 {
@@ -365,5 +385,53 @@ func TestStretchedSplit(t *testing.T) {
 	}
 	if count() != 1 {
 		t.Fatalf("rows after restore: %d, want 1", count())
+	}
+}
+
+// The split's pricing step: AC at home gets the home rate and place "home"; AC away from home is placed "away" and left
+// unpriced; a DC fast charge is left alone; a user without a home location keeps the home rate (the recorder's rule).
+func TestStretchedPriceFn(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUser(ctx, pool, "price-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ss := settings.NewFactory(pool).For(uid)
+	if err := settings.SetChargingConfig(ctx, ss, settings.ChargingConfig{HomePricePerKWh: 0.30, HomeCurrency: "USD"}); err != nil {
+		t.Fatal(err)
+	}
+	price := stretched.NewPriceFn(ctx, pool)
+	t0 := time.Now().UTC().Add(-48 * time.Hour)
+	mk := func(lat, lon, kw, kwh float64, hours float64) charges.Charge {
+		return charges.Charge{StartedAt: t0, EndedAt: t0.Add(time.Duration(hours * float64(time.Hour))), Lat: lat, Lon: lon, MaxPowerKW: kw, ActiveSeconds: hours * 3600, EnergyAddedKWh: kwh}
+	}
+	// No home location saved: slow charging keeps the home rate, no place.
+	c := mk(34.1, -118.1, 7, 14, 2)
+	price(uid, &c)
+	if c.CostSource != "home_rate" || c.PricePerKWh != 0.30 || c.Place != "" || c.Cost < 4.19 || c.Cost > 4.21 {
+		t.Fatalf("no home saved: %+v", c)
+	}
+	if err := settings.SetHomeLocation(ctx, ss, settings.HomeLocation{Set: true, Latitude: 34.1, Longitude: -118.1, Source: settings.HomeSourceCoordinates}); err != nil {
+		t.Fatal(err)
+	}
+	// At home: home rate, placed home. Away: placed away, unpriced. The memo is fresh per row (no leaked state).
+	home := mk(34.1, -118.1, 7, 14, 2)
+	price(uid, &home)
+	away := mk(40.0, -100.0, 7, 14, 2)
+	price(uid, &away)
+	if home.CostSource != "home_rate" || home.Place != "home" || away.Cost != 0 || away.CostSource != "" || away.Place != "away" {
+		t.Fatalf("home %+v away %+v", home, away)
+	}
+	// A DC fast charge is left alone (the repair has no archive or detection; `rivolt reprice --detect` does that).
+	dc := mk(34.1, -118.1, 150, 40, 0.4)
+	price(uid, &dc)
+	if dc.Cost != 0 || dc.CostSource != "" || dc.Place != "" {
+		t.Fatalf("a DC fast charge must be left unpriced and unplaced: %+v", dc)
 	}
 }
