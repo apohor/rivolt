@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { chargerKindOfKw, chargerLabel } from "../lib/chargerLabels";
 import type { TripCostStop, TripRoute } from "../lib/api";
 import { formatWaypointTime } from "./format";
 import { revealStop } from "./reveal";
@@ -47,6 +48,8 @@ export function StopCard({
   const inSoc = Math.max(0, Math.min(100, w.ArrivalSoC));
   const outSoc = Math.max(0, Math.min(100, w.DepartureSoC));
   const isStop = kind === "stop";
+  // The stop's own station rating says what kind of charger it is (Fast from 50 kW, else Medium); no rating, no word.
+  const stopType = chargerKindOfKw(w.MaxPowerKW);
   const detail = isStop && selected;
   const cardRef = useRef<HTMLLIElement>(null);
   const titleRef = useRef<HTMLButtonElement>(null);
@@ -68,6 +71,9 @@ export function StopCard({
         <span className="flex items-baseline justify-between gap-3">
           <span className="pt-value min-w-0 text-neutral-100">
             {name}
+            {isStop && stopType && (
+              <span data-charger-type className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[11px] font-normal uppercase tracking-wide text-neutral-300">{chargerLabel(stopType)}</span>
+            )}
             {adapter && (
               <span className="ml-2 rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[11px] font-normal uppercase tracking-wide text-neutral-300">adapter</span>
             )}

@@ -84,7 +84,7 @@ describe("a stop's callout says where the stop came from", () => {
   it("a stop the person asked for is a stop on the route, not a promise of a charge", () => {
     const html = waypointTooltip({ ...w, Source: "via" }, 1, 3);
     expect(html).toContain("Your stop. The route passes through it; the planner decides where to charge.");
-    expect(html).toContain("Up to 250 kW");
+    expect(html).toContain("Fast · station up to 250 kW");
   });
   it("a stop of the person's with no name of its own is headed Your stop, once", () => {
     const html = waypointTooltip({ ...w, Name: "", Source: "via" }, 1, 3);
@@ -94,6 +94,17 @@ describe("a stop's callout says where the stop came from", () => {
     expect(html).not.toContain("Your stop. ");
     // A planner stop with no name keeps the old heading.
     expect(waypointTooltip({ ...w, Name: "", Source: "planner" }, 1, 3)).toContain("Charging stop");
+  });
+  it("the charger and hotel callouts lead with the type word, and the kW is the station's", () => {
+    const dc = chargerPopupHTML({ name: "X", lat: 1, lon: 2, maxPowerKW: 150 } as never, false, false, "", false);
+    expect(dc).toContain("Fast · station up to 150 kW");
+    const l2 = chargerPopupHTML({ name: "Y", lat: 1, lon: 2, maxPowerKW: 11 } as never, false, false, "", false);
+    expect(l2).toContain("Medium · station up to 11 kW");
+    const hotel = chargerPopupHTML({ name: "H", lat: 1, lon: 2, maxPowerKW: 7 } as never, false, false, "https://example.test", false);
+    expect(hotel).toContain("Hotel · listed charger, up to 7 kW");
+    const noPower = chargerPopupHTML({ name: "H", lat: 1, lon: 2 } as never, false, false, "https://example.test", false);
+    expect(noPower).toContain("Hotel · listed charger, power not listed (7 kW assumed)");
+    expect(dc + l2 + hotel).not.toMatch(/Level 2|DC fast/);
   });
   it("a planner stop says so, and an older plan with no source says nothing about it", () => {
     expect(waypointTooltip({ ...w, Source: "planner" }, 1, 3)).toContain("Chosen by the planner.");

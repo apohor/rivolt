@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "generatedNote": "The web is the source. ios/design/charger-labels.json is generated from this file: UPDATE_CHARGER_LABELS=1 npx vitest run src/lib/chargerLabels.test.ts",
+  "types": {
+    "fast": {
+      "label": "Fast",
+      "sentence": "DC fast charging, 50 kW and up. At a 150 kW or faster station, about 100 miles takes roughly 15 to 30 minutes; at a 50 kW station, closer to an hour. Your vehicle and battery level set the real speed."
+    },
+    "medium": {
+      "label": "Medium",
+      "sentence": "Level 2 (AC). Adds about 7 to 11 kWh per hour, roughly 15 to 30 miles, depending on the charger and vehicle."
+    },
+    "hotel": {
+      "label": "Hotel",
+      "sentence": "A hotel that lists a Level 2 charger. Listings can be out of date and chargers can be taken, so check with the hotel. If it's free and working, a night (about 8 hours at 7 kW) adds roughly 55 kWh, over 100 miles."
+    },
+    "camping": {
+      "label": "Camping",
+      "sentence": "A campground with an RV electric hookup. A 50-amp (NEMA 14-50) site charges at Level 2 speed with a 240 V portable charger; a 30-amp (TT-30) site is 120 V and much slower. Check the hookup type."
+    },
+    "outlet": {
+      "label": "Outlet",
+      "sentence": "A household outlet (120 V). About 1.3 kWh per hour, roughly 3 to 4 miles."
+    }
+  },
+  "all": "All",
+  "infoLabel": "What the charger types mean"
+}

@@ -1,5 +1,6 @@
 // Pure helpers of the planner's trip map, kept free of any map library: the waypoint tooltip, the charger and campground popup HTML (all
 // data escaped), the Booking.com deep link, the Valhalla multi-stop route and the polyline6 decoder.
+import { chargerKindOfKw, chargerLabel, stationLine } from "../lib/chargerLabels";
 import { escapeHTML } from "../lib/escapeHtml";
 import { bookingAffiliateID, valhallaBase } from "../lib/config";
 import type { POI } from "../lib/poi";
@@ -58,7 +59,7 @@ export function waypointTooltip(w: PlannedWaypoint, i: number, total: number, en
   if (end && end.ArrivalSoC > 0) lines.push(`<div>Back here with about ${end.ArrivalSoC.toFixed(0)}%</div>`);
   if (!isFirst && !isLast) {
     if (w.MaxPowerKW > 0) {
-      lines.push(`<div>Up to ${w.MaxPowerKW.toFixed(0)} kW</div>`);
+      lines.push(`<div>${escapeHTML(stationLine(chargerKindOfKw(w.MaxPowerKW) ?? "medium", w.MaxPowerKW))}</div>`);
     }
     if (w.ChargeDurationSec > 0) {
       lines.push(
@@ -174,7 +175,7 @@ export function campPopupHTML(poi: POI, camp: { hookup: HookupId; kw: number; ur
   const muted = "color:#a3a3a3";
   const out: string[] = [
     `<div class="charger-popup-body" style="font:12px/1.4 ui-sans-serif,system-ui;color:#fafafa;min-width:170px;max-width:240px">`,
-    `<div style="font-weight:600;margin-bottom:3px">${escapeHTML(name)} <span style="font-weight:400;${muted}">(campground)</span></div>`,
+    `<div style="font-weight:600;margin-bottom:3px">${escapeHTML(name)} <span style="font-weight:400;${muted}">(${chargerLabel("camping").toLowerCase()})</span></div>`,
     `<div>${escapeHTML(outletLabel(camp.hookup))}</div>`,
     `<div>${escapeHTML(campPowerLine(camp.hookup, camp.kw))}</div>`,
   ];
@@ -216,12 +217,12 @@ export function chargerPopupHTML(
     // A hotel: say what the listing says, and that it is only a listing.
     out.push(
       poi.maxPowerKW && poi.maxPowerKW > 0
-        ? `<div>Listed Level 2 charger, up to ${poi.maxPowerKW.toFixed(0)} kW</div>`
-        : `<div>Listed Level 2 charger, power not listed (${HOTEL_L2_ASSUMED_KW} kW assumed)</div>`,
+        ? `<div>${chargerLabel("hotel")} · listed charger, up to ${poi.maxPowerKW.toFixed(0)} kW</div>`
+        : `<div>${chargerLabel("hotel")} · listed charger, power not listed (${HOTEL_L2_ASSUMED_KW} kW assumed)</div>`,
       `<div style="color:#fbbf24;margin-top:3px">Listed, not guaranteed. Chargers can be in use, broken or guests-only; check with the hotel before you rely on it.</div>`,
     );
   } else if (poi.maxPowerKW && poi.maxPowerKW > 0) {
-    out.push(`<div>Up to ${poi.maxPowerKW.toFixed(0)} kW</div>`);
+    out.push(`<div>${escapeHTML(stationLine(chargerKindOfKw(poi.maxPowerKW) ?? "medium", poi.maxPowerKW))}</div>`);
   }
   if (poi.network && poi.network !== name) {
     out.push(`<div style="color:#a3a3a3">${escapeHTML(poi.network)}</div>`);
