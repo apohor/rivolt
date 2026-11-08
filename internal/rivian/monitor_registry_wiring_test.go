@@ -50,7 +50,7 @@ func TestMonitorsStartedBeforeTheFenceIsInstalledAreFencedAfterwards(t *testing.
 		if _, st := m.fenceState(ctx, "v", "charges"); st != fence.Lost || len(counted) != 1 || counted[0] != "charges" {
 			t.Errorf("%s: a refused write on the already-running monitor: state %v, counted %v", c.name, st, counted)
 		}
-		if _, cancel, ok := m.rivianCtx(ctx, "v"); ok {
+		if _, cancel, ok := m.rivianCtx(ctx, "v", CallSiteSeed); ok {
 			cancel()
 			t.Errorf("%s: a Rivian call went out for a group this pod does not hold", c.name)
 		}
@@ -193,12 +193,12 @@ func TestRivianCtxKeepsTheLeaseDeadlineForMonitorsStartedBeforeTheFence(t *testi
 	var counted []string
 	ctx := context.Background()
 
-	if _, _, ok := m.rivianCtx(ctx, "v"); ok {
+	if _, _, ok := m.rivianCtx(ctx, "v", CallSiteSeed); ok {
 		t.Fatal("a Rivian call went out before the fence was installed in lead mode")
 	}
 	deadline := time.Now().Add(20 * time.Second).Round(0)
 	reg.SetFence(registryDeadlineFence{fence.Held, deadline}, func(kind string) { counted = append(counted, kind) })
-	dctx, cancel, ok := m.rivianCtx(ctx, "v")
+	dctx, cancel, ok := m.rivianCtx(ctx, "v", CallSiteSeed)
 	if !ok {
 		t.Fatal("refused although the group is held and the deadline is ahead")
 	}
@@ -208,13 +208,13 @@ func TestRivianCtxKeepsTheLeaseDeadlineForMonitorsStartedBeforeTheFence(t *testi
 	}
 
 	reg.SetFence(registryDeadlineFence{fence.Held, time.Now().Add(-time.Second)}, func(kind string) { counted = append(counted, kind) })
-	if _, _, ok := m.rivianCtx(ctx, "v"); ok || len(counted) != 1 || counted[0] != "rivian" {
-		t.Fatalf("a passed deadline: ok=%v counted=%v, want refused and fenced{rivian} once", ok, counted)
+	if _, _, ok := m.rivianCtx(ctx, "v", CallSiteSeed); ok || len(counted) != 2 || counted[0] != "rivian" || counted[1] != CallRefusedPrefix+CallSiteSeed {
+		t.Fatalf("a passed deadline: ok=%v counted=%v, want refused, fenced{rivian} once and the site once", ok, counted)
 	}
 
 	// A source with no deadlines: the call is not bounded, as for the lease store with lead mode off.
 	reg.SetFence(wiringFence{fence.Held}, nil)
-	if dctx2, cancel2, ok := m.rivianCtx(ctx, "v"); !ok {
+	if dctx2, cancel2, ok := m.rivianCtx(ctx, "v", CallSiteSeed); !ok {
 		t.Fatal("refused a held group whose source has no deadlines")
 	} else {
 		defer cancel2()

@@ -2094,7 +2094,11 @@ func runServer() {
 		// counts, and asks the coordinator to look at its groups now.
 		if monitorRegistry != nil {
 			monitorRegistry.SetFence(leaseStore, func(kind string) {
-				appMetrics.LeaseFenced.WithLabelValues(kind).Inc()
+				if site, refused := strings.CutPrefix(kind, rivian.CallRefusedPrefix); refused {
+					appMetrics.RivianCallRefused.WithLabelValues(site).Inc() // a Rivian call not made: its own counter
+				} else {
+					appMetrics.LeaseFenced.WithLabelValues(kind).Inc()
+				}
 				coord.TriggerReconcile()
 			})
 		}
