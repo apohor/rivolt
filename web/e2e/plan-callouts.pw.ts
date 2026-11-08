@@ -165,3 +165,27 @@ for (const v of [
     }
   }
 }
+
+// A phone map only a few hundred px tall: the longest what-if answer would make the callout taller than the map, so its text scrolls inside it and the
+// callout, heading and Add as a stop button included, stays inside the map (#1658).
+test("@webkit iphone: a tall what-if callout on a short phone map stays inside the map", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 560 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await planned(page);
+  const map = page.locator("[data-plan-area='map'] .maplibregl-map").first();
+  await expect(map.locator(".maplibregl-marker").first()).toBeVisible();
+  const mb = (await map.boundingBox())!;
+  const popup = page.locator(".maplibregl-popup");
+  await rightClickUntilCallout(page, mb.x + mb.width * 0.3, mb.y + mb.height * 0.5);
+  await expect(popup.locator(".drop-preview")).toContainText("(estimate)");
+  await expect
+    .poll(async () => {
+      const b = (await popup.boundingBox())!;
+      const m = (await map.boundingBox())!;
+      return b.y >= m.y - 1 && b.y + b.height <= m.y + m.height + 1;
+    })
+    .toBe(true);
+  await expect(page.getByRole("button", { name: "Add as a stop" })).toBeVisible();
+  await ctx.close();
+});
+

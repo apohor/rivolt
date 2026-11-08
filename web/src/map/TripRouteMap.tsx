@@ -432,6 +432,18 @@ export function TripRouteMap({
       // What adding the stop here would do, from our own router: the change, an estimate, nothing committed. The latest drop wins; a failure shows nothing
       // (busy says so).
       let previewCtl: AbortController | null = null;
+      // The what-if text can make the callout taller than the map leaves it (the phone's map is short, the sheet covers the rest): cap just the text's
+      // height to what fits and let it scroll, so the title and Add as a stop stay in view.
+      const capPreview = (into: HTMLElement) => {
+        const pe = drop.getElement();
+        if (!pe) return;
+        const chrome = pe.getBoundingClientRect().height - into.getBoundingClientRect().height; // title, button, caption, tip
+        const room = mapRoomBottom(map) - chrome - 24;
+        if (into.scrollHeight <= room) return;
+        into.style.maxHeight = `${Math.max(72, Math.floor(room))}px`;
+        into.style.overflowY = "auto";
+        into.tabIndex = 0;
+      };
       const previewAdd = (ll: { lng: number; lat: number }, into: HTMLElement | null) => {
         previewCtl?.abort();
         previewCtl = null;
@@ -451,6 +463,7 @@ export function TripRouteMap({
               else if (t === WHAT_IF_NOTICE || t === WHAT_IF_ROUGH) { d.style.color = "#a3a3a3"; d.style.fontSize = `${MAP_CAPTION_PX}px`; }
               return d;
             }));
+            capPreview(into);
             reclearOfChips(map, drop, ll);
           },
           (e: unknown) => {
