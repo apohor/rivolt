@@ -1051,11 +1051,17 @@ func New(d Deps) http.Handler {
 			} else {
 				vehicleScoped = func(next http.Handler) http.Handler { return next }
 			}
+			// The "linked account, nothing stored yet" Rivian lookup of the list runs at most once per user per 5 minutes across pods.
+			var observeFallback func(string)
+			if d.Metrics != nil {
+				observeFallback = func(outcome string) { d.Metrics.VehiclesFallbackTotal.WithLabelValues(outcome).Inc() }
+			}
+			vehiclesFallback := newVehicleFallbackGate(d.Redis, d.RedisPrefix, d.FailLimiterKey, 5*time.Minute, observeFallback)
 			r.Get("/vehicles", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				hasSession := d.rivianSessionCheck(uid)
 				// A user with a Rivian account of their own is served from Postgres on every pod (no Rivian call, no write); the shared
 				// demo / self-hosted client keeps asking it (single-owner M3-5a).
-				fromDB := d.DB != nil && d.Accounts != nil && d.Accounts.For(uid) != nil
+				var fromDB *vehiclesFromDB
 				needsReauth := func(ctx context.Context) bool {
 					if st, ok := freshAccountState(auth.WithUser(ctx, uid), d.Accounts, uid); ok {
 						return st.NeedsReauth // from the users row, not this pod's memory
@@ -1066,7 +1072,10 @@ func New(d Deps) http.Handler {
 					}
 					return false
 				}
-				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession, pv.lockedID, fromDB, needsReauth)(w, r)
+				if d.DB != nil && d.Accounts != nil && d.Accounts.For(uid) != nil {
+					fromDB = &vehiclesFromDB{needsReauth: needsReauth, gate: vehiclesFallback}
+				}
+				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession, pv.lockedID, fromDB)(w, r)
 			}))
 			// /api/vehicles/owned reads straight from the local
 			// vehicles table — used by the import picker so the

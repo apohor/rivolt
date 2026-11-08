@@ -5,11 +5,16 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
@@ -61,7 +66,7 @@ func TestVehiclesAreServedFromPostgresWithoutARivianCall(t *testing.T) {
 		c := &countingRivian{}
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil).WithContext(auth.WithUser(ctx, uid))
-		h := handleVehicles(c, nil, pool, nil, nil, func(context.Context) string { return only }, true, func(context.Context) bool { return reauth })
+		h := handleVehicles(c, nil, pool, nil, nil, func(context.Context) string { return only }, &vehiclesFromDB{needsReauth: func(context.Context) bool { return reauth }})
 		h(rec, req)
 		return rec, c
 	}
@@ -147,10 +152,11 @@ func TestLinkedAccountWithNoStoredVehicleAsksRivianOnceThenStopsAsking(t *testin
 	uid := acceptedUser(ctx, t, pool, "veh-prime-retry")
 	c := &listingRivian{vs: []rivian.Vehicle{{ID: "rv-prime-1", VIN: "V1", Name: "Truck", Model: "R1T", TrimID: "PKG-ADV"}}}
 	linked := func(context.Context) (bool, error) { return true, nil }
+	gate := newVehicleFallbackGate(nil, "", nil, 5*time.Minute, nil)
 	get := func() int {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil).WithContext(auth.WithUser(ctx, uid))
-		handleVehicles(c, nil, pool, nil, linked, nil, true, nil)(rec, req)
+		handleVehicles(c, nil, pool, nil, linked, nil, &vehiclesFromDB{gate: gate})(rec, req)
 		return rec.Code
 	}
 	if code := get(); code != http.StatusOK || c.calls.Load() != 1 {
@@ -170,4 +176,73 @@ type listingRivian struct {
 func (l *listingRivian) Vehicles(context.Context) ([]rivian.Vehicle, error) {
 	l.calls.Add(1)
 	return l.vs, nil
+}
+
+// Rivian keeps failing for a linked account with nothing stored: two requests inside the window make ONE Rivian call, across pods when the claim
+// is in Redis (the second "pod" is a second gate on the same Redis), and the second request answers without Rivian. After the window it asks once
+// more; an attempt that returned an empty list is remembered as empty.
+func TestFailingFallbackIsNotRetriedWithinFiveMinutes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid := acceptedUser(ctx, t, pool, "veh-fallback-negcache")
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	var observed []string
+	newPod := func() *vehicleFallbackGate {
+		g := newVehicleFallbackGate(rdb, "rivolt", []byte("k"), 5*time.Minute, func(o string) { observed = append(observed, o) })
+		g.now = func() time.Time { return now }
+		return g
+	}
+	podA, podB := newPod(), newPod()
+	c := &failingListing{}
+	linked := func(context.Context) (bool, error) { return true, nil }
+	get := func(g *vehicleFallbackGate) (int, string) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil).WithContext(auth.WithUser(ctx, uid))
+		handleVehicles(c, nil, pool, nil, linked, nil, &vehiclesFromDB{gate: g})(rec, req)
+		return rec.Code, rec.Header().Get("Retry-After")
+	}
+	if code, _ := get(podA); code < 400 || c.calls.Load() != 1 {
+		t.Fatalf("first request: %d, %d Rivian calls; want an error and 1 call", code, c.calls.Load())
+	}
+	for i, g := range []*vehicleFallbackGate{podA, podB, podB} { // the same pod, and another pod that never saw the failure
+		if code, retry := get(g); code != http.StatusServiceUnavailable || retry != "300" || c.calls.Load() != 1 {
+			t.Errorf("request %d inside the window: %d (Retry-After %q), %d Rivian calls in all; want 503, 300 and still 1", i+2, code, retry, c.calls.Load())
+		}
+	}
+	// No user id in Redis in clear: the only key is under the prefix and is not the uuid.
+	for _, k := range mr.Keys() {
+		if strings.Contains(k, uid.String()) {
+			t.Errorf("redis key %q names the user", k)
+		}
+	}
+	if len(mr.Keys()) != 1 {
+		t.Errorf("redis keys = %v, want exactly the one claim", mr.Keys())
+	}
+	mr.FastForward(5*time.Minute + time.Second)
+	now = now.Add(5*time.Minute + time.Second)
+	if _, _ = get(podB); c.calls.Load() != 2 {
+		t.Errorf("after the window: %d Rivian calls, want 2 (one more attempt)", c.calls.Load())
+	}
+	want := []string{"error", "skipped", "skipped", "skipped", "error"}
+	if strings.Join(observed, ",") != strings.Join(want, ",") {
+		t.Errorf("observed outcomes = %v, want %v", observed, want)
+	}
+}
+
+type failingListing struct {
+	rivian.Client
+	calls atomic.Int32
+}
+
+func (f *failingListing) Vehicles(context.Context) ([]rivian.Vehicle, error) {
+	f.calls.Add(1)
+	return nil, errors.New("rivian is down")
 }

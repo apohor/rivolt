@@ -277,18 +277,54 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 
 // hasSession says whether the user has a stored Rivian session (nil: none can be stored, so none is). It decides
 // what a client with no session means: never linked (an empty list) or linked but unreadable right now (an error).
-func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, hasSession func(context.Context) (bool, error), onlyVehicle func(context.Context) string, fromDB bool, needsReauth func(context.Context) bool) http.HandlerFunc {
+// vehiclesFromDB switches /api/vehicles to the Postgres path for one request (a user with a Rivian account of their own). nil keeps the
+// old path: the shared demo / self-hosted client, and a deployment with no database.
+type vehiclesFromDB struct {
+	// needsReauth says whether the account is flagged for sign-in again (the users row, not this pod's memory).
+	needsReauth func(context.Context) bool
+	// gate bounds the "linked, nothing stored" Rivian lookup; nil leaves it unbounded (tests).
+	gate *vehicleFallbackGate
+}
+
+func (f *vehiclesFromDB) observe(outcome string) {
+	if f != nil && f.gate != nil && f.gate.observe != nil {
+		f.gate.observe(outcome)
+	}
+}
+
+func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, hasSession func(context.Context) (bool, error), onlyVehicle func(context.Context) string, fromDB *vehiclesFromDB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			writeJSON(w, http.StatusOK, []rivian.Vehicle{})
 			return
 		}
-		if fromDB && sqlDB != nil {
-			if handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, needsReauth, hasSession) {
+		if fromDB != nil && sqlDB != nil {
+			if handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, fromDB.needsReauth, hasSession) {
 				return
 			}
-			// Nothing stored yet for a linked account (the sign-in's vehicle lookup failed): ask Rivian this once, below, which
-			// primes the rows. It stops as soon as a vehicle is stored.
+			// Nothing stored yet for a linked account (the sign-in's vehicle lookup failed): ask Rivian, below, which primes the rows.
+			// At most once per user per few minutes across pods, whatever the result (vehicleFallbackGate); it stops for good as soon
+			// as a vehicle is stored.
+			if uid, ok := auth.UserFromContext(r.Context()); ok && fromDB.gate != nil {
+				allowed, prior := fromDB.gate.claim(r.Context(), uid)
+				if !allowed {
+					fromDB.observe("skipped")
+					if prior == "empty" {
+						writeJSON(w, http.StatusOK, []rivian.Vehicle{})
+						return
+					}
+					w.Header().Set("Retry-After", "300")
+					http.Error(w, "your vehicles could not be read from Rivian just now; trying again in a few minutes", http.StatusServiceUnavailable)
+					return
+				}
+				cw := &captureWriter{ResponseWriter: w}
+				w = cw
+				defer func() {
+					outcome := cw.outcome()
+					fromDB.gate.done(r.Context(), uid, outcome)
+					fromDB.observe(outcome)
+				}()
+			}
 		}
 		vs, err := c.Vehicles(r.Context())
 		if err != nil {
