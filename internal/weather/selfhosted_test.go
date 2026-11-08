@@ -218,3 +218,42 @@ func TestFetchHourNullIsNotZero(t *testing.T) {
 		t.Errorf("a null temperature read as %v C", snap.TempC)
 	}
 }
+
+// Wind speed and direction come from the same model at every hour: the first model that has BOTH.
+func TestMergeChainTakesWindAsAPair(t *testing.T) {
+	models := chainModels(selfHostedChain)
+	body := []byte(`{"hourly":{"time":["t0","t1","t2"],
+	  "wind_speed_10m_ncep_rrfs_conus":[10,11,null],"wind_direction_10m_ncep_rrfs_conus":[100,null,null],
+	  "wind_speed_10m_ncep_gfs013":[20,21,22],"wind_direction_10m_ncep_gfs013":[200,210,220],
+	  "wind_speed_10m_gem_seamless":[30,31,32],"wind_direction_10m_gem_seamless":[300,310,null]}}`)
+	out, err := mergeChain(body, models)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Hourly map[string][]*float64 `json:"hourly"`
+	}
+	// time is strings: decode the wind arrays only
+	var raw struct {
+		Hourly map[string]json.RawMessage `json:"hourly"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		t.Fatal(err)
+	}
+	got.Hourly = map[string][]*float64{}
+	for _, k := range []string{"wind_speed_10m", "wind_direction_10m"} {
+		var v []*float64
+		if err := json.Unmarshal(raw.Hourly[k], &v); err != nil {
+			t.Fatal(err)
+		}
+		got.Hourly[k] = v
+	}
+	// t0: rrfs has both -> 10/100. t1: rrfs lacks direction -> the pair comes from gfs: 21/210 (never rrfs 11 with gfs 210). t2: gfs has both.
+	want := [][2]float64{{10, 100}, {21, 210}, {22, 220}}
+	for i, w := range want {
+		s, d := got.Hourly["wind_speed_10m"][i], got.Hourly["wind_direction_10m"][i]
+		if s == nil || d == nil || *s != w[0] || *d != w[1] {
+			t.Errorf("hour %d: speed %v direction %v, want %v", i, s, d, w)
+		}
+	}
+}

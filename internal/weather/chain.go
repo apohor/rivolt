@@ -56,7 +56,27 @@ func mergeChain(body []byte, models []string) ([]byte, error) {
 				}
 			}
 		}
+		// Variables that only make sense together are merged as a pair: per time, both come from the first model that has both. Wind speed from
+		// one model and direction from another would put a headwind on a wind that no model forecast.
+		paired := map[string]bool{}
+		for _, pr := range pairedVariables {
+			a, b, ok := mergePair(block, models, pr[0], pr[1])
+			if !ok {
+				continue // no model answered both: each is merged on its own below
+			}
+			paired[pr[0]], paired[pr[1]] = true, true
+			for base, vals := range map[string][]*float64{pr[0]: a, pr[1]: b} {
+				enc, err := json.Marshal(vals)
+				if err != nil {
+					return nil, err
+				}
+				merged[base] = enc
+			}
+		}
 		for base := range bases {
+			if paired[base] {
+				continue
+			}
 			var out []*float64
 			for _, m := range models { // best first
 				raw, ok := block[base+"_"+m]
@@ -89,4 +109,43 @@ func mergeChain(body []byte, models []string) ([]byte, error) {
 		top[blockName] = mb
 	}
 	return json.Marshal(top)
+}
+
+// pairedVariables are merged together: see mergeChain.
+var pairedVariables = [][2]string{{"wind_speed_10m", "wind_direction_10m"}}
+
+// mergePair returns the two series for which, at every time, both values come from the first model (in chain order) that answers both; a
+// time no model answers both for is null in both. ok is false when no model answered either variable.
+func mergePair(block map[string]json.RawMessage, models []string, a, b string) (outA, outB []*float64, ok bool) {
+	type pair struct{ a, b []*float64 }
+	var ps []pair
+	n := 0
+	for _, m := range models {
+		ra, okA := block[a+"_"+m]
+		rb, okB := block[b+"_"+m]
+		if !okA || !okB {
+			continue
+		}
+		var va, vb []*float64
+		if json.Unmarshal(ra, &va) != nil || json.Unmarshal(rb, &vb) != nil {
+			continue
+		}
+		ps = append(ps, pair{va, vb})
+		if len(va) > n {
+			n = len(va)
+		}
+	}
+	if len(ps) == 0 {
+		return nil, nil, false
+	}
+	outA, outB = make([]*float64, n), make([]*float64, n)
+	for i := 0; i < n; i++ {
+		for _, p := range ps {
+			if i < len(p.a) && i < len(p.b) && p.a[i] != nil && p.b[i] != nil {
+				outA[i], outB[i] = p.a[i], p.b[i]
+				break
+			}
+		}
+	}
+	return outA, outB, true
 }
