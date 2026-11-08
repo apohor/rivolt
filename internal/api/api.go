@@ -64,6 +64,14 @@ import (
 	"github.com/apohor/rivolt/internal/weather"
 )
 
+// The handler deadlines of the API's two route groups. A forwarded call's kind timeout (internal/forward Kinds) must stay at least 2 s
+// under the deadline of every route that forwards it (TestForwardKindTimeoutsFitTheirRoutes), or the requester would be cut off
+// before it could answer or retry.
+const (
+	routeDeadline     = 30 * time.Second // the main group: state, vehicles, OTA notes, /trips/plan, admin routes
+	longRouteDeadline = 5 * time.Minute  // the sibling group with the long-running routes (plan-multiday, the LLM endpoints)
+)
+
 // Pools (row-level security, stage 2). DB, Drives, Charges, Samples, Settings, Push, Trips, Secrets, PackHealth, AIBudget and
 // ArchiveRows (the backup's archive reader; a request with no user fails the backup instead of dropping months) are built in
 // main on the request pool when RIVOLT_REQUEST_DATABASE_URL is set (otherwise on the system pool, as before): they serve per-user
@@ -908,7 +916,7 @@ func New(d Deps) http.Handler {
 			// on non-trivial prompts (502 when CF saw the chi
 			// middleware kill the connection mid-call on
 			// 2026-05-07).
-			r.Use(middleware.Timeout(30 * time.Second))
+			r.Use(middleware.Timeout(routeDeadline))
 			r.Use(maxBodyBytes(maxJSONBody))
 
 			// Same-origin Valhalla proxy. Mounted only when the
@@ -1728,7 +1736,7 @@ func New(d Deps) http.Handler {
 				r.Use(requireUserMW)
 				r.Use(requireTermsMW(termsLookupFor(d)))
 			}
-			r.Use(middleware.Timeout(5 * time.Minute))
+			r.Use(middleware.Timeout(longRouteDeadline))
 			r.Use(maxBodyBytes(maxJSONBody))
 			// Per-user daily cap on the two LLM-backed endpoints so a
 			// single account can't run up the AI bill. Applied per-route

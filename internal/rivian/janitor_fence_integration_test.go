@@ -57,7 +57,16 @@ func TestJanitorSkipIsNotAFence(t *testing.T) {
 		m := NewStateMonitor(NewLive(), nil)
 		m.SetStores(nil, nil, store)
 		m.SetFence(mapFenceSrc{"v-jf": st}, func(string) { fenced.Add(1) })
+		// The janitor's REST confirm is a Rivian call: a pod that does not hold the group must make none (single-owner M3-0, DA).
+		var rest atomic.Int64
+		m.restFn = func(context.Context, string) (*State, error) {
+			rest.Add(1)
+			return &State{ChargerState: "charging_active"}, nil
+		}
 		m.sweepStaleCharges(ctx, time.Hour)
+		if n := rest.Load(); n != 0 {
+			t.Errorf("%s: a pod that does not hold the group made %d Rivian REST call(s) from the janitor; want 0", name, n)
+		}
 		if n := fenced.Load(); n != 0 {
 			t.Errorf("%s: the sweep counted %d fences for a group it does not hold; want 0 (nothing was attempted)", name, n)
 		}
