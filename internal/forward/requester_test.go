@@ -162,11 +162,20 @@ func TestRequesterOnTheOwnerRunsLocallyWithoutRedis(t *testing.T) {
 	before := f.mr.CommandCount()
 	var local localCounter
 	_, outcome, err := f.requester(nil).Do(context.Background(), callFresh, local.fn)
-	if err != nil || outcome != "owner" || local.n.Load() != 1 {
+	if err != nil || outcome != "held" || local.n.Load() != 1 {
 		t.Fatalf("outcome=%q err=%v local=%d", outcome, err, local.n.Load())
 	}
 	if f.mr.CommandCount() != before {
 		t.Errorf("the owner's own call used Redis (%d commands)", f.mr.CommandCount()-before)
+	}
+	// A held-here call increments `held` and nothing else: it is not a fail-soft path.
+	if f.out(forward.KindFreshState, "held") != 1 {
+		t.Error("held counted once")
+	}
+	for _, o := range forward.Outcomes {
+		if o != "held" && f.out(forward.KindFreshState, o) != 0 {
+			t.Errorf("a held-here call must not count %q", o)
+		}
 	}
 	// Past its local deadline it does not trust its lease: it forwards (here: nobody, so it falls soft).
 	f.view.SetPast(true)

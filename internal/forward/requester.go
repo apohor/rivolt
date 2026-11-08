@@ -97,8 +97,9 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "rejected", errors.New("forward: not an allowlisted kind")
 	}
 	if epoch, ok := f.cfg.Leases.Held(c.Group); ok && !f.cfg.Leases.PastDeadline() && epoch > 0 {
-		res, err := local(ctx) // the normal case on the owner: not a fail-soft path, not counted
-		return res, "owner", err
+		f.count(c.Kind, "held") // the normal case on the owner: not a fail-soft path (left out of the local share), but counted for volume
+		res, err := local(ctx)
+		return res, "held", err
 	}
 	owner, err := f.cfg.Leases.Owner(ctx, c.Group)
 	if err != nil {
