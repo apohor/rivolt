@@ -1709,6 +1709,9 @@ func runServer() {
 	// reconciliation loop. nil when pgPool is nil (single-binary
 	// path) — the eager-subscribe fallback covers that case.
 	var leaseCoordinator *leases.Coordinator
+	// Single-owner M3: the requester side for handlers (nil unless RIVOLT_FORWARD=1 and leases are on) and the vehicle->group lookup.
+	var stateForward api.StateForwarder
+	var groupOfVehicle func(string) (string, bool)
 
 	// Keep `vehicle_state` monthly partitions rolling. Without
 	// this a pod that runs past the last partition created at
@@ -2111,12 +2114,15 @@ func runServer() {
 		}()
 		leaseCoordinator = coord
 		// Single-owner M3: the forwarder's owner loop (RIVOLT_FORWARD=1 only; the metrics exist at 0 either way).
-		setForwardDraining := startForwardOwner(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, redisKeyPrefix)
+		fwdRT := startForwardOwner(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, redisKeyPrefix)
+		if fwdRT.forwarder != nil {
+			stateForward, groupOfVehicle = fwdRT.forwarder, leaseStore.GroupOfVehicle
+		}
 		go watchDrain(drainSigs, func() {
 			dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer dcancel()
 			coord.MarkDraining(dctx)
-			setForwardDraining() // requesters stop forwarding here; what is already queued still gets answered
+			fwdRT.setDraining() // requesters stop forwarding here; what is already queued still gets answered
 			logger.Info("draining: no new leases will be taken")
 		})
 	}
@@ -3030,6 +3036,8 @@ func runServer() {
 		os.Exit(1)
 	}
 	handler := api.New(api.Deps{
+		StateForward:          stateForward,
+		GroupOfVehicle:        groupOfVehicle,
 		AuditKey:              deriveKey(cookieSecret, "rivolt/audit/v1"),
 		Sessions:              sessionsAPI,
 		SampleRetentionMonths: sampleRetentionMonths,

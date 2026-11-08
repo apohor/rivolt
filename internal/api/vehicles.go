@@ -610,6 +610,12 @@ func liveFieldSupport(fs map[string]string, st *rivian.State) {
 // same Rivian session token would kick each other repeatedly and
 // fragment drives at every WS bounce.
 func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor, hasSession func(context.Context) (bool, error)) http.HandlerFunc {
+	return handleVehicleStateForwarded(c, mon, hasSession, nil)
+}
+
+// handleVehicleStateForwarded is handleVehicleState with its one Rivian call (the fetch branch) routed through sf, so a pod that does not
+// hold the vehicle's group asks the owner instead of calling Rivian itself. sf nil: unchanged.
+func handleVehicleStateForwarded(c rivian.Client, mon *rivian.StateMonitor, hasSession func(context.Context) (bool, error), sf *stateForward) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			http.Error(w, "no rivian client configured", http.StatusNotFound)
@@ -638,10 +644,15 @@ func handleVehicleState(c rivian.Client, mon *rivian.StateMonitor, hasSession fu
 			}
 			have = cached
 		}
-		st, err := c.State(r.Context(), id)
+		st, err := sf.fetch(r.Context(), c, id)
 		if err != nil {
 			if have != nil {
 				writeJSON(w, http.StatusOK, rivian.WithOTADerived(have))
+				return
+			}
+			var fe *forwardedStateError
+			if errors.As(err, &fe) { // the owner's answer, unchanged
+				fe.write(w)
 				return
 			}
 			if errors.Is(err, rivian.ErrNotImplemented) {
@@ -720,17 +731,26 @@ type notConnectedBody struct {
 // ErrNotAuthenticated) by asking whether a session is stored: if one is, or it cannot be read, the error stays a 502, so a
 // user is never told to reconnect when the truth is that we could not look (the /api/vehicles list makes the same call).
 func writeStateError(w http.ResponseWriter, r *http.Request, err error, hasSession func(context.Context) (bool, error)) {
+	status, body := stateErrorResponse(r.Context(), err, hasSession)
+	if status == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", strconv.Itoa(upstreamRetryAfterSec))
+	}
+	writeJSON(w, status, body)
+}
+
+// stateErrorResponse is the status and JSON body writeStateError sends for err. It is a function of its own so the vehicle's owner, serving
+// a forwarded fetch, produces exactly the answer this pod would have given (see ServeFreshState).
+func stateErrorResponse(ctx context.Context, err error, hasSession func(context.Context) (bool, error)) (int, any) {
 	if errors.Is(err, rivian.ErrNotAuthenticated) && hasSession != nil {
-		if linked, lerr := hasSession(r.Context()); lerr == nil && !linked {
-			writeJSON(w, http.StatusConflict, notConnectedBody{
+		if linked, lerr := hasSession(ctx); lerr == nil && !linked {
+			return http.StatusConflict, notConnectedBody{
 				Error:  "Rivian is not connected to this account",
 				Class:  rivian.ClassUserAction.String(),
 				Reason: "not_connected",
-			})
-			return
+			}
 		}
 	}
-	writeUpstreamError(w, err)
+	return upstreamErrorBody(err)
 }
 
 // attachOTA sets each vehicle's OTA details from the stored JSON and adds
