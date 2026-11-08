@@ -139,6 +139,9 @@ type Metrics struct {
 	// and were stored), empty, error, skipped (inside the 5-minute window after an attempt, no Rivian call). A steady rate of error means an
 	// account whose lookup keeps failing; none at all is the goal (single-owner M3-5a). Outcome label only.
 	VehiclesFallbackTotal *prometheus.CounterVec
+	// VehicleDiscoveryTotal counts the vehicle discovery job's turns by outcome (stored, empty, error, skipped, needs_reauth): linked users with no
+	// vehicle row, looked up so their vehicles get a lease (single-owner M3-6). No user label. A steady error rate is an account Rivian keeps refusing.
+	VehicleDiscoveryTotal *prometheus.CounterVec
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -448,6 +451,10 @@ func New() *Metrics {
 			Name: "rivolt_open_charges",
 			Help: "Open live charge rows by state (charging or not_charging by the stale-charge janitor's rule, or no_frame: the vehicle sent nothing in 2 days); no vehicle or user labels.",
 		}, []string{"state"}),
+		VehicleDiscoveryTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_vehicle_discovery_total",
+			Help: "Vehicle discovery turns for linked users with no vehicle row, by outcome (stored, empty, error, skipped, needs_reauth).",
+		}, []string{"outcome"}),
 		VehiclesFallbackTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_vehicles_fallback_total",
 			Help: "The linked-account-with-no-stored-vehicle Rivian lookups of /api/vehicles, by outcome (stored, empty, error, skipped).",
@@ -852,6 +859,7 @@ func New() *Metrics {
 		m.OpenChargesOldestSeconds,
 		m.ChargewatchLastSuccess,
 		m.VehiclesFallbackTotal,
+		m.VehicleDiscoveryTotal,
 		m.Accounts,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,

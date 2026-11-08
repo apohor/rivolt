@@ -45,6 +45,7 @@ var allowedBackgroundCallers = map[string]string{
 	"internal/receipts/syncer.go run .SessionCharger":              "same gate as CompletedSessionSummaries",
 	"internal/planleg/planleg.go PlanTrip .PlanTrip":               "request path (the trip planner leg cache), forwarded to the owner by M3-4; not a background job",
 	"internal/tripmultiday/plan.go Plan .PlanTrip":                 "request path (multi-day planner), forwarded to the owner by M3-4; not a background job",
+	"cmd/rivolt/vehicle_discovery.go discoveryLookup .Vehicles":    "the vehicle discovery job's lookup for linked users with no vehicle row (no group, so no owner exists to ask): one pod only (Postgres advisory lock), per-user backoff 30 min on error and 24 h on empty, rate-paced",
 	"internal/api/vehicles.go handleVehicles .RefreshVehicleInfo":  "the old /api/vehicles path's cold-start refresh: request-driven, and for a linked account behind the 5-minute fallback claim (#1685)",
 }
 

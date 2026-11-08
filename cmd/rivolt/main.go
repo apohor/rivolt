@@ -95,6 +95,7 @@ import (
 	"github.com/apohor/rivolt/internal/tirelow"
 	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/trips"
+	"github.com/apohor/rivolt/internal/vehiclediscovery"
 	"github.com/apohor/rivolt/internal/weather"
 	"github.com/apohor/rivolt/internal/web"
 
@@ -3038,6 +3039,15 @@ func runServer() {
 	if pending := launch.Gate(rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING"))); len(pending) > 0 {
 		logger.Error("RIVOLT_BILLING is on but the Pro launch-readiness list has pending items; refusing to start (see internal/launch)", "pending", strings.Join(pending, ","))
 		os.Exit(1)
+	}
+	// Single-owner M3-6: linked users with no vehicle row have no group, so no lease and no owner. One pod (a Postgres advisory lock) looks them up
+	// every 30 minutes and primes their rows.
+	if pgPool != nil && accountRegistry != nil {
+		startVehicleDiscovery(ctx, logger, appMetrics, &vehiclediscovery.Job{
+			DB:      pgPool,
+			Lookup:  discoveryLookup(accountRegistry, secretsStore),
+			Backoff: vehiclediscovery.NewRedisBackoff(sharedRedis, redisKeyPrefix, api.FailLimiterKey(cookieSecret)),
+		})
 	}
 	handler := api.New(api.Deps{
 		StateForward:          stateForward,
