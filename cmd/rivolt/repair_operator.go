@@ -13,9 +13,10 @@ import (
 var currentRepairRun *operator.Run
 
 // openRepair opens the pool a repair CLI works on: today's DATABASE_URL path, or, with RIVOLT_REPAIR_DATABASE_URL, the repair role with an
-// audit row when mutating (see internal/repair/operator). mutate is the CLI's --apply.
-func openRepair(ctx context.Context, tool string, mutate bool) (*sql.DB, error) {
-	run, err := operator.Open(ctx, tool, mutate, os.Getenv, postgresDSN(), os.Stderr)
+// audit row when mutating (see internal/repair/operator). mutate is the CLI's --apply; digest is its --expect-sha (the approved dry run), or empty
+// to take RIVOLT_APPROVED_DIGEST.
+func openRepair(ctx context.Context, tool string, mutate bool, digest string) (*sql.DB, error) {
+	run, err := operator.Open(ctx, tool, mutate, digest, os.Getenv, postgresDSN(), os.Stderr)
 	if err != nil {
 		return nil, err
 	}

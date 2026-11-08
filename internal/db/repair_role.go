@@ -16,12 +16,22 @@ const RepairRole = "rivolt_repair"
 // an open operator action. Keep this list and the migration's in step (TestRepairGuardTablesMatchTheGrants).
 var repairWriteTables = []string{"charges", "drives", "charges_capped_backup", "charges_deleted_backup", "vehicles"}
 
+// RepairDeniedTables is the denylist, for tests.
+func RepairDeniedTables() []string { return append([]string(nil), repairDeniedTables...) }
+
 // RepairWriteTables is the list above, for tests.
 func RepairWriteTables() []string { return append([]string(nil), repairWriteTables...) }
 
-// repairDeniedTables are the tables the repair role cannot read: secrets and system state no repair needs. operator_actions is reached only
-// through the begin and end functions.
-var repairDeniedTables = append([]string{"user_secrets", "sessions", "webauthn_credentials", "archive_keys", "invite_codes", "operator_actions"}, appDeniedTables...)
+// repairDeniedTables are the tables the repair role cannot read: every table that holds a token, a key, a credential or an identifier a repair
+// never needs (the read grants are a denylist, DA M4-4). operator_actions is reached only through the begin and end functions. users stays
+// readable: reprice joins it, and the role is operator-only. TestRepairRoleDeniesEverythingSecret keeps this list complete.
+var repairDeniedTables = append([]string{
+	"user_secrets", "sessions", "archive_keys", "invite_codes", "operator_actions",
+	"webauthn_credentials", "webauthn_ceremonies", "webauthn_users", // passkeys and their challenge state
+	"push_subscriptions", "push_apns_devices", "push_apns_activities", // web-push endpoints and keys, APNs device and Live Activity tokens
+	"app_auth_requests", "apple_link_intents", "apple_identities", "apple_events", "apple_notification_seen", // the iPhone sign-in and Apple linking state
+	"billing_customers", "billing_stripe_subs", "billing_apple_subs", "stripe_events", "stripe_closed_customers", // payment-provider identifiers
+}, appDeniedTables...)
 
 // GrantRepair applies the repair role's grants. It returns (false, nil) when the role does not exist yet, so a caller can retry. Idempotent.
 //   - SELECT on every table except repairDeniedTables (a repair reads widely: vehicle_state, receipts, restamps, pack health);
@@ -71,7 +81,7 @@ func GrantRepair(ctx context.Context, d *sql.DB) (bool, error) {
 	stmts := []string{
 		fmt.Sprintf(`GRANT USAGE ON SCHEMA public TO %s`, RepairRole),
 		fmt.Sprintf(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %s`, RepairRole),
-		fmt.Sprintf(`GRANT EXECUTE ON FUNCTION rivolt_operator_begin(text, text, text, text) TO %s`, RepairRole),
+		fmt.Sprintf(`GRANT EXECUTE ON FUNCTION rivolt_operator_begin(text, text, text, text, text) TO %s`, RepairRole),
 		fmt.Sprintf(`GRANT EXECUTE ON FUNCTION rivolt_operator_end(uuid, text) TO %s`, RepairRole),
 	}
 	for _, tb := range tables {

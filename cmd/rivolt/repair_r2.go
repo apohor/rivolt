@@ -37,7 +37,7 @@ func runRepairR2History(args []string) int {
 		return 2
 	}
 	ctx := context.Background()
-	pool, err := openRepair(ctx, "repair-r2-history", *apply)
+	pool, err := openRepair(ctx, "repair-r2-history", *apply, "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-r2-history: postgres:", err)
 		return 1

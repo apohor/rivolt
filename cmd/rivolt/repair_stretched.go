@@ -36,7 +36,7 @@ func runRepairStretched(args []string) int {
 		return 2
 	}
 	ctx := context.Background()
-	pool, err := openRepair(ctx, "repair-charge-stretched", *apply)
+	pool, err := openRepair(ctx, "repair-charge-stretched", *apply, *expectSHA)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-charge-stretched: postgres:", err)
 		return 1

@@ -72,7 +72,7 @@ func runRepairRouteGaps(args []string) int {
 	}
 
 	ctx := context.Background()
-	pool, err := openRepair(ctx, "repair-route-gaps", *apply)
+	pool, err := openRepair(ctx, "repair-route-gaps", *apply, *expectSHA)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-route-gaps: postgres:", err)
 		return 1

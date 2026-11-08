@@ -20,6 +20,9 @@ import (
 
 const repairPassword = "repair-test-pw"
 
+// digest is a stand-in for the approved dry run's sha256.
+const digest = "abababababababababababababababababababababababababababababababab"
+
 // fixture is a migrated database with the repair role created and granted, an owner pool (the migration role) and a charge to work on.
 type fixture struct {
 	owner     *sql.DB
@@ -126,9 +129,9 @@ func TestOperatorPathAuditsARun(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)
 	getenv := func(k string) string {
-		return map[string]string{operator.EnvDSN: f.repairDSN, operator.EnvRole: "lead", operator.EnvReason: "test run"}[k]
+		return map[string]string{operator.EnvDSN: f.repairDSN, operator.EnvRole: "lead", operator.EnvReason: "test run", operator.EnvDigest: digest}[k]
 	}
-	run, err := operator.Open(ctx, "repair-test", true, getenv, "ignored", io.Discard)
+	run, err := operator.Open(ctx, "repair-test", true, "", getenv, "ignored", io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +179,7 @@ func TestOperatorActionBounds(t *testing.T) {
 	}
 	defer repair.Close()
 	var id string
-	if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('owner', 'repair-test', 'abc', 'bounds')::text`).Scan(&id); err != nil {
+	if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('owner', 'repair-test', 'abc', 'bounds', '`+digest+`')::text`).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	with := func(action string) (*sql.DB, error) {
@@ -207,14 +210,14 @@ func TestOperatorActionBounds(t *testing.T) {
 		t.Error("an action older than 12 hours authorised a write")
 	}
 	// Input is validated: a name is not a role, an outcome is ok or failed, an action closes once.
-	if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('Alex', 't', '', 'r')::text`).Scan(&id); err == nil {
+	if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('Alex', 't', '', 'r', '`+digest+`')::text`).Scan(&id); err == nil {
 		t.Error("a person's name was accepted as the role label")
 	}
-	if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('lead', 't', '', '')::text`).Scan(&id); err == nil {
+	if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('lead', 't', '', '', '`+digest+`')::text`).Scan(&id); err == nil {
 		t.Error("an empty reason was accepted")
 	}
 	var id2 string
-	if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('lead', 't', '', 'r')::text`).Scan(&id2); err != nil {
+	if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('lead', 't', '', 'r', '`+digest+`')::text`).Scan(&id2); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repair.ExecContext(ctx, `SELECT rivolt_operator_end($1::uuid, 'maybe')`, id2); err == nil {
@@ -228,7 +231,31 @@ func TestOperatorActionBounds(t *testing.T) {
 	}
 	// Only the repair role may call the functions (PUBLIC lost EXECUTE); the guard lists match the grants.
 	var ok bool
-	if err := f.owner.QueryRowContext(ctx, `SELECT has_function_privilege('public', 'rivolt_operator_begin(text,text,text,text)', 'EXECUTE')`).Scan(&ok); err != nil || ok {
+	if err := f.owner.QueryRowContext(ctx, `SELECT has_function_privilege('public', 'rivolt_operator_begin(text,text,text,text,text)', 'EXECUTE')`).Scan(&ok); err != nil || ok {
 		t.Errorf("PUBLIC can execute rivolt_operator_begin: %v (%v)", ok, err)
+	}
+}
+
+// The digest of the approved dry run is required and checked: tied to every audited run.
+func TestOperatorBeginRequiresTheApprovedDigest(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t)
+	repair, err := db.OpenNoMigrate(ctx, f.repairDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repair.Close()
+	var id string
+	for name, d := range map[string]string{"empty": "", "short": "abc", "upper case": strings.Repeat("AB", 32)} {
+		if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('lead', 't', '', 'r', $1)::text`, d).Scan(&id); err == nil {
+			t.Errorf("%s digest was accepted", name)
+		}
+	}
+	if err := repair.QueryRowContext(ctx, `SELECT rivolt_operator_begin('lead', 't', '', 'r', $1)::text`, digest).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := f.owner.QueryRowContext(ctx, `SELECT input_sha256 FROM operator_actions WHERE id = $1`, id).Scan(&stored); err != nil || stored != digest {
+		t.Errorf("stored digest %q (%v), want %q", stored, err, digest)
 	}
 }

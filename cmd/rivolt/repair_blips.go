@@ -34,7 +34,7 @@ func runRepairBlips(args []string) int {
 		return 2
 	}
 	ctx := context.Background()
-	pool, err := openRepair(ctx, "repair-charge-blips", *apply)
+	pool, err := openRepair(ctx, "repair-charge-blips", *apply, *expectSHA)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-charge-blips: postgres:", err)
 		return 1

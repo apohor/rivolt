@@ -9,6 +9,7 @@
 //	                            unless RIVOLT_REPAIR_REQUIRE_ROLE=1, which refuses it.
 //	RIVOLT_OPERATOR_ROLE        lead or owner (the audit row's label); required on the audited path when mutating
 //	RIVOLT_REPAIR_REASON        why this run (at most 300 characters); required on the audited path when mutating
+//	RIVOLT_APPROVED_DIGEST      the sha256 of the approved dry run (64 hex), unless the CLI passes its own --expect-sha; required when mutating
 //
 // A dry run needs no audit row (it reads), and uses the repair role's DSN when one is set.
 package operator
@@ -19,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"runtime/debug"
 	"strings"
 
@@ -30,6 +32,7 @@ const (
 	EnvDSN         = "RIVOLT_REPAIR_DATABASE_URL"
 	EnvRole        = "RIVOLT_OPERATOR_ROLE"
 	EnvReason      = "RIVOLT_REPAIR_REASON"
+	EnvDigest      = "RIVOLT_APPROVED_DIGEST"
 	EnvRequireRole = "RIVOLT_REPAIR_REQUIRE_ROLE"
 )
 
@@ -48,9 +51,10 @@ func (r *Run) Done(runErr error) error {
 	return r.done(runErr)
 }
 
-// Open returns the pool a repair CLI works on. mutate is true for --apply (and a restore's --apply). legacyDSN is the DSN of today's path.
+// Open returns the pool a repair CLI works on. mutate is true for --apply (and a restore's --apply). digest is the approved dry run's sha256 (the
+// CLI's --expect-sha); empty falls back to RIVOLT_APPROVED_DIGEST. legacyDSN is the DSN of today's path.
 // warn receives the legacy-path warning (the CLI's stderr).
-func Open(ctx context.Context, tool string, mutate bool, getenv func(string) string, legacyDSN string, warn io.Writer) (*Run, error) {
+func Open(ctx context.Context, tool string, mutate bool, digest string, getenv func(string) string, legacyDSN string, warn io.Writer) (*Run, error) {
 	dsn := strings.TrimSpace(getenv(EnvDSN))
 	if dsn == "" {
 		if mutate && getenv(EnvRequireRole) == "1" {
@@ -74,7 +78,10 @@ func Open(ctx context.Context, tool string, mutate bool, getenv func(string) str
 	}
 	role := strings.TrimSpace(getenv(EnvRole))
 	reason := strings.TrimSpace(getenv(EnvReason))
-	if err := validate(role, reason); err != nil {
+	if digest == "" {
+		digest = strings.TrimSpace(getenv(EnvDigest))
+	}
+	if err := validate(role, reason, digest); err != nil {
 		return nil, err
 	}
 	// Open the action on a connection of its own (the role may call the begin function and nothing else of the audit table), then work on a
@@ -84,7 +91,7 @@ func Open(ctx context.Context, tool string, mutate bool, getenv func(string) str
 		return nil, err
 	}
 	var id string
-	if err := admin.QueryRowContext(ctx, `SELECT rivolt_operator_begin($1, $2, $3, $4)::text`, role, tool, gitSHA(), reason).Scan(&id); err != nil {
+	if err := admin.QueryRowContext(ctx, `SELECT rivolt_operator_begin($1, $2, $3, $4, $5)::text`, role, tool, gitSHA(), reason, digest).Scan(&id); err != nil {
 		_ = admin.Close()
 		return nil, fmt.Errorf("open operator action: %w", err)
 	}
@@ -109,7 +116,7 @@ func Open(ctx context.Context, tool string, mutate bool, getenv func(string) str
 }
 
 // validate checks the label and the reason before anything is opened. The label is a role, not a person.
-func validate(role, reason string) error {
+func validate(role, reason, digest string) error {
 	if role != "lead" && role != "owner" {
 		return fmt.Errorf("%s must be lead or owner (a role, never a name), got %q", EnvRole, role)
 	}
@@ -119,8 +126,13 @@ func validate(role, reason string) error {
 	if len(reason) > 300 {
 		return errors.New(EnvReason + " is longer than 300 characters")
 	}
+	if !digestRE.MatchString(digest) {
+		return fmt.Errorf("the approved dry run's sha256 is required (64 lowercase hex: the CLI's --expect-sha, or %s)", EnvDigest)
+	}
 	return nil
 }
+
+var digestRE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // gitSHA is the binary's revision, from the build info (empty for a build without it).
 func gitSHA() string {

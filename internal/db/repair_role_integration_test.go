@@ -5,6 +5,7 @@ package db_test
 import (
 	"context"
 	"reflect"
+	"regexp"
 	"sort"
 	"testing"
 	"time"
@@ -41,5 +42,55 @@ func TestRepairGuardTablesMatchTheGrants(t *testing.T) {
 	sort.Strings(want)
 	if !reflect.DeepEqual(guarded, want) {
 		t.Fatalf("guard trigger on %v, repair role may write %v", guarded, want)
+	}
+}
+
+// Everything that holds a token, a key, a credential or an identifier a repair never needs is closed to the repair role. A table or column that
+// matches by name must be denied, or be on the allowlist below with the reason it is harmless. A new table or column that looks secret fails
+// here until someone decides which.
+func TestRepairRoleDeniesEverythingSecret(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	d, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	denied := map[string]bool{}
+	for _, tb := range db.RepairDeniedTables() {
+		denied[tb] = true
+	}
+	// Tables whose names match but hold nothing secret.
+	allowTable := map[string]string{}
+	// Columns that match but are not secrets: AI token counts, a charge's session type, a milestone's dedupe key.
+	allowColumn := map[string]string{
+		"ai_usage.input_tokens": "a count of model tokens", "ai_usage.output_tokens": "a count of model tokens",
+		"drive_efficiency.input_tokens": "a count of model tokens", "drive_efficiency.output_tokens": "a count of model tokens",
+		"drive_recaps.input_tokens": "a count of model tokens", "drive_recaps.output_tokens": "a count of model tokens",
+		"charges.session_type": "the kind of charging session", "milestones.key": "the milestone's name", "engagement_sends.key": "a send's dedupe key",
+	}
+	rows, err := d.QueryContext(ctx, `SELECT c.relname, a.attname FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped AND NOT c.relispartition ORDER BY 1, 2`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	tableRE := regexp.MustCompile(`token|secret|key|credential|session|challenge`)
+	colRE := regexp.MustCompile(`token|secret|credential|password|private_key|sealed|_hash|challenge|endpoint|customer_id|code`)
+	seenTable := map[string]bool{}
+	for rows.Next() {
+		var tb, col string
+		if err := rows.Scan(&tb, &col); err != nil {
+			t.Fatal(err)
+		}
+		if !seenTable[tb] {
+			seenTable[tb] = true
+			if tableRE.MatchString(tb) && !denied[tb] && allowTable[tb] == "" {
+				t.Errorf("table %s looks secret by name and the repair role can read it: deny it (repairDeniedTables) or allowlist it here with a reason", tb)
+			}
+		}
+		if colRE.MatchString(col) && !denied[tb] && allowColumn[tb+"."+col] == "" {
+			t.Errorf("column %s.%s looks secret and the repair role can read it: deny the table or allowlist the column here with a reason", tb, col)
+		}
 	}
 }

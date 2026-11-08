@@ -2,7 +2,7 @@
 --
 -- The repair CLIs write rows the owner also writes (charges, drives) from outside any lease, as an operator. Fencing cannot cover them, so
 -- the database records and requires an audit row instead:
---   * operator_actions: one row per mutating run (tool, role label, git sha, reason, outcome, rows written). The role label is "lead" or
+--   * operator_actions: one row per mutating run (tool, role label, git sha, reason, the approved dry-run digest, outcome, rows written). The role label is "lead" or
 --     "owner", never a person's name. Restore is a run of its own.
 --   * A run begins with rivolt_operator_begin() and ends with rivolt_operator_end(); the CLI then passes the row id to its connection as the
 --     session setting rivolt.operator_action. The only way into those functions is the repair role (rivolt_repair, granted at boot by
@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS operator_actions (
     tool        TEXT        NOT NULL CHECK (tool <> '' AND length(tool) <= 64),
     git_sha     TEXT        NOT NULL DEFAULT '' CHECK (length(git_sha) <= 64),
     reason      TEXT        NOT NULL CHECK (reason <> '' AND length(reason) <= 300),
+    -- The sha256 of the approved dry run (the digest the reviewer acked): every audited run is tied to what was approved.
+    input_sha256 TEXT       NOT NULL CHECK (input_sha256 ~ '^[0-9a-f]{64}$'),
     started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     ended_at    TIMESTAMPTZ,
     outcome     TEXT        CHECK (outcome IN ('ok', 'failed')),
@@ -31,12 +33,12 @@ CREATE INDEX IF NOT EXISTS operator_actions_started ON operator_actions (started
 ALTER TABLE operator_actions ENABLE ROW LEVEL SECURITY;
 
 -- begin: the repair role opens a run and gets its id back.
-CREATE OR REPLACE FUNCTION rivolt_operator_begin(p_role text, p_tool text, p_git_sha text, p_reason text)
+CREATE OR REPLACE FUNCTION rivolt_operator_begin(p_role text, p_tool text, p_git_sha text, p_reason text, p_digest text)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE aid uuid;
 BEGIN
-    INSERT INTO operator_actions (role_label, tool, git_sha, reason)
-    VALUES (p_role, p_tool, coalesce(p_git_sha, ''), p_reason)
+    INSERT INTO operator_actions (role_label, tool, git_sha, reason, input_sha256)
+    VALUES (p_role, p_tool, coalesce(p_git_sha, ''), p_reason, p_digest)
     RETURNING id INTO aid;
     RETURN aid;
 END $$;
@@ -79,7 +81,7 @@ END $$;
 
 -- Closed to everyone but the roles that are granted it: PUBLIC loses the default EXECUTE. db.GrantRepair gives the repair role the
 -- begin and end functions.
-REVOKE ALL ON FUNCTION rivolt_operator_begin(text, text, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION rivolt_operator_begin(text, text, text, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION rivolt_operator_end(uuid, text) FROM PUBLIC;
 
 DO $$

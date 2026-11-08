@@ -96,7 +96,7 @@ func runReprice(args []string) int {
 	}
 	idArr := "{" + strings.Join(idStrs, ",") + "}"
 	ctx := context.Background()
-	pool, err := openRepair(ctx, "reprice", *apply)
+	pool, err := openRepair(ctx, "reprice", *apply, "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reprice: postgres:", err)
 		return 1
@@ -452,7 +452,7 @@ func runRepriceRestore(path string, apply bool) int {
 		return 1
 	}
 	ctx := context.Background()
-	pool, err := openRepair(ctx, "reprice", apply)
+	pool, err := openRepair(ctx, "reprice", apply, "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reprice: postgres:", err)
 		return 1

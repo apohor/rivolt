@@ -7,11 +7,13 @@ any lease. Fencing cannot cover them, so the database keeps a record of every mu
 ## What exists
 
 - Database role `rivolt_repair` (created by the infra repo, LOGIN and BYPASSRLS; a repair reaches every user's rows). The server grants it, when it
-  runs with `RIVOLT_REPAIR_ROLE=1`: SELECT on every table except the secrets and system tables (`user_secrets`, `sessions`, `webauthn_credentials`,
-  `archive_keys`, `invite_codes`, the app-denied tables, `operator_actions`); INSERT, UPDATE and DELETE on `charges`, `drives`, `charges_capped_backup`,
+  runs with `RIVOLT_REPAIR_ROLE=1`: SELECT on every table except a denylist of everything that holds a token, a key, a credential or a provider identifier
+  (sessions, user secrets, passkeys and their challenge state, web-push and APNs device and activity tokens, the iPhone sign-in and Apple linking state,
+  Stripe and Apple billing identifiers, archive keys, invite codes, the app-denied tables, `operator_actions`; `users` stays readable). A test fails when
+  a table or column that looks secret is readable and not allowlisted with a reason; INSERT, UPDATE and DELETE on `charges`, `drives`, `charges_capped_backup`,
   `charges_deleted_backup` and `vehicles` only; EXECUTE on `rivolt_operator_begin` and `rivolt_operator_end`.
-- Table `operator_actions` (migration 0108): one row per mutating run: tool, role label (`lead` or `owner`, never a name), git sha, reason, start and
-  end, outcome (`ok` or `failed`) and `rows_written`, counted by the guard itself for every row the run inserts, updates or deletes in a guarded table.
+- Table `operator_actions` (migration 0108): one row per mutating run: tool, role label (`lead` or `owner`, never a name), git sha, reason, the
+  sha256 of the approved dry run (required: every audited run is tied to the digest that was approved), start and end, outcome (`ok` or `failed`) and `rows_written`, counted by the guard itself for every row the run inserts, updates or deletes in a guarded table.
 - A trigger on those five tables, for the repair role only: every write needs the session setting `rivolt.operator_action` to name an open action less
   than 12 hours old. Other roles are untouched.
 
@@ -22,7 +24,8 @@ Dry runs read only and need nothing new. A mutating run (`--apply`, and an undo 
 ```
 RIVOLT_REPAIR_DATABASE_URL=postgres://rivolt_repair:...@host/db   # the role's DSN (Vault; the operator only)
 RIVOLT_OPERATOR_ROLE=lead                                          # or owner
-RIVOLT_REPAIR_REASON="cap the 12 stretched rows approved in the dry run (sha ...)"
+RIVOLT_REPAIR_REASON="cap the 12 stretched rows approved in the dry run"
+RIVOLT_APPROVED_DIGEST=<64 hex>                                    # the approved dry run's sha256; a CLI with --expect-sha uses that flag instead
 ```
 
 The CLI opens the action, works on connections that carry it, and closes it with the outcome from its exit code. The action id and role are printed

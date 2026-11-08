@@ -55,7 +55,7 @@ func runRepairRoutePoints(args []string) int {
 	}
 
 	ctx := context.Background()
-	pool, err := openRepair(ctx, "repair-route-points", *apply)
+	pool, err := openRepair(ctx, "repair-route-points", *apply, *expectSHA)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-route-points: postgres:", err)
 		return 1
