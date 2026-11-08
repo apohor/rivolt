@@ -874,3 +874,52 @@ func TestCompletedSessionSummariesAllUnreadableIsAnError(t *testing.T) {
 		t.Errorf("empty history = %+v, %v", got, err)
 	}
 }
+
+// The owner refreshes the vehicle info when a subscription starts, and then at most once a day, so /api/vehicles can answer from the stored
+// copy (single-owner M3-5a): one refresh however many vehicles start, none again within the day, one again after it.
+func TestVehicleInfoRefreshesOncePerDayWhenASubscriptionStarts(t *testing.T) {
+	g := newStubGateway(t)
+	c := NewLive().WithEndpoint(g.srv.URL)
+	if err := c.Login(context.Background(), Credentials{Email: "a@b.c", Password: "pw"}); err != nil {
+		t.Fatal(err)
+	}
+	mon := NewStateMonitor(c, nil)
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	mon.now = func() time.Time { return now }
+	done := make(chan struct{}, 4)
+	mon.SetVehicleInfoHook(func(context.Context, []Vehicle) { done <- struct{}{} })
+	count := func() int {
+		n := 0
+		for _, call := range g.capturedReqs {
+			if call.Operation == "getUserInfo" {
+				n++
+			}
+		}
+		return n
+	}
+	wait := func() {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("no refresh")
+		}
+	}
+	mon.refreshVehicleInfoIfStale(context.Background())
+	mon.refreshVehicleInfoIfStale(context.Background()) // a second vehicle starting at once
+	wait()
+	if n := count(); n != 1 {
+		t.Fatalf("%d refreshes for two vehicles starting together, want 1", n)
+	}
+	now = now.Add(23 * time.Hour)
+	mon.refreshVehicleInfoIfStale(context.Background())
+	time.Sleep(100 * time.Millisecond)
+	if n := count(); n != 1 {
+		t.Errorf("%d refreshes within the day, want still 1", n)
+	}
+	now = now.Add(2 * time.Hour)
+	mon.refreshVehicleInfoIfStale(context.Background())
+	wait()
+	if n := count(); n != 2 {
+		t.Errorf("%d refreshes after the day, want 2", n)
+	}
+}

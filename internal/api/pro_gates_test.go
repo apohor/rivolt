@@ -205,7 +205,7 @@ func (twoVehicles) Vehicles(context.Context) ([]rivian.Vehicle, error) {
 func TestVehicleListShowsEveryVehicleAndMarksTheExtras(t *testing.T) {
 	list := func(only string) map[string]bool {
 		rec := httptest.NewRecorder()
-		handleVehicles(twoVehicles{}, nil, nil, nil, nil, func(context.Context) string { return only })(rec, httptest.NewRequest(http.MethodGet, "/api/vehicles", nil))
+		handleVehicles(twoVehicles{}, nil, nil, nil, nil, func(context.Context) string { return only }, false, nil)(rec, httptest.NewRequest(http.MethodGet, "/api/vehicles", nil))
 		var vs []struct {
 			ID        string `json:"id"`
 			ProLocked bool   `json:"pro_locked"`

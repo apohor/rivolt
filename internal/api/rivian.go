@@ -556,7 +556,7 @@ func primeUserVehicles(
 		}
 		uerr := db.UpsertVehicleFromSync(ctx, sqlDB, uid, db.VehicleSync{
 			RivianID: vs[i].ID, VIN: vs[i].VIN, Name: vs[i].Name, Model: vs[i].Model,
-			ModelYear: vs[i].ModelYear, Trim: vs[i].TrimID, PackKWh: vs[i].PackKWh, ImageURL: vs[i].ImageURL,
+			ModelYear: vs[i].ModelYear, Trim: vs[i].TrimID, PackKWh: vs[i].PackKWh, ImageURL: vs[i].ImageURL, Info: vs[i].StoredInfo(),
 		})
 		if uerr != nil {
 			if logger != nil {

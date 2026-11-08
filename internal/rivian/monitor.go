@@ -296,6 +296,10 @@ type StateMonitor struct {
 	// pick an accurate pack size for the SoC-delta energy fallback.
 	// Guarded by mu alongside the rest of the cache.
 	vehicleInfo map[string]*Vehicle
+	// infoRefreshedAt is when RefreshVehicleInfo last succeeded (or was claimed by a subscription start). The owner refreshes the vehicle
+	// info when its subscription starts and at most once a day after, so /api/vehicles can answer from the stored copy on any pod
+	// (single-owner M3-5a). Guarded by mu.
+	infoRefreshedAt time.Time
 	// Charging schedule reads (charging_schedule.go): a nudge channel per
 	// vehicle, the last read's time and position, and the fetch (nil =
 	// client.ChargingSchedules; tests set it). Guarded by mu.
@@ -1478,6 +1482,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	}
 
 	m.logger.Info("rivian ws subscribe", "vehicle", vehicleID)
+	m.refreshVehicleInfoIfStale(ctx)
 
 	// Decide whether to run the Parallax GPS subscriber for this
 	// vehicle. Two-layer gate mirroring the app: the RIVOLT_PARALLAX_GPS
@@ -3927,6 +3932,7 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 		refreshed = append(refreshed, v)
 	}
 	hook := m.vehicleInfoHook
+	m.infoRefreshedAt = m.clock()
 	m.mu.Unlock()
 	// Persist what was just fetched, outside the lock: no extra Rivian
 	// call, so vehicles.trim / image_url fill from the same two requests.
@@ -3934,6 +3940,36 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 		m.persistVehicleInfo(hook, refreshed)
 	}
 	return nil
+}
+
+// vehicleInfoMaxAge is how old the fetched vehicle info may get before the owner refetches it when a subscription starts.
+const vehicleInfoMaxAge = 24 * time.Hour
+
+// refreshVehicleInfoIfStale refreshes the vehicle info (trim name, make, image gallery) in the background when this monitor has not done so
+// within vehicleInfoMaxAge. It runs on the pod that holds the subscription, so its persist hook writes under the group fence; /api/vehicles
+// no longer asks Rivian itself. One claim per monitor, whatever the number of vehicles; a failed refresh gives the claim back.
+func (m *StateMonitor) refreshVehicleInfoIfStale(ctx context.Context) {
+	if m.client == nil {
+		return
+	}
+	m.mu.Lock()
+	if !m.infoRefreshedAt.IsZero() && m.clock().Sub(m.infoRefreshedAt) < vehicleInfoMaxAge {
+		m.mu.Unlock()
+		return
+	}
+	prev := m.infoRefreshedAt
+	m.infoRefreshedAt = m.clock()
+	m.mu.Unlock()
+	go func() {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if err := m.RefreshVehicleInfo(rctx); err != nil {
+			m.mu.Lock()
+			m.infoRefreshedAt = prev
+			m.mu.Unlock()
+			m.logger.Warn("vehicle info refresh at subscription start failed", "err", err.Error())
+		}
+	}()
 }
 
 // persistVehicleInfo hands the refreshed vehicles to the hook under each

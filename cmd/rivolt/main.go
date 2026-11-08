@@ -1470,7 +1470,7 @@ func runServer() {
 							}
 							if err := db.UpsertVehicleFromSync(ctx, pgPool, uid, db.VehicleSync{
 								RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear,
-								Trim: v.TrimID, PackKWh: v.PackKWh, ImageURL: v.ImageURL,
+								Trim: v.TrimID, PackKWh: v.PackKWh, ImageURL: v.ImageURL, Info: v.StoredInfo(),
 							}); err != nil {
 								logger.Warn("persist vehicle info", "user_id", uid.String(), "rivian_vehicle_id", v.ID, "err", err.Error())
 							}

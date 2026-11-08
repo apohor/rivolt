@@ -277,11 +277,18 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 
 // hasSession says whether the user has a stored Rivian session (nil: none can be stored, so none is). It decides
 // what a client with no session means: never linked (an empty list) or linked but unreadable right now (an error).
-func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, hasSession func(context.Context) (bool, error), onlyVehicle func(context.Context) string) http.HandlerFunc {
+func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, hasSession func(context.Context) (bool, error), onlyVehicle func(context.Context) string, fromDB bool, needsReauth func(context.Context) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if c == nil {
 			writeJSON(w, http.StatusOK, []rivian.Vehicle{})
 			return
+		}
+		if fromDB && sqlDB != nil {
+			if handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, needsReauth, hasSession) {
+				return
+			}
+			// Nothing stored yet for a linked account (the sign-in's vehicle lookup failed): ask Rivian this once, below, which
+			// primes the rows. It stops as soon as a vehicle is stored.
 		}
 		vs, err := c.Vehicles(r.Context())
 		if err != nil {
@@ -332,7 +339,7 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 					}
 					uerr := db.UpsertVehicleFromSync(r.Context(), sqlDB, userID, db.VehicleSync{
 						RivianID: vs[i].ID, VIN: vs[i].VIN, Name: vs[i].Name, Model: vs[i].Model,
-						ModelYear: vs[i].ModelYear, Trim: vs[i].TrimID, PackKWh: vs[i].PackKWh,
+						ModelYear: vs[i].ModelYear, Trim: vs[i].TrimID, PackKWh: vs[i].PackKWh, Info: vs[i].StoredInfo(),
 					})
 					if uerr != nil && logger != nil {
 						logger.Warn("vehicles prime upsert failed",
@@ -460,6 +467,88 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 		}
 		writeJSON(w, http.StatusOK, vs)
 	}
+}
+
+// handleVehiclesFromDB answers /api/vehicles for a user with a Rivian account from Postgres alone: no Rivian call and no write, on any pod
+// (single-owner M3-5a; the list used to ask Rivian on every request, on every pod, and upsert from the GET). The rows are kept current by the
+// owner: the sign-in's vehicle prime creates them, and the owner's vehicle-info refresh stores the trim name, make, image gallery and hero
+// image (UpsertVehicleFromSync, under the group fence). What the response says is unchanged: the same fields, the stored OTA details, the live
+// field support and the Pro lock; a flagged-for-reauth account still answers 401 as it did when Rivian refused the call.
+//
+// It reports whether it answered. It does not when the account is linked but no vehicle is stored yet (the sign-in's lookup failed, and the
+// list used to be where that was retried): the caller then asks Rivian as before, until a vehicle is stored.
+func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, onlyVehicle func(context.Context) string, needsReauth func(context.Context) bool, hasSession func(context.Context) (bool, error)) bool {
+	if needsReauth != nil && needsReauth(r.Context()) {
+		writeUpstreamError(w, rivian.ErrNeedsReauth)
+		return true
+	}
+	userID, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusOK, []rivian.Vehicle{})
+		return true
+	}
+	rows, err := db.ListUserVehiclesForAPI(r.Context(), sqlDB, userID)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("vehicles: read failed", "err", err.Error())
+		}
+		http.Error(w, "could not read your vehicles", http.StatusInternalServerError)
+		return true
+	}
+	if len(rows) == 0 && hasSession != nil {
+		if linked, lerr := hasSession(r.Context()); lerr != nil || linked {
+			return false
+		}
+	}
+	vs := make([]rivian.Vehicle, 0, len(rows))
+	for _, row := range rows {
+		v := rivian.Vehicle{
+			ID: row.RivianVehicleID, VIN: row.VIN, Name: row.DisplayName, Model: row.Model, ModelYear: row.ModelYear,
+			TrimID: row.Trim, PackKWh: row.PackKWh, ImageURL: row.ImageURL,
+		}
+		v.ApplyStoredInfo(row.Info)
+		// What this pod's monitor already holds (in memory, no Rivian call) is at least as fresh as the stored copy.
+		if mon != nil {
+			if info := mon.VehicleInfo(v.ID); info != nil {
+				if info.ImageURL != "" {
+					v.ImageURL = info.ImageURL
+				}
+				if len(info.Images) > 0 {
+					v.Images = info.Images
+				}
+				if info.PackKWh > 0 {
+					v.PackKWh = info.PackKWh
+				}
+			}
+		}
+		vs = append(vs, v)
+	}
+	if stored, oerr := db.ListVehicleOTAs(r.Context(), sqlDB, userID); oerr == nil {
+		attachOTA(vs, stored, func(id string) *rivian.State {
+			if mon == nil {
+				return nil
+			}
+			st, _ := mon.Latest(id)
+			return st
+		})
+	}
+	for i := range vs {
+		vs[i].FieldSupport = rivian.FieldSupport(vs[i].Model)
+		if mon != nil {
+			if st, _ := mon.Latest(vs[i].ID); st != nil {
+				liveFieldSupport(vs[i].FieldSupport, st)
+			}
+		}
+	}
+	if onlyVehicle != nil {
+		if only := onlyVehicle(r.Context()); only != "" {
+			for i := range vs {
+				vs[i].ProLocked = vs[i].ID != only
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, vs)
+	return true
 }
 
 // liveFieldSupport refines the model's table with what the vehicle is sending

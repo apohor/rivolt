@@ -1053,7 +1053,20 @@ func New(d Deps) http.Handler {
 			}
 			r.Get("/vehicles", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				hasSession := d.rivianSessionCheck(uid)
-				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession, pv.lockedID)(w, r)
+				// A user with a Rivian account of their own is served from Postgres on every pod (no Rivian call, no write); the shared
+				// demo / self-hosted client keeps asking it (single-owner M3-5a).
+				fromDB := d.DB != nil && d.Accounts != nil && d.Accounts.For(uid) != nil
+				needsReauth := func(ctx context.Context) bool {
+					if st, ok := freshAccountState(auth.WithUser(ctx, uid), d.Accounts, uid); ok {
+						return st.NeedsReauth // from the users row, not this pod's memory
+					}
+					if a := d.Accounts.For(uid); a != nil {
+						n, _ := a.NeedsReauth()
+						return n
+					}
+					return false
+				}
+				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession, pv.lockedID, fromDB, needsReauth)(w, r)
 			}))
 			// /api/vehicles/owned reads straight from the local
 			// vehicles table — used by the import picker so the
