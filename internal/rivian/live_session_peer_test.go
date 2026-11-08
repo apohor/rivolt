@@ -151,3 +151,25 @@ func TestPeerPodCachesTheSnapshotRead(t *testing.T) {
 		t.Errorf("within the cache window the second read should repeat the first: %+v then %+v", a, b)
 	}
 }
+
+// During a store outage a non-owner does not wait for the store on every poll of the live-session endpoint: the failed read is remembered as "no
+// open charge" for the same short TTL as a good one, then the store is tried again (the same as the drive's, peerDrive).
+func TestPeerChargeRemembersAStoreFailureBriefly(t *testing.T) {
+	store := &failingLoadStore{memLiveStateStore: newMemLiveStateStore()}
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	m := NewStateMonitor(nil, nil)
+	m.SetLiveStateStore(store)
+	m.now = func() time.Time { return now }
+	for i := 0; i < 5; i++ {
+		if _, n := m.LiveSessionForCharge(chargeTestVehicle); n != (ChargeNow{}) {
+			t.Fatalf("a failing store gave a charge: %+v", n)
+		}
+	}
+	if n := store.loads.Load(); n != 1 {
+		t.Errorf("%d store reads for 5 polls inside the TTL, want 1", n)
+	}
+	now = now.Add(remoteLatestTTL + time.Second)
+	if _, n := m.LiveSessionForCharge(chargeTestVehicle); n != (ChargeNow{}) || store.loads.Load() != 2 {
+		t.Errorf("after the TTL: %+v, %d reads; want none and one more read", n, store.loads.Load())
+	}
+}

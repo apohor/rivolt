@@ -3732,6 +3732,14 @@ func (m *StateMonitor) peerChargeNow(vehicleID string) ChargeNow {
 	snap, ok, err := m.liveStateStore.Load(ctx, vehicleID)
 	if err != nil {
 		m.logger.Debug("peer charge snapshot get failed", "vehicle", vehicleID, "err", err.Error())
+		// Remembered as "no open charge" for the same short TTL as a good read: during a store outage every poll of a non-owner would
+		// otherwise wait up to the 2 s store timeout.
+		m.remoteMu.Lock()
+		if m.peerCharge == nil {
+			m.peerCharge = make(map[string]peerChargeEntry)
+		}
+		m.peerCharge[vehicleID] = peerChargeEntry{now: ChargeNow{}, at: m.clock()}
+		m.remoteMu.Unlock()
 		return ChargeNow{}
 	}
 	if ok && snap.Charge != nil && m.clock().Sub(snap.Charge.EndAt) <= liveChargeMaxGap {
