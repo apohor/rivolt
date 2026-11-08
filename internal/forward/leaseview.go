@@ -87,3 +87,13 @@ func (v *PGLeaseView) Held(group string) (int64, bool) {
 func (v *PGLeaseView) PastDeadline() bool { return v.local.PastLocalDeadline() }
 
 var _ LeaseView = (*PGLeaseView)(nil)
+
+// Forget drops a group's cached row so the next Owner call reads it fresh (the requester does this before it re-reads after a `moved`
+// reply or a timeout).
+func (v *PGLeaseView) Forget(group string) {
+	v.mu.Lock()
+	delete(v.cache, group)
+	v.mu.Unlock()
+}
+
+var _ LeaseForgetter = (*PGLeaseView)(nil)

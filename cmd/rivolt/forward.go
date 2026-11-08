@@ -19,7 +19,7 @@ import (
 )
 
 // forwardRunner runs the forwarded kinds on this pod, the owner of the group. In M3-1 only adopt exists; the other kinds answer 501
-// until their steps (admin_refresh M3-2, fresh_state M3-3, plan_legs M3-4, ota_notes M3-4b), and nothing sends them before then.
+// until their steps (fresh_state M3-2b, plan_legs M3-4, ota_notes M3-4b), and nothing sends them before then.
 type forwardRunner struct {
 	secrets  *secrets.Store
 	accounts rivian.AccountRegistry

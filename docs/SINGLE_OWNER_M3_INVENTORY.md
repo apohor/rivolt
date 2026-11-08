@@ -35,7 +35,7 @@ jobs that reach Rivian without a request. "Owner" means the pod that holds the u
 
 | Path | Where | End state |
 |---|---|---|
-| Admin refresh of a user's session | `internal/api/admin.go` (`RefreshSession`, `SystemSecrets`) | forwarded `admin_refresh` (M3-2) |
+| Admin refresh of a user's Rivian session and admin vehicle sync | `internal/api/admin.go`: `POST /api/admin/users/{id}/refresh-rivian-session` (`RefreshSession`) and `POST /api/admin/users/{id}/sync-rivian` (`primeUserVehicles`), both behind `requireRivianActions` | **dead on prod by design, not forwarded** (DA): the admin deployment runs `RIVIAN_CLIENT=stub` and `RIVOLT_RIVIAN_LIVE_FORBIDDEN=true` and builds no Redis client, so both answer 409 "Rivian is disabled on this host", and the public hosts 404 `/admin`. Restoring them would give the admin host Redis credentials, the forward key and, through the owner, a Rivian capability it deliberately lacks: a feature request with its own design, not M3 |
 | Login, MFA, logout under `/settings/rivian` | `d.Accounts` | any pod, throwaway client; the `adopt` nudge afterwards (M3-1) |
 | Connection-state fallback | api.go `d.Accounts.For(uid).NeedsReauth()` | reads the local account object; moves to the Postgres `needs_reauth` column at M4 |
 | Stale-charge janitor REST confirm | `internal/rivian/monitor.go` `sweepStaleCharges` -> `confirmStillCharging` -> `restState` | owner-only: the sweep skips a group this pod does not hold before it asks. Proved by `TestJanitorSkipIsNotAFence`, which now also asserts zero REST calls from a Lost or Warming pod. Stays owner-only under M4 |
@@ -46,7 +46,7 @@ jobs that reach Rivian without a request. "Owner" means the pod that holds the u
 
 ## Totals
 
-Forwarded kinds: `plan_legs` (rows 20, 22), `fresh_state` (4, 6), `ota_notes` (2), `admin_refresh`, `adopt`. Postgres or published read: 1, 8.
+Forwarded kinds: `plan_legs` (rows 20, 22), `fresh_state` (4, 6), `ota_notes` (2), `adopt`. Postgres or published read: 1, 8.
 Already owner-aware, tests only: 3, 7, 21. Probes: 12 routes gated by `AdminDebugProbes`, 409 on a non-owner when on.
 
 ## Prerequisites verified on the cluster (read-only), Nov 8

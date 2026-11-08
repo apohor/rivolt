@@ -43,6 +43,9 @@ func (l *LeaseView) SetPast(p bool) {
 	l.Past = p
 }
 
+// Forget is a no-op (the fake caches nothing); it lets the fake stand in for a caching view.
+func (l *LeaseView) Forget(string) {}
+
 func (l *LeaseView) Owner(_ context.Context, group string) (forward.LeaseOwner, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
