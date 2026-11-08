@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -86,6 +87,24 @@ func TestVehicleDiscoveryStates(t *testing.T) {
 	}
 	if got := state(true, true); got != "reauth" {
 		t.Errorf("flagged with a vehicle: %q, want reauth", got)
+	}
+}
+
+// A database hiccup while reading the account state is a 503 with Retry-After, never "unlinked" (which would tell a linked user to link again).
+func TestVehicleDiscoveryUnreadableAccountIs503(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	uid, _ := db.EnsureUser(ctx, pool, "disc-unreadable-"+uuid.NewString()[:8])
+	rec := httptest.NewRecorder()
+	handleVehicleDiscovery(func(context.Context) (bool, bool, bool) { return false, false, false }, pool)(rec,
+		httptest.NewRequest(http.MethodGet, "/api/vehicles/discovery", nil).WithContext(auth.WithUser(ctx, uid)))
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" || strings.Contains(rec.Body.String(), "unlinked") {
+		t.Errorf("status %d Retry-After %q body %q, want 503 with Retry-After and no \"unlinked\"", rec.Code, rec.Header().Get("Retry-After"), rec.Body)
 	}
 }
 

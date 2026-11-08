@@ -33,7 +33,8 @@ func (d Deps) vehiclesAccountState(uid uuid.UUID) func(context.Context) (linked,
 }
 
 // handleVehicleDiscovery answers GET /api/vehicles/discovery with {"state": ...}. Precedence: unlinked, reauth, found (a vehicle is stored), then
-// what the owner's lookup recorded: none, or looking when nothing is recorded or the last lookup failed (it is retried).
+// what the owner's lookup recorded: none, or looking when nothing is recorded or the last lookup failed (it is retried). An account state that
+// cannot be read is a 503 with Retry-After (clients show "looking"), never "unlinked".
 func handleVehicleDiscovery(account func(context.Context) (linked, needsReauth, ok bool), sqlDB *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
@@ -42,8 +43,15 @@ func handleVehicleDiscovery(account func(context.Context) (linked, needsReauth, 
 			return
 		}
 		linked, reauth, known := account(r.Context())
+		if !known {
+			// The account state could not be read (a database hiccup): not "unlinked", which would tell a linked user to link their Rivian again.
+			// Clients treat this as "looking" and ask again.
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "your Rivian account state could not be read just now; try again in a moment", http.StatusServiceUnavailable)
+			return
+		}
 		switch {
-		case !known || !linked:
+		case !linked:
 			writeJSON(w, http.StatusOK, map[string]string{"state": discoveryUnlinked})
 			return
 		case reauth:
