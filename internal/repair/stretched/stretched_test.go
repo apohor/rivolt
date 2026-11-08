@@ -281,12 +281,87 @@ func TestNewRowTypesAndPerVehicle(t *testing.T) {
 	r2.VehicleID = r1.VehicleID
 	p := Plan{Cap: []Row{r1, r2}, Splits: map[uuid.UUID]*Split{
 		r1.ID: {News: []NewRow{{Place: "home", MaxPowerKW: 7}, {Place: "away", MaxPowerKW: 11}, {Place: "", MaxPowerKW: 7}}},
-		r2.ID: {News: []NewRow{{Place: "home", MaxPowerKW: 150}}},
+		r2.ID: {News: []NewRow{{Place: "home", MaxPowerKW: 150, KWh: 40, ActiveSeconds: 1440, Start: time.Unix(0, 0), End: time.Unix(1440, 0)}}},
 	}}
 	if h, a, o, dc := p.NewRowTypes(); h != 1 || a != 1 || o != 1 || dc != 1 {
 		t.Errorf("types: home %d away %d other %d dc %d", h, a, o, dc)
 	}
 	if p.SplitsByVehicle()[r1.VehicleID] != 2 {
 		t.Errorf("per vehicle: %v", p.SplitsByVehicle())
+	}
+}
+
+// Mode A: a row with no plugged frame and no charging after its first drive is capped at the last pre-drive frame where the
+// SoC rose (else at the first drive), by the SoC alone.
+func TestCapBySoC(t *testing.T) {
+	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+	t0 := time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC)
+	mk := func() Row {
+		r := base()
+		r.LastPlugged, r.LastPluggedBeforeDrive = time.Time{}, time.Time{} // nothing plugged
+		r.PluggedAfterDrive = false
+		r.PackKWh, r.EnergyKWh, r.StartSoC, r.EndSoC = 91, 4.6, 40, 50
+		r.FirstDrive = t0.Add(5 * time.Hour)
+		r.Frames = []Frame{
+			{At: t0.Add(time.Hour), SoC: 40}, {At: t0.Add(90 * time.Minute), SoC: 42}, {At: t0.Add(2 * time.Hour), SoC: 45},
+			{At: t0.Add(3 * time.Hour), SoC: 45.05}, {At: t0.Add(4 * time.Hour), SoC: 44.9}, // jitter, not a rise
+		}
+		return r
+	}
+	on := Options{CapBySoC: true}
+	r := mk()
+	p := MakePlan([]Row{r}, now, on)
+	if len(p.Cap) != 1 || !p.BySoC[r.ID] || !p.CapTo[r.ID].Equal(t0.Add(2*time.Hour)) {
+		t.Fatalf("want a mode-A cap at the last SoC high (2 h), got cap=%d cap-to=%v skipped=%v", len(p.Cap), p.CapTo[r.ID], p.Skipped)
+	}
+	if n, off := p.SoCModeTotals(); n != 1 || off != 0 {
+		t.Errorf("totals %d %d (4.6 kWh stored against 5 points of a 91 kWh pack agree)", n, off)
+	}
+	// Off by default: the row is skipped exactly as before, and the digest is the plain one.
+	if q := MakePlan([]Row{r}, now, Options{}); len(q.Cap) != 0 || q.Skipped["no plugged frame inside"] != 1 {
+		t.Errorf("without CapBySoC: %v", q.Skipped)
+	}
+	// The mode is in the digest.
+	if p.Digest() == MakePlan([]Row{r}, now, Options{}).Digest() {
+		t.Error("a mode-A cap must change the digest")
+	}
+	// Stored energy far from the SoC gain: capped, counted as disagreeing.
+	d := mk()
+	d.EnergyKWh = 50
+	if q := MakePlan([]Row{d}, now, on); len(q.Cap) != 1 {
+		t.Fatalf("a disagreeing row is still capped: %v", q.Skipped)
+	} else if n, off := q.SoCModeTotals(); n != 1 || off != 1 {
+		t.Errorf("disagree totals %d %d", n, off)
+	}
+	for _, c := range []struct {
+		name string
+		mut  func(*Row)
+		cap  time.Time // zero: skipped
+	}{
+		{"flat SoC: capped at the first drive", func(r *Row) {
+			for i := range r.Frames {
+				r.Frames[i].SoC = 40
+			}
+			r.EnergyKWh = 0
+		}, t0.Add(5 * time.Hour)},
+		{"fewer than two frames: no evidence", func(r *Row) { r.Frames = r.Frames[:1] }, time.Time{}},
+		{"charging after the drive: not mode A", func(r *Row) { r.PluggedAfterDrive = true }, time.Time{}},
+		{"not stretched: the row ends within an hour of the cap", func(r *Row) { r.EndedAt = t0.Add(2*time.Hour + 30*time.Minute) }, time.Time{}},
+		{"a rise only after the drive is ignored", func(r *Row) { r.Frames = append(r.Frames, Frame{At: t0.Add(6 * time.Hour), SoC: 60}) }, t0.Add(2 * time.Hour)},
+	} {
+		r := mk()
+		c.mut(&r)
+		q := MakePlan([]Row{r}, now, on)
+		switch {
+		case c.cap.IsZero() && len(q.Cap) != 0:
+			t.Errorf("%s: want skipped, got a cap at %v", c.name, q.CapTo[r.ID])
+		case !c.cap.IsZero() && (len(q.Cap) != 1 || !q.CapTo[r.ID].Equal(c.cap)):
+			t.Errorf("%s: cap = %v (cap rows %d, skipped %v), want %v", c.name, q.CapTo[r.ID], len(q.Cap), q.Skipped, c.cap)
+		}
+	}
+	// A row that does have a plugged frame is not touched by the mode: same plan and same digest with it on or off.
+	pl := base()
+	if MakePlan([]Row{pl}, now, Options{}).Digest() != MakePlan([]Row{pl}, now, on).Digest() {
+		t.Error("CapBySoC changed the plan of a row with a plugged frame")
 	}
 }

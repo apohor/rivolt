@@ -122,6 +122,9 @@ type Options struct {
 	Flag Flagger
 	// Split turns rows with plugged frames after a drive into splits instead of flags.
 	Split bool
+	// CapBySoC (mode A) caps a row with no plugged frame and no charging after its first drive at the last pre-drive frame
+	// where the SoC rose (else at the first drive): a real charge on a vehicle that reports no charger status or power.
+	CapBySoC bool
 	// Price, when set, prices and places each new row of a split (see PriceFn). It runs in the plan, so the digest covers its
 	// result and the apply recomputes it: a changed rate or home location aborts the apply as drift.
 	Price PriceFn
@@ -135,6 +138,8 @@ type PriceFn func(userID uuid.UUID, c *charges.Charge)
 // Verdict is the rule's answer for one row.
 type Verdict struct {
 	CapTo  time.Time // set when the row is capped
+	BySoC  bool      // capped by the SoC rule (mode A), not by a plugged frame
+	SoCOff bool      // with BySoC: the stored kWh disagrees with the pre-drive SoC gain
 	Split  *Split    // set when the row is split (CapTo is the original's new end)
 	Reason string    // why a row is skipped or flagged ("" when capped)
 	Flag   bool      // skipped because it may hold an absorbed charge
@@ -179,6 +184,10 @@ func Classify(r Row, now time.Time, opt Options) Verdict {
 		return skip("no drive inside")
 	case r.LastPlugged.IsZero() && !(opt.Split && flag(r) != ""):
 		// With --split a row whose only charging came after its first drive goes on to the split (an empty original).
+		// With --cap-by-soc a row with no charging after the drive either is judged by its SoC before the drive.
+		if opt.CapBySoC && !r.PluggedAfterDrive {
+			return capBySoC(r)
+		}
 		return skip("no plugged frame inside")
 	}
 	if why := flag(r); why != "" {
@@ -281,7 +290,9 @@ func Select(ctx context.Context, q Queryer, forUpdate, frames bool) ([]Row, erro
 		taken := map[uuid.UUID]map[string]bool{}
 		for i := range out {
 			r := &out[i]
-			if !r.PluggedAfterDrive {
+			// Frames are read for the rows the split or the SoC cap may need: charging after the first drive, or no plugged
+			// frame before it.
+			if !r.PluggedAfterDrive && !r.LastPluggedBeforeDrive.IsZero() {
 				continue
 			}
 			if err := loadFrames(ctx, q, r); err != nil {
@@ -348,6 +359,8 @@ func takenIDs(ctx context.Context, q Queryer, vehicleID uuid.UUID) (map[string]b
 type Plan struct {
 	Cap     []Row
 	CapTo   map[uuid.UUID]time.Time
+	BySoC   map[uuid.UUID]bool   // capped by the SoC rule (mode A)
+	SoCOff  map[uuid.UUID]bool   // mode A rows whose stored kWh disagrees with the pre-drive SoC gain
 	Splits  map[uuid.UUID]*Split // the capped rows that also create new rows
 	Skipped map[string]int       // reason -> count (flagged reasons included)
 	Flagged []Row
@@ -355,13 +368,17 @@ type Plan struct {
 
 // MakePlan classifies rows at time now.
 func MakePlan(rows []Row, now time.Time, opt Options) Plan {
-	p := Plan{CapTo: map[uuid.UUID]time.Time{}, Splits: map[uuid.UUID]*Split{}, Skipped: map[string]int{}}
+	p := Plan{CapTo: map[uuid.UUID]time.Time{}, BySoC: map[uuid.UUID]bool{}, SoCOff: map[uuid.UUID]bool{}, Splits: map[uuid.UUID]*Split{}, Skipped: map[string]int{}}
 	for _, r := range rows {
 		v := Classify(r, now, opt)
 		switch {
 		case !v.CapTo.IsZero():
 			p.Cap = append(p.Cap, r)
 			p.CapTo[r.ID] = v.CapTo
+			if v.BySoC {
+				p.BySoC[r.ID] = true
+				p.SoCOff[r.ID] = v.SoCOff
+			}
 			if v.Split != nil {
 				p.Splits[r.ID] = v.Split
 			}
@@ -403,6 +420,9 @@ func (p Plan) Digest() string {
 	lines := make([]string, len(ids))
 	for i, id := range ids {
 		line := id.String() + " " + p.CapTo[id].UTC().Format(time.RFC3339Nano)
+		if p.BySoC[id] {
+			line += " mode=soc"
+		}
 		if sp := p.Splits[id]; sp != nil {
 			cost := "-"
 			if sp.OrigCost != nil {
@@ -452,6 +472,18 @@ func (p Plan) NewRowKinds() (l2, dc int) {
 	return
 }
 
+// SoCModeTotals counts the rows capped by the SoC rule, and of those the ones whose stored kWh disagrees with the
+// pre-drive SoC gain by more than 25% (capped all the same; their energy is not fixed by this repair).
+func (p Plan) SoCModeTotals() (rows, disagree int) {
+	for id := range p.BySoC {
+		rows++
+		if p.SoCOff[id] {
+			disagree++
+		}
+	}
+	return
+}
+
 // EmptyOriginals counts the splits whose original holds no charge before the first drive.
 func (p Plan) EmptyOriginals() int {
 	n := 0
@@ -468,7 +500,7 @@ func (p Plan) NewRowTypes() (acHome, acAway, acOther, dc int) {
 	for _, sp := range p.Splits {
 		for _, n := range sp.News {
 			switch {
-			case n.MaxPowerKW >= rivian.DCFCMinKW:
+			case rivian.IsDCFCSession(n.MaxPowerKW, n.KWh, n.ActiveSeconds, n.End.Sub(n.Start)):
 				dc++
 			case n.Place == "home":
 				acHome++
@@ -594,7 +626,7 @@ func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wan
 			return 0, fmt.Errorf("%w (%d open)", ErrOpenCharge, n)
 		}
 	}
-	rows, err := Select(ctx, tx, true, opt.Split)
+	rows, err := Select(ctx, tx, true, opt.Split || opt.CapBySoC)
 	if err != nil {
 		return 0, err
 	}

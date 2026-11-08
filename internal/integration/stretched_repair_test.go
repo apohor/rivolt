@@ -110,6 +110,12 @@ func TestStretchedRepair(t *testing.T) {
 		return p, p.Digest()
 	}
 	plan, digest := digestOf()
+	// Mode A never touches a row that has a plugged frame (or charging after its drive): the cap-only digest is unchanged by it.
+	if rows, err := stretched.Select(ctx, pool, false, true); err != nil {
+		t.Fatal(err)
+	} else if with := stretched.MakePlan(rows, time.Now(), stretched.Options{CapBySoC: true}); with.Digest() != digest {
+		t.Fatalf("CapBySoC changed the cap-only plan of rows with plugged frames: %s vs %s", with.Digest(), digest)
+	}
 	if ids := plan.IDs(); len(ids) != 2 || (ids[0] != stretch && ids[1] != stretch) || (ids[0] != sticky && ids[1] != sticky) {
 		t.Fatalf("plan caps %v, want the stretched row %s and the sticky-status row %s", ids, stretch, sticky)
 	}
@@ -545,5 +551,98 @@ func TestStretchedSplitEmptyOriginal(t *testing.T) {
 	_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM charges WHERE user_id = $1`, uid).Scan(&n)
 	if n != 1 {
 		t.Fatalf("rows after restore: %d, want 1", n)
+	}
+}
+
+// Mode A against Postgres: a status-less truck (no charger status, no power) charged, then drove, and the row ran on. It is
+// capped at the last SoC rise before the drive, only with CapBySoC; the undo returns it exactly. With the mode off the plan
+// does not see it, and the plugged-frame plan of the same data is unchanged (#1630).
+func TestStretchedCapBySoC(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, startPostgres(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	uid, err := db.EnsureUser(ctx, pool, "cap-soc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vid uuid.UUID
+	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, pack_kwh) VALUES ($1,'rv-soc',135) RETURNING id`, uid).Scan(&vid); err != nil {
+		t.Fatal(err)
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := pool.ExecContext(ctx, q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	base := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Hour)
+	var id uuid.UUID
+	if err := pool.QueryRowContext(ctx, `
+		INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, source, energy_added_kwh, start_soc_pct, end_soc_pct, final_state, created_at, updated_at)
+		VALUES ($1,$2,'live_rv-soc_c_1',$3,$4,'live',27,40,60,'abandoned',$3,$5) RETURNING id`,
+		uid, vid, base, base.Add(20*time.Hour), time.Now().Add(-30*time.Hour)).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	// No charger status, no power: the SoC rises 40 -> 60 over 2 h (every 15 min), stays at 60, then a drive at 4 h.
+	frame := func(at time.Time, soc float64, gear string, speed float64) {
+		exec(`INSERT INTO vehicle_state (vehicle_id, at, user_id, source, battery_level_pct, shift_state, speed_mph) VALUES ($1,$2,$3,'t',$4,$5,$6)`, vid, at, uid, soc, gear, speed)
+	}
+	for m := 0; m <= 120; m += 15 {
+		frame(base.Add(time.Duration(m)*time.Minute), 40+20*float64(m)/120, "P", 0)
+	}
+	for m := 150; m <= 210; m += 30 {
+		frame(base.Add(time.Duration(m)*time.Minute), 60, "P", 0)
+	}
+	exec(`INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source) VALUES ($1,$2,'d1',$3,$4,9,'live')`, uid, vid, base.Add(4*time.Hour), base.Add(4*time.Hour+30*time.Minute))
+	for m := 0; m <= 30; m += 10 {
+		frame(base.Add(4*time.Hour+time.Duration(m)*time.Minute), 60-float64(m)/10, "D", 30)
+	}
+
+	sel := func(frames bool) []stretched.Row {
+		rows, err := stretched.Select(ctx, pool, false, frames)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+	if p := stretched.MakePlan(sel(true), time.Now(), stretched.Options{}); len(p.Cap) != 0 || p.Skipped["no plugged frame inside"] != 1 {
+		t.Fatalf("mode off: the row must stay skipped: cap=%d %v", len(p.Cap), p.Skipped)
+	}
+	opt := stretched.Options{CapBySoC: true}
+	plan := stretched.MakePlan(sel(true), time.Now(), opt)
+	if len(plan.Cap) != 1 || !plan.BySoC[id] || !plan.CapTo[id].Equal(base.Add(2*time.Hour)) {
+		t.Fatalf("want a mode-A cap at the last SoC rise (2 h), got cap=%d to=%v skipped=%v", len(plan.Cap), plan.CapTo[id], plan.Skipped)
+	}
+	if n, off := plan.SoCModeTotals(); n != 1 || off != 0 {
+		t.Fatalf("totals %d %d (27 kWh stored against 20 points of a 135 kWh pack agree)", n, off)
+	}
+	snap := func() string {
+		var j string
+		if err := pool.QueryRowContext(ctx, `SELECT (to_jsonb(c.*) - 'updated_at')::text FROM charges c WHERE id = $1`, id).Scan(&j); err != nil {
+			t.Fatal(err)
+		}
+		return j
+	}
+	before := snap()
+	batch := uuid.New()
+	if n, err := stretched.Apply(ctx, pool, batch, 1, plan.Digest(), "t", false, opt, func([]phantom.BackupRow) error { return nil }); err != nil || n != 1 {
+		t.Fatalf("apply: %d %v", n, err)
+	}
+	var ended time.Time
+	var kwh float64
+	var endSoC float64
+	_ = pool.QueryRowContext(ctx, `SELECT ended_at, energy_added_kwh, end_soc_pct FROM charges WHERE id = $1`, id).Scan(&ended, &kwh, &endSoC)
+	if !ended.Equal(base.Add(2*time.Hour)) || kwh != 27 || endSoC != 60 {
+		t.Fatalf("after apply: ended=%v kwh=%v soc=%v; want the cap at 2 h and energy and SoC untouched", ended, kwh, endSoC)
+	}
+	if r, err := stretched.Restore(ctx, pool, batch); err != nil || r != 1 {
+		t.Fatalf("restore: %d %v", r, err)
+	}
+	if got := snap(); got != before {
+		t.Fatalf("after restore the row differs:\n before %s\n after  %s", before, got)
 	}
 }
