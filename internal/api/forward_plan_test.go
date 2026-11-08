@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"sync"
 	"testing"
@@ -226,5 +229,32 @@ func TestWorstCasePlanFitsTheReplyCapWithRoom(t *testing.T) {
 	t.Logf("worst plausible plan_legs body: %d bytes (cap %d)", len(res.Body), forward.MaxReplyBytes)
 	if limit := forward.MaxReplyBytes / 2; len(res.Body) > limit {
 		t.Errorf("a plausible worst-case plan is %d bytes, more than half the %d cap: gzip or a larger cap is needed", len(res.Body), forward.MaxReplyBytes)
+	}
+}
+
+// An owner that does not answer (the forward timed out, after its one retry): the single plan is 503 with Retry-After 5 and the
+// existing "Rivian's planner isn't answering" copy on the web (any 5xx); a multi-day plan names the day and says the planner is busy. It
+// is never replanned on this pod.
+func TestOwnerSilentPlanIs503RetryAfter5(t *testing.T) {
+	local := 0
+	inner := planFuncAPI(func(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error) {
+		local++
+		return samplePlan(), nil
+	})
+	down := &planForwarder{res: forward.Result{Status: forward.StatusUnavailable, Class: forward.ClassUnavailable}}
+	sf := &stateForward{fw: down, user: uuid.New(), groupOf: func(string) (string, bool) { return "g", true }}
+	c := plannerClient{Client: rivian.NewStub(), TripPlanner: &forwardPlanner{inner: inner, sf: sf}}
+
+	rec := httptest.NewRecorder()
+	handleTripPlan(c, nil, nil, uuid.New(), nil, nil, nil, nil)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(planBody)))
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "5" {
+		t.Fatalf("status %d Retry-After %q: %s", rec.Code, rec.Header().Get("Retry-After"), rec.Body)
+	}
+	if local != 0 {
+		t.Errorf("the plan was retried on this pod %d times", local)
+	}
+	_, err := (&forwardPlanner{inner: inner, sf: sf}).PlanTrip(context.Background(), sampleInput())
+	if got := plainPlanReason(err); got != "the planner is busy, try again in a moment" {
+		t.Errorf("multi-day reason %q", got)
 	}
 }

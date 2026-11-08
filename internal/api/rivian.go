@@ -16,6 +16,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/secrets"
@@ -94,6 +95,9 @@ func writeUpstreamError(w http.ResponseWriter, err error) {
 	if status == http.StatusTooManyRequests {
 		// One rule for a client: a 429 says how long to wait. Rivian's throttle does not tell us, so this is the planner's own backoff.
 		w.Header().Set("Retry-After", strconv.Itoa(upstreamRetryAfterSec))
+	}
+	if errors.Is(err, errOwnerUnavailable) {
+		w.Header().Set("Retry-After", strconv.Itoa(forward.RetryAfterSeconds))
 	}
 	writeJSON(w, status, body)
 }

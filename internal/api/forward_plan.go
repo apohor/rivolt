@@ -93,6 +93,11 @@ func planFailureOf(err error) planFailure {
 	return f
 }
 
+// errOwnerUnavailable marks a forward that got no answer (the owner timed out, was busy past the retry, or could not be reached). The
+// handlers answer it 503 with Retry-After 5 and, in a multi-day plan, "the planner is busy"; it is never retried on this pod, because the
+// owner is probably still inside a slow Rivian call and a local retry would double the load (DA ruling on #1687).
+var errOwnerUnavailable = errors.New("the vehicle's owner did not answer")
+
 // forwardedPlanError is a planner error that crossed the wire: its text is the owner's, and it matches the same sentinels and types.
 type forwardedPlanError struct {
 	msg  string
@@ -138,7 +143,8 @@ func decodeForwardedPlan(res forward.Result) (*rivian.TripPlan, error) {
 		}
 	}
 	// The owner could not be reached or would not answer: an outage the client can retry, not a verdict on the trip.
-	return nil, &rivian.UpstreamError{Class: rivian.ClassOutage, Op: "PlanTrip", Reason: "the vehicle's owner did not answer"}
+	return nil, &forwardedPlanError{msg: errOwnerUnavailable.Error(), errs: []error{
+		&rivian.UpstreamError{Class: rivian.ClassOutage, Op: "PlanTrip", Reason: "the vehicle's owner did not answer"}, errOwnerUnavailable}}
 }
 
 // ServePlanLegs is the owner's side of a forwarded plan_legs: one planner call against the user's own client, answered as a Result. The
