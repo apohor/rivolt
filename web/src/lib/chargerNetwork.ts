@@ -81,7 +81,7 @@ const UNKNOWN_NETWORKS = new Set(["", "unknown", "other", "n/a"]);
 // choosePin decides what the charge pin says. Never a wrong brand:
 // - a non-DC session never snaps to a DC-only node (Supercharger, RAN, ...);
 // - the ledger's network is unknown: keep today's snap and OSM name, or
-//   say "DC fast charger" only when the charge is DC, else "Charging station";
+//   say "Fast charger" only when the charge is DC, else "Charging station";
 // - the snapped charger agrees: keep the snap;
 // - it disagrees, or can't be verified (no network info on the node):
 //   label the charge's own location with the known network.
@@ -99,7 +99,7 @@ export function choosePin(
   }
   const snappedLabel = poi?.name || "Charging station";
   if (UNKNOWN_NETWORKS.has(known.toLowerCase())) {
-    return poi ? { snap: true, label: snappedLabel } : { snap: false, label: isDC ? "DC fast charger" : "Charging station" };
+    return poi ? { snap: true, label: snappedLabel } : { snap: false, label: isDC ? "Fast charger" : "Charging station" };
   }
   if (!poi) return { snap: false, label: displayNetwork(known) };
   const want = networkKey(known);

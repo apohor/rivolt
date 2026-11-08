@@ -42,7 +42,7 @@ final class ChargerPinTests: XCTestCase {
     func testAnUnknownNetworkKeepsTheSnapOrSaysSomethingGeneric() {
         XCTAssertEqual(ChargerPin.choose(tesla, known: nil, isDC: true), Choice(snap: true, label: "Tesla Supercharger"))
         XCTAssertEqual(ChargerPin.choose(node("Joe's Chargers"), known: "unknown", isDC: true), Choice(snap: true, label: "Joe's Chargers"))
-        XCTAssertEqual(ChargerPin.choose(nil, known: nil, isDC: true), Choice(snap: false, label: "DC fast charger"))
+        XCTAssertEqual(ChargerPin.choose(nil, known: nil, isDC: true), Choice(snap: false, label: "Fast charger"))
         XCTAssertEqual(ChargerPin.choose(nil, known: nil, isDC: false), Choice(snap: false, label: "Charging station"))
         XCTAssertEqual(ChargerPin.choose(nil, known: nil), Choice(snap: false, label: "Charging station"))
         XCTAssertEqual(ChargerPin.choose(nil, known: "EVgo", isDC: true), Choice(snap: false, label: "EVgo"))

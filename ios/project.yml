@@ -199,6 +199,9 @@ targets:
       # The design tokens, so the Theme can be checked against them (ThemeTokensTests).
       - path: design/tokens.json
         buildPhase: resources
+      # The charger-type words, so the generated Swift can be checked against them (ChargerLabelsTests).
+      - path: design/charger-labels.json
+        buildPhase: resources
     dependencies:
       - target: Rivolt
     settings:

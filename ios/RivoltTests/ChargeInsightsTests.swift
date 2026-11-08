@@ -25,15 +25,14 @@ final class ChargeInsightsTests: XCTestCase {
                      chargeLimitPct: limit, outsideTempC: out, insideTempC: inside)
     }
 
-    func testTheChargerClassIsTheWebsByPeakPower() {
+    func testTheChargerTypeIsTheAppWideWordWithTheMeasuredPeak() {
         XCTAssertEqual(ChargeInsights.tier(maxKw: 0).label, "—")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 1.4).label, "Household outlet (Level 1)")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 11.5).label, "Level 2")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 19).label, "Level 2, high power")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 50).label, "DC slow")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 142).label, "DC standard")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 190).label, "DC fast")
-        XCTAssertEqual(ChargeInsights.tier(maxKw: 320).label, "DC ultra")
+        XCTAssertEqual(ChargeInsights.tier(maxKw: 1.4).label, "Outlet · peak 1 kW")
+        XCTAssertEqual(ChargeInsights.tier(maxKw: 11.5).label, "Medium · peak 12 kW")
+        XCTAssertEqual(ChargeInsights.tier(maxKw: 19).label, "Fast · peak 19 kW", "above the AC ceiling it is DC")
+        XCTAssertEqual(ChargeInsights.tier(maxKw: 40).label, "Fast · peak 40 kW")
+        XCTAssertEqual(ChargeInsights.tier(maxKw: 190).label, "Fast · peak 190 kW")
+        XCTAssertEqual(ChargeInsights.tier(maxKw: 190).hint, ChargerLabels.sentence(.fast))
     }
 
     func testTheSampleNumbers() throws {
@@ -61,7 +60,7 @@ final class ChargeInsightsTests: XCTestCase {
         let i = ChargeInsights.compute(c, samples: [])
         XCTAssertEqual(i.socGainedPct, 39)
         XCTAssertEqual(i.socPerHour, 39, accuracy: 1e-9)
-        XCTAssertEqual(i.tier.label, "DC standard")
+        XCTAssertEqual(i.tier.label, "Fast · peak 142 kW")
         XCTAssertEqual(ChargeInsights.costPerKwh(c), "$0.320/kWh")
         XCTAssertEqual(i.timeToPeakSec, 0)
         XCTAssertEqual(i.activeSec, 0)
@@ -127,7 +126,7 @@ final class ChargeInsightsTests: XCTestCase {
         // Without samples the card still has the row's own numbers.
         let i = ChargeInsights.compute(c, samples: model.samples)
         XCTAssertEqual(i.socGainedPct, 39)
-        XCTAssertEqual(i.tier.label, "DC standard")
+        XCTAssertEqual(i.tier.label, "Fast · peak 142 kW")
     }
 
     // MARK: The charge's row (GET /api/charges/{id}, backend's fixtures)

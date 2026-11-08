@@ -140,7 +140,7 @@ func ChoosePin(poi *PoiLike, known string, isDC bool) PinChoice {
 			return PinChoice{Snap: true, Label: snapped}
 		}
 		if isDC {
-			return PinChoice{Label: "DC fast charger"}
+			return PinChoice{Label: "Fast charger"}
 		}
 		return PinChoice{Label: "Charging station"}
 	}

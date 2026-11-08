@@ -41,7 +41,7 @@ export function ChargeMap({
   ownLabel?: string | null;
   // The network the ledger recorded for this charge. When the snapped charger is another network's, the pin says this one.
   network?: string | null;
-  // The session was DC fast charging (peak power); only then may an unlabelled pin say "DC fast charger".
+  // The session was DC fast charging (peak power); only then may an unlabelled pin say "Fast charger".
   dc?: boolean;
   lat: number;
   lon: number;

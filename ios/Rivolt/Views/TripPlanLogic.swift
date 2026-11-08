@@ -163,7 +163,7 @@ enum TripPlanLogic {
     /// "Sample Fast Charge · 250 kW · Example Network" for a charger picked on the map.
     static func alongLine(_ c: AlongCharger) -> String {
         var parts = [c.name ?? "Fast charger"]
-        if let kw = c.maxPowerKW, kw > 0 { parts.append("\(Int(kw.rounded())) kW") }
+        if let kind = ChargerLabels.kind(kw: c.maxPowerKW, dc: c.isDCFC) { parts.append(ChargerLabels.stationLine(kind, ratedKw: c.maxPowerKW)) }
         if let n = c.evNetwork, !n.isEmpty { parts.append(n) }
         return parts.joined(separator: " · ")
     }
@@ -175,7 +175,7 @@ enum TripPlanLogic {
 
     /// "Hotel · Level 2 charger, about 7 kW" for the list of places to sleep; the power is the listing's, never a promise.
     static func candidateLine(_ c: OvernightCandidates.Candidate, metric: Bool) -> String {
-        var parts: [String] = [c.kind == "campground" ? "Campground" : "Hotel"]
+        var parts: [String] = [ChargerLabels.label(c.kind == "campground" ? .camping : .hotel)]
         if let kw = c.l2Kw, kw > 0 { parts.append("\(c.l2KwAssumed == true ? "about " : "")\(Int(kw.rounded())) kW listed") }
         if let d = c.detourM, d >= 500 { parts.append("\(distance(meters: d, metric: metric)) off the route") }
         return parts.joined(separator: " · ")
@@ -250,7 +250,10 @@ enum TripPlanLogic {
     /// "200 kW · 25 min · 31% to 72%", leaving out what the plan did not say.
     static func stopDetail(_ s: TripWaypoint) -> String {
         var parts: [String] = []
-        if let kw = s.maxPowerKW, kw > 0 { parts.append("\(Int(kw.rounded())) kW") }
+        if let kw = s.maxPowerKW, kw > 0 {
+            // The stop's own station rating, with its type word (Fast above the AC ceiling, else Medium).
+            parts.append(ChargerLabels.kind(kw: kw).map { "\(ChargerLabels.label($0)) · \(Int(kw.rounded())) kW" } ?? "\(Int(kw.rounded())) kW")
+        }
         if let c = s.chargeDurationSec, c > 0 { parts.append(duration(c)) }
         if let a = s.arrivalSoC, let d = s.departureSoC { parts.append("\(Int(a.rounded()))% to \(Int(d.rounded()))%") }
         return parts.joined(separator: " · ")

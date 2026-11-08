@@ -30,7 +30,7 @@
     {"name": "short form Tesla agrees", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": "Tesla", "isDC": true, "want": {"snap": true, "label": "Tesla Supercharger"}},
     {"name": "unknown network snaps with OSM name", "poi": {"name": "Tesla Supercharger", "operator": "Tesla, Inc.", "brand": "Tesla"}, "known": null, "isDC": true, "want": {"snap": true, "label": "Tesla Supercharger"}},
     {"name": "'unknown' snaps with OSM name", "poi": {"name": "Joe's Chargers"}, "known": "unknown", "isDC": true, "want": {"snap": true, "label": "Joe's Chargers"}},
-    {"name": "no POI, unknown, DC", "poi": null, "known": null, "isDC": true, "want": {"snap": false, "label": "DC fast charger"}},
+    {"name": "no POI, unknown, DC", "poi": null, "known": null, "isDC": true, "want": {"snap": false, "label": "Fast charger"}},
     {"name": "no POI, unknown, AC", "poi": null, "known": null, "isDC": false, "want": {"snap": false, "label": "Charging station"}},
     {"name": "no POI, known", "poi": null, "known": "EVgo", "isDC": true, "want": {"snap": false, "label": "EVgo"}},
     {"name": "unverifiable node vs known", "poi": {"name": "Charging station"}, "known": "Rivian Adventure Network", "isDC": true, "want": {"snap": false, "label": "Rivian Adventure Network"}},
