@@ -280,24 +280,34 @@ func spreadPerKind(all []CorridorPOI, kinds []string, limit int, routeKm float64
 			}
 		}
 	}
-	// Water-filling: equal shares, the unused part of a small kind redistributed.
+	// Water-filling: equal shares, the unused part of a small kind redistributed. The allocations always add up to at most limit.
 	alloc := make([]int, len(kinds))
 	done := make([]bool, len(kinds))
 	remaining := limit
-	for {
+	for remaining > 0 {
 		open := 0
 		for k := range kinds {
 			if !done[k] {
 				open++
 			}
 		}
-		if open == 0 || remaining <= 0 {
+		if open == 0 {
+			break
+		}
+		if remaining < open {
+			// Fewer slots than kinds still open: one each for the first `remaining` of them, and no more.
+			for k := range kinds {
+				if remaining == 0 {
+					break
+				}
+				if !done[k] && len(byKind[k]) > 0 {
+					alloc[k], done[k] = 1, true
+					remaining--
+				}
+			}
 			break
 		}
 		share := remaining / open
-		if share == 0 {
-			share = 1
-		}
 		progressed := false
 		for k := range kinds {
 			if !done[k] && len(byKind[k]) <= share {
@@ -310,7 +320,7 @@ func spreadPerKind(all []CorridorPOI, kinds []string, limit int, routeKm float64
 			continue
 		}
 		// Every open kind has more than its share: split what is left, the remainder to the first kinds.
-		extra := remaining % open
+		extra := remaining - share*open
 		for k := range kinds {
 			if !done[k] {
 				alloc[k] = share

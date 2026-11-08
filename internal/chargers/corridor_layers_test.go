@@ -404,3 +404,49 @@ func TestCappedCorridorKeepsEveryKindAlongTheRoute(t *testing.T) {
 		t.Errorf("%d hotels kept, want all of the 33 that fit in their share", hotels)
 	}
 }
+
+// The cap is never exceeded, whatever the number of kinds: a limit below the number of kinds, equal to it, and just above it.
+func TestCappedCorridorNeverExceedsTheLimitWithManyKinds(t *testing.T) {
+	const row, x0, n = 6000, 1000, 100
+	var all []station
+	for i := 0; i < n; i++ {
+		for off := -1; off <= 1; off++ {
+			all = append(all, station{x: x0 + uint32(i), y: uint32(int(row) + off), props: map[string]any{
+				"@id": fmt.Sprintf("d%03d_%d", i, off), "dcfc_count": 2, "l2_count": 1, "max_power_kw": 150.0}})
+		}
+		all = append(all, station{x: x0 + uint32(i), y: row + 2, props: map[string]any{"@id": fmt.Sprintf("h%03d", i), "facility_type": "HOTEL", "l2_count": 1}})
+		all = append(all, station{x: x0 + uint32(i), y: row - 2, props: map[string]any{"@id": fmt.Sprintf("c%03d", i), "facility_type": "CAMPGROUND", "hookup_amps": 50}})
+	}
+	a := loaded(t, archiveAt(t, all))
+	path := make([][2]float64, 0, n)
+	for i := 0; i < n; i++ {
+		c := maptile.New(uint32(x0+i), row, 14).Bound().Center()
+		path = append(path, [2]float64{c[1], c[0]})
+	}
+	kinds := []string{"dcfc", "l2", "hotels", "camp"}
+	for _, limit := range []int{1, 2, 3, 4, 5, 6, 10, 37, 100} {
+		r, err := a.QueryLayers(path, kinds, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 6}, Limit: limit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(r.POIs) > limit {
+			t.Errorf("limit %d returned %d", limit, len(r.POIs))
+		}
+		if len(r.POIs) == 0 {
+			t.Errorf("limit %d returned nothing", limit)
+		}
+		if limit >= len(kinds) {
+			seen := map[string]bool{}
+			for _, p := range r.POIs {
+				for _, k := range p.Kinds {
+					seen[k] = true
+				}
+			}
+			for _, k := range kinds {
+				if !seen[k] {
+					t.Errorf("limit %d: no %s kept", limit, k)
+				}
+			}
+		}
+	}
+}
