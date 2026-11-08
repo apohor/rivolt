@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
+import { WeatherCredit } from "./WeatherCredit";
 import { AMBIENT_TEMP_TEXT, useAmbientTemp } from "../lib/ambientTemp";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 
@@ -30,7 +31,8 @@ export function AmbientTempLine({ ambient, vehicleID }: { ambient?: { temp_c: nu
             <dt className="text-neutral-500">Outside</dt>
             <dd className="text-right tabular-nums text-neutral-200">{formatTemperature(ambient.temp_c, temperatureUnit)}</dd>
           </dl>
-          <p className="mt-1 text-xs text-neutral-500">Outside is an estimate from Open-Meteo.</p>
+          <p className="mt-1 text-xs text-neutral-500">Outside is an estimate.</p>
+          <WeatherCredit />
         </div>
         {vehicleID && <ColdRangeSentence vehicleID={vehicleID} tempC={ambient.temp_c} />}
       </>

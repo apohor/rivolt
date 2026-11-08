@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { WeatherCredit } from "../components/WeatherCredit";
 import { Link } from "react-router-dom";
 import { type TripAdvice } from "../lib/api";
 import { Card, Spinner } from "../components/ui";
@@ -93,6 +94,7 @@ export function TripAdviceCard({
               <AdviceSection label="Cost" items={advice.cost} accent="emerald" />
               <AdviceSection label="Efficiency" items={advice.efficiency} accent="sky" />
               <AdviceSection label="Weather" items={advice.weather} accent="cyan" />
+              {advice.weather?.length ? <WeatherCredit className="text-xs text-neutral-600" /> : null}
               <AdviceSection label="Vehicle" items={advice.vehicle} accent="amber" />
               {advice.model && (
                 <p className="pt-1 border-t border-neutral-800/60 text-xs text-neutral-600">

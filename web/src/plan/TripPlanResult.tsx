@@ -4,6 +4,7 @@ import { type TripAdvice, type TripPlan } from "../lib/api";
 import { Card, ErrorBox } from "../components/ui";
 import { OvernightAdder, StopAdder, StopPreviewer } from "./tripTypes";
 import { WeatherAdjustmentChip } from "./WeatherAdjustmentChip";
+import { WeatherCredit } from "../components/WeatherCredit";
 import { RouteChooser } from "./RouteChooser";
 import { RouteCard } from "./RouteCard";
 import { OvernightSuggestions } from "./OvernightSuggestions";
@@ -61,6 +62,7 @@ export function TripPlanResult({
       {!inDemo() && (aiEnabled || !!advice) && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={aiEnabled ? onAnalyze : undefined} aiOff={aiOff} error={adviceError} />}
       <FarFutureNote show={plan.far_future} />
       <WeatherAdjustmentChip plan={plan} />
+      {plan.weather_adjustment && <WeatherCredit />}
       {(() => {
           const i = Math.min(active, plan.Routes.length - 1);
           const route = plan.Routes[i];
