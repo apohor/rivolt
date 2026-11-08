@@ -78,6 +78,13 @@ func (c *Client) base() string {
 	return DefaultAPIBase
 }
 
+// APIVersion is the one Stripe API version every outbound call pins. It is the version the preview Stripe account's default was on when billing
+// was exercised end to end (Checkout, the webhooks, the portal, the cancel and void paths), so the shapes read below match it. Responses of a
+// webhook delivery use the webhook ENDPOINT's version, not this header: that endpoint must be on the same version (the structs in events.go
+// read both the pre-basil and basil+ subscription period fields, and only id/customer/refunded of a Charge). To move versions, change this
+// constant and re-run the sandbox replay (sandbox_test.go) and the webhook fixtures.
+const APIVersion = "2026-10-28.endive"
+
 // do sends one request. form is the url-encoded body of a POST (nil for GET); idem, when set, is the Idempotency-Key.
 func (c *Client) do(ctx context.Context, method, path string, form url.Values, idem string, out any) error {
 	if c == nil || c.SecretKey == "" {
@@ -92,6 +99,9 @@ func (c *Client) do(ctx context.Context, method, path string, form url.Values, i
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.SecretKey)
+	// Every call pins the same API version, never the account's default: the owner can change that in the dashboard, and the shapes read here
+	// (see APIVersion) were verified against this one.
+	req.Header.Set("Stripe-Version", APIVersion)
 	if form != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
@@ -315,13 +325,165 @@ func treatMissing(err error) error {
 	return err
 }
 
-// CloseCustomer is everything the deletion of an account asks of Stripe: cancel the subscriptions, then delete the customer record once
-// nothing is open. Idempotent, so a retry repeats it safely.
-func (c *Client) CloseCustomer(ctx context.Context, customer string) error {
-	if _, err := c.CancelCustomerSubscriptions(ctx, customer); err != nil {
-		return err
+// inFlightCheck reports whether a payment against the invoice may be moving money: one of its PaymentIntents is processing or awaiting capture.
+// Since API version 2025-03-31 an invoice no longer carries its payment_intent: its payments are InvoicePayment objects, each naming a
+// PaymentIntent. Any failure to find out counts as in flight (the invoice is left open and retried), never as clear.
+func inFlightCheck(ctx context.Context, c *Client, invoice string) bool {
+	var pays struct {
+		Data []struct {
+			Status  string `json:"status"`
+			Payment struct {
+				Type          string `json:"type"`
+				PaymentIntent string `json:"payment_intent"`
+			} `json:"payment"`
+		} `json:"data"`
 	}
-	return c.DeleteCustomerIfClear(ctx, customer)
+	if err := c.do(ctx, http.MethodGet, "/v1/invoice_payments?limit=100&invoice="+url.QueryEscape(invoice), nil, "", &pays); err != nil {
+		return true
+	}
+	for _, p := range pays.Data {
+		if p.Payment.Type != "payment_intent" || p.Payment.PaymentIntent == "" {
+			continue
+		}
+		var pi struct {
+			Status string `json:"status"`
+		}
+		if err := c.do(ctx, http.MethodGet, "/v1/payment_intents/"+url.PathEscape(p.Payment.PaymentIntent), nil, "", &pi); err != nil {
+			return true
+		}
+		if pi.Status == "processing" || pi.Status == "requires_capture" {
+			return true
+		}
+	}
+	return false
+}
+
+// VoidedInvoice is one invoice voided for a deleted account: the audit record (ids and amounts only, nothing that names a person).
+type VoidedInvoice struct {
+	ID          string
+	AmountCents int64 // the subtotal before tax
+	Currency    string
+}
+
+// LeftInvoice is an open invoice that was NOT voided and why; it holds the customer record back until a person decides.
+type LeftInvoice struct {
+	ID     string
+	Reason string // paid, payment_in_flight, over_cap, currency
+}
+
+// CloseReport is what closing a customer did to its open invoices.
+type CloseReport struct {
+	Voided []VoidedInvoice
+	Left   []LeftInvoice
+}
+
+// VoidCap is the most an open invoice may be, before tax, for it to be voided without a person: the Pro annual price. A deleted account's
+// last renewal invoice is at most one year; anything larger is not a renewal and stays for a human. The zero value voids nothing.
+type VoidCap struct {
+	Cents    int64
+	Currency string // lower case
+}
+
+// VoidOpenInvoices voids the invoices still open on a customer whose account is deleted. A deleted account will not pay, and an open invoice
+// would hold the customer record (its name, email and address) in Stripe for ever. The caller has already cancelled the subscriptions, so
+// nothing new accrues. Only an invoice Stripe reports as status=open that nothing has been paid on (amount_paid 0), with no payment in flight
+// (a PaymentIntent processing or awaiting capture, read from the invoice's InvoicePayments),
+// whose subtotal before tax is within cap (same currency), is voided; every other open invoice is returned in Left and stays open, which holds
+// the customer record back (DeleteCustomerIfClear, ErrOpenItems) and so keeps the cancel queued for a person. A refund is never made. Idempotent:
+// an invoice that is already void is fine. At most one page (100) per call; a leftover is handled by the next retry.
+func (c *Client) VoidOpenInvoices(ctx context.Context, customer string, limit VoidCap) (CloseReport, error) {
+	var rep CloseReport
+	var inv struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Status     string `json:"status"`
+			AmountPaid int64  `json:"amount_paid"`
+			Subtotal   int64  `json:"subtotal"`
+			Currency   string `json:"currency"`
+		} `json:"data"`
+	}
+	path := "/v1/invoices?limit=100&status=open&customer=" + url.QueryEscape(customer)
+	if err := c.do(ctx, http.MethodGet, path, nil, "", &inv); err != nil {
+		return rep, treatMissing(err)
+	}
+	for _, in := range inv.Data {
+		if in.Status != "open" {
+			continue
+		}
+		cur := strings.ToLower(in.Currency)
+		switch {
+		case in.AmountPaid != 0:
+			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "paid"})
+			continue
+		case inFlightCheck(ctx, c, in.ID):
+			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "payment_in_flight"})
+			continue
+		case limit.Cents <= 0 || cur != limit.Currency:
+			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "currency"})
+			continue
+		case in.Subtotal > limit.Cents:
+			rep.Left = append(rep.Left, LeftInvoice{ID: in.ID, Reason: "over_cap"})
+			continue
+		}
+		err := c.do(ctx, http.MethodPost, "/v1/invoices/"+url.PathEscape(in.ID)+"/void", url.Values{}, "rivolt-void-"+in.ID, nil)
+		if err != nil {
+			if treatMissing(err) == nil {
+				continue // already gone
+			}
+			// A void refused because the invoice is no longer open: fine if it is void now (an earlier attempt, or the webhook of one), else an error.
+			var se *Error
+			if errors.As(err, &se) && se.Status == http.StatusBadRequest {
+				var cur2 struct {
+					Status string `json:"status"`
+				}
+				if gerr := c.do(ctx, http.MethodGet, "/v1/invoices/"+url.PathEscape(in.ID), nil, "", &cur2); gerr == nil && cur2.Status == "void" {
+					continue
+				}
+			}
+			return rep, err
+		}
+		rep.Voided = append(rep.Voided, VoidedInvoice{ID: in.ID, AmountCents: in.Subtotal, Currency: cur})
+	}
+	return rep, nil
+}
+
+// CloseCustomer is everything the deletion of an account asks of Stripe, in this order: cancel the subscriptions, void the invoices still open
+// that are safe to void (see VoidOpenInvoices; the report goes to the audit log), then delete the customer record once nothing is open (a
+// part-paid or over-cap invoice, a payment in flight or an unresolved dispute holds it back: ErrOpenItems). Idempotent, so a retry repeats it.
+func (c *Client) CloseCustomer(ctx context.Context, customer string, limit VoidCap) (CloseReport, error) {
+	if _, err := c.CancelCustomerSubscriptions(ctx, customer); err != nil {
+		return CloseReport{}, err
+	}
+	rep, err := c.VoidOpenInvoices(ctx, customer, limit)
+	if err != nil {
+		return rep, err
+	}
+	return rep, c.DeleteCustomerIfClear(ctx, customer)
+}
+
+// WebhookEndpoint is the part of a Stripe webhook endpoint the launch preflight reads: its API version (what its event payloads are shaped by)
+// and whether it is enabled. No URL, no secret.
+type WebhookEndpoint struct {
+	APIVersion string
+	Enabled    bool
+}
+
+// WebhookEndpoints lists the account's webhook endpoints (read-only; a restricted key needs read access on Webhook endpoints).
+func (c *Client) WebhookEndpoints(ctx context.Context) ([]WebhookEndpoint, error) {
+	var out struct {
+		Data []struct {
+			APIVersion string `json:"api_version"`
+			Status     string `json:"status"`
+		} `json:"data"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/webhook_endpoints?limit=100", nil, "", &out); err != nil {
+		return nil, err
+	}
+	eps := make([]WebhookEndpoint, 0, len(out.Data))
+	for _, e := range out.Data {
+		eps = append(eps, WebhookEndpoint{APIVersion: e.APIVersion, Enabled: e.Status == "enabled"})
+	}
+	return eps, nil
 }
 
 // PortalFacts is what the default Customer Portal configuration says about the things the launch pre-flight checks. Booleans only.

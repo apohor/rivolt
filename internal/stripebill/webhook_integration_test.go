@@ -3,9 +3,11 @@
 package stripebill
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -543,8 +545,9 @@ func TestAccountClosureRefusesWhenItCannotQueue(t *testing.T) {
 	}
 }
 
-// An unpaid invoice holds the customer record back: the subscriptions are cancelled at once (no more charges), the deletion of the customer
-// is queued and retried (never dropped), and when the invoice is settled the retry deletes it and the backlog clears.
+// A deleted account's open invoice is voided at once (the subscriptions are cancelled first), the customer record is deleted and nothing is
+// queued, with the void audit-logged by id and count. A part-paid invoice is never voided: it holds the record back, the deletion of the
+// customer is queued and retried (never dropped), and when it is settled the retry deletes it and the backlog clears.
 func TestAccountClosureWaitsForOpenInvoices(t *testing.T) {
 	ctx := context.Background()
 	r := newRig(t, "stripe-open-invoice")
@@ -555,39 +558,66 @@ func TestAccountClosureWaitsForOpenInvoices(t *testing.T) {
 	cust := "cus_" + r.uid.String()[:8]
 	f.subs = map[string][][2]string{cust: {{"sub_o", "past_due"}}}
 	f.openInvoices = map[string]int{cust: 1}
+	var logs bytes.Buffer
 	var pending int
-	c := &AccountClosure{DB: r.pool, Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, Report: func(p int, _ time.Duration) { pending = p }}
+	c := &AccountClosure{DB: r.pool, Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, CapPriceID: priceYear, Report: func(p int, _ time.Duration) { pending = p },
+		Log: slog.New(slog.NewTextHandler(&logs, nil))}
 	if err := c.BeforeDelete(ctx, r.uid); err != nil {
-		t.Fatalf("an open invoice must queue, not block the deletion: %v", err)
+		t.Fatalf("an open invoice must not block the deletion: %v", err)
 	}
 	if strings.Join(f.deleted, ",") != "sub_o" {
 		t.Errorf("the subscription was not cancelled at once: %v", f.deleted)
 	}
-	if len(f.customersDeleted) != 0 {
-		t.Errorf("the customer was deleted with an open invoice: %v", f.customersDeleted)
+	if len(f.voidPosts) != 1 || strings.Join(f.customersDeleted, ",") != cust {
+		t.Errorf("voided %v, customer deleted %v; want the invoice voided and the customer deleted at once", f.voidPosts, f.customersDeleted)
+	}
+	var queued int
+	if err := r.pool.QueryRow(`SELECT count(*) FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&queued); err != nil || queued != 0 {
+		t.Errorf("queued rows = %d (%v); want none", queued, err)
+	}
+	if got := logs.String(); !strings.Contains(got, "voided an open invoice") || !strings.Contains(got, "amount_cents=3499") || !strings.Contains(got, "invoice_id=in_open_") || strings.Contains(strings.ReplaceAll(got, "in_open_"+cust, ""), cust) { // the fake's invoice ids embed the customer; real ones do not
+		t.Errorf("audit line = %q; want the count and the invoice id, never the customer id", got)
+	}
+
+	// A part-paid invoice: not voided, the customer deletion is queued and retried.
+	r2 := newRig(t, "stripe-open-invoice-paid")
+	if code := r2.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatal(code)
+	}
+	f2 := newFakeStripe(t)
+	cust2 := "cus_" + r2.uid.String()[:8]
+	f2.subs = map[string][][2]string{cust2: {{"sub_o", "past_due"}}}
+	f2.openInvoices = map[string]int{cust2: 1}
+	f2.invoicePaid = map[string]int64{cust2: 500}
+	c2 := &AccountClosure{DB: r2.pool, Client: &Client{BaseURL: f2.srv.URL, SecretKey: testKey}, CapPriceID: priceYear, Report: func(p int, _ time.Duration) { pending = p }}
+	if err := c2.BeforeDelete(ctx, r2.uid); err != nil {
+		t.Fatalf("a part-paid invoice must queue, not block the deletion: %v", err)
+	}
+	if len(f2.voidPosts) != 0 || len(f2.customersDeleted) != 0 {
+		t.Errorf("part-paid: voided %v, deleted %v; want neither", f2.voidPosts, f2.customersDeleted)
 	}
 	var errText string
-	if err := r.pool.QueryRow(`SELECT error FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&errText); err != nil {
+	if err := r2.pool.QueryRow(`SELECT error FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust2).Scan(&errText); err != nil {
 		t.Fatalf("the customer deletion was not queued: %v", err)
 	}
 	if errText != ErrOpenItems.Error() {
 		t.Errorf("queued error = %q, want %q", errText, ErrOpenItems.Error())
 	}
 	due := func() {
-		if _, err := r.pool.Exec(`UPDATE idp_delete_failures SET last_tried = now() - interval '2 hours' WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust); err != nil {
+		if _, err := r2.pool.Exec(`UPDATE idp_delete_failures SET last_tried = now() - interval '2 hours' WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust2); err != nil {
 			t.Fatal(err)
 		}
 	}
 	due()
-	c.RetryOnce(ctx)
-	if pending != 1 || len(f.customersDeleted) != 0 {
-		t.Errorf("while the invoice is open: pending=%d deleted=%v; want still queued", pending, f.customersDeleted)
+	c2.RetryOnce(ctx)
+	if pending != 1 || len(f2.customersDeleted) != 0 {
+		t.Errorf("while the invoice is part-paid: pending=%d deleted=%v; want still queued", pending, f2.customersDeleted)
 	}
-	f.openInvoices[cust] = 0 // paid
+	f2.openInvoices[cust2] = 0 // settled
 	due()
-	c.RetryOnce(ctx)
-	if pending != 0 || strings.Join(f.customersDeleted, ",") != cust {
-		t.Errorf("after the invoice was settled: pending=%d deleted=%v; want the customer deleted and the backlog clear", pending, f.customersDeleted)
+	c2.RetryOnce(ctx)
+	if pending != 0 || strings.Join(f2.customersDeleted, ",") != cust2 {
+		t.Errorf("after the invoice was settled: pending=%d deleted=%v; want the customer deleted and the backlog clear", pending, f2.customersDeleted)
 	}
 }
 

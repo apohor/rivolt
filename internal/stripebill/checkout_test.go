@@ -35,6 +35,14 @@ type fakeStripe struct {
 	deleteQueries []url.Values
 	// customers: open invoices per customer; charges per customer as [charge id, dispute status or ""]; gone = deleted customers.
 	openInvoices     map[string]int
+	invoicePaid      map[string]int64 // customer -> amount_paid (cents) on its open invoices
+	invoiceSubtotal  map[string]int64 // customer -> subtotal (cents) of each open invoice; default 3499
+	invoiceCurrency  map[string]string
+	invoicePI        map[string]string // customer -> payment_intent status
+	versions         []string          // Stripe-Version header of every request
+	voidRefuse       bool              // POST void answers 400 and the invoice reads as void
+	voidedInvoices   map[string]bool
+	voidPosts        []string
 	charges          map[string][][2]string
 	gone             map[string]bool
 	customersDeleted []string
@@ -62,6 +70,7 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 			http.Error(w, `{"error":{"type":"invalid_request_error","message":"bad key"}}`, http.StatusUnauthorized)
 			return
 		}
+		f.versions = append(f.versions, r.Header.Get("Stripe-Version"))
 		w.Header().Set("Content-Type", "application/json")
 		if f.fail {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -121,9 +130,54 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 			}
 			var data []map[string]any
 			for i := 0; i < f.openInvoices[cust]; i++ {
-				data = append(data, map[string]any{"id": "in_open_" + strconv.Itoa(i), "status": "open"})
+				id := "in_open_" + cust + "_" + strconv.Itoa(i)
+				if f.voidedInvoices[id] {
+					continue
+				}
+				sub, cur := f.invoiceSubtotal[cust], f.invoiceCurrency[cust]
+				if sub == 0 {
+					sub = 3499
+				}
+				if cur == "" {
+					cur = "usd"
+				}
+				// From API version 2025-03-31 an invoice has no payment_intent; its payments are InvoicePayment objects (below).
+				data = append(data, map[string]any{"id": id, "status": "open", "amount_paid": f.invoicePaid[cust], "subtotal": sub, "currency": cur})
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": false})
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/invoices/") && strings.HasSuffix(r.URL.Path, "/void"):
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/invoices/"), "/void")
+			if f.voidedInvoices == nil {
+				f.voidedInvoices = map[string]bool{}
+			}
+			f.voidedInvoices[id] = true
+			f.voidPosts = append(f.voidPosts, id+" idem="+r.Header.Get("Idempotency-Key"))
+			if f.voidRefuse {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"invoice_not_open","message":"already void"}}`))
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "status": "void"})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/invoices/"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": strings.TrimPrefix(r.URL.Path, "/v1/invoices/"), "status": "void"})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/invoice_payments":
+			// The invoice id is "in_open_<customer>_<n>"; a customer with a PaymentIntent status has one payment on it.
+			inv := r.URL.Query().Get("invoice")
+			cust := strings.TrimSuffix(strings.TrimPrefix(inv, "in_open_"), inv[strings.LastIndex(inv, "_"):])
+			var data []map[string]any
+			if f.invoicePI[cust] != "" {
+				data = append(data, map[string]any{"id": "inpay_1", "status": "open", "payment": map[string]any{"type": "payment_intent", "payment_intent": "pi_" + cust}})
+			}
+			data = append(data, map[string]any{"id": "inpay_2", "status": "canceled", "payment": map[string]any{"type": "out_of_band"}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": false})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/payment_intents/"):
+			cust := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, "/v1/payment_intents/"), "pi_")
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "pi_" + cust, "status": f.invoicePI[cust]})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/webhook_endpoints":
+			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": []map[string]any{
+				{"id": "we_1", "api_version": APIVersion, "status": "enabled", "url": "https://example.test/hook", "secret": "whsec_must_not_be_read"},
+				{"id": "we_2", "api_version": "2024-06-20", "status": "disabled"},
+			}, "has_more": false})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/charges":
 			cust := r.URL.Query().Get("customer")
 			if f.gone[cust] {
@@ -539,8 +593,98 @@ func TestDeleteCustomerIfClear(t *testing.T) {
 	// CloseCustomer cancels first, then deletes.
 	f = newFakeStripe(t)
 	f.subs = map[string][][2]string{"cus_both": {{"sub_x", "active"}}}
-	if err := c(f).CloseCustomer(ctx, "cus_both"); err != nil || strings.Join(f.deleted, ",") != "sub_x" || strings.Join(f.customersDeleted, ",") != "cus_both" {
-		t.Errorf("CloseCustomer: %v, cancelled %v, deleted %v", err, f.deleted, f.customersDeleted)
+	if rep, err := c(f).CloseCustomer(ctx, "cus_both", testCap); err != nil || len(rep.Voided) != 0 || strings.Join(f.deleted, ",") != "sub_x" || strings.Join(f.customersDeleted, ",") != "cus_both" {
+		t.Errorf("CloseCustomer: %v, %+v, cancelled %v, deleted %v", err, rep, f.deleted, f.customersDeleted)
+	}
+}
+
+// The Pro annual price is the cap on what is voided without a person: 34.99 USD before tax.
+var testCap = VoidCap{Cents: 3499, Currency: "usd"}
+
+// A deleted account will not pay its open invoices, so closing the customer voids them (after the subscriptions are cancelled) and deletes the
+// record; the voided invoices come back for the audit log. Anything a person must look at stays open and holds the record back: a paid or
+// part-paid invoice, a payment in flight, an invoice over the cap or in another currency, and a dispute. Nothing is ever refunded.
+func TestCloseCustomerVoidsOpenInvoices(t *testing.T) {
+	ctx := context.Background()
+	c := func(f *fakeStripe) *Client { return &Client{BaseURL: f.srv.URL, SecretKey: testKey} }
+
+	f := newFakeStripe(t)
+	f.subs = map[string][][2]string{"cus_v": {{"sub_v", "past_due"}}}
+	f.openInvoices = map[string]int{"cus_v": 2}
+	rep, err := c(f).CloseCustomer(ctx, "cus_v", testCap)
+	if err != nil || len(rep.Voided) != 2 || rep.Voided[0].ID != "in_open_cus_v_0" || rep.Voided[0].AmountCents != 3499 || rep.Voided[0].Currency != "usd" || len(rep.Left) != 0 {
+		t.Fatalf("report %+v, %v; want both open invoices voided with their amounts", rep, err)
+	}
+	// Every call pins one explicit API version, never the account's default.
+	for i, v := range f.versions {
+		if v != APIVersion {
+			t.Errorf("request %d was sent with Stripe-Version %q, want %q", i, v, APIVersion)
+		}
+	}
+	if len(f.versions) == 0 {
+		t.Error("no requests recorded")
+	}
+	if strings.Join(f.deleted, ",") != "sub_v" || strings.Join(f.customersDeleted, ",") != "cus_v" {
+		t.Errorf("cancelled %v, customer deleted %v; want the subscription cancelled and the customer deleted", f.deleted, f.customersDeleted)
+	}
+	if len(f.voidPosts) != 2 || !strings.Contains(f.voidPosts[0], "idem=rivolt-void-in_open_cus_v_0") {
+		t.Errorf("void posts = %v, want one per invoice with a stable idempotency key", f.voidPosts)
+	}
+
+	stays := map[string]func(f *fakeStripe, cust string){
+		"paid":                      func(f *fakeStripe, cust string) { f.invoicePaid = map[string]int64{cust: 500} },
+		"payment_in_flight":         func(f *fakeStripe, cust string) { f.invoicePI = map[string]string{cust: "processing"} },
+		"payment_in_flight_capture": func(f *fakeStripe, cust string) { f.invoicePI = map[string]string{cust: "requires_capture"} },
+		"over_cap":                  func(f *fakeStripe, cust string) { f.invoiceSubtotal = map[string]int64{cust: 3500} },
+		"currency":                  func(f *fakeStripe, cust string) { f.invoiceCurrency = map[string]string{cust: "eur"} },
+	}
+	for name, set := range stays {
+		reason := strings.TrimSuffix(name, "_capture")
+		cust := "cus_" + name
+		f = newFakeStripe(t)
+		f.openInvoices = map[string]int{cust: 1}
+		set(f, cust)
+		rep, err = c(f).CloseCustomer(ctx, cust, testCap)
+		if !errors.Is(err, ErrOpenItems) || len(rep.Voided) != 0 || len(rep.Left) != 1 || rep.Left[0].Reason != reason || len(f.voidPosts) != 0 || len(f.customersDeleted) != 0 {
+			t.Errorf("%s: report %+v, posts %v, deleted %v, err %v; want it left open (reason %s), nothing voided or deleted, ErrOpenItems", reason, rep, f.voidPosts, f.customersDeleted, err, reason)
+		}
+	}
+	// A cap exactly at the price is voided; no cap known (zero value) voids nothing.
+	f = newFakeStripe(t)
+	f.openInvoices = map[string]int{"cus_edge": 1}
+	f.invoiceSubtotal = map[string]int64{"cus_edge": 3499}
+	if rep, err = c(f).CloseCustomer(ctx, "cus_edge", testCap); err != nil || len(rep.Voided) != 1 {
+		t.Errorf("an invoice at exactly the cap: %+v, %v; want it voided", rep, err)
+	}
+	f = newFakeStripe(t)
+	f.openInvoices = map[string]int{"cus_nocap": 1}
+	if rep, err = c(f).CloseCustomer(ctx, "cus_nocap", VoidCap{}); !errors.Is(err, ErrOpenItems) || len(f.voidPosts) != 0 {
+		t.Errorf("no cap: %+v, %v, posts %v; want nothing voided", rep, err, f.voidPosts)
+	}
+
+	// A dispute still holds the record even when the invoices were voided.
+	f = newFakeStripe(t)
+	f.openInvoices = map[string]int{"cus_d": 1}
+	f.charges = map[string][][2]string{"cus_d": {{"ch_1", "needs_response"}}}
+	rep, err = c(f).CloseCustomer(ctx, "cus_d", testCap)
+	if !errors.Is(err, ErrOpenItems) || len(rep.Voided) != 1 || len(f.customersDeleted) != 0 {
+		t.Errorf("dispute: %+v, deleted %v, err %v; want the invoice voided and the customer kept", rep, f.customersDeleted, err)
+	}
+
+	// An invoice Stripe refuses to void because it is already void is fine (idempotent).
+	f = newFakeStripe(t)
+	f.openInvoices = map[string]int{"cus_i": 1}
+	f.voidRefuse = true
+	if rep, err = c(f).CloseCustomer(ctx, "cus_i", testCap); err != nil || len(rep.Voided) != 0 {
+		t.Errorf("already void: %+v, %v; want success without counting it as voided by us", rep, err)
+	}
+
+	// Stripe failing is an error and the customer is not deleted.
+	f = newFakeStripe(t)
+	f.openInvoices = map[string]int{"cus_e": 1}
+	f.fail = true
+	if _, err := c(f).CloseCustomer(ctx, "cus_e", testCap); err == nil || len(f.customersDeleted) != 0 {
+		t.Errorf("a failing Stripe: %v, deleted %v", err, f.customersDeleted)
 	}
 }
 
@@ -644,5 +788,14 @@ func TestNoPaymentMethodTypesInTheSource(t *testing.T) {
 				t.Errorf("%s:%d sends payment_method_types: %s", e.Name(), n+1, strings.TrimSpace(line))
 			}
 		}
+	}
+}
+
+// The preflight reads the webhook endpoints' API versions: only the version and whether each is enabled, nothing else.
+func TestWebhookEndpointsReadsVersionAndStatusOnly(t *testing.T) {
+	f := newFakeStripe(t)
+	eps, err := (&Client{BaseURL: f.srv.URL, SecretKey: testKey}).WebhookEndpoints(context.Background())
+	if err != nil || len(eps) != 2 || eps[0] != (WebhookEndpoint{APIVersion: APIVersion, Enabled: true}) || eps[1] != (WebhookEndpoint{APIVersion: "2024-06-20", Enabled: false}) {
+		t.Errorf("endpoints = %+v, %v", eps, err)
 	}
 }

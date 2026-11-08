@@ -130,6 +130,16 @@ func preflightStripe(getenv func(string) string) func(context.Context) preflight
 				f.PMCRead, f.PMCFound, f.PMCActive, f.PMCLive, f.PMCMethods = true, found, cfg.Active, cfg.Live, cfg.Methods
 			}
 		}
+		// The webhook endpoints' API versions against the version the server pins on every call.
+		f.PinnedVersion = stripebill.APIVersion
+		if eps, err := c.WebhookEndpoints(ctx); err == nil {
+			f.WebhookRead = true
+			for _, e := range eps {
+				if e.Enabled {
+					f.WebhookVersions = append(f.WebhookVersions, e.APIVersion)
+				}
+			}
+		}
 		// Stripe Tax is only asked about when automatic tax is on; a key that cannot read it leaves TaxRead false (unverified).
 		if rivian.ParseBoolEnv(getenv("RIVOLT_STRIPE_AUTOMATIC_TAX")) {
 			if active, err := c.TaxActive(ctx); err == nil {

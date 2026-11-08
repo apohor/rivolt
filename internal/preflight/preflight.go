@@ -47,6 +47,11 @@ type StripeFacts struct {
 	// The account's DEFAULT configuration, which our sessions do not use but the Customer Portal's update-payment-method follows.
 	CheckoutMethods []string
 	CheckoutRead    bool
+	// The Stripe API version the server pins on every call (stripebill.APIVersion) and the versions of the account's ENABLED webhook endpoints,
+	// whose payloads the webhook structs read. A mismatch, no enabled endpoint, or an unreadable list is a problem.
+	PinnedVersion   string
+	WebhookRead     bool
+	WebhookVersions []string
 	TaxRead         bool // Stripe Tax's settings were read (only asked when automatic tax is on)
 	TaxActive       bool // and Stripe Tax is active in this mode
 }
@@ -336,6 +341,7 @@ func Run(ctx context.Context, in Input) *Report {
 			}
 		}
 		r.checkoutMethods(f, strings.TrimSpace(get("RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG")) != "")
+		r.webhookVersion(f)
 		if in.BillingAddress != "required" {
 			r.problem("our Checkout sessions do not require the billing address (billing_address_collection): the US-only check would have no country")
 		} else {
@@ -371,6 +377,31 @@ func modeName(live bool) string {
 		return "live"
 	}
 	return "test"
+}
+
+// webhookVersion checks the webhook endpoints are on the API version the server pins: the events' payloads are shaped by the endpoint's version,
+// and the structs were checked against that one. Unread is not ready, and neither is an endpoint following the account default.
+func (r *Report) webhookVersion(f StripeFacts) {
+	switch {
+	case f.PinnedVersion == "":
+		// No pinned version supplied (an older caller): nothing to compare.
+	case !f.WebhookRead:
+		r.problem("the Stripe webhook endpoints could not be read, so their API version is unverified (a restricted key needs read access on Webhook endpoints); the server pins %s", f.PinnedVersion)
+	case len(f.WebhookVersions) == 0:
+		r.problem("the Stripe account has no enabled webhook endpoint")
+	default:
+		bad := 0
+		for _, v := range f.WebhookVersions {
+			if v != f.PinnedVersion {
+				bad++
+			}
+		}
+		if bad > 0 {
+			r.problem("%d of %d enabled Stripe webhook endpoint(s) are not on API version %s, which the server pins and its event structs were checked against", bad, len(f.WebhookVersions), f.PinnedVersion)
+		} else {
+			r.line("  webhook endpoint API version: %s (the version the server pins)", f.PinnedVersion)
+		}
+	}
 }
 
 func (r *Report) checkoutMethods(f StripeFacts, configured bool) {

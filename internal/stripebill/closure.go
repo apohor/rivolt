@@ -15,7 +15,7 @@ import (
 
 // AccountClosure is the Stripe step of every account deletion (self-service, admin and the inactive purge): before the account's rows go,
 // its Stripe subscriptions are cancelled at Stripe, so a deleted account is never charged again, and the Stripe customer record (name,
-// email, address) is deleted once nothing is open on it (no unpaid invoice, no unresolved dispute; Stripe keeps the invoices tax law needs). When Stripe cannot be reached (or this
+// email, address) is deleted once nothing is open on it (open invoices are voided first, since a deleted account will not pay them; a part-paid invoice or an unresolved dispute holds the record back; Stripe keeps the invoices tax law needs). When Stripe cannot be reached (or this
 // server has no Stripe key) the cancel is queued, keyed by the Stripe customer id, and RunRetrier repeats it until it works; it never
 // expires, and a backlog is an alert, never a silent skip. Only when the cancel AND the queueing fail does the deletion stop.
 //
@@ -24,7 +24,10 @@ import (
 type AccountClosure struct {
 	DB     *sql.DB
 	Client *Client // nil: no Stripe on this server; every cancel is queued until one is configured
-	Log    *slog.Logger
+	// CapPriceID is the Pro annual Price: its amount (before tax) is the most an open invoice may be and still be voided automatically. Empty or
+	// unreadable: nothing is voided, and an open invoice holds the cancel in the queue for a person.
+	CapPriceID string
+	Log        *slog.Logger
 	// Report is told, after each retry pass, how many cancellations are queued and how long the oldest has waited (gauges for the alert).
 	Report func(pending int, oldest time.Duration)
 }
@@ -67,8 +70,10 @@ func (c *AccountClosure) BeforeDelete(ctx context.Context, uid uuid.UUID) error 
 	cause := ErrNotConfigured
 	if c.Client != nil {
 		cctx, cancel := context.WithTimeout(ctx, cancelTimeout)
-		cause = c.Client.CloseCustomer(cctx, customer)
+		var rep CloseReport
+		rep, cause = c.Client.CloseCustomer(cctx, customer, c.voidCap(cctx))
 		cancel()
+		c.audit(rep)
 		if cause == nil {
 			return nil
 		}
@@ -80,6 +85,30 @@ func (c *AccountClosure) BeforeDelete(ctx context.Context, uid uuid.UUID) error 
 	}
 	c.logger().Warn("stripe cancel failed; queued for retry", "failure_id", id.String(), "err", queueText(cause))
 	return nil
+}
+
+// voidCap reads the Pro annual price for the void cap; without one nothing is voided.
+func (c *AccountClosure) voidCap(ctx context.Context) VoidCap {
+	if c.Client == nil || c.CapPriceID == "" {
+		return VoidCap{}
+	}
+	p, err := c.Client.Price(ctx, c.CapPriceID)
+	if err != nil {
+		c.logger().Warn("stripe: cannot read the price that caps automatic invoice voiding; nothing is voided", "err", queueText(err))
+		return VoidCap{}
+	}
+	return VoidCap{Cents: p.UnitAmount, Currency: p.Currency}
+}
+
+// audit logs what closing a customer did to its open invoices: one line per void (a void is irreversible) with the Stripe invoice id and the
+// amount, and one line per invoice left open and why. Nothing that names a person: no customer id, no email.
+func (c *AccountClosure) audit(rep CloseReport) {
+	for _, v := range rep.Voided {
+		c.logger().Info("stripe: voided an open invoice of a deleted account", "invoice_id", v.ID, "amount_cents", v.AmountCents, "currency", v.Currency)
+	}
+	for _, l := range rep.Left {
+		c.logger().Warn("stripe: an open invoice of a deleted account needs a person", "invoice_id", l.ID, "reason", l.Reason)
+	}
 }
 
 // queueText is what a failed attempt leaves in the retry queue and the logs: Stripe's status and error code, or a fixed phrase. Never the
@@ -128,8 +157,9 @@ func (c *AccountClosure) RetryOnce(ctx context.Context) {
 		}
 		for _, it := range due {
 			cctx, cancel := context.WithTimeout(ctx, cancelTimeout)
-			cerr := c.Client.CloseCustomer(cctx, it.Customer)
+			rep, cerr := c.Client.CloseCustomer(cctx, it.Customer, c.voidCap(cctx))
 			cancel()
+			c.audit(rep)
 			if cerr != nil {
 				if err := db.StripeCancelFailedAgain(ctx, c.DB, it.ID, queueText(cerr)); err != nil {
 					c.logger().Warn("stripe cancel retry: record attempt failed", "failure_id", it.ID.String(), "err", err.Error())
