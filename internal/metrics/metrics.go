@@ -127,6 +127,14 @@ type Metrics struct {
 	Entitlements   *prometheus.GaugeVec
 	Accounts       prometheus.Gauge
 	BillingEnabled prometheus.Gauge
+	// OpenCharges is the open live charge rows now by state (charging: the vehicle's latest frame still reads plugged in and charging, by the
+	// stale-charge janitor's own rule; not_charging: it does not; no_frame: the vehicle sent nothing in 2 days, a dormant account's leftover row), and OpenChargesOldestSeconds the age of the oldest of each since its last
+	// write. A not_charging row much older than the janitor's hour is one it could not close (#1619, #1670). No vehicle or user labels.
+	OpenCharges              *prometheus.GaugeVec
+	OpenChargesOldestSeconds *prometheus.GaugeVec
+	// ChargewatchLastSuccess is the Unix time of the last good open-charge measurement. The gauges above keep their last values when a read
+	// fails, so a broken watcher would read as "all clear"; an alert on time() minus this catches it. No labels.
+	ChargewatchLastSuccess prometheus.Gauge
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -432,6 +440,18 @@ func New() *Metrics {
 			Name: "rivolt_billing_events_total",
 			Help: "Billing moments an operator may need to see, by kind (payment_failed: a subscription went past due).",
 		}, []string{"kind"}),
+		OpenCharges: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "rivolt_open_charges",
+			Help: "Open live charge rows by state (charging or not_charging by the stale-charge janitor's rule, or no_frame: the vehicle sent nothing in 2 days); no vehicle or user labels.",
+		}, []string{"state"}),
+		ChargewatchLastSuccess: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_chargewatch_last_success_timestamp_seconds",
+			Help: "Unix time of the last successful open-charge measurement (the rivolt_open_charges gauges keep their last values when a read fails).",
+		}),
+		OpenChargesOldestSeconds: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "rivolt_open_charges_oldest_seconds",
+			Help: "Age since the last write of the oldest open live charge row, by state; 0 when there is none.",
+		}, []string{"state"}),
 		Entitlements: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "rivolt_entitlements",
 			Help: "Entitlement rows by source and status, without the demo account; no user labels.",
@@ -820,6 +840,9 @@ func New() *Metrics {
 		m.StripeWebhookLag,
 		m.BillingEvents,
 		m.Entitlements,
+		m.OpenCharges,
+		m.OpenChargesOldestSeconds,
+		m.ChargewatchLastSuccess,
 		m.Accounts,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
