@@ -306,7 +306,7 @@ enum RouteSnap {
             var label: String
             /// A layer pin the person prefers (its network is marked Prefer in planner): drawn larger, ringed.
             var emphasis = false
-            /// What a layer pin is: 0 a charger, 1 a hotel, 2 a campground.
+            /// What a layer pin is: 0 a fast charger, 1 a hotel, 2 a campground, 3 a Medium (Level 2) charger.
             var kind = 0
         }
 

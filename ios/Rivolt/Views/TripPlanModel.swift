@@ -23,10 +23,25 @@ extension APIClient: CorridorLayersSource {}
 
 /// The layers the planner map can show along the route.
 enum MapLayer: String, CaseIterable, Equatable {
-    case chargers, hotels, camps
+    case chargers, medium, hotels, camps
 
-    var kind: String { self == .chargers ? "dcfc" : self == .hotels ? "hotels" : "camp" }
-    var title: String { self == .chargers ? ChargerLabels.label(.fast) : self == .hotels ? ChargerLabels.label(.hotel) : ChargerLabels.label(.camping) }
+    var kind: String {
+        switch self {
+        case .chargers: return "dcfc"
+        case .medium: return "l2"
+        case .hotels: return "hotels"
+        case .camps: return "camp"
+        }
+    }
+    /// The chip's word: the same charger-type words as everywhere (Fast, Medium, Hotel, Camping).
+    var title: String {
+        switch self {
+        case .chargers: return ChargerLabels.label(.fast)
+        case .medium: return ChargerLabels.label(.medium)
+        case .hotels: return ChargerLabels.label(.hotel)
+        case .camps: return ChargerLabels.label(.camping)
+        }
+    }
 }
 
 protocol TripSource: Sendable {
@@ -284,6 +299,19 @@ final class TripPlanModel {
     func setLayer(_ layer: MapLayer, on: Bool, source: some CorridorLayersSource) async {
         if on { layers.insert(layer) } else { layers.remove(layer) }
         if layer == .chargers, !on { preferredOnly = false }
+        await refreshLayers(source: source)
+    }
+
+    /// The "All" chip: every layer at once (one request), or none.
+    func setAllLayers(on: Bool, source: some CorridorLayersSource) async {
+        layers = on ? Set(MapLayer.allCases) : []
+        if !on { preferredOnly = false }
+        await refreshLayers(source: source)
+    }
+
+    var allLayersOn: Bool { layers == Set(MapLayer.allCases) }
+
+    private func refreshLayers(source: some CorridorLayersSource) async {
         if let f = focusedStop, f >= pinCount { focusedStop = nil; dropped = nil }
         guard !layers.isEmpty else { layerPOIs = []; layerState = .idle; return }
         guard let route = plan?.best, layerState != .loading else { return }
@@ -310,7 +338,8 @@ final class TripPlanModel {
             let isCharger = kinds.contains("dcfc") || kinds.contains("l2")
             let isPreferred = p.networkSlug.map { preferredSlugs.contains($0) } ?? false
             if preferredOnly, isCharger, !kinds.contains("hotels"), !kinds.contains("camp"), !isPreferred { return nil }
-            let kind = kinds.contains("camp") ? "camp" : kinds.contains("hotels") ? "hotel" : "dcfc"
+            // A Level 2 station that is not DC is a Medium pin; a hotel or campground keeps its own.
+            let kind = kinds.contains("camp") ? "camp" : kinds.contains("hotels") ? "hotel" : kinds.contains("dcfc") ? "dcfc" : "l2"
             return AlongCharger(lat: p.lat, lon: p.lon, name: p.name, isDCFC: p.isDCFC, maxPowerKW: p.maxPowerKW, evNetwork: p.evNetwork,
                                 kind: kind, preferred: isPreferred, offKm: p.offKm, networkName: p.networkName)
         }

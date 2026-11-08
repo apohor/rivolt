@@ -604,8 +604,10 @@ struct RouteMapView: UIViewRepresentable {
             do {
                 let small = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-along", source: sources["along"]!)
                 // A charger is the amber pin; a hotel violet, a campground green; one of a preferred network is larger with an accent ring.
+                // (a Medium, Level 2, charger is lime, as on the web)
                 let hotel = UIColor(red: 0.65, green: 0.55, blue: 0.98, alpha: 1), camp = UIColor(red: 0.13, green: 0.77, blue: 0.37, alpha: 1)
-                small.circleColor = NSExpression(format: "TERNARY(k == 1, %@, TERNARY(k == 2, %@, %@))", hotel, camp, UIColor(Theme.chargePin))
+                let medium = UIColor(red: 0.64, green: 0.90, blue: 0.21, alpha: 1)
+                small.circleColor = NSExpression(format: "TERNARY(k == 1, %@, TERNARY(k == 2, %@, TERNARY(k == 3, %@, %@)))", hotel, camp, medium, UIColor(Theme.chargePin))
                 small.circleOpacity = NSExpression(forConstantValue: 0.85)
                 small.circleRadius = NSExpression(format: "TERNARY(p == 1, 8, 5)")
                 small.circleStrokeColor = NSExpression(format: "TERNARY(p == 1, %@, %@)", UIColor(Theme.accent), UIColor(Theme.chargePinInk))
