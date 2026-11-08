@@ -30,11 +30,17 @@ const (
 	stopMatchM = 200.0
 )
 
-// climbBudget bounds the DEM reads for one plan response: a leg not read in time simply has no figures.
+// climbBudget bounds the DEM reads for one plan response (all days of a multi-day plan together): a leg not read in time simply has no figures.
 const climbBudget = 2500 * time.Millisecond
 
+// withClimbBudget is the one deadline for the climb work of a response.
+func withClimbBudget(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, climbBudget)
+}
+
 // addLegClimb fills ClimbM and DescentM of each leg of adj from the DEM along the plan's first route (the one adj describes). It does
-// nothing without an adjustment, a DEM on the request, or a road line, and never fails the plan.
+// nothing without an adjustment, a DEM on the request, or a road line, and never fails the plan. It has no deadline of its own: the caller
+// puts ONE on ctx for the whole response (withClimbBudget), so a multi-day plan shares a single budget across its days.
 func addLegClimb(ctx context.Context, adj *tripWeatherAdjustmentDTO, plan *rivian.TripPlan) {
 	el, _ := ctx.Value(planElevationKey{}).(ElevationBlocking)
 	if adj == nil || el == nil || plan == nil || len(plan.Routes) == 0 {
@@ -42,9 +48,7 @@ func addLegClimb(ctx context.Context, adj *tripWeatherAdjustmentDTO, plan *rivia
 	}
 	defer observePlanStage(ctx, "climb", time.Now())
 	r := plan.Routes[0]
-	cctx, cancel := context.WithTimeout(ctx, climbBudget)
-	defer cancel()
-	got := routeLegClimb(cctx, el, r.Geometry, r.GeometryPrecision, r.Waypoints)
+	got := routeLegClimb(ctx, el, r.Geometry, r.GeometryPrecision, r.Waypoints)
 	if len(got) != len(adj.Legs) {
 		return
 	}

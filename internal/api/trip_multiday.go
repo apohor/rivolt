@@ -373,6 +373,9 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			last := days[len(days)-1].End
 			resp.DestinationTZ = zonelookup.For(last.Latitude, last.Longitude)
 		}
+		// One climb deadline for every day of the response, not one per day.
+		climbCtx, cancelClimb := withClimbBudget(r.Context())
+		defer cancelClimb()
 		for i, d := range out.Days {
 			day := tripPlanMultidayDay{Day: d, EndTZ: zonelookup.For(d.End.Latitude, d.End.Longitude)}
 			if ex, ok := extras[d.Index]; ok {
@@ -390,7 +393,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				vias = append(vias, rivian.ViaPoint{Lat: v.Latitude, Lon: v.Longitude, EntityID: v.EntityID})
 			}
 			day.Day.Plan = withGeometry(r.Context(), rivian.LabelStops(d.Plan, vias, d.Overnight != nil), routeOptsOf(req.RoutePreferences.toRivian()))
-			addLegClimb(r.Context(), day.WeatherAdjustment, day.Day.Plan)
+			addLegClimb(climbCtx, day.WeatherAdjustment, day.Day.Plan)
 			resp.Days = append(resp.Days, day)
 		}
 		if out.FailedDay > 0 {

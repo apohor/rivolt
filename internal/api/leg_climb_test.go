@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/rivian"
@@ -136,5 +137,60 @@ func TestLegDTOCarriesAirAndApparentTemperature(t *testing.T) {
 	}
 	if leg := legDTO(1, nil); leg.TempC != nil || leg.AirTempC != nil || leg.Snow {
 		t.Errorf("nil snapshot: %+v", leg)
+	}
+}
+
+// slowDEM takes d per read and gives up when the context ends.
+type slowDEM struct {
+	d time.Duration
+	h func(lat float64) float64
+}
+
+func (s slowDEM) LookupBlocking(ctx context.Context, lat, _ float64) (float64, bool) {
+	select {
+	case <-ctx.Done():
+		return 0, false
+	case <-time.After(s.d):
+		return s.h(lat), true
+	}
+}
+
+// Several days sharing one deadline finish within it: the days after the budget has run out get no figures, and the whole climb step never
+// takes longer than the budget (plus a little), however many days there are.
+func TestClimbBudgetIsSharedAcrossDays(t *testing.T) {
+	line := lineNorth(30.0, 30.4) // 45 km: 180 samples per leg at 25 ms each is far over the budget
+	plan := &rivian.TripPlan{Routes: []rivian.TripRoute{{
+		Waypoints: []rivian.PlannedWaypoint{wp(30.0), wp(30.4)}, Geometry: maps.EncodePolyline6(line), GeometryPrecision: 6,
+	}}}
+	dem := slowDEM{d: 25 * time.Millisecond, h: func(lat float64) float64 { return 100 + 1000*(lat-30.0) }}
+	ctx := withPlanElevation(context.Background(), dem)
+	budget := 400 * time.Millisecond
+	bctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	start := time.Now()
+	var adjs []*tripWeatherAdjustmentDTO
+	for day := 0; day < 7; day++ {
+		adj := &tripWeatherAdjustmentDTO{Legs: make([]tripWeatherAdjLegDTO, 1)}
+		addLegClimb(bctx, adj, plan)
+		adjs = append(adjs, adj)
+	}
+	if took := time.Since(start); took > budget+300*time.Millisecond {
+		t.Errorf("seven days took %v, want about the one budget of %v", took, budget)
+	}
+	for i, a := range adjs {
+		if a.Legs[0].ClimbM != nil {
+			t.Errorf("day %d got figures although its heights cannot be read in the budget", i)
+		}
+	}
+	// With a fast DEM all seven days fit in the same single budget.
+	fast := withPlanElevation(context.Background(), slowDEM{d: 0, h: dem.h})
+	fctx, cancel2 := context.WithTimeout(fast, budget)
+	defer cancel2()
+	for day := 0; day < 7; day++ {
+		adj := &tripWeatherAdjustmentDTO{Legs: make([]tripWeatherAdjLegDTO, 1)}
+		addLegClimb(fctx, adj, plan)
+		if adj.Legs[0].ClimbM == nil {
+			t.Errorf("day %d: no figures with a fast DEM", day)
+		}
 	}
 }

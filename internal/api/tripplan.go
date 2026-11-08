@@ -289,7 +289,9 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			vehicleID: req.VehicleID, packKWh: req.PackKWh, noWeather: farFuture}
 		enr.load(r.Context())
 		resp.WeatherAdjustment, resp.Costs = enr.enrich(r.Context(), plan, in.StartingSoC, in.TargetArrivalSocPercent)
-		addLegClimb(r.Context(), resp.WeatherAdjustment, resp.TripPlan)
+		cctx, cancelClimb := withClimbBudget(r.Context())
+		addLegClimb(cctx, resp.WeatherAdjustment, resp.TripPlan)
+		cancelClimb()
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
