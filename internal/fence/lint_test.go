@@ -31,16 +31,12 @@ const enforcementComplete = true
 // deferredToM4 holds owner writes that M2 deliberately leaves unguarded and M4 must guard: they are
 // not notOwnerSide (from M4 on only the owner makes them) and do not block enforcementComplete.
 // m4Complete closes it as enforcementComplete closes notYetGuarded.
-const m4Complete = false
+const m4Complete = true
 
-var deferredToM4 = map[string]string{
-	// needs_reauth (DA, Oct 30): through M2–M3 non-owners still call Rivian and can see a genuine
-	// 401, so an epoch guard would block a true raise. The version guard (#1230) holds until then;
-	// the epoch joins it on the design's M4 checklist, once only the owner calls Rivian.
-	"db.RaiseNeedsReauth":          "non-owners still call Rivian until M4; version-conditional (#1230) until then",
-	"db.RaiseNeedsReauthIfCurrent": "non-owners still call Rivian until M4; version-conditional (#1230) until then",
-	"db.SetNeedsReauth":            "non-owners still call Rivian until M4; version-conditional (#1230) until then",
-}
+// deferredToM4 is empty: the needs_reauth raises (db.RaiseNeedsReauth, db.RaiseNeedsReauthIfCurrent) carry the group's epoch (fence.Exec,
+// fence.BeginBounded) and the session version (RaiseNeedsReauthIfCurrent), and are owner-only once RIVOLT_SINGLE_OWNER is on. The clear
+// (db.SetNeedsReauth, which no longer raises) is a user or operator action: see notOwnerSide.
+var deferredToM4 = map[string]string{}
 
 // The guard is context-based (a fence token in ctx), so a function that owners and non-owners both
 // call is guarded for the owner's calls and unguarded for the rest: it belongs in notYetGuarded
@@ -110,6 +106,7 @@ var notOwnerSide = map[string]string{
 	"leases.Store.AcquireGroups":           "lease protocol (open-session follow, outside the share; #1310)",
 	"packhealth.Store.Upsert":              "only reached from BackfillAll via BackfillVehicle: an idempotent re-derivation from stored charges, no owner write path",
 	"receipts.Store.purge":                 "user action and retention job (DeleteForUser / opt-out purge)",
+	"db.SetNeedsReauth":                    "clears the flag only (it refuses a raise): the sign-in's clear and the admin's, user and operator actions; the raise is the owner's and is guarded by the epoch and the session version (RaiseNeedsReauth, RaiseNeedsReauthIfCurrent)",
 	"secrets.Store.Delete":                 "user action (logout, delete, disconnect)",
 	"secrets.Store.Put":                    "user and admin actions: Rivian sign-in and MFA (api/rivian.go), the admin session refresh, the Apple sign-in token, the demo seed; no owner path persists a session (TestOwnerPackagesDoNotPersistSessions)",
 	"secrets.Store.PutTxVersioned":         "as Put: SaveRivianSession's transaction for a sign-in or sign-out",

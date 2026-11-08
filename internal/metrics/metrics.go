@@ -167,6 +167,9 @@ type Metrics struct {
 	// ReauthRaiseDeferred counts rejections whose needs_reauth raise was held back because
 	// the client did not yet know which stored session it was using (the next sync decides).
 	ReauthRaiseDeferred prometheus.Counter
+	// ReauthRaiseRefused counts needs_reauth raises refused because the pod that saw the rejection does not hold the user's group: reason
+	// not_owner (raises are owner-only and no token) or fenced (it held the group and lost it). Both created at 0. Single-owner M4-3.
+	ReauthRaiseRefused *prometheus.CounterVec
 	// RivianAccountMismatch is, per field ("session", "flag"), how many Rivian accounts loaded
 	// on this pod still disagreed with the database after the last 5-second sync round
 	// corrected them. Zero when the cross-pod sync works; sustained non-zero (alert: 10 min)
@@ -585,6 +588,10 @@ func New() *Metrics {
 			Name: "rivolt_rivian_expiry_notices_total",
 			Help: "Rivian session expiry warnings, by days left and outcome.",
 		}, []string{"days", "outcome"}),
+		ReauthRaiseRefused: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_reauth_raise_refused_total",
+			Help: "needs_reauth raises refused because this pod does not hold the user's group (not_owner) or just lost it (fenced).",
+		}, []string{"reason"}),
 		ReauthRaiseDeferred: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Name: "rivolt_rivian_reauth_raise_deferred_total",
@@ -907,6 +914,7 @@ func New() *Metrics {
 		m.LeaseFenced,
 		m.RivianCallRefused,
 		m.RivianRequestSeconds,
+		m.ReauthRaiseRefused,
 		m.RivianWSReconnects,
 		m.RivianUnpermitted,
 		m.RivianScheduleReadTotal,
@@ -1010,6 +1018,9 @@ func New() *Metrics {
 		if op != "ws_dial" {
 			m.RivianRequestSeconds.WithLabelValues(op) // the child exists at zero observations from boot
 		}
+	}
+	for _, reason := range []string{"not_owner", "fenced"} {
+		m.ReauthRaiseRefused.WithLabelValues(reason).Add(0)
 	}
 	for _, reason := range RivianWSReconnectReasons {
 		m.RivianWSReconnects.WithLabelValues(reason).Add(0)

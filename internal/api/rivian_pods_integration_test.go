@@ -149,7 +149,7 @@ func TestRivianAccountIsConsistentAcrossThreePods(t *testing.T) {
 		if err := secrets.SaveRivianSession(ctx, store, u, rivian.Session{Email: "d@example.invalid", UserSessionToken: "old", AuthenticatedAt: old}); err != nil {
 			t.Fatal(err)
 		}
-		if err := db.SetNeedsReauth(ctx, pool, u, "session expired"); err != nil {
+		if _, err := db.RaiseNeedsReauth(ctx, pool, u, "session expired"); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -98,7 +98,7 @@ func TestDiscoveryPrimesALinkedUserWithNoVehicle(t *testing.T) {
 		t.Fatal(err)
 	}
 	flagged := linked(ctx, t, pool, "disc-flagged")
-	if err := db.SetNeedsReauth(ctx, pool, flagged, "rejected"); err != nil {
+	if _, err := db.RaiseNeedsReauth(ctx, pool, flagged, "rejected"); err != nil {
 		t.Fatal(err)
 	}
 	unlinked, _ := db.EnsureUser(ctx, pool, "disc-unlinked-"+uuid.NewString()[:8])
@@ -204,7 +204,7 @@ func TestDiscoveryNeedsReauth(t *testing.T) {
 				return nil, nil
 			}
 			calls.Add(1)
-			_ = db.SetNeedsReauth(ctx, pool, uid, "credentials rejected") // what the LiveClient's sink does on a user-action error
+			_, _ = db.RaiseNeedsReauth(ctx, pool, uid, "credentials rejected") // what the LiveClient's sink does on a user-action error
 			return nil, &rivian.UpstreamError{Op: "getUserInfo", Class: rivian.ClassUserAction, HTTPStatus: 401}
 		}}
 	job.Tick(ctx)

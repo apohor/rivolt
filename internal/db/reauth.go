@@ -3,11 +3,32 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/fence"
 )
+
+// ErrNotOwner means a needs_reauth raise carried no fence token while raises are owner-only (SetReauthRequiresOwner): the pod that saw the
+// rejection does not hold the user's group, so its answer says nothing the owner has not seen first. (Single-owner M4-3.)
+var ErrNotOwner = errors.New("needs_reauth: only the group's owner raises it")
+
+var reauthRequiresOwner atomic.Bool
+
+// SetReauthRequiresOwner makes a raise without a fence token fail with ErrNotOwner (RIVOLT_SINGLE_OWNER; called once at boot). Off, a raise without
+// a token is unguarded, as before; a raise WITH a token is always guarded by the epoch.
+func SetReauthRequiresOwner(on bool) { reauthRequiresOwner.Store(on) }
+
+func requireOwnerToken(ctx context.Context) error {
+	if _, guarded := fence.From(ctx); !guarded && reauthRequiresOwner.Load() {
+		return ErrNotOwner
+	}
+	return nil
+}
 
 // SetNeedsReauth persists the per-user re-auth gate to Postgres.
 //
@@ -20,22 +41,17 @@ import (
 // on the hot path, and a Postgres blip shouldn't mask the
 // original upstream error. Returned errors are for logging only.
 func SetNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason string) error {
-	if reason == "" {
-		const clear = `UPDATE users
-			SET needs_reauth = FALSE,
-			    needs_reauth_reason = NULL,
-			    needs_reauth_at = NULL,
-			    needs_reauth_notified_at = NULL
-			WHERE id = $1`
-		_, err := d.ExecContext(ctx, clear, userID)
-		return err
+	if reason != "" {
+		// Raising is the owner's and goes through RaiseNeedsReauth or RaiseNeedsReauthIfCurrent (epoch and version). This function only clears.
+		return errors.New("SetNeedsReauth only clears the flag (empty reason); raise with RaiseNeedsReauth")
 	}
-	const raise = `UPDATE users
-		SET needs_reauth = TRUE,
-		    needs_reauth_reason = $2,
-		    needs_reauth_at = $3
+	const clear = `UPDATE users
+		SET needs_reauth = FALSE,
+		    needs_reauth_reason = NULL,
+		    needs_reauth_at = NULL,
+		    needs_reauth_notified_at = NULL
 		WHERE id = $1`
-	_, err := d.ExecContext(ctx, raise, userID, reason, time.Now().UTC())
+	_, err := d.ExecContext(ctx, clear, userID)
 	return err
 }
 
@@ -49,6 +65,11 @@ func SetNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason str
 // their original reason, which is fine — the flag, not the text, is
 // load-bearing.
 func RaiseNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason string) (transitioned bool, err error) {
+	// The owner's write: with the group's fence token in ctx it carries the epoch (fence.ErrFenced once the pod no longer holds the group); with
+	// none it is refused while raises are owner-only (ErrNotOwner), else unguarded as before.
+	if err := requireOwnerToken(ctx); err != nil {
+		return false, err
+	}
 	//
 	// needs_reauth_notified_at is stamped on the same rising edge so a
 	// fresh transition reads as "just notified": the sink fires the
@@ -62,12 +83,11 @@ func RaiseNeedsReauth(ctx context.Context, d *sql.DB, userID uuid.UUID, reason s
 		    needs_reauth_reason = $2,
 		    needs_reauth_at = $3,
 		    needs_reauth_notified_at = $3
-		WHERE id = $1 AND needs_reauth = FALSE`
-	res, err := d.ExecContext(ctx, q, userID, reason, time.Now().UTC())
+		WHERE id = $1 AND needs_reauth = FALSE AND ` + fence.OK
+	n, err := fence.Exec(ctx, d, q, userID, reason, time.Now().UTC())
 	if err != nil {
 		return false, err
 	}
-	n, _ := res.RowsAffected()
 	return n > 0, nil
 }
 
@@ -89,6 +109,9 @@ func RaiseNeedsReauthIfCurrent(ctx context.Context, d *sql.DB, userID uuid.UUID,
 	if loaded.IsZero() {
 		return false, nil
 	}
+	if err := requireOwnerToken(ctx); err != nil {
+		return false, err
+	}
 	// The user's row is locked FIRST, in its own statement, and the guarded UPDATE runs after the lock is granted. A sign-in or a sign-out
 	// writes the session row and then the user's row (users.rivian_signed_in_at) in one transaction, holding the user's row until it commits.
 	// With one statement, `UPDATE users ... WHERE EXISTS(session version = loaded)` takes its snapshot when it starts: during that
@@ -97,7 +120,18 @@ func RaiseNeedsReauthIfCurrent(ctx context.Context, d *sql.DB, userID uuid.UUID,
 	// flag a user who has just signed in again. In READ COMMITTED each statement takes a fresh snapshot: the UPDATE below starts after the lock
 	// wait, so its EXISTS sees whatever the sign-in committed. (Waiting on the sign-in is milliseconds, and takes the one pooled connection the
 	// single statement took.) The sessions table is only read, never locked, so there is no lock cycle with the sign-in.
-	tx, err := d.BeginTx(ctx, nil)
+	// With the owner's token the transaction is bounded (fence.BeginBounded: 2 s, statement and idle timeouts) and the UPDATE carries the lease check
+	// in its own statement, so a pod that lost the group between the lock and the write is refused (fence.ErrFenced), not just late.
+	var tx *sql.Tx
+	if _, guarded := fence.From(ctx); guarded {
+		var cancel context.CancelFunc
+		tx, ctx, cancel, err = fence.BeginBounded(ctx, d)
+		if err == nil {
+			defer cancel()
+		}
+	} else {
+		tx, err = d.BeginTx(ctx, nil)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -114,15 +148,14 @@ func RaiseNeedsReauthIfCurrent(ctx context.Context, d *sql.DB, userID uuid.UUID,
 		    needs_reauth_reason = $2,
 		    needs_reauth_at = $3,
 		    needs_reauth_notified_at = $3
-		WHERE id = $1 AND needs_reauth = FALSE
+		WHERE id = $1 AND needs_reauth = FALSE AND ` + fence.OK + `
 		  AND EXISTS (
 		    SELECT 1 FROM user_secrets us
 		    WHERE us.user_id = $1 AND us.name = 'rivian.session' AND us.updated_at = $4)`
-	res, err := tx.ExecContext(ctx, q, userID, reason, time.Now().UTC(), loaded.UTC())
+	n, err := fence.Exec(ctx, tx, q, userID, reason, time.Now().UTC(), loaded.UTC())
 	if err != nil {
 		return false, err
 	}
-	n, _ := res.RowsAffected()
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
