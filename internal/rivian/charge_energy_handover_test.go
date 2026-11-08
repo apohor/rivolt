@@ -134,3 +134,20 @@ func TestFlooredChargeIsMarkedAndCountedOnce(t *testing.T) {
 		t.Errorf("a healthy charge: estimated %v, counted %d", row.EnergyEstimated, obs.n)
 	}
 }
+
+// The energy of a resumed charge is the Rivian session's total when there is one, and that total restarts at a plug-in. This
+// pins the semantics resumeOpenCharge relies on: it must only resume a charge of the SAME plug-in (a restart or handoff, see
+// TestResumeOpenChargeOnlyAcrossARestartGap), because across a re-plug the row's earlier energy is replaced, not added to.
+func TestSessionTotalReplacesAResumedRowsEnergy(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	t0 := time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC)
+	c := &liveCharge{id: "live_v_c_1", startedAt: t0, endAt: t0.Add(12 * time.Hour), startSoC: 40, endSoC: 80, maxPower: 7,
+		energyIntKWh: 30, finalState: "charging_active"}
+	m.mu.Lock()
+	m.lastSession["v"] = &LiveSession{Active: true, PowerKW: 7, TotalChargedEnergyKWh: 20, StartTime: t0.Add(8 * time.Hour).Format(time.RFC3339Nano)}
+	m.lastSessionFor["v"] = c.id
+	m.mu.Unlock()
+	if got := m.liveChargeRow("v", c).EnergyAddedKWh; got != 20 {
+		t.Errorf("energy = %.1f, want the session total (20): the total replaces the integral", got)
+	}
+}
