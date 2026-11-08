@@ -5,6 +5,8 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/apohor/rivolt/internal/charges"
 )
 
 // A charge's energy survives a handover. When a vehicle's lease moves to another pod, the new pod rebuilds the charge from
@@ -135,19 +137,98 @@ func TestFlooredChargeIsMarkedAndCountedOnce(t *testing.T) {
 	}
 }
 
-// The energy of a resumed charge is the Rivian session's total when there is one, and that total restarts at a plug-in. This
-// pins the semantics resumeOpenCharge relies on: it must only resume a charge of the SAME plug-in (a restart or handoff, see
-// TestResumeOpenChargeOnlyAcrossARestartGap), because across a re-plug the row's earlier energy is replaced, not added to.
-func TestSessionTotalReplacesAResumedRowsEnergy(t *testing.T) {
-	m := NewStateMonitor(nil, nil)
+// A resumed charge's energy when Rivian's session total is available. The total counts per plug-in and restarts at a re-plug, so
+// it must not replace what the stored row already holds: a re-plug inside the resume window adds to it, a restart or handoff of
+// the same plug-in does not double count it, a lower reading never reduces it, and a second restart neither drops nor repeats the
+// first part.
+func TestResumedChargeEnergyAcrossPlugIns(t *testing.T) {
 	t0 := time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC)
-	c := &liveCharge{id: "live_v_c_1", startedAt: t0, endAt: t0.Add(12 * time.Hour), startSoC: 40, endSoC: 80, maxPower: 7,
-		energyIntKWh: 30, finalState: "charging_active"}
-	m.mu.Lock()
-	m.lastSession["v"] = &LiveSession{Active: true, PowerKW: 7, TotalChargedEnergyKWh: 20, StartTime: t0.Add(8 * time.Hour).Format(time.RFC3339Nano)}
-	m.lastSessionFor["v"] = c.id
-	m.mu.Unlock()
-	if got := m.liveChargeRow("v", c).EnergyAddedKWh; got != 20 {
-		t.Errorf("energy = %.1f, want the session total (20): the total replaces the integral", got)
+	lastWrite := t0.Add(5 * time.Hour)
+	row := func(kwh float64) *charges.Charge {
+		return &charges.Charge{ID: "live_v_c_1", VehicleID: "v", StartedAt: t0, EndedAt: lastWrite, StartSoCPct: 40, EndSoCPct: 70,
+			EnergyAddedKWh: kwh, MaxPowerKW: 7, FinalState: "charging_active", Source: "live"}
+	}
+	sess := func(start time.Time, total float64) *LiveSession {
+		st := ""
+		if !start.IsZero() {
+			st = start.Format(time.RFC3339Nano)
+		}
+		return &LiveSession{Active: true, PowerKW: 7, TotalChargedEnergyKWh: total, StartTime: st}
+	}
+	energy := func(m *StateMonitor, c *liveCharge, s *LiveSession) float64 {
+		m.mu.Lock()
+		m.lastSession["v"], m.lastSessionFor["v"] = s, c.id
+		m.mu.Unlock()
+		return m.liveChargeRow("v", c).EnergyAddedKWh
+	}
+	resume := func(kwh float64) (*StateMonitor, *liveCharge) {
+		c := liveChargeFromRow(row(kwh))
+		c.endAt, c.endSoC = lastWrite.Add(6*time.Hour), 80 // long enough that the physical energy ceiling does not bind
+		return NewStateMonitor(nil, nil), c
+	}
+
+	// A re-plug inside the resume window: the new plug-in's total (20) is added to the stored 30.
+	m, c := resume(30)
+	if got := energy(m, c, sess(lastWrite.Add(10*time.Minute), 20)); got != 50 {
+		t.Errorf("re-plug inside the window: %.1f kWh, want 30 + 20 = 50", got)
+	}
+	if got := energy(m, c, sess(lastWrite.Add(10*time.Minute), 26)); got != 56 {
+		t.Errorf("the same new plug-in later: %.1f kWh, want 30 + 26 = 56", got)
+	}
+
+	// A restart of the same plug-in: the session began before the last write and its total already holds the stored 30.
+	m, c = resume(30)
+	if got := energy(m, c, sess(t0, 31)); got != 31 {
+		t.Errorf("same-session restart: %.1f kWh, want the session's 31 (no double count)", got)
+	}
+	if got := energy(m, c, sess(t0, 35)); got != 35 {
+		t.Errorf("the same session later: %.1f kWh, want 35", got)
+	}
+
+	// A lower reading never reduces the stored energy (same session, noise).
+	m, c = resume(30)
+	if got := energy(m, c, sess(t0, 29.5)); got < 30 {
+		t.Errorf("a lower reading reduced the energy to %.1f kWh, want at least the stored 30", got)
+	}
+	// Unknown start and a total well below the stored energy is a reset: added.
+	m, c = resume(30)
+	if got := energy(m, c, sess(time.Time{}, 12)); got != 42 {
+		t.Errorf("unknown start, lower total: %.1f kWh, want 30 + 12 = 42", got)
+	}
+	// Unknown start and a total at or above the stored energy is the same session.
+	m, c = resume(30)
+	if got := energy(m, c, sess(time.Time{}, 33)); got != 33 {
+		t.Errorf("unknown start, higher total: %.1f kWh, want 33", got)
+	}
+
+	// A second restart of a row that already holds an earlier plug-in's energy (stored 50 = 30 + 20): the session total is 26, so the
+	// row's energy beyond it (24) is carried; neither the first part is dropped nor is the session counted twice.
+	m, c = resume(50)
+	if got := energy(m, c, sess(t0.Add(5*time.Hour+10*time.Minute).Add(-time.Hour), 26)); got != 50 {
+		t.Errorf("second restart: %.1f kWh, want the stored 50 kept", got)
+	}
+	if got := energy(m, c, sess(t0.Add(5*time.Hour+10*time.Minute).Add(-time.Hour), 31)); got != 55 {
+		t.Errorf("second restart, session later: %.1f kWh, want 50 + 5 = 55", got)
+	}
+
+	// A fresh charge (not resumed) keeps today's rule: the total is the energy.
+	fresh := &liveCharge{id: "live_v_c_9", startedAt: t0, endAt: t0.Add(4 * time.Hour), startSoC: 40, endSoC: 50, maxPower: 7, finalState: "charging_active"}
+	if got := energy(NewStateMonitor(nil, nil), fresh, sess(t0, 20)); got != 20 {
+		t.Errorf("a charge that was not resumed: %.1f kWh, want the session total 20", got)
+	}
+}
+
+// A handoff keeps a resumed charge's energy baseline: without it the peer would drop back to "the session total is the energy".
+func TestChargeSnapshotCarriesTheResumeBaseline(t *testing.T) {
+	t0 := time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC)
+	s := &liveSessions{charge: &liveCharge{id: "c", startedAt: t0, endAt: t0.Add(time.Hour), baselineKWh: 30, baselineAt: t0.Add(time.Hour), sessionBase: 30, sessionBaseSet: true}}
+	got := liveSessionsFromSnapshot(s.snapshot()).charge
+	if got.baselineKWh != 30 || !got.baselineAt.Equal(t0.Add(time.Hour)) || got.sessionBase != 30 || !got.sessionBaseSet {
+		t.Errorf("baseline %.1f at %v, session base %.1f set %v after a round trip", got.baselineKWh, got.baselineAt, got.sessionBase, got.sessionBaseSet)
+	}
+	old := s.snapshot()
+	old.Charge.BaselineKWh, old.Charge.SessionBaseSet = 0, false // a snapshot an older pod wrote
+	if got := liveSessionsFromSnapshot(old).charge; got.baselineKWh != 0 || got.sessionBaseSet {
+		t.Errorf("an older snapshot loaded as a resumed charge")
 	}
 }

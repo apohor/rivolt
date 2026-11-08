@@ -296,6 +296,14 @@ type liveCharge struct {
 	gapSeconds     float64
 	clampedSeconds float64
 	resumes        int
+	// baselineKWh and baselineAt are the stored row's energy and last write when this charge was resumed from it (0 and zero
+	// otherwise); sessionBase is the energy of earlier plug-ins that Rivian's per-plug-in session total does not carry,
+	// decided once (sessionBaseSet) at the first build that sees the session. Energy from a session total is
+	// sessionBase + total, never below baselineKWh (see resumedEnergy).
+	baselineKWh    float64
+	baselineAt     time.Time
+	sessionBase    float64
+	sessionBaseSet bool
 
 	// floorNoted is set once the energy floor's counter and log have been written for this charge.
 	floorNoted atomic.Bool
@@ -1961,6 +1969,9 @@ func (m *StateMonitor) buildChargeRow(vehicleID string, c *liveCharge, peer bool
 		if maxPower > 0 && !sessionPredatesCharge(liveSess, c) {
 			if liveSess.TotalChargedEnergyKWh > energy {
 				energy = liveSess.TotalChargedEnergyKWh
+				if c.baselineKWh > 0 {
+					energy = m.resumedEnergy(vehicleID, c, liveSess)
+				}
 			}
 			if liveSess.RangeAddedKm > 0 {
 				milesAdded = liveSess.RangeAddedKm * kmToMi
@@ -2437,6 +2448,8 @@ func liveChargeFromRow(row *charges.Charge) *liveCharge {
 		lastMeaningfulAt: row.EndedAt,
 		lastProgressAt:   row.EndedAt,
 		resumes:          1,
+		baselineKWh:      row.EnergyAddedKWh,
+		baselineAt:       row.EndedAt,
 	}
 	// The row's last frame anchors the integral, so the stretch between it and the first frame after the resume
 	// (a restart, a handoff) is a gap like any other, credited from the SoC gained across it.
@@ -2444,6 +2457,41 @@ func liveChargeFromRow(row *charges.Charge) *liveCharge {
 		c.lastPowerAt, c.lastPowerKW, c.lastPowerSoC = row.EndedAt, row.AvgPowerKW, row.EndSoCPct
 	}
 	return c
+}
+
+// resumedEnergy is the energy of a resumed charge when Rivian's session total is available. The total counts per plug-in and
+// restarts at a re-plug, so on its own it would replace what the stored row already holds. The first build that sees the
+// session decides what the total does not carry (sessionBase):
+//   - the session started after the row's last write (a new plug-in, a re-plug inside the resume window): all the row's
+//     stored energy, baseline + total;
+//   - it started before (the same plug-in: a restart or a handoff): only what the total does not explain, which is nothing
+//     for a plain single-plug-in row and the earlier plug-ins' energy when a row already holds some, so a second restart
+//     neither double counts nor drops the first part;
+//   - the start is unknown: a total below the stored energy is a reset and is added.
+//
+// The energy never goes below what the row stored when it was resumed, and one log line (no ids beyond the vehicle) notes a reset.
+func (m *StateMonitor) resumedEnergy(vehicleID string, c *liveCharge, sess *LiveSession) float64 {
+	total := sess.TotalChargedEnergyKWh
+	if !c.sessionBaseSet {
+		c.sessionBaseSet = true
+		start, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(sess.StartTime))
+		noise := math.Max(1, 0.05*c.baselineKWh)
+		switch {
+		case err == nil && start.After(c.baselineAt):
+			c.sessionBase = c.baselineKWh
+		case err == nil:
+			if c.baselineKWh-total > noise {
+				c.sessionBase = c.baselineKWh - total
+			}
+		case total < c.baselineKWh-noise:
+			c.sessionBase = c.baselineKWh
+		}
+		if c.sessionBase > 0 && m.logger != nil {
+			m.logger.Info("resumed charge: the session total restarts at a plug-in, so the stored energy is added",
+				"vehicle", vehicleID, "baseline_kwh", c.baselineKWh, "session_total_kwh", total, "added_kwh", c.sessionBase)
+		}
+	}
+	return math.Max(c.sessionBase+total, c.baselineKWh)
 }
 
 // closeStaleOpenCharges marks every live charge row for the vehicle
