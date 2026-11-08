@@ -256,17 +256,21 @@ func FieldSupport(model string) map[string]string {
 // vehicleStoredInfo is what only Rivian's vehicle list and image service carry, kept in vehicles.metadata under "vehicle_info" so any pod
 // can serve /api/vehicles from Postgres without a Rivian call (single-owner M3-5a).
 type vehicleStoredInfo struct {
+	// V is the format version; always 1 when anything is stored.
+	V        int            `json:"v"`
 	TrimName string         `json:"trim_name,omitempty"`
 	Make     string         `json:"make,omitempty"`
 	Images   []VehicleImage `json:"images,omitempty"`
+	// Synced is true only when the owner's RefreshVehicleInfo stored this, with the image service answered (so an empty gallery is a real
+	// answer). A list taken at sign-in has no gallery and never sets it, and a merge never clears it. /api/vehicles serves from Postgres
+	// only for vehicles marked synced, so a row that is not (an older row, a failed refresh, a replay or demo vehicle) keeps the old path and
+	// its exact body.
+	Synced bool `json:"synced,omitempty"`
 }
 
-// StoredInfo is the JSON to store for v (nil when there is nothing beyond the columns).
+// StoredInfo is the JSON to store for v: trim name, make, gallery and, when the owner's refresh produced v, the synced marker.
 func (v Vehicle) StoredInfo() json.RawMessage {
-	si := vehicleStoredInfo{TrimName: v.TrimName, Make: v.Make, Images: v.Images}
-	if si.TrimName == "" && si.Make == "" && len(si.Images) == 0 {
-		return nil
-	}
+	si := vehicleStoredInfo{V: 1, TrimName: v.TrimName, Make: v.Make, Images: v.Images, Synced: v.InfoSynced}
 	b, err := json.Marshal(si)
 	if err != nil {
 		return nil
@@ -284,4 +288,13 @@ func (v *Vehicle) ApplyStoredInfo(raw json.RawMessage) {
 		return
 	}
 	v.TrimName, v.Make, v.Images = si.TrimName, si.Make, si.Images
+}
+
+// StoredInfoSynced reports whether stored vehicle_info JSON carries the synced marker (see vehicleStoredInfo).
+func StoredInfoSynced(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var si vehicleStoredInfo
+	return json.Unmarshal(raw, &si) == nil && si.Synced
 }

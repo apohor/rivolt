@@ -3972,7 +3972,9 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 	// all of them for the gallery and pick one hero for the header.
 	imagesByVehicle := map[string][]VehicleImage{}
 	heroByVehicle := map[string]string{}
+	imagesOK := false
 	if images, ierr := m.client.VehicleImages(ctx); ierr == nil {
+		imagesOK = true
 		for _, img := range images {
 			if img.VehicleID == "" || img.URL == "" {
 				continue
@@ -3995,6 +3997,7 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 		if list, ok := imagesByVehicle[v.ID]; ok {
 			v.Images = list
 		}
+		v.InfoSynced = imagesOK
 		m.vehicleInfo[v.ID] = &v
 		refreshed = append(refreshed, v)
 	}
