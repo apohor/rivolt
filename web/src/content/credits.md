@@ -2,7 +2,7 @@
 
 **Weather.** Weather data by [Open-Meteo.com](https://open-meteo.com/), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). It is shown in the trip planner, on a drive's weather chart and as the outside temperature, and we may have changed it (rounded places, converted units, derived values such as headwind).
 
-Open-Meteo's forecasts are built from national weather services' models, including NOAA's GFS and RRFS (US government works) and Environment and Climate Change Canada's GEM (contains information licensed under the [Open Government Licence – Canada](https://open.canada.ca/en/open-government-licence-canada)). Data processed by Open-Meteo.com. Rivolt is not endorsed by Open-Meteo, NOAA or Environment and Climate Change Canada.
+Open-Meteo's forecasts are built from national weather services' models, including NOAA's RRFS (a US government work) and Environment and Climate Change Canada's GEM global and regional models (contains information licensed under the [Open Government Licence – Canada](https://open.canada.ca/en/open-government-licence-canada)). Data processed by Open-Meteo.com. Rivolt is not endorsed by Open-Meteo, NOAA or Environment and Climate Change Canada.
 
 **Maps and places.** Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, available under the Open Database Licence.
 
