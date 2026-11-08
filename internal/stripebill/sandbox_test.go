@@ -65,6 +65,15 @@ func TestVoidOpenInvoicesAgainstTheStripeSandbox(t *testing.T) {
 	limit := VoidCap{Cents: p.UnitAmount, Currency: p.Currency}
 	t.Logf("cap = %d %s", limit.Cents, limit.Currency)
 
+	// The account's default API version (what a request without a Stripe-Version gets) is in the response header; the open-invoice list pins
+	// invoiceListVersion instead, because from basil on invoice.payment_intent is gone.
+	if req, err := http.NewRequestWithContext(ctx, "GET", DefaultAPIBase+"/v1/customers?limit=1", nil); err == nil {
+		req.Header.Set("Authorization", "Bearer "+key)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			t.Logf("account default Stripe-Version = %s; the open-invoice list pins %s", resp.Header.Get("Stripe-Version"), invoiceListVersion)
+			resp.Body.Close()
+		}
+	}
 	// Every helper takes the t of the (sub)test that uses it, so a failure stops that subtest and its cleanups run.
 	call := func(t *testing.T, method, path string, form url.Values) map[string]any {
 		t.Helper()

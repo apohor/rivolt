@@ -39,6 +39,7 @@ type fakeStripe struct {
 	invoiceSubtotal  map[string]int64 // customer -> subtotal (cents) of each open invoice; default 3499
 	invoiceCurrency  map[string]string
 	invoicePI        map[string]string // customer -> payment_intent status
+	invoiceListVers  []string          // Stripe-Version of each GET /v1/invoices
 	voidRefuse       bool              // POST void answers 400 and the invoice reads as void
 	voidedInvoices   map[string]bool
 	voidPosts        []string
@@ -122,6 +123,7 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": end < len(all)})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/invoices":
 			cust := r.URL.Query().Get("customer")
+			f.invoiceListVers = append(f.invoiceListVers, r.Header.Get("Stripe-Version"))
 			if f.gone[cust] {
 				f.missing(w)
 				return
@@ -597,6 +599,12 @@ func TestCloseCustomerVoidsOpenInvoices(t *testing.T) {
 	rep, err := c(f).CloseCustomer(ctx, "cus_v", testCap)
 	if err != nil || len(rep.Voided) != 2 || rep.Voided[0].ID != "in_open_cus_v_0" || rep.Voided[0].AmountCents != 3499 || rep.Voided[0].Currency != "usd" || len(rep.Left) != 0 {
 		t.Fatalf("report %+v, %v; want both open invoices voided with their amounts", rep, err)
+	}
+	// The open-invoice list pins the API version that still carries invoice.payment_intent (basil removed it), whatever the account defaults to.
+	for _, v := range f.invoiceListVers[:1] {
+		if v != invoiceListVersion {
+			t.Errorf("the open-invoice list was sent with Stripe-Version %q, want %q", v, invoiceListVersion)
+		}
 	}
 	if strings.Join(f.deleted, ",") != "sub_v" || strings.Join(f.customersDeleted, ",") != "cus_v" {
 		t.Errorf("cancelled %v, customer deleted %v; want the subscription cancelled and the customer deleted", f.deleted, f.customersDeleted)

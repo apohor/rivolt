@@ -80,6 +80,12 @@ func (c *Client) base() string {
 
 // do sends one request. form is the url-encoded body of a POST (nil for GET); idem, when set, is the Idempotency-Key.
 func (c *Client) do(ctx context.Context, method, path string, form url.Values, idem string, out any) error {
+	return c.doVersion(ctx, "", method, path, form, idem, out)
+}
+
+// doVersion is do with a Stripe-Version pinned for this one request ("" keeps the account's default). The default is whatever the account was
+// created on or upgraded to, so a request whose response shape matters pins it.
+func (c *Client) doVersion(ctx context.Context, version, method, path string, form url.Values, idem string, out any) error {
 	if c == nil || c.SecretKey == "" {
 		return ErrNotConfigured
 	}
@@ -92,6 +98,9 @@ func (c *Client) do(ctx context.Context, method, path string, form url.Values, i
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.SecretKey)
+	if version != "" {
+		req.Header.Set("Stripe-Version", version)
+	}
 	if form != nil {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
@@ -315,6 +324,11 @@ func treatMissing(err error) error {
 	return err
 }
 
+// invoiceListVersion is the Stripe API version the open-invoice list is read with. From 2025-03-31 (basil) invoice.payment_intent is gone (the
+// payments moved to invoice.payments), and without it the in-flight check below would silently stop working, so this one request pins the last
+// version that has it, whatever the account's default is.
+const invoiceListVersion = "2025-02-24.acacia"
+
 // VoidedInvoice is one invoice voided for a deleted account: the audit record (ids and amounts only, nothing that names a person).
 type VoidedInvoice struct {
 	ID          string
@@ -363,7 +377,7 @@ func (c *Client) VoidOpenInvoices(ctx context.Context, customer string, limit Vo
 		} `json:"data"`
 	}
 	path := "/v1/invoices?limit=100&status=open&expand[]=data.payment_intent&customer=" + url.QueryEscape(customer)
-	if err := c.do(ctx, http.MethodGet, path, nil, "", &inv); err != nil {
+	if err := c.doVersion(ctx, invoiceListVersion, http.MethodGet, path, nil, "", &inv); err != nil {
 		return rep, treatMissing(err)
 	}
 	for _, in := range inv.Data {
