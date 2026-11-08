@@ -18,6 +18,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Drive, DriveWeatherSamplePoint, Sample } from "../lib/api";
+import { WeatherCredit } from "./WeatherCredit";
 import {
   buildHeadwindPts,
   buildModeSegments,
@@ -217,6 +218,8 @@ export function DriveTimeline({
         isZoomed={isZoomed}
         sampleXs={speedPts}
       />
+
+      {weatherPts.length > 0 ? <WeatherCredit className="text-[11px] text-neutral-500" /> : null}
 
       {distinctModes.size > 1 ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-500">
