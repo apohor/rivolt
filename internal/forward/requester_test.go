@@ -405,3 +405,13 @@ func TestNewForwarderValidates(t *testing.T) {
 		}
 	}
 }
+
+// A call a handler serves on this pod because it cannot tell the vehicle's group is counted as no_group, so the local share sees it.
+func TestNoGroupIsCounted(t *testing.T) {
+	f := newFleet(t)
+	fw := f.requester(nil)
+	fw.NoGroup(forward.KindFreshState)
+	if f.out(forward.KindFreshState, "no_group") != 1 || f.out(forward.KindFreshState, "local") != 0 {
+		t.Errorf("no_group=%v local=%v, want 1 and 0", f.out(forward.KindFreshState, "no_group"), f.out(forward.KindFreshState, "local"))
+	}
+}

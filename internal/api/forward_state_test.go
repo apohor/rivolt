@@ -28,10 +28,13 @@ const (
 
 // fakeStateForwarder answers Do with a canned result, or runs local when run is set (this pod holds the group).
 type fakeStateForwarder struct {
-	run   bool
-	res   forward.Result
-	calls []forward.Call
+	run     bool
+	res     forward.Result
+	calls   []forward.Call
+	noGroup []forward.Kind
 }
+
+func (f *fakeStateForwarder) NoGroup(k forward.Kind) { f.noGroup = append(f.noGroup, k) }
 
 func (f *fakeStateForwarder) Do(ctx context.Context, c forward.Call, local func(context.Context) (forward.Result, error)) (forward.Result, string, error) {
 	f.calls = append(f.calls, c)
@@ -94,18 +97,29 @@ func TestForwardedStateHeldRunsLocally(t *testing.T) {
 }
 
 func TestForwardedStateNoRouteKeepsDirectPath(t *testing.T) {
-	for name, sf := range map[string]*stateForward{
-		"nil":      nil,
-		"no group": {fw: &fakeStateForwarder{}, groupOf: func(string) (string, bool) { return "", false }},
-		"no fw":    {groupOf: func(string) (string, bool) { return fwdGroup, true }},
+	fw := &fakeStateForwarder{}
+	for name, tc := range map[string]struct {
+		sf      *stateForward
+		noGroup int
+	}{
+		"nil":      {nil, 0},
+		"no group": {&stateForward{fw: fw, groupOf: func(string) (string, bool) { return "", false }}, 1},
+		"no fw":    {&stateForward{groupOf: func(string) (string, bool) { return fwdGroup, true }}, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
+			fw.noGroup = nil
 			client := &restStateClient{st: rivian.State{VehicleID: fwdVehicle}}
-			if w := stateGet(handleVehicleStateForwarded(client, rivian.NewStateMonitor(nil, nil), nil, sf)); w.Code != 200 {
+			if w := stateGet(handleVehicleStateForwarded(client, rivian.NewStateMonitor(nil, nil), nil, tc.sf)); w.Code != 200 {
 				t.Fatalf("status %d", w.Code)
 			}
 			if client.count() != 1 {
 				t.Errorf("%d Rivian calls, want 1", client.count())
+			}
+			if len(fw.noGroup) != tc.noGroup || (tc.noGroup == 1 && fw.noGroup[0] != forward.KindFreshState) {
+				t.Errorf("no_group counted %v, want %d for fresh_state", fw.noGroup, tc.noGroup)
+			}
+			if len(fw.calls) != 0 {
+				t.Errorf("an unrouted call reached the forwarder")
 			}
 		})
 	}
