@@ -37,7 +37,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/jackc/pgx/v5/stdlib" // database/sql driver registration
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib" // database/sql driver registration
 )
 
 // userNamespace is the fixed UUID namespace used to hash usernames
@@ -543,4 +544,29 @@ func Rebind(query string) string {
 		}
 	}
 	return out.String()
+}
+
+// OpenNoMigrateWith is OpenNoMigrate with session settings sent at connect time (pgx runtime parameters), for the repair CLIs' operator path:
+// every connection of the pool starts with rivolt.operator_action set, whatever the transaction layout of the repair.
+func OpenNoMigrateWith(ctx context.Context, dsn string, settings map[string]string) (*sql.DB, error) {
+	if strings.TrimSpace(dsn) == "" {
+		return nil, fmt.Errorf("DATABASE_URL is empty")
+	}
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse dsn: %w", err)
+	}
+	for k, v := range settings {
+		cfg.RuntimeParams[k] = v
+	}
+	d := stdlib.OpenDB(*cfg)
+	n, _ := SystemPoolSize(os.Getenv)
+	d.SetMaxOpenConns(n)
+	d.SetMaxIdleConns(min(5, n))
+	d.SetConnMaxIdleTime(PoolIdleTimeout)
+	if err := d.PingContext(ctx); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	return d, nil
 }

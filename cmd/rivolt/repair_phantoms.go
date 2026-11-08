@@ -128,7 +128,7 @@ func runRepairPhantoms(args []string) int {
 		return 2
 	}
 	ctx := context.Background()
-	pool, err := db.OpenNoMigrate(ctx, postgresDSN())
+	pool, err := openRepair(ctx, "repair-phantom-charges", *apply, "")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "repair-phantom-charges: postgres:", err)
 		return 1
