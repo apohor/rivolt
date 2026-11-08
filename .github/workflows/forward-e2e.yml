@@ -1,0 +1,69 @@
+# Multi-pod forward e2e (single-owner M3).
+#
+# Two pods run in one process on a real Postgres (leases) and Redis, with the real state handler, forwarder and owner loop, against a fake
+# Rivian gateway on loopback that counts the calls it gets (internal/api/forward_e2e_integration_test.go). Only fake users and tokens are
+# used; nothing here reaches Rivian. The tests carry the e2e_forward build tag, so build.yml's integration job (which does not pass it) never
+# runs them, and no release or image build passes it (cmd/rivolt TestReleaseBuildsDoNotUseTheE2ETag).
+#
+# Runs on PRs that touch the forwarder or the leases (the paths below), nightly on main, and on demand. It is not a required check: the
+# nightly run is what catches a merge that only fails combined. A failure on main opens, or comments on, one open issue titled
+# "forward e2e red on main" (label: ci).
+name: forward e2e
+
+on:
+  schedule:
+    - cron: "40 0 * * *"
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - "internal/forward/**"
+      - "internal/leases/**"
+      - "cmd/rivolt/forward*.go"
+      - "internal/api/forward*.go"
+      - ".github/workflows/forward-e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forward-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  forward-e2e:
+    name: forward-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Pull postgres image
+        run: docker pull postgres:16-alpine
+
+      # The web bundle is embedded by internal/web; a stub is enough for these packages.
+      - name: Stub the web bundle
+        run: mkdir -p internal/web/dist && [ -f internal/web/dist/index.html ] || echo '<!doctype html>' > internal/web/dist/index.html
+
+      - name: go test (forward e2e)
+        run: go test -tags=integration,e2e_forward -count=1 -timeout=10m -run 'ForwardE2E' ./internal/api
+
+      - name: Report a red run on main
+        if: failure() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="forward e2e red on main"
+          n=$(gh issue list --state open --label ci --search "\"$title\" in:title" --json number -q '.[0].number // empty')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "Red again: $RUN"
+          else gh issue create --title "$title" --label ci --body "The nightly multi-pod forward e2e failed: $RUN"; fi
