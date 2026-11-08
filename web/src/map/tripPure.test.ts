@@ -86,6 +86,15 @@ describe("a stop's callout says where the stop came from", () => {
     expect(html).toContain("Your stop. The route passes through it; the planner decides where to charge.");
     expect(html).toContain("Up to 250 kW");
   });
+  it("a stop of the person's with no name of its own is headed Your stop, once", () => {
+    const html = waypointTooltip({ ...w, Name: "", Source: "via" }, 1, 3);
+    expect(html).toContain(">Your stop</div>");
+    expect(html).not.toContain("Charging stop");
+    expect(html).toContain("The route passes through it; the planner decides where to charge.");
+    expect(html).not.toContain("Your stop. ");
+    // A planner stop with no name keeps the old heading.
+    expect(waypointTooltip({ ...w, Name: "", Source: "planner" }, 1, 3)).toContain("Charging stop");
+  });
   it("a planner stop says so, and an older plan with no source says nothing about it", () => {
     expect(waypointTooltip({ ...w, Source: "planner" }, 1, 3)).toContain("Chosen by the planner.");
     const old = waypointTooltip(w, 1, 3);
