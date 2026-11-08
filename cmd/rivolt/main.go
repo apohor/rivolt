@@ -535,7 +535,7 @@ func runServer() {
 		go stripeClosure.RunRetrier(ctx, 5*time.Minute)
 	}
 	// The fallback outcomes of /api/vehicles exist at 0 from boot, so the first one is an increase.
-	for _, outcome := range []string{"stored", "empty", "error", "skipped"} {
+	for _, outcome := range []string{"stored", "empty", "error", "skipped", "unsynced"} {
 		appMetrics.VehiclesFallbackTotal.WithLabelValues(outcome).Add(0)
 	}
 	// The open live charge rows now, by what the vehicle's latest frame says (#1670). Every replica exports the same figures, so the series

@@ -311,8 +311,14 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				writeUpstreamError(w, rivian.ErrNeedsReauth)
 				return
 			}
-			if handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, false) {
+			answered, unsynced := handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, false)
+			if answered {
 				return
+			}
+			if unsynced {
+				// Rows are stored but the owner has not marked them synced: the transition path. Counted so we can see it reach 0 once
+				// every row is marked, and then remove it.
+				fromDB.observe("unsynced")
 			}
 			// A linked account whose vehicles the owner has not synced yet (the sign-in's lookup failed, a row from before the owner stored
 			// the gallery): ask Rivian, below, which fills what it can. At most once per user per few minutes across pods, whatever the
@@ -327,8 +333,10 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 					}
 					// The last lookup found and stored the vehicles: serve those rows (the gallery may be missing until the owner's
 					// refresh marks them synced) instead of asking Rivian again.
-					if prior == "stored" && handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, true) {
-						return
+					if prior == "stored" {
+						if answered, _ := handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, true); answered {
+							return
+						}
 					}
 					w.Header().Set("Retry-After", "300")
 					http.Error(w, "your vehicles could not be read from Rivian just now; trying again in a few minutes", http.StatusServiceUnavailable)
@@ -530,11 +538,11 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 //
 // It reports whether it answered. It does not unless every stored vehicle is marked synced by the owner (see vehicleStoredInfo), including
 // when none is stored yet; the caller then asks Rivian as before.
-func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, onlyVehicle func(context.Context) string, allowUnsynced bool) bool {
+func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, onlyVehicle func(context.Context) string, allowUnsynced bool) (answered, unsynced bool) {
 	userID, ok := auth.UserFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusOK, []rivian.Vehicle{})
-		return true
+		return true, false
 	}
 	rows, err := db.ListUserVehiclesForAPI(r.Context(), sqlDB, userID)
 	if err != nil {
@@ -542,16 +550,16 @@ func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.St
 			logger.Warn("vehicles: read failed", "err", err.Error())
 		}
 		http.Error(w, "could not read your vehicles", http.StatusInternalServerError)
-		return true
+		return true, false
 	}
 	// Served from Postgres only when every vehicle is one the owner has synced (marked in vehicle_info). Otherwise the old path answers: a
 	// body that did not depend on what this pod or the sign-in happened to store.
 	if len(rows) == 0 {
-		return false
+		return false, false
 	}
 	for _, row := range rows {
 		if !allowUnsynced && !rivian.StoredInfoSynced(row.Info) {
-			return false
+			return false, true
 		}
 	}
 	vs := make([]rivian.Vehicle, 0, len(rows))
@@ -605,7 +613,7 @@ func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.St
 		}
 	}
 	writeJSON(w, http.StatusOK, vs)
-	return true
+	return true, false
 }
 
 // liveFieldSupport refines the model's table with what the vehicle is sending
