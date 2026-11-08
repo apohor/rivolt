@@ -54,9 +54,22 @@ for (const v of [
     await settled(page);
     const box = (await map.boundingBox())!;
     // Away from the chips (top left) and the sheet (bottom on a phone).
-    await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.3, { button: "right" });
     const add = page.getByRole("button", { name: "Add as a stop" });
-    await expect(add).toBeVisible();
+    // On a loaded CI WebKit runner the first right click has sometimes opened no callout (#1000; not reproducible locally under load, and the failure
+    // artifact only has the page snapshot). Click again until it does, and record that the first one missed, with a screenshot, so the report counts it.
+    let missed = 0;
+    await expect(async () => {
+      await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.3, { button: "right" });
+      try {
+        await expect(add).toBeVisible({ timeout: 1500 });
+      } catch (e) {
+        if (missed++ === 0) {
+          test.info().annotations.push({ type: "first right click opened no callout", description: `${v.n}, popups in DOM: ${await page.locator(".maplibregl-popup").count()}` });
+          await test.info().attach("first-miss", { body: await page.screenshot(), contentType: "image/png" });
+        }
+        throw e;
+      }
+    }).toPass({ timeout: 10_000 });
     // The button is what is under its own centre, not the chips or the map canvas.
     const c = (await add.boundingBox())!;
     const hit = await page.evaluate(([x, y]) => (document.elementFromPoint(x, y) as HTMLElement | null)?.className ?? "", [c.x + c.width / 2, c.y + c.height / 2]);
