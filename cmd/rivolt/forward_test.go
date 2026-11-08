@@ -19,7 +19,7 @@ import (
 // look like an upstream failure.
 func TestForwardRunnerKinds(t *testing.T) {
 	r := &forwardRunner{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	for _, k := range []forward.Kind{forward.KindPlanLegs, forward.KindOTANotes} {
+	for _, k := range []forward.Kind{forward.KindOTANotes} {
 		res, err := r.Run(context.Background(), k, "11111111-2222-3333-4444-555555555555", "g", nil)
 		if err != nil || res.Status != 501 || res.Class != "not_implemented" {
 			t.Errorf("%s: %+v %v, want 501 not_implemented", k, res, err)
@@ -121,5 +121,35 @@ func TestForwardRunnerFreshStateGroupGuard(t *testing.T) {
 		if tc.status == 404 && res.Class != "not_found" {
 			t.Errorf("%s: class %q, want not_found", tc.name, res.Class)
 		}
+	}
+}
+
+// plan_legs has the same guard: a vehicle outside the named group, or unknown, is 404 before any planner is asked; the right group reaches
+// the planner (this account has none, so the answer is the plan_error envelope for ErrNoPlanner).
+func TestForwardRunnerPlanLegsGroupGuard(t *testing.T) {
+	store, err := leases.NewStore(new(sql.DB), "pod-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetVehicleGroups(map[string]string{"v-fake-1": "grp-1"})
+	r := &forwardRunner{store: store, accounts: oneAcctRegistry{&stateAcct{}}, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	args := func(v string) *forward.PlanLegsArgs { return &forward.PlanLegsArgs{VehicleID: v} }
+	const user = "11111111-2222-3333-4444-555555555555"
+	for _, tc := range []struct {
+		vehicle, group string
+		status         int
+		class          string
+	}{
+		{"v-fake-1", "grp-2", 404, "not_found"},
+		{"v-fake-9", "grp-1", 404, "not_found"},
+		{"v-fake-1", "grp-1", 502, "plan_error"},
+	} {
+		res, err := r.Run(context.Background(), forward.KindPlanLegs, user, tc.group, args(tc.vehicle))
+		if err != nil || res.Status != tc.status || res.Class != tc.class {
+			t.Errorf("%s in %s: %d %q %v, want %d %q", tc.vehicle, tc.group, res.Status, res.Class, err, tc.status, tc.class)
+		}
+	}
+	if res, _ := r.Run(context.Background(), forward.KindPlanLegs, user, "grp-1", "not args"); res.Status != 400 {
+		t.Errorf("wrong args type: %d, want 400", res.Status)
 	}
 }

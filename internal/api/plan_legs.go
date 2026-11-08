@@ -39,6 +39,13 @@ func withLegCache(d Deps, uid uuid.UUID, c rivian.Client) rivian.Client {
 	if !ok {
 		return c
 	}
+	// Single-owner M3-4: a leg that misses the cache and passes the quota is asked of the vehicle's group owner when this pod does not hold
+	// it. Only the live client reaches Rivian; the fixture, synthetic and replay planners stay where they are.
+	if sf := d.stateForward(uid); sf != nil {
+		if lc, isLive := tp.(*rivian.LiveClient); isLive && lc != nil {
+			tp = &forwardPlanner{inner: tp, sf: sf}
+		}
+	}
 	return legCachedClient{Client: c, planner: &countedPlanner{inner: d.PlanLegs.Wrap(&timedPlanner{inner: tp, m: d.Metrics}, uid), m: d.Metrics}}
 }
 

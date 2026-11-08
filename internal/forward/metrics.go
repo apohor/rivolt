@@ -15,9 +15,11 @@ import "github.com/prometheus/client_golang/prometheus"
 //     locally answers unavailable instead);
 //   - no_group: this pod does not know the vehicle's group (not in the lease store's vehicle->group map), so the call ran here with no
 //     forwarding. A fail-soft path like local: a non-owner Rivian call the local-share ratio must see;
+//   - too_big: the owner ran the kind but its answer does not fit the reply cap (MaxReplyBytes less headroom); the requester gets a
+//     reply_too_big error. Counted apart from ok so a failure the user sees is not counted as success;
 //   - error: the owner ran the kind and the runner failed with an error that is not a timeout (a 500 internal reply). "ok" means served,
 //     so the local-share and health arithmetic do not count a failure as success.
-var Outcomes = []string{"ok", "timeout", "moved", "local", "unavailable", "rejected", "error", "local_busy", "held", "no_group"}
+var Outcomes = []string{"ok", "timeout", "moved", "local", "unavailable", "rejected", "error", "local_busy", "held", "no_group", "too_big"}
 
 // MetricKinds are the kind label values.
 func MetricKinds() []string {
@@ -41,7 +43,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
 		Total: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_rivian_forward_total",
-			Help: "Calls that needed Rivian on a pod, by kind and outcome (ok, timeout, moved, local, unavailable, rejected, error, local_busy, held, no_group).",
+			Help: "Calls that needed Rivian on a pod, by kind and outcome (ok, timeout, moved, local, unavailable, rejected, error, local_busy, held, no_group, too_big).",
 		}, []string{"kind", "outcome"}),
 		Seconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "rivolt_rivian_forward_seconds",
