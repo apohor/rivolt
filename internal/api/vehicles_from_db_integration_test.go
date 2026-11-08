@@ -40,8 +40,9 @@ func TestVehiclesAreServedFromPostgresWithoutARivianCall(t *testing.T) {
 	t.Cleanup(func() { _ = pool.Close() })
 	uid := acceptedUser(ctx, t, pool, "veh-from-db")
 	info := rivian.Vehicle{TrimName: "Adventure Package", Make: "Rivian", Images: []rivian.VehicleImage{{VehicleID: "rv-db-1", URL: "https://img.test/a.png", Placement: "side-exterior-3qfront-driver"}}}
+	// Row 1 stores a reported capacity (77.7) that the list must not serve: it serves the spec lookup, as the Rivian list did.
 	for _, v := range []db.VehicleSync{
-		{RivianID: "rv-db-1", VIN: "VIN-DB-1", Name: "Truck", Model: "R1T", ModelYear: 2024, Trim: "PKG-ADV", PackKWh: 131, ImageURL: "https://img.test/a.png", Info: info.StoredInfo()},
+		{RivianID: "rv-db-1", VIN: "VIN-DB-1", Name: "Truck", Model: "R1T", ModelYear: 2024, Trim: "PKG-ADV", PackKWh: 77.7, ImageURL: "https://img.test/a.png", Info: info.StoredInfo()},
 		{RivianID: "rv-db-2", Name: "Second", Model: "R1S", ModelYear: 2023, Trim: "LRG-DM-PRFM", PackKWh: 135},
 	} {
 		if err := db.UpsertVehicleFromSync(ctx, pool, uid, v); err != nil {
@@ -104,11 +105,11 @@ func TestVehiclesAreServedFromPostgresWithoutARivianCall(t *testing.T) {
 		t.Fatalf("%d vehicles, want 2 (the electrafi row is not a vehicle): %s", len(first), firstBody)
 	}
 	a, b := first[0], first[1]
-	if a.ID != "rv-db-1" || a.VIN != "VIN-DB-1" || a.Name != "Truck" || a.Model != "R1T" || a.ModelYear != 2024 || a.TrimID != "PKG-ADV" || a.PackKWh != 131 ||
+	if a.ID != "rv-db-1" || a.VIN != "VIN-DB-1" || a.Name != "Truck" || a.Model != "R1T" || a.ModelYear != 2024 || a.TrimID != "PKG-ADV" || a.PackKWh != rivian.InferPackKWh("R1T", "PKG-ADV", 2024) ||
 		a.TrimName != "Adventure Package" || a.Make != "Rivian" || a.ImageURL != "https://img.test/a.png" || len(a.Images) != 1 || a.Images[0].Placement != "side-exterior-3qfront-driver" {
 		t.Errorf("first vehicle = %+v", a)
 	}
-	if b.ID != "rv-db-2" || b.Model != "R1S" || b.TrimID != "LRG-DM-PRFM" {
+	if b.ID != "rv-db-2" || b.Model != "R1S" || b.TrimID != "LRG-DM-PRFM" || b.PackKWh != rivian.InferPackKWh("R1S", "LRG-DM-PRFM", 2023) {
 		t.Errorf("second vehicle = %+v", b)
 	}
 	if a.FieldSupport["power_state"] == "" {

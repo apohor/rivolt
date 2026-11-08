@@ -504,8 +504,11 @@ func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.St
 	for _, row := range rows {
 		v := rivian.Vehicle{
 			ID: row.RivianVehicleID, VIN: row.VIN, Name: row.DisplayName, Model: row.Model, ModelYear: row.ModelYear,
-			TrimID: row.Trim, PackKWh: row.PackKWh, ImageURL: row.ImageURL,
+			TrimID: row.Trim, ImageURL: row.ImageURL,
 		}
+		// The list's pack size is the spec lookup for the model, trim and year, as the Rivian list gave it (live.go), not vehicles.pack_kwh:
+		// that column may hold the capacity the truck reported, which feeds the recorder and pack health, not this field the planner reads.
+		v.PackKWh = rivian.InferPackKWh(v.Model, v.TrimID, v.ModelYear)
 		v.ApplyStoredInfo(row.Info)
 		// What this pod's monitor already holds (in memory, no Rivian call) is at least as fresh as the stored copy.
 		if mon != nil {
@@ -515,9 +518,6 @@ func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.St
 				}
 				if len(info.Images) > 0 {
 					v.Images = info.Images
-				}
-				if info.PackKWh > 0 {
-					v.PackKWh = info.PackKWh
 				}
 			}
 		}
