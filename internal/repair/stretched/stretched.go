@@ -49,9 +49,9 @@ type Row struct {
 	CostSource string
 	// FirstDrive is the start of the first drive inside the row.
 	FirstDrive time.Time
-	// LastPlugged is the last frame inside the row where the vehicle read plugged in (zero: none).
+	// LastPlugged is the last frame before the first drive where the vehicle read plugged in and stood still (zero: none).
 	LastPlugged time.Time
-	// PluggedAfterDrive: a plugged frame exists after FirstDrive.
+	// PluggedAfterDrive: an active charging frame (power, standing still) exists after FirstDrive.
 	PluggedAfterDrive bool
 	// What a person or another table says about the row.
 	HasRestamp bool
@@ -118,10 +118,10 @@ type Verdict struct {
 // something that can also see a gradual SoC rise (DefaultFlagger is only the conservative start).
 type Flagger func(Row) string
 
-// DefaultFlagger flags a row with plugged frames after its first drive.
+// DefaultFlagger flags a row with active charging frames after its first drive.
 func DefaultFlagger(r Row) string {
 	if r.PluggedAfterDrive {
-		return "flagged: plugged frames after a drive (possible absorbed charge)"
+		return "flagged: charging frames after a drive (possible absorbed charge)"
 	}
 	return ""
 }
@@ -178,11 +178,20 @@ type Queryer interface {
 	QueryRowContext(ctx context.Context, q string, args ...any) *sql.Row
 }
 
-// pluggedFrame is chargerPlugged for a stored vehicle_state frame, judged as if no charge were open (the
-// recorder's rule in internal/rivian, minus the open-charge allowance): a connected status, or charging with
-// power behind it.
-const pluggedFrame = `(s.charger_status LIKE 'chrgr_sts_connected%'
-    OR (s.charging_state IN ('charging_active','charging_connecting') AND COALESCE(s.charger_power_kw,0) > 0))`
+// stationary excludes frames taken while the vehicle moved: inside a same-vehicle drive, or above the recorder's
+// drive-close speed (2 mph). A charger status that sticks at "connected" through a drive must not read as plugged.
+const stationary = `(COALESCE(s.speed_mph,0) <= 2
+    AND NOT EXISTS (SELECT 1 FROM drives dd WHERE dd.vehicle_id = s.vehicle_id AND s.at BETWEEN dd.started_at AND dd.ended_at))`
+
+// pluggedFrame is chargerPlugged for a stored vehicle_state frame, judged as if no charge were open (the recorder's
+// rule in internal/rivian, minus the open-charge allowance): a connected status, or charging with power behind it,
+// while the vehicle stands still.
+const pluggedFrame = `(` + stationary + ` AND (s.charger_status LIKE 'chrgr_sts_connected%'
+    OR (s.charging_state IN ('charging_active','charging_connecting') AND COALESCE(s.charger_power_kw,0) > 0)))`
+
+// activeFrame is a frame that shows charging going on: charging_active with power, while standing still. Frames
+// like this after a drive are the evidence of an absorbed charge; a status that merely stays "connected" is not.
+const activeFrame = `(` + stationary + ` AND s.charging_state = 'charging_active' AND COALESCE(s.charger_power_kw,0) > 0)`
 
 // Select loads every live charge with a same-vehicle drive starting strictly inside it, with the evidence. With
 // forUpdate the charge rows are locked, for the apply transaction. With frames the rows that have plugged frames
@@ -210,11 +219,9 @@ func Select(ctx context.Context, q Queryer, forUpdate, frames bool) ([]Row, erro
 		SELECT cand.id, cand.user_id, cand.vehicle_id, cand.started_at, cand.ended_at, cand.updated_at,
 		       cand.final_state, cand.source, cand.cost_source, cand.first_drive,
 		       (SELECT max(s.at) FROM vehicle_state s
-		         WHERE s.vehicle_id = cand.vehicle_id AND s.at BETWEEN cand.started_at AND cand.ended_at AND `+pluggedFrame+`),
-		       (SELECT max(s.at) FROM vehicle_state s
 		         WHERE s.vehicle_id = cand.vehicle_id AND s.at BETWEEN cand.started_at AND cand.first_drive AND `+pluggedFrame+`),
 		       EXISTS (SELECT 1 FROM vehicle_state s
-		         WHERE s.vehicle_id = cand.vehicle_id AND s.at > cand.first_drive AND s.at <= cand.ended_at AND `+pluggedFrame+`),
+		         WHERE s.vehicle_id = cand.vehicle_id AND s.at > cand.first_drive AND s.at <= cand.ended_at AND `+activeFrame+`),
 		       cand.restamp, cand.receipt, cand.edited,
 		       cand.kwh, cand.soc0, cand.soc1, cand.ppk,
 		       COALESCE(v.pack_kwh,0), v.rivian_vehicle_id
@@ -227,14 +234,14 @@ func Select(ctx context.Context, q Queryer, forUpdate, frames bool) ([]Row, erro
 	var out []Row
 	for rows.Next() {
 		var r Row
-		var drive, plugged, pluggedBefore sql.NullTime
+		var drive, pluggedBefore sql.NullTime
 		if err := rows.Scan(&r.ID, &r.UserID, &r.VehicleID, &r.StartedAt, &r.EndedAt, &r.UpdatedAt, &r.FinalState, &r.Source, &r.CostSource,
-			&drive, &plugged, &pluggedBefore, &r.PluggedAfterDrive, &r.HasRestamp, &r.HasReceipt, &r.Edited,
+			&drive, &pluggedBefore, &r.PluggedAfterDrive, &r.HasRestamp, &r.HasReceipt, &r.Edited,
 			&r.EnergyKWh, &r.StartSoC, &r.EndSoC, &r.PricePerKWh, &r.PackKWh, &r.RivianVehicleID); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		r.FirstDrive, r.LastPlugged, r.LastPluggedBeforeDrive = drive.Time, plugged.Time, pluggedBefore.Time
+		r.FirstDrive, r.LastPlugged, r.LastPluggedBeforeDrive = drive.Time, pluggedBefore.Time, pluggedBefore.Time
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {

@@ -35,7 +35,7 @@ func TestStretchedRepair(t *testing.T) {
 	if err := pool.QueryRowContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, pack_kwh) VALUES ($1,'rv-stretch',135) RETURNING id`, uid).Scan(&vid); err != nil {
 		t.Fatal(err)
 	}
-	base := time.Now().UTC().Add(-72 * time.Hour).Truncate(time.Hour)
+	base := time.Now().UTC().Add(-120 * time.Hour).Truncate(time.Hour)
 	exec := func(q string, args ...any) {
 		t.Helper()
 		if _, err := pool.ExecContext(ctx, q, args...); err != nil {
@@ -62,9 +62,10 @@ func TestStretchedRepair(t *testing.T) {
 		return id
 	}
 	// A plugged frame (status connected) and a drive at offsets from a row's start.
-	frame := func(at time.Time, status string) {
-		exec(`INSERT INTO vehicle_state (vehicle_id, at, user_id, source, charger_status, charging_state) VALUES ($1,$2,$3,'t',$4,'charging_ready')`, vid, at, uid, status)
+	frameS := func(at time.Time, status, state string, kw, mph float64) {
+		exec(`INSERT INTO vehicle_state (vehicle_id, at, user_id, source, charger_status, charging_state, charger_power_kw, speed_mph) VALUES ($1,$2,$3,'t',$4,$5,$6,$7)`, vid, at, uid, status, state, kw, mph)
 	}
+	frame := func(at time.Time, status string) { frameS(at, status, "charging_ready", 0, 0) }
 	drive := func(ext string, at time.Time) {
 		exec(`INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, source) VALUES ($1,$2,$3,$4,$5,5,'live')`, uid, vid, ext, at, at.Add(20*time.Minute))
 	}
@@ -79,12 +80,22 @@ func TestStretchedRepair(t *testing.T) {
 	flagged := row("f1", 24*time.Hour, "charging_complete", "") // plugged frames after the drive: flagged
 	frame(b2.Add(1*time.Hour), "chrgr_sts_connected_charging")
 	drive("d-f1", b2.Add(2*time.Hour))
-	frame(b2.Add(5*time.Hour), "chrgr_sts_connected_charging")
+	frameS(b2.Add(5*time.Hour), "chrgr_sts_connected_charging", "charging_active", 7, 0) // a real charge after the drive
 	b3 := base.Add(48 * time.Hour)
 	userPrice := row("u1", 48*time.Hour, "charging_user_stopped", "cost_source='user'")
 	frame(b3.Add(1*time.Hour), "chrgr_sts_connected_charging")
 	drive("d-u1", b3.Add(3*time.Hour))
 	_ = userPrice
+	// A status that sticks at "connected" through a drive, with nothing charging after it: capped, not flagged.
+	b4 := base.Add(72 * time.Hour)
+	sticky := row("k1", 72*time.Hour, "charging_user_stopped", "")
+	frame(b4.Add(1*time.Hour), "chrgr_sts_connected_charging")
+	frame(b4.Add(2*time.Hour), "chrgr_sts_connected_charging")
+	drive("d-k1", b4.Add(3*time.Hour))
+	frameS(b4.Add(3*time.Hour+5*time.Minute), "chrgr_sts_connected_no_chrg", "charging_ready", 0, 30) // moving, status stuck
+	frameS(b4.Add(3*time.Hour+15*time.Minute), "chrgr_sts_connected_no_chrg", "charging_ready", 0, 30)
+	frame(b4.Add(4*time.Hour), "chrgr_sts_connected_no_chrg") // parked, still "connected", no power
+	frame(b4.Add(6*time.Hour), "chrgr_sts_connected_no_chrg")
 
 	digestOf := func() (stretched.Plan, string) {
 		rows, err := stretched.Select(ctx, pool, false, false)
@@ -95,8 +106,11 @@ func TestStretchedRepair(t *testing.T) {
 		return p, p.Digest()
 	}
 	plan, digest := digestOf()
-	if ids := plan.IDs(); len(ids) != 1 || ids[0] != stretch {
-		t.Fatalf("plan caps %v, want exactly the stretched row %s", ids, stretch)
+	if ids := plan.IDs(); len(ids) != 2 || (ids[0] != stretch && ids[1] != stretch) || (ids[0] != sticky && ids[1] != sticky) {
+		t.Fatalf("plan caps %v, want the stretched row %s and the sticky-status row %s", ids, stretch, sticky)
+	}
+	if got := plan.CapTo[sticky]; !got.Equal(b4.Add(2 * time.Hour)) {
+		t.Fatalf("sticky row cap = %v, want its last standing plugged frame %v", got, b4.Add(2*time.Hour))
 	}
 	if f := plan.FlaggedIDs(); len(f) != 1 || f[0] != flagged {
 		t.Fatalf("flagged %v, want %s", f, flagged)
@@ -126,10 +140,10 @@ func TestStretchedRepair(t *testing.T) {
 	before := snapshot()
 
 	// A wrong count or digest: nothing changed.
-	if _, err := stretched.Apply(ctx, pool, uuid.New(), 2, digest, "t", false, stretched.Options{}, nil); err == nil || !strings.Contains(err.Error(), "differ from the approved dry run") {
+	if _, err := stretched.Apply(ctx, pool, uuid.New(), 3, digest, "t", false, stretched.Options{}, nil); err == nil || !strings.Contains(err.Error(), "differ from the approved dry run") {
 		t.Fatalf("wrong count: %v", err)
 	}
-	if _, err := stretched.Apply(ctx, pool, uuid.New(), 1, strings.Repeat("0", 64), "t", false, stretched.Options{}, nil); err == nil {
+	if _, err := stretched.Apply(ctx, pool, uuid.New(), 2, strings.Repeat("0", 64), "t", false, stretched.Options{}, nil); err == nil {
 		t.Fatal("a wrong digest must abort")
 	}
 	for id, j := range snapshot() {
@@ -138,7 +152,7 @@ func TestStretchedRepair(t *testing.T) {
 		}
 	}
 	// A failing backup sink aborts before anything changes.
-	if _, err := stretched.Apply(ctx, pool, uuid.New(), 1, digest, "t", false, stretched.Options{}, func([]phantom.BackupRow) error { return context.Canceled }); err == nil {
+	if _, err := stretched.Apply(ctx, pool, uuid.New(), 2, digest, "t", false, stretched.Options{}, func([]phantom.BackupRow) error { return context.Canceled }); err == nil {
 		t.Fatal("a failing backup sink must abort")
 	}
 	for id, j := range snapshot() {
@@ -149,8 +163,8 @@ func TestStretchedRepair(t *testing.T) {
 
 	batch := uuid.New()
 	var sunk []phantom.BackupRow
-	n, err := stretched.Apply(ctx, pool, batch, 1, digest, "t", false, stretched.Options{}, func(r []phantom.BackupRow) error { sunk = r; return nil })
-	if err != nil || n != 1 || len(sunk) != 1 {
+	n, err := stretched.Apply(ctx, pool, batch, 2, digest, "t", false, stretched.Options{}, func(r []phantom.BackupRow) error { sunk = r; return nil })
+	if err != nil || n != 2 || len(sunk) != 2 {
 		t.Fatalf("apply: %d %v (sunk %d)", n, err, len(sunk))
 	}
 	after := snapshot()
@@ -160,7 +174,7 @@ func TestStretchedRepair(t *testing.T) {
 		t.Fatalf("ended_at after apply = %v, want %v", gotEnd, wantEnd)
 	}
 	for id, j := range after {
-		if id != stretch && before[id] != j {
+		if id != stretch && id != sticky && before[id] != j {
 			t.Fatalf("apply changed a row it must not touch: %s", id)
 		}
 	}
@@ -171,7 +185,7 @@ func TestStretchedRepair(t *testing.T) {
 
 	// Undo: the row comes back byte-identical, the batch is marked restored and cannot be restored twice.
 	restored, skipped, err := stretched.Restore(ctx, pool, batch)
-	if err != nil || restored != 1 || skipped != 0 {
+	if err != nil || restored != 2 || skipped != 0 {
 		t.Fatalf("restore: %d restored %d skipped %v", restored, skipped, err)
 	}
 	for id, j := range snapshot() {
@@ -183,7 +197,7 @@ func TestStretchedRepair(t *testing.T) {
 		t.Fatal("a second restore of the same batch must be refused")
 	}
 	// The restore touched updated_at, so the row is quiet for an hour before a dry run would pick it up again.
-	if p, _ := digestOf(); len(p.Cap) != 0 || p.Skipped["written in the last hour"] != 1 || p.Skipped["carries a user-entered price"] != 1 {
+	if p, _ := digestOf(); len(p.Cap) != 0 || p.Skipped["written in the last hour"] != 2 || p.Skipped["carries a user-entered price"] != 1 {
 		t.Fatalf("after restore: cap %d, skipped %v; want the row held back as just written and the user price refused", len(p.Cap), p.Skipped)
 	}
 }

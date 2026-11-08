@@ -20,3 +20,21 @@ CREATE TABLE IF NOT EXISTS charges_capped_backup (
 );
 
 CREATE INDEX IF NOT EXISTS charges_capped_backup_charge ON charges_capped_backup (charge_id);
+
+CREATE INDEX IF NOT EXISTS charges_capped_backup_user ON charges_capped_backup (user_id);
+
+-- Tenant isolation, like every table with a user_id (TestEveryUserTableHasTenantRLS). The rows hold whole charges
+-- (coordinates included); account deletion purges them (db.DeleteUser, db.DeleteUserAccount) and so does a history cutoff.
+DO $$
+DECLARE t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['charges_capped_backup'] LOOP
+        EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', t || '_tenant_isolation', t);
+        EXECUTE format($f$
+            CREATE POLICY %I ON %I
+                USING (user_id = rivolt_current_user_id())
+                WITH CHECK (user_id = rivolt_current_user_id())
+        $f$, t || '_tenant_isolation', t);
+    END LOOP;
+END $$;

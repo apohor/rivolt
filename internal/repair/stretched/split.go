@@ -43,7 +43,7 @@ func trySplit(r Row) (*Split, time.Time, string) {
 	}
 	segs := detectSegments(r.Frames, r.FirstDrive)
 	if len(segs) == 0 {
-		return flag("plugged frames after a drive, no qualifying segment")
+		return flag("charging frames after a drive, no qualifying segment")
 	}
 	sort.Slice(segs, func(i, j int) bool { return segs[i].FirstActive.Before(segs[j].FirstActive) })
 	sp := &Split{}
