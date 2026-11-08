@@ -20,8 +20,8 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 )
 
-// forwardRunner runs the forwarded kinds on this pod, the owner of the group. adopt (M3-1) and fresh_state (M3-2b) exist; the other kinds
-// answer 501 until their steps (plan_legs M3-4, ota_notes M3-4b), and nothing sends them before then.
+// forwardRunner runs the forwarded kinds on this pod, the owner of the group. adopt (M3-1), fresh_state (M3-2b) and plan_legs (M3-4) exist; ota_notes
+// answers 501 until its step (M3-4b), and nothing sends them before then.
 type forwardRunner struct {
 	store    *leases.Store
 	secrets  *secrets.Store
@@ -36,8 +36,28 @@ func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group 
 		return r.adopt(ctx, user)
 	case forward.KindFreshState:
 		return r.freshState(ctx, user, group, args)
+	case forward.KindPlanLegs:
+		return r.planLegs(ctx, user, group, args)
 	}
 	return forward.Result{Status: 501, Class: "not_implemented"}, nil
+}
+
+// planLegs serves one planner call for a requester that does not hold the group, against the user's own client. The vehicle must belong
+// to the named group, as for fresh_state.
+func (r *forwardRunner) planLegs(ctx context.Context, user, group string, args any) (forward.Result, error) {
+	a, ok := args.(*forward.PlanLegsArgs)
+	uid, err := uuid.Parse(user)
+	if !ok || err != nil || r.accounts == nil || r.store == nil {
+		return forward.Result{Status: 400, Class: "bad_request"}, nil
+	}
+	if g, known := r.store.GroupOfVehicle(a.VehicleID); !known || g != group {
+		return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
+	}
+	var c rivian.Client
+	if acct := r.accounts.For(uid); acct != nil {
+		c, _ = acct.(rivian.Client)
+	}
+	return api.ServePlanLegs(ctx, c, api.PlanTripInputOf(a)), nil
 }
 
 // freshState serves one vehicle-state fetch for a requester that does not hold the group: the same fetch the handler makes, answered from
