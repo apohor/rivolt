@@ -25,6 +25,22 @@ async function planned(page: Page) {
   return plans;
 }
 
+// After a plan the page scrolls the map into view smoothly (on a phone), and the map's box moves until that ends. A click aimed with a
+// box read mid-scroll lands on the header or the sheet and opens no callout, which is why this passed only on a retry. Wait until the
+// scroll position has held still, then aim.
+async function settled(page: Page) {
+  let last = -1;
+  let still = 0;
+  await expect
+    .poll(async () => {
+      const y = await page.evaluate(() => window.scrollY);
+      still = y === last ? still + 1 : 0;
+      last = y;
+      return still;
+    }, { intervals: [100] })
+    .toBeGreaterThanOrEqual(3);
+}
+
 for (const v of [
   { n: "iphone", vp: { width: 390, height: 844 } },
   { n: "desktop", vp: { width: 1280, height: 900 } },
@@ -35,6 +51,7 @@ for (const v of [
     const plans = await planned(page);
     const map = page.locator("[data-plan-area='map'] .maplibregl-map").first();
     await expect(map.locator(".maplibregl-marker").first()).toBeVisible();
+    await settled(page);
     const box = (await map.boundingBox())!;
     // Away from the chips (top left) and the sheet (bottom on a phone).
     await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.3, { button: "right" });
@@ -70,6 +87,7 @@ for (const v of [
     await planned(page);
     const map = page.locator("[data-plan-area='map'] .maplibregl-map").first();
     await expect(map.locator(".maplibregl-marker").first()).toBeVisible();
+    await settled(page);
     const box = (await map.boundingBox())!;
     // Just below the chip row (top left of the map), so the popup opens up under the chips.
     const row = (await page.locator("[data-map-chips]").boundingBox())!;
