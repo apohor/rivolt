@@ -21,8 +21,8 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 )
 
-// forwardRunner runs the forwarded kinds on this pod, the owner of the group. adopt (M3-1), fresh_state (M3-2b) and plan_legs (M3-4) exist; ota_notes
-// answers 501 until its step (M3-4b), and nothing sends them before then.
+// forwardRunner runs the forwarded kinds on this pod, the owner of the group. adopt (M3-1), fresh_state (M3-2b), plan_legs (M3-4) and ota_notes (M3-4b)
+// exist, and nothing sends them before then.
 type forwardRunner struct {
 	store    *leases.Store
 	secrets  *secrets.Store
@@ -39,8 +39,27 @@ func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group 
 		return r.freshState(ctx, user, group, args)
 	case forward.KindPlanLegs:
 		return r.planLegs(ctx, user, group, args)
+	case forward.KindOTANotes:
+		return r.otaNotes(ctx, user, group, args)
 	}
 	return forward.Result{Status: 501, Class: "not_implemented"}, nil
+}
+
+// otaNotes serves one release-notes read for a requester that does not hold the group. The vehicle must belong to the named group.
+func (r *forwardRunner) otaNotes(ctx context.Context, user, group string, args any) (forward.Result, error) {
+	a, ok := args.(*forward.OTANotesArgs)
+	uid, err := uuid.Parse(user)
+	if !ok || err != nil || r.accounts == nil || r.store == nil {
+		return forward.Result{Status: 400, Class: "bad_request"}, nil
+	}
+	if g, known := r.store.GroupOfVehicle(a.VehicleID); !known || g != group {
+		return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
+	}
+	var c rivian.Client
+	if acct := r.accounts.For(uid); acct != nil {
+		c, _ = acct.(rivian.Client)
+	}
+	return api.ServeOTANotes(ctx, c, a.VehicleID), nil
 }
 
 // planLegs serves one planner call for a requester that does not hold the group, against the user's own client. The vehicle must belong

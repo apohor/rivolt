@@ -15,11 +15,11 @@ import (
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
-// Only adopt and fresh_state exist (M3-2b); the other kinds answer 501 and a request that cannot be served answers 400, never an error that would
+// Every allowlisted kind has a runner; a kind with none answers 501, and a request that cannot be served answers 400, never an error that would
 // look like an upstream failure.
 func TestForwardRunnerKinds(t *testing.T) {
 	r := &forwardRunner{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	for _, k := range []forward.Kind{forward.KindOTANotes} {
+	for _, k := range []forward.Kind{"not_a_kind"} {
 		res, err := r.Run(context.Background(), k, "11111111-2222-3333-4444-555555555555", "g", nil)
 		if err != nil || res.Status != 501 || res.Class != "not_implemented" {
 			t.Errorf("%s: %+v %v, want 501 not_implemented", k, res, err)
@@ -181,6 +181,26 @@ func TestForwardReplayTestSwitchIsGuarded(t *testing.T) {
 		on, err := forwardReplayTest(tc.getenv)
 		if on != tc.on || (err != nil) != tc.fail {
 			t.Errorf("%s: on=%v err=%v, want on=%v fail=%v", name, on, err, tc.on, tc.fail)
+		}
+	}
+}
+
+// ota_notes has the same group guard: a vehicle outside the named group, or unknown, is 404 before Rivian is asked.
+func TestForwardRunnerOTANotesGroupGuard(t *testing.T) {
+	store, err := leases.NewStore(new(sql.DB), "pod-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetVehicleGroups(map[string]string{"v-fake-1": "grp-1"})
+	r := &forwardRunner{store: store, accounts: oneAcctRegistry{&stateAcct{}}, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	const user = "11111111-2222-3333-4444-555555555555"
+	for _, tc := range []struct {
+		vehicle, group string
+		status         int
+	}{{"v-fake-1", "grp-2", 404}, {"v-fake-9", "grp-1", 404}, {"v-fake-1", "grp-1", 200}} {
+		res, err := r.Run(context.Background(), forward.KindOTANotes, user, tc.group, &forward.OTANotesArgs{VehicleID: tc.vehicle})
+		if err != nil || res.Status != tc.status {
+			t.Errorf("%s in %s: %d %v, want %d", tc.vehicle, tc.group, res.Status, err, tc.status)
 		}
 	}
 }
