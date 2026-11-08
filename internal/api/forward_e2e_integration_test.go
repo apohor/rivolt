@@ -59,6 +59,10 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 		g.ops[req.OperationName]++
 		g.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if req.OperationName == "planTripWithMultiStopV2" {
+			_, _ = io.WriteString(w, `{"data":{"planTrip2":{"status":"OK","plans":[{"summary":{"destinationReachable":true,"totalTripDurationSeconds":3600,"totalDriveDistanceMeters":123456,"arrivalSOCPercent":21.5},"waypoints":[{"waypointType":"origin","latitude":34.1,"longitude":-118.2},{"waypointType":"destination","latitude":35.1,"longitude":-117.2,"arrivalTimeUTC":"2026-11-08T10:00:00Z"}]}]}}}`)
+			return
+		}
 		if req.OperationName == "GetVehicleState" {
 			_, _ = io.WriteString(w, `{"data":{"vehicleState":{"batteryLevel":{"timeStamp":"2026-11-08T00:00:00.000Z","value":55}}}}`)
 			return
@@ -91,8 +95,14 @@ type e2ePod struct {
 
 type e2eRunner struct{ p *e2ePod }
 
-// Run is the owner side of fresh_state, as cmd/rivolt's forwardRunner does it.
+// Run is the owner side of fresh_state and plan_legs, as cmd/rivolt's forwardRunner does it.
 func (r e2eRunner) Run(ctx context.Context, kind forward.Kind, user, group string, args any) (forward.Result, error) {
+	if pa, ok := args.(*forward.PlanLegsArgs); ok && kind == forward.KindPlanLegs {
+		if g, known := r.p.store.GroupOfVehicle(pa.VehicleID); !known || g != group {
+			return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
+		}
+		return ServePlanLegs(ctx, r.p.client, PlanTripInputOf(pa)), nil
+	}
 	a, ok := args.(*forward.FreshStateArgs)
 	if kind != forward.KindFreshState || !ok {
 		return forward.Result{Status: 501, Class: "not_implemented"}, nil
@@ -111,9 +121,16 @@ type e2eEnv struct {
 	key   []byte
 	group string
 	a, b  *e2ePod
+
+	timeouts map[forward.Kind]time.Duration
 }
 
-func newE2EEnv(t *testing.T) *e2eEnv {
+// e2eOpts tunes an environment: Timeouts shortens a kind's wait so a silent owner is a quick test.
+type e2eOpts struct {
+	Timeouts map[forward.Kind]time.Duration
+}
+
+func newE2EEnv(t *testing.T, opts ...e2eOpts) *e2eEnv {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	t.Cleanup(cancel)
@@ -136,6 +153,9 @@ func newE2EEnv(t *testing.T) *e2eEnv {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
 	env := &e2eEnv{pool: pool, rdb: rdb, mr: mr, key: []byte(strings.Repeat("k", 32))}
+	if len(opts) > 0 {
+		env.timeouts = opts[0].Timeouts
+	}
 	env.a = env.pod(t, "pod-a", uid)
 	env.b = env.pod(t, "pod-b", uid)
 	// Pod A takes the group; both pods then know the vehicle's group, as the coordinator's pass leaves them.
@@ -175,7 +195,7 @@ func (e *e2eEnv) pod(t *testing.T, name string, uid uuid.UUID) *e2ePod {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.fwd, err = forward.NewForwarder(forward.RequesterConfig{Pod: name, Keys: keys, Signer: signer, Redis: e.rdb, Leases: view, Metrics: p.metrics})
+	p.fwd, err = forward.NewForwarder(forward.RequesterConfig{Pod: name, Keys: keys, Signer: signer, Redis: e.rdb, Leases: view, Metrics: p.metrics, Timeouts: e.timeouts})
 	if err != nil {
 		t.Fatal(err)
 	}
