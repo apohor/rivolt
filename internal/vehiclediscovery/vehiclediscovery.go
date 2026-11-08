@@ -186,8 +186,20 @@ func (j *Job) one(ctx context.Context, uid uuid.UUID) string {
 		j.hold(ctx, uid, EmptyBackoff)
 		return OutcomeEmpty
 	}
+	// The lookup answered with vehicles, but none could be stored (no usable id, or every upsert failed and said so above): say how many, never who.
+	j.logger().Warn("vehicle discovery stored nothing", "returned", len(vs), "with_id", withID(vs))
 	j.hold(ctx, uid, ErrorBackoff)
 	return OutcomeError
+}
+
+func withID(vs []rivian.Vehicle) int {
+	n := 0
+	for _, v := range vs {
+		if v.ID != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // ---- backoff stores
