@@ -15,7 +15,7 @@ import (
 
 // AccountClosure is the Stripe step of every account deletion (self-service, admin and the inactive purge): before the account's rows go,
 // its Stripe subscriptions are cancelled at Stripe, so a deleted account is never charged again, and the Stripe customer record (name,
-// email, address) is deleted once nothing is open on it (no unpaid invoice, no unresolved dispute; Stripe keeps the invoices tax law needs). When Stripe cannot be reached (or this
+// email, address) is deleted once nothing is open on it (open invoices are voided first, since a deleted account will not pay them; a part-paid invoice or an unresolved dispute holds the record back; Stripe keeps the invoices tax law needs). When Stripe cannot be reached (or this
 // server has no Stripe key) the cancel is queued, keyed by the Stripe customer id, and RunRetrier repeats it until it works; it never
 // expires, and a backlog is an alert, never a silent skip. Only when the cancel AND the queueing fail does the deletion stop.
 //
@@ -67,8 +67,10 @@ func (c *AccountClosure) BeforeDelete(ctx context.Context, uid uuid.UUID) error 
 	cause := ErrNotConfigured
 	if c.Client != nil {
 		cctx, cancel := context.WithTimeout(ctx, cancelTimeout)
-		cause = c.Client.CloseCustomer(cctx, customer)
+		var voided []string
+		voided, cause = c.Client.CloseCustomer(cctx, customer)
 		cancel()
+		c.auditVoided(voided)
 		if cause == nil {
 			return nil
 		}
@@ -80,6 +82,15 @@ func (c *AccountClosure) BeforeDelete(ctx context.Context, uid uuid.UUID) error 
 	}
 	c.logger().Warn("stripe cancel failed; queued for retry", "failure_id", id.String(), "err", queueText(cause))
 	return nil
+}
+
+// auditVoided logs the invoices voided for a deleted account: a count and the Stripe invoice ids, nothing that names a person (no customer id,
+// no amount, no email). A void is irreversible, so each one leaves a line.
+func (c *AccountClosure) auditVoided(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	c.logger().Info("stripe: voided open invoices of a deleted account", "count", len(ids), "invoice_ids", ids)
 }
 
 // queueText is what a failed attempt leaves in the retry queue and the logs: Stripe's status and error code, or a fixed phrase. Never the
@@ -128,8 +139,9 @@ func (c *AccountClosure) RetryOnce(ctx context.Context) {
 		}
 		for _, it := range due {
 			cctx, cancel := context.WithTimeout(ctx, cancelTimeout)
-			cerr := c.Client.CloseCustomer(cctx, it.Customer)
+			voided, cerr := c.Client.CloseCustomer(cctx, it.Customer)
 			cancel()
+			c.auditVoided(voided)
 			if cerr != nil {
 				if err := db.StripeCancelFailedAgain(ctx, c.DB, it.ID, queueText(cerr)); err != nil {
 					c.logger().Warn("stripe cancel retry: record attempt failed", "failure_id", it.ID.String(), "err", err.Error())

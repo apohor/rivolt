@@ -315,13 +315,50 @@ func treatMissing(err error) error {
 	return err
 }
 
-// CloseCustomer is everything the deletion of an account asks of Stripe: cancel the subscriptions, then delete the customer record once
-// nothing is open. Idempotent, so a retry repeats it safely.
-func (c *Client) CloseCustomer(ctx context.Context, customer string) error {
-	if _, err := c.CancelCustomerSubscriptions(ctx, customer); err != nil {
-		return err
+// VoidOpenInvoices voids the invoices still open on a customer whose account is deleted, and returns the ids it voided. Only invoices Stripe
+// reports as status=open with nothing paid on them (amount_paid 0) are touched: a paid or part-paid invoice is never voided and a refund is
+// never made, so the money that moved stays where it is. A deleted account will not pay, and an open invoice would hold the customer record
+// (its name, email and address) in Stripe for ever. The caller has already cancelled the subscriptions, so nothing new accrues. At most one page
+// (100) per call; a leftover one is voided by the next retry, and DeleteCustomerIfClear still refuses while any is open.
+func (c *Client) VoidOpenInvoices(ctx context.Context, customer string) ([]string, error) {
+	var inv struct {
+		Data []struct {
+			ID         string `json:"id"`
+			Status     string `json:"status"`
+			AmountPaid int64  `json:"amount_paid"`
+		} `json:"data"`
 	}
-	return c.DeleteCustomerIfClear(ctx, customer)
+	if err := c.do(ctx, http.MethodGet, "/v1/invoices?limit=100&status=open&customer="+url.QueryEscape(customer), nil, "", &inv); err != nil {
+		return nil, treatMissing(err)
+	}
+	var voided []string
+	for _, in := range inv.Data {
+		if in.Status != "open" || in.AmountPaid != 0 {
+			continue
+		}
+		if err := c.do(ctx, http.MethodPost, "/v1/invoices/"+url.PathEscape(in.ID)+"/void", url.Values{}, "rivolt-void-"+in.ID, nil); err != nil {
+			if treatMissing(err) == nil {
+				continue // already gone
+			}
+			return voided, err
+		}
+		voided = append(voided, in.ID)
+	}
+	return voided, nil
+}
+
+// CloseCustomer is everything the deletion of an account asks of Stripe, in this order: cancel the subscriptions, void the invoices still open
+// (the ids voided are returned for the audit log), then delete the customer record once nothing is open (a part-paid invoice or an
+// unresolved dispute still holds it back: ErrOpenItems). Idempotent, so a retry repeats it safely.
+func (c *Client) CloseCustomer(ctx context.Context, customer string) ([]string, error) {
+	if _, err := c.CancelCustomerSubscriptions(ctx, customer); err != nil {
+		return nil, err
+	}
+	voided, err := c.VoidOpenInvoices(ctx, customer)
+	if err != nil {
+		return voided, err
+	}
+	return voided, c.DeleteCustomerIfClear(ctx, customer)
 }
 
 // PortalFacts is what the default Customer Portal configuration says about the things the launch pre-flight checks. Booleans only.

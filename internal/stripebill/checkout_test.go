@@ -35,6 +35,9 @@ type fakeStripe struct {
 	deleteQueries []url.Values
 	// customers: open invoices per customer; charges per customer as [charge id, dispute status or ""]; gone = deleted customers.
 	openInvoices     map[string]int
+	invoicePaid      map[string]int64 // customer -> amount_paid (cents) on its open invoices
+	voidedInvoices   map[string]bool
+	voidPosts        []string
 	charges          map[string][][2]string
 	gone             map[string]bool
 	customersDeleted []string
@@ -121,9 +124,21 @@ func newFakeStripe(t *testing.T) *fakeStripe {
 			}
 			var data []map[string]any
 			for i := 0; i < f.openInvoices[cust]; i++ {
-				data = append(data, map[string]any{"id": "in_open_" + strconv.Itoa(i), "status": "open"})
+				id := "in_open_" + cust + "_" + strconv.Itoa(i)
+				if f.voidedInvoices[id] {
+					continue
+				}
+				data = append(data, map[string]any{"id": id, "status": "open", "amount_paid": f.invoicePaid[cust]})
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data, "has_more": false})
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/invoices/") && strings.HasSuffix(r.URL.Path, "/void"):
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v1/invoices/"), "/void")
+			if f.voidedInvoices == nil {
+				f.voidedInvoices = map[string]bool{}
+			}
+			f.voidedInvoices[id] = true
+			f.voidPosts = append(f.voidPosts, id+" idem="+r.Header.Get("Idempotency-Key"))
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "status": "void"})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/charges":
 			cust := r.URL.Query().Get("customer")
 			if f.gone[cust] {
@@ -539,8 +554,55 @@ func TestDeleteCustomerIfClear(t *testing.T) {
 	// CloseCustomer cancels first, then deletes.
 	f = newFakeStripe(t)
 	f.subs = map[string][][2]string{"cus_both": {{"sub_x", "active"}}}
-	if err := c(f).CloseCustomer(ctx, "cus_both"); err != nil || strings.Join(f.deleted, ",") != "sub_x" || strings.Join(f.customersDeleted, ",") != "cus_both" {
-		t.Errorf("CloseCustomer: %v, cancelled %v, deleted %v", err, f.deleted, f.customersDeleted)
+	if voided, err := c(f).CloseCustomer(ctx, "cus_both"); err != nil || len(voided) != 0 || strings.Join(f.deleted, ",") != "sub_x" || strings.Join(f.customersDeleted, ",") != "cus_both" {
+		t.Errorf("CloseCustomer: %v, voided %v, cancelled %v, deleted %v", err, voided, f.deleted, f.customersDeleted)
+	}
+}
+
+// A deleted account will not pay its open invoices, so closing the customer voids them (after the subscriptions are cancelled) and deletes the
+// record; the voided ids come back for the audit log. A part-paid invoice is never voided and holds the record back, and so does a dispute.
+func TestCloseCustomerVoidsOpenInvoices(t *testing.T) {
+	ctx := context.Background()
+	c := func(f *fakeStripe) *Client { return &Client{BaseURL: f.srv.URL, SecretKey: testKey} }
+
+	f := newFakeStripe(t)
+	f.subs = map[string][][2]string{"cus_v": {{"sub_v", "past_due"}}}
+	f.openInvoices = map[string]int{"cus_v": 2}
+	voided, err := c(f).CloseCustomer(ctx, "cus_v")
+	if err != nil || strings.Join(voided, ",") != "in_open_cus_v_0,in_open_cus_v_1" {
+		t.Fatalf("voided %v, %v; want both open invoices voided", voided, err)
+	}
+	if strings.Join(f.deleted, ",") != "sub_v" || strings.Join(f.customersDeleted, ",") != "cus_v" {
+		t.Errorf("cancelled %v, customer deleted %v; want the subscription cancelled and the customer deleted", f.deleted, f.customersDeleted)
+	}
+	if len(f.voidPosts) != 2 || !strings.Contains(f.voidPosts[0], "idem=rivolt-void-in_open_cus_v_0") {
+		t.Errorf("void posts = %v, want one per invoice with a stable idempotency key", f.voidPosts)
+	}
+
+	// Part-paid: untouched, and the record stays (ErrOpenItems, retried later).
+	f = newFakeStripe(t)
+	f.openInvoices = map[string]int{"cus_p": 1}
+	f.invoicePaid = map[string]int64{"cus_p": 500}
+	voided, err = c(f).CloseCustomer(ctx, "cus_p")
+	if !errors.Is(err, ErrOpenItems) || len(voided) != 0 || len(f.voidPosts) != 0 || len(f.customersDeleted) != 0 {
+		t.Errorf("part-paid invoice: voided %v, posts %v, deleted %v, err %v; want nothing voided or deleted and ErrOpenItems", voided, f.voidPosts, f.customersDeleted, err)
+	}
+
+	// A dispute still holds the record even when the invoices were voided.
+	f = newFakeStripe(t)
+	f.openInvoices = map[string]int{"cus_d": 1}
+	f.charges = map[string][][2]string{"cus_d": {{"ch_1", "needs_response"}}}
+	voided, err = c(f).CloseCustomer(ctx, "cus_d")
+	if !errors.Is(err, ErrOpenItems) || len(voided) != 1 || len(f.customersDeleted) != 0 {
+		t.Errorf("dispute: voided %v, deleted %v, err %v; want the invoice voided and the customer kept", voided, f.customersDeleted, err)
+	}
+
+	// Stripe refusing the void is an error with what was voided so far, and the customer is not deleted.
+	f = newFakeStripe(t)
+	f.openInvoices = map[string]int{"cus_e": 1}
+	f.fail = true
+	if _, err := c(f).CloseCustomer(ctx, "cus_e"); err == nil || len(f.customersDeleted) != 0 {
+		t.Errorf("a failing Stripe: %v, deleted %v", err, f.customersDeleted)
 	}
 }
 
