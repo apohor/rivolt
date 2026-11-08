@@ -301,6 +301,11 @@ type StateMonitor struct {
 	// info when its subscription starts and at most once a day after, so /api/vehicles can answer from the stored copy on any pod
 	// (single-owner M3-5a). Guarded by mu.
 	infoRefreshedAt time.Time
+	// vehicleInfoLoader reads the stored vehicle info from Postgres (no Rivian call); infoHydrated is set once it succeeded, infoHydrateRetryAt
+	// holds a failed read back. Guarded by mu. See hydrateVehicleInfo.
+	vehicleInfoLoader  func(context.Context) ([]Vehicle, error)
+	infoHydrated       bool
+	infoHydrateRetryAt time.Time
 	// Charging schedule reads (charging_schedule.go): a nudge channel per
 	// vehicle, the last read's time and position, and the fetch (nil =
 	// client.ChargingSchedules; tests set it). Guarded by mu.
@@ -1469,6 +1474,10 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		m.runSource(ctx, vehicleID)
 		return
 	}
+
+	// The stored vehicle info first (pack size included), before any frame is recorded: a charge in progress at a rollout or a takeover is
+	// estimated with the truck's own pack size, not DefaultPackKWh, and nothing here asks Rivian.
+	m.hydrateVehicleInfo(ctx)
 
 	// Block until the client holds a usable session. Without this
 	// gate every per-vehicle goroutine spins through Subscribe →
@@ -4020,6 +4029,74 @@ func (m *StateMonitor) RefreshVehicleInfo(ctx context.Context) error {
 	return nil
 }
 
+// SetVehicleInfoLoader wires the reader of the stored vehicle info (Postgres: vehicles columns and vehicles.metadata.vehicle_info). nil disables.
+// Safe to call before Start.
+func (m *StateMonitor) SetVehicleInfoLoader(f func(context.Context) ([]Vehicle, error)) {
+	m.mu.Lock()
+	m.vehicleInfoLoader = f
+	m.mu.Unlock()
+}
+
+// vehicleInfoHydrateRetry holds a failed stored-info read back, so a database blip is not retried on every accessor call.
+const vehicleInfoHydrateRetry = 30 * time.Second
+
+// hydrateVehicleInfo fills the vehicle info cache from what is stored in Postgres, without a Rivian call, once per monitor. Every pod needs the
+// cache (the planner's default vehicle, the list's enrichment) and the owner needs the pack size before its FIRST frame: without it the
+// recorder estimates a charge in progress at rollout with DefaultPackKWh. The stored pack size is the truck's reported capacity when it has
+// been observed, else the spec lookup. What the cache already holds (a live observation, a Rivian refresh) is never overwritten; only gaps are
+// filled. A failed read is retried after vehicleInfoHydrateRetry. The owner's own Rivian refresh (refreshVehicleInfoIfStale) tops it up.
+func (m *StateMonitor) hydrateVehicleInfo(ctx context.Context) {
+	m.mu.RLock()
+	load, done, retryAt := m.vehicleInfoLoader, m.infoHydrated, m.infoHydrateRetryAt
+	m.mu.RUnlock()
+	if load == nil || done || (!retryAt.IsZero() && m.clock().Before(retryAt)) {
+		return
+	}
+	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	vs, err := load(lctx)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.infoHydrated {
+		return
+	}
+	if err != nil {
+		m.infoHydrateRetryAt = m.clock().Add(vehicleInfoHydrateRetry)
+		m.logger.Debug("vehicle info hydrate failed", "err", err.Error())
+		return
+	}
+	for i := range vs {
+		v := vs[i]
+		if v.ID == "" {
+			continue
+		}
+		cur := m.vehicleInfo[v.ID]
+		if cur == nil {
+			m.vehicleInfo[v.ID] = &v
+			continue
+		}
+		if cur.PackKWh <= 0 {
+			cur.PackKWh = v.PackKWh
+		}
+		if cur.ImageURL == "" {
+			cur.ImageURL = v.ImageURL
+		}
+		if len(cur.Images) == 0 {
+			cur.Images = v.Images
+		}
+		if cur.TrimName == "" {
+			cur.TrimName = v.TrimName
+		}
+		if cur.Make == "" {
+			cur.Make = v.Make
+		}
+		if cur.Model == "" {
+			cur.Model = v.Model
+		}
+	}
+	m.infoHydrated = true
+}
+
 // vehicleInfoMaxAge is how old the fetched vehicle info may get before the owner refetches it when a subscription starts.
 const vehicleInfoMaxAge = 24 * time.Hour
 
@@ -4135,6 +4212,7 @@ func pickHeroImage(list []VehicleImage) string {
 // vehicle yet). The returned pointer is a copy; safe to read without
 // holding the lock.
 func (m *StateMonitor) VehicleInfo(vehicleID string) *Vehicle {
+	m.hydrateVehicleInfo(context.Background())
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	v, ok := m.vehicleInfo[vehicleID]
@@ -4148,6 +4226,7 @@ func (m *StateMonitor) VehicleInfo(vehicleID string) *Vehicle {
 // AllVehicleInfo returns a snapshot of every cached vehicle record.
 // Used by the HTTP /api/vehicles endpoint.
 func (m *StateMonitor) AllVehicleInfo() []Vehicle {
+	m.hydrateVehicleInfo(context.Background())
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make([]Vehicle, 0, len(m.vehicleInfo))

@@ -95,6 +95,7 @@ import (
 	"github.com/apohor/rivolt/internal/tirelow"
 	"github.com/apohor/rivolt/internal/tracing"
 	"github.com/apohor/rivolt/internal/trips"
+	"github.com/apohor/rivolt/internal/vehiclediscovery"
 	"github.com/apohor/rivolt/internal/weather"
 	"github.com/apohor/rivolt/internal/web"
 
@@ -1475,6 +1476,24 @@ func runServer() {
 			}
 			otaSyncer.SetFence(&liveFence) // before Run and before the first OnConnect; it reads the lease store once installed
 			go otaSyncer.Run(ctx)
+			// What every monitor starts from: the vehicle info stored in Postgres (columns and vehicle_info), read without a Rivian call.
+			// The owner's pack size for its first frame comes from here, and so does the cache of a pod that only reads (single-owner M3-6).
+			monitorRegistry.SetVehicleInfoLoaderFactory(func(uid uuid.UUID) func(context.Context) ([]rivian.Vehicle, error) {
+				return func(ctx context.Context) ([]rivian.Vehicle, error) {
+					rows, err := db.ListUserVehiclesForAPI(ctx, pgPool, uid)
+					if err != nil {
+						return nil, err
+					}
+					out := make([]rivian.Vehicle, 0, len(rows))
+					for _, r := range rows {
+						v := rivian.Vehicle{ID: r.RivianVehicleID, VIN: r.VIN, Name: r.DisplayName, Model: r.Model, ModelYear: r.ModelYear,
+							TrimID: r.Trim, PackKWh: r.PackKWh, ImageURL: r.ImageURL}
+						v.ApplyStoredInfo(r.Info)
+						out = append(out, v)
+					}
+					return out, nil
+				}
+			})
 			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func(context.Context, []rivian.Vehicle) {
 				return func(hctx context.Context, vs []rivian.Vehicle) {
 					bg.Go(func() {
@@ -2105,24 +2124,10 @@ func runServer() {
 				logger.Warn("lease coordinator exited", "err", err.Error())
 			}
 		}()
-		// Prime per-vehicle metadata across every running monitor,
-		// then poke the coordinator so it reconciles immediately
-		// once AllVehicleInfo() is populated.
+		// The vehicle info no longer comes from a Rivian call on every pod at boot (every pod, for every loaded user, whether or not it
+		// owns any of their vehicles). Each monitor hydrates it from Postgres, and the owner refreshes from Rivian when its subscription
+		// starts and daily after (single-owner M3-6). Here the coordinator is only poked to reconcile.
 		go func() {
-			rctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-			defer cancel()
-			// Refresh runs per-monitor inside RefreshAll; we just
-			// trigger it through each loaded user.
-			for _, uid := range accountRegistry.Loaded() {
-				m := monitorRegistry.For(uid)
-				if m == nil {
-					continue
-				}
-				if err := m.RefreshVehicleInfo(rctx); err != nil {
-					logger.Warn("vehicle info refresh failed",
-						"user_id", uid.String(), "err", err.Error())
-				}
-			}
 			coord.TriggerReconcile()
 		}()
 		leaseCoordinator = coord
@@ -3047,6 +3052,15 @@ func runServer() {
 	if pending := launch.Gate(rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING"))); len(pending) > 0 {
 		logger.Error("RIVOLT_BILLING is on but the Pro launch-readiness list has pending items; refusing to start (see internal/launch)", "pending", strings.Join(pending, ","))
 		os.Exit(1)
+	}
+	// Single-owner M3-6: linked users with no vehicle row have no group, so no lease and no owner. One pod (a Postgres advisory lock) looks them up
+	// every 30 minutes and primes their rows.
+	if pgPool != nil && accountRegistry != nil {
+		startVehicleDiscovery(ctx, logger, appMetrics, &vehiclediscovery.Job{
+			DB:      pgPool,
+			Lookup:  discoveryLookup(accountRegistry, secretsStore),
+			Backoff: vehiclediscovery.NewRedisBackoff(sharedRedis, redisKeyPrefix, api.FailLimiterKey(cookieSecret)),
+		})
 	}
 	handler := api.New(api.Deps{
 		StateForward:          stateForward,
