@@ -272,6 +272,10 @@ Environment:
                                  nobody).
   RIVOLT_RIVIAN_LIVE_FORBIDDEN=true  Refuse to boot with a live Rivian
                                  client (preview: replay/mock/stub only).
+  RIVOLT_FORWARD_REPLAY_TEST=1   Test switch: the owner forwarder also applies
+                                 to the replay client. Refused unless
+                                 RIVOLT_RIVIAN_LIVE_FORBIDDEN=true and
+                                 RIVIAN_CLIENT=replay.
   RIVOLT_DEMO_TILES_PER_CLIENT_PER_MIN / _GLOBAL_PER_MIN
                                  demo: anonymous map-tile budgets per
                                  client and per install, requests/min
@@ -843,6 +847,15 @@ func runServer() {
 				"rivian_client", os.Getenv("RIVIAN_CLIENT"))
 			os.Exit(1)
 		}
+	}
+	// Single-owner M3 test switch: forward the replay client's calls too (preview only; refused anywhere that could reach Rivian).
+	forwardReplayTestOn, ferr := forwardReplayTest(os.Getenv)
+	if ferr != nil {
+		logger.Error(ferr.Error() + "; refusing to start")
+		os.Exit(1)
+	}
+	if forwardReplayTestOn {
+		logger.Info("RIVOLT_FORWARD_REPLAY_TEST is on: the forwarder applies to the replay client (test install, no Rivian reachable)")
 	}
 	// The replay client's trip planner: stored plans first, then a synthetic
 	// plan from Valhalla and the charger archive (both wired further down,
@@ -3038,6 +3051,7 @@ func runServer() {
 	handler := api.New(api.Deps{
 		StateForward:          stateForward,
 		GroupOfVehicle:        groupOfVehicle,
+		ForwardReplayTest:     forwardReplayTestOn,
 		AuditKey:              deriveKey(cookieSecret, "rivolt/audit/v1"),
 		Sessions:              sessionsAPI,
 		SampleRetentionMonths: sampleRetentionMonths,

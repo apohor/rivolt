@@ -153,3 +153,34 @@ func TestForwardRunnerPlanLegsGroupGuard(t *testing.T) {
 		t.Errorf("wrong args type: %d, want 400", res.Status)
 	}
 }
+
+// The replay test switch is refused anywhere that could reach Rivian, and is off unless asked for.
+func TestForwardReplayTestSwitchIsGuarded(t *testing.T) {
+	env := func(kv ...string) func(string) string {
+		m := map[string]string{}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return func(k string) string { return m[k] }
+	}
+	for name, tc := range map[string]struct {
+		getenv func(string) string
+		on     bool
+		fail   bool
+	}{
+		"unset":                       {env(), false, false},
+		"unset on a live install":     {env("RIVOLT_RIVIAN_LIVE_FORBIDDEN", "", "RIVIAN_CLIENT", "live"), false, false},
+		"false":                       {env("RIVOLT_FORWARD_REPLAY_TEST", "false"), false, false},
+		"replay and forbidden":        {env("RIVOLT_FORWARD_REPLAY_TEST", "1", "RIVOLT_RIVIAN_LIVE_FORBIDDEN", "true", "RIVIAN_CLIENT", "replay"), true, false},
+		"live client":                 {env("RIVOLT_FORWARD_REPLAY_TEST", "1", "RIVOLT_RIVIAN_LIVE_FORBIDDEN", "true", "RIVIAN_CLIENT", "live"), false, true},
+		"default client (live)":       {env("RIVOLT_FORWARD_REPLAY_TEST", "1", "RIVOLT_RIVIAN_LIVE_FORBIDDEN", "true"), false, true},
+		"replay but live not barred":  {env("RIVOLT_FORWARD_REPLAY_TEST", "1", "RIVIAN_CLIENT", "replay"), false, true},
+		"mock is not replay":          {env("RIVOLT_FORWARD_REPLAY_TEST", "1", "RIVOLT_RIVIAN_LIVE_FORBIDDEN", "true", "RIVIAN_CLIENT", "mock"), false, true},
+		"nothing else set, switch on": {env("RIVOLT_FORWARD_REPLAY_TEST", "true"), false, true},
+	} {
+		on, err := forwardReplayTest(tc.getenv)
+		if on != tc.on || (err != nil) != tc.fail {
+			t.Errorf("%s: on=%v err=%v, want on=%v fail=%v", name, on, err, tc.on, tc.fail)
+		}
+	}
+}

@@ -32,6 +32,26 @@ type stateForward struct {
 	fw      StateForwarder
 	groupOf func(vehicleID string) (string, bool)
 	user    uuid.UUID
+	// replayTest (RIVOLT_FORWARD_REPLAY_TEST, boot-guarded to replay installs) lets the replay client be forwarded too, so the
+	// forwarding path can be driven on preview, whose Rivian client is a replay. It changes the client-type check and nothing else.
+	replayTest bool
+	// forwardClient overrides the client-type check (tests drive the handler with fakes that are neither live nor replay).
+	forwardClient func(any) bool
+}
+
+// forwardable reports whether c is a client whose calls reach Rivian and so go through the forwarder: the live client, or, with the replay
+// test switch, the replay client.
+func (sf *stateForward) forwardable(c any) bool {
+	if sf != nil && sf.forwardClient != nil {
+		return sf.forwardClient(c)
+	}
+	switch v := c.(type) {
+	case *rivian.LiveClient:
+		return v != nil
+	case *rivian.ReplayClient:
+		return v != nil && sf != nil && sf.replayTest
+	}
+	return false
 }
 
 // stateForward is the per-request router for uid, nil when forwarding is not wired.
@@ -39,12 +59,12 @@ func (d Deps) stateForward(uid uuid.UUID) *stateForward {
 	if d.StateForward == nil || d.GroupOfVehicle == nil {
 		return nil
 	}
-	return &stateForward{fw: d.StateForward, groupOf: d.GroupOfVehicle, user: uid}
+	return &stateForward{fw: d.StateForward, groupOf: d.GroupOfVehicle, user: uid, replayTest: d.ForwardReplayTest}
 }
 
 // fetch is c.State for vehicleID, forwarded when this pod does not own the vehicle.
 func (sf *stateForward) fetch(ctx context.Context, c rivian.Client, vehicleID string) (*rivian.State, error) {
-	if sf == nil || sf.fw == nil || sf.groupOf == nil {
+	if sf == nil || sf.fw == nil || sf.groupOf == nil || !sf.forwardable(c) {
 		return c.State(ctx, vehicleID)
 	}
 	group, ok := sf.groupOf(vehicleID)

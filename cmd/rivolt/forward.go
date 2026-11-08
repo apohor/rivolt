@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"strings"
@@ -178,4 +179,21 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 	go owner.Run(ctx)
 	logger.Info("forward: owner loop on", "pod", store.PodID())
 	return forwardRuntime{setDraining: owner.SetDraining, forwarder: fwd}
+}
+
+// forwardReplayTest reports RIVOLT_FORWARD_REPLAY_TEST and refuses it anywhere but an install that can never reach Rivian: the switch makes
+// the forwarder apply to the replay client as well as the live one, so the forwarding path can be driven on preview. It is an error unless
+// RIVOLT_RIVIAN_LIVE_FORBIDDEN is true and the client is the replay client (a live client with the switch would put replay-grade
+// shortcuts on a path that reaches Rivian). Unset or false: off, and nothing else is checked.
+func forwardReplayTest(getenv func(string) string) (bool, error) {
+	if !rivian.ParseBoolEnv(getenv("RIVOLT_FORWARD_REPLAY_TEST")) {
+		return false, nil
+	}
+	if !rivian.ParseBoolEnv(getenv("RIVOLT_RIVIAN_LIVE_FORBIDDEN")) {
+		return false, errors.New("RIVOLT_FORWARD_REPLAY_TEST needs RIVOLT_RIVIAN_LIVE_FORBIDDEN=true")
+	}
+	if getenv("RIVIAN_CLIENT") != "replay" {
+		return false, errors.New("RIVOLT_FORWARD_REPLAY_TEST needs RIVIAN_CLIENT=replay")
+	}
+	return true, nil
 }
