@@ -1,8 +1,8 @@
 package rivian
 
 import (
-	"encoding/json"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"math"
@@ -46,9 +46,9 @@ type StateMonitor struct {
 	// writes. Separate from mu because every record() caller has
 	// already released mu by the time it reaches the recorder, and we
 	// must not re-take a lock the hot path just dropped.
-	sampleMu     sync.Mutex
+	sampleMu sync.Mutex
 	// writeFails rate-limits the Warn line for failed live writes.
-	writeFails writeFailureLog
+	writeFails   writeFailureLog
 	lastSampleAt map[string]time.Time
 	// parked skips unchanged parked rows (parked_dedupe.go); parkedDedupe is
 	// the switch.
@@ -217,10 +217,10 @@ type StateMonitor struct {
 	onFenced func(kind string)
 	// refusal bookkeeping for the rate-limited WARN next to each fenced{kind} increment (see refuse): the epoch this monitor last
 	// held per vehicle, and when each (kind, vehicle) was last logged.
-	refuseMu   sync.Mutex
-	heldEpoch  map[string]int64
-	refusedLog map[string]time.Time
-	warmWait time.Duration // tests only: shortens the wait of a deferred final write
+	refuseMu     sync.Mutex
+	heldEpoch    map[string]int64
+	refusedLog   map[string]time.Time
+	warmWait     time.Duration // tests only: shortens the wait of a deferred final write
 	drivesStore  *drives.Store
 	chargesStore *charges.Store
 
@@ -309,14 +309,14 @@ type StateMonitor struct {
 	// Charging schedule reads (charging_schedule.go): a nudge channel per
 	// vehicle, the last read's time and position, and the fetch (nil =
 	// client.ChargingSchedules; tests set it). Guarded by mu.
-	scheduleNudge  map[string]chan struct{}
+	scheduleNudge map[string]chan struct{}
 	// scheduleStarts are when the schedule loops of this pod started, within scheduleStartWindow: the batch size a handover just brought.
 	scheduleStarts []time.Time
 	scheduleReads  map[string]scheduleRead
 	// scheduleUnavailableUntil backs a vehicle's schedule reads off for a
 	// week after Rivian said the account can't read them. Guarded by mu.
 	scheduleUnavailableUntil map[string]time.Time
-	fetchSchedules func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
+	fetchSchedules           func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
 	// onScheduleRead counts schedule-read outcomes (SetScheduleObserver).
 	onScheduleRead func(outcome string)
 	// vehicleInfoHook receives the vehicles RefreshVehicleInfo fetched (trim,
@@ -390,10 +390,10 @@ type StateMonitor struct {
 	// restQuietSince when the current REST-quiet stretch began (reset
 	// on wake and by a safety poll); lastSafetyPoll the last safety
 	// poll.
-	lastVSFrame    map[string]time.Time
+	lastVSFrame map[string]time.Time
 	// firstVSFrame is when this ownership's first vehicleState frame arrived (cleared with wsSeen when
 	// the vehicle is forgotten): the acquire-to-first-frame measurement reads it.
-	firstVSFrame map[string]time.Time
+	firstVSFrame   map[string]time.Time
 	restQuietSince map[string]time.Time
 	lastSafetyPoll map[string]time.Time
 
@@ -504,37 +504,37 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 	// waits until the replay harness can validate the recorder offline.)
 	parallaxAll := parseBoolEnv(os.Getenv("RIVOLT_PARALLAX"))
 	return &StateMonitor{
-		client:          client,
-		logger:          logger,
+		client:                client,
+		logger:                logger,
 		parallaxGPS:           parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
 		parallaxDriveDynamics: parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
 		parallaxCapture:       parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
-		lastVehStateGPS: make(map[string]time.Time),
-		lastVehStateSoC: make(map[string]float64),
-		lastParallaxAt:      make(map[string]time.Time),
-		parallaxSleepFrames: make(map[string]int),
-		lastTopicTs:         make(map[string]int64),
-		lastPxGear:      make(map[string]string),
-		lastPxGearAt:    make(map[string]time.Time),
-		lastPxPower:     make(map[string]string),
-		vehChargerStatus: make(map[string]bool),
-		vehOtaVersion:    make(map[string]bool),
-		cache:           make(map[string]*State),
-		stamp:           make(map[string]time.Time),
+		lastVehStateGPS:       make(map[string]time.Time),
+		lastVehStateSoC:       make(map[string]float64),
+		lastParallaxAt:        make(map[string]time.Time),
+		parallaxSleepFrames:   make(map[string]int),
+		lastTopicTs:           make(map[string]int64),
+		lastPxGear:            make(map[string]string),
+		lastPxGearAt:          make(map[string]time.Time),
+		lastPxPower:           make(map[string]string),
+		vehChargerStatus:      make(map[string]bool),
+		vehOtaVersion:         make(map[string]bool),
+		cache:                 make(map[string]*State),
+		stamp:                 make(map[string]time.Time),
 		lastSampleAt:          make(map[string]time.Time),
 		parkedDedupe:          parkedDedupeEnabled(),
-		wsSeen:          make(map[string]bool),
-		active:          make(map[string]context.CancelFunc),
-		activeCtx:       make(map[string]context.Context),
-		subCancel:       make(map[string]context.CancelCauseFunc),
-		shortSubEnds:    make(map[string][]time.Time),
-		lastFlapWarnAt:  make(map[string]time.Time),
-		sessions:        make(map[string]*liveSessions),
-		rehydrated:      make(map[string]bool),
-		lastSession:     make(map[string]*LiveSession),
-		chargeBond:      make(map[string]string),
-		lastSessionFor:  make(map[string]string),
-		vehicleInfo:     make(map[string]*Vehicle),
+		wsSeen:                make(map[string]bool),
+		active:                make(map[string]context.CancelFunc),
+		activeCtx:             make(map[string]context.Context),
+		subCancel:             make(map[string]context.CancelCauseFunc),
+		shortSubEnds:          make(map[string][]time.Time),
+		lastFlapWarnAt:        make(map[string]time.Time),
+		sessions:              make(map[string]*liveSessions),
+		rehydrated:            make(map[string]bool),
+		lastSession:           make(map[string]*LiveSession),
+		chargeBond:            make(map[string]string),
+		lastSessionFor:        make(map[string]string),
+		vehicleInfo:           make(map[string]*Vehicle),
 		// 50ms between WS subscribe attempts. With a 60-vehicle pod
 		// that's a 3-second cold-start spread, well below Rivian's
 		// observed rate-limit window.
@@ -721,6 +721,7 @@ const parallaxGearMaxAge = 60 * time.Second
 //   - sleep: report the per-interval count of frames that arrived while
 //     the car reported "sleep", proving Parallax doesn't keep a sleeping
 //     car awake (0 = quiet).
+//
 // Observability only for now: it logs (no forced resubscribe yet, since
 // vehicleState is still the authoritative fallback). The individual
 // subscribers already reconnect on a hard error; this catches the harder
@@ -850,6 +851,31 @@ const refuseLogEvery = time.Minute
 // refuse counts one refused owner-side action under kind (rivolt_lease_fenced_total) and logs one WARN per kind per vehicle per
 // minute with the epoch the pod last held, so the log and the counter come from the same place and cannot disagree. The vehicle id
 // is shortened to its last four characters; nothing else about the user is logged.
+// The places the monitor reaches Rivian from, as rivolt_rivian_call_refused_total{site} counts them (single-owner M4-1). A refusal at
+// any of these on a pod that does not hold the group is a finding, not a routine event: nothing should have tried.
+const (
+	CallSiteSeed           = "seed"            // the REST seed when a monitor starts
+	CallSiteRefreshOnce    = "refresh_once"    // the periodic REST refresh
+	CallSiteJanitorConfirm = "janitor_confirm" // the stale-charge janitor's REST confirm
+	CallSiteWakeSafety     = "wake_safety"     // the wake-safety hold check
+	CallSiteWSDial         = "ws_dial"         // the vehicleState subscription's dial and reconnect
+	CallSiteLiveSession    = "live_session"    // the charging-session read
+)
+
+// CallSites is every site, for the counter's zero-fill.
+var CallSites = []string{CallSiteSeed, CallSiteRefreshOnce, CallSiteJanitorConfirm, CallSiteWakeSafety, CallSiteWSDial, CallSiteLiveSession}
+
+// CallRefusedPrefix marks a Rivian call refused at a site in the onFenced callback's kind ("call:<site>"), so the one callback the
+// registry already carries reports both the fenced-write classes and the refused calls without a second hook.
+const CallRefusedPrefix = "call:"
+
+// refuseCall reports a Rivian call that was not made because this pod does not hold the group.
+func (m *StateMonitor) refuseCall(site string) {
+	if m.onFenced != nil {
+		m.onFenced(CallRefusedPrefix + site)
+	}
+}
+
 func (m *StateMonitor) refuse(vehicleID, kind string) {
 	if m.onFenced != nil {
 		m.onFenced(kind)
@@ -885,7 +911,7 @@ func shortVehicle(id string) string {
 // goes out (the context is already done on resume). The warm-up does not apply: the new owner
 // connects at once. A group this pod does not hold (or whose deadline has passed) is refused and
 // counted as fenced{kind="rivian"}; lead mode off is unchanged.
-func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID string) (context.Context, context.CancelFunc, bool) {
+func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID, site string) (context.Context, context.CancelFunc, bool) {
 	noop := func() {}
 	if m.fenceSrc == nil {
 		return ctx, noop, true
@@ -894,12 +920,14 @@ func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID string) (context
 		return ctx, noop, true
 	} else if st == fence.Lost {
 		m.refuse(vehicleID, "rivian")
+		m.refuseCall(site)
 		return ctx, noop, false
 	}
 	if d, ok := m.fenceSrc.(fence.Deadliner); ok {
 		if at, has := d.Deadline(vehicleID); has {
 			if !time.Now().Before(at) {
 				m.refuse(vehicleID, "rivian")
+				m.refuseCall(site)
 				return ctx, noop, false
 			}
 			dctx, cancel := context.WithDeadline(ctx, at)
@@ -1296,7 +1324,7 @@ func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID
 		// Asleep means not charging: the open row is stale.
 		return false, ""
 	}
-	st, err := m.restState(cctx, rivianVehicleID, why)
+	st, err := m.restState(cctx, rivianVehicleID, why, CallSiteJanitorConfirm)
 	if err != nil || st == nil {
 		if err != nil && ctx.Err() == nil {
 			m.logger.Debug("stale charge REST confirm failed",
@@ -1551,7 +1579,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// something to overlay the deltas onto. Tire pressures (bar) and
 	// other subscription-only fields stay zero here and get filled
 	// in once the first push arrives.
-	if st, err := m.restState(ctx, vehicleID, "seed"); err == nil && st != nil {
+	if st, err := m.restState(ctx, vehicleID, "seed", CallSiteSeed); err == nil && st != nil {
 		m.noteVehStateGPS(vehicleID, st)
 		m.mu.Lock()
 		var merged *State
@@ -1650,7 +1678,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		}
 		// Not ours to dial: the group is not held, or its local lease deadline has passed. Wait for the
 		// coordinator to stop this subscription or the lease to come back; never dial meanwhile.
-		if _, cancelGate, ok := m.rivianCtx(ctx, vehicleID); !ok {
+		if _, cancelGate, ok := m.rivianCtx(ctx, vehicleID, CallSiteWSDial); !ok {
 			select {
 			case <-ctx.Done():
 			case <-time.After(time.Second):
@@ -2023,7 +2051,7 @@ func (m *StateMonitor) refreshOnce(ctx context.Context, vehicleID string) {
 	if skip {
 		return
 	}
-	st, err := m.restState(ctx, vehicleID, why)
+	st, err := m.restState(ctx, vehicleID, why, CallSiteRefreshOnce)
 	if err != nil {
 		if ctx.Err() == nil {
 			m.logger.Debug("rivian rest refresh failed", "vehicle", vehicleID, "err", err.Error())
@@ -2133,7 +2161,7 @@ func (m *StateMonitor) chargingSessionMetadataFetcher(ctx context.Context, vehic
 			if fetched {
 				continue
 			}
-			lctx, lcancel, ok := m.rivianCtx(ctx, vehicleID)
+			lctx, lcancel, ok := m.rivianCtx(ctx, vehicleID, CallSiteLiveSession)
 			if !ok {
 				continue
 			}
@@ -3838,7 +3866,9 @@ type ChargeNow struct {
 // HomeRateApplies says whether the user's home $/kWh rate is a fair price for this charge: an AC session (peak under the L2
 // threshold) that is not known to be away from home. A fast charge on another network, or an AC charge at a place that is not
 // home, has a price of its own that we do not know, so no estimate is better than a home-rate one.
-func (c ChargeNow) HomeRateApplies() bool { return c.PeakKW < l2PowerThresholdKW && c.Place != PlaceAway }
+func (c ChargeNow) HomeRateApplies() bool {
+	return c.PeakKW < l2PowerThresholdKW && c.Place != PlaceAway
+}
 
 // LiveDrive is the wire-friendly snapshot of an in-flight drive
 // session — the recorder's internal `liveDrive` accumulator

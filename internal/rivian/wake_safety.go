@@ -204,7 +204,7 @@ func (m *StateMonitor) holdWhileAsleep(ctx context.Context, vehicleID string, ws
 			return nil
 		case <-check.C:
 			checks++
-			st, err := m.restState(ctx, vehicleID, "hold_check")
+			st, err := m.restState(ctx, vehicleID, "hold_check", CallSiteWakeSafety)
 			if ctx.Err() != nil {
 				reason = "cancelled"
 				return ctx.Err()
@@ -304,7 +304,7 @@ func (m *StateMonitor) restQuiet(vehicleID, reason string) (skip bool, callReaso
 // restState is every REST GetVehicleState call the monitor makes, each
 // logged with why and the cached power state (experiment A evidence:
 // these line up against wakes).
-func (m *StateMonitor) restState(ctx context.Context, vehicleID, reason string) (*State, error) {
+func (m *StateMonitor) restState(ctx context.Context, vehicleID, reason, site string) (*State, error) {
 	ps, _ := m.cachedPowerState(vehicleID)
 	m.mu.Lock()
 	skipped := m.restSkips[vehicleID]
@@ -319,7 +319,7 @@ func (m *StateMonitor) restState(ctx context.Context, vehicleID, reason string) 
 	// rides along as its detail.
 	ctx = withActionReason(ctx, reason)
 	// Only the vehicle's owner calls Rivian, and never past its local lease deadline.
-	ctx, cancel, ok := m.rivianCtx(ctx, vehicleID)
+	ctx, cancel, ok := m.rivianCtx(ctx, vehicleID, site)
 	if !ok {
 		return nil, fence.ErrFenced
 	}
