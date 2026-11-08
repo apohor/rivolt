@@ -237,16 +237,23 @@ struct PlanDaysMap: View {
     @State private var drawing: RouteSnap.Drawing?
     @State private var lines: [[RouteSnap.Coord]] = []
 
+    private func reportLine() {
+        guard !lines.isEmpty else { return }
+        onLine(day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil } ?? lines.flatMap { $0 })
+    }
+
     var body: some View {
         PlanMapCanvas(drawing: drawing.map { var d = $0; d.focus = focus; d.along = PlanRouteLogic.alongStops(along); d.fitTo = day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil }; return d },
                       onStop: onStop, fills: fills, bottomInset: bottomInset)
+            // The layers follow the line on show: the whole trip, or the day the person picked.
+            .onChange(of: day) { reportLine() }
             .task(id: days) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 let routes = days.compactMap(\.plan.best)
                 drawing = PlanRouteLogic.drawing(days: days, lines: routes.map { PlanRouteLogic.places($0) })
                 var found: [[RouteSnap.Coord]] = []
                 for r in routes { found.append(await PlanRouteLogic.line(route: r, source: state.client)) }
-                if !Task.isCancelled, let d = PlanRouteLogic.drawing(days: days, lines: found) { drawing = d; lines = found; onLine(found.flatMap { $0 }) }
+                if !Task.isCancelled, let d = PlanRouteLogic.drawing(days: days, lines: found) { drawing = d; lines = found; reportLine() }
             }
     }
 }

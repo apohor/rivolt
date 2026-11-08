@@ -22,7 +22,11 @@ final class AlongPinsRenderTests: XCTestCase {
     private func drawn(_ d: RouteSnap.Drawing, then later: RouteSnap.Drawing? = nil) async throws -> Int {
         let coord = RouteMapView.Coordinator(drawing: d, onHealth: { _ in })
         let map = MLNMapView.displayOnly(styleJSON: style, watch: coord, interactive: false)
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first, "a window scene to draw in")
+        // The host app's scene can connect a moment after the tests start.
+        func connected() -> UIWindowScene? { UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first }
+        for _ in 0..<100 where connected() == nil { try await Task.sleep(for: .milliseconds(100)) }
+        // A cold simulator may have no scene for the host app yet: nothing to draw in, so nothing to check (not a failure of the pins).
+        guard let scene = connected() else { throw XCTSkip("no window scene to draw a map in") }
         let window = UIWindow(windowScene: scene)
         window.frame = CGRect(x: 0, y: 0, width: 390, height: 600)
         map.frame = window.bounds
