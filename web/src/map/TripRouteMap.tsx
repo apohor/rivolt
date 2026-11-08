@@ -363,7 +363,7 @@ export function TripRouteMap({
           tip.remove(); // a touch tap also fires mouseenter: one popup, the callout with its close button
           callout.remove();
           // WebKit's tap also reaches the map as a click, which would close a popup opened in the same turn: open it just after.
-          window.setTimeout(() => { if (alive && mapRef.current === map) callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map) }, 40);
+          window.setTimeout(() => { if (alive && mapRef.current === map) callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); }, 40);
         });
         element.addEventListener("mouseenter", () => { if (!callout.isOpen()) tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); });
         element.addEventListener("mouseleave", () => tip.remove());
@@ -660,7 +660,7 @@ export function TripRouteMap({
   return (
     <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
       {!noChargerSource && (
-        <div className={fill ? "pointer-events-none absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm [&_button]:pointer-events-auto" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
+        <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
           <span className="whitespace-nowrap text-xs text-neutral-500 mr-1">Chargers:</span>
           {(["dcfc", "l2", "hotels", "camp", "all"] as const).filter((f) => f !== "camp" || campCount > 0 || chargerFilter === "camp").map((f) => (
             <button
