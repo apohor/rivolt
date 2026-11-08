@@ -49,3 +49,17 @@ test("plan vs actual with no saved trips shows an empty-state line", async ({ pa
   await expect(empty).toContainText("Nothing to compare yet. Plan a route and save it, drive it,");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
+
+// Every comparison failing to load says so with a retry; an older server without the endpoint says that. Neither is a titled card with nothing in it. Refs #1648.
+test("plan vs actual: a failing comparison shows an error with a retry; an absent endpoint says so", async ({ page }) => {
+  await stubApi(page);
+  let status = 500;
+  await page.route("**/api/trips/saved/*/actual", (r) => r.fulfill({ status, contentType: "text/plain", body: status === 500 ? "boom" : "not found" }));
+  await page.goto("/trips/plan?tab=pva");
+  const err = page.locator("[data-pva-error]");
+  await expect(err).toHaveText("Couldn't load the comparison. Try again in a moment.");
+  status = 404;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.locator("[data-pva-unavailable]")).toHaveText("Plan vs actual isn't available on this server.");
+  await expect(err).toHaveCount(0);
+});

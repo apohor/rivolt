@@ -49,6 +49,25 @@ function NextSection({ trips, highlightId }: { trips: SavedTrip[]; highlightId?:
       </Card>
     );
   }
+  // Every comparison failed to load: say so, with a retry, instead of a titled card with nothing in it. (Some failing while others load is left
+  // to the trips that did; each shows its own.) An absent endpoint (an older server answers 404/501, which reads as no data) says that instead.
+  if (qs.length > 0 && qs.every((q) => q.isError)) {
+    return (
+      <Card title="Plan vs actual" area="p-pva">
+        <p data-pva-error className="text-xs text-neutral-400">Couldn't load the comparison. Try again in a moment.</p>
+        <button type="button" onClick={() => qs.forEach((q) => void q.refetch())} className="mt-2 rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800">
+          Try again
+        </button>
+      </Card>
+    );
+  }
+  if (qs.length > 0 && qs.every((q) => q.isSuccess && q.data == null)) {
+    return (
+      <Card title="Plan vs actual" area="p-pva">
+        <p data-pva-unavailable className="text-xs text-neutral-500">Plan vs actual isn't available on this server.</p>
+      </Card>
+    );
+  }
   // Trips with a drive waiting for a Confirm / Not this trip always show (a suggestion nobody sees is never answered); the latest
   // confirmed comparison shows after them, older ones behind a toggle; trips not driven yet or still in progress are one-line rows.
   const needs: SavedTrip[] = [];
