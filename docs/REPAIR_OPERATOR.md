@@ -13,7 +13,7 @@ any lease. Fencing cannot cover them, so the database keeps a record of every mu
   a table or column that looks secret is readable and not allowlisted with a reason; INSERT, UPDATE and DELETE on `charges`, `drives`, `charges_capped_backup`,
   `charges_deleted_backup` and `vehicles` only; EXECUTE on `rivolt_operator_begin` and `rivolt_operator_end`.
 - Table `operator_actions` (migration 0108): one row per mutating run: tool, role label (`lead` or `owner`, never a name), git sha, reason, the
-  sha256 of the approved dry run (required: every audited run is tied to the digest that was approved), start and end, outcome (`ok` or `failed`) and `rows_written`, counted by the guard itself for every row the run inserts, updates or deletes in a guarded table.
+  sha256 of the approved dry run (required), start and end, outcome (`ok` or `failed`) and `rows_written`, counted by the guard itself for every row the run inserts, updates or deletes in a guarded table.
 - A trigger on those five tables, for the repair role only: every write needs the session setting `rivolt.operator_action` to name an open action less
   than 12 hours old. Other roles are untouched.
 
@@ -30,6 +30,13 @@ RIVOLT_APPROVED_DIGEST=<64 hex>                                    # the approve
 
 The CLI opens the action, works on connections that carry it, and closes it with the outcome from its exit code. The action id and role are printed
 on stderr. To see what a run did: `SELECT * FROM operator_actions ORDER BY started_at DESC` (as the owner role; the repair role cannot read it).
+
+## What the digest does and does not prove
+
+The five CLIs with `--expect-sha` (close-stale, blips, route-gaps, route-points, stretched) abort unless the dry run they recompute matches the flag, so for
+them the recorded digest is the one the run was checked against. The other five (charge-energy, r2-history, fragments, phantoms, reprice) and every
+restore record `RIVOLT_APPROVED_DIGEST` as given and do not recompute it: **the approver checks it by hand against the dry-run file** before the run
+(and again against the `operator_actions` row afterwards).
 
 ## Switch-over (the existing path keeps working)
 
