@@ -59,16 +59,27 @@ func runRepairStretched(args []string) int {
 			return 1
 		}
 		fmt.Printf("batch %s: %d backed-up row(s) to restore\n", bid, n)
+		blockers, err := stretched.RestoreBlockers(ctx, pool, bid)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "repair-charge-stretched:", err)
+			return 1
+		}
+		for _, b := range blockers {
+			fmt.Printf("  blocked: row %s: %s\n", b.ChargeID.String()[:8], b.Reason)
+		}
+		if len(blockers) > 0 {
+			fmt.Println("the restore is all or nothing: nothing can be restored while a group is blocked")
+		}
 		if !*apply {
 			fmt.Println("dry run; pass --apply to restore")
 			return 0
 		}
-		restored, skipped, err := stretched.Restore(ctx, pool, bid)
+		restored, err := stretched.Restore(ctx, pool, bid)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "repair-charge-stretched: restore:", err)
 			return 1
 		}
-		fmt.Printf("restored %d row(s); %d left alone (ended_at changed since)\n", restored, skipped)
+		fmt.Printf("restored %d row(s)\n", restored)
 		return 0
 	}
 
@@ -110,6 +121,8 @@ func runRepairStretched(args []string) int {
 	fmt.Printf("hours removed: %.1f\n", plan.HoursRemoved())
 	if *split {
 		n, created, kwh := plan.SplitTotals()
+		l2, dc := plan.NewRowKinds()
+		fmt.Printf("new rows by type: %d L2/AC, %d DC fast (neither is priced or given a place by this repair)\n", l2, dc)
 		fmt.Printf("split: %d row(s) create %d new row(s), %.1f kWh re-attributed, %.1f h of idle inside the new rows (new rows are unpriced: run rivolt reprice --detect on them afterwards)\n", n, created, kwh, plan.IdleHoursInNewRows())
 	}
 	fmt.Printf("capped rows priced from the home rate or a network estimate (re-price candidates): %d\n", plan.Repriceable())

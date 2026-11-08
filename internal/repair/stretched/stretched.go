@@ -27,6 +27,7 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/repair/blips"
 	"github.com/apohor/rivolt/internal/repair/phantom"
+	"github.com/apohor/rivolt/internal/rivian"
 )
 
 const (
@@ -398,6 +399,21 @@ func (p Plan) Digest() string {
 	return hex.EncodeToString(sum[:])
 }
 
+// NewRowKinds counts the new rows by charge type, by peak power: DC fast (the recorder's DCFCMinKW) or L2/AC. The
+// repair prices neither (the dry run reports it so the follow-up pricing step is sized).
+func (p Plan) NewRowKinds() (l2, dc int) {
+	for _, sp := range p.Splits {
+		for _, n := range sp.News {
+			if n.MaxPowerKW >= rivian.DCFCMinKW {
+				dc++
+			} else {
+				l2++
+			}
+		}
+	}
+	return
+}
+
 // IdleHoursInNewRows is the time the new rows span beyond their active charging (a segment that held a charge, a
 // long idle and another charge becomes one row; its energy is right, its duration includes the idle).
 func (p Plan) IdleHoursInNewRows() float64 {
@@ -580,33 +596,35 @@ func Apply(ctx context.Context, d *sql.DB, batchID uuid.UUID, wantCount int, wan
 	return n, nil
 }
 
-// Restore undoes a batch from charges_capped_backup: the original row's columns the repair changed (ended_at,
-// end_soc_pct, energy_added_kwh, cost, final_state, the power figures and metadata) go back, and the rows it created are deleted. updated_at is touched
-// by the table's trigger on every update, so it reads the restore time (the old value stays in the backup row). A
-// group is left alone, and counted in skipped, when the original's ended_at is no longer the capped value or a
-// created row has been touched since (a user price, override, note, tag, place correction or receipt): nothing is
-// deleted that a person has built on. A restored batch is refused.
-func Restore(ctx context.Context, d *sql.DB, batchID uuid.UUID) (restored, skipped int, err error) {
-	tx, err := d.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	type grp struct {
-		charge  uuid.UUID
-		created []string
-	}
+// Blocker is a reason a batch cannot be restored cleanly. Nothing is restored while any exists.
+type Blocker struct {
+	ChargeID uuid.UUID
+	Reason   string
+}
+
+// restoreGroup is one original row of a batch and the rows its split created.
+type restoreGroup struct {
+	charge  uuid.UUID
+	created []string
+}
+
+// lockRestore locks, in the caller's transaction, every original and created row of the batch (FOR UPDATE, ordered by
+// id) and returns the groups with the reasons any of them cannot be restored: the original's ended_at is no longer the
+// capped value, or a person has built on the original or on a created row since the repair (a user price, place or
+// location override, note, tag, place correction or receipt). The repair refused such rows beforehand, so any of
+// these on the original is a later edit.
+func lockRestore(ctx context.Context, tx *sql.Tx, batchID uuid.UUID) ([]restoreGroup, []Blocker, error) {
 	rs, err := tx.QueryContext(ctx, `SELECT charge_id, COALESCE(array_to_string(created_ids, ','), '') FROM charges_capped_backup WHERE batch_id = $1 AND restored_at IS NULL ORDER BY charge_id`, batchID)
 	if err != nil {
-		return 0, 0, err
+		return nil, nil, err
 	}
-	var groups []grp
+	var groups []restoreGroup
 	for rs.Next() {
-		var g grp
+		var g restoreGroup
 		var created string
 		if err := rs.Scan(&g.charge, &created); err != nil {
 			rs.Close()
-			return 0, 0, err
+			return nil, nil, err
 		}
 		if created != "" {
 			g.created = strings.Split(created, ",")
@@ -615,13 +633,24 @@ func Restore(ctx context.Context, d *sql.DB, batchID uuid.UUID) (restored, skipp
 	}
 	rs.Close()
 	if err := rs.Err(); err != nil {
-		return 0, 0, err
+		return nil, nil, err
 	}
-	if len(groups) == 0 {
-		return 0, 0, fmt.Errorf("stretched: batch %s has nothing to restore (unknown or already restored)", batchID)
-	}
+	var blockers []Blocker
 	for _, g := range groups {
-		arr := "{" + strings.Join(g.created, ",") + "}"
+		ids := append([]string{g.charge.String()}, g.created...)
+		arr := "{" + strings.Join(ids, ",") + "}"
+		// Lock first, then judge: no concurrent edit can slip between the check and the writes.
+		if _, err := tx.ExecContext(ctx, `SELECT 1 FROM charges WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, arr); err != nil {
+			return nil, nil, err
+		}
+		var intact int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM charges c JOIN charges_capped_backup b ON b.charge_id = c.id
+			 WHERE b.batch_id = $1 AND b.charge_id = $2 AND c.ended_at = b.capped_to`, batchID, g.charge).Scan(&intact); err != nil {
+			return nil, nil, err
+		}
+		if intact != 1 {
+			blockers = append(blockers, Blocker{g.charge, "the original's ended_at changed since the repair (or the row is gone)"})
+		}
 		var touched int
 		if err := tx.QueryRowContext(ctx, `
 			SELECT count(*) FROM charges x
@@ -630,25 +659,63 @@ func Restore(ctx context.Context, d *sql.DB, batchID uuid.UUID) (restored, skipp
 			        OR COALESCE(x.notes,'') <> '' OR cardinality(x.tags) > 0
 			        OR EXISTS (SELECT 1 FROM charge_restamps r WHERE r.charge_id = x.id)
 			        OR EXISTS (SELECT 1 FROM rivian_receipts rr WHERE rr.charge_id = x.id))`, arr).Scan(&touched); err != nil {
-			return 0, 0, err
+			return nil, nil, err
 		}
 		if touched > 0 {
-			skipped++
-			continue
+			blockers = append(blockers, Blocker{g.charge, "a person has built on the original or a created row since the repair"})
 		}
-		var intact int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM charges c JOIN charges_capped_backup b ON b.charge_id = c.id
-			 WHERE b.batch_id = $1 AND b.charge_id = $2 AND c.ended_at = b.capped_to`, batchID, g.charge).Scan(&intact); err != nil {
-			return 0, 0, err
-		}
-		if intact != 1 {
-			skipped++
-			continue
-		}
-		// The created rows go first: the original's old end overlaps them (charges_live_no_overlap).
+	}
+	return groups, blockers, nil
+}
+
+// RestoreBlockers lists the reasons the batch cannot be restored, for the restore dry run. It writes nothing (the
+// locks are released by the rollback).
+func RestoreBlockers(ctx context.Context, d *sql.DB, batchID uuid.UUID) ([]Blocker, error) {
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, blockers, err := lockRestore(ctx, tx, batchID)
+	return blockers, err
+}
+
+// ErrRestoreBlocked: some group of the batch cannot be restored; nothing was changed.
+var ErrRestoreBlocked = errors.New("stretched: the batch cannot be restored cleanly; nothing changed")
+
+// Restore undoes a batch from charges_capped_backup in ONE transaction, all or nothing: every original and created
+// row is locked first; if any group is blocked (see lockRestore) the transaction rolls back with ErrRestoreBlocked
+// and nothing changes, and any statement that does not behave (a delete or an update that touches an unexpected
+// number of rows) rolls everything back too. Then the created rows are deleted (the original's old end overlaps them,
+// charges_live_no_overlap) and the original's changed columns go back: ended_at, end_soc_pct, energy_added_kwh,
+// cost, final_state and the power figures, and metadata with only the repair's own key removed, so keys added since
+// survive. updated_at is touched by the table's trigger on every update, so it reads the restore time (the old value
+// stays in the backup row). A batch with nothing left to restore is refused.
+func Restore(ctx context.Context, d *sql.DB, batchID uuid.UUID) (int, error) {
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	groups, blockers, err := lockRestore(ctx, tx, batchID)
+	if err != nil {
+		return 0, err
+	}
+	if len(groups) == 0 {
+		return 0, fmt.Errorf("stretched: batch %s has nothing to restore (unknown or already restored)", batchID)
+	}
+	if len(blockers) > 0 {
+		return 0, fmt.Errorf("%w: %d blocker(s), first: %s (%s)", ErrRestoreBlocked, len(blockers), blockers[0].ChargeID, blockers[0].Reason)
+	}
+	restored := 0
+	for _, g := range groups {
 		if len(g.created) > 0 {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM charges WHERE id = ANY($1::uuid[])`, arr); err != nil {
-				return 0, 0, err
+			res, err := tx.ExecContext(ctx, `DELETE FROM charges WHERE id = ANY($1::uuid[])`, "{"+strings.Join(g.created, ",")+"}")
+			if err != nil {
+				return 0, err
+			}
+			if k, _ := res.RowsAffected(); int(k) != len(g.created) {
+				return 0, fmt.Errorf("stretched: deleted %d of %d created rows for %s; rolling back", k, len(g.created), g.charge)
 			}
 		}
 		res, err := tx.ExecContext(ctx, `
@@ -661,23 +728,22 @@ func Restore(ctx context.Context, d *sql.DB, batchID uuid.UUID) (restored, skipp
 			       max_power_kw = (b.row->>'max_power_kw')::double precision,
 			       avg_power_kw = (b.row->>'avg_power_kw')::double precision,
 			       active_seconds = (b.row->>'active_seconds')::double precision,
-			       metadata = b.row->'metadata'
+			       metadata = c.metadata - 'stretched_repair'
 			  FROM charges_capped_backup b
 			 WHERE b.batch_id = $1 AND b.charge_id = $2 AND c.id = b.charge_id AND c.ended_at = b.capped_to`, batchID, g.charge)
 		if err != nil {
-			return 0, 0, err
+			return 0, err
 		}
 		if k, _ := res.RowsAffected(); k != 1 {
-			skipped++
-			continue
+			return 0, fmt.Errorf("stretched: restoring %s changed %d rows; rolling back", g.charge, k)
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE charges_capped_backup SET restored_at = now() WHERE batch_id = $1 AND charge_id = $2`, batchID, g.charge); err != nil {
-			return 0, 0, err
+			return 0, err
 		}
 		restored++
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, 0, err
+		return 0, err
 	}
-	return restored, skipped, nil
+	return restored, nil
 }

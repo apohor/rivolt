@@ -4,6 +4,8 @@ package integration_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -184,16 +186,16 @@ func TestStretchedRepair(t *testing.T) {
 	}
 
 	// Undo: the row comes back byte-identical, the batch is marked restored and cannot be restored twice.
-	restored, skipped, err := stretched.Restore(ctx, pool, batch)
-	if err != nil || restored != 2 || skipped != 0 {
-		t.Fatalf("restore: %d restored %d skipped %v", restored, skipped, err)
+	restored, err := stretched.Restore(ctx, pool, batch)
+	if err != nil || restored != 2 {
+		t.Fatalf("restore: %d restored %v", restored, err)
 	}
 	for id, j := range snapshot() {
 		if before[id] != j {
 			t.Fatalf("after restore row %s differs:\n before %s\n after  %s", id, before[id], j)
 		}
 	}
-	if _, _, err := stretched.Restore(ctx, pool, batch); err == nil {
+	if _, err := stretched.Restore(ctx, pool, batch); err == nil {
 		t.Fatal("a second restore of the same batch must be refused")
 	}
 	// The restore touched updated_at, so the row is quiet for an hour before a dry run would pick it up again.
@@ -322,19 +324,42 @@ func TestStretchedSplit(t *testing.T) {
 		t.Fatal("second pass would change more")
 	}
 
-	// A user prices the created row: the undo leaves that group alone.
-	exec(`UPDATE charges SET cost_source = 'user' WHERE id = $1`, newID)
-	if r, s, err := stretched.Restore(ctx, pool, batch); err != nil || r != 0 || s != 1 {
-		t.Fatalf("restore with a user-priced created row: %d %d %v, want 0 restored 1 skipped", r, s, err)
+	// The undo is all or nothing. Each of these blocks it, changes nothing, and is listed by the restore dry run.
+	afterApply := snapshot()
+	blocked := func(what, set, unset string) {
+		t.Helper()
+		exec(set)
+		bl, err := stretched.RestoreBlockers(ctx, pool, batch)
+		if err != nil || len(bl) == 0 {
+			t.Fatalf("%s: restore dry run lists %v %v, want a blocker", what, bl, err)
+		}
+		if r, err := stretched.Restore(ctx, pool, batch); !errors.Is(err, stretched.ErrRestoreBlocked) || r != 0 {
+			t.Fatalf("%s: restore = %d %v, want ErrRestoreBlocked", what, r, err)
+		}
+		if count() != 2 {
+			t.Fatalf("%s: a blocked restore deleted rows: %d left", what, count())
+		}
+		exec(unset)
+		if got := snapshot(); got != afterApply {
+			t.Fatalf("%s: a blocked restore changed the original:\n before %s\n after  %s", what, afterApply, got)
+		}
 	}
-	if count() != 2 {
-		t.Fatalf("the user-priced row was deleted: %d rows", count())
+	blocked("a user prices the created row", fmt.Sprintf(`UPDATE charges SET cost_source = 'user' WHERE id = '%s'`, newID), fmt.Sprintf(`UPDATE charges SET cost_source = NULL WHERE id = '%s'`, newID))
+	blocked("a user prices the original", fmt.Sprintf(`UPDATE charges SET cost_source = 'user' WHERE id = '%s'`, orig), fmt.Sprintf(`UPDATE charges SET cost_source = 'home_rate' WHERE id = '%s'`, orig))
+	blocked("a user notes the original", fmt.Sprintf(`UPDATE charges SET notes = 'mine' WHERE id = '%s'`, orig), fmt.Sprintf(`UPDATE charges SET notes = NULL WHERE id = '%s'`, orig))
+	blocked("the original's end moved", fmt.Sprintf(`UPDATE charges SET ended_at = ended_at - interval '1 minute' WHERE id = '%s'`, orig), fmt.Sprintf(`UPDATE charges SET ended_at = ended_at + interval '1 minute' WHERE id = '%s'`, orig))
+
+	// A key added to the original's metadata after the apply survives the undo; the repair's own key goes.
+	exec(`UPDATE charges SET metadata = metadata || '{"later": 1}'::jsonb WHERE id = $1`, orig)
+	if r, err := stretched.Restore(ctx, pool, batch); err != nil || r != 1 {
+		t.Fatalf("restore: %d %v", r, err)
 	}
-	// Without the user's price the undo is exact: the created row goes, the original comes back.
-	exec(`UPDATE charges SET cost_source = NULL WHERE id = $1`, newID)
-	if r, s, err := stretched.Restore(ctx, pool, batch); err != nil || r != 1 || s != 0 {
-		t.Fatalf("restore: %d %d %v", r, s, err)
+	var metaAfter string
+	_ = pool.QueryRowContext(ctx, `SELECT metadata::text FROM charges WHERE id = $1`, orig).Scan(&metaAfter)
+	if strings.Contains(metaAfter, "stretched_repair") || !strings.Contains(metaAfter, `"later"`) {
+		t.Fatalf("metadata after restore = %s, want the repair's key gone and the later key kept", metaAfter)
 	}
+	exec(`UPDATE charges SET metadata = metadata - 'later' WHERE id = $1`, orig)
 	if got := snapshot(); got != before {
 		t.Fatalf("after restore the original differs:\n before %s\n after  %s", before, got)
 	}
