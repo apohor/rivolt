@@ -113,7 +113,9 @@ type Split struct {
 	// EmptyOriginal: nothing in the original's span before the first drive was a charge (no plugged frame, no SoC gain). It
 	// is kept as a zero-energy abandoned row ended at the first drive; its remainder is still stored minus the new rows.
 	EmptyOriginal bool
-	News          []NewRow
+	// ClampedKWh is the excess the new rows were scaled down by (0: not clamped).
+	ClampedKWh float64
+	News       []NewRow
 }
 
 // Options select the optional behaviour of a plan.
@@ -428,7 +430,7 @@ func (p Plan) Digest() string {
 			if sp.OrigCost != nil {
 				cost = fmt.Sprintf("%.4f", *sp.OrigCost)
 			}
-			line += fmt.Sprintf(" split soc=%.2f kwh=%.4f cost=%s state=%s max=%.3f avg=%.3f active=%.0f empty=%t", sp.OrigEndSoC, sp.OrigKWh, cost, sp.OrigFinalState, sp.OrigMaxKW, sp.OrigAvgKW, sp.OrigActiveSec, sp.EmptyOriginal)
+			line += fmt.Sprintf(" split soc=%.2f kwh=%.4f cost=%s state=%s max=%.3f avg=%.3f active=%.0f empty=%t clamped=%.4f", sp.OrigEndSoC, sp.OrigKWh, cost, sp.OrigFinalState, sp.OrigMaxKW, sp.OrigAvgKW, sp.OrigActiveSec, sp.EmptyOriginal, sp.ClampedKWh)
 			for _, n := range sp.News {
 				line += fmt.Sprintf(" | %s %s %s kwh=%.4f soc=%.2f-%.2f state=%s max=%.3f avg=%.3f active=%.0f cost=%.4f ppk=%.6f %s src=%s net=%s place=%s",
 					n.ExternalID, n.Start.UTC().Format(time.RFC3339Nano), n.End.UTC().Format(time.RFC3339Nano), n.KWh, n.SoCStart, n.SoCEnd, n.FinalState, n.MaxPowerKW, n.AvgPowerKW, n.ActiveSeconds,
@@ -479,6 +481,17 @@ func (p Plan) SoCModeTotals() (rows, disagree int) {
 		rows++
 		if p.SoCOff[id] {
 			disagree++
+		}
+	}
+	return
+}
+
+// ClampTotals counts the splits whose new rows were scaled down to the stored energy, and the kWh clamped away.
+func (p Plan) ClampTotals() (rows int, kwh float64) {
+	for _, sp := range p.Splits {
+		if sp.ClampedKWh > 0 {
+			rows++
+			kwh += sp.ClampedKWh
 		}
 	}
 	return
