@@ -45,18 +45,18 @@ func TestVehiclesAreServedFromPostgresWithoutARivianCall(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pool.Close() })
 	uid := acceptedUser(ctx, t, pool, "veh-from-db")
-	info := rivian.Vehicle{TrimName: "Adventure Package", Make: "Rivian", Images: []rivian.VehicleImage{{VehicleID: "rv-db-1", URL: "https://img.test/a.png", Placement: "side-exterior-3qfront-driver"}}}
+	info := rivian.Vehicle{InfoSynced: true, TrimName: "Adventure Package", Make: "Rivian", Images: []rivian.VehicleImage{{VehicleID: "rv-db-1", URL: "https://img.test/a.png", Placement: "side-exterior-3qfront-driver"}}}
 	// Row 1 stores a reported capacity (77.7) that the list must not serve: it serves the spec lookup, as the Rivian list did.
 	for _, v := range []db.VehicleSync{
 		{RivianID: "rv-db-1", VIN: "VIN-DB-1", Name: "Truck", Model: "R1T", ModelYear: 2024, Trim: "PKG-ADV", PackKWh: 77.7, ImageURL: "https://img.test/a.png", Info: info.StoredInfo()},
-		{RivianID: "rv-db-2", Name: "Second", Model: "R1S", ModelYear: 2023, Trim: "LRG-DM-PRFM", PackKWh: 135},
+		{RivianID: "rv-db-2", Name: "Second", Model: "R1S", ModelYear: 2023, Trim: "LRG-DM-PRFM", PackKWh: 135, Info: rivian.Vehicle{InfoSynced: true}.StoredInfo()},
 	} {
 		if err := db.UpsertVehicleFromSync(ctx, pool, uid, v); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// A login's later prime has no gallery: it must not erase the stored one.
-	if err := db.UpsertVehicleFromSync(ctx, pool, uid, db.VehicleSync{RivianID: "rv-db-1", Name: "Truck", Info: rivian.Vehicle{TrimName: "Adventure Package"}.StoredInfo()}); err != nil {
+	if err := db.UpsertVehicleFromSync(ctx, pool, uid, db.VehicleSync{RivianID: "rv-db-1", Name: "Truck", Info: rivian.Vehicle{TrimName: "Adventure Package"}.StoredInfo()}); err != nil { // a later sign-in prime: no gallery, no marker, and it must not clear either
 		t.Fatal(err)
 	}
 	if _, err := pool.ExecContext(ctx, `INSERT INTO vehicles (user_id, rivian_vehicle_id, model) VALUES ($1, 'electrafi-abc', 'R1T')`, uid); err != nil {
@@ -67,7 +67,7 @@ func TestVehiclesAreServedFromPostgresWithoutARivianCall(t *testing.T) {
 		c := &countingRivian{}
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil).WithContext(auth.WithUser(ctx, uid))
-		h := handleVehicles(c, nil, pool, nil, nil, func(context.Context) string { return only }, &vehiclesFromDB{needsReauth: func(context.Context) bool { return reauth }})
+		h := handleVehicles(c, nil, pool, nil, nil, func(context.Context) string { return only }, &vehiclesFromDB{account: func(context.Context) (bool, bool, bool) { return true, reauth, true }})
 		h(rec, req)
 		return rec, c
 	}
@@ -157,7 +157,7 @@ func TestLinkedAccountWithNoStoredVehicleAsksRivianOnceThenStopsAsking(t *testin
 	get := func() int {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil).WithContext(auth.WithUser(ctx, uid))
-		handleVehicles(c, nil, pool, nil, linked, nil, &vehiclesFromDB{gate: gate})(rec, req)
+		handleVehicles(c, nil, pool, nil, linked, nil, &vehiclesFromDB{gate: gate, account: linkedAccount})(rec, req)
 		return rec.Code
 	}
 	if code := get(); code != http.StatusOK || c.calls.Load() != 1 {
@@ -207,7 +207,7 @@ func TestFailingFallbackIsNotRetriedWithinFiveMinutes(t *testing.T) {
 	get := func(g *vehicleFallbackGate) (int, string) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil).WithContext(auth.WithUser(ctx, uid))
-		handleVehicles(c, nil, pool, nil, linked, nil, &vehiclesFromDB{gate: g})(rec, req)
+		handleVehicles(c, nil, pool, nil, linked, nil, &vehiclesFromDB{gate: g, account: linkedAccount})(rec, req)
 		return rec.Code, rec.Header().Get("Retry-After")
 	}
 	if code, _ := get(podA); code < 400 || c.calls.Load() != 1 {
@@ -289,7 +289,7 @@ func TestVehicleListOTAMatchesOnAPeerPod(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pool.Close() })
 	uid := acceptedUser(ctx, t, pool, "veh-ota-peer")
-	if err := db.UpsertVehicleFromSync(ctx, pool, uid, db.VehicleSync{RivianID: "rv-ota-1", Name: "Truck", Model: "R1T", ModelYear: 2024, Trim: "PKG-ADV"}); err != nil {
+	if err := db.UpsertVehicleFromSync(ctx, pool, uid, db.VehicleSync{RivianID: "rv-ota-1", Name: "Truck", Model: "R1T", ModelYear: 2024, Trim: "PKG-ADV", Info: rivian.Vehicle{InfoSynced: true}.StoredInfo()}); err != nil {
 		t.Fatal(err)
 	}
 	// What the owner's OTA sync stored (version and available release), plus the live install progress it publishes.
@@ -310,7 +310,7 @@ func TestVehicleListOTAMatchesOnAPeerPod(t *testing.T) {
 	list := func(m *rivian.StateMonitor) string {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/vehicles", nil).WithContext(auth.WithUser(ctx, uid))
-		handleVehicles(&countingRivian{}, m, pool, nil, nil, nil, &vehiclesFromDB{})(rec, req)
+		handleVehicles(&countingRivian{}, m, pool, nil, nil, nil, &vehiclesFromDB{account: linkedAccount})(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%d %s", rec.Code, rec.Body.String())
 		}
@@ -332,3 +332,6 @@ func TestVehicleListOTAMatchesOnAPeerPod(t *testing.T) {
 		t.Errorf("peer list lacks the OTA card or its live status: %s (%v)", p, err)
 	}
 }
+
+// linkedAccount is the account state of a user with a stored Rivian session that is not flagged for sign-in again.
+func linkedAccount(context.Context) (linked, needsReauth, ok bool) { return true, false, true }

@@ -60,6 +60,8 @@ type Vehicle struct {
 	// FieldSupport says which live fields to trust on this model: reported,
 	// estimate, best_effort or unavailable (see FieldSupport).
 	FieldSupport map[string]string `json:"field_support,omitempty"`
+	// InfoSynced is set by RefreshVehicleInfo when the image service answered, so StoredInfo marks the stored copy as complete. Never on the wire.
+	InfoSynced bool `json:"-"`
 }
 
 // State is a point-in-time snapshot of one vehicle. Units are metric at

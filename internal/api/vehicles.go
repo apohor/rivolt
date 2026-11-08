@@ -277,11 +277,13 @@ func handlePackHealthGet(sqlDB *sql.DB, ph *packhealth.Store) func(uuid.UUID, ht
 
 // hasSession says whether the user has a stored Rivian session (nil: none can be stored, so none is). It decides
 // what a client with no session means: never linked (an empty list) or linked but unreadable right now (an error).
-// vehiclesFromDB switches /api/vehicles to the Postgres path for one request (a user with a Rivian account of their own). nil keeps the
-// old path: the shared demo / self-hosted client, and a deployment with no database.
+// vehiclesFromDB lets /api/vehicles use the Postgres path. nil keeps the old path for everyone: a deployment with no database, and the demo,
+// replay and self-hosted installs that have no account state to read.
 type vehiclesFromDB struct {
-	// needsReauth says whether the account is flagged for sign-in again (the users row, not this pod's memory).
-	needsReauth func(context.Context) bool
+	// account reads the user's Rivian account state from the users row (not this pod's memory): linked is true when a Rivian session is
+	// stored, needsReauth when it is flagged for sign-in again. ok is false when the state cannot be read here (a registry without it): the
+	// old path then answers, exactly as before. Replay, demo and never-linked users are not linked, so they always take the old path.
+	account func(context.Context) (linked, needsReauth, ok bool)
 	// gate bounds the "linked, nothing stored" Rivian lookup; nil leaves it unbounded (tests).
 	gate *vehicleFallbackGate
 }
@@ -298,19 +300,34 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 			writeJSON(w, http.StatusOK, []rivian.Vehicle{})
 			return
 		}
-		if fromDB != nil && sqlDB != nil {
-			if handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, fromDB.needsReauth, hasSession) {
+		var linked, reauth bool
+		if fromDB != nil && fromDB.account != nil && sqlDB != nil {
+			var ok bool
+			linked, reauth, ok = fromDB.account(r.Context())
+			linked = linked && ok
+		}
+		if linked {
+			if reauth {
+				writeUpstreamError(w, rivian.ErrNeedsReauth)
 				return
 			}
-			// Nothing stored yet for a linked account (the sign-in's vehicle lookup failed): ask Rivian, below, which primes the rows.
-			// At most once per user per few minutes across pods, whatever the result (vehicleFallbackGate); it stops for good as soon
-			// as a vehicle is stored.
+			if handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, false) {
+				return
+			}
+			// A linked account whose vehicles the owner has not synced yet (the sign-in's lookup failed, a row from before the owner stored
+			// the gallery): ask Rivian, below, which fills what it can. At most once per user per few minutes across pods, whatever the
+			// result (vehicleFallbackGate); it stops as soon as the owner's refresh marks the rows synced.
 			if uid, ok := auth.UserFromContext(r.Context()); ok && fromDB.gate != nil {
 				allowed, prior := fromDB.gate.claim(r.Context(), uid)
 				if !allowed {
 					fromDB.observe("skipped")
 					if prior == "empty" {
 						writeJSON(w, http.StatusOK, []rivian.Vehicle{})
+						return
+					}
+					// The last lookup found and stored the vehicles: serve those rows (the gallery may be missing until the owner's
+					// refresh marks them synced) instead of asking Rivian again.
+					if prior == "stored" && handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, true) {
 						return
 					}
 					w.Header().Set("Retry-After", "300")
@@ -511,13 +528,9 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 // image (UpsertVehicleFromSync, under the group fence). What the response says is unchanged: the same fields, the stored OTA details, the live
 // field support and the Pro lock; a flagged-for-reauth account still answers 401 as it did when Rivian refused the call.
 //
-// It reports whether it answered. It does not when the account is linked but no vehicle is stored yet (the sign-in's lookup failed, and the
-// list used to be where that was retried): the caller then asks Rivian as before, until a vehicle is stored.
-func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, onlyVehicle func(context.Context) string, needsReauth func(context.Context) bool, hasSession func(context.Context) (bool, error)) bool {
-	if needsReauth != nil && needsReauth(r.Context()) {
-		writeUpstreamError(w, rivian.ErrNeedsReauth)
-		return true
-	}
+// It reports whether it answered. It does not unless every stored vehicle is marked synced by the owner (see vehicleStoredInfo), including
+// when none is stored yet; the caller then asks Rivian as before.
+func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.StateMonitor, sqlDB *sql.DB, logger *slog.Logger, onlyVehicle func(context.Context) string, allowUnsynced bool) bool {
 	userID, ok := auth.UserFromContext(r.Context())
 	if !ok {
 		writeJSON(w, http.StatusOK, []rivian.Vehicle{})
@@ -531,8 +544,13 @@ func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.St
 		http.Error(w, "could not read your vehicles", http.StatusInternalServerError)
 		return true
 	}
-	if len(rows) == 0 && hasSession != nil {
-		if linked, lerr := hasSession(r.Context()); lerr != nil || linked {
+	// Served from Postgres only when every vehicle is one the owner has synced (marked in vehicle_info). Otherwise the old path answers: a
+	// body that did not depend on what this pod or the sign-in happened to store.
+	if len(rows) == 0 {
+		return false
+	}
+	for _, row := range rows {
+		if !allowUnsynced && !rivian.StoredInfoSynced(row.Info) {
 			return false
 		}
 	}

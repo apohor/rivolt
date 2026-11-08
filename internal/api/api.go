@@ -1059,21 +1059,17 @@ func New(d Deps) http.Handler {
 			vehiclesFallback := newVehicleFallbackGate(d.Redis, d.RedisPrefix, d.FailLimiterKey, 5*time.Minute, observeFallback)
 			r.Get("/vehicles", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				hasSession := d.rivianSessionCheck(uid)
-				// A user with a Rivian account of their own is served from Postgres on every pod (no Rivian call, no write); the shared
-				// demo / self-hosted client keeps asking it (single-owner M3-5a).
+				// A user with a stored Rivian session whose vehicles the owner has synced is served from Postgres on every pod (no Rivian call,
+				// no write); everyone else, including demo, replay and self-hosted users, gets the old answer byte for byte (single-owner M3-5a).
 				var fromDB *vehiclesFromDB
-				needsReauth := func(ctx context.Context) bool {
-					if st, ok := freshAccountState(auth.WithUser(ctx, uid), d.Accounts, uid); ok {
-						return st.NeedsReauth // from the users row, not this pod's memory
-					}
-					if a := d.Accounts.For(uid); a != nil {
-						n, _ := a.NeedsReauth()
-						return n
-					}
-					return false
-				}
-				if d.DB != nil && d.Accounts != nil && d.Accounts.For(uid) != nil {
-					fromDB = &vehiclesFromDB{needsReauth: needsReauth, gate: vehiclesFallback}
+				if d.DB != nil && d.Accounts != nil {
+					fromDB = &vehiclesFromDB{gate: vehiclesFallback, account: func(ctx context.Context) (linked, needsReauth, ok bool) {
+						st, ok := freshAccountState(auth.WithUser(ctx, uid), d.Accounts, uid)
+						if !ok {
+							return false, false, false
+						}
+						return !st.SessionVersion.IsZero(), st.NeedsReauth, true // from the users row, not this pod's memory
+					}}
 				}
 				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession, pv.lockedID, fromDB)(w, r)
 			}))
