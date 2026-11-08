@@ -1774,7 +1774,7 @@ func New(d Deps) http.Handler {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
 			r.With(aiGate, aiBudgetMW).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlanAdvice(d.SettingsMgr, d.Settings.For(uid))(w, r)
+				handleTripPlanAdvice(d.SettingsMgr, d.Settings.For(uid), d.WeatherClient)(w, r)
 			}))
 			// Multi-day orchestrator: N sequential planTrip2 calls.
 			// Lives here so it inherits the 5-minute timeout — three

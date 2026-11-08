@@ -475,7 +475,7 @@ func computeTripWeatherAdjustment(
 // AI provider, and returns a short structured analysis: headline +
 // 2-4 plain-language insights. Lives in the AI-bound route group so
 // the 5-minute timeout applies.
-func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store) http.HandlerFunc {
+func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store, wc *weather.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if mgr == nil || mgr.Analyzer() == nil {
 			http.Error(w, "AI provider not configured", http.StatusServiceUnavailable)
@@ -540,7 +540,10 @@ func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store) 
 						at = t
 					}
 				}
-				if snap, _, err := weather.NewClient().FetchHour(r.Context(), lat, lon, at, 0, false); err == nil {
+				if wc == nil {
+					wc = weather.NewClient()
+				}
+				if snap, _, err := wc.FetchHour(r.Context(), lat, lon, at, 0, false); err == nil {
 					tc.Weather = snap
 				}
 			}

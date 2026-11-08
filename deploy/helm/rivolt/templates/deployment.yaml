@@ -153,6 +153,13 @@ spec:
             - name: RIVOLT_PHOTON_BASE_URL
               value: {{ .photon.baseUrl | quote }}
             {{- end }}
+            {{- if and .weather .weather.baseUrl }}
+            # Our own Open-Meteo for weather (planner, outside temperature,
+            # recaps). When set, the public API is not used at all; the
+            # server keeps a few days of past hours and has no archive.
+            - name: RIVOLT_WEATHER_BASE_URL
+              value: {{ .weather.baseUrl | quote }}
+            {{- end }}
             {{- if .tiles.baseUrl }}
             # Same-origin PMTiles proxy. When set, the rivolt API
             # mounts /api/maps/tiles/* and forwards to this URL,

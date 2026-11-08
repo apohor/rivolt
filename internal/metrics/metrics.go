@@ -149,6 +149,9 @@ type Metrics struct {
 	// VehicleDiscoveryTotal counts the vehicle discovery job's turns by outcome (stored, empty, error, skipped, needs_reauth): linked users with no
 	// vehicle row, looked up so their vehicles get a lease (single-owner M3-6). No user label. A steady error rate is an account Rivian keeps refusing.
 	VehicleDiscoveryTotal *prometheus.CounterVec
+	// WeatherRequestsTotal counts calls to the Open-Meteo forecast and archive APIs (ours or the public one) by endpoint (forecast, archive) and
+	// outcome (ok, error, skipped_old: a self-hosted client declined a time older than its server keeps). No coordinates, no user.
+	WeatherRequestsTotal *prometheus.CounterVec
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -458,6 +461,10 @@ func New() *Metrics {
 			Name: "rivolt_open_charges",
 			Help: "Open live charge rows by state (charging or not_charging by the stale-charge janitor's rule, or no_frame: the vehicle sent nothing in 2 days); no vehicle or user labels.",
 		}, []string{"state"}),
+		WeatherRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_weather_requests_total",
+			Help: "Open-Meteo requests by endpoint (forecast, archive) and outcome (ok, error, skipped_old).",
+		}, []string{"endpoint", "outcome"}),
 		VehicleDiscoveryTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_vehicle_discovery_total",
 			Help: "Vehicle discovery turns for linked users with no vehicle row, by outcome (stored, empty, error, skipped, needs_reauth).",
@@ -878,6 +885,7 @@ func New() *Metrics {
 		m.ChargewatchLastSuccess,
 		m.VehiclesFallbackTotal,
 		m.VehicleDiscoveryTotal,
+		m.WeatherRequestsTotal,
 		m.Accounts,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
