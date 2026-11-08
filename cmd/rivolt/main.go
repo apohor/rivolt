@@ -2106,10 +2106,13 @@ func runServer() {
 			coord.TriggerReconcile()
 		}()
 		leaseCoordinator = coord
+		// Single-owner M3: the forwarder's owner loop (RIVOLT_FORWARD=1 only; the metrics exist at 0 either way).
+		setForwardDraining := startForwardOwner(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, redisKeyPrefix)
 		go watchDrain(drainSigs, func() {
 			dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer dcancel()
 			coord.MarkDraining(dctx)
+			setForwardDraining() // requesters stop forwarding here; what is already queued still gets answered
 			logger.Info("draining: no new leases will be taken")
 		})
 	}

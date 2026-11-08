@@ -63,7 +63,7 @@ func runLaunchPreflight(args []string) int {
 	}
 	in.AlertRules = alertRulesSource(*promURL, os.Getenv("RIVOLT_PROMETHEUS_URL"), *offline || *noAlerts)
 	if addr := strings.TrimSpace(os.Getenv("RIVOLT_REDIS_ADDR")); addr != "" && !*offline {
-		rdb := redis.NewClient(redisOptions(addr, os.Getenv))
+		rdb := redis.NewClient(oneShotRedisOptions(addr, os.Getenv))
 		defer func() { _ = rdb.Close() }()
 		in.RedisTime = func(ctx context.Context) (bool, error) {
 			ctx, cancel := context.WithTimeout(ctx, 3*time.Second)

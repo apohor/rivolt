@@ -180,7 +180,10 @@ func TestKeyParsing(t *testing.T) {
 	if _, err := ParseKey(" " + good + "\n"); err != nil {
 		t.Errorf("surrounding whitespace is trimmed: %v", err)
 	}
-	for _, bad := range []string{"", "not base64!!", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 31)), base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 33))} {
+	if _, err := ParseKey(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 48))); err != nil {
+		t.Errorf("a key of more than 32 bytes is valid (at least 32): %v", err)
+	}
+	for _, bad := range []string{"", "not base64!!", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 31)), base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16))} {
 		_, err := ParseKey(bad)
 		if !errors.Is(err, ErrBadKey) {
 			t.Errorf("%q: err=%v, want ErrBadKey", bad, err)
@@ -284,12 +287,12 @@ func TestDecodeCapsAndStrictness(t *testing.T) {
 func TestMetricsAreZeroFilled(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
-	want := len(Kinds) * len(Outcomes)
+	want := (len(Kinds) + 1) * len(Outcomes) // every kind plus "unknown" (undecodable or unknown-kind messages)
 	if got := testutil.CollectAndCount(m.Total); got != want {
 		t.Errorf("forward_total series = %d, want %d (every kind x outcome at 0)", got, want)
 	}
-	if got := testutil.CollectAndCount(m.Seconds); got != len(Kinds) {
-		t.Errorf("forward_seconds series = %d, want %d", got, len(Kinds))
+	if got := testutil.CollectAndCount(m.Seconds); got != len(Kinds)+1 {
+		t.Errorf("forward_seconds series = %d, want %d", got, len(Kinds)+1)
 	}
 	m.Total.WithLabelValues(string(KindPlanLegs), "ok").Inc()
 	if testutil.ToFloat64(m.Total.WithLabelValues(string(KindPlanLegs), "ok")) != 1 {

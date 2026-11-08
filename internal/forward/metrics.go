@@ -8,16 +8,18 @@ import "github.com/prometheus/client_golang/prometheus"
 //   - moved: the owner no longer holds the group (stale epoch or past its local deadline);
 //   - local: the call was served on this pod (no owner, owner not ready, flag off, Redis down): the M3 fail-soft path;
 //   - unavailable: refused (queue full, no ready owner on a pod that holds no session): 503 Retry-After: 5;
-//   - rejected: a message the owner dropped (bad signature, unknown kind, bad args, wrong size).
-var Outcomes = []string{"ok", "timeout", "moved", "local", "unavailable", "rejected"}
+//   - rejected: a message the owner dropped (bad signature, unknown kind, bad args, wrong size);
+//   - error: the owner ran the kind and the runner failed with an error that is not a timeout (a 500 internal reply). "ok" means served,
+//     so the local-share and health arithmetic do not count a failure as success.
+var Outcomes = []string{"ok", "timeout", "moved", "local", "unavailable", "rejected", "error"}
 
 // MetricKinds are the kind label values.
 func MetricKinds() []string {
-	out := make([]string, 0, len(Kinds))
+	out := make([]string, 0, len(Kinds)+1)
 	for k := range Kinds {
 		out = append(out, string(k))
 	}
-	return out
+	return append(out, KindUnknown)
 }
 
 // Metrics are the forwarder's instruments. No label carries a user, vehicle or group (/metrics is public).
@@ -33,7 +35,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
 		Total: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_rivian_forward_total",
-			Help: "Calls that needed Rivian on a pod, by kind and outcome (ok, timeout, moved, local, unavailable, rejected).",
+			Help: "Calls that needed Rivian on a pod, by kind and outcome (ok, timeout, moved, local, unavailable, rejected, error).",
 		}, []string{"kind", "outcome"}),
 		Seconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "rivolt_rivian_forward_seconds",

@@ -24,7 +24,7 @@ const (
 	MaxReplyBytes   = 256 << 10
 )
 
-// KeyLen is the length of the HMAC key (the install secret), in bytes.
+// KeyLen is the minimum length of the HMAC key (the install secret), in bytes: a key is valid when it decodes to at least this many.
 const KeyLen = 32
 
 // EnvKey is the environment variable that carries the key, base64 (32 random bytes: 44 characters). It is optional until the
@@ -57,8 +57,8 @@ type Reply struct {
 }
 
 var (
-	// ErrBadKey: the key is missing, not base64, or not KeyLen bytes.
-	ErrBadKey = errors.New("forward: the HMAC key must be 32 random bytes, base64-encoded")
+	// ErrBadKey: the key is missing, not base64, or shorter than KeyLen bytes.
+	ErrBadKey = errors.New("forward: the HMAC key must be at least 32 random bytes, base64-encoded")
 	// ErrBadSig: the signature is missing, malformed or wrong.
 	ErrBadSig = errors.New("forward: bad signature")
 	// ErrTooBig: a message over its size cap.
@@ -67,10 +67,11 @@ var (
 	ErrBadMessage = errors.New("forward: bad message")
 )
 
-// ParseKey decodes the base64 key and checks its length. The value is never logged or returned in an error.
+// ParseKey decodes the base64 key and checks its length (at least KeyLen bytes after decoding). The value is never logged or returned
+// in an error.
 func ParseKey(b64 string) ([]byte, error) {
 	k, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
-	if err != nil || len(k) != KeyLen {
+	if err != nil || len(k) < KeyLen {
 		return nil, ErrBadKey
 	}
 	return k, nil
@@ -82,9 +83,9 @@ type Signer struct {
 	req, rep []byte
 }
 
-// NewSigner derives the subkeys from key (KeyLen bytes).
+// NewSigner derives the subkeys from key (at least KeyLen bytes).
 func NewSigner(key []byte) (*Signer, error) {
-	if len(key) != KeyLen {
+	if len(key) < KeyLen {
 		return nil, ErrBadKey
 	}
 	sub := func(label string) []byte {
