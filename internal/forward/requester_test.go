@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/forward/forwardtest"
 )
@@ -441,5 +443,146 @@ func TestNoGroupIsCounted(t *testing.T) {
 	fw.NoGroup(forward.KindFreshState)
 	if f.out(forward.KindFreshState, "no_group") != 1 || f.out(forward.KindFreshState, "local") != 0 {
 		t.Errorf("no_group=%v local=%v, want 1 and 0", f.out(forward.KindFreshState, "no_group"), f.out(forward.KindFreshState, "local"))
+	}
+}
+
+// M4-2, acquire-on-request. The only trigger for an acquire is a lease row absent or expired by the database clock (Found false). A live
+// lease (owner not ready, Redis down, busy, moved to someone or to nobody the row can name) is a 503 and the acquire is never asked.
+func TestAcquireOnRequestOnlyForAnAbsentOrExpiredLease(t *testing.T) {
+	type tc struct {
+		setup        func(f *fleet)
+		wantAcquire  bool   // Acquire is asked
+		acquireOK    bool   // and succeeds
+		wantOutcome  string // what Do reports
+		wantLocalRun int32
+	}
+	for name, c := range map[string]tc{
+		"no owner (absent or expired) and the acquire works": {func(f *fleet) { f.view.SetOwner(group, forward.LeaseOwner{}) }, true, true, "acquired", 1},
+		"no owner and the acquire fails":                     {func(f *fleet) { f.view.SetOwner(group, forward.LeaseOwner{}) }, true, false, "unavailable", 0},
+		"owner not ready, lease live":                        {func(f *fleet) {}, false, false, "unavailable", 0},
+		"redis down, lease live":                             {func(f *fleet) { f.owner("pod-a", 7, true, nil); f.mr.Close() }, false, false, "unavailable", 0},
+		"lease read fails":                                   {func(f *fleet) { f.view.OwnerErr = errors.New("db down") }, false, false, "unavailable", 0},
+		"the live row names this pod":                        {func(f *fleet) { f.view.SetOwner(group, forward.LeaseOwner{Found: true, Pod: "pod-c", Epoch: 7}) }, false, false, "unavailable", 0},
+		"moved, row unchanged (live)":                        {func(f *fleet) { f.owner("pod-a", 7, false, nil) }, false, false, "unavailable", 0},
+		"moved, row gone":                                    {func(f *fleet) { f.owner("pod-a", 7, false, nil); f.view.DeleteOwner(group) }, true, true, "acquired", 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFleet(t)
+			c.setup(f)
+			var asked atomic.Int32
+			var local localCounter
+			fw := f.requester(func(cfg *forward.RequesterConfig) {
+				cfg.AcquireOnRequest = true
+				cfg.Acquire = func(context.Context, string) (bool, error) { asked.Add(1); return c.acquireOK, nil }
+			})
+			res, outcome, err := fw.Do(context.Background(), callFresh, local.fn)
+			if err != nil || outcome != c.wantOutcome || local.n.Load() != c.wantLocalRun {
+				t.Fatalf("outcome=%q local=%d res=%+v err=%v, want %q and %d local runs", outcome, local.n.Load(), res, err, c.wantOutcome, c.wantLocalRun)
+			}
+			if (asked.Load() > 0) != c.wantAcquire {
+				t.Errorf("acquire asked %d times, want asked=%v", asked.Load(), c.wantAcquire)
+			}
+			if c.wantOutcome == "unavailable" && res.Status != forward.StatusUnavailable {
+				t.Errorf("status %d, want 503", res.Status)
+			}
+			if f.out(forward.KindFreshState, c.wantOutcome) != 1 || f.out(forward.KindFreshState, "local") != 0 || f.out(forward.KindFreshState, "local_busy") != 0 {
+				t.Errorf("counted %s=%v local=%v: want exactly the one outcome", c.wantOutcome, f.out(forward.KindFreshState, c.wantOutcome), f.out(forward.KindFreshState, "local"))
+			}
+		})
+	}
+}
+
+// Busy twice is owner saturation: a 503 with acquire-on-request, never an acquire and never a local call.
+func TestAcquireOnRequestBusyIs503(t *testing.T) {
+	f := newFleet(t)
+	f.owner("pod-a", 7, true, nil)
+	// Fill the user's cap at the owner so the next call is told busy twice.
+	release := make(chan struct{})
+	f.runners["pod-a"].Gate = release
+	fw := f.requester(func(cfg *forward.RequesterConfig) {
+		cfg.AcquireOnRequest = true
+		cfg.Acquire = func(context.Context, string) (bool, error) {
+			t.Error("acquire asked for a busy owner")
+			return true, nil
+		}
+	})
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _, _, _ = fw.Do(context.Background(), callFresh, (&localCounter{}).fn) }()
+	}
+	for dl := time.Now().Add(3 * time.Second); len(f.runners["pod-a"].Calls()) < 2 && time.Now().Before(dl); {
+		time.Sleep(5 * time.Millisecond)
+	}
+	var local localCounter
+	res, outcome, _ := fw.Do(context.Background(), callFresh, local.fn)
+	close(release)
+	wg.Wait()
+	if outcome != "unavailable" || res.Status != forward.StatusUnavailable || local.n.Load() != 0 {
+		t.Fatalf("outcome=%q res=%+v local=%d, want a 503 and no local call", outcome, res, local.n.Load())
+	}
+}
+
+// Two requesters race for an ownerless group: one wins the primary key and runs the call as the owner (`acquired`); the loser re-reads the
+// lease, finds the live owner and forwards once (`ok`). No 503s for the losers of a burst (design risk 3).
+func TestAcquireRaceLoserForwardsToTheWinner(t *testing.T) {
+	f := newFleet(t)
+	f.owner("pod-a", 9, true, nil) // the winner of the race, once it holds the row
+	f.view.SetOwner(group, forward.LeaseOwner{})
+	var calls atomic.Int32
+	fw := f.requester(func(cfg *forward.RequesterConfig) {
+		cfg.AcquireOnRequest = true
+		cfg.Acquire = func(context.Context, string) (bool, error) {
+			if calls.Add(1) == 1 {
+				return true, nil // the winner
+			}
+			f.view.SetOwner(group, forward.LeaseOwner{Found: true, Pod: "pod-a", Epoch: 9}) // the loser sees who won
+			return false, nil
+		}
+	})
+	var local localCounter
+	var wg sync.WaitGroup
+	outcomes := make(chan string, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, o, _ := fw.Do(context.Background(), callFresh, local.fn)
+			outcomes <- o
+		}()
+		time.Sleep(30 * time.Millisecond) // the first caller reaches Acquire first
+	}
+	wg.Wait()
+	close(outcomes)
+	got := map[string]int{}
+	for o := range outcomes {
+		got[o]++
+	}
+	if got["acquired"] != 1 || got["ok"] != 1 || len(got) != 2 {
+		t.Fatalf("outcomes %v, want one acquired and one ok", got)
+	}
+	if f.out(forward.KindFreshState, "unavailable") != 0 || local.n.Load() != 1 || len(f.runners["pod-a"].Calls()) != 1 {
+		t.Errorf("unavailable=%v local runs=%d owner runs=%d, want 0, 1 (the winner) and 1 (the loser, forwarded)", f.out(forward.KindFreshState, "unavailable"), local.n.Load(), len(f.runners["pod-a"].Calls()))
+	}
+}
+
+// The call that runs after an acquire carries the new epoch's fence token, so the owner guard and the permit see it.
+func TestAcquiredCallCarriesTheNewEpochToken(t *testing.T) {
+	f := newFleet(t)
+	f.view.SetOwner(group, forward.LeaseOwner{})
+	want := fence.Token{Group: group, Pod: "pod-c", Epoch: 12}
+	fw := f.requester(func(cfg *forward.RequesterConfig) {
+		cfg.AcquireOnRequest = true
+		cfg.Acquire = func(context.Context, string) (bool, error) { return true, nil }
+		cfg.Token = func(g string) (fence.Token, bool) { return want, g == group }
+	})
+	var got fence.Token
+	var has bool
+	_, outcome, _ := fw.Do(context.Background(), callFresh, func(ctx context.Context) (forward.Result, error) {
+		got, has = fence.From(ctx)
+		return forward.Result{Status: 200, Body: json.RawMessage(`{}`)}, nil
+	})
+	if outcome != "acquired" || !has || got != want {
+		t.Fatalf("outcome=%q token=%+v (has %v), want the new epoch's token %+v", outcome, got, has, want)
 	}
 }

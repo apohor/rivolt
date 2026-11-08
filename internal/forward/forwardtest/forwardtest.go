@@ -81,12 +81,23 @@ type Runner struct {
 	calls []Call
 	Reply forward.Result
 	Err   error
+	// Gate, when set, holds every call (after it is recorded) until it is closed or the call's context ends.
+	Gate chan struct{}
 }
 
-func (r *Runner) Run(_ context.Context, kind forward.Kind, user, group string, args any) (forward.Result, error) {
+func (r *Runner) Run(ctx context.Context, kind forward.Kind, user, group string, args any) (forward.Result, error) {
+	r.mu.Lock()
+	r.calls = append(r.calls, Call{kind, user, group, args})
+	gate := r.Gate
+	r.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.calls = append(r.calls, Call{kind, user, group, args})
 	if r.Err != nil {
 		return forward.Result{}, r.Err
 	}
