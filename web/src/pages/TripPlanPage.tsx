@@ -1,4 +1,4 @@
-import { movableVia, moveVia } from "../plan/reorderVias";
+import { movableVia, moveVia, viaMoveLabel, viaPosition, viaRemoveLabel } from "../plan/reorderVias";
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";
 import { DEFAULT_OVERNIGHT_KW, HOOKUPS, type HookupId, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw, hookupNote } from "../plan/hookups";
@@ -1581,7 +1581,9 @@ function ViaStopList({
   const [adding, setAdding] = useState(false);
   return (
     <div className="space-y-2">
-      {stops.map((stop, i) => overnightFlags[i] ? null : (
+      {stops.map((stop, i) => overnightFlags[i] ? null : (() => {
+        const { n, total } = viaPosition(overnightFlags, i);
+        return (
         <div
           key={i}
           className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2 text-sm"
@@ -1594,7 +1596,7 @@ function ViaStopList({
               type="button"
               disabled={movableVia(overnightFlags, i, dir) < 0}
               onClick={() => onMove(i, dir)}
-              aria-label={`Move ${stop.label} ${dir < 0 ? "earlier" : "later"}`}
+              aria-label={viaMoveLabel(stop.label, n, total, dir)}
               className="shrink-0 rounded px-1.5 py-0.5 text-xs text-neutral-400 hover:text-neutral-200 disabled:opacity-30"
             >
               {dir < 0 ? "↑" : "↓"}
@@ -1603,12 +1605,14 @@ function ViaStopList({
           <button
             type="button"
             onClick={() => onRemove(i)}
+            aria-label={viaRemoveLabel(stop.label, n)}
             className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
           >
             remove
           </button>
         </div>
-      ))}
+        );
+      })())}
       {adding ? (
         <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 px-3 py-2">
           <div className="flex items-center justify-between mb-2">

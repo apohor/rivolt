@@ -50,7 +50,7 @@ export function waypointTooltip(w: PlannedWaypoint, i: number, total: number, en
     ? end ? "Start and end" : "Origin"
     : isLast
       ? "Destination"
-      : w.Name || "Charging stop";
+      : w.Name || (w.Source === "via" ? "Your stop" : "Charging stop");
   const lines: string[] = [
     `<div style="font:12px/1.35 ui-sans-serif,system-ui;color:#fafafa">`,
     `<div style="color:#34d399;font-weight:600">${escapeHTML(heading)}</div>`,
@@ -78,7 +78,8 @@ export function waypointTooltip(w: PlannedWaypoint, i: number, total: number, en
     }
     // Where the stop came from: a place the person asked the route to pass is a stop on the route, not a promise of a charge there.
     if (w.Source === "via") {
-      lines.push(`<div style="color:#a3a3a3;margin-top:3px">Your stop. The route passes through it; the planner decides where to charge.</div>`);
+      // The heading already says "Your stop" when the stop has no name of its own.
+      lines.push(`<div style="color:#a3a3a3;margin-top:3px">${heading === "Your stop" ? "" : "Your stop. "}The route passes through it; the planner decides where to charge.</div>`);
     } else if (w.Source === "planner") {
       lines.push(`<div style="color:#a3a3a3;margin-top:3px">Chosen by the planner.</div>`);
     }
