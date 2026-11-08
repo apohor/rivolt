@@ -18,4 +18,12 @@ describe("saveErrorText", () => {
       "Couldn't save: Not available while viewing as another user.",
     );
   });
+
+  it("says a still-open charge can't be priced yet, only for that 409", () => {
+    const open = "This charge is still open, so it can't be priced yet. Rivolt can price it once it ends.";
+    expect(saveErrorText(new ApiError(409, "charge still in progress\n"))).toBe(open);
+    // Any other conflict keeps the plain words.
+    expect(saveErrorText(new ApiError(409, "version conflict"))).toBe("Couldn't save. Try again in a moment.");
+    expect(saveErrorText(new ApiError(500, "charge still in progress"))).toBe("Couldn't save. Try again in a moment.");
+  });
 });
