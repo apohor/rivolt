@@ -211,6 +211,29 @@ func TestResumedChargeEnergyAcrossPlugIns(t *testing.T) {
 		t.Errorf("second restart, session later: %.1f kWh, want 50 + 5 = 55", got)
 	}
 
+	// The live session lags a re-plug: the first build still sees the previous plug-in's session (same start, total 30, as the
+	// row holds), then the new plug-in's (started after, 5 then 40). The base is decided again when the session changes, so the
+	// first part is not lost: 30 + 5 = 35, then 30 + 40 = 70.
+	m, c = resume(30)
+	if got := energy(m, c, sess(t0, 30)); got != 30 {
+		t.Errorf("lagging session, first build: %.1f kWh, want 30", got)
+	}
+	newPlug := lastWrite.Add(10 * time.Minute)
+	if got := energy(m, c, sess(newPlug, 5)); got != 35 {
+		t.Errorf("lagging session, the new plug-in appears: %.1f kWh, want 30 + 5 = 35", got)
+	}
+	if got := energy(m, c, sess(newPlug, 40)); got != 70 {
+		t.Errorf("lagging session, the new plug-in later: %.1f kWh, want 30 + 40 = 70", got)
+	}
+	// The same session spelled differently by another feed is the same session: nothing is added twice.
+	if got := energy(m, c, &LiveSession{Active: true, PowerKW: 7, TotalChargedEnergyKWh: 41, StartTime: newPlug.In(time.FixedZone("x", 3600)).Format(time.RFC3339)}); got != 71 {
+		t.Errorf("the same session spelled in another zone: %.1f kWh, want 30 + 41 = 71", got)
+	}
+	// Plug-ins chain: a third session on top of the second.
+	if got := energy(m, c, sess(lastWrite.Add(40*time.Minute), 6)); got != 77 {
+		t.Errorf("a third plug-in: %.1f kWh, want 71 + 6 = 77", got)
+	}
+
 	// A fresh charge (not resumed) keeps today's rule: the total is the energy.
 	fresh := &liveCharge{id: "live_v_c_9", startedAt: t0, endAt: t0.Add(4 * time.Hour), startSoC: 40, endSoC: 50, maxPower: 7, finalState: "charging_active"}
 	if got := energy(NewStateMonitor(nil, nil), fresh, sess(t0, 20)); got != 20 {
@@ -221,9 +244,10 @@ func TestResumedChargeEnergyAcrossPlugIns(t *testing.T) {
 // A handoff keeps a resumed charge's energy baseline: without it the peer would drop back to "the session total is the energy".
 func TestChargeSnapshotCarriesTheResumeBaseline(t *testing.T) {
 	t0 := time.Date(2026, 11, 6, 22, 0, 0, 0, time.UTC)
-	s := &liveSessions{charge: &liveCharge{id: "c", startedAt: t0, endAt: t0.Add(time.Hour), baselineKWh: 30, baselineAt: t0.Add(time.Hour), sessionBase: 30, sessionBaseSet: true}}
+	s := &liveSessions{charge: &liveCharge{id: "c", startedAt: t0, endAt: t0.Add(time.Hour), baselineKWh: 30, baselineAt: t0.Add(time.Hour), sessionBase: 30, sessionBaseSet: true,
+		sessionStartSeen: "2026-11-06T23:10:00Z", lastResumed: 35}}
 	got := liveSessionsFromSnapshot(s.snapshot()).charge
-	if got.baselineKWh != 30 || !got.baselineAt.Equal(t0.Add(time.Hour)) || got.sessionBase != 30 || !got.sessionBaseSet {
+	if got.baselineKWh != 30 || !got.baselineAt.Equal(t0.Add(time.Hour)) || got.sessionBase != 30 || !got.sessionBaseSet || got.sessionStartSeen != "2026-11-06T23:10:00Z" || got.lastResumed != 35 {
 		t.Errorf("baseline %.1f at %v, session base %.1f set %v after a round trip", got.baselineKWh, got.baselineAt, got.sessionBase, got.sessionBaseSet)
 	}
 	old := s.snapshot()

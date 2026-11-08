@@ -110,6 +110,10 @@ type LiveChargeSnapshot struct {
 	BaselineAt     time.Time `json:"baseline_at,omitempty"`
 	SessionBase    float64   `json:"session_base,omitempty"`
 	SessionBaseSet bool      `json:"session_base_set,omitempty"`
+	// SessionStartSeen and LastResumed identify the session the base was decided for and the energy last returned, so a peer
+	// that sees another session decides again from the right energy.
+	SessionStartSeen string  `json:"session_start_seen,omitempty"`
+	LastResumed      float64 `json:"last_resumed,omitempty"`
 }
 
 // LiveStateTTL is how long a snapshot lingers in Redis after the last
@@ -164,7 +168,7 @@ func (s *liveSessions) snapshot() LiveStateSnapshot {
 			LastProgressAt:   c.lastProgressAt,
 			ActiveSeconds:    c.activeSeconds,
 			EnergyIntKWh:     c.energyIntKWh,
-			BaselineKWh:      c.baselineKWh, BaselineAt: c.baselineAt, SessionBase: c.sessionBase, SessionBaseSet: c.sessionBaseSet,
+			BaselineKWh:      c.baselineKWh, BaselineAt: c.baselineAt, SessionBase: c.sessionBase, SessionBaseSet: c.sessionBaseSet, SessionStartSeen: c.sessionStartSeen, LastResumed: c.lastResumed,
 		}
 	}
 	return snap
@@ -222,7 +226,7 @@ func liveSessionsFromSnapshot(snap LiveStateSnapshot) *liveSessions {
 			// The progress point is where this pod picks up.
 			progressKWh:       c.EnergyIntKWh,
 			progressActiveSec: c.ActiveSeconds,
-			baselineKWh:       c.BaselineKWh, baselineAt: c.BaselineAt, sessionBase: c.SessionBase, sessionBaseSet: c.SessionBaseSet,
+			baselineKWh:       c.BaselineKWh, baselineAt: c.BaselineAt, sessionBase: c.SessionBase, sessionBaseSet: c.SessionBaseSet, sessionStartSeen: c.SessionStartSeen, lastResumed: c.LastResumed,
 		}
 	}
 	return s
