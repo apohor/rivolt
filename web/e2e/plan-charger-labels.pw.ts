@@ -32,7 +32,7 @@ for (const v of [
     await expect(group).toBeVisible();
     await expect(group).toContainText("DC fast charging, 50 kW and up.");
     await expect(group).toContainText("Level 2 (AC).");
-    await expect(group).toContainText("A hotel that lists a Level 2 charger.");
+    await expect(group).toContainText("A hotel with a listed Level 2 charger");
     await page.keyboard.press("Escape");
     await expect(group).toHaveCount(0);
     await expect(info).toBeFocused();
