@@ -1206,6 +1206,14 @@ func (m *StateMonitor) sweepStaleCharges(ctx context.Context, staleAfter time.Du
 	}
 }
 
+// stillChargingFrame is the janitor's plug rule for a frame whose charger state is charging_*: plugged in with
+// the recorder's rule, judged as if no charge were open (the row is stale: the recorder has not touched it for
+// an hour, so a 0 kW pause inside a live session does not apply, and a status-less truck needs power), and not in
+// a driving gear, whatever the sticky charger fields say.
+func stillChargingFrame(st *State) bool {
+	return !isDrivingGear(st.Gear) && chargerPlugged(st, false)
+}
+
 // confirmStillCharging asks the Rivian REST gateway whether the
 // vehicle is still in a charging_* non-terminal state right now.
 // Returns (true, currentChargerState) only on a clean response that
@@ -1234,9 +1242,10 @@ func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID
 		// WS-cached state agrees the car is still charging. Don't
 		// REST-poll \u2014 that would risk waking a sleeping car
 		// unnecessarily. Refresh on cached state alone, but only
-		// while it reads plugged in: the charger state sticks after
-		// an unplug, and a row refreshed on it alone never closed.
-		return chargerPlugged(cached, true), cached.ChargerState
+		// while it reads plugged in and not driving: the charger
+		// state sticks after an unplug, and a row refreshed on it
+		// alone never closed.
+		return stillChargingFrame(cached), cached.ChargerState
 	}
 
 	// Cache says NOT charging (terminal state) or has no entry. The
@@ -1260,7 +1269,7 @@ func (m *StateMonitor) confirmStillCharging(ctx context.Context, rivianVehicleID
 	}
 	// Plugged as well as charging_*: Rivian's charger state sticks for hours after an unplug, and a row refreshed
 	// on that alone stayed open (and "Charging Now") through the drives that followed.
-	if !isChargingCS(st.ChargerState) || !chargerPlugged(st, true) {
+	if !isChargingCS(st.ChargerState) || !stillChargingFrame(st) {
 		return false, st.ChargerState
 	}
 	return true, st.ChargerState

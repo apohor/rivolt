@@ -2393,8 +2393,7 @@ func (s *liveSessions) plugged(curr *State) bool {
 }
 
 // chargerPlugged is plugged for a frame alone: chargeOpen says a charge is already open for the vehicle (a
-// 0 kW pause mid-session doesn't unplug it). The stale-charge janitor asks it for an open row (true): a charger status that
-// says unplugged, or charging_ready with no status, can't keep the row open.
+// 0 kW pause mid-session doesn't unplug it). The stale-charge janitor asks it with false (see stillChargingFrame).
 func chargerPlugged(curr *State, chargeOpen bool) bool {
 	if strings.TrimSpace(curr.ChargerStatus) != "" {
 		// A Parallax status (R2) that says unplugged or fault doesn't

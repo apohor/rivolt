@@ -616,6 +616,10 @@ func TestConfirmStillChargingNeedsPlug(t *testing.T) {
 		{"R1 sticky charging_active after unplug", State{ChargerState: "charging_active", ChargerStatus: "chrgr_sts_not_connected", ChargerPowerKW: 7}, false},
 		{"R2 sticky charging_ready, no status", State{ChargerState: "charging_ready"}, false},
 		{"R2 charging_active, power", State{ChargerState: "charging_active", ChargerPowerKW: 7}, true},
+		{"R2 charging_active stuck at 0 kW, no status", State{ChargerState: "charging_active"}, false},
+		{"R1 plugged status but in gear D", State{ChargerState: "charging_active", ChargerStatus: "chrgr_sts_connected_charging", ChargerPowerKW: 7, Gear: "D"}, false},
+		{"R2 charging_active with power, gear R", State{ChargerState: "charging_active", ChargerPowerKW: 7, Gear: "R"}, false},
+		{"parked in P stays charging", State{ChargerState: "charging_active", ChargerPowerKW: 7, Gear: "P"}, true},
 	} {
 		st := c.st
 		st.VehicleID = "veh-1"
