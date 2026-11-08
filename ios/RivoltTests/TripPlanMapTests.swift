@@ -77,6 +77,16 @@ extension TripPlanMapTests {
         XCTAssertNil(PlanRouteLogic.drawing(days: trip.days, lines: []), "nothing to draw without a line")
     }
 
+    func testALayerPinOnATwoDayTripComesAfterTheDaysPinsAndKeepsItsKind() throws {
+        let trip = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
+        let lines = trip.days.map { _ in [RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)] }
+        let d = try XCTUnwrap(PlanRouteLogic.drawing(days: trip.days, lines: lines))
+        XCTAssertEqual(PlanRouteLogic.pinCount(days: trip.days), d.stops.count, "the model numbers the layer pins after the pins the map draws")
+        let pins = [AlongCharger(lat: 45.6, lon: -122.0, kind: "dcfc"), AlongCharger(lat: 45.7, lon: -121.5, kind: "hotel"),
+                    AlongCharger(lat: 45.8, lon: -121.2, kind: "camp"), AlongCharger(lat: 45.8, lon: -121.1, kind: "l2")]
+        XCTAssertEqual(PlanRouteLogic.alongStops(pins).map(\.kind), [0, 1, 2, 3])
+    }
+
     func testTheNightPinNamesTheStayOrJustSaysNight() {
         XCTAssertEqual(PlanRouteLogic.nightLabel(nil, place: nil), "Night")
         let o = try! JSON.decoder().decode(TripMultiday.Overnight.self, from: Data(#"{"name":"Sample Inn"}"#.utf8))

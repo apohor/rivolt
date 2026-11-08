@@ -86,7 +86,8 @@ struct PlanMapScreen: View {
     @ViewBuilder
     private func map(coverHeight: CGFloat) -> some View {
         if case .planned(let trip) = model.night {
-            PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }, fills: true, bottomInset: coverHeight, day: day)
+            PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }, along: model.markers,
+                        onLine: { line in Task { await model.setDayLines(line, source: state.client) } }, fills: true, bottomInset: coverHeight, day: day)
         } else if let route = model.plan?.best {
             PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.markers,
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
