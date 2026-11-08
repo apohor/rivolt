@@ -91,6 +91,55 @@ func TestVoidOpenInvoicesAgainstTheStripeSandbox(t *testing.T) {
 			}
 		}
 	}
+	// tryCall is a best-effort call for cleanup: it never fails the test and returns the decoded body (nil on any error).
+	tryCall := func(method, path string, form url.Values) map[string]any {
+		var req *http.Request
+		if form != nil {
+			req, _ = http.NewRequestWithContext(ctx, method, DefaultAPIBase+path, strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		} else {
+			req, _ = http.NewRequestWithContext(ctx, method, DefaultAPIBase+path, nil)
+		}
+		req.Header.Set("Authorization", "Bearer "+key)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		if resp.StatusCode/100 != 2 {
+			return nil
+		}
+		return out
+	}
+	// cleanupCustomer takes a replay customer out of the way: each open invoice is voided, or marked uncollectible when it cannot be voided (a
+	// part-paid one cannot), then the customer is deleted.
+	cleanupCustomer := func(cust string) {
+		if out := tryCall("GET", "/v1/invoices?limit=100&status=open&customer="+cust, nil); out != nil {
+			if data, _ := out["data"].([]any); data != nil {
+				for _, d := range data {
+					id, _ := d.(map[string]any)["id"].(string)
+					if tryCall("POST", "/v1/invoices/"+id+"/void", url.Values{}) == nil {
+						tryCall("POST", "/v1/invoices/"+id+"/mark_uncollectible", url.Values{})
+					}
+				}
+			}
+		}
+		tryCall("DELETE", "/v1/customers/"+cust, nil)
+	}
+	// A run that died before its cleanup leaves customers behind; sweep the ones this test made (by description) first.
+	if out := tryCall("GET", "/v1/customers?limit=100", nil); out != nil {
+		if data, _ := out["data"].([]any); data != nil {
+			for _, d := range data {
+				c, _ := d.(map[string]any)
+				if desc, _ := c["description"].(string); desc == "rivolt void replay" {
+					id, _ := c["id"].(string)
+					cleanupCustomer(id)
+				}
+			}
+		}
+	}
 	// Every helper takes the t of the (sub)test that uses it, so a failure stops that subtest and its cleanups run.
 	call := func(t *testing.T, method, path string, form url.Values) map[string]any {
 		t.Helper()
@@ -121,18 +170,7 @@ func TestVoidOpenInvoicesAgainstTheStripeSandbox(t *testing.T) {
 	openInvoice := func(t *testing.T, cents int64) (cust, inv string) {
 		t.Helper()
 		cust = call(t, "POST", "/v1/customers", url.Values{"description": {"rivolt void replay"}, "email": {"void-replay-" + strconv.FormatInt(time.Now().UnixNano(), 36) + "@example.com"}})["id"].(string)
-		t.Cleanup(func() { // best effort; a customer with an open invoice cannot always be deleted
-			if out := call(t, "GET", "/v1/invoices?status=open&customer="+cust, nil); out["data"] != nil {
-				for _, d := range out["data"].([]any) {
-					_ = call(t, "POST", "/v1/invoices/"+d.(map[string]any)["id"].(string)+"/void", url.Values{})
-				}
-			}
-			req, _ := http.NewRequestWithContext(ctx, "DELETE", DefaultAPIBase+"/v1/customers/"+cust, nil)
-			req.Header.Set("Authorization", "Bearer "+key)
-			if r, err := http.DefaultClient.Do(req); err == nil {
-				r.Body.Close()
-			}
-		})
+		t.Cleanup(func() { cleanupCustomer(cust) })
 		in := call(t, "POST", "/v1/invoices", url.Values{"customer": {cust}, "collection_method": {"send_invoice"}, "days_until_due": {"7"}, "auto_advance": {"false"}})
 		inv = in["id"].(string)
 		call(t, "POST", "/v1/invoiceitems", url.Values{"customer": {cust}, "invoice": {inv}, "amount": {strconv.FormatInt(cents, 10)}, "currency": {limit.Currency}, "description": {"replay"}})
