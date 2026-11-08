@@ -25,4 +25,10 @@ describe("chargeCostHint", () => {
     expect(chargeCostHint({ ...billed, cost_source_effective: "home_rate" })).toBe("at 0.967 USD/kWh");
     expect(chargeCostHint({ ...billed, cost_source_effective: "user" })).toBe("at 0.967 USD/kWh");
   });
+  it("on an open charge, doesn't point at the pricing form it can't use yet", () => {
+    const unknown = { ...base, cost_source_effective: "unknown" } as Charge;
+    expect(chargeCostHint(unknown)).toBe("price unknown · add it below");
+    expect(chargeCostHint(unknown, false, true)).toBe("price it once the charge ends");
+    expect(chargeCostHint(unknown, true, true)).toBe("price unknown"); // the read-only demo has no form either way
+  });
 });
