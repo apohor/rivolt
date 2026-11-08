@@ -784,6 +784,9 @@ func resultClass(ctx context.Context, err error) (string, bool) {
 // doGraphQLAt is doGraphQL targeted at an arbitrary URL (e.g. the charging endpoint).
 func doGraphQLAt[T any](ctx context.Context, c *LiveClient, url string, req graphQLRequest, extraHeaders map[string]string) (result T, err error) {
 	var zero T
+	if err := checkPermit(ctx, req.OperationName); err != nil {
+		return zero, err
+	}
 	ctx = withUsedSession(ctx, extraHeaders["u-sess"])
 	skipBreaker := bypassBreaker(ctx)
 	if !skipBreaker {
@@ -1665,6 +1668,9 @@ func (c *LiveClient) ChargingFieldProbeWithSelection(ctx context.Context, field,
 	}
 	// Raw POST so error bodies surface instead of being swallowed by doGraphQLAt.
 	body, _ := json.Marshal(graphQLRequest{OperationName: "Probe", Query: q, Variables: vars})
+	if err := checkPermit(ctx, "Probe"); err != nil {
+		return nil, err
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.receiptsEndpoint(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err

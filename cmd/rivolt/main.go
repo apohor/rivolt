@@ -273,6 +273,10 @@ Environment:
                                  nobody).
   RIVOLT_RIVIAN_LIVE_FORBIDDEN=true  Refuse to boot with a live Rivian
                                  client (preview: replay/mock/stub only).
+  RIVOLT_RIVIAN_PERMIT=observe|enforce  Count (observe) or also refuse (enforce)
+                                 requests to Rivian that carry neither the
+                                 owner's fence token nor a holder marker.
+                                 Default: off.
   RIVOLT_FORWARD_REPLAY_TEST=1   Test switch: the owner forwarder also applies
                                  to the replay client. Refused unless
                                  RIVOLT_RIVIAN_LIVE_FORBIDDEN=true and
@@ -848,6 +852,13 @@ func runServer() {
 				"rivian_client", os.Getenv("RIVIAN_CLIENT"))
 			os.Exit(1)
 		}
+	}
+	// Single-owner M4-1b: the call permit. off (default) checks nothing; observe counts requests to Rivian that carry neither a fence token nor
+	// a holder marker (rivolt_rivian_unpermitted_total); enforce also refuses them.
+	if mode := rivian.ParsePermitMode(os.Getenv("RIVOLT_RIVIAN_PERMIT")); mode != rivian.PermitOff {
+		rivian.SetPermitMode(mode)
+		rivian.SetUnpermittedObserver(func(string) { appMetrics.RivianUnpermitted.Inc() })
+		logger.Info("rivian call permit is on", "mode", mode.String())
 	}
 	// Single-owner M3 test switch: forward the replay client's calls too (preview only; refused anywhere that could reach Rivian).
 	forwardReplayTestOn, ferr := forwardReplayTest(os.Getenv)

@@ -343,7 +343,7 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 			return
 		}
 		recordFunnel(r.Context(), m, uid, funnelRivianLoginAttempt)
-		err := lc.Login(r.Context(), rivian.Credentials{Email: req.Email, Password: req.Password})
+		err := lc.Login(rivian.WithCallPermit(r.Context(), rivian.HolderLogin), rivian.Credentials{Email: req.Email, Password: req.Password})
 		switch {
 		case errors.Is(err, rivian.ErrMFARequired):
 			recordFunnel(r.Context(), m, uid, funnelRivianMFARequired)
@@ -650,7 +650,7 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 		}
 		// Second leg of the MFA dance. Email is read from the
 		// pending-state cached inside the client.
-		if err := lc.Login(r.Context(), rivian.Credentials{OTP: req.OTP}); err != nil {
+		if err := lc.Login(rivian.WithCallPermit(r.Context(), rivian.HolderMFA), rivian.Credentials{OTP: req.OTP}); err != nil {
 			fields := []any{"err", err.Error()}
 			var ue *rivian.UpstreamError
 			if errors.As(err, &ue) {

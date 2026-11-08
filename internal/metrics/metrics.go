@@ -97,6 +97,9 @@ type Metrics struct {
 	// (single-owner M4-1). Every site is created at 0. A non-zero value at seed, refresh_once or ws_dial is a finding: nothing should
 	// have tried.
 	RivianCallRefused *prometheus.CounterVec
+	// RivianUnpermitted counts requests to Rivian that carried neither a fence token nor a holder marker (RIVOLT_RIVIAN_PERMIT=observe or
+	// enforce); in enforce mode each was refused. Created at 0. Non-zero is a bug finding (single-owner M4-1b).
+	RivianUnpermitted prometheus.Counter
 	// RivianScheduleReadTotal counts charging-schedule reads by outcome: ok, retried_ok, dropped (refused
 	// by the shared budget on every try) and error. Pre-created at 0; no other labels.
 	RivianScheduleReadTotal *prometheus.CounterVec
@@ -524,6 +527,10 @@ func New() *Metrics {
 			},
 			[]string{"site"},
 		),
+		RivianUnpermitted: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_rivian_unpermitted_total",
+			Help: "Requests to Rivian with neither a fence token nor a holder marker (RIVOLT_RIVIAN_PERMIT observe or enforce). Non-zero is a bug finding.",
+		}),
 		LeaseFenced: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_lease_fenced_total",
@@ -877,6 +884,7 @@ func New() *Metrics {
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
 		m.RivianCallRefused,
+		m.RivianUnpermitted,
 		m.RivianScheduleReadTotal,
 		m.LeaseShed,
 		m.LeaseUnstreamed,

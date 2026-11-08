@@ -35,3 +35,20 @@ func TestCallRefusedSitesMatchTheMetric(t *testing.T) {
 	}
 	t.Fatal("rivolt_rivian_call_refused_total is not registered")
 }
+
+// The permit's counter exists at 0 from boot, so the first unpermitted request is an increase.
+func TestUnpermittedCounterStartsAtZero(t *testing.T) {
+	mfs, err := metrics.New().Registry().Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() == "rivolt_rivian_unpermitted_total" {
+			if len(mf.GetMetric()) != 1 || mf.GetMetric()[0].GetCounter().GetValue() != 0 {
+				t.Errorf("unexpected series: %v", mf.GetMetric())
+			}
+			return
+		}
+	}
+	t.Fatal("rivolt_rivian_unpermitted_total is not registered")
+}

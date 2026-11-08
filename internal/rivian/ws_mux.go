@@ -105,6 +105,10 @@ func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
 	}
 	// Bounded: a blackholed dial would otherwise sit here holding muxMu, and with
 	// it every subscription of this user, until the OS gave up (minutes).
+	if err := checkPermit(ctx, "ws_dial"); err != nil {
+		c.muxMu.Unlock()
+		return nil, err
+	}
 	dialCtx, cancelDial := context.WithTimeout(ctx, wsDialTimeout)
 	conn, _, err := websocket.Dial(dialCtx, c.wsURL(), c.wsDialOptions())
 	cancelDial()
