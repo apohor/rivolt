@@ -21,7 +21,13 @@ enum QASignIn {
             Logger(subsystem: "dev.rivolt.app", category: "qa").error("\(marker): not the preview server")
             return .refused
         }
-        guard (try? tokens.setToken(token, for: url)) != nil else { return .refused }
+        // Said either way (never the token), so a Keychain write that fails on an unsigned simulator build is visible, not silent.
+        let log = Logger(subsystem: "dev.rivolt.app", category: "qa")
+        do { try tokens.setToken(token, for: url) } catch {
+            log.error("\(marker): token stored: no (\(String(describing: error)))")
+            return .refused
+        }
+        log.notice("\(marker): token stored: yes")
         defaults.set(url.absoluteString, forKey: serverKey)
         return .signedIn
     }
