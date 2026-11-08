@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { stubApi, VEHICLE_ID } from "./stub";
 import { e2eNow } from "./clock";
+import { DRAWN_MS, drawnMap } from "./drawn";
 
 // An ended drive shows both pins even when the parked frame just after it carries a stale position. The parked samples around a drive anchor its pins
 // (they are more reliable than the stored endpoints), but a parked frame stamped with the truck's home, miles from where the drive ended, used to
@@ -34,7 +35,7 @@ test("iphone: a drive whose parked frame after it says home still shows its end 
   await page.route("**/api/drives?**", (r) => r.fulfill({ json: [drive] }));
   await page.route("**/api/samples**", (r) => r.fulfill({ json: samples }));
   await page.goto("/drives/drive-1");
-  await expect(page.locator("[data-map-drawn]:not([data-map-drawn='0'])").first()).toBeAttached();
+  await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
   // Start and end: two pins, not one folded into the start.
   await expect(page.locator("[data-map-drawn] .maplibregl-marker")).toHaveCount(2);
   await ctx.close();
@@ -69,7 +70,7 @@ test("iphone: a merged round trip shows one pin where it starts and ends", async
   await page.route("**/api/drives?**", (r) => r.fulfill({ json: [back, out] }));
   await page.route("**/api/samples**", (r) => r.fulfill({ json: samples }));
   await page.goto("/drives/drive-out");
-  await expect(page.locator("[data-map-drawn]:not([data-map-drawn='0'])").first()).toBeAttached();
+  await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
   await expect(page.locator("[data-map-drawn] .maplibregl-marker")).toHaveCount(1);
   await ctx.close();
 });

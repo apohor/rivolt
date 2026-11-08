@@ -4,6 +4,7 @@ import { expect, test } from "@playwright/test";
 import { settled } from "./settle";
 import { stubApi } from "./stub";
 import { e2eNow } from "./clock";
+import { DRAWN_MS, drawnMap } from "./drawn";
 
 // iPhone-width (390 px) layout checks for the drive and charge charts.
 // Screenshots go to e2e/__screenshots__ (git-ignored).
@@ -73,11 +74,11 @@ test("sample requests always carry an explicit until", async ({ browser }) => {
     if (new URL(r.url()).pathname === "/api/samples") urls.push(r.url());
   });
   await stubApi(page);
-  for (const href of ["/charges/charge-1", "/drives/drive-1"]) {
+  // Each page asks for its samples once it has loaded; wait for that request, not a fixed time (800 ms was too short on a loaded WebKit runner).
+  for (const [i, href] of ["/charges/charge-1", "/drives/drive-1"].entries()) {
     await page.goto(href);
-    await page.waitForTimeout(800);
+    await expect.poll(() => urls.length, { timeout: 15_000 }).toBeGreaterThan(i);
   }
-  expect(urls.length).toBeGreaterThanOrEqual(2);
   for (const u of urls) {
     const q = new URL(u).searchParams;
     expect(q.get("since")).toBeTruthy();
@@ -121,6 +122,7 @@ test("drive map: the speed legend and attribution never cover the route's end ma
     });
   });
   await page.goto("/drives/drive-1");
+  await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
   await expect(page.locator(".rivolt-speed-legend")).toBeVisible();
   // The map fits the route and the tiles settle after the legend is there: measure once nothing is still moving, not after a guessed wait.
   await expect(page.locator(".maplibregl-marker").first()).toBeVisible();

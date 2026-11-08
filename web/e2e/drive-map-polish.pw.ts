@@ -3,6 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi, VEHICLE_ID } from "./stub";
 import { e2eNow } from "./clock";
+import { DRAWN_MS, drawnMap } from "./drawn";
 
 // The drive map as designed (Maps 1d): one smooth gradient scaled to the drive, a Speed / Efficiency / Elevation switch when the drive has the
 // values, Start / End pills, a legend card, and a readout beside the scrub dot. One fixed, made-up drive near (10, 10) so shots compare across
@@ -40,7 +41,6 @@ async function setup(page: Page, withExtras = true) {
   await page.route("**/api/samples**", (r) => r.fulfill({ json: samples }));
 }
 
-const drawn = (page: Page) => page.locator("[data-map-drawn]:not([data-map-drawn='0'])").first();
 
 for (const [vpName, vp] of [
   ["iphone", { width: 390, height: 844 }],
@@ -53,7 +53,7 @@ for (const [vpName, vp] of [
       await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), theme);
       await setup(page);
       await page.goto("/drives/drive-1");
-      await expect(drawn(page)).toBeAttached();
+      await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
       const legend = page.locator(".rivolt-legend");
       await expect(legend).toBeVisible();
       // Speed, Efficiency and Elevation all qualify for this drive.
@@ -76,7 +76,7 @@ test("iphone: the colour modes switch, repaint and label their legend", async ({
   const page = await ctx.newPage();
   await setup(page);
   await page.goto("/drives/drive-1");
-  await expect(drawn(page)).toBeAttached();
+  await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
   const legend = page.locator(".rivolt-legend");
   await legend.getByRole("button", { name: "Efficiency" }).click();
   await expect(legend).toHaveAttribute("data-mode", "eff");
@@ -97,7 +97,7 @@ for (const mode of ["Speed", "Efficiency", "Elevation"] as const) {
     await page.addInitScript(() => localStorage.setItem("rivolt.theme", "dark"));
     await setup(page);
     await page.goto("/drives/drive-1");
-    await expect(drawn(page)).toBeAttached();
+    await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
     await page.locator(".rivolt-legend").getByRole("button", { name: mode }).click();
     await page.locator(".rivolt-legend").scrollIntoViewIfNeeded();
     await page.locator("[data-map-drawn]").first().screenshot({ path: path.join(SHOTS, `drive-map-mode-${mode.toLowerCase()}-desktop-dark.png`) });
@@ -120,7 +120,7 @@ test("iphone: a drive without altitude or battery values shows no switch, only S
     }),
   );
   await page.goto("/drives/drive-1");
-  await expect(drawn(page)).toBeAttached();
+  await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
   await expect(page.locator(".rivolt-legend")).toHaveAttribute("data-mode", "speed");
   await expect(page.locator(".rivolt-legend").getByRole("group", { name: "Route colour" })).toHaveCount(0);
   await ctx.close();
@@ -139,7 +139,7 @@ for (const [name, vp, theme] of [
     await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), theme);
     await setup(page);
     await page.goto("/drives/drive-1");
-    await expect(drawn(page)).toBeAttached();
+    await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
     // The timeline charts are SVG with a transparent pointer overlay (crosshair cursor); hovering it moves the map's scrub dot.
     const over = page.locator("rect[style*='crosshair']").first();
     await expect(over).toBeVisible();
@@ -165,7 +165,7 @@ for (const theme of ["dark", "light"] as const) {
     await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), theme);
     await setup(page);
     await page.goto("/drives/drive-1");
-    await expect(drawn(page)).toBeAttached();
+    await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
     const legend = page.locator(".rivolt-legend");
     await expect(legend).toBeVisible();
     for (const [name, target] of [
