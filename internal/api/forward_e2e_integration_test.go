@@ -152,12 +152,14 @@ type e2eEnv struct {
 	group string
 	a, b  *e2ePod
 
-	timeouts map[forward.Kind]time.Duration
+	opts e2eOpts
 }
 
 // e2eOpts tunes an environment: Timeouts shortens a kind's wait so a silent owner is a quick test.
 type e2eOpts struct {
 	Timeouts map[forward.Kind]time.Duration
+	PerUser  int           // owner: concurrent kinds for one user (0: the default)
+	Jitter   time.Duration // requester: the pause before the one retry after busy (0: the default)
 }
 
 func newE2EEnv(t *testing.T, opts ...e2eOpts) *e2eEnv {
@@ -184,7 +186,7 @@ func newE2EEnv(t *testing.T, opts ...e2eOpts) *e2eEnv {
 	t.Cleanup(func() { _ = rdb.Close() })
 	env := &e2eEnv{uid: uid, pool: pool, rdb: rdb, mr: mr, key: []byte(strings.Repeat("k", 32))}
 	if len(opts) > 0 {
-		env.timeouts = opts[0].Timeouts
+		env.opts = opts[0]
 	}
 	env.a = env.pod(t, "pod-a", uid)
 	env.b = env.pod(t, "pod-b", uid)
@@ -222,11 +224,11 @@ func (e *e2eEnv) pod(t *testing.T, name string, uid uuid.UUID) *e2ePod {
 	p.view = view
 	keys := forward.Keys{Prefix: "e2e"}
 	owner, err := forward.NewOwner(forward.OwnerConfig{Pod: name, Keys: keys, Signer: signer, Redis: e.rdb, Leases: view,
-		Runner: e2eRunner{p}, Metrics: p.metrics, BlockFor: 200 * time.Millisecond})
+		Runner: e2eRunner{p}, Metrics: p.metrics, BlockFor: 200 * time.Millisecond, PerUser: e.opts.PerUser})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.fwd, err = forward.NewForwarder(forward.RequesterConfig{Pod: name, Keys: keys, Signer: signer, Redis: e.rdb, Leases: view, Metrics: p.metrics, Timeouts: e.timeouts})
+	p.fwd, err = forward.NewForwarder(forward.RequesterConfig{Pod: name, Keys: keys, Signer: signer, Redis: e.rdb, Leases: view, Metrics: p.metrics, Timeouts: e.opts.Timeouts, Jitter: jitterOf(e.opts.Jitter)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,4 +370,11 @@ func TestForwardE2ESignatures(t *testing.T) {
 	if w := env.b.getState(t); w.Code != 200 {
 		t.Errorf("a genuine read after the forgeries: %d %s", w.Code, w.Body)
 	}
+}
+
+func jitterOf(d time.Duration) func() time.Duration {
+	if d <= 0 {
+		return nil
+	}
+	return func() time.Duration { return d }
 }
