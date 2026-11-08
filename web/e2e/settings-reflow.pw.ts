@@ -45,3 +45,22 @@ test("Truck page at 320 px and 200% text: the drain card's loading placeholder s
   expect(box!.x + box!.width, "the placeholder's right edge").toBeLessThanOrEqual(320 + 1);
   await ctx.close();
 });
+
+// The loaded parked-drain card: its 7 days / 30 days toggle ran past the card and the screen edge at 320 px with 200% text (#1643).
+test("Truck page at 320 px and 200% text: the loaded drain card stays inside the window", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 640 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page, { drain: "ok" });
+  await page.goto("/truck");
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+  const card = page.getByRole("region", { name: "Parked drain" });
+  await expect(card.getByRole("tab", { name: "30 days" })).toBeVisible();
+  const wide = await card.evaluate((root) =>
+    [root, ...root.querySelectorAll<HTMLElement>("*")]
+      .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1 && !el.closest("[data-scroll-x]"))
+      .slice(0, 6)
+      .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).split(" ").slice(0, 3).join(".")} right=${Math.round(el.getBoundingClientRect().right)} "${(el.textContent || "").trim().slice(0, 24)}"`),
+  );
+  expect(wide, "elements of the drain card wider than the window").toEqual([]);
+  await ctx.close();
+});
