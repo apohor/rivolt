@@ -106,3 +106,19 @@ func TestPublicClientStillUsesTheArchiveAndCountsErrors(t *testing.T) {
 		t.Errorf("observed %q", o.list())
 	}
 }
+
+// Snow is the snapshot's own weather code, never the temperature; freezing rain is not snow.
+func TestSnapshotSnowing(t *testing.T) {
+	if (*Snapshot)(nil).Snowing() {
+		t.Error("nil snapshot")
+	}
+	for label, want := range map[string]bool{"snow": true, "rain": false, "freezing rain": false, "clear sky": false, "": false} {
+		s := &Snapshot{TempC: -10, HasTemp: true, Conditions: label, HasConditions: label != ""}
+		if got := s.Snowing(); got != want {
+			t.Errorf("%q: %v, want %v", label, got, want)
+		}
+	}
+	if (&Snapshot{TempC: -20, HasTemp: true}).Snowing() {
+		t.Error("a cold snapshot with no weather code reads as snow")
+	}
+}

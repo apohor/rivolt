@@ -2,6 +2,7 @@ package elevation
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/png"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -184,4 +186,54 @@ func fileName(n int) string {
 		digits = append(digits, rev[i])
 	}
 	return string(digits)
+}
+
+// LookupBlocking waits for a cold tile (one upstream fetch however many callers), answers a missing tile with ok=false instead of waiting
+// for ever, and gives up when its context ends.
+func TestLookupBlocking(t *testing.T) {
+	var hits int32
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		time.Sleep(60 * time.Millisecond)
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(makeTerrariumPNG(t, 321))
+	}))
+	defer slow.Close()
+	r := New(Config{TileURL: slow.URL + "/{z}/{x}/{y}.png", Zoom: 10})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if v, ok := r.LookupBlocking(ctx, 30.0, -97.0); !ok || int(v) != 321 {
+				t.Errorf("cold tile: %v %v", v, ok)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("%d upstream fetches for one tile, want 1", got)
+	}
+
+	missing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.NotFound(w, nil) }))
+	defer missing.Close()
+	r2 := New(Config{TileURL: missing.URL + "/{z}/{x}/{y}.png", Zoom: 10})
+	if _, ok := r2.LookupBlocking(ctx, 30.0, -97.0); ok {
+		t.Error("a tile the mirror does not have was reported as found")
+	}
+
+	hang := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { time.Sleep(time.Second) }))
+	defer hang.Close()
+	r3 := New(Config{TileURL: hang.URL + "/{z}/{x}/{y}.png", Zoom: 10})
+	short, cancel2 := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel2()
+	start := time.Now()
+	if _, ok := r3.LookupBlocking(short, 30.0, -97.0); ok || time.Since(start) > 500*time.Millisecond {
+		t.Errorf("a context that ended did not stop the wait (%v)", time.Since(start))
+	}
+	if _, ok := r.LookupBlocking(ctx, 95, 0); ok {
+		t.Error("an invalid latitude was looked up")
+	}
 }

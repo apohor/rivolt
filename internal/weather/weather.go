@@ -71,6 +71,10 @@ type Snapshot struct {
 	HasHeadwind   bool
 }
 
+// Snowing reports whether the snapshot's own weather code says snow (WMO 71 to 77, 85, 86). Freezing rain is not snow, and a
+// temperature below zero never makes it so.
+func (s *Snapshot) Snowing() bool { return s != nil && s.HasConditions && s.Conditions == "snow" }
+
 // Coarsen rounds (lat, lon) to CoarseRound before disclosure.
 func Coarsen(lat, lon float64) (float64, float64) {
 	r := func(v float64) float64 {

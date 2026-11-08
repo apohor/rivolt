@@ -289,6 +289,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 			vehicleID: req.VehicleID, packKWh: req.PackKWh, noWeather: farFuture}
 		enr.load(r.Context())
 		resp.WeatherAdjustment, resp.Costs = enr.enrich(r.Context(), plan, in.StartingSoC, in.TargetArrivalSocPercent)
+		addLegClimb(r.Context(), resp.WeatherAdjustment, resp.TripPlan)
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
@@ -338,6 +339,12 @@ type tripWeatherAdjLegDTO struct {
 	TempC       *float64 `json:"temp_c,omitempty"`
 	HeadwindKPH *float64 `json:"headwind_kph,omitempty"`
 	PrecipMM    *float64 `json:"precip_mm,omitempty"`
+	// Snow is true only when the leg's weather snapshot says snow (its own weather code). It never comes from the temperature.
+	Snow bool `json:"snow,omitempty"`
+	// ClimbM and DescentM are the total rise and fall along the leg in metres, from the self-hosted DEM along the route's road line
+	// (addLegClimb). Absent when there is no line or no DEM. They do not change any energy figure.
+	ClimbM   *float64 `json:"climb_m,omitempty"`
+	DescentM *float64 `json:"descent_m,omitempty"`
 }
 
 // computeTripWeatherAdjustment runs FetchHourCached for each leg in
@@ -464,6 +471,7 @@ func computeTripWeatherAdjustment(
 				v := s.PrecipMM
 				leg.PrecipMM = &v
 			}
+			leg.Snow = s.Snowing()
 		}
 		dto.Legs[i] = leg
 	}

@@ -197,6 +197,34 @@ func (r *Resolver) Lookup(lat, lon float64) (float64, bool) {
 	return 0, false
 }
 
+// LookupBlocking is Lookup that waits (up to ctx) for a missing tile instead of returning ok=false: a caller that needs the number now (the
+// trip planner's climb along a route) rather than best effort. It shares the in-flight guard with Lookup, so a tile is fetched once.
+func (r *Resolver) LookupBlocking(ctx context.Context, lat, lon float64) (float64, bool) {
+	if v, ok := r.Lookup(lat, lon); ok {
+		return v, true // a warm tile; a miss has just started the fetch
+	}
+	if !validLatLon(lat, lon) {
+		return 0, false
+	}
+	xtile, ytile, _, _ := tileCoords(lat, lon, r.zoom)
+	key := tileKey{z: r.zoom, x: xtile, y: ytile}
+	for {
+		r.mu.Lock()
+		_, busy := r.inflight[key]
+		r.mu.Unlock()
+		if !busy {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return 0, false
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	// The fetch is over: the tile is cached now, or it will not arrive (404 over open ocean, a failed GET) and this answers ok=false.
+	return r.Lookup(lat, lon)
+}
+
 // fetchTile resolves a tile via (1) disk cache, then (2) HTTP, and
 // stores the decoded result in the in-memory cache. Errors are logged
 // and dropped: a missing tile (404 over open ocean, server hiccup,

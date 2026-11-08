@@ -34,3 +34,7 @@ func newWeatherClient(getenv func(string) string, m *metrics.Metrics) (*weather.
 	}
 	return c, nil
 }
+
+// planElevationZoom is the DEM zoom the trip planner reads climb at: the in-cluster mirror holds z0-10 across North America, and z=12 only for
+// Texas (the recorder's altitude).
+const planElevationZoom = 10
