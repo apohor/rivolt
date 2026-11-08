@@ -1744,6 +1744,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// subscriber to the same VIN keeps kicking us (see noteSubEnd).
 		m.noteSubEnd(vehicleID, sessionDur, nudged)
 
+		noteWSReconnect(wsReconnectReason(nudged, watchdogKilled, frames, sessionDur, err))
 		switch {
 		case nudged:
 			// Wake-up nudge from periodicRefresh. Reset backoff so

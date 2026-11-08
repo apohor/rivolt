@@ -97,6 +97,11 @@ type Metrics struct {
 	// (single-owner M4-1). Every site is created at 0. A non-zero value at seed, refresh_once or ws_dial is a finding: nothing should
 	// have tried.
 	RivianCallRefused *prometheus.CounterVec
+	// RivianRequestSeconds is how long each request that reached Rivian's GraphQL gateway took, by operation (a fixed set, rivian.PermitOps
+	// without ws_dial). Every operation is created at 0. Nothing per user or vehicle.
+	RivianRequestSeconds *prometheus.HistogramVec
+	// RivianWSReconnects counts vehicleState subscriptions opened again, by why (rivian.WSReconnectReasons). Created at 0.
+	RivianWSReconnects *prometheus.CounterVec
 	// RivianUnpermitted counts requests to Rivian that carried neither a fence token nor a holder marker (RIVOLT_RIVIAN_PERMIT=observe or
 	// enforce); in enforce mode each was refused. Created at 0. Non-zero is a bug finding (single-owner M4-1b).
 	RivianUnpermitted *prometheus.CounterVec
@@ -527,6 +532,15 @@ func New() *Metrics {
 			},
 			[]string{"outcome"},
 		),
+		RivianRequestSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "rivolt_rivian_request_seconds",
+			Help:    "Seconds each request to Rivian's GraphQL gateway took (sent to answered or failed), by operation.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 5, 10, 30},
+		}, []string{"op"}),
+		RivianWSReconnects: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_rivian_ws_reconnects_total",
+			Help: "vehicleState subscriptions opened again, by reason: nudge, watchdog, no_frames, error or clean.",
+		}, []string{"reason"}),
 		RivianCallRefused: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_rivian_call_refused_total",
@@ -892,6 +906,8 @@ func New() *Metrics {
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
 		m.RivianCallRefused,
+		m.RivianRequestSeconds,
+		m.RivianWSReconnects,
 		m.RivianUnpermitted,
 		m.RivianScheduleReadTotal,
 		m.LeaseShed,
@@ -991,6 +1007,14 @@ func New() *Metrics {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
 	}
 	for _, op := range RivianPermitOps {
+		if op != "ws_dial" {
+			m.RivianRequestSeconds.WithLabelValues(op) // the child exists at zero observations from boot
+		}
+	}
+	for _, reason := range RivianWSReconnectReasons {
+		m.RivianWSReconnects.WithLabelValues(reason).Add(0)
+	}
+	for _, op := range RivianPermitOps {
 		m.RivianUnpermitted.WithLabelValues(op).Add(0)
 	}
 	for _, site := range RivianCallSites {
@@ -1031,6 +1055,9 @@ var RivianCallSites = []string{"seed", "refresh_once", "janitor_confirm", "wake_
 var RivianPermitOps = []string{"__Introspect", "CreateCSRFToken", "GetChargingSchedule", "GetCompletedSessionSummaries", "GetDetailedSessionInfoByTxnId",
 	"getLiveSessionHistory", "getOTAUpdateDetails", "getUserInfo", "getVehicleImages", "GetVehicleState", "IntrospectEnum", "IntrospectInput", "Login",
 	"LoginWithOTP", "planTripWithMultiStop", "planTripWithMultiStopV2", "Probe", "SupportedFeatures", "ws_dial", "other"}
+
+// RivianWSReconnectReasons are the label values of rivolt_rivian_ws_reconnects_total; rivian.WSReconnectReasons must list the same (a test in cmd/rivolt).
+var RivianWSReconnectReasons = []string{"nudge", "watchdog", "no_frames", "error", "clean"}
 
 var LeaseFencedKinds = []string{"samples", "drives", "charges", "sends", "redis", "rivian", "vehicle_info"}
 

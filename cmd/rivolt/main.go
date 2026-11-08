@@ -879,6 +879,7 @@ func runServer() {
 	}
 	// Single-owner M4-1b: the call permit. off (default) checks nothing; observe counts requests to Rivian that carry neither a fence token nor
 	// a holder marker (rivolt_rivian_unpermitted_total); enforce also refuses them.
+	rivian.SetWSReconnectObserver(func(reason string) { appMetrics.RivianWSReconnects.WithLabelValues(reason).Inc() })
 	if mode := rivian.ParsePermitMode(os.Getenv("RIVOLT_RIVIAN_PERMIT")); mode != rivian.PermitOff {
 		rivian.SetPermitMode(mode)
 		rivian.SetUnpermittedObserver(func(op string) { appMetrics.RivianUnpermitted.WithLabelValues(rivian.PermitOp(op)).Inc() })
@@ -3590,6 +3591,14 @@ func (r *rivianResultMetrics) OnResult(op, class string) {
 		return
 	}
 	r.m.RivianResultsTotal.WithLabelValues(op, class).Inc()
+}
+
+// OnDuration is rivian.DurationObserver: rivolt_rivian_request_seconds{op}. An operation outside the fixed set is "other", so the label set stays closed.
+func (r *rivianResultMetrics) OnDuration(op string, d time.Duration) {
+	if r == nil || r.m == nil {
+		return
+	}
+	r.m.RivianRequestSeconds.WithLabelValues(rivian.PermitOp(op)).Observe(d.Seconds())
 }
 
 type breakerMetrics struct{ m *metrics.Metrics }
