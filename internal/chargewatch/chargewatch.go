@@ -97,18 +97,25 @@ func Measure(ctx context.Context, db *sql.DB, now time.Time) (Summary, error) {
 	return sum, nil
 }
 
-// Run measures every interval until ctx ends and reports each Summary. Every replica runs it: the read is cheap and idempotent, and a gauge that
+// Run measures every interval until ctx ends and reports each good Summary (a failed read goes to onError and reports nothing). Every replica runs it: the read is cheap and idempotent, and a gauge that
 // every pod exports does not disappear when one pod does (a singleton's series dropped out on each rollout, which flapped the Stripe cancel alert).
-func Run(ctx context.Context, db *sql.DB, every time.Duration, clock func() time.Time, report func(Summary)) {
+func Run(ctx context.Context, db *sql.DB, every time.Duration, clock func() time.Time, report func(Summary), onError func(error)) {
 	if db == nil || report == nil {
 		return
 	}
 	read := func() {
 		rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		if s, err := Measure(rctx, db, clock()); err == nil {
-			report(s)
+		s, err := Measure(rctx, db, clock())
+		if err != nil {
+			// The gauges keep their last values on an error, which would read as "all clear": the caller logs it and the
+			// last-success timestamp stops moving, which the infra alert watches.
+			if onError != nil {
+				onError(err)
+			}
+			return
 		}
+		report(s)
 	}
 	read()
 	t := time.NewTicker(every)
