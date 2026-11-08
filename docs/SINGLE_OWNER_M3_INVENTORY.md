@@ -65,3 +65,24 @@ Already owner-aware, tests only: 3, 7, 21. Probes: 12 routes gated by `AdminDebu
 (preview), property `hmac_key`. Env name `RIVOLT_FORWARD_HMAC_KEY`, optional until `RIVOLT_FORWARD` is on. The ExternalSecret and env
 wiring come with M3-1 (pattern: `apps/platform/external-secrets-resources/manifests/rivolt-preview.yaml`, `rivolt-oauth.yaml`). The
 value is never printed or logged; `forward.ParseKey` decodes it and its error never echoes it.
+
+## Forward outcome rule (DA, all kinds)
+
+One rule for what a call does when the forward does not simply succeed. It is the same for `fresh_state`, `plan_legs` and `ota_notes`; `adopt` has no waiting caller.
+
+| Situation | What happens | Outcome counted |
+|---|---|---|
+| This pod holds the group | runs here | `held` (left out of the local share) |
+| No owner, owner not ready, Redis down, this pod is the owner | runs here | `local` |
+| Owner still busy after its one retry (per-user cap) | runs here | `local_busy` |
+| `moved` and the lease shows nobody new to ask | runs here | `local` |
+| The vehicle's group is unknown to this pod | runs here | `no_group` |
+| Timeout, after the one retry on an owner or epoch change | **never runs here**: `plan_legs` and `ota_notes` answer 503 with `Retry-After: 5`; `fresh_state` answers from the state this pod already has (its cache or the owner's published snapshot, no Rivian call) and only with none answers 503 with `Retry-After: 5` | `timeout` |
+| Owner queue full (LLEN over 100) | 503 with `Retry-After: 5` | `unavailable` |
+| `moved` twice (a new owner also says moved) | 503 with `Retry-After: 5` | `moved` |
+| The owner's answer does not fit the reply cap | the kind's error | `too_big` |
+| The owner's runner failed | the kind's error | `error` |
+
+Why a timeout never runs here: most of the route deadline is gone, so a local call could not finish, and the owner is probably still inside a slow Rivian call, so a second call would double the load exactly then. Queue full is owner saturation for the same reason.
+
+The local share used for "M3 is done" is `local + local_busy + no_group` over the forwarded traffic; `held` is the owner's own calls, and `timeout`, `unavailable`, `moved`, `too_big` and `error` are failures, outside the numerator. Tests: `TestPlanLegsSoftCasesPlanLocally`, `TestRequesterMovedWithNoNewOwnerIsServedLocally`, `TestRequesterMovedTwiceIs503`, `TestRequesterTimesOutCleanly`, `TestOwnerSilentPlanIs503RetryAfter5`, `TestForwardedStateTimeoutServesWhatThePodHas`.

@@ -315,3 +315,31 @@ func TestReplayPlannerForwardsOnlyWithTheSwitch(t *testing.T) {
 		}
 	}
 }
+
+// A fresh_state that times out never runs locally. The handler answers from the state this pod already has (a cached entry or the owner's
+// published snapshot; no Rivian call), and only with none does it answer 503 with Retry-After 5.
+func TestForwardedStateTimeoutServesWhatThePodHas(t *testing.T) {
+	timeout := forward.Result{Status: forward.StatusUnavailable, Class: forward.ClassUnavailable}
+	t.Run("a cached state", func(t *testing.T) {
+		client := &restStateClient{}
+		mon := rivian.NewStateMonitor(nil, nil)
+		mon.Prime(fwdVehicle, &rivian.State{VehicleID: fwdVehicle, PowerState: "ready", BatteryLevelPct: 42})
+		fw := &fakeStateForwarder{res: timeout}
+		w := stateGet(handleVehicleStateForwarded(client, mon, nil, newStateForward(fw)))
+		var st rivian.State
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &st) != nil || st.BatteryLevelPct != 42 {
+			t.Fatalf("status %d: %s", w.Code, w.Body)
+		}
+		if len(fw.calls) != 1 || client.count() != 0 {
+			t.Errorf("forwards %d, Rivian calls %d; want 1 and 0", len(fw.calls), client.count())
+		}
+	})
+	t.Run("nothing to serve", func(t *testing.T) {
+		client := &restStateClient{}
+		fw := &fakeStateForwarder{res: timeout}
+		w := stateGet(handleVehicleStateForwarded(client, rivian.NewStateMonitor(nil, nil), nil, newStateForward(fw)))
+		if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") != "5" || client.count() != 0 {
+			t.Errorf("status %d Retry-After %q, Rivian calls %d; want 503, 5, 0", w.Code, w.Header().Get("Retry-After"), client.count())
+		}
+	})
+}
