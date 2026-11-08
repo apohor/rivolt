@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { DEMO_PLAN, stubApi } from "./stub";
 
-// Recreation.gov campgrounds in the planner, on the Pasadena to Mammoth route: the suggestion card, the "Campgrounds" chip and
+// Recreation.gov campgrounds in the planner, on the Pasadena to Mammoth route: the suggestion card, the "Camping" chip and
 // legend on the map, and the overnight row with its credit. Stubbed responses only (no campground is on that route in the data).
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
@@ -128,11 +128,11 @@ for (const v of [
     await card.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(SHOTS, `campground-${v.w}-${v.scheme}.png`), fullPage: true });
 
-    // The map: the Campgrounds chip is there because the route has one, with its legend.
+    // The map: the Camping chip is there because the route has one, with its legend.
     const chips = page.locator("[data-map-chips]").first();
-    await expect(chips.getByRole("button", { name: "Campgrounds" })).toBeVisible();
-    await chips.getByRole("button", { name: "Campgrounds" }).click();
-    await expect(chips).toContainText("Campground, electric hookup");
+    await expect(chips.getByRole("button", { name: "Camping", exact: true })).toBeVisible();
+    await chips.getByRole("button", { name: "Camping", exact: true }).click();
+    await expect(chips).toContainText("Camping");
     await ctx.close();
   });
 }

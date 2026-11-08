@@ -24,6 +24,8 @@ import { measurePill, pillAwayFromLine, pillBox, pillSide, placeStopPill, setPil
 import { watchDrawn } from "./drawn";
 import { localUnits, usePreferences } from "../lib/preferences";
 import { MAP_CAPTION_PX } from "../lib/mapCaption";
+import { ALL_LABEL, chargerLabel, type ChargerKind } from "../lib/chargerLabels";
+import { ChargerTypeInfo } from "../components/ChargerTypeInfo";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
@@ -723,11 +725,11 @@ export function TripRouteMap({
   }, [routePath]);
 
   const filterLabels: Record<typeof chargerFilter, string> = {
-    dcfc: "Fast charging",
-    l2: "Level 2",
-    hotels: "Hotels with overnight charging",
-    camp: "Campgrounds",
-    all: "All",
+    dcfc: chargerLabel("fast"),
+    l2: chargerLabel("medium"),
+    hotels: chargerLabel("hotel"),
+    camp: chargerLabel("camping"),
+    all: ALL_LABEL,
   };
 
   if (!supported) {
@@ -754,6 +756,10 @@ export function TripRouteMap({
               {filterLabels[f]}
             </button>
           ))}
+          <ChargerTypeInfo
+            floating={fill}
+            kinds={["fast", "medium", "hotel", ...(campCount > 0 || chargerFilter === "camp" ? (["camping"] as ChargerKind[]) : [])]}
+          />
           {preferredSlugs.length > 0 && (chargerFilter === "dcfc" || chargerFilter === "all") && (
             <button
               aria-pressed={preferredOnly}
@@ -771,17 +777,17 @@ export function TripRouteMap({
           )}
           {chargerFilter === "all" && (
             <span className="whitespace-nowrap text-xs text-neutral-600 ml-1">
-              <span style={{ color: "#06b6d4" }}>●</span> Fast charging &nbsp;
-              <span style={{ color: "#a3e635" }}>●</span> Level 2 &nbsp;
-              <span style={{ color: "#a78bfa" }}>●</span> Hotel, overnight charging &nbsp;
-              {campCount > 0 && (<><span style={{ color: "#22c55e" }}>●</span> Campground, electric hookup</>)}
+              <span style={{ color: "#06b6d4" }}>●</span> {chargerLabel("fast")} &nbsp;
+              <span style={{ color: "#a3e635" }}>●</span> {chargerLabel("medium")} &nbsp;
+              <span style={{ color: "#a78bfa" }}>●</span> {chargerLabel("hotel")} &nbsp;
+              {campCount > 0 && (<><span style={{ color: "#22c55e" }}>●</span> {chargerLabel("camping")}</>)}
             </span>
           )}
           {chargerFilter === "camp" && (
-            <span className="text-xs text-neutral-600 ml-1"><span style={{ color: "#22c55e" }}>●</span> Campground, electric hookup</span>
+            <span className="text-xs text-neutral-600 ml-1"><span style={{ color: "#22c55e" }}>●</span> {chargerLabel("camping")}</span>
           )}
           {chargerFilter === "hotels" && (
-            <span className="text-xs text-neutral-600 ml-1"><span style={{ color: "#a78bfa" }}>●</span> Hotel, overnight charging</span>
+            <span className="text-xs text-neutral-600 ml-1"><span style={{ color: "#a78bfa" }}>●</span> {chargerLabel("hotel")}</span>
           )}
         </div>
       )}

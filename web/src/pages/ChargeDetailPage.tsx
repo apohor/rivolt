@@ -1,11 +1,13 @@
 import { SET_RATE_FIRST, SET_RATE_PATH, networkNameFromSlug, networkRateSet } from "../lib/networkRates";
+import { chargerKindOfKw, chargerLabel, type ChargerKind } from "../lib/chargerLabels";
+import { ChargerTypeInfo } from "../components/ChargerTypeInfo";
 import { ENERGY_ESTIMATED_NOTE, isEnergyEstimated } from "../lib/energyEstimated";
 import { monthLabelShort } from "../lib/ledger";
 import { safeTrackerUrl } from "../lib/planCost";
 import { chargesAllQuery } from "../lib/activityLists";
-import { fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
+import { DCFC_MIN_KW, fetchLedgerMonth, formatMoney, type Receipt } from "../lib/ledger";
 import { appPath, inDemo, listPath } from "../lib/demo";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ProLimitNotice } from "../components/ProLimitNotice";
@@ -661,7 +663,7 @@ export default function ChargeDetailPage() {
             lon={charge.Lon}
             height={260}
             network={knownNetwork}
-            dc={charge.MaxPowerKW >= 30}
+            dc={charge.MaxPowerKW >= DCFC_MIN_KW}
             recorded={charge.LocationOverride === "recorded"}
             ownLabel={ownNetwork?.name ?? null}
           />
@@ -854,7 +856,7 @@ function headerTitle(charge: import("../lib/api").Charge): string {
   }
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
       <dt className="text-xs uppercase tracking-wide text-neutral-500">{label}</dt>
@@ -893,6 +895,9 @@ function SessionInsights({
       : place === "Away" && charge.km_from_home != null
         ? `Away · ${formatDistance(charge.km_from_home, distanceUnit)} from home`
         : place || "—";
+  // The label calls anything over the AC ceiling Fast; Money's Fast bucket starts at DCFC_MIN_KW. A session between the two is Fast here and Home or Away there.
+  const bucketPlace = own || place;
+  const fastButCountedElsewhere = tier.kind === "fast" && charge.MaxPowerKW < DCFC_MIN_KW && charge.kind !== "dcfc" && (bucketPlace === "Home" || bucketPlace === "Away");
   return (
     <div className="space-y-4 text-sm text-neutral-300">
       <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -901,13 +906,25 @@ function SessionInsights({
           value={formatChargeState(charge.FinalState)}
         />
         <Row label="Where" value={where} />
-        <Row label="Charging tier" value={tier.label} />
-        <Row label="Source" value={charge.Source} />
         <Row
-          label="Sessions like this"
-          value={tier.hint}
+          label="Charger type"
+          value={
+            tier.kind ? (
+              <span>
+                {chargerLabel(tier.kind)} · peak {Math.round(charge.MaxPowerKW)} kW <ChargerTypeInfo kinds={[tier.kind]} />
+              </span>
+            ) : (
+              "—"
+            )
+          }
         />
+        <Row label="Source" value={charge.Source} />
       </dl>
+      {fastButCountedElsewhere && (
+        <p data-money-bucket-note className="-mt-2 text-[11px] text-neutral-500">
+          Counted as {bucketPlace} in Money (Fast there means {DCFC_MIN_KW} kW and up).
+        </p>
+      )}
 
       <div>
         <h4 className="text-[11px] uppercase tracking-[0.12em] text-neutral-500 mb-2">
@@ -1065,7 +1082,7 @@ function SessionInsights({
 // the SessionInsights card. Kept narrow on purpose: only fields
 // that drive the rendered rows go here, with units pre-baked.
 type SessionInsightsData = {
-  tier: { label: string; hint: string };
+  tier: { kind: ChargerKind | null };
   timeToPeakSec: number;
   activeChargingSec: number;
   activeChargingPct: number; // share of total session spent at >0 kW
@@ -1212,16 +1229,9 @@ function computeSessionInsights(
 // canonical tier the operator would think in. Buckets borrow from
 // SAE J1772 / CCS naming: L1 wall outlet, L2, L2 high power,
 // then DC slow / standard / fast / ultra.
-function classifyChargingTier(maxKW: number): { label: string; hint: string } {
-  if (maxKW <= 0) return { label: "—", hint: "no power data" };
-  if (maxKW <= 2) return { label: "Household outlet (Level 1)", hint: "wall outlet" };
-  // Power only: where the charge was is the "Where" row.
-  if (maxKW <= 12) return { label: "Level 2", hint: "7–12 kW range" };
-  if (maxKW <= 25) return { label: "Level 2, high power", hint: "12–25 kW range" };
-  if (maxKW <= 60) return { label: "DC slow", hint: "~50 kW fast charging" };
-  if (maxKW <= 150) return { label: "DC standard", hint: "100–150 kW fast charging" };
-  if (maxKW <= 250) return { label: "DC fast", hint: "150–250 kW fast charging" };
-  return { label: "DC ultra", hint: "350 kW+ fast charging" };
+function classifyChargingTier(maxKW: number): { kind: ChargerKind | null } {
+  // Power only: where the charge was is the "Where" row. The words are the app-wide set (chargerLabels.json); the peak is the vehicle's measured one.
+  return { kind: chargerKindOfKw(maxKW) };
 }
 
 // thermalIntensityLabel turns the thermal-share percentage into a

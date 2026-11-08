@@ -583,6 +583,9 @@ export function dataQualityNotes(m: LedgerMonth, auto = false): string[] {
 // ---- fixtures -------------------------------------------------------
 
 export const DCFC_MIN_KW = 50;
+// The most a Rivian takes on AC (Level 2) is about 11.5 kW, so a power above about 12 kW is DC and the charger-type label calls it Fast, with its kW. This is
+// the label's rule only; the Money / Activity Fast bucket stays at DCFC_MIN_KW.
+export const AC_MAX_KW = 12;
 
 // A typed month shaped like the replay corpus, covering every price
 // state: home rate, folded top-ups, a legacy DCFC stamped at the home

@@ -1,6 +1,8 @@
 // ChargesOverviewMap draws one dot per charge on the self-hosted MapLibre basemap, coloured by power class, with a hover tooltip summarising
 // the session; a click calls onSelect (the detail page). Pins at one spot (home charging) stack; they are not clustered. The dots are one
 // GeoJSON circle layer, so hundreds of charges cost no DOM nodes. Without WebGL it says the map is unavailable.
+import { chargerLabel } from "../lib/chargerLabels";
+import { AC_MAX_KW, DCFC_MIN_KW } from "../lib/ledger";
 import { useEffect, useMemo, useRef } from "react";
 import type { GeoJSONSource } from "maplibre-gl";
 import { displayTimeZone } from "../lib/format";
@@ -22,8 +24,10 @@ import { webglAvailable } from "./webgl";
 export function chargeBucket(c: { MaxPowerKW: number; kind?: "ac" | "dcfc" }): "fast" | "l2" | "l1" {
   if (c.kind === "dcfc") return "fast";
   const maxKW = c.MaxPowerKW;
-  if (c.kind === undefined && Number.isFinite(maxKW) && maxKW >= 50) return "fast";
+  if (c.kind === undefined && Number.isFinite(maxKW) && maxKW >= DCFC_MIN_KW) return "fast";
   if (!Number.isFinite(maxKW) || maxKW < 3) return "l1";
+  // Above what a vehicle takes on AC it is DC, whatever the ledger's bucket: the label says Fast, with the peak next to it.
+  if (maxKW > AC_MAX_KW) return "fast";
   return "l2";
 }
 
@@ -33,7 +37,7 @@ export const CHARGE_BUCKET_COLOR: Record<"fast" | "l2" | "l1", string> = {
   l1: "#a3a3a3",
 };
 
-const BUCKET_LABEL = { fast: "Fast charging", l2: "Level 2", l1: "Household outlet (Level 1)" } as const;
+const BUCKET_LABEL = { fast: chargerLabel("fast"), l2: chargerLabel("medium"), l1: chargerLabel("outlet") } as const;
 const SOURCE = "rivolt-charges";
 const LAYER = "rivolt-charges-dots";
 

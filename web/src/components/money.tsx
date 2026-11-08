@@ -1,3 +1,4 @@
+import { DCFC_MIN_KW } from "../lib/ledger";
 import { appPath, detailPath } from "../lib/demo";
 import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE } from "../lib/energyEstimated";
 import { hasOpenNetworkState } from "../lib/autoNetwork";
@@ -201,6 +202,7 @@ export function SplitBar({
             <dd className="text-neutral-500">
               {s.totals.sessions} {s.totals.sessions === 1 ? "session" : "sessions"}
             </dd>
+            {s.key === "dcfc" && <dd data-fast-bucket-note className="text-[11px] text-neutral-500">DC sessions peaking at {DCFC_MIN_KW} kW and up.</dd>}
           </div>
         ))}
       </dl>

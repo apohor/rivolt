@@ -201,7 +201,7 @@ function LocationBadge({ label }: { label: ChargePlaceLabel }) {
       className={`text-xs px-2 py-0.5 rounded-full border ${tone}`}
       title={
         label === "Fast"
-          ? "DC fast charge"
+          ? "Fast charge (DC, 50 kW and up)"
           : "By distance from your home location"
       }
     >
