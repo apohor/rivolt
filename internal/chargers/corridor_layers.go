@@ -32,6 +32,10 @@ type LayerOptions struct {
 	QueryCorridorOptions
 	AfterKm float64
 	Limit   int
+	// Paged asks for the route-ordered pages (first Limit, then NextAfterKm as AfterKm). Without it (and with no AfterKm), a corridor with more
+	// stations than Limit comes back as a set spread along the whole route (spreadAlongRoute), because a client that shows one capped page
+	// would otherwise show only the first stretch of a long route.
+	Paged bool
 	// Accept, when set, keeps only stations it returns true for (applied before paging, so Total and the pages agree).
 	Accept func(POI) bool
 }
@@ -122,6 +126,10 @@ func (a *Archive) QueryLayers(path [][2]float64, kinds []string, opts LayerOptio
 		}
 	}
 	res := LayerResult{Total: len(all), AsOf: asof, RouteKm: round3(proj.totalLn / 1000)}
+	if !opts.Paged && opts.AfterKm <= 0 && len(all) > limit {
+		res.POIs = spreadAlongRoute(all, limit, res.RouteKm)
+		return res, nil // one capped answer, no cursor: it is not the first page of a longer list
+	}
 	// Page: past AfterKm, up to limit, and never split stations that share a distance (a page boundary there would lose or
 	// repeat them, since the cursor is the distance).
 	start := sort.Search(len(all), func(i int) bool { return all[i].AlongKm > opts.AfterKm })
@@ -143,4 +151,115 @@ func (a *Archive) QueryLayers(path [][2]float64, kinds []string, opts LayerOptio
 		res.NextAfterKm = &next
 	}
 	return res, nil
+}
+
+// spreadBuckets is how many equal stretches of the route a capped answer is spread over (fewer when the cap is smaller).
+const spreadBuckets = 40
+
+// spreadAlongRoute picks limit stations from all (in route order) so the whole route is covered: the route is cut into equal stretches, each
+// stretch that has stations keeps one (when the cap allows), and the rest of the cap is shared out in proportion to how many stations a
+// stretch has. Inside a stretch the strongest charger wins (highest power, then nearest the route, then earliest along it), so a dense
+// city does not use up the cap and the long empty stretches still show something. The result is in route order.
+func spreadAlongRoute(all []CorridorPOI, limit int, routeKm float64) []CorridorPOI {
+	if limit <= 0 || len(all) <= limit {
+		return all
+	}
+	nb := spreadBuckets
+	if limit < nb {
+		nb = limit
+	}
+	width := routeKm / float64(nb)
+	buckets := make([][]int, nb)
+	for i, p := range all {
+		b := 0
+		if width > 0 {
+			b = int(p.AlongKm / width)
+		}
+		if b < 0 {
+			b = 0
+		}
+		if b >= nb {
+			b = nb - 1
+		}
+		buckets[b] = append(buckets[b], i)
+	}
+	var filled []int
+	for b, ix := range buckets {
+		if len(ix) > 0 {
+			filled = append(filled, b)
+		}
+	}
+	quota := make([]int, nb)
+	if limit <= len(filled) {
+		// Fewer slots than stretches with stations: evenly spaced stretches get one each.
+		for k := 0; k < limit; k++ {
+			quota[filled[k*len(filled)/limit]] = 1
+		}
+	} else {
+		rem := limit - len(filled)
+		extra := 0 // stations beyond the first in each stretch
+		for _, b := range filled {
+			quota[b] = 1
+			extra += len(buckets[b]) - 1
+		}
+		if extra > 0 {
+			type share struct {
+				b    int
+				frac float64
+			}
+			var shares []share
+			given := 0
+			for _, b := range filled {
+				room := len(buckets[b]) - 1
+				exact := float64(rem) * float64(room) / float64(extra)
+				n := int(exact)
+				if n > room {
+					n = room
+				}
+				quota[b] += n
+				given += n
+				shares = append(shares, share{b, exact - float64(n)})
+			}
+			sort.SliceStable(shares, func(i, j int) bool { return shares[i].frac > shares[j].frac })
+			for _, s := range shares {
+				if given >= rem {
+					break
+				}
+				if quota[s.b] < len(buckets[s.b]) {
+					quota[s.b]++
+					given++
+				}
+			}
+			// Rounding can leave a few slots when small stretches hit their room: fill them wherever stations remain, earliest stretch first.
+			for _, b := range filled {
+				for given < rem && quota[b] < len(buckets[b]) {
+					quota[b]++
+					given++
+				}
+			}
+		}
+	}
+	var keep []int
+	for b, ix := range buckets {
+		if quota[b] == 0 {
+			continue
+		}
+		sort.SliceStable(ix, func(i, j int) bool {
+			a, c := all[ix[i]], all[ix[j]]
+			if a.MaxPowerKW != c.MaxPowerKW {
+				return a.MaxPowerKW > c.MaxPowerKW
+			}
+			if a.OffKm != c.OffKm {
+				return a.OffKm < c.OffKm
+			}
+			return a.AlongKm < c.AlongKm
+		})
+		keep = append(keep, ix[:quota[b]]...)
+	}
+	sort.Ints(keep) // all is in route order, so the indices are
+	out := make([]CorridorPOI, 0, len(keep))
+	for _, i := range keep {
+		out = append(out, all[i])
+	}
+	return out
 }
