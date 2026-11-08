@@ -160,6 +160,52 @@ export function TripRouteMap({
   useEffect(() => { onAddStopRef.current = onAddStop; }, [onAddStop]);
   const onAddOvernightRef = useRef(onAddOvernight);
   useEffect(() => { onAddOvernightRef.current = onAddOvernight; }, [onAddOvernight]);
+  // One callout at a time: opening a stop callout, a dropped pin or a charger popup closes the others (a right click near a marker used to open two).
+  const livePopupsRef = useRef<Popup[]>([]);
+  const exclusive = (p: Popup) => {
+    for (const q of livePopupsRef.current) if (q !== p) q.remove();
+    livePopupsRef.current = [p];
+  };
+  // The layer chips sit over the top of the map and paint over a popup that reaches them, so a point in the upper part opens its popup below it.
+  // Where the usable map ends at the bottom: its own edge, or the top of the phone's bottom sheet when that covers the lower part of it.
+  const mapRoomBottom = (map: MLMap) => {
+    const top = map.getContainer().getBoundingClientRect?.().top ?? 0;
+    const sheet = document.querySelector("[data-plan-sheet]")?.getBoundingClientRect().top;
+    return sheet != null && sheet > top ? Math.min(map.getContainer().clientHeight, sheet - top) : map.getContainer().clientHeight;
+  };
+  const keepClearOfChips = (map: MLMap, p: Popup, ll: { lng: number; lat: number }) => {
+    const h = mapRoomBottom(map);
+    const y = map.project(ll).y;
+    if (p.options) p.options.anchor = y < h * 0.45 && y + 300 < h ? "top" : undefined;
+  };
+  // A popup's text can arrive after it opens (the what-if line, a charger's preview) and grow it into the chips above or under the phone's bottom sheet.
+  // MapLibre re-picks an unset anchor on every move, so pin one: below the point when it fits there, else above it when that clears the chips, else below
+  // with the map nudged up by the shortfall.
+  const reclearOfChips = (map: MLMap, p: Popup, ll: { lng: number; lat: number }) => {
+    const chips = map.getContainer().parentElement?.querySelector<HTMLElement>("[data-map-chips]");
+    const pe = p.getElement();
+    if (!p.options || !chips || !pe) return;
+    const c = chips.getBoundingClientRect();
+    const b = pe.getBoundingClientRect();
+    const cr = map.getContainer().getBoundingClientRect();
+    const limit = cr.top + mapRoomBottom(map);
+    const underChips = !(b.right <= c.left || b.left >= c.right) && b.top < c.bottom && b.bottom > c.top;
+    if (!underChips && b.bottom <= limit) return;
+    const pointY = cr.top + map.project(ll).y;
+    const room = limit - pointY - 24;
+    const roomAbove = pointY - c.bottom - 24;
+    if (b.height <= room) {
+      p.options.anchor = "top";
+    } else if (b.height <= roomAbove) {
+      p.options.anchor = "bottom";
+    } else {
+      p.options.anchor = "top";
+      p.setLngLat(ll);
+      map.panBy([0, Math.ceil(b.height - room) + 8], { duration: 200 }, { rivoltPan: true }); // a positive y moves the content, and the popup with it, up
+      return;
+    }
+    p.setLngLat(ll);
+  };
   const onSelectStopRef = useRef(onSelectStop);
   useEffect(() => { onSelectStopRef.current = onSelectStop; }, [onSelectStop]);
   const { distanceUnit } = usePreferences();
@@ -363,7 +409,12 @@ export function TripRouteMap({
           tip.remove(); // a touch tap also fires mouseenter: one popup, the callout with its close button
           callout.remove();
           // WebKit's tap also reaches the map as a click, which would close a popup opened in the same turn: open it just after.
-          window.setTimeout(() => { if (alive && mapRef.current === map) callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); }, 40);
+          window.setTimeout(() => {
+            if (!alive || mapRef.current !== map) return;
+            keepClearOfChips(map, callout, { lng: w.Longitude, lat: w.Latitude });
+            callout.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map);
+            exclusive(callout);
+          }, 40);
         });
         element.addEventListener("mouseenter", () => { if (!callout.isOpen()) tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); });
         element.addEventListener("mouseleave", () => tip.remove());
@@ -393,17 +444,20 @@ export function TripRouteMap({
               else if (t === WHAT_IF_NOTICE || t === WHAT_IF_ROUGH) { d.style.color = "#a3a3a3"; d.style.fontSize = `${MAP_CAPTION_PX}px`; }
               return d;
             }));
+            reclearOfChips(map, drop, ll);
           },
           (e: unknown) => {
             const line = ctl.signal.aborted || !into.isConnected ? null : whatIfFailureLine((e as { status?: number })?.status);
-            if (line) into.textContent = line;
+            if (line) { into.textContent = line; reclearOfChips(map, drop, ll); }
           },
         );
       };
       const openDrop = (ll: { lng: number; lat: number }) => {
         if (!onAddStopRef.current) return;
         drop.remove();
+        keepClearOfChips(map, drop, ll);
         drop.setLngLat(ll).setHTML(droppedPinPopupHTML()).addTo(map);
+        exclusive(drop);
         previewAdd(ll, drop.getElement()?.querySelector<HTMLElement>(".drop-preview") ?? null);
         drop.getElement()?.querySelector<HTMLButtonElement>(".drop-add-btn")?.addEventListener("click", () => {
           onAddStopRef.current?.({ lat: ll.lat, lon: ll.lng, label: DROPPED_PIN_LABEL });
@@ -448,6 +502,8 @@ export function TripRouteMap({
       // the map themselves.
       let touched = false;
       map.on("dragstart", () => { touched = true; });
+      // Our own nudge that clears a popup counts as the map having been moved: a later chips resize must not reframe it back.
+      map.on("movestart", (e) => { if ((e as { rivoltPan?: boolean }).rivoltPan) touched = true; });
       map.on("zoomstart", (e) => { if ((e as { originalEvent?: unknown }).originalEvent) touched = true; });
       const chipsEl = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
       let chipsH = chipsEl?.offsetHeight ?? 0;
@@ -458,7 +514,8 @@ export function TripRouteMap({
       });
       if (chipsEl) roChips.observe(chipsEl);
       cleanups.push(() => { ro.disconnect(); roChips.disconnect(); if (roRaf) cancelAnimationFrame(roRaf); });
-      map.once("load", () => fit(fitZoom));
+      // The map's first full load can land after the person (or our own popup nudge) has already moved it: do not reframe it back.
+      map.once("load", () => { if (!touched) fit(fitZoom); });
       cleanups.push(() => {
         popupRef.current?.remove();
         popupRef.current = null;
@@ -528,7 +585,10 @@ export function TripRouteMap({
         const html = camp
           ? campPopupHTML(poi, camp, !!onAddOvernightRef.current)
           : chargerPopupHTML(poi, !!onAddStopRef.current, !!onPreviewStopRef.current, isHotel ? bookingDeepLink(poi, departureAtRef.current) : "", isHotel && !!onAddOvernightRef.current);
-        const popup = new ml.Popup({ closeButton: true, offset: 8, maxWidth: "280px", className: "rivolt-popup" }).setLngLat([poi.lon, poi.lat]).setHTML(html).addTo(map);
+        const popup = new ml.Popup({ closeButton: true, offset: 8, maxWidth: "280px", className: "rivolt-popup" });
+        keepClearOfChips(map, popup, { lng: poi.lon, lat: poi.lat });
+        popup.setLngLat([poi.lon, poi.lat]).setHTML(html).addTo(map);
+        exclusive(popup);
         popupRef.current = popup;
         wirePopup(popup, poi, camp);
       };
@@ -567,6 +627,7 @@ export function TripRouteMap({
           if (!body) return;
           if (!r) { previewBtn.textContent = "Preview unavailable"; return; }
           body.innerHTML = chargerPreviewBodyHTML(poi, r);
+          if (mapReady) reclearOfChips(mapReady, popup, { lng: poi.lon, lat: poi.lat });
           body.querySelector<HTMLButtonElement>(".charger-confirm-btn")?.addEventListener("click", () => {
             onAddStopRef.current?.({ lat: poi.lat, lon: poi.lon, label });
             popup.remove();
