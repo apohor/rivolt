@@ -114,6 +114,9 @@ final class AppState {
     init(tokens: TokenStore = KeychainTokenStore(), defaults: UserDefaults = .standard, notifications: NotificationManager? = nil, liveActivity: LiveActivityManager? = nil,
          session: URLSession? = nil) {
         defaults.removeObject(forKey: Self.legacyServerDefaultsKey)
+        #if DEBUG && QA_SIGNIN
+        QASignIn.apply(tokens: tokens, defaults: defaults, serverKey: Self.serverDefaultsKey)
+        #endif
         let stored = defaults.string(forKey: Self.serverDefaultsKey).flatMap { try? ServerURL.normalize($0) }
         let server = stored ?? ServerURL.default
         self.serverURL = server
