@@ -77,6 +77,36 @@ extension TripPlanMapTests {
         XCTAssertNil(PlanRouteLogic.drawing(days: trip.days, lines: []), "nothing to draw without a line")
     }
 
+    func testALayerPinOnATwoDayTripComesAfterTheDaysPinsAndKeepsItsKind() throws {
+        let trip = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
+        let lines = trip.days.map { _ in [RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)] }
+        let d = try XCTUnwrap(PlanRouteLogic.drawing(days: trip.days, lines: lines))
+        XCTAssertEqual(PlanRouteLogic.pinCount(days: trip.days), d.stops.count, "the model numbers the layer pins after the pins the map draws")
+        let pins = [AlongCharger(lat: 45.6, lon: -122.0, kind: "dcfc"), AlongCharger(lat: 45.7, lon: -121.5, kind: "hotel"),
+                    AlongCharger(lat: 45.8, lon: -121.2, kind: "camp"), AlongCharger(lat: 45.8, lon: -121.1, kind: "l2")]
+        XCTAssertEqual(PlanRouteLogic.alongStops(pins).map(\.kind), [0, 1, 2, 3])
+    }
+
+    func testTheTwoDayMapHoldsTheLayerPinsOfEveryKindForTheWholeTripAndForOneDay() throws {
+        let trip = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
+        let lines = [[RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)],
+                     [RouteSnap.Coord(lat: 45.9, lon: -121.0), RouteSnap.Coord(lat: 46.4, lon: -119.5)]]
+        let base = try XCTUnwrap(PlanRouteLogic.drawing(days: trip.days, lines: lines))
+        let pins = [AlongCharger(lat: 45.6, lon: -122.0, kind: "dcfc"), AlongCharger(lat: 45.7, lon: -121.5, kind: "hotel"),
+                    AlongCharger(lat: 46.0, lon: -120.8, kind: "camp"), AlongCharger(lat: 46.2, lon: -120.0, kind: "l2", preferred: true)]
+        for day in [nil, 1, 2] as [Int?] {
+            let d = PlanRouteLogic.daysShown(base, focus: nil, along: pins, lines: lines, day: day)
+            XCTAssertEqual(d.along.map(\.kind), [0, 1, 2, 3], "day \(day.map(String.init) ?? "whole trip"): a pin of each kind")
+            XCTAssertEqual(d.along.map(\.emphasis), [false, false, false, true])
+            XCTAssertEqual(d.stops.count, base.stops.count, "the days' own pins stay")
+        }
+        XCTAssertEqual(PlanRouteLogic.daysShown(base, focus: nil, along: pins, lines: lines, day: 1).fitTo, lines[0])
+        XCTAssertNil(PlanRouteLogic.daysShown(base, focus: nil, along: pins, lines: lines, day: nil).fitTo)
+        XCTAssertEqual(PlanRouteLogic.layerLine(lines: lines, day: nil), lines.flatMap { $0 }, "the whole trip is searched along both days")
+        XCTAssertEqual(PlanRouteLogic.layerLine(lines: lines, day: 2), lines[1], "one day, that day's line")
+        XCTAssertEqual(PlanRouteLogic.layerLine(lines: lines, day: 9), lines.flatMap { $0 }, "a day that is not there falls back to the whole trip")
+    }
+
     func testTheNightPinNamesTheStayOrJustSaysNight() {
         XCTAssertEqual(PlanRouteLogic.nightLabel(nil, place: nil), "Night")
         let o = try! JSON.decoder().decode(TripMultiday.Overnight.self, from: Data(#"{"name":"Sample Inn"}"#.utf8))

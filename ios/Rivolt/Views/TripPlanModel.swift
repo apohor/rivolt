@@ -316,7 +316,7 @@ final class TripPlanModel {
         guard !layers.isEmpty else { layerPOIs = []; layerState = .idle; return }
         guard let route = plan?.best, layerState != .loading else { return }
         layerState = .loading
-        let line = TripPlanLogic.thin(roadLine, to: 1500).map { [$0.lat, $0.lon] }
+        let line = TripPlanLogic.thin(corridorLine, to: 1500).map { [$0.lat, $0.lon] }
         let body = CorridorLayersRequest(path: line.count >= 2 ? line : TripPlanLogic.path(route), kinds: layers.map(\.kind).sorted(), limit: nil)
         do {
             let answer = try await source.corridorLayers(body)
@@ -346,7 +346,29 @@ final class TripPlanModel {
     }
 
     /// How many pins the map draws for stops: the charging stops, then the person's own (the markers are numbered after them).
-    private var pinCount: Int { (plan?.best?.chargingStops.filter { $0.latitude != nil && $0.longitude != nil }.count ?? 0) + vias.count }
+    private var pinCount: Int {
+        if case .planned(let trip) = night { return PlanRouteLogic.pinCount(days: trip.days) }
+        return (plan?.best?.chargingStops.filter { $0.latitude != nil && $0.longitude != nil }.count ?? 0) + vias.count
+    }
+
+    /// Both days' road lines of a two-day trip (from the days map), what the layers are searched along then.
+    private(set) var dayLines: [RouteSnap.Coord] = []
+
+    /// The line the layers follow: a two-day trip's both days, else the plan's road line.
+    private var corridorLine: [RouteSnap.Coord] {
+        if case .planned(let trip) = night {
+            if dayLines.count >= 2 { return dayLines }
+            return trip.days.compactMap(\.plan.best).flatMap { PlanRouteLogic.places($0) }
+        }
+        return roadLine
+    }
+
+    /// The days map found its road lines: the layers (when on) are searched again along the whole trip.
+    func setDayLines(_ line: [RouteSnap.Coord], source: some CorridorLayersSource) async {
+        guard line != dayLines else { return }
+        dayLines = line
+        if !layers.isEmpty { await refreshLayers(source: source) }
+    }
 
     /// The chargers along the route, then a dropped pin: the pins the map draws after the stops.
     var markers: [AlongCharger] { (layers.isEmpty ? chargers : layerMarkers) + (dropped.map { [$0] } ?? []) }

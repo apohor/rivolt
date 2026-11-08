@@ -86,7 +86,8 @@ struct PlanMapScreen: View {
     @ViewBuilder
     private func map(coverHeight: CGFloat) -> some View {
         if case .planned(let trip) = model.night {
-            PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }, fills: true, bottomInset: coverHeight, day: day)
+            PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }, along: model.markers,
+                        onLine: { line in Task { await model.setDayLines(line, source: state.client) } }, fills: true, bottomInset: coverHeight, day: day)
         } else if let route = model.plan?.best {
             PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.markers,
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
@@ -125,9 +126,9 @@ struct PlanMapScreen: View {
 
     private func chip(_ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).themeText(.subline, color: on ? Theme.textPrimary : Theme.textSecondary)
+            Text(title).themeText(.subline, color: on ? Color.white : Theme.textSecondary)
                 .padding(.horizontal, 12).frame(minHeight: 36)
-                .background(on ? Theme.borderStrong : Theme.background, in: Capsule())
+                .background(on ? Theme.accentButton : Theme.background, in: Capsule())
                 .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
@@ -260,9 +261,10 @@ struct PlanLayerChips: View {
 
     private func chip(_ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).themeText(.subline, color: on ? Theme.textPrimary : Theme.textSecondary)
+            // A chip that is on is filled solid (the accent button's emerald, white text), as the web's chips are; off is the card.
+            Text(title).themeText(.subline, color: on ? Color.white : Theme.textSecondary)
                 .padding(.horizontal, 12).frame(minHeight: 36)
-                .background(on ? Theme.borderStrong : Theme.card.opacity(0.92), in: Capsule())
+                .background(on ? Theme.accentButton : Theme.card.opacity(0.92), in: Capsule())
                 .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
         }
         .buttonStyle(.plain)
