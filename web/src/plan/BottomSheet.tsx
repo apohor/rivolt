@@ -161,7 +161,8 @@ export function BottomSheet({
   };
   const onClick = () => {
     if (dragH !== null) return;
-    set(snap === "peek" ? "half" : "peek");
+    // peek, half, full, then back to peek: a tap alone reaches every height (half shows little of a long list on a small phone).
+    set(snap === "peek" ? "half" : snap === "half" ? "full" : "peek");
   };
   const onKey = (e: KeyboardEvent<HTMLElement>) => {
     switch (e.key) {
@@ -219,7 +220,7 @@ export function BottomSheet({
         data-plan-sheet-handle
         aria-expanded={expanded}
         aria-controls={contentId}
-        aria-label={expanded ? `Collapse ${label}` : `Expand ${label}`}
+        aria-label={snap === "full" ? `Collapse ${label}` : snap === "half" ? `Expand ${label} fully` : `Expand ${label}`}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
