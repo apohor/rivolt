@@ -3775,6 +3775,14 @@ func (m *StateMonitor) peerDrive(vehicleID string) (liveDrive, bool) {
 	snap, ok, err := m.liveStateStore.Load(ctx, vehicleID)
 	if err != nil {
 		m.logger.Debug("peer drive snapshot get failed", "vehicle", vehicleID, "err", err.Error())
+		// Cached as "no drive" for the same short TTL: during a store outage every poll of a non-owner would otherwise wait up to the
+		// 2 s timeout for the store, again and again.
+		m.remoteMu.Lock()
+		if m.peerDrives == nil {
+			m.peerDrives = make(map[string]peerDriveEntry)
+		}
+		m.peerDrives[vehicleID] = peerDriveEntry{ok: false, at: m.clock()}
+		m.remoteMu.Unlock()
 		return liveDrive{}, false
 	}
 	if ok && snap.Drive != nil && m.clock().Sub(snap.Drive.EndAt) <= liveDriveMaxGap {
