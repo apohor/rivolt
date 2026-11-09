@@ -98,14 +98,14 @@ func TestFleetBudgetIsSharedBetweenPods(t *testing.T) {
 	}
 }
 
-// Idle calls cannot use up the room active ones need. With the idle counter of this second far over its share, an active call goes through
-// without waiting, and an idle call has to wait for the next second.
+// Idle calls cannot use up the room active ones need. The counters hold GRANTED calls: with the idle share of this second used up (2 of a budget of
+// 4), an active call goes through without waiting, and an idle call has to wait for the next second.
 func TestActiveVehiclesAreNotBehindIdleOnes(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
 	clk := newFakeClock()
 	b := New(Config{LocalRPS: 1000, FleetRPS: 4, Redis: rdb, Prefix: "rivolt", Now: clk.Now, Sleep: clk.Sleep})
-	if err := mr.Set(clk.key("i"), "30"); err != nil { // thirty idle attempts this second
+	if err := mr.Set(clk.key("i"), "2"); err != nil { // idle has had its half
 		t.Fatal(err)
 	}
 	if r := b.Wait(context.Background(), "seed", "", true); r.Starved || clk.slept() != 0 {
@@ -113,6 +113,74 @@ func TestActiveVehiclesAreNotBehindIdleOnes(t *testing.T) {
 	}
 	if r := b.Wait(context.Background(), "seed", "", false); r.Starved || clk.slept() != 1 {
 		t.Fatalf("an idle call over its share: %d sleeps, %+v, want exactly one wait for the next second", clk.slept(), r)
+	}
+}
+
+// Active and idle together never pass the budget in a second, and idle never passes half of it. Mixed calls in a row on a fake clock: no second
+// grants more than 4 in all or more than 2 idle.
+func TestCombinedBudgetHoldsAcrossSeconds(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := client(t, mr)
+	clk := newFakeClock()
+	b := New(Config{LocalRPS: 1000, FleetRPS: 4, Redis: rdb, Prefix: "rivolt", Now: clk.Now, Sleep: clk.Sleep})
+	total, idle := map[int64]int{}, map[int64]int{}
+	for i := 0; i < 24; i++ {
+		isActive := i%3 != 0 // one idle call for every two active
+		if r := b.Wait(context.Background(), "seed", "", isActive); r.Starved {
+			t.Fatalf("call %d starved", i)
+		}
+		sec := clk.Now().Unix()
+		total[sec]++
+		if !isActive {
+			idle[sec]++
+		}
+	}
+	for sec, n := range total {
+		if n > 4 {
+			t.Errorf("second %d granted %d calls, budget 4: %v", sec, n, total)
+		}
+		if idle[sec] > 2 {
+			t.Errorf("second %d granted %d idle calls, share 2", sec, idle[sec])
+		}
+	}
+	if len(total) < 6 {
+		t.Errorf("24 calls at 4 a second used %d seconds, want at least 6: %v", len(total), total)
+	}
+}
+
+// The same bound when the callers race: on a frozen clock (the wait for the next second never ends, so the bound is what ends it) many active and
+// idle callers at once are granted no more than the budget in all, and idle no more than its half. Granted means not starved.
+func TestCombinedBudgetHoldsUnderRacingCallers(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := client(t, mr)
+	clk := newFakeClock()
+	b := New(Config{LocalRPS: 1000, FleetRPS: 4, Redis: rdb, Prefix: "rivolt", Now: clk.Now,
+		Sleep:         func(ctx context.Context, _ time.Duration) { <-ctx.Done() },
+		ActiveMaxWait: 100 * time.Millisecond, IdleMaxWait: 100 * time.Millisecond})
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	grantedActive, grantedIdle := 0, 0
+	for i := 0; i < 60; i++ {
+		wg.Add(1)
+		go func(active bool) {
+			defer wg.Done()
+			if r := b.Wait(context.Background(), "seed", "", active); !r.Starved {
+				mu.Lock()
+				if active {
+					grantedActive++
+				} else {
+					grantedIdle++
+				}
+				mu.Unlock()
+			}
+		}(i%2 == 0)
+	}
+	wg.Wait()
+	if grantedActive+grantedIdle > 4 || grantedIdle > 2 {
+		t.Errorf("granted %d active and %d idle in one second, want at most 4 in all and 2 idle", grantedActive, grantedIdle)
+	}
+	if grantedActive+grantedIdle == 0 {
+		t.Error("nothing was granted")
 	}
 }
 
