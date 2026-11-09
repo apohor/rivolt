@@ -30,6 +30,14 @@ func reauthOwnerCtx(ctx context.Context, f userFencer, uid string) context.Conte
 	return ctx
 }
 
+// reauthCarries is the label of rivolt_reauth_raise_attempts_total: what the raise's context carries.
+func reauthCarries(ctx context.Context) string {
+	if _, ok := fence.From(ctx); ok {
+		return "token"
+	}
+	return "none"
+}
+
 // reauthRefusedReason is the label of rivolt_reauth_raise_refused_total for a raise that was refused.
 func reauthRefusedReason(err error) string {
 	if errors.Is(err, fence.ErrFenced) {

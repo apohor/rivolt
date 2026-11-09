@@ -8,6 +8,18 @@ import (
 	"github.com/apohor/rivolt/internal/fence"
 )
 
+func TestReauthCarries(t *testing.T) {
+	bg := context.Background()
+	for want, ctx := range map[string]context.Context{
+		"token":   fence.With(bg, fence.Token{Group: "g"}),
+		"none":    bg,
+	} {
+		if got := reauthCarries(ctx); got != want {
+			t.Errorf("reauthCarries = %q, want %q", got, want)
+		}
+	}
+}
+
 type fakeUserFencer struct {
 	tok fence.Token
 	st  fence.State
