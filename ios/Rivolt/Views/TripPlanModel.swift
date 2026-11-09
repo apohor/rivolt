@@ -369,7 +369,10 @@ final class TripPlanModel {
     }
 
     /// The chargers along the route, then a dropped pin: the pins the map draws after the stops.
-    var markers: [AlongCharger] { (layers.isEmpty ? chargers : layerMarkers) + (dropped.map { [$0] } ?? []) }
+    /// The pins past the stops: the older fast-charger list when it was asked for (the list-first plan screen), else the layers that are on.
+    private var shownAlong: [AlongCharger] { chargers.isEmpty ? layerMarkers : chargers }
+
+    var markers: [AlongCharger] { shownAlong + (dropped.map { [$0] } ?? []) }
 
     /// The charger (or dropped pin) a tap on the map picked, if the focus is past the stops.
     var pickedCharger: AlongCharger? {
@@ -382,7 +385,7 @@ final class TripPlanModel {
     func dropPin(lat: Double, lon: Double) {
         guard plan != nil, !updating else { return }
         dropped = AlongCharger(lat: lat, lon: lon, name: PlanSheetLogic.droppedName)
-        focusedStop = pinCount + (layers.isEmpty ? chargers.count : layerMarkers.count)
+        focusedStop = pinCount + shownAlong.count
     }
 
     func closeCallout() {
