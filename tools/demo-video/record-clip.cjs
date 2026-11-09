@@ -10,7 +10,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const bt=process.env.CLIP_ENGINE==='webkit'?pw.webkit:pw.chromium;const {defaultBrowserType,...iphone}=pw.devices['iPhone 14'];const DPRARG=+(process.env.CLIP_DPR||(mobile?3:2));const browser=await bt.launch({args:['--force-device-scale-factor='+DPRARG]});
  const DPR=+(process.env.CLIP_DPR||(mobile?3:2));const vp=mobile?{width:390,height:693}:{width:1280,height:720};const vsize={width:vp.width*DPR,height:vp.height*DPR};
  const ctx=await browser.newContext({...(mobile?iphone:{}),viewport:vp,deviceScaleFactor:DPR,colorScheme:S.scheme||'dark',serviceWorkers:'block'});
- const blocked=[];await ctx.route('**/*',r=>{const q=r.request();const u=new URL(q.url());if(u.host!==HOST&&!/fonts\.(googleapis|gstatic)\.com$/.test(u.host)){/* keep clips self-contained: external requests stay out */return r.abort()}if(q.method()!=='GET'&&q.method()!=='HEAD'&&!/events/.test(u.pathname)){blocked.push(q.method()+' '+u.pathname);return r.abort()}r.continue()});
+ const blocked=[];await ctx.route('**/*',r=>{const q=r.request();const u=new URL(q.url());if(u.host!==HOST&&!/fonts\.(googleapis|gstatic)\.com$/.test(u.host)){/* keep clips self-contained: external requests stay out */return r.abort()}if(q.method()!=='GET'&&q.method()!=='HEAD'){blocked.push(q.method()+' '+u.pathname);return r.abort()}r.continue()});
  const p=await ctx.newPage();p.setDefaultTimeout(20000);
  const base=`${S.name||'clip'}-${kind}`;const fdir=path.join(outDir,base+'.frames');fs.rmSync(fdir,{recursive:true,force:true});fs.mkdirSync(fdir,{recursive:true});
  const frames=[];const cdp=await ctx.newCDPSession(p);let wr=Promise.resolve();

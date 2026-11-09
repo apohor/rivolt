@@ -61,3 +61,9 @@ test('the recorder keeps its GET-only guard', () => {
     fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace("q.method()!=='GET'", "false"));
   }), /GET-only guard/);
 });
+test('the guard has no path exception (analytics POSTs are blocked too)', () => {
+  has(sandbox(({ dir }) => {
+    const p = path.join(dir, 'record-clip.cjs');
+    fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace("q.method()!=='HEAD'){", "q.method()!=='HEAD'&&!/events/.test(u.pathname)){"));
+  }), /no path exception/);
+});

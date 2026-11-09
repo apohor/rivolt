@@ -85,6 +85,8 @@ function lint(dir = DIR, opts = {}) {
   for (const k of Object.keys(captions)) if (!referencedCaptions.has(k)) err(`captions.json: ${k} is not used by any active clip`);
   const recorder = fs.readFileSync(path.join(dir, 'record-clip.cjs'), 'utf8');
   if (!/q\.method\(\)!=='GET'&&q\.method\(\)!=='HEAD'/.test(recorder) || !/return r\.abort\(\)/.test(recorder)) err('record-clip.cjs: the GET-only guard is missing');
+  // No path exception: a pass-through for analytics (/events) would send the recorder's visits to the demo site's usage counts.
+  if (!/if\(q\.method\(\)!=='GET'&&q\.method\(\)!=='HEAD'\)\{blocked\.push/.test(recorder)) err('record-clip.cjs: the guard must abort every non-GET/HEAD request, with no path exception');
   if (!/const HOST='demo\.rivolt\.dev'/.test(recorder)) err('record-clip.cjs: HOST must be demo.rivolt.dev');
   for (const f of fs.readdirSync(dir, { recursive: true })) if (/\.(mp4|gif|webm|jpg|png)$/i.test(f) || f.split(path.sep).some((p) => p === 'out' || p.endsWith('.frames'))) err(`${f}: rendered output must not be committed (it goes to out/, which is git-ignored)`);
   return errors;
@@ -131,7 +133,9 @@ function lintCaptions(key, caps, allowUniversal, held, err) {
 
 module.exports = { lint };
 if (require.main === module) {
-  if (!heldWords().length) console.error('demo-video lint: DEMO_VIDEO_HELD_WORDS is not set: the held-back-wording rule is skipped');
+  // One line either way (a count, never the patterns), so a CI log shows whether the rule ran.
+  const nHeld = heldWords().length;
+  console.log(nHeld ? `demo-video lint: held-words rule: ${nHeld} patterns loaded` : 'demo-video lint: held-words rule: skipped, DEMO_VIDEO_HELD_WORDS not set');
   const errors = lint();
   if (errors.length) { console.error(errors.map((e) => '  ' + e).join('\n')); console.error(`demo-video lint: ${errors.length} problem(s)`); process.exit(1); }
   console.log('demo-video lint: ok');
