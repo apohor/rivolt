@@ -43,7 +43,7 @@ func TestStoreAt(t *testing.T) {
 			return
 		}
 		hits.Add(1)
-		w.Write(files[h])
+		_, _ = w.Write(files[h])
 	}))
 	defer srv.Close()
 	s := NewStore(srv.URL, nil)
@@ -84,7 +84,7 @@ func TestStoreAt(t *testing.T) {
 
 func TestStoreCapEvicts(t *testing.T) {
 	f := rawFile(t, 30, false)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(f) }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(f) }))
 	defer srv.Close()
 	s := NewStore(srv.URL, nil)
 	one, _ := Decode(bytes.NewReader(f))

@@ -45,3 +45,16 @@ func TestAccessLogRedactsTheSignupToken(t *testing.T) {
 		t.Error("loggedPath")
 	}
 }
+
+// Where a signed-in user is looking is not for the access log: map tile addresses are logged as a route.
+func TestAccessLogRedactsRadarTileAddresses(t *testing.T) {
+	for in, want := range map[string]string{
+		"/api/maps/radar/7/20/45.png": "/api/maps/radar/:tile",
+		"/api/maps/radar/frame":       "/api/maps/radar/frame",
+		"/api/vehicles":               "/api/vehicles",
+	} {
+		if got := loggedPath(in); got != want {
+			t.Errorf("loggedPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -1,0 +1,111 @@
+{
+  "Status": "OK",
+  "ChargeStationsAvailable": true,
+  "SoCBelowLimit": false,
+  "Routes": [
+    {
+      "DestinationReached": true,
+      "TotalChargingDurationSec": 1950,
+      "TotalDriveDurationSec": 18315,
+      "TotalTripDurationSec": 20265,
+      "TotalDriveDistanceMeters": 505111,
+      "ArrivalSoC": 15.5,
+      "ArrivalReachableMeters": 75158.8,
+      "EnergyConsumptionKWh": 171.5,
+      "BatteryEmptyToDestMeters": 0,
+      "BatteryEmptyLat": 0,
+      "BatteryEmptyLon": 0,
+      "RouteResponseRaw": null,
+      "Waypoints": [
+        {
+          "WaypointType": "ORIGIN",
+          "EntityID": "",
+          "Name": "Union Station, Los Angeles",
+          "Latitude": 34.0562,
+          "Longitude": -118.2365,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 0,
+          "DepartureSoC": 90,
+          "ArrivalReachableMeters": 0,
+          "DepartureReachableMeters": 436405.8,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "",
+          "DepartureTimeUTC": "2026-11-14T16:00:00Z",
+          "DistanceFromOriginMeters": 0
+        },
+        {
+          "WaypointType": "DC_CHARGE_STATION",
+          "EntityID": "",
+          "Name": "TA Travel Center - Tesla Supercharger",
+          "Latitude": 36.04790405092213,
+          "Longitude": -117.94607788324356,
+          "MaxPowerKW": 250,
+          "ChargeDurationSec": 1950,
+          "ArrivalSoC": 21.6,
+          "DepartureSoC": 78,
+          "ArrivalReachableMeters": 104737.4,
+          "DepartureReachableMeters": 378218.4,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T18:44:44Z",
+          "DepartureTimeUTC": "2026-11-14T19:17:14Z",
+          "DistanceFromOriginMeters": 272616
+        },
+        {
+          "WaypointType": "DESTINATION",
+          "EntityID": "",
+          "Name": "Mammoth Mountain Main Lodge",
+          "Latitude": 37.6511,
+          "Longitude": -119.0365,
+          "MaxPowerKW": 0,
+          "ChargeDurationSec": 0,
+          "ArrivalSoC": 15.5,
+          "DepartureSoC": 0,
+          "ArrivalReachableMeters": 75158.8,
+          "DepartureReachableMeters": 0,
+          "AdapterRequired": false,
+          "ArrivalTimeUTC": "2026-11-14T21:37:44Z",
+          "DepartureTimeUTC": "",
+          "DistanceFromOriginMeters": 505111
+        }
+      ]
+    }
+  ],
+  "costs": [
+    {
+      "currency": "USD",
+      "dcfc_spend_low": 32.065656,
+      "dcfc_spend_high": 46.10361599999999,
+      "priced_stops": 1,
+      "unpriced_stops": 0,
+      "estimate_basis": "observed",
+      "home_equivalent": 27.44,
+      "gas_equivalent": 0,
+      "gas_price_per_gallon": 0,
+      "gas_mpg": 0,
+      "home_rate_used": 0.16,
+      "breakdown": [
+        {
+          "network_slug": "tesla_sc",
+          "network_name": "Tesla Supercharger",
+          "charger_name": "TA Travel Center - Tesla Supercharger",
+          "energy_kwh": 73.88399999999999,
+          "member_plan": "Supercharging Membership - $12.99/mo",
+          "price": {
+            "basis": "observed",
+            "per_kwh_low": 0.434,
+            "per_kwh_high": 0.624,
+            "low_note": "with the Supercharging Membership",
+            "high_note": "without the membership",
+            "source": "DCFC Tracker",
+            "source_url": "https://dcfctracker.com/reports/supercharger",
+            "observed_month": "2026-10",
+            "label": "Typical price seen by DCFC Tracker, Oct 2026. The price at the charger may differ."
+          },
+          "cost_low": 32.065656,
+          "cost_high": 46.10361599999999
+        }
+      ]
+    }
+  ]
+}

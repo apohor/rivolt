@@ -11,6 +11,11 @@ type UserSource interface {
 	FenceUser(ctx context.Context, uid string) (Token, State, error)
 }
 
+// UngroupedSource tells whether a user has no group at all (no vehicle row), as opposed to a group some other pod holds.
+type UngroupedSource interface {
+	UserUngrouped(ctx context.Context, uid string) (bool, error)
+}
+
 // Holder is the fence that consumers built before the lease store exists read through. It answers from the installed source on
 // every call, so installing it late reaches consumers already running. Until then it answers Off, or Lost once Require(true) has
 // said lead mode needs a fence: a consumer that starts before the lease store exists (the OTA syncer's on-connect fetch, the Live
@@ -51,6 +56,16 @@ func (h *Holder) FenceUser(ctx context.Context, uid string) (Token, State, error
 	return Token{}, h.missing(), nil
 }
 
+// UserUngrouped answers from the installed source; false (not known to be ungrouped) without one.
+func (h *Holder) UserUngrouped(ctx context.Context, uid string) (bool, error) {
+	if p := h.src.Load(); p != nil {
+		if u, ok := (*p).(UngroupedSource); ok {
+			return u.UserUngrouped(ctx, uid)
+		}
+	}
+	return false, nil
+}
+
 // Deadline forwards the installed source's local lease deadline, none without one.
 func (h *Holder) Deadline(vehicleID string) (time.Time, bool) {
 	if p := h.src.Load(); p != nil {
@@ -63,7 +78,8 @@ func (h *Holder) Deadline(vehicleID string) (time.Time, bool) {
 
 // Everything a consumer probes a fence source for.
 var (
-	_ Source     = (*Holder)(nil)
-	_ UserSource = (*Holder)(nil)
-	_ Deadliner  = (*Holder)(nil)
+	_ Source          = (*Holder)(nil)
+	_ UserSource      = (*Holder)(nil)
+	_ UngroupedSource = (*Holder)(nil)
+	_ Deadliner       = (*Holder)(nil)
 )

@@ -105,6 +105,15 @@ func TestNeedsReauthRaiseCarriesTheEpoch(t *testing.T) {
 	if tr, err := db.RaiseNeedsReauth(fence.With(ctx, lease(free, "pod-b", true)), pool, free, "rejected"); err != nil || !tr {
 		t.Errorf("owner under owner-only: transitioned=%v err=%v", tr, err)
 	}
+	// A user with no group has no owner to wait for: marked fence.Unowned, the raise goes through even when raises are owner-only (the session
+	// version still guards it).
+	none, nver := newUser("reauth-ungrouped")
+	if tr, err := db.RaiseNeedsReauthIfCurrent(fence.Unowned(ctx), pool, none, "rejected", nver.Add(-time.Hour)); err != nil || tr || flagged(none) {
+		t.Errorf("ungrouped, stale version: transitioned=%v err=%v flagged=%v, want nothing", tr, err, flagged(none))
+	}
+	if tr, err := db.RaiseNeedsReauthIfCurrent(fence.Unowned(ctx), pool, none, "rejected", nver); err != nil || !tr || !flagged(none) {
+		t.Errorf("ungrouped, owner-only: transitioned=%v err=%v flagged=%v, want the raise", tr, err, flagged(none))
+	}
 	// SetNeedsReauth no longer raises.
 	if err := db.SetNeedsReauth(ctx, pool, free, "some reason"); err == nil {
 		t.Error("SetNeedsReauth accepted a reason: it must only clear")

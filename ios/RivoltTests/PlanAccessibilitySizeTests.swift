@@ -19,6 +19,8 @@ final class PlanAccessibilitySizeTests: XCTestCase {
     /// The size a view takes when hosted `width` wide.
     private func size(of view: some View, width: CGFloat) async throws -> CGSize {
         let host = UIHostingController(rootView: view.frame(width: width, alignment: .topLeading))
+        // Not the window's top and bottom insets: the size of the view itself.
+        host.safeAreaRegions = []
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first, "a window scene")
         let window = UIWindow(windowScene: scene)
         window.frame = CGRect(x: 0, y: 0, width: width, height: 900)
@@ -37,18 +39,20 @@ final class PlanAccessibilitySizeTests: XCTestCase {
         XCTAssertGreaterThan(s.height, 60, "the text took more than one line")
     }
 
-    func testTheLayerChipsTakeMoreRowsAsTheTextGrowsAndAlwaysFitTheWidth() async throws {
+    func testTheLayerChipsWrapAtNormalSizeAndBecomeOneButtonAtLargeText() async throws {
         let model = TripPlanModel()
         model.setPreferred(["ea"])
         await model.setLayer(.chargers, on: true, source: Fake())
-        var heights: [CGFloat] = []
-        for type in [DynamicTypeSize.large, .accessibility3, .accessibility5] {
-            let s = try await size(of: PlanLayerChips(model: model).environment(AppState()).environment(\.dynamicTypeSize, type), width: 393)
-            XCTAssertLessThanOrEqual(s.width, 393, "\(type): the chips fit the width")
-            heights.append(s.height)
+        let normal = try await size(of: PlanLayerChips(model: model).environment(AppState()).environment(\.dynamicTypeSize, .large), width: 393)
+        XCTAssertLessThanOrEqual(normal.width, 393)
+        XCTAssertGreaterThan(normal.height, 36 * 1.5, "at the normal size the chips take two rows, none clipped")
+        for type in [DynamicTypeSize.accessibility3, .accessibility5] {
+            for width in [CGFloat(393), 375] {
+                let s = try await size(of: PlanLayerChips(model: model).environment(AppState()).environment(\.dynamicTypeSize, type), width: width)
+                XCTAssertLessThanOrEqual(s.width, width, "\(type), \(width) pt")
+                XCTAssertLessThan(s.height, 110, "\(type), \(width) pt: one Layers button on one line, not rows of chips over the map, and not capped below the size asked for")
+            }
         }
-        XCTAssertGreaterThan(heights[0], 36 * 1.5, "at the normal size they take two rows, not one clipped row")
-        XCTAssertGreaterThan(heights[1], heights[0], "more rows at a larger size")
     }
 
     func testTheLayerNoteIsAtMostTwoLinesAtTheLargestTextSize() async throws {
@@ -58,16 +62,27 @@ final class PlanAccessibilitySizeTests: XCTestCase {
         XCTAssertLessThan(many, one * 2.3, "two lines at most, not a third of the map")
     }
 
-    func testALargeTextHeaderWithDayChipsIsTallerThanARestingSheetAndTheFloorCoversIt() async throws {
-        let header = PlanSheetHeader(title: "To Crested Butte", summary: "980 mi · 2 days · 2 stops", onEdit: {}) {
-            HStack { Text("Whole trip"); Text("Day 1"); Text("Day 2") }
+    /// The case that slipped: at AX3 and AX5 the map has to stay usable. The sheet's header is only the title, so the sheet at rest leaves most of the map.
+    func testTheMapStaysUsableAtTheLargestTextSizes() async throws {
+        for type in [DynamicTypeSize.accessibility3, .accessibility5] {
+            let header = PlanSheetCompactHeader(title: "Current vehicle position → Las Vegas, Nevada").environment(\.dynamicTypeSize, type).padding(.horizontal, 16)
+            let need = try await size(of: header, width: 393).height + 28
+            for container in [CGFloat(700), 520] {   // a tall phone, and an SE with the bars taken off
+                let sheet = DetentSheet<EmptyView, EmptyView>.height(.peek, in: container, floor: need)
+                XCTAssertGreaterThanOrEqual(container - sheet, container * 0.45, "\(type), \(container) pt: at least 45 % of the map shows over the resting sheet")
+            }
         }
-        .environment(\.dynamicTypeSize, .accessibility3)
-        .padding(.horizontal, 16)
-        let need = try await size(of: header, width: 393).height + 28
-        XCTAssertGreaterThan(need, DetentSheet<EmptyView, EmptyView>.height(.half, in: 700), "this is the case that put Day 2 below the fold")
-        XCTAssertGreaterThanOrEqual(DetentSheet<EmptyView, EmptyView>.height(.half, in: 700, floor: need), need)
-        XCTAssertGreaterThanOrEqual(DetentSheet<EmptyView, EmptyView>.height(.peek, in: 700, floor: need), need)
+    }
+
+    func testTheDayChipsWrapAndEachIsAFullTapTargetAtTheLargestTextSize() async throws {
+        for type in [DynamicTypeSize.large, .accessibility3, .accessibility5] {
+            let chips = PlanDayChips(days: [1, 2], day: .constant(nil)).environment(\.dynamicTypeSize, type)
+            let s = try await size(of: chips, width: 393)
+            XCTAssertLessThanOrEqual(s.width, 393, "\(type): no chip runs off the edge (Day 2 was clipped to D...)")
+            XCTAssertGreaterThanOrEqual(s.height, 44, "\(type): a full-size tap target")
+        }
+        let big = try await size(of: PlanDayChips(days: [1, 2], day: .constant(nil)).environment(\.dynamicTypeSize, .accessibility5), width: 393)
+        XCTAssertGreaterThan(big.height, 44 * 1.5, "at AX5 they wrap onto rows")
     }
 
     func testTheSheetNeverRestsShorterThanItsHeader() {

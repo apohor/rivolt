@@ -24,6 +24,8 @@ struct DetentSheet<Header: View, Content: View>: View {
     var scrolls = true
     /// What the header needs (see `height`), measured here and told to the owner, which passes it back as `floor`.
     var floor: CGFloat = 0
+    /// Large text: the header is only a title and the rest is in the content, so the content scrolls at every height, not only fully open.
+    var scrollsAtEveryDetent = false
     var onHeaderNeed: (CGFloat) -> Void = { _ in }
     @ViewBuilder var header: () -> Header
     @ViewBuilder var content: () -> Content
@@ -87,13 +89,13 @@ struct DetentSheet<Header: View, Content: View>: View {
             Group {
                 if scrolls {
                     ScrollView { content().padding(.horizontal, 4 * Theme.unit).padding(.vertical, 3 * Theme.unit) }
-                        .scrollDisabled(detent != .full)
+                        .scrollDisabled(detent != .full && !scrollsAtEveryDetent)
                 } else {
                     content().padding(.horizontal, 4 * Theme.unit).padding(.vertical, 3 * Theme.unit)
                 }
             }
             // Below fully open a drag anywhere on the sheet moves it; fully open, the content scrolls.
-            .gesture(dragGesture, including: detent == .full ? .subviews : .all)
+            .gesture(dragGesture, including: detent == .full || scrollsAtEveryDetent ? .subviews : .all)
         }
         .frame(maxWidth: .infinity)
         .frame(height: shown, alignment: .top)

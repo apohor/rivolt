@@ -60,6 +60,9 @@ type Drive struct {
 	// LocationUnavailable: the drive moved but its truck sent no usable live location, so it has no route (a truck whose
 	// location sharing is off, or whose GPS is not updating). Set by the live recorder; kept in drives.metadata.
 	LocationUnavailable bool
+	// Open: a live drive still in progress (not closed by the recorder yet). Kept in drives.metadata ("open"), set on every live upsert
+	// until the closing one, so a pod that takes the vehicle over without the Redis snapshot can find the drive and continue it (LatestOpenLive).
+	Open bool
 }
 
 // HasTrailer is the effective value: the user's correction when there is one, else what the recorder saw.
@@ -203,9 +206,9 @@ const driveOnConflict = `
 			-- ever set by a value (a restore) or SetTrailerOverride, never cleared by a re-recording.
 			trailer           = COALESCE(EXCLUDED.trailer, drives.trailer),
 			trailer_override  = COALESCE(EXCLUDED.trailer_override, drives.trailer_override),
-			-- The live recorder knows whether the truck reported its location: its row sets or clears the flag. Any other source
+			-- The live recorder knows whether the truck reported its location, and whether the drive is still open: its row sets or clears both flags. Any other source
 			-- (an import, a restore of another kind) leaves the metadata as it is.
-			metadata          = CASE WHEN EXCLUDED.source = 'live' THEN (drives.metadata - 'location_unavailable') || EXCLUDED.metadata ELSE drives.metadata END,
+			metadata          = CASE WHEN EXCLUDED.source = 'live' THEN (drives.metadata - 'location_unavailable' - 'open') || EXCLUDED.metadata ELSE drives.metadata END,
 			updated_at        = NOW()`
 
 // guardedDriveUpsert writes the drive only if rivolt_lease_ok(group, pod, epoch) holds when the
@@ -678,10 +681,14 @@ func (s *Store) ListChartPoints(ctx context.Context, since, until time.Time, riv
 
 // driveMetadata is what a drive row writes into drives.metadata: only the flag, and only when it is set (an absent key means false).
 func driveMetadata(d Drive) map[string]any {
+	m := map[string]any{}
 	if d.LocationUnavailable {
-		return map[string]any{"location_unavailable": true}
+		m["location_unavailable"] = true
 	}
-	return map[string]any{}
+	if d.Open {
+		m["open"] = true
+	}
+	return m
 }
 
 func mustJSON(v any) string {
@@ -694,3 +701,92 @@ func mustJSON(v any) string {
 
 // locationUnavailableSQL fills Drive.LocationUnavailable.
 const locationUnavailableSQL = `COALESCE((d.metadata->>'location_unavailable')::boolean, false)`
+
+// openDriveMaxAge bounds how old an open live drive may be and still be offered for resumption.
+const openDriveMaxAge = 24 * time.Hour
+
+// LatestOpenLive returns the vehicle's most recent live drive that the recorder left open (not closed by it), or nil. The recorder decides
+// whether the next driving frame continues it (how long ago it was last written, how far the odometer moved).
+func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Drive, error) {
+	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	if err != nil {
+		return nil, err
+	}
+	var d Drive
+	var tr, tro sql.NullBool
+	err = s.db.QueryRowContext(ctx, `
+		SELECT d.external_id, $3::text,
+		       d.started_at, d.ended_at,
+		       COALESCE(d.start_soc_pct,0), COALESCE(d.end_soc_pct,0),
+		       COALESCE(d.start_odometer_mi,0), COALESCE(d.end_odometer_mi,0), COALESCE(d.distance_mi,0),
+		       COALESCE(d.start_lat,0), COALESCE(d.start_lon,0),
+		       COALESCE(d.end_lat,0), COALESCE(d.end_lon,0),
+		       COALESCE(d.max_speed_mph,0), COALESCE(d.avg_speed_mph,0),
+		       COALESCE(d.energy_used_kwh,0), d.source,
+		       COALESCE(d.route_polyline,''), d.trailer, d.trailer_override, `+locationUnavailableSQL+`
+		  FROM drives d
+		 WHERE d.user_id = $1 AND d.vehicle_id = $2 AND d.source = 'live'
+		   AND d.metadata->>'open' = 'true' AND d.ended_at > now() - $4::interval
+		 ORDER BY d.ended_at DESC LIMIT 1`, s.userID, vid, rivianVehicleID, fmt.Sprintf("%d seconds", int(openDriveMaxAge.Seconds()))).Scan(
+		&d.ID, &d.VehicleID, &d.StartedAt, &d.EndedAt,
+		&d.StartSoCPct, &d.EndSoCPct,
+		&d.StartOdometerMi, &d.EndOdometerMi, &d.DistanceMi,
+		&d.StartLat, &d.StartLon, &d.EndLat, &d.EndLon,
+		&d.MaxSpeedMph, &d.AvgSpeedMph,
+		&d.EnergyUsedKWh, &d.Source,
+		&d.RoutePolyline, &tr, &tro, &d.LocationUnavailable)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.Trailer, d.TrailerOverride = nullBoolPtr(tr), nullBoolPtr(tro)
+	d.StartedAt, d.EndedAt = d.StartedAt.UTC(), d.EndedAt.UTC()
+	d.Open = true
+	return &d, nil
+}
+
+// DecodeRoute decodes a stored route polyline (precision 5) to [lat, lon] points.
+func DecodeRoute(s string) [][2]float64 { return decodePolyline5(s) }
+
+// StaleOpenDrive is a live drive row still marked open whose last write is old.
+type StaleOpenDrive struct {
+	ExternalID      string
+	RivianVehicleID string
+	EndedAt         time.Time
+}
+
+// ListStaleOpenLive lists the user's live drives that are marked open (metadata.open) and were last written before the given time: orphans of
+// a recorder that died mid-drive, which nothing will resume any more (LatestOpenLive bounds by age).
+func (s *Store) ListStaleOpenLive(ctx context.Context, before time.Time) ([]StaleOpenDrive, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.external_id, v.rivian_vehicle_id, d.ended_at
+		  FROM drives d JOIN vehicles v ON v.id = d.vehicle_id
+		 WHERE d.user_id = $1 AND d.source = 'live' AND d.metadata->>'open' = 'true' AND d.ended_at < $2
+		 ORDER BY d.ended_at LIMIT 200`, s.userID, before.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StaleOpenDrive
+	for rows.Next() {
+		var o StaleOpenDrive
+		if err := rows.Scan(&o.ExternalID, &o.RivianVehicleID, &o.EndedAt); err != nil {
+			return nil, err
+		}
+		o.EndedAt = o.EndedAt.UTC()
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// ClearOpen takes the open marker off one live drive that is still stale (re-checked in the statement, so a drive the recorder has meanwhile
+// resumed is left alone). It is the owner's write: with a fence token in the context it is guarded by the lease, and fence.ErrFenced comes back
+// when the pod no longer holds the group.
+func (s *Store) ClearOpen(ctx context.Context, externalID string, before time.Time) (int64, error) {
+	return fence.Exec(ctx, s.db, `
+		UPDATE drives SET metadata = metadata - 'open', updated_at = NOW()
+		 WHERE user_id = $1 AND external_id = $2 AND source = 'live' AND metadata->>'open' = 'true' AND ended_at < $3 AND `+fence.OK,
+		s.userID, externalID, before.UTC())
+}

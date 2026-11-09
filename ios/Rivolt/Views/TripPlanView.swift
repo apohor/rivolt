@@ -194,7 +194,7 @@ struct TripPlanResult: View {
             if TripPlanLogic.offersDrivingPerDay(route), !state.isDemo { DrivingPerDayRow(model: model) }
             if TripPlanLogic.isLongDrive(route), !state.isDemo { LongDriveSection(model: model, metric: metric) }
             ThemeSection(title: TripPlanLogic.stopsTitle(route)) {
-                StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric) { model.focusedStop = $0 }
+                StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric, weather: PlanRouteLogic.Weather(plan)) { model.focusedStop = $0 }
                 if route.chargingStops.isEmpty { Text(TripPlanLogic.noStopsLine(route)).themeText(.value, color: Theme.textSecondary) }
             }
             if !model.vias.isEmpty { YourStopsSection(model: model) }
@@ -626,6 +626,8 @@ struct StopRows: View {
     let metric: Bool
     /// Where the last leg ends: "the destination" for a one-day plan, "where the day ends" for a day of a longer trip.
     var finish = "the destination"
+    /// The weather on the plan's legs (the first route's): a stop shows the weather on the leg that leads to it.
+    var weather: PlanRouteLogic.Weather?
     let onPick: (Int) -> Void
 
     var body: some View {
@@ -644,6 +646,7 @@ struct StopRows: View {
                         Text(leg).themeText(.subline, color: Theme.textSecondary)
                     }
                     if let price = TripPlanLogic.stopCostLine(cost, index: i) { Text(price).themeText(.subline, color: Theme.textSecondary) }
+                    weatherLines(for: stop, selected: pin != nil && focused == pin)
                     if stop.adapterRequired == true { Text("Needs a Tesla adapter").themeText(.subline, color: Theme.estimate) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -655,6 +658,26 @@ struct StopRows: View {
         }
         if let last = legs.last, last > 0 {
             Text("Last leg: \(TripPlanLogic.distance(meters: last, metric: metric)) to \(finish)").themeText(.subline, color: Theme.textSecondary)
+        }
+    }
+
+    /// The weather on the leg that leads to `stop`: its facts as tags always; and, when the stop is the one picked, the details (feels like, the one estimate
+    /// line, the climb with the terrain credit). Nothing where the plan has no weather for that leg.
+    @ViewBuilder
+    private func weatherLines(for stop: TripWaypoint, selected: Bool) -> some View {
+        if let weather, let k = route.waypoints.firstIndex(where: { $0.id == stop.id }), k >= 1, k - 1 < weather.legs.count {
+            let leg = weather.legs[k - 1]
+            let facts = LegWeather.facts(leg, celsius: weather.celsius, metric: weather.metric)
+            let tags = LegWeather.tags(facts)
+            if !tags.isEmpty { Text(tags.joined(separator: " · ")).themeText(.subline, color: Theme.textSecondary) }
+            if selected {
+                if let feels = facts?.feels { Text("Feels like \(feels)").themeText(.subline, color: Theme.textSecondary) }
+                if let est = LegWeather.estimateLine(multiplier: leg.multiplier, withSetup: weather.withSetup) { Text(est).themeText(.subline, color: Theme.textSecondary) }
+                if let climb = LegWeather.climbLine(climbM: leg.climbM, descentM: leg.descentM, metric: weather.metric) {
+                    Text(climb).themeText(.subline, color: Theme.textSecondary)
+                    Text(LegWeather.terrainCredit).themeText(.caption, color: Theme.textTertiary)
+                }
+            }
         }
     }
 

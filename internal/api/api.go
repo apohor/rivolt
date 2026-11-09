@@ -343,6 +343,8 @@ type Deps struct {
 	// mounts /metrics. nil disables both — useful for tests that
 	// don't want the global default registry pollution.
 	Metrics *metrics.Metrics
+	// AppBuild counts app-session requests by the app's build number; nil: not counted.
+	AppBuild *AppBuildCounter
 	// Users, when non-nil, provisions user identities in the
 	// configured IdP on POST /api/admin/users and DELETE.
 	// nil (or a disabled provider) skips IdP provisioning —
@@ -399,6 +401,10 @@ type Deps struct {
 	// DEMProxy, when non-nil, mounts a same-origin reverse proxy at /api/maps/dem/{z}/{x}/{y}.png that forwards to the in-cluster Terrarium
 	// elevation mirror (RIVOLT_DEM_BASE_URL), so the web map's hillshade and terrain make no third-party request. Same auth as the tiles.
 	DEMProxy http.Handler
+	// Radar, when non-nil (RIVOLT_RADAR), serves live weather radar tiles at /api/maps/radar/{z}/{x}/{y}.png and the frame time at
+	// /api/maps/radar/frame: NOAA/NWS MRMS base reflectivity, fetched by this server so no browser or phone ever calls NOAA. Signed-in users only
+	// (not the signed-out demo), one per-user limiter, and /api/config advertises it so the clients can show or hide the layer.
+	Radar http.Handler
 	// ChargersArchive, when non-nil, exposes a server-side
 	// chargers-along-corridor query at /api/maps/chargers-along.
 	// Backed by an in-memory copy of chargers.pmtiles so the SPA
@@ -633,6 +639,9 @@ func New(d Deps) http.Handler {
 		// An iPhone app session may write only to a short list (app_write_allowlist.go);
 		// it must run once the session is known and before any route.
 		r.Use(appWriteAllowlistMW)
+		if d.AppBuild != nil {
+			r.Use(appBuildMW(d.AppBuild))
+		}
 		// Public demo (preview only): allowlisted anonymous GETs are
 		// served as the demo user. Not installed unless RIVOLT_DEMO.
 		if demo.Enabled() {
@@ -702,7 +711,7 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil}))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil}))
 		// The charging-networks comparison page's data: public reference data (plans as each
 		// network states them, typical observed prices with their label and month).
 		r.With(clLimiter.Middleware).Get("/charging-networks", handleChargingNetworks(time.Now))
@@ -947,6 +956,9 @@ func New(d Deps) http.Handler {
 			r.Mount("/maps/glyphs", glyphsMount(ls))
 			if d.DEMProxy != nil {
 				r.Mount("/maps/dem", demMount(ls, d.DEMProxy))
+			}
+			if d.Radar != nil {
+				r.Mount("/maps/radar", radarMount(ls, d.Radar))
 			}
 			// Server-side chargers-along-corridor query. Replaces the
 			// SPA's PMTiles per-tile fan-out (hundreds of HTTP range
