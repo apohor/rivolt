@@ -58,22 +58,50 @@ type Plan struct {
 	MinGapM    float64
 	gapsByID   map[uuid.UUID]int
 	monthCount map[string]int
+	dayCount   map[string]int
+	sizeCount  map[string]int
+	placeCount map[string]int
+	perDrive   map[string]int
 }
 
 // MakePlan finds the dropouts in each candidate's route.
 func MakePlan(cands []Candidate, minGapM float64) Plan {
-	p := Plan{Scanned: len(cands), MinGapM: minGapM, gapsByID: map[uuid.UUID]int{}, monthCount: map[string]int{}}
+	p := Plan{Scanned: len(cands), MinGapM: minGapM, gapsByID: map[uuid.UUID]int{}, monthCount: map[string]int{}, dayCount: map[string]int{},
+		sizeCount: map[string]int{}, placeCount: map[string]int{}, perDrive: map[string]int{}}
 	for _, c := range cands {
 		pts, err := Decode(c.Polyline)
 		if err != nil {
 			p.Undecoded++
 			continue
 		}
-		if n := len(Gaps(pts, minGapM)); n > 0 {
+		if gaps := Gaps(pts, minGapM); len(gaps) > 0 {
+			n := len(gaps)
 			p.Drives = append(p.Drives, c)
 			p.GapsTotal += n
 			p.gapsByID[c.ID] = n
 			p.monthCount[Month(c.StartedAt)]++
+			p.dayCount[c.StartedAt.UTC().Format("2006-01-02")]++
+			switch {
+			case n == 1:
+				p.perDrive["1 dropout"]++
+			case n == 2:
+				p.perDrive["2 dropouts"]++
+			default:
+				p.perDrive["3 or more dropouts"]++
+			}
+			// Counts of the dropouts themselves (the dry run prints these and nothing that says where: sizes in buckets, places as first,
+			// middle or last segment of the route).
+			for _, i := range gaps {
+				p.sizeCount[sizeBucket(haversineM(pts[i], pts[i+1]))]++
+				switch {
+				case i == 0:
+					p.placeCount["first segment (the start of the drive)"]++
+				case i+2 == len(pts):
+					p.placeCount["last segment (the end of the drive)"]++
+				default:
+					p.placeCount["middle of the drive"]++
+				}
+			}
 		}
 	}
 	return p
@@ -88,6 +116,26 @@ func (p Plan) IDs() []uuid.UUID {
 	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
 	return out
 }
+
+func sizeBucket(m float64) string {
+	switch {
+	case m < 1000:
+		return "500 m to 1 km"
+	case m < 2000:
+		return "1 to 2 km"
+	case m < 5000:
+		return "2 to 5 km"
+	default:
+		return "5 to 50 km"
+	}
+}
+
+// ByDay counts the planned drives per start day ("2026-11-05"); BySize and ByPlace count the dropouts (not drives) by their length and by where
+// in the route they sit; PerDrive counts drives by how many dropouts they have. Counts only: nothing here says where a drive went.
+func (p Plan) ByDay() map[string]int    { return p.dayCount }
+func (p Plan) BySize() map[string]int   { return p.sizeCount }
+func (p Plan) ByPlace() map[string]int  { return p.placeCount }
+func (p Plan) PerDrive() map[string]int { return p.perDrive }
 
 // ByMonth counts the planned drives per month ("2026-10").
 func (p Plan) ByMonth() map[string]int { return p.monthCount }
