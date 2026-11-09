@@ -1176,7 +1176,7 @@ func (m *StateMonitor) Start(ctx context.Context) {
 	// Source-fed monitors skip it: with no client the janitor can't
 	// confirm a session over REST, and a replay closes its charges
 	// through the normal lifecycle anyway.
-	if m.chargesStore != nil && m.client != nil {
+	if (m.chargesStore != nil || m.drivesStore != nil) && m.client != nil {
 		go m.runStaleChargeJanitor(ctx)
 	}
 }
@@ -1192,13 +1192,56 @@ func (m *StateMonitor) runStaleChargeJanitor(ctx context.Context) {
 	// Run once immediately so a freshly-restarted process doesn't
 	// leave stale rows visible for up to sweepInterval.
 	m.sweepStaleCharges(ctx, staleAfter)
+	m.sweepStaleOpenDrives(ctx, staleAfter)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			m.sweepStaleCharges(ctx, staleAfter)
+			m.sweepStaleOpenDrives(ctx, staleAfter)
 		}
+	}
+}
+
+// sweepStaleOpenDrives takes the "open" marker off live drive rows whose last write is older than staleAfter: the recorder that held them died
+// mid-drive and no owner resumed them (a resume needs the next driving frame within the stale gap), so the marker would otherwise stay on the
+// row, and in exports, for good. The row itself is untouched. Owner-only like the charge janitor, and it asks Rivian nothing.
+func (m *StateMonitor) sweepStaleOpenDrives(ctx context.Context, staleAfter time.Duration) {
+	if m.drivesStore == nil {
+		return
+	}
+	before := m.clock().Add(-staleAfter)
+	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
+	stale, err := m.drivesStore.ListStaleOpenLive(listCtx, before)
+	listCancel()
+	if err != nil {
+		m.noteWriteFailure("stale_drive", "", "", err)
+		return
+	}
+	cleared := 0
+	for _, d := range stale {
+		if ctx.Err() != nil {
+			return
+		}
+		fctx, owner := m.fenceCtxQuiet(ctx, d.RivianVehicleID)
+		if !owner {
+			continue
+		}
+		opCtx, opCancel := context.WithTimeout(fctx, 5*time.Second)
+		n, err := m.drivesStore.ClearOpen(opCtx, d.ExternalID, before)
+		opCancel()
+		switch {
+		case errors.Is(err, fence.ErrFenced):
+			m.fenced("drives", d.RivianVehicleID)
+		case err != nil:
+			m.noteWriteFailure("stale_drive", d.RivianVehicleID, d.ExternalID, err)
+		default:
+			cleared += int(n)
+		}
+	}
+	if cleared > 0 {
+		m.logger.Info("stale open drives closed out", "cleared", cleared, "candidates", len(stale))
 	}
 }
 
