@@ -61,6 +61,7 @@ type Store struct {
 	// priorOf is, for each group this pod took in an acquire pass, how it came free: the previous holder's release time and the reason
 	// (see Prior). A vehicle's coordinator takes it once, for the hand-off measurement.
 	priorOf   map[string]Prior
+	gen       string    // SetGeneration
 	groupOKAt time.Time // when the last successful RenewGroups was sent (monotonic)
 	lead      bool      // lead mode: the group lease decides ownership (groups_lead.go)
 	draining  bool

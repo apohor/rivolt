@@ -36,16 +36,18 @@ func TestReleaseBuildsDoNotUseTheE2ETag(t *testing.T) {
 			files = []string{p}
 		}
 		for _, f := range files {
-			if strings.HasSuffix(filepath.ToSlash(f), ".github/workflows/forward-e2e.yml") {
-				continue // the workflow that builds the test binary
+			if sl := filepath.ToSlash(f); strings.HasSuffix(sl, ".github/workflows/forward-e2e.yml") || strings.HasSuffix(sl, ".github/workflows/roll-e2e.yml") {
+				continue // the workflows that build the test binaries
 			}
 			b, err := os.ReadFile(f)
 			if err != nil {
 				continue
 			}
 			checked++
-			if strings.Contains(string(b), "e2e_forward") {
-				t.Errorf("%s mentions the e2e_forward build tag: only the forward e2e workflow and harness may build with it", f)
+			for _, tag := range []string{"e2e_forward", "e2e_roll"} {
+				if strings.Contains(string(b), tag) {
+					t.Errorf("%s mentions the %s build tag: only its own e2e workflow and harness may build with it", f, tag)
+				}
 			}
 		}
 	}
