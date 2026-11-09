@@ -11,7 +11,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
-	"strconv"
 	"sync"
 	"time"
 
@@ -179,8 +178,8 @@ func (b *Bucket) key(kind string, sec int64) string {
 // fleetSlot takes a slot from this second's fleet budget, trying the next second until it gets one or wctx ends. ok is false when the bound
 // passed; local is true when Redis could not answer (the slot is then granted: fail open).
 //
-// Active calls count in the "a" counter and may use the whole budget. Idle calls count in their own "i" counter and are admitted only while it is
-// within half the budget and the two together are within the budget, so excess idle attempts never use up the active ones' room.
+// The two kinds count their GRANTED calls in separate counters and are admitted by one atomic script (admitScript): together they never pass the
+// budget, and idle calls never pass half of it, so an active call always finds room.
 func (b *Bucket) fleetSlot(wctx context.Context, active bool) (ok, local bool) {
 	for {
 		sec := b.cfg.Now().Unix()
@@ -188,18 +187,11 @@ func (b *Bucket) fleetSlot(wctx context.Context, active bool) (ok, local bool) {
 		if active {
 			kind = "a"
 		}
-		n, other, err := b.take(wctx, sec, kind, !active)
+		granted, err := b.admit(wctx, sec, kind)
 		if err != nil {
 			return true, true
 		}
-		limit := int64(b.cfg.FleetRPS)
-		if !active {
-			limit = int64(b.cfg.FleetRPS / idleShareDivisor)
-			if limit < 1 {
-				limit = 1
-			}
-		}
-		if n <= limit && (active || n+other <= int64(b.cfg.FleetRPS)) {
+		if granted {
 			return true, false
 		}
 		// Over this second's budget: wait for the next second, with a little jitter so waiters do not all come back on the tick.
@@ -224,25 +216,33 @@ func realSleep(ctx context.Context, d time.Duration) {
 	}
 }
 
-// take bumps the counter for (kind, second) and, for an idle call, reads the active counter too.
-func (b *Bucket) take(ctx context.Context, sec int64, kind string, readOther bool) (n, other int64, err error) {
+// admitScript grants one call out of this second's budget, atomically (one Redis round trip, so concurrent pods cannot both take the last slot):
+// KEYS[1] counts the active calls GRANTED this second, KEYS[2] the idle ones; ARGV[1] is "a" or "i", ARGV[2] the whole budget, ARGV[3] the idle share,
+// ARGV[4] the counter's lifetime in seconds. An active call is granted while active + idle < budget; an idle call while idle < its share AND
+// active + idle < budget. So the two together can never pass the budget, idle never passes its share (an active call always finds at least the
+// other half), and a denied attempt leaves no trace in the counters. Returns 1 when granted.
+var admitScript = redis.NewScript(`
+local a = tonumber(redis.call('GET', KEYS[1]) or '0')
+local i = tonumber(redis.call('GET', KEYS[2]) or '0')
+local budget = tonumber(ARGV[2])
+if a + i >= budget then return 0 end
+if ARGV[1] == 'a' then
+  redis.call('INCR', KEYS[1]); redis.call('EXPIRE', KEYS[1], ARGV[4]); return 1
+end
+if i >= tonumber(ARGV[3]) then return 0 end
+redis.call('INCR', KEYS[2]); redis.call('EXPIRE', KEYS[2], ARGV[4]); return 1`)
+
+// admit asks Redis for a slot in second sec for a call of the given kind ("a" or "i").
+func (b *Bucket) admit(ctx context.Context, sec int64, kind string) (bool, error) {
 	c, cancel := context.WithTimeout(ctx, redisOp)
 	defer cancel()
-	k := b.key(kind, sec)
-	p := b.cfg.Redis.Pipeline()
-	incr := p.Incr(c, k)
-	p.Expire(c, k, counterTTLSeconds*time.Second)
-	var get *redis.StringCmd
-	if readOther {
-		get = p.Get(c, b.key("a", sec))
+	idleShare := b.cfg.FleetRPS / idleShareDivisor
+	if idleShare < 1 {
+		idleShare = 1
 	}
-	if _, err := p.Exec(c); err != nil && err != redis.Nil {
-		return 0, 0, err
+	n, err := admitScript.Run(c, b.cfg.Redis, []string{b.key("a", sec), b.key("i", sec)}, kind, b.cfg.FleetRPS, idleShare, counterTTLSeconds).Int()
+	if err != nil {
+		return false, err
 	}
-	if get != nil {
-		if v, e := get.Result(); e == nil {
-			other, _ = strconv.ParseInt(v, 10, 64)
-		}
-	}
-	return incr.Val(), other, nil
+	return n == 1, nil
 }
