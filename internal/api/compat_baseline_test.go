@@ -17,7 +17,7 @@ import (
 // check the CURRENT clients, and a removal can edit the fixture in the same PR as the server, so the shipped builds' view of the API would go
 // unchecked.
 //
-// So the baseline is frozen. ios/RivoltTests/FixturesBaseline/<tag>/ holds what an old build knew: its response fixtures (responses/), the bodies
+// So the baseline is frozen. ios/CompatBaseline/<tag>/ holds what an old build knew: its response fixtures (responses/), the bodies
 // it sends (requests/, when the tag has request fixtures), and the routes it calls (routes.txt). ios/compat-baseline.txt lists the active tags
 // ("<tag> ios" or "<tag> web"). The tests here run them against the CURRENT server:
 //
@@ -34,7 +34,7 @@ import (
 
 const (
 	compatManifest = "../../ios/compat-baseline.txt"
-	compatDir      = "../../ios/RivoltTests/FixturesBaseline"
+	compatDir      = "../../ios/CompatBaseline"
 )
 
 // compatRetiredFixtures are baseline responses whose endpoint was retired on purpose (the build that read it was dropped from the baseline's
