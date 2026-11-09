@@ -19,3 +19,12 @@ describe("findLayersAlongPath", () => {
     expect(r?.pois[0].offKm).toBe(3.4);
   });
 });
+
+describe("findLayersAlongPath cancels", () => {
+  it("hands its abort signal to the request, so toggling a chip cancels the one in flight", async () => {
+    const spy = vi.spyOn(backend, "corridorLayers").mockResolvedValue({ pois: [], total: 0 } as never);
+    const ac = new AbortController();
+    await findLayersAlongPath(path, ["dcfc"], ac.signal);
+    expect(spy.mock.calls[0][1]).toBe(ac.signal);
+  });
+});

@@ -771,10 +771,17 @@ export function TripRouteMap({
     void (async () => {
       // "Preferred only" narrows the fast layer to the preferred networks; the other layers on are unchanged.
       const others = onlyPreferred ? kinds.filter((k) => k !== "dcfc") : kinds;
-      const [pref, rest] = await Promise.all([
-        onlyPreferred ? findChargersOfNetworks(routePath, preferredKey.split(",")) : Promise.resolve([] as POI[]),
-        findLayersAlongPath(routePath, others),
-      ]);
+      let pref: POI[] | null, rest: { pois: POI[]; total: number } | null;
+      try {
+        [pref, rest] = await Promise.all([
+          onlyPreferred ? findChargersOfNetworks(routePath, preferredKey.split(",")) : Promise.resolve([] as POI[]),
+          findLayersAlongPath(routePath, others, ac.signal),
+        ]);
+      } catch {
+        // A chip toggled while this request was in flight cancels it (the next effect run asks again); any other failure leaves the pins as they were.
+        if (!ac.signal.aborted) setChargersLoading(false);
+        return;
+      }
       const found = pref === null || rest === null ? null : [...pref, ...rest.pois];
       const total = pref === null || rest === null ? 0 : pref.length + rest.total;
       if (ac.signal.aborted || mapRef.current !== map) return;

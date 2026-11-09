@@ -426,11 +426,11 @@ export type LayerKind = "dcfc" | "l2" | "hotels" | "camp";
 // The stations of the given layer kinds along a route, from the corridor query: each kind within its own distance of the route (fast 5 mi,
 // medium 3 mi, hotels and camping 10 mi, set by the server), spread along the whole route when there are more than the cap. `total` is how many
 // there are before the cap. No kinds: nothing, and no request. Null when the install has no archive (or the signed-out demo).
-export async function findLayersAlongPath(path: [number, number][], kinds: LayerKind[]): Promise<{ pois: POI[]; total: number } | null> {
+export async function findLayersAlongPath(path: [number, number][], kinds: LayerKind[], signal?: AbortSignal): Promise<{ pois: POI[]; total: number } | null> {
   if (path.length < 2 || kinds.length === 0) return { pois: [], total: 0 };
   if (inDemo()) return null;
   try {
-    const r = await backend.corridorLayers({ path: thinPath(path), kinds });
+    const r = await backend.corridorLayers({ path: thinPath(path), kinds }, signal);
     return { pois: r.pois.map(serverChargerToPOI), total: r.total };
   } catch (e: unknown) {
     if (e instanceof ApiError && e.status === 404) return null;
