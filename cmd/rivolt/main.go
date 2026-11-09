@@ -2126,6 +2126,11 @@ func runServer() {
 			monitorRegistry.Unsubscribe,
 			logger,
 		)
+		// A pod that gives groups up bumps a Redis counter its peers read every second, so they take them now instead of at their next tick (zero-impact deploys, G1a).
+		// The tick stays the fallback; RIVOLT_RELEASE_SIGNAL=0 turns the signal off.
+		if sharedRedis != nil && os.Getenv("RIVOLT_RELEASE_SIGNAL") != "0" {
+			coord.SetReleaseSignal(leases.NewRedisSignal(sharedRedis, redisKeyPrefix))
+		}
 		// Lead mode asked for but the store would not lead: refuse to start rather than run the old mode while believing otherwise.
 		if err := coord.CheckLeadMode(os.Getenv("RIVOLT_GROUP_LEAD") == "1"); err != nil {
 			logger.Error("lease coordinator", "err", err.Error())
