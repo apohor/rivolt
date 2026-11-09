@@ -43,7 +43,7 @@ func TestSupportedFeaturesAreSharedBetweenPods(t *testing.T) {
 	store := newMemLiveStateStore()
 	var hitsA, hitsB atomic.Int32
 	a := featuresPod(t, &hitsA, 0, store, true)
-	got, err := a.supportedFeaturesFor(context.Background(), "veh-a")
+	got, err := a.supportedFeaturesFor(context.Background(), "veh-a", false)
 	if err != nil || got[FeatureConnectivityParallax] != FeatureStatusAvailable || hitsA.Load() != 1 {
 		t.Fatalf("first pod: %v %v hits %d, want a probe", got, err, hitsA.Load())
 	}
@@ -53,7 +53,7 @@ func TestSupportedFeaturesAreSharedBetweenPods(t *testing.T) {
 
 	b := featuresPod(t, &hitsB, 400*time.Millisecond, store, true) // a slow gateway
 	start := time.Now()
-	got, err = b.supportedFeaturesFor(context.Background(), "veh-a")
+	got, err = b.supportedFeaturesFor(context.Background(), "veh-a", false)
 	if err != nil || got[FeatureConnectivityParallax] != FeatureStatusAvailable {
 		t.Fatalf("second pod: %v %v", got, err)
 	}
@@ -74,7 +74,7 @@ func TestSupportedFeaturesAreSharedBetweenPods(t *testing.T) {
 	var hitsOld atomic.Int32
 	old := featuresPod(t, &hitsOld, 400*time.Millisecond, store, true)
 	start = time.Now()
-	if got, err = old.supportedFeaturesFor(context.Background(), "veh-a"); err != nil || got[FeatureConnectivityParallax] != FeatureStatusAvailable {
+	if got, err = old.supportedFeaturesFor(context.Background(), "veh-a", false); err != nil || got[FeatureConnectivityParallax] != FeatureStatusAvailable {
 		t.Fatalf("old entry: %v %v", got, err)
 	}
 	if d := time.Since(start); d > 200*time.Millisecond {
@@ -90,7 +90,7 @@ func TestSupportedFeaturesAreSharedBetweenPods(t *testing.T) {
 
 	var hitsC atomic.Int32
 	c := featuresPod(t, &hitsC, 0, store, false) // flag off: always the call
-	if _, err := c.supportedFeaturesFor(context.Background(), "veh-a"); err != nil || hitsC.Load() != 1 {
+	if _, err := c.supportedFeaturesFor(context.Background(), "veh-a", false); err != nil || hitsC.Load() != 1 {
 		t.Errorf("flag off: err %v hits %d, want the call", err, hitsC.Load())
 	}
 }
@@ -101,7 +101,7 @@ func TestSupportedFeaturesProbeFailureStoresNothing(t *testing.T) {
 	var hits atomic.Int32
 	m := featuresPod(t, &hits, 0, store, true)
 	m.client.userSessionToken = "" // not authenticated: the call fails before the network
-	if _, err := m.supportedFeaturesFor(context.Background(), "veh-a"); err == nil {
+	if _, err := m.supportedFeaturesFor(context.Background(), "veh-a", false); err == nil {
 		t.Fatal("want an error")
 	}
 	if _, _, ok, _ := store.GetFeatures(context.Background(), "veh-a"); ok {
@@ -153,7 +153,7 @@ func TestFailedFeaturesRefreshKeepsTheStoredMap(t *testing.T) {
 	m := NewStateMonitor(c, slog.Default())
 	m.fastTakeover = true
 	m.SetLiveStateStore(store)
-	got, err := m.supportedFeaturesFor(context.Background(), "veh-a")
+	got, err := m.supportedFeaturesFor(context.Background(), "veh-a", false)
 	if err != nil || got[FeatureConnectivityParallax] != FeatureStatusAvailable {
 		t.Fatalf("%v %v", got, err)
 	}

@@ -6,11 +6,14 @@
 # directory, port, environment and entrypoint as the root Dockerfile. The root Dockerfile is unchanged and remains
 # what self-hosters and local builds use. Keep the two runtime stages identical.
 #
-# Build context: a directory holding `rivolt` (the binary, mode 0755) and an empty `data/` directory.
+# Build context: a directory holding `rivolt` (the binary, mode 0755), an empty `data/` directory and `web-carry/` (the hashed web assets of
+# other builds, scripts/web-carry.sh; empty is fine).
 # Same digest as the root Dockerfile's runtime stage (keep them identical; Renovate bumps both in one PR).
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
 WORKDIR /app
 COPY rivolt /app/rivolt
+# Hashed web assets of other builds, served when this build's embedded bundle lacks a chunk (internal/web/carry.go).
+COPY web-carry /app/web-carry
 # Pre-created /data owned by distroless "nonroot" (uid 65532) so a named volume mounts it with the right ownership.
 COPY --chown=nonroot:nonroot data /data
 USER nonroot:nonroot

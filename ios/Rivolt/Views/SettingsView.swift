@@ -21,7 +21,7 @@ enum SettingsLogic {
             case .chargingRates: return "Charging rates"
             case .offpeak: return "Off-peak schedule"
             case .chargingNetworks: return "Charging networks"
-            case .plannerDefaults: return "Trip planner defaults"
+            case .plannerDefaults: return "Trip planner"
             case .notifications: return "Notifications"
             case .appearance: return "Appearance"
             case .export: return "Export your data"

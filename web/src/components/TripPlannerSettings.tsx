@@ -69,17 +69,17 @@ export function ChargersOnMapCard() {
             {CORRIDOR_CHOICES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </Row>
-        <Row label="Hide chargers near the start" hint="Measured along the route, so a trip that leaves from home does not fill with the chargers you already know.">
+        <Row label="Hide chargers near the start" hint="Turn on to hide chargers in the first miles of the first day, if you usually start charged. Rivian's planned stops always show.">
           <select aria-label="Hide chargers near the start" value={prefs.start_exclude_mi} disabled={!settled} onChange={(e) => save.mutate({ start_exclude_mi: Number(e.target.value) as StartExcludeMi })} className={select}>
             {START_EXCLUDE_CHOICES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </Row>
-        <Row label="Minimum fast-charger power" hint="Fast chargers whose power is not known stay on the map.">
+        <Row label="Minimum fast-charger power" hint="Hides fast chargers rated below this. A charger with no listed power stays.">
           <select aria-label="Minimum fast-charger power" value={prefs.min_fast_kw} disabled={!settled} onChange={(e) => save.mutate({ min_fast_kw: Number(e.target.value) as MinFastKW })} className={select}>
             {MIN_FAST_CHOICES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
           </select>
         </Row>
-        <Row label="Layers that start on">
+        <Row label="Layers that start on" hint="You can still switch them on and off on the map.">
           <div className="flex flex-wrap gap-3">
             {LAYER_CHOICES.map((c) => (
               <label key={c.id} className="flex items-center gap-2 text-neutral-200">
@@ -89,7 +89,7 @@ export function ChargersOnMapCard() {
             ))}
           </div>
         </Row>
-        <Row label="Preferred networks only" hint="Start with just the fast chargers of the networks you marked Prefer in planner.">
+        <Row label="Preferred networks only" hint="Fast pins only from the networks you prefer. Choose them under Charging networks in Settings.">
           <Toggle id="planner-preferred-only" checked={prefs.preferred_only} disabled={!settled} onChange={(v) => save.mutate({ preferred_only: v })} />
           <Link to={appPath("/settings?tab=charging#networks")} className="text-xs text-emerald-400 hover:text-emerald-300">Choose preferred networks (Charging networks)</Link>
         </Row>
@@ -105,11 +105,11 @@ export function MapDefaultsCard() {
   return (
     <Card title="Map" id="map-defaults">
       <div className="space-y-4 text-sm" aria-busy={!settled}>
-        <Row label="Weather on each leg" hint="Temperature, wind and rain or snow on the route, when the map opens. You can still turn it off on the map.">
+        <Row label="Weather on each leg" hint="The temperature and wind on each leg, on by default.">
           <Toggle id="planner-weather-on" checked={prefs.weather_on} disabled={!settled} onChange={(v) => save.mutate({ weather_on: v })} />
         </Row>
         {radarAvailable() && (
-          <Row label="Radar" hint="Live radar under the route when the map opens. From NOAA/National Weather Service.">
+          <Row label="Radar" hint="Live NOAA radar under the route. Shown only where this server has radar.">
             <Toggle id="planner-radar-on" checked={prefs.radar_on} disabled={!settled} onChange={(v) => save.mutate({ radar_on: v })} />
           </Row>
         )}

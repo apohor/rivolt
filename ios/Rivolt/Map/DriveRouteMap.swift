@@ -422,6 +422,8 @@ struct RouteMapView: UIViewRepresentable {
     var interactive = false
     /// Bump to put the camera back on the whole route (the full-screen map's recenter button).
     var recenter = 0
+    /// A radar frame under the route (the planner's Radar button), nil for none.
+    var radar: RadarLayer?
     /// What the gradient is coloured by.
     var metric: RouteGradient.Metric = .speed
     /// Where the timeline's cursor is: a dot over the route (nil: none).
@@ -483,11 +485,13 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.setBottomInset(bottomInset, on: map)
         context.coordinator.setMetric(metric, on: map)
         context.coordinator.update(drawing, on: map)
+        context.coordinator.setRadar(radar, on: map)
         context.coordinator.recenter(recenter, on: map)
     }
 
     final class Coordinator: MapLoadWatch {
         private var drawing: RouteSnap.Drawing
+        private var radar: RadarLayer?
         private var sources: [String: MLNShapeSource] = [:]
         private let onDrawn: () -> Void
         private let onPins: ((Pins) -> Void)?
@@ -668,7 +672,15 @@ struct RouteMapView: UIViewRepresentable {
             self.cursorSource = cursorSource
             setCursor(cursorAt)
             if !keepCamera { fit(map) }
+            RadarLayer.apply(radar, to: style)
             DispatchQueue.main.async { self.onDrawn() }
+        }
+
+        /// The Radar button was turned on or off, or a newer frame arrived.
+        func setRadar(_ r: RadarLayer?, on map: MLNMapView) {
+            guard r != radar else { return }
+            radar = r
+            if let style = map.style { RadarLayer.apply(r, to: style) }
         }
 
         /// The line as a smooth gradient of speed: each unbroken run is its own source (the gradient is along one line) and layer, coloured by the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"math/rand/v2"
@@ -17,6 +18,7 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/fence"
+	"github.com/apohor/rivolt/internal/fleetbucket"
 	"github.com/apohor/rivolt/internal/samples"
 )
 
@@ -121,6 +123,9 @@ type StateMonitor struct {
 	// stall for minutes and replay stale fixes (observed 2026-07-14: a
 	// 5-minute full blackout mid-drive).
 	parallaxGPS bool
+	// takeoverLimiter paces the calls a takeover makes to Rivian (the first dial of a session, the capability probe, the REST seed); nil: no
+	// pacing. takeoverActive, set once per run, puts a driving or charging vehicle ahead of idle ones.
+	takeoverLimiter *fleetbucket.Bucket
 	// driveDBResume (RIVOLT_DRIVE_DB_RESUME) lets a takeover without the Redis snapshot continue the vehicle's open drive row (G2a).
 	driveDBResume bool
 	// fastTakeover (RIVOLT_FAST_TAKEOVER) takes work off the takeover's critical path: the capability map comes from the shared store when a peer
@@ -1592,6 +1597,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	}
 
 	m.logger.Info("rivian ws subscribe", "vehicle", vehicleID)
+	active := m.takeoverLimiter != nil && m.takeoverActive(ctx, vehicleID)
 	m.refreshVehicleInfoIfStale(ctx)
 
 	// Decide whether to run the Parallax GPS subscriber for this
@@ -1607,7 +1613,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	eligibleParallaxGPS := false
 	pxStatus := "master_off"
 	if m.parallaxGPS {
-		feats, err := m.supportedFeaturesFor(ctx, vehicleID)
+		feats, err := m.supportedFeaturesFor(ctx, vehicleID, active)
 		if err != nil {
 			pxStatus = "probe_error"
 			if ctx.Err() == nil {
@@ -1650,6 +1656,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// something to overlay the deltas onto. Tire pressures (bar) and
 	// other subscription-only fields stay zero here and get filled
 	// in once the first push arrives.
+	m.takeoverWait(ctx, "seed", "", active, vehicleID)
 	if st, err := m.restState(ctx, vehicleID, "seed", CallSiteSeed); err == nil && st != nil {
 		m.noteVehStateGPS(vehicleID, st)
 		m.mu.Lock()
@@ -1729,6 +1736,8 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	// zombie-socket case where Rivian stops emitting frames but
 	// never closes the WebSocket. Home Assistant does the same with
 	// a 15-min heartbeat check.
+	// The first dial of a start is paced, once per Rivian session (the session's vehicles share one socket, ws_mux); a redial after a drop is not.
+	m.takeoverWait(ctx, "dial", fmt.Sprintf("%p", m.client), active, vehicleID)
 	backoff := time.Second
 	for ctx.Err() == nil {
 		// Re-gate on auth between resubscribes. If the upstream
@@ -4482,6 +4491,69 @@ func (m *StateMonitor) waitStaggerSlot(ctx context.Context) {
 	m.stagger.Wait(ctx)
 }
 
+// SetTakeoverLimiter wires the shared pacing of takeover calls; nil leaves them unpaced.
+func (m *StateMonitor) SetTakeoverLimiter(b *fleetbucket.Bucket) { m.takeoverLimiter = b }
+
+// takeoverActive says whether the vehicle is driving or charging right now, as far as a new owner can tell before it has a frame: the previous
+// owner's snapshot holds an open drive or charge, or the database has an open live charge. Active vehicles go ahead of idle ones in the pacing.
+func (m *StateMonitor) takeoverActive(ctx context.Context, vehicleID string) bool {
+	if m.liveStateStore != nil {
+		lctx, cancel := context.WithTimeout(ctx, time.Second)
+		snap, ok, err := m.liveStateStore.Load(lctx, vehicleID)
+		cancel()
+		if err == nil && ok && (snap.Drive != nil || snap.Charge != nil) {
+			return true
+		}
+	}
+	if m.chargesStore != nil {
+		lctx, cancel := context.WithTimeout(ctx, time.Second)
+		row, err := m.chargesStore.LatestOpenLive(lctx, vehicleID)
+		cancel()
+		return err == nil && row != nil && m.since(row.EndedAt) < liveChargeMaxGap
+	}
+	return false
+}
+
+// takeoverWait paces one Rivian call of a takeover. shareKey lets the calls of one Rivian session's shared socket count once. A call held up for
+// long, or let through without a slot, is logged once; the bound inside the bucket keeps pacing from becoming an outage.
+func (m *StateMonitor) takeoverWait(ctx context.Context, class, shareKey string, active bool, vehicleID string) {
+	if m.takeoverLimiter == nil {
+		return
+	}
+	r := m.takeoverLimiter.Wait(ctx, class, shareKey, active)
+	if r.Starved {
+		if n, ok := starvedLog.note(class, m.clock()); ok {
+			m.logger.Warn("takeover pacing: calls went ahead without a slot after the bound", "class", class, "last_vehicle", vehicleID, "active", active, "count", n, "waited", r.Waited.Round(time.Millisecond))
+		}
+	}
+}
+
+// starvedLog keeps a slow roll from logging one line per vehicle: one line a minute per class, with how many calls it stands for.
+var starvedLog = &rateLimitedCount{every: time.Minute}
+
+type rateLimitedCount struct {
+	every time.Duration
+	mu    sync.Mutex
+	last  map[string]time.Time
+	n     map[string]int
+}
+
+// note counts one event for the class and reports whether to log now (and how many events the line covers).
+func (r *rateLimitedCount) note(class string, now time.Time) (int, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.last == nil {
+		r.last, r.n = map[string]time.Time{}, map[string]int{}
+	}
+	r.n[class]++
+	if at, ok := r.last[class]; ok && now.Sub(at) < r.every {
+		return 0, false
+	}
+	n := r.n[class]
+	r.last[class], r.n[class] = now, 0
+	return n, true
+}
+
 // SetStagger replaces the monitor's slot clock; the registry passes one shared
 // instance to every monitor. Call before Start.
 func (m *StateMonitor) SetStagger(s *Stagger) {
@@ -4517,7 +4589,7 @@ func (m *StateMonitor) since(t time.Time) time.Duration { return m.clock().Sub(t
 // already probed is used at once, and re-asked in the background only when it is older than featuresRefreshAge; otherwise, or on a miss, it is
 // the call itself, as before, and its answer is stored for the next owner. One call answers for every vehicle on the account, so every
 // vehicle it names is stored.
-func (m *StateMonitor) supportedFeaturesFor(ctx context.Context, vehicleID string) (map[string]string, error) {
+func (m *StateMonitor) supportedFeaturesFor(ctx context.Context, vehicleID string, active bool) (map[string]string, error) {
 	fs, _ := m.liveStateStore.(FeaturesStore)
 	if m.fastTakeover && fs != nil {
 		gctx, cancel := context.WithTimeout(ctx, time.Second)
@@ -4533,6 +4605,7 @@ func (m *StateMonitor) supportedFeaturesFor(ctx context.Context, vehicleID strin
 			return cached, nil
 		}
 	}
+	m.takeoverWait(ctx, "features", "", active, vehicleID) // only the call itself is paced: a hit on the shared map made no call
 	all, err := m.client.SupportedFeatures(ctx)
 	if err != nil {
 		return nil, err

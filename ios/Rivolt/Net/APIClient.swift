@@ -570,6 +570,16 @@ actor APIClient {
         try await request("POST", "/api/trips/what-if", body: body)
     }
 
+    /// The server's runtime config (public): which optional map services it has mounted.
+    func mapsConfig() async throws -> MapsConfig {
+        try await request("GET", "/api/config", authenticated: false)
+    }
+
+    /// The newest radar frame and the recent ones (a 404 means this server has no radar; a 503 that its feed is down).
+    func radarFrame() async throws -> RadarFrame {
+        try await request("GET", "/api/maps/radar/frame")
+    }
+
     func corridorLayers(_ body: CorridorLayersRequest) async throws -> CorridorLayers {
         try await request("POST", "/api/maps/corridor-layers", body: body)
     }

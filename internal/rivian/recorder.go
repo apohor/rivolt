@@ -158,6 +158,8 @@ type liveDrive struct {
 	rejected   bool
 	rejectedAt time.Time
 	final      bool
+	// resumedFromDB: the drive was continued from its stored row at a takeover (resumeOpenDrive), not from the Redis snapshot.
+	resumedFromDB bool
 	// touch throttles the periodic in-session re-upsert (touchLiveDrive).
 	touch      touchGate
 	trim       *sessionTrim
@@ -2711,20 +2713,21 @@ func liveDriveFromRow(row *drives.Drive) *liveDrive {
 		n = 1
 	}
 	return &liveDrive{
-		id:         row.ID,
-		startedAt:  row.StartedAt,
-		startSoC:   row.StartSoCPct,
-		startOdoMi: row.StartOdometerMi,
-		startLat:   row.StartLat,
-		startLon:   row.StartLon,
-		maxSpeed:   row.MaxSpeedMph,
-		sumSpeed:   row.AvgSpeedMph * float64(n),
-		speedN:     n,
-		endAt:      row.EndedAt,
-		endSoC:     row.EndSoCPct,
-		endOdoMi:   row.EndOdometerMi,
-		endLat:     row.EndLat,
-		endLon:     row.EndLon,
-		path:       drives.DecodeRoute(row.RoutePolyline),
+		resumedFromDB: true,
+		id:            row.ID,
+		startedAt:     row.StartedAt,
+		startSoC:      row.StartSoCPct,
+		startOdoMi:    row.StartOdometerMi,
+		startLat:      row.StartLat,
+		startLon:      row.StartLon,
+		maxSpeed:      row.MaxSpeedMph,
+		sumSpeed:      row.AvgSpeedMph * float64(n),
+		speedN:        n,
+		endAt:         row.EndedAt,
+		endSoC:        row.EndSoCPct,
+		endOdoMi:      row.EndOdometerMi,
+		endLat:        row.EndLat,
+		endLon:        row.EndLon,
+		path:          drives.DecodeRoute(row.RoutePolyline),
 	}
 }
