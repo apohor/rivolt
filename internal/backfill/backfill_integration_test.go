@@ -397,3 +397,48 @@ func TestFiveTimeoutsInARowFailTheJob(t *testing.T) {
 		t.Errorf("state %q error %q, want failed with the error", st, msg)
 	}
 }
+
+// A Fill whose key is not a single-column primary key or unique index is refused before any row is touched (a repeated key would be skipped at a
+// batch boundary), and the new job row carries the package's default batch size, not the table's.
+func TestFillRefusesAKeyThatRepeats(t *testing.T) {
+	pool := setup(t, 10)
+	ctx := context.Background()
+	for _, q := range []string{
+		`DROP TABLE IF EXISTS bf_multi`,
+		`CREATE TABLE bf_multi (a int, at timestamptz NOT NULL, v int, PRIMARY KEY (a, at))`,
+		`INSERT INTO bf_multi SELECT 1, now() - g * interval '1 minute', NULL FROM generate_series(1, 10) g`,
+		`CREATE TABLE IF NOT EXISTS bf_loose (id bigint NOT NULL, v int)`,
+		`TRUNCATE bf_loose`,
+		`INSERT INTO bf_loose SELECT 1, NULL FROM generate_series(1, 10)`,
+	} {
+		if _, err := pool.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(`DROP TABLE IF EXISTS bf_multi, bf_loose`) })
+	jobs := []backfill.Job{
+		{Name: "composite", Fill: &backfill.Fill{Table: "bf_multi", Key: "at", KeyType: "timestamptz", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
+		{Name: "loose", Fill: &backfill.Fill{Table: "bf_loose", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
+		{Name: "ok", Fill: &backfill.Fill{Table: "bf_test", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
+	}
+	r := &backfill.Runner{DB: pool, Jobs: jobs, Pause: time.Millisecond}
+	if _, _, err := r.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"composite", "loose"} {
+		if st, rows := progress(t, pool, name); st != backfill.StateFailed || rows != 0 {
+			t.Errorf("%s: %s %d, want failed 0", name, st, rows)
+		}
+	}
+	if st, rows := progress(t, pool, "ok"); st != backfill.StateDone || rows != 10 {
+		t.Errorf("ok: %s %d, want done 10", st, rows)
+	}
+	var untouched int
+	if err := pool.QueryRow(`SELECT (SELECT count(*) FROM bf_multi WHERE v IS NOT NULL) + (SELECT count(*) FROM bf_loose WHERE v IS NOT NULL)`).Scan(&untouched); err != nil || untouched != 0 {
+		t.Errorf("a refused job wrote %d rows (%v)", untouched, err)
+	}
+	var batch int
+	if err := pool.QueryRow(`SELECT batch_size FROM backfills WHERE name = 'ok'`).Scan(&batch); err != nil || batch != backfill.DefaultBatch {
+		t.Errorf("batch_size %d (%v), want %d", batch, err, backfill.DefaultBatch)
+	}
+}

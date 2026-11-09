@@ -282,6 +282,11 @@ var (
 	reDeleteStmt    = regexp.MustCompile(`(?is)^delete\s+from\s+(?:only\s+)?(\S+)`)
 	reInsertSelect  = regexp.MustCompile(`(?is)^insert\s+into\s+(\S+)[^;]*?\bselect\b(.*)$`)
 	reFromJoinTable = regexp.MustCompile(`(?is)\b(?:from|join)\s+(?:only\s+)?([A-Za-z_][A-Za-z0-9_.]*)`)
+	reMergeStmt     = regexp.MustCompile(`(?is)^merge\s+into\s+(?:only\s+)?(\S+)`)
+	reInnerUpdate   = regexp.MustCompile(`(?is)\bupdate\s+(?:only\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s+(?:(?:as\s+)?\w+\s+)?set\b`)
+	reInnerDelete   = regexp.MustCompile(`(?is)\bdelete\s+from\s+(?:only\s+)?([A-Za-z_][A-Za-z0-9_.]*)`)
+	reInnerInsert   = regexp.MustCompile(`(?is)\binsert\s+into\s+[A-Za-z_][A-Za-z0-9_.]*[^;]*?\bselect\b(.*)$`)
+	reCompound      = regexp.MustCompile(`(?is)^(?:with|do)\b`)
 	reDaAckBackfill = regexp.MustCompile(`(?im)^[ \t]*--[ \t]*da-ack:[ \t]*backfill-in-migration[ \t]+\S+`) // same line: a bare ack must not borrow the next line as its reason
 )
 
@@ -311,6 +316,23 @@ func backfillFindings(src string) []string {
 				targets = append(targets, bareTable(m[1]))
 			}
 			what = "INSERT ... SELECT from"
+		case reMergeStmt.MatchString(t):
+			targets, what = []string{bareTable(reMergeStmt.FindStringSubmatch(t)[1])}, "MERGE INTO"
+		case reCompound.MatchString(t):
+			// WITH ... UPDATE/DELETE/INSERT and DO blocks: not parsed, but searched for the data-moving statements inside (conservative: a match in
+			// a string literal or a comment-free body counts).
+			for _, m := range reInnerUpdate.FindAllStringSubmatch(t, -1) {
+				targets = append(targets, bareTable(m[1]))
+			}
+			for _, m := range reInnerDelete.FindAllStringSubmatch(t, -1) {
+				targets = append(targets, bareTable(m[1]))
+			}
+			for _, ins := range reInnerInsert.FindAllStringSubmatch(t, -1) {
+				for _, m := range reFromJoinTable.FindAllStringSubmatch(ins[1], -1) {
+					targets = append(targets, bareTable(m[1]))
+				}
+			}
+			what = "WITH/DO data change on"
 		default:
 			continue
 		}
@@ -613,7 +635,17 @@ func TestBackfillFindings(t *testing.T) {
 		"a small table":                                      {"UPDATE flags SET v = 1;", 0},
 		"acked":                                              {"-- da-ack: backfill-in-migration 40 rows, a lookup\nUPDATE drives SET x = 1;", 0},
 		"the ack needs a reason":                             {"-- da-ack: backfill-in-migration\nUPDATE drives SET x = 1;", 1},
-		"a do block is not parsed":                           {"DO $$ BEGIN UPDATE drives SET x = 1; END $$;", 0},
+		"a do block with an update":                          {"DO $$ BEGIN UPDATE drives SET x = 1; END $$;", 1},
+		"a do block with a delete":                           {"DO $$ BEGIN DELETE FROM charges WHERE y; END $$;", 1},
+		"a do block with insert select":                      {"DO $$ BEGIN INSERT INTO a2 (id) SELECT id FROM drives; END $$;", 1},
+		"a do block on a table made in the file":             {"CREATE TABLE n (id int);\nDO $$ BEGIN UPDATE n SET id = 1; END $$;", 0},
+		"a do block with only schema":                        {"DO $$ BEGIN ALTER TABLE drives ADD COLUMN x int; END $$;", 0},
+		"with ... update":                                    {"WITH s AS (SELECT id FROM drives) UPDATE drives d SET x = 1 FROM s WHERE d.id = s.id;", 1},
+		"with ... delete":                                    {"WITH s AS (SELECT 1) DELETE FROM charges WHERE true;", 1},
+		"with ... insert select":                             {"WITH s AS (SELECT id FROM drives) INSERT INTO a2 (id) SELECT id FROM s;", 1},
+		"with ... select only":                               {"WITH s AS (SELECT id FROM drives) SELECT * FROM s;", 0},
+		"merge into":                                         {"MERGE INTO drives d USING a2 ON d.id = a2.id WHEN MATCHED THEN UPDATE SET x = 1;", 1},
+		"merge into a small table":                           {"MERGE INTO flags f USING a2 ON f.k = a2.k WHEN MATCHED THEN DO NOTHING;", 0},
 		"two findings":                                       {"UPDATE drives SET x = 1;\nDELETE FROM vehicles WHERE y;", 2},
 		"schema-qualified":                                   {"UPDATE public.drives SET x = 1;", 1},
 	} {
