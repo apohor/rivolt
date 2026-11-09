@@ -170,7 +170,15 @@ export const hotelKw = (poi: POI) => (poi.maxPowerKW && poi.maxPowerKW > 0 ? poi
 
 // campPopupHTML is the popup of a Recreation.gov campground pin. Everything from the data is escaped; the only link is the
 // campground's page (built from a numeric id) and the fixed credit.
-export function campPopupHTML(poi: POI, camp: { hookup: HookupId; kw: number; url: string }, overnightable: boolean): string {
+// How far a layer station sits from the route, in the user's distance unit ("3.4 mi off route"); "" where the server gave no distance.
+export function offRouteLine(offKm: number | undefined, unit: DistanceUnit): string {
+  if (offKm === undefined || !Number.isFinite(offKm) || offKm < 0) return "";
+  if (offKm < 0.15) return "On the route";
+  const v = unit === "mi" ? offKm * 0.6213711922 : offKm;
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${unit} off route`;
+}
+
+export function campPopupHTML(poi: POI, camp: { hookup: HookupId; kw: number; url: string }, overnightable: boolean, offRoute = ""): string {
   const name = poi.name || "Campground";
   const muted = "color:#a3a3a3";
   const out: string[] = [
@@ -181,6 +189,7 @@ export function campPopupHTML(poi: POI, camp: { hookup: HookupId; kw: number; ur
   ];
   const sites = sitesLine(poi.electricSites, poi.sites);
   if (sites) out.push(`<div style="${muted}">${escapeHTML(sites)}</div>`);
+  if (offRoute) out.push(`<div style="${muted}">${escapeHTML(offRoute)}</div>`);
   out.push(`<div style="color:#fbbf24;margin-top:3px">${escapeHTML(CAMP_WARNING)}</div>`);
   if (camp.url) {
     out.push(`<a href="${camp.url}" target="_blank" rel="noopener noreferrer" style="display:block;margin-top:4px;color:#34d399">on Recreation.gov</a>`);
@@ -207,6 +216,7 @@ export function chargerPopupHTML(
   previewable: boolean,
   bookingURL: string,
   overnightable: boolean,
+  offRoute = "",
 ): string {
   const name = poi.name || poi.network || "Charging station";
   const out: string[] = [
@@ -230,6 +240,7 @@ export function chargerPopupHTML(
   if (poi.capacity && poi.capacity > 0) {
     out.push(`<div style="color:#a3a3a3">${poi.capacity} port${poi.capacity !== 1 ? "s" : ""}</div>`);
   }
+  if (offRoute) out.push(`<div style="color:#a3a3a3">${escapeHTML(offRoute)}</div>`);
   if (bookingURL) {
     // Hotel-with-L2 row: deep-link to Booking.com's search for
     // this property + the trip's check-in date. Opens in a new
