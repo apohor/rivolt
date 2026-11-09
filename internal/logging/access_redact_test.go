@@ -46,12 +46,15 @@ func TestAccessLogRedactsTheSignupToken(t *testing.T) {
 	}
 }
 
-// Where a signed-in user is looking is not for the access log: map tile addresses are logged as a route.
-func TestAccessLogRedactsRadarTileAddresses(t *testing.T) {
+// Where a signed-in user is looking is not for the access log: radar and terrain tile addresses are logged as a route. (The basemap path is a
+// file name, and the byte range is not logged, so it says nothing about location; the radar frame route carries no address.)
+func TestAccessLogRedactsTileAddresses(t *testing.T) {
 	for in, want := range map[string]string{
-		"/api/maps/radar/7/20/45.png": "/api/maps/radar/:tile",
-		"/api/maps/radar/frame":       "/api/maps/radar/frame",
-		"/api/vehicles":               "/api/vehicles",
+		"/api/maps/radar/7/20/45.png":     "/api/maps/radar/:tile",
+		"/api/maps/radar/frame":           "/api/maps/radar/frame",
+		"/api/maps/dem/7/20/45.png":       "/api/maps/dem/:tile",
+		"/api/maps/tiles/basemap.pmtiles": "/api/maps/tiles/basemap.pmtiles",
+		"/api/vehicles":                   "/api/vehicles",
 	} {
 		if got := loggedPath(in); got != want {
 			t.Errorf("loggedPath(%q) = %q, want %q", in, got, want)
