@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/apohor/rivolt/internal/web"
+	"github.com/apohor/rivolt/internal/webcarry"
 )
 
 // During a roll a browser can ask a pod for a chunk of the other build. A chunk only the carry directory has is served, immutable like any
@@ -21,7 +21,7 @@ func TestSPAServesAChunkFromTheCarryDirAndStill404sTheRest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "assets", "old-BBBBBBBB.js"), []byte("old chunk"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	fsys, _ := web.WithCarry(fstest.MapFS{"index.html": {Data: []byte("shell")}, "assets/new-AAAAAAAA.js": {Data: []byte("new chunk")}}, dir)
+	fsys, _ := webcarry.WithCarry(fstest.MapFS{"index.html": {Data: []byte("shell")}, "assets/new-AAAAAAAA.js": {Data: []byte("new chunk")}}, dir)
 	h := spaHandler(fsys)
 	get := func(path string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()

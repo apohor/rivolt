@@ -1,4 +1,6 @@
-package web
+// Package webcarry layers the hashed web assets of other builds under the embedded bundle. It is separate from internal/web so that packages that
+// only need the overlay (and their tests) do not import the //go:embed package, which needs a built dist directory.
+package webcarry
 
 import (
 	"encoding/json"
