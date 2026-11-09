@@ -157,11 +157,18 @@ type Metrics struct {
 	// WeatherRequestsTotal counts calls to the Open-Meteo forecast and archive APIs (ours or the public one) by endpoint (forecast, archive) and
 	// outcome (ok, error, skipped_old: a self-hosted client declined a time older than its server keeps). No coordinates, no user.
 	WeatherRequestsTotal *prometheus.CounterVec
-	// HandoffGapSeconds is the whole hand-off gap of a vehicle that changed pods by a release: from the previous holder's release of its group to
-	// the first frame on the new pod, by what the vehicle was doing at that frame (driving, charging, idle). The old pod's stop before its release
-	// (up to 5 s) is not in it, and the two clocks are the database's and the pod's, so read it to about a second. Expired takeovers have no
-	// release and are not in it. The deploy-safety gate is its active (driving or charging) p95.
+	// HandoffGapSeconds is the hand-off gap of a vehicle that changed pods by a release, from the group being released to the first frame on the new
+	// pod, by what the vehicle was doing at that frame (driving, charging, idle). It is two same-clock parts added: the wait (release to acquire,
+	// both the database's clock; HandoffWaitSeconds) and the acquire to the first frame (this pod's clock). The old pod's stop before its release is
+	// HandoffStopSeconds; the plan's gate adds the two. A group free for over 10 minutes and expired takeovers are not in it. The gate is its
+	// driving and charging p95.
 	HandoffGapSeconds *prometheus.HistogramVec
+	// HandoffWaitSeconds is the first part of the gap on its own: how long a released group sat free before a peer took it. It is what a
+	// released-group signal (G1a) shrinks.
+	HandoffWaitSeconds prometheus.Histogram
+	// HandoffStopSeconds is the old owner's part: seconds from a pod asking a vehicle's subscription to stop to it being gone, for hand-offs it
+	// starts (a drain, a shed). A stop that did not finish within 5 s is not reported.
+	HandoffStopSeconds prometheus.Histogram
 	// RolloutHandoffsTotal counts vehicles a pod took from another holder, by reason: drain (a peer was shutting down), rebalance (released with
 	// no peer draining: a fair-share shed or a retired candidate), expired (the holder's lease ran out), other (an open session's group re-keyed).
 	RolloutHandoffsTotal *prometheus.CounterVec
@@ -482,6 +489,16 @@ func New() *Metrics {
 			Help:    "Seconds from the previous holder releasing a vehicle's group to the first frame on the new pod, by state at that frame (driving, charging, idle).",
 			Buckets: []float64{2, 4, 6, 8, 10, 12, 15, 20, 30, 45, 60, 120},
 		}, []string{"state"}),
+		HandoffWaitSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "rivolt_handoff_wait_seconds",
+			Help:    "Seconds a released vehicle group sat free before another pod took it (both ends on the database clock).",
+			Buckets: []float64{0.5, 1, 2, 3, 4, 5, 6, 8, 10, 15, 30, 60},
+		}),
+		HandoffStopSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "rivolt_handoff_stop_seconds",
+			Help:    "Seconds from this pod asking a vehicle's subscription to stop (to hand it over) to it being gone.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 3, 4, 5},
+		}),
 		RolloutHandoffsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_rollout_handoffs_total",
 			Help: "Vehicles a pod took from another holder, by reason (drain, rebalance, expired, other).",
@@ -925,6 +942,8 @@ func New() *Metrics {
 		m.VehicleDiscoveryTotal,
 		m.WeatherRequestsTotal,
 		m.HandoffGapSeconds,
+		m.HandoffWaitSeconds,
+		m.HandoffStopSeconds,
 		m.RolloutHandoffsTotal,
 		m.Accounts,
 		m.BillingEnabled,

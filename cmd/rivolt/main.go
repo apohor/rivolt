@@ -2178,10 +2178,16 @@ func runServer() {
 			appMetrics.LeaseAcquireToFrame.WithLabelValues(state).Observe(seconds)
 		})
 		coord.SetHandoffObserver(monitorRegistry.SessionKind,
-			func(reason string) { appMetrics.RolloutHandoffsTotal.WithLabelValues(reason).Inc() },
+			func(reason string, wait time.Duration, hasWait bool) {
+				appMetrics.RolloutHandoffsTotal.WithLabelValues(reason).Inc()
+				if hasWait {
+					appMetrics.HandoffWaitSeconds.Observe(wait.Seconds())
+				}
+			},
 			func(seconds float64, state string) {
 				appMetrics.HandoffGapSeconds.WithLabelValues(state).Observe(seconds)
 			})
+		coord.SetStopObserver(appMetrics.HandoffStopSeconds.Observe)
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and

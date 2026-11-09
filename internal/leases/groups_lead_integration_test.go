@@ -543,17 +543,17 @@ func TestLead_PriorOfAGroupTakenFromARelease(t *testing.T) {
 		t.Fatal("a first acquire is not a hand-off")
 	}
 
-	before := time.Now().Add(-time.Second)
 	if err := a.ReleaseGroup(ctx, group); err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(1200 * time.Millisecond) // the group sits free for a moment: the wait
 	if r := pass(ctx, t, b); len(r.Held) != 1 {
 		t.Fatalf("b held %d", len(r.Held))
 	}
 	b.SetVehicleGroups(vg)
 	p, ok := b.TakePrior("veh-sp-00")
-	if !ok || p.Reason != leases.ReasonRebalance || p.Released.Before(before) || time.Since(p.Released) > time.Minute {
-		t.Fatalf("prior %+v ok=%v, want a rebalance released just now", p, ok)
+	if !ok || p.Reason != leases.ReasonRebalance || !p.HasWait || p.Wait < time.Second || p.Wait > time.Minute {
+		t.Fatalf("prior %+v ok=%v, want a rebalance with a wait of about a second and a half", p, ok)
 	}
 	if _, again := b.TakePrior("veh-sp-00"); again {
 		t.Error("a prior is handed out once")
@@ -568,7 +568,7 @@ func TestLead_PriorOfAGroupTakenFromARelease(t *testing.T) {
 	}
 	a.SetVehicleGroups(vg)
 	p, ok = a.TakePrior("veh-sp-00")
-	if !ok || p.Reason != leases.ReasonExpired || !p.Released.IsZero() {
+	if !ok || p.Reason != leases.ReasonExpired || p.HasWait {
 		t.Fatalf("prior %+v ok=%v, want expired with no release time", p, ok)
 	}
 }

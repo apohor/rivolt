@@ -151,6 +151,11 @@ func TestLeaseCountersExistFromBoot(t *testing.T) {
 			t.Errorf("rivolt_handoff_gap_seconds{state=%q} is not exported at 0 from boot", state)
 		}
 	}
+	for _, name := range []string{"rivolt_handoff_wait_seconds", "rivolt_handoff_stop_seconds"} {
+		if !strings.Contains(body, name+`_count 0`) {
+			t.Errorf("%s is not exported at 0 from boot", name)
+		}
+	}
 	for _, reason := range []string{"drain", "rebalance", "expired", "other"} {
 		if !strings.Contains(body, `rivolt_rollout_handoffs_total{reason="`+reason+`"} 0`) {
 			t.Errorf("rivolt_rollout_handoffs_total{reason=%q} is not exported at 0 from boot", reason)
