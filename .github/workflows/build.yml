@@ -933,6 +933,14 @@ jobs:
           args: --timeout 5m
           skip-save-cache: ${{ github.ref != 'refs/heads/main' }}
 
+      # The demo-video sources (clip scripts, captions, manifest): public copy, so the wording rules run on every change.
+      - name: Demo-video lint
+        env:
+          # Private list of wording held back until launch (like the personal-data denylist, only the secret holds the words).
+          # Unset: the rule is skipped and the lint says so.
+          DEMO_VIDEO_HELD_WORDS: ${{ secrets.DEMO_VIDEO_HELD_WORDS }}
+        run: make demo-video-lint
+
   integration:
     name: integration
     needs: changes

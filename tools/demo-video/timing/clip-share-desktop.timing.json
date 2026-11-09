@@ -1,0 +1,38 @@
+{
+ "name": "clip-share",
+ "kind": "desktop",
+ "note": "seconds in the encoded mp4/gif (load lead trimmed; first caption at 0.15 s). caption_end_sec is when the NEXT action (scroll or click) begins, minus 0.1 s, not the next mark (DA, Oct 31); a short uncaptioned gap between windows is expected.",
+ "durationSec": 22.1,
+ "captionWindows": [
+  {
+   "label": "s1 Share statement in frame (0 s caption)",
+   "caption_start_sec": 0.15,
+   "caption_end_sec": 3.05
+  },
+  {
+   "label": "s2 share sheet open, Include cost off (3 s caption)",
+   "caption_start_sec": 5.15,
+   "caption_end_sec": 10.55
+  },
+  {
+   "label": "s3 hold on card preview and footer (9 s caption, 'device' wording)",
+   "caption_start_sec": 10.65,
+   "caption_end_sec": 15.05
+  },
+  {
+   "label": "s4 highlight Save image then Share (14 s caption)",
+   "caption_start_sec": 15.15,
+   "caption_end_sec": 19.05
+  },
+  {
+   "label": "s5 hold last frame, end card (18 s caption)",
+   "caption_start_sec": 19.65,
+   "caption_end_sec": 22.05
+  }
+ ],
+ "notes": [
+  "Marks are placed AFTER the screen state is reached.",
+  "The navigator.share API is stubbed so the iPhone-style 'Share' button renders; the Share button is highlighted but NEVER clicked, so no 'Shared'/'Sent' state appears and nothing is shared or sent (DA condition)."
+ ],
+ "blockedNonGet": []
+}

@@ -1,0 +1,91 @@
+{
+ "clip-cost": [
+  [
+   "What did charging your Rivian cost this month?"
+  ],
+  [
+   "Rivolt adds up the charges it can price. Estimates are marked, unpriced ones are listed."
+  ],
+  [
+   "Home, away and fast charging, each with its own cost."
+  ],
+  [
+   "Each price shows its source: what Rivian billed, your rate, or a labelled estimate. Unpriced charges are flagged, not guessed."
+  ],
+  [
+   "If you have off-peak hours, it shows what moving charges into them could have saved (estimate)."
+  ],
+  {
+   "end": [
+    "rivolt.dev · free during the beta · open source",
+    "Unofficial, not affiliated with Rivian.",
+    "Sample truck, generated data."
+   ]
+  }
+ ],
+ "clip-share": [
+  [
+   "Want to post what your month looked like?"
+  ],
+  [
+   "The card shows kWh and miles. Cost stays off unless you switch it on."
+  ],
+  [
+   "No places, no VIN, no map. Made on your device; Rivolt posts nothing."
+  ],
+  [
+   "Save it or share it wherever you like."
+  ],
+  {
+   "end": [
+    "rivolt.dev · free during the beta · open source",
+    "Unofficial, not affiliated with Rivian.",
+    "Sample truck, generated data."
+   ]
+  }
+ ],
+ "clip-trip-1day": [
+  [
+   "Planning a Rivian road trip?"
+  ],
+  [
+   "A sample plan: Los Angeles to Las Vegas, with a charging stop on the way."
+  ],
+  [
+   "The itinerary shows the stop, the charge time, and the battery on arrival and departure."
+  ],
+  [
+   "Miles, total time, charging time and an estimated cost for the whole trip."
+  ],
+  {
+   "end": [
+    "rivolt.dev · free during the beta · open source",
+    "Unofficial, not affiliated with Rivian.",
+    "Sample truck, generated data."
+   ],
+   "lead": "Every figure is an estimate."
+  }
+ ],
+ "clip-trip-1day@mobile": [
+  [
+   "Planning a Rivian road trip?"
+  ],
+  [
+   "A sample plan: Los Angeles to Las Vegas, with a charging stop on the way."
+  ],
+  [
+   "The itinerary shows the charging stop, how long it takes and what it costs."
+  ],
+  [
+   "Miles, total time, charging time and an estimated cost for the whole trip."
+  ],
+  {
+   "end": [
+    "rivolt.dev · free during the beta · open source",
+    "Unofficial, not affiliated with Rivian.",
+    "Sample truck, generated data."
+   ],
+   "lead": "Every figure is an estimate."
+  }
+ ]
+}

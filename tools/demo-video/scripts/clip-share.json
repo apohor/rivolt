@@ -1,0 +1,8 @@
+{"name":"clip-share","start":"https://demo.rivolt.dev/demo/money","settle":1,"scheme":"dark","webShare":true,"notes":["Marks are placed AFTER the screen state is reached.","The navigator.share API is stubbed so the iPhone-style 'Share' button renders; the Share button is highlighted but NEVER clicked, so no 'Shared'/'Sent' state appears and nothing is shared or sent (DA condition)."],"steps":[
+ {"do":"waitfor","text":"Share statement","s":0.5},
+ {"do":"mark","label":"s1 Share statement in frame (0 s caption)"},{"do":"wait","s":3},
+ {"do":"click","role":"button","text":"Share statement","s":0.3},{"do":"waitfor","text":"Include cost","s":0.8},
+ {"do":"mark","label":"s2 share sheet open, Include cost off (3 s caption)"},{"do":"wait","s":5.5},
+ {"do":"mark","label":"s3 hold on card preview and footer (9 s caption, 'device' wording)"},{"do":"wait","s":4.5},
+ {"do":"mark","label":"s4 highlight Save image then Share (14 s caption)"},{"do":"highlight","role":"button","text":"Save image","s":2},{"do":"highlight","role":"button","text":"Share","exact":true,"s":2},
+ {"do":"mark","label":"s5 hold last frame, end card (18 s caption)"},{"do":"wait","s":2.5}],"tail":0}
