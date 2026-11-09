@@ -221,6 +221,23 @@ jobs:
             DEVELOPMENT_TEAM= \
             -quiet
 
+      # The QA sign-in hook (QA_SIGNIN, Debug only) must never reach a Release build: the Debug build shows the check can see the hook, and a
+      # Release build (unsigned, simulator) has none of it. The TestFlight archive is checked the same way before upload.
+      - name: The QA sign-in hook is in Debug and not in Release
+        run: |
+          set -euo pipefail
+          ios/check-no-qa-hook.sh "$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/Rivolt.app" --expect-present
+          xcodebuild build \
+            -project ios/Rivolt.xcodeproj \
+            -scheme Rivolt \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$RUNNER_TEMP/dd-release" \
+            CODE_SIGNING_ALLOWED=NO \
+            -quiet
+          ios/check-no-qa-hook.sh "$RUNNER_TEMP/dd-release/Build/Products/Release-iphonesimulator/Rivolt.app"
+
       # Fixed screens (launch argument -rivolt-preview <name>: no network, no
       # Keychain, no iOS prompts) in light and dark, for review: nobody has Xcode
       # locally, so this is how the native UI is looked at.

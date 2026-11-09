@@ -47,6 +47,11 @@ settings:
     # when the drive-detail maps need it.
     INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait"
 
+  configs:
+    # The QA sign-in hook (Rivolt/App/QASignIn.swift) exists in Debug only; Release and the TestFlight archive never get the flag.
+    Debug:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG QA_SIGNIN"
+
 # MapLibre Native (BSD-2-Clause), the maps' renderer: a local package whose binaryTarget pins the release zip by
 # URL and SHA-256 (LocalPackages/MapLibreBinary/Package.swift). The app only; never the extensions.
 packages:

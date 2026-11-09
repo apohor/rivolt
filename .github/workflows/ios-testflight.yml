@@ -124,6 +124,9 @@ jobs:
 
       # A dry run never reaches App Store validation, so check here what
       # rejected ios-v0.1.0: icon name, iPhone-only family, a compiled icon.
+      - name: The archived app has no QA sign-in hook
+        run: ios/check-no-qa-hook.sh "$RUNNER_TEMP/Rivolt.xcarchive/Products/Applications/Rivolt.app"
+
       - name: Check the archived app for App Store basics
         env:
           REQUIRE_SIGNED_ENTITLEMENTS: "1"

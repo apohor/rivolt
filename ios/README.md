@@ -87,3 +87,11 @@ Developer account (N28).
 CI also launches the app with `-rivolt-preview <prompt|notifications|notifications-denied>`
 (fixed screens, no network) and uploads simulator screenshots in light and dark
 as the `ios-screenshots` artifact.
+
+## QA sign-in (simulator, preview server only)
+
+A Debug build (the `QA_SIGNIN` flag, set in the Debug configuration only) signs in without the browser when the launch environment has
+`RIVOLT_QA_SERVER=https://preview.rivolt.dev` and `RIVOLT_QA_TOKEN=<an app session token for a preview account>` (for example
+`SIMCTL_CHILD_RIVOLT_QA_TOKEN=... xcrun simctl launch ...`). Any other server is ignored. The token comes from the app's own sign-in flow on a
+preview account; never log it. A Debug build needs an ad-hoc signature (`CODE_SIGN_IDENTITY=-`, `CODE_SIGNING_ALLOWED=YES`) to write the Keychain.
+CI builds Release and the TestFlight archive and fails if either holds the hook (`ios/check-no-qa-hook.sh`).
