@@ -35,6 +35,8 @@ struct PlannerDefaultsView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { SheetDoneButton() } }
         }
         .task { await load() }
+        // The Radar default row is shown only where the server has radar.
+        .task { await state.radar.probe(source: state.client) }
     }
 
     private func reload() { Task { await load() } }
@@ -77,6 +79,7 @@ struct PlannerDefaultsEditor: View {
             ? PlannerDefaultsForm.driveModes : PlannerDefaultsForm.driveModes + [.init(value: draft.driveMode, title: draft.driveMode.capitalized)]
     }
 
+    @Environment(AppState.self) private var appState
     @Environment(\.dynamicTypeSize) private var typeSize
     private var metric: Bool { NowFormat.usesMetric }
 
@@ -148,7 +151,10 @@ struct PlannerDefaultsEditor: View {
             if draft.map != nil {
                 group(PlannerSettingsCopy.mapGroup) {
                     PlannerToggleRow(label: PlannerSettingsCopy.weatherLabel, note: PlannerSettingsCopy.weatherNote, isOn: mapBinding(\.weatherOn))
-                    // The Radar default row comes with the radar layer (it is shown only where the server has radar); radarOn is kept as it is meanwhile.
+                    // Shown only where the server has radar (then the Radar button is on the map); elsewhere radar_on is sent back as it was read.
+                    if PlannerSettingsCopy.showsRadarRow(appState.radar.availability) {
+                        PlannerToggleRow(label: PlannerSettingsCopy.radarLabel, note: PlannerSettingsCopy.radarNote, isOn: mapBinding(\.radarOn))
+                    }
                 }
             }
             group(PlannerSettingsCopy.costsGroup) {
