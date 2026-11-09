@@ -92,3 +92,68 @@ for (const v of [
     await ctx.close();
   });
 }
+
+// The map can move after a tooltip opens (the pan to a selected stop on a slow machine, the visitor dragging): the nightly Monday run saw the first leg's card
+// at left -24 px. Open each badge's tooltip, then drag the map so its point goes near the left edge, then near the right edge, and the whole card must stay inside
+// the map each time (the popup is re-anchored when the map stops).
+for (const v of [
+  { n: "iphone-320", vp: { width: 320, height: 700 } },
+  { n: "iphone-390", vp: { width: 390, height: 844 } },
+  { n: "desktop", vp: { width: 1280, height: 900 } },
+] as const) {
+  test(`the leg tooltip stays inside the map after the map moves · ${v.n}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await stubApi(page);
+    await page.route("**/api/trips/saved", (r) => r.fulfill(j([{ id: "st-a", name: "Old trip", inputs: INPUTS, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])));
+    await page.route("**/api/trips/plan", (r) => r.fulfill(j(PLAN)));
+    await page.goto("/trips/plan");
+    await page.getByRole("tab", { name: "Saved" }).click();
+    await page.getByRole("button", { name: /Old trip/ }).click();
+    await page.getByRole("tab", { name: "Planner" }).click();
+    await page.getByRole("button", { name: "Plan trip" }).click();
+    await expect(page.locator("[data-leg-badge]")).toHaveCount(2);
+    const popupBox = () =>
+      page.evaluate(() => {
+        const card = document.querySelector("[data-leg-popup]")!.closest(".maplibregl-popup-content") as HTMLElement;
+        const m = (document.querySelector(".maplibregl-map") as HTMLElement).getBoundingClientRect();
+        const c = card.getBoundingClientRect();
+        return { left: c.left - m.left, right: m.right - c.right, cls: card.closest(".maplibregl-popup")!.className };
+      });
+    for (let i = 0; i < 2; i++) {
+      await page.locator("[data-leg-badge]").nth(i).dispatchEvent("click");
+      await expect(page.locator("[data-leg-popup]")).toBeVisible();
+      await page.waitForTimeout(700);
+      for (const toward of ["left", "right"] as const) {
+        // The arrow keys pan the focused map by 100 px a press: walk the badge toward the chosen edge until it is within 70 px of it (at most 6 presses).
+        await page.locator(".maplibregl-canvas").first().focus();
+        for (let k = 0; k < 6; k++) {
+          const m = await page.evaluate((idx) => {
+            const mb = (document.querySelector(".maplibregl-map") as HTMLElement).getBoundingClientRect();
+            const b = document.querySelectorAll("[data-leg-badge]")[idx].getBoundingClientRect();
+            return { w: mb.width, bx: b.left + b.width / 2 - mb.left };
+          }, i);
+          const toEdge = toward === "left" ? m.bx : m.w - m.bx;
+          if (toEdge <= 70 || toEdge - 100 < 12) break; // close enough, or one more press would carry the badge off the map
+          await page.keyboard.press(toward === "left" ? "ArrowRight" : "ArrowLeft"); // ArrowRight moves the view right, so the content (and the badge) go left
+          await page.waitForTimeout(450);
+        }
+        await page.waitForTimeout(500);
+        if (!(await page.locator("[data-leg-popup]").count())) continue;
+        // Only when the popup's own point is on the map (its transform's second translate is that point; the badge slides along the route as the map moves).
+        const onMap = await page.evaluate(() => {
+          const mb = (document.querySelector(".maplibregl-map") as HTMLElement).getBoundingClientRect();
+          const t = (document.querySelector(".maplibregl-popup") as HTMLElement).style.transform;
+          const x = Number.parseFloat(/translate\((-?[\d.]+)px,\s*-?[\d.]+px\)\s*$/.exec(t)?.[1] ?? "NaN");
+          return x > 32 && x < mb.width - 32; // a corner-anchored card reaches up to ~25 px beyond its point
+        });
+        if (!onMap) continue;
+        const box = await popupBox();
+        expect(box.left, JSON.stringify({ i, toward, ...box })).toBeGreaterThanOrEqual(-0.5);
+        expect(box.right, JSON.stringify({ i, toward, ...box })).toBeGreaterThanOrEqual(-0.5);
+      }
+      await page.evaluate(() => (document.querySelector(".maplibregl-popup-close-button") as HTMLElement | null)?.click());
+    }
+    await ctx.close();
+  });
+}
