@@ -136,10 +136,54 @@ enum PlanRouteLogic {
         guard places.count == route.waypoints.count else { return [] }
         var out: [RouteSnap.Drawing.LegTag] = []
         for (i, leg) in weather.legs.enumerated() where i + 1 < places.count {
-            guard let text = LegWeather.mapLabel(LegWeather.facts(leg, celsius: weather.celsius, metric: weather.metric)) else { continue }
-            out.append(.init(coord: legMiddle(line: line, from: places[i], to: places[i + 1]), text: text))
+            let facts = LegWeather.facts(leg, celsius: weather.celsius, metric: weather.metric)
+            guard let text = LegWeather.mapLabel(facts) else { continue }
+            out.append(.init(coord: legMiddle(line: line, from: places[i], to: places[i + 1]), text: text,
+                             title: legTitle(route, leg: i), lines: legLines(leg, facts: facts, weather: weather)))
         }
         return out
+    }
+
+    /// Whether the plan on show (one route, or the days of a trip) has weather to draw: then the Weather button is there.
+    static func hasWeather(plan: TripPlan?, night: TripPlanModel.NightState) -> Bool {
+        if Weather(plan) != nil { return true }
+        if case .planned(let trip) = night { return trip.days.contains { Weather($0.plan) != nil } }
+        return false
+    }
+
+    /// The labels of a trip's days: each day's own legs on its own line (`lines` has one line for each day that has a route).
+    static func legTags(days: [TripMultiday.Day], lines: [[RouteSnap.Coord]]) -> [RouteSnap.Drawing.LegTag] {
+        var out: [RouteSnap.Drawing.LegTag] = []
+        var k = 0
+        for day in days {
+            guard let route = day.plan.best else { continue }
+            defer { k += 1 }
+            guard lines.indices.contains(k) else { continue }
+            out += legTags(route: route, weather: Weather(day.plan), line: lines[k])
+        }
+        return out
+    }
+
+    /// "Seattle to Spokane": the leg's title (the start of a plan from the truck's own place has no name: "Start").
+    static func legTitle(_ route: TripRoute, leg i: Int) -> String {
+        func name(_ n: Int) -> String {
+            let short = route.waypoints.indices.contains(n) ? PlanSheetLogic.shortPlace(route.waypoints[n].name ?? "") : ""
+            return short.isEmpty ? (n == 0 ? "Start" : "the stop") : short
+        }
+        return "\(name(i)) to \(name(i + 1))"
+    }
+
+    /// What the leg's label opens with, in the web's order: the tags, what it feels like, the estimate, the climb and the terrain credit.
+    static func legLines(_ leg: TripWeatherLeg, facts: LegWeather.Facts?, weather: Weather) -> [String] {
+        let climb = LegWeather.climbLine(climbM: leg.climbM, descentM: leg.descentM, metric: weather.metric)
+        let tags = LegWeather.tags(facts).joined(separator: " · ")
+        return [
+            tags.isEmpty ? nil : tags,
+            facts?.feels.map { "Feels like \($0)" },
+            LegWeather.estimateLine(multiplier: leg.multiplier, withSetup: weather.withSetup),
+            climb,
+            climb == nil ? nil : LegWeather.terrainCredit,
+        ].compactMap { $0 }
     }
 
     /// The layer pins (chargers, hotels, campgrounds along the route) as the drawing's own: kind 0 a fast charger, 1 a hotel, 2 a campground, 3 a Medium one.
@@ -148,8 +192,10 @@ enum PlanRouteLogic {
     }
 
     /// The days map as shown: the drawing with the ringed pin, the layer pins and, for one day, the camera framed on that day's line.
-    static func daysShown(_ base: RouteSnap.Drawing, focus: Int?, along: [AlongCharger], lines: [[RouteSnap.Coord]], day: Int?) -> RouteSnap.Drawing {
+    static func daysShown(_ base: RouteSnap.Drawing, focus: Int?, along: [AlongCharger], lines: [[RouteSnap.Coord]], day: Int?,
+                          days: [TripMultiday.Day] = [], weatherOn: Bool = false) -> RouteSnap.Drawing {
         var d = base
+        d.legTags = weatherOn ? legTags(days: days, lines: lines) : []
         d.focus = focus
         d.along = alongStops(along)
         d.fitTo = day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil }
@@ -195,6 +241,8 @@ struct PlanMapCanvas: View {
     /// The radar frame under the route, when the Radar button is on.
     var radar: RadarLayer?
     var onStop: ((Int) -> Void)?
+    /// A tap on a leg's weather label goes to `onLegTag` when it is given.
+    var onLegTag: ((RouteSnap.Drawing.LegTag) -> Void)?
     /// A map to explore: pinch and pan (never rotate or tilt), filling the room it is given (the plan's full-height map), with the camera
     /// fitted above `bottomInset` points that something else (the itinerary sheet) covers.
     var fills = false
@@ -212,7 +260,7 @@ struct PlanMapCanvas: View {
             if health == .failed {
                 MapMessage(text: "Map unavailable.")
             } else if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, radar: radar, bottomInset: bottomInset, onStop: onStop, onLongPress: onLongPress, onCenter: onCenter)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, radar: radar, bottomInset: bottomInset, onStop: onStop, onLegTag: onLegTag.map { cb in { i in if drawing.legTags.indices.contains(i) { cb(drawing.legTags[i]) } } }, onLongPress: onLongPress, onCenter: onCenter)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     // The places drawn along the route (the layer chips' pins), for VoiceOver and for a UI test: nothing is said when there are none.
@@ -236,6 +284,8 @@ struct PlanMapCanvas: View {
 struct PlanRouteMap: View {
     let route: TripRoute
     let onStop: (Int) -> Void
+    /// A tap on a leg's weather label.
+    var onLegTag: ((RouteSnap.Drawing.LegTag) -> Void)?
     /// The stop the person picked in the list, ringed on the map.
     var focus: Int?
     /// Fast chargers along the route, when the person asked to see them.
@@ -276,7 +326,7 @@ struct PlanRouteMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress, onCenter: onCenter)
+        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress, onCenter: onCenter)
             .task(id: route) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 // The straight legs show at once; the roads replace them when they arrive.
@@ -311,6 +361,10 @@ struct PlanDaysMap: View {
     /// Both days' road lines once they are known (what the layers are searched along).
     var onLine: ([RouteSnap.Coord], Bool) -> Void = { _, _ in }
     var radar: RadarLayer?
+    /// The weather on each day's legs, drawn as labels while the Weather toggle is on.
+    var weatherOn = false
+    /// A tap on a leg's label.
+    var onLegTag: ((RouteSnap.Drawing.LegTag) -> Void)?
     var fills = false
     var bottomInset: CGFloat = 0
     /// Frame only this day (1-based), or the whole trip when nil.
@@ -326,8 +380,8 @@ struct PlanDaysMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing.map { PlanRouteLogic.daysShown($0, focus: focus, along: along, lines: lines, day: day) }, radar: radar,
-                      onStop: onStop, fills: fills, bottomInset: bottomInset)
+        PlanMapCanvas(drawing: drawing.map { PlanRouteLogic.daysShown($0, focus: focus, along: along, lines: lines, day: day, days: days, weatherOn: weatherOn) }, radar: radar,
+                      onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset)
             // The layers follow the line on show: the whole trip, or the day the person picked.
             .onChange(of: day) { reportLine() }
             .task(id: days) {

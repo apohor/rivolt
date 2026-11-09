@@ -295,3 +295,50 @@ extension TripPlanMapTests {
 private extension TripWaypoint {
     static var bare: TripWaypoint { try! JSON.decoder().decode(TripWaypoint.self, from: Data("{}".utf8)) }
 }
+
+extension TripPlanMapTests {
+    private func weatherDays(day2: Bool = true) throws -> [TripMultiday.Day] {
+        var days = try Fixture.decode(TripMultiday.self, "trip_plan_multiday").days
+        let json = #"{"profile_multiplier":1,"legs":[{"multiplier":1.14,"temp_c":3,"air_temp_c":5,"headwind_kph":40,"precip_mm":2,"climb_m":579,"descent_m":100},{"multiplier":1.0,"temp_c":10}]}"#
+        let adj = try JSON.decoder().decode(TripWeatherAdjustment.self, from: Data(json.utf8))
+        days[0].plan.weatherAdjustment = adj
+        if day2 { days[1].plan.weatherAdjustment = adj }
+        return days
+    }
+
+    func testTheTwoDayMapLabelsEachDaysLegsOnThatDaysLineAndOnlyWhileWeatherIsOn() throws {
+        let days = try weatherDays()
+        let lines = [[RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)],
+                     [RouteSnap.Coord(lat: 45.9, lon: -121.0), RouteSnap.Coord(lat: 46.4, lon: -119.5)]]
+        let base = try XCTUnwrap(PlanRouteLogic.drawing(days: days, lines: lines))
+        let on = PlanRouteLogic.daysShown(base, focus: nil, along: [], lines: lines, day: nil, days: days, weatherOn: true)
+        XCTAssertEqual(on.legTags.count, 4, "two legs on each of two days")
+        XCTAssertEqual(on.legTags.map(\.title), ["Example Origin to Example Fast Charge", "Example Fast Charge to Example Destination",
+                                                 "Example Origin to Example Fast Charge", "Example Fast Charge to Example Destination"])
+        let off = PlanRouteLogic.daysShown(base, focus: nil, along: [], lines: lines, day: nil, days: days, weatherOn: false)
+        XCTAssertTrue(off.legTags.isEmpty, "the Weather button off: no labels")
+        XCTAssertTrue(PlanRouteLogic.hasWeather(plan: nil, night: .planned(try Fixture.decode(TripMultiday.self, "trip_plan_multiday").with(days: days))))
+    }
+
+    func testALegsDetailIsTheWebsLinesInItsOrder() throws {
+        let days = try weatherDays(day2: false)
+        let route = try XCTUnwrap(days[0].plan.best)
+        let w = try XCTUnwrap(PlanRouteLogic.Weather(days[0].plan, celsius: false, metric: false))
+        let tag = try XCTUnwrap(PlanRouteLogic.legTags(route: route, weather: w, line: []).first)
+        XCTAssertEqual(tag.lines, ["41 °F · 25 mph headwind · rain", "Feels like 37 °F", "Weather: +14% (estimate)",
+                                   "Climb +1,900 ft · descent −328 ft", LegWeather.terrainCredit])
+        let plain = try XCTUnwrap(PlanRouteLogic.legTags(route: route, weather: w, line: []).last)
+        XCTAssertEqual(plain.lines, ["50 °F"], "no feels-like, no estimate under 1 %, no climb: no credit")
+    }
+
+    func testADayWithoutWeatherHasNoLabelsAndTheOthersKeepTheirs() throws {
+        let days = try weatherDays(day2: false)
+        let lines = days.map { _ in [RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)] }
+        XCTAssertEqual(PlanRouteLogic.legTags(days: days, lines: lines).count, 2)
+        XCTAssertTrue(PlanRouteLogic.legTags(days: days, lines: []).isEmpty, "no line yet: nowhere to put them")
+    }
+}
+
+private extension TripMultiday {
+    func with(days: [Day]) -> TripMultiday { var t = self; t.days = days; return t }
+}

@@ -284,6 +284,9 @@ enum RouteSnap {
         struct LegTag: Equatable {
             var coord: Coord
             var text: String
+            /// What a tap on the label opens (the web's leg tooltip): "Seattle to Spokane" and its lines.
+            var title = ""
+            var lines: [String] = []
         }
 
         /// The line again as unbroken runs with a speed at each vertex, for the gradient (empty where there are no speeds, or on a plan).
