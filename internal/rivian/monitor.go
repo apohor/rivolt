@@ -322,6 +322,8 @@ type StateMonitor struct {
 	// onRollout counts what a takeover did to open sessions (SetRolloutObserver); prevEnd replaces the store read of the previous row (tests).
 	onRollout func(event, kind, source string)
 	prevEnd   func(ctx context.Context, vehicleID, kind, exclude string) (time.Time, bool)
+	// acquiredAt is when this pod last started streaming each vehicle (an acquire). Guarded by mu.
+	acquiredAt map[string]time.Time
 	// vehicleInfoHook receives the vehicles RefreshVehicleInfo fetched (trim,
 	// image, pack guess) so they can be persisted, with the context the write
 	// uses (the group's fence token when this pod holds it). Set before
@@ -1360,6 +1362,7 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 	}
 	ctx, cancel := context.WithCancel(m.parent)
 	m.active[vehicleID] = cancel
+	m.noteAcquiredLocked(vehicleID)
 	if m.activeCtx != nil {
 		m.activeCtx[vehicleID] = ctx
 	}

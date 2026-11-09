@@ -536,7 +536,7 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// still run on the next lifecycle pass and will drop
 		// rehydrated state that's clearly out of date.
 		sess = m.maybeRehydrate(vehicleID, curr)
-		m.beginTakeover(sess)
+		m.beginTakeover(vehicleID, sess)
 		m.sessions[vehicleID] = sess
 	}
 

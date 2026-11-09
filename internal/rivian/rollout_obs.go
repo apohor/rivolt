@@ -12,14 +12,17 @@ import (
 //
 //	rehydrate: an open drive or charge was found at takeover, source snapshot or db;
 //	rehydrate fresh + split: the vehicle was mid-session at takeover, nothing was found, and the previous row of that kind ended less than
-//	                         splitGap before the new one began (so it is the same trip or charge).
+//	                         splitGap before the new one began and no more than acquireSlack before the acquire (so it is the same trip or charge).
 //
-// A drive or charge that genuinely starts right after a takeover, with no previous row nearby, counts as nothing.
+// A drive or charge that genuinely starts right after a takeover, with no previous row nearby or one that ended well before the hand-off, counts as nothing.
 const (
-	// takeoverWindow is how long after a pod first sees a vehicle its first session opening still counts as a takeover.
+	// takeoverWindow is how long after this pod acquired the vehicle's group a fresh session opening still counts as a takeover.
 	takeoverWindow = 3 * time.Minute
-	// splitGap is how close a previous row's end must be for a fresh session to count as a split of it.
+	// splitGap is how close a previous row's end must be to the new session's start for it to count as a split of it.
 	splitGap = 5 * time.Minute
+	// acquireSlack: the previous row must also have ended no earlier than this before the acquire. A stop that ended well before the
+	// hand-off (a coffee stop, then the roll) is a new drive, not a lost one.
+	acquireSlack = 2 * time.Minute
 )
 
 // Rollout events and sources, the label values of the counters.
@@ -35,8 +38,8 @@ const (
 
 // takeoverTrack is what is left to decide about one ownership of a vehicle: it lives on the ownership's liveSessions.
 type takeoverTrack struct {
-	at                       time.Time
-	driveSrc, chargeSrc      string // set at rehydrate when the snapshot held the session
+	at                       time.Time // when this pod acquired the vehicle (EnsureSubscribed), else its first frame
+	driveSrc, chargeSrc      string    // set at rehydrate when the snapshot held the session
 	driveDecided, chargeDone bool
 }
 
@@ -50,12 +53,32 @@ func (m *StateMonitor) noteRollout(event, kind, source string) {
 	}
 }
 
+// acquiredAtOr is when this pod last began streaming the vehicle (EnsureSubscribed starts a subscription only on an acquire, so a vehicle
+// that returns to this pod later in the same roll gets a new time), or now when it was never subscribed here (a frame pushed in a test).
+func (m *StateMonitor) acquiredAtOr(vehicleID string) time.Time {
+	m.mu.RLock()
+	at, ok := m.acquiredAt[vehicleID]
+	m.mu.RUnlock()
+	if ok {
+		return at
+	}
+	return m.clock()
+}
+
+// noteAcquired records the start of an ownership. Caller holds m.mu.
+func (m *StateMonitor) noteAcquiredLocked(vehicleID string) {
+	if m.acquiredAt == nil {
+		m.acquiredAt = make(map[string]time.Time)
+	}
+	m.acquiredAt[vehicleID] = m.clock()
+}
+
 // beginTakeover starts tracking an ownership: called on the liveSessions that maybeRehydrate just returned, with a shared store wired.
-func (m *StateMonitor) beginTakeover(sess *liveSessions) {
+func (m *StateMonitor) beginTakeover(vehicleID string, sess *liveSessions) {
 	if sess == nil || m.liveStateStore == nil {
 		return
 	}
-	t := &takeoverTrack{at: m.clock()}
+	t := &takeoverTrack{at: m.acquiredAtOr(vehicleID)}
 	if sess.drive != nil {
 		t.driveSrc = SourceSnapshot
 	}
@@ -82,7 +105,7 @@ func (m *StateMonitor) noteTakeover(vehicleID string, sess *liveSessions, driveB
 		case t.driveSrc != "":
 			m.noteRollout(RolloutRehydrate, KindDrive, t.driveSrc)
 		case sess.drive != driveBefore:
-			go m.classifyFresh(vehicleID, KindDrive, sess.drive.id, sess.drive.startedAt)
+			go m.classifyFresh(vehicleID, KindDrive, sess.drive.id, sess.drive.startedAt, t.at)
 		}
 	}
 	if !t.chargeDone && sess.charge != nil {
@@ -93,18 +116,18 @@ func (m *StateMonitor) noteTakeover(vehicleID string, sess *liveSessions, driveB
 		case sess.charge != chargeBefore && sess.charge.resumes > 0:
 			m.noteRollout(RolloutRehydrate, KindCharge, SourceDB)
 		case sess.charge != chargeBefore:
-			go m.classifyFresh(vehicleID, KindCharge, sess.charge.id, sess.charge.startedAt)
+			go m.classifyFresh(vehicleID, KindCharge, sess.charge.id, sess.charge.startedAt, t.at)
 		}
 	}
 }
 
 // classifyFresh counts a session opened at takeover with nothing to resume: a split when the previous row of that kind ended within splitGap
 // of its start, else nothing (a genuinely new drive or charge). It reads the store, so it runs off the frame path.
-func (m *StateMonitor) classifyFresh(vehicleID, kind, id string, startedAt time.Time) {
+func (m *StateMonitor) classifyFresh(vehicleID, kind, id string, startedAt, acquired time.Time) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	end, ok := m.previousSessionEnd(ctx, vehicleID, kind, id)
-	if !ok || startedAt.Sub(end) > splitGap || end.Sub(startedAt) > splitGap {
+	if !ok || startedAt.Sub(end) > splitGap || end.Sub(startedAt) > splitGap || end.Before(acquired.Add(-acquireSlack)) {
 		return
 	}
 	m.noteRollout(RolloutRehydrate, kind, SourceFresh)

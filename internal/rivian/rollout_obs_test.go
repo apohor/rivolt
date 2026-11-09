@@ -42,8 +42,11 @@ const rolloutVID = "veh-roll"
 
 var rolloutAt = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 
+// rolloutMonitor is a pod's monitor on a clock pinned to the frames' time: the pod acquired the vehicle at minute 5 of the test timeline.
 func rolloutMonitor(store LiveStateStore, ev *rolloutEvents, prevEnd func() (time.Time, bool)) *StateMonitor {
 	m := NewStateMonitor(nil, nil)
+	m.now = func() time.Time { return rolloutAt.Add(5 * time.Minute) }
+	m.noteAcquiredLocked(rolloutVID)
 	m.SetLiveStateStore(store)
 	m.vehicleInfo[rolloutVID] = &Vehicle{ID: rolloutVID, Model: "R1T"}
 	m.SetRolloutObserver(ev.observe)
@@ -147,5 +150,43 @@ func TestRolloutCountsOncePerOwnership(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if got := ev.list(); len(got) != 1 {
 		t.Fatalf("events %v, want exactly one", got)
+	}
+}
+
+// A vehicle that comes back to a pod that held it earlier in the same roll (A to B to A) is a new ownership with a new acquire time, and a
+// drive lost on the way back is a split too.
+func TestRolloutVehicleReturnsToTheSamePod(t *testing.T) {
+	ctx := context.Background()
+	ev := &rolloutEvents{}
+	now := rolloutAt
+	m := rolloutMonitor(newMemLiveStateStore(), ev, func() (time.Time, bool) { return rolloutAt.Add(14 * time.Minute), true })
+	m.now = func() time.Time { return now }
+	m.mu.Lock()
+	m.acquiredAt[rolloutVID] = rolloutAt // first stay on this pod
+	m.mu.Unlock()
+	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(1))
+	m.forgetVehicle(rolloutVID) // it moved to the peer
+	m.SetLiveStateStore(newMemLiveStateStore()) // and the snapshot is gone when it comes back
+	// Back at minute 15: a new acquire, no snapshot (Redis lost it), the previous drive ended at minute 14.
+	now = rolloutAt.Add(15 * time.Minute)
+	m.mu.Lock()
+	m.noteAcquiredLocked(rolloutVID)
+	m.mu.Unlock()
+	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(16))
+	if got := ev.waitFor(t, 2); len(got) != 2 || got[1] != "split/drive/" {
+		t.Fatalf("events %v, want a fresh rehydrate and a split on the second ownership", got)
+	}
+}
+
+// A real new drive that starts after a stop that ended well before the hand-off is not a split, even inside the 5 minute gap.
+func TestRolloutStopEndedLongBeforeTheAcquireIsANewDrive(t *testing.T) {
+	ctx := context.Background()
+	ev := &rolloutEvents{}
+	// Acquire at minute 5; the previous drive ended at minute 1 (4 minutes before the acquire); the new one starts at minute 6.
+	m := rolloutMonitor(newMemLiveStateStore(), ev, func() (time.Time, bool) { return rolloutAt.Add(1 * time.Minute), true })
+	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(6))
+	time.Sleep(100 * time.Millisecond)
+	if got := ev.list(); len(got) != 0 {
+		t.Fatalf("events %v, want none: the stop ended before the hand-off", got)
 	}
 }
