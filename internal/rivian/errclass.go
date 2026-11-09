@@ -326,7 +326,9 @@ func ClassifyGraphQL(extCode, message string) (ErrorClass, string) {
 		return ClassUserAction, "credentials rejected"
 	case "MFA_REQUIRED", "OTP_REQUIRED":
 		return ClassUserAction, "MFA required"
-	case "RATE_LIMITED", "THROTTLED", "TOO_MANY_REQUESTS":
+	// RATE_LIMIT is the code the Rivian app itself knows (APK study, Nov 9); the others were seen elsewhere. The gateway signals throttling by
+	// this code or a WebSocket close 1013, not by HTTP 429.
+	case "RATE_LIMIT", "RATE_LIMITED", "THROTTLED", "TOO_MANY_REQUESTS":
 		return ClassRateLimited, "rate limited"
 	case "INTERNAL_SERVER_ERROR":
 		return ClassOutage, "upstream internal error"

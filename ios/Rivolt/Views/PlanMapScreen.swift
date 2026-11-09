@@ -77,6 +77,7 @@ struct PlanMapScreen: View {
     private var overlays: some View {
         VStack(alignment: .leading, spacing: 8) {
             PlanLayerChips(model: model)
+            WeatherToggle(model: model)
             if model.updating {
                 HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Updating route…").themeText(.subline, color: Theme.textPrimary) }
                     .padding(.horizontal, 12).frame(minHeight: 36)
@@ -102,7 +103,8 @@ struct PlanMapScreen: View {
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
                          onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
                          onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) },
-                         vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine)
+                         vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine,
+                         weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil)
         }
     }
 
@@ -287,21 +289,20 @@ struct PlanLayerChips: View {
     /// At accessibility text sizes the chips would fill the map: one "Layers" button instead, and a menu of the same switches, each with a check when on.
     private var layersMenu: some View {
         Menu {
+            // Toggles, so VoiceOver says on or off for each, and the menu shows the checks itself.
             ForEach(MapLayer.allCases, id: \.self) { layer in
-                Button { Task { await model.setLayer(layer, on: !model.layers.contains(layer), source: state.client) } } label: {
-                    if model.layers.contains(layer) { Label(layer.title, systemImage: "checkmark") } else { Text(layer.title) }
-                }
+                Toggle(layer.title, isOn: Binding(
+                    get: { model.layers.contains(layer) },
+                    set: { on in Task { await model.setLayer(layer, on: on, source: state.client) } }))
             }
             if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
-                Button { model.setPreferredOnly(!model.preferredOnly) } label: {
-                    if model.preferredOnly { Label("Preferred only", systemImage: "checkmark") } else { Text("Preferred only") }
-                }
+                Toggle("Preferred only", isOn: Binding(get: { model.preferredOnly }, set: { model.setPreferredOnly($0) }))
             }
         } label: {
+            // Not capped: this is the control for people who asked for larger text, and "Layers · 4" fits one line even at the largest size.
             Text(layersSummary).themeText(.subline, color: Color.white).lineLimit(1)
                 .padding(.horizontal, 14).frame(minHeight: 44)
                 .background(Theme.accentButton, in: Capsule())
-                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         }
         .disabled(model.layerState == .loading)
         .accessibilityLabel("Map layers")
@@ -467,5 +468,28 @@ struct PlanDayChips: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+
+/// The Weather button over the map (the web's, under the zoom buttons): the weather on each leg as labels on the route. Shown only for a plan that has
+/// weather. The itinerary's weather lines do not depend on it.
+struct WeatherToggle: View {
+    let model: TripPlanModel
+
+    var body: some View {
+        if PlanRouteLogic.Weather(model.plan) != nil {
+            Button { model.weatherOn.toggle() } label: {
+                Image(systemName: "cloud.sun").imageScale(.large)
+                    .foregroundStyle(model.weatherOn ? Color.white : Theme.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .background(model.weatherOn ? Theme.accentButton : Theme.card.opacity(0.92), in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Weather")
+            .accessibilityValue(model.weatherOn ? "on" : "off")
+            .accessibilityHint("Shows the weather on each leg of the route")
+        }
     }
 }

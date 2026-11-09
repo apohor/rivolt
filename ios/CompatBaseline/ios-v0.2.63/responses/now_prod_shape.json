@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "at": "2026-10-23T14:07:45.589003Z",
+  "location_fix_at": "2026-10-23T14:07:45.589003Z",
+  "connection": "replay",
+  "state": "asleep",
+  "asleep": true,
+  "state_since": "2026-10-23T11:07:45.589003Z",
+  "soc_at_state_start": 71.3,
+  "tire_pressure_min_bar": 2.9000000953674316,
+  "failed_sleeps_6h": 0,
+  "vehicle_state_frame_at": "2026-10-23T14:07:45.739525973Z",
+  "charge": null
+}

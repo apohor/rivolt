@@ -1,0 +1,22 @@
+{
+  "depart_at" : "2027-01-12T15:00:00Z",
+  "drive_mode" : "EVERYDAY",
+  "has_adapter" : true,
+  "origin_bearing" : 90,
+  "pack_kwh" : 135,
+  "starting_soc" : 88,
+  "target_arrival_soc_percent" : 10,
+  "vehicle_id" : "veh-example",
+  "waypoints" : [
+    {
+      "latitude" : 47.6205,
+      "longitude" : -122.3493,
+      "waypoint_type" : "origin"
+    },
+    {
+      "latitude" : 47.6588,
+      "longitude" : -117.426,
+      "waypoint_type" : "destination"
+    }
+  ]
+}

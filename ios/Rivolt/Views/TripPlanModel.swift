@@ -281,6 +281,8 @@ final class TripPlanModel {
     // MARK: Map layers (corridor layers)
 
     /// The layer chips that are on. Each toggles on its own; Fast is on to begin with, and with every one off there are no pins and no request.
+    /// The Weather toggle on the map: on to begin with (the planner settings will set its default). The tags in the itinerary stay whatever it says.
+    var weatherOn = true
     private(set) var layers: Set<MapLayer> = [.chargers]
     /// Show only the fast chargers of the networks the person prefers (hotels and campgrounds are unaffected).
     private(set) var preferredOnly = false

@@ -7,13 +7,17 @@ const code = readFileSync("public/asset-guard.js", "utf8");
 
 type Handler = (e: unknown) => void;
 
-function page(storage: Map<string, string> | null, now: { t: number }) {
+function page(storage: Map<string, string> | null, now: { t: number }, dispatch?: (type: string) => void) {
   const handlers: Record<string, Handler[]> = {};
   const timers: (() => void)[] = [];
   let reloads = 0;
   const win = {
     addEventListener: (type: string, h: Handler) => {
       (handlers[type] ||= []).push(h);
+    },
+    dispatchEvent: (e: Event) => {
+      dispatch?.(e.type);
+      return true;
     },
   };
   const sessionStorage = {
@@ -101,5 +105,23 @@ describe("asset-guard.js", () => {
     p.error(script("https://rivolt.dev/assets/index-NEW.js"));
     p.flush();
     expect(p.reloads()).toBe(0);
+  });
+
+  // The page gets to save its work (the trip planner's form) just before the reload, in the same turn.
+  it("fires rivolt:before-reload right before it reloads, and reloads even if that throws", () => {
+    const seen: string[] = [];
+    const p = page(new Map(), { t: 0 }, (type) => seen.push(type));
+    p.error(script("https://rivolt.dev/assets/index-NEW.js"));
+    expect(seen).toEqual([]);
+    p.flush();
+    expect(seen).toEqual(["rivolt:before-reload"]);
+    expect(p.reloads()).toBe(1);
+
+    const boom = page(new Map(), { t: 0 }, () => {
+      throw new Error("listener");
+    });
+    boom.preloadError();
+    boom.flush();
+    expect(boom.reloads()).toBe(1);
   });
 });

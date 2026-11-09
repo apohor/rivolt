@@ -21,13 +21,15 @@ struct TripPlan: Decodable, Equatable {
     var soCBelowLimit: Bool?
     var routes: [TripRoute] = []
     var costs: [TripCost]? = nil
+    /// The server's weather correction (leg i runs from waypoint i to i+1 of the first route); nil when weather is off or no leg had a forecast.
+    var weatherAdjustment: TripWeatherAdjustment? = nil
     /// The destination's IANA zone ("America/Denver"); absent when the coordinates name none, and on plans from before it existed.
     var destinationTz: String?
     /// The answer exactly as it came, for saving it back as the web does.
     var raw: JSONValue?
 
     enum CodingKeys: String, CodingKey {
-        case destinationTz, status = "Status", chargeStationsAvailable = "ChargeStationsAvailable", soCBelowLimit = "SoCBelowLimit", routes = "Routes", costs
+        case destinationTz, weatherAdjustment, status = "Status", chargeStationsAvailable = "ChargeStationsAvailable", soCBelowLimit = "SoCBelowLimit", routes = "Routes", costs
     }
 
     init(from decoder: Decoder) throws {
@@ -38,6 +40,7 @@ struct TripPlan: Decodable, Equatable {
         routes = (try? c.decode([TripRoute].self, forKey: .routes)) ?? []
         costs = try? c.decode([TripCost].self, forKey: .costs)
         destinationTz = try? c.decode(String.self, forKey: .destinationTz)
+        weatherAdjustment = try? c.decode(TripWeatherAdjustment.self, forKey: .weatherAdjustment)
         raw = try? JSONValue(from: decoder)
     }
 
@@ -668,4 +671,30 @@ struct WhatIfResponse: Decodable, Equatable {
     var destination: At?
     var nextCharge: NextCharge?
     var warnings: [String]?
+}
+
+
+/// `weather_adjustment` on a plan: the per-leg weather and the energy multiplier the server applied to each leg (weather, times the driver profile when the
+/// plan used one). Every leg field is optional: a leg with no forecast has only its multiplier.
+struct TripWeatherAdjustment: Decodable, Equatable {
+    var legs: [TripWeatherLeg]
+    /// The trip-wide driver-profile multiplier; 1 or absent means the profile had no effect.
+    var profileMultiplier: Double?
+
+}
+
+struct TripWeatherLeg: Decodable, Equatable {
+    var multiplier: Double
+    /// "Feels like" when the forecast has one, else the air temperature.
+    var tempC: Double?
+    /// The plain air temperature (what the truck shows).
+    var airTempC: Double?
+    /// Positive: against the way you drive; negative: with it.
+    var headwindKph: Double?
+    var precipMm: Double?
+    /// True only when the forecast says snow.
+    var snow: Bool?
+    var climbM: Double?
+    var descentM: Double?
+
 }
