@@ -33,8 +33,10 @@ type Config struct {
 	// Redis and Prefix: the fleet budget. Nil Redis: local only.
 	Redis  *redis.Client
 	Prefix string
-	// Now is the clock (tests).
-	Now func() time.Time
+	// Now is the clock and Sleep the wait for the next second of the fleet budget (tests drive both, so nothing depends on how loaded the
+	// machine is). Sleep returns when d has passed or ctx is done.
+	Now   func() time.Time
+	Sleep func(ctx context.Context, d time.Duration)
 }
 
 const (
@@ -84,6 +86,9 @@ func New(cfg Config) *Bucket {
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.Sleep == nil {
+		cfg.Sleep = realSleep
 	}
 	idleRPS := cfg.LocalRPS / idleShareDivisor
 	if idleRPS < 1 {
@@ -191,13 +196,20 @@ func (b *Bucket) fleetSlot(wctx context.Context, active bool) (ok, local bool) {
 		if next < 0 {
 			next = 0
 		}
-		t := time.NewTimer(next)
-		select {
-		case <-wctx.Done():
-			t.Stop()
+		b.cfg.Sleep(wctx, next)
+		if wctx.Err() != nil {
 			return false, false
-		case <-t.C:
 		}
+	}
+}
+
+// realSleep waits d or until ctx is done.
+func realSleep(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
 	}
 }
 
