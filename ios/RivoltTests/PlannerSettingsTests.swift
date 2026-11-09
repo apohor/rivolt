@@ -24,8 +24,10 @@ final class PlannerSettingsTests: XCTestCase {
     }
 
     func testAnOlderServerHasNoMapSettingsAndTheGroupsAreNotShown() throws {
-        let p = try Fixture.decode(PlannerPrefs.self, "settings_planner")
+        // An older server sends just the two it knows (the checked-in fixture is the newer server's answer, with every field).
+        let p = try JSON.decoder().decode(PlannerPrefs.self, from: Data(#"{"drive_mode":"EVERYDAY","has_adapter":true}"#.utf8))
         XCTAssertNil(PlannerMapSettings(p))
+        XCTAssertNotNil(PlannerMapSettings(try Fixture.decode(PlannerPrefs.self, "settings_planner")), "the server's own fixture has the map settings")
         let d = PlannerDefaultsForm.draft(saved(map: nil))
         XCTAssertNil(d.map)
         var changed = d
@@ -54,6 +56,12 @@ final class PlannerSettingsTests: XCTestCase {
         let enc = JSONEncoder(); enc.keyEncodingStrategy = .convertToSnakeCase; enc.outputFormatting = [.sortedKeys]
         XCTAssertEqual(String(data: try enc.encode(p), encoding: .utf8),
                        #"{"corridor":"normal","drive_mode":"EVERYDAY","has_adapter":true,"layers_on":["dcfc","hotels"],"min_fast_kw":0,"preferred_only":false,"radar_on":false,"start_exclude_mi":25,"weather_on":true}"#)
+    }
+
+    func testTheRadarDefaultRowIsThereOnlyWhereTheServerHasRadar() {
+        XCTAssertTrue(PlannerSettingsCopy.showsRadarRow(.available))
+        XCTAssertFalse(PlannerSettingsCopy.showsRadarRow(.unavailable), "no radar on this server: no row")
+        XCTAssertFalse(PlannerSettingsCopy.showsRadarRow(.unknown), "not known yet: no row to flash and go")
     }
 
     func testAllLayersOffIsASetting() throws {

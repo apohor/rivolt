@@ -164,6 +164,9 @@ enum PlannerSettingsCopy {
 
     static let weatherLabel = "Weather on the route"
     static let weatherNote = "The temperature and wind on each leg, on by default."
+    /// The Radar default row: only where the server has radar (the map's Radar button exists only there).
+    static func showsRadarRow(_ availability: RadarModel.Availability) -> Bool { availability == .available }
+
     static let radarLabel = "Radar"
     static let radarNote = "Live NOAA radar under the route. Shown only where this server has radar."
 }
