@@ -215,6 +215,9 @@ export function MultidayResult({
                       originLabel={dayOrigin}
                       destLabel={dayDest}
                       dayLabel={`Day ${d.index}`}
+                      // Only the first day, from home, "leaves charged": a day that starts at an overnight, or at the truck's position, shows the
+                      // chargers near its start.
+                      startsAtOrigin={i === 0 && !(replan?.mid && d.index === replan.fromDay)}
                       departureAt={d.depart_at || departureAt}
                       cost={d.costs?.[0]}
                       primaryCost={d.costs?.[0]}

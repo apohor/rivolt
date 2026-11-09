@@ -336,6 +336,11 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         distance_mi: 10, max_speed_mph: 62, avg_speed_mph: 40, energy_used_kwh: 2.7, mi_per_kwh: 3.7, pack_kwh: 135,
       });
     }
+    if (p === "/api/settings/planner") {
+      return route.request().method() === "PUT"
+        ? json(route, JSON.parse(route.request().postData() ?? "{}"))
+        : json(route, { drive_mode: "EVERYDAY", corridor: "normal", start_exclude_mi: 0, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: false });
+    }
     if (p === "/api/settings/home-location") return json(route, { set: true, ...HOME, label: "Home" });
     if (p === "/api/settings/charging/") {
       return json(route, { home_price_per_kwh: 0.11, home_currency: "USD", gas_price_per_gallon: 4, comparison_mpg: 20 });
