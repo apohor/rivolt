@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/apohor/rivolt/internal/adminonly"
@@ -32,6 +33,13 @@ func handleHealthz() http.HandlerFunc {
 	}
 }
 
+// draining is set when this pod starts to shut down (the chart's preStop hook, or SIGTERM): /readyz fails from then on, so the pod is out
+// of the Service's endpoints whether or not the kubelet has already marked it Terminating.
+var draining atomic.Bool
+
+// StartDrain makes /readyz answer 503 from now on. Idempotent.
+func StartDrain() { draining.Store(true) }
+
 // handleReadyz is the kubelet readiness endpoint. Pings Postgres
 // with a 500ms timeout — every request touches it, so a pod with no
 // DB cannot meaningfully serve. Failing here pulls the pod from the
@@ -44,6 +52,12 @@ func handleHealthz() http.HandlerFunc {
 // dependencies.
 func handleReadyz(pool *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if draining.Load() {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("draining\n"))
+			return
+		}
 		if pool == nil {
 			// No DB wired (single-tenant docker-compose UX). Treat
 			// as ready — the binary works without persistence.

@@ -2210,6 +2210,7 @@ func runServer() {
 		go watchDrain(drainSigs, func() {
 			dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer dcancel()
+			api.StartDrain() // /readyz fails from the start of the drain
 			coord.MarkDraining(dctx)
 			fwdRT.setDraining() // requesters stop forwarding here; what is already queued still gets answered
 			logger.Info("draining: no new leases will be taken")
@@ -3300,12 +3301,15 @@ func runServer() {
 	signal.Notify(second, syscall.SIGINT, syscall.SIGTERM)
 	go exitOnSecondSignal(second, os.Exit, logger)
 
+	api.StartDrain() // /readyz fails from here (the preStop hook did it already when it ran)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpDrainTimeout)
 	defer cancel()
-	// Release leases BEFORE the HTTP server shuts down so peers
-	// can pick the vehicles up while we're still draining
-	// in-flight requests. ReleaseAll uses a short bounded context;
+	// The HTTP server stops listening and drains its in-flight requests (up to httpDrainTimeout, so a 30 s trip plan finishes) alongside
+	// the lease release below, not after it: the vehicles are handed to a peer while we are still answering the requests already in hand.
+	// ReleaseAll uses a short bounded context;
 	// a Postgres blip just delays acquisition until the TTL.
+	httpDone := make(chan error, 1)
+	go func() { httpDone <- srv.Shutdown(shutdownCtx) }()
 	// Write the drives and charges the 10 s throttle left behind first, so the
 	// peer that takes the vehicles over finds current rows.
 	if monitorRegistry != nil {
@@ -3324,7 +3328,7 @@ func runServer() {
 		leaseCoordinator.Shutdown(lctx)
 		lcancel()
 	}
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	if err := <-httpDone; err != nil {
 		logger.Warn("shutdown error", "err", err.Error())
 	}
 	// Let the detached work (re-auth email, close hooks, vehicle-info writes) finish
