@@ -78,6 +78,7 @@ import (
 	"github.com/apohor/rivolt/internal/plugreminder"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/r2arrival"
+	"github.com/apohor/rivolt/internal/radar"
 	"github.com/apohor/rivolt/internal/ratelimit"
 	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/retention"
@@ -2781,6 +2782,18 @@ func runServer() {
 		logger.Info("terrain tile same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_DEM_BASE_URL"))
 	}
 
+	// Live weather radar (RIVOLT_RADAR=1, off by default): NOAA/NWS MRMS base reflectivity, fetched and cached by this server so no browser or phone
+	// calls NOAA. RIVOLT_RADAR_UPSTREAM overrides the GeoServer (default https://opengeo.ncep.noaa.gov/geoserver).
+	var radarHandler http.Handler
+	if os.Getenv("RIVOLT_RADAR") == "1" {
+		rcfg := radar.Config{BaseURL: strings.TrimSpace(os.Getenv("RIVOLT_RADAR_UPSTREAM")), Prefix: redisKeyPrefix}
+		if sharedRedis != nil {
+			rcfg.Redis = sharedRedis
+		}
+		radarHandler = radar.New(rcfg).Handler()
+		logger.Info("radar tile proxy enabled", "upstream", firstNonEmpty(rcfg.BaseURL, radar.DefaultBaseURL))
+	}
+
 	// Photon geocoder. RIVOLT_PHOTON_BASE_URL points at the
 	// in-cluster Service (e.g. http://photon.photon.svc.cluster.local).
 	// Empty disables; /api/geocode then falls through to Open-Meteo
@@ -3217,6 +3230,7 @@ func runServer() {
 		Valhalla:         maps.NewValhalla(os.Getenv("RIVOLT_VALHALLA_BASE_URL")), // the server calls it itself (overnight search); nil without the URL
 		TilesProxy:       tilesProxy,
 		DEMProxy:         demProxy,
+		Radar:            radarHandler,
 		ChargersArchive:  chargersArchive,
 		Photon:           photonClient,
 		GeocodeOpenMeteo: rivian.ParseBoolEnv(os.Getenv("RIVOLT_GEOCODE_OPEN_METEO")),
