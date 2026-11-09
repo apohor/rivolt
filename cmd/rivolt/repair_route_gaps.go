@@ -126,6 +126,21 @@ func runRepairRouteGaps(args []string) int {
 	for _, m := range ms {
 		fmt.Printf("  %s: %d\n", m, months[m])
 	}
+	printCounts := func(title string, m map[string]int) {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		fmt.Printf("%s:\n", title)
+		for _, k := range keys {
+			fmt.Printf("  %s: %d\n", k, m[k])
+		}
+	}
+	printCounts("drives per start day", plan.ByDay())
+	printCounts("dropouts by length", plan.BySize())
+	printCounts("dropouts by place in the route", plan.ByPlace())
+	printCounts("drives by number of dropouts", plan.PerDrive())
 	fmt.Printf("sha256 of the sorted id list: %s\n", digest)
 	if !*apply {
 		fmt.Println("dry run; nothing written. Apply with --apply --expect-count N --expect-sha SHA --backup CSV.")

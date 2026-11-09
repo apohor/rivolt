@@ -161,3 +161,35 @@ func TestValhallaHostMustBeThisDeploymentsOwn(t *testing.T) {
 		}
 	}
 }
+
+// The dry run's breakdown: dropouts by length and by place in the route, drives by number of dropouts and by day. Counts only.
+func TestPlanBreakdown(t *testing.T) {
+	enc := func(p [][2]float64) string { return rivian.EncodePolyline(p) }
+	day := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	// 0.006 degrees of latitude is about 670 m, 0.015 about 1.7 km, 0.03 about 3.3 km, 0.06 about 6.7 km.
+	first := enc(line(30.000, 30.006, 30.0065, 30.007))                 // 670 m in the first segment
+	mid := enc(line(30.000, 30.0005, 30.0155, 30.016))                  // 1.7 km in the middle
+	last := enc(line(30.000, 30.0005, 30.001, 30.031))                  // 3.3 km in the last segment
+	two := enc(line(30.000, 30.0005, 30.0065, 30.007, 30.067, 30.0675)) // 670 m in the middle, 6.7 km in the middle
+	p := MakePlan([]Candidate{
+		{ID: uuid.New(), StartedAt: day, Polyline: first},
+		{ID: uuid.New(), StartedAt: day, Polyline: mid},
+		{ID: uuid.New(), StartedAt: day.AddDate(0, 0, 1), Polyline: last},
+		{ID: uuid.New(), StartedAt: day.AddDate(0, 0, 1), Polyline: two},
+	}, DefaultMinGapM)
+	if len(p.Drives) != 4 || p.GapsTotal != 5 {
+		t.Fatalf("drives %d gaps %d", len(p.Drives), p.GapsTotal)
+	}
+	check := func(name string, got, want map[string]int) {
+		t.Helper()
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s[%q] = %d, want %d (all: %v)", name, k, got[k], v, got)
+			}
+		}
+	}
+	check("size", p.BySize(), map[string]int{"500 m to 1 km": 2, "1 to 2 km": 1, "2 to 5 km": 1, "5 to 50 km": 1})
+	check("place", p.ByPlace(), map[string]int{"first segment (the start of the drive)": 1, "last segment (the end of the drive)": 1, "middle of the drive": 3})
+	check("per drive", p.PerDrive(), map[string]int{"1 dropout": 3, "2 dropouts": 1})
+	check("day", p.ByDay(), map[string]int{"2026-11-05": 2, "2026-11-06": 2})
+}
