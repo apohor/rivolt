@@ -206,3 +206,44 @@ func TestFailureIsRecordedAndRetried(t *testing.T) {
 		t.Errorf("progress %s %d, want done 1500", st, rows)
 	}
 }
+
+// A job's pause flag (a row in flags, backfill.<job>.paused) holds that job and no other, progress is kept, a malformed flag also pauses it, and
+// clearing the flag lets it finish.
+func TestPauseFlagHoldsOneJob(t *testing.T) {
+	pool := setup(t, 2000)
+	set := func(v string) {
+		if _, err := pool.Exec(`INSERT INTO flags (name, value, updated_by) VALUES ('backfill.fill.paused', $1::jsonb, 'test')
+			ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value`, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(`DELETE FROM flags WHERE name = 'backfill.fill.paused'`) })
+	other := fillJob("other", nil)
+	other.Step = func(ctx context.Context, tx *sql.Tx, cursor string, limit int) (backfill.Result, error) {
+		return backfill.Result{Next: cursor, Done: true}, nil // a job with nothing to do: finishes at once
+	}
+	r := &backfill.Runner{DB: pool, Jobs: []backfill.Job{fillJob("fill", nil), other}, Pause: time.Millisecond}
+
+	set(`{"paused": true}`)
+	if _, working, err := r.Pass(context.Background()); err != nil || !working {
+		t.Fatalf("paused pass: working %v err %v", working, err)
+	}
+	if u, _ := counts(t, pool); u != 2000 {
+		t.Fatalf("a paused job changed rows: %d unfilled", u)
+	}
+	if st, _ := progress(t, pool, "other"); st != backfill.StateDone {
+		t.Errorf("the other job was held by fill's flag: %s", st)
+	}
+	set(`"yes"`) // malformed: the safe reading is paused
+	_, _, _ = r.Pass(context.Background())
+	if u, _ := counts(t, pool); u != 2000 {
+		t.Fatalf("a malformed flag did not pause the job: %d unfilled", u)
+	}
+	set(`{"paused": false}`)
+	if _, working, err := r.Pass(context.Background()); err != nil || working {
+		t.Fatalf("resumed pass: working %v err %v", working, err)
+	}
+	if u, rep := counts(t, pool); u != 0 || rep != 0 {
+		t.Errorf("after the flag cleared: unfilled %d repeated %d", u, rep)
+	}
+}

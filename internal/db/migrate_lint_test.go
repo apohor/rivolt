@@ -270,11 +270,14 @@ func rewriteFindings(src string) []string {
 // backfill (internal/backfill: keyset batches in short transactions, one pod at a time, resumable). A table-wide UPDATE, a DELETE or an
 // INSERT ... SELECT on an existing table inside a migration holds row locks in one long transaction, bloats the table and holds up the migration job
 // that runs before every rollout. So a statement of that kind on a table that is neither created in the same file nor on smallTables (tables bounded
-// by design) needs "-- da-ack: backfill-in-migration <reason>" (DA acks per PR, with the row estimate), unless it is a job. A DO block is not parsed.
+// by design) needs "-- da-ack: backfill-in-migration <reason>" (DA acks per PR, with the row estimate), unless it is a job. An INSERT ... SELECT is
+// judged by what it READS, whatever the target (copying a growable table into a new one is the same long scan): any FROM or JOIN table that
+// existed before the file and can grow counts. A DO block is not parsed.
 var (
 	reUpdateStmt    = regexp.MustCompile(`(?is)^update\s+(?:only\s+)?(\S+)`)
 	reDeleteStmt    = regexp.MustCompile(`(?is)^delete\s+from\s+(?:only\s+)?(\S+)`)
-	reInsertSelect  = regexp.MustCompile(`(?is)^insert\s+into\s+(\S+)[^;]*?\bselect\b`)
+	reInsertSelect  = regexp.MustCompile(`(?is)^insert\s+into\s+(\S+)[^;]*?\bselect\b(.*)$`)
+	reFromJoinTable = regexp.MustCompile(`(?is)\b(?:from|join)\s+(?:only\s+)?([A-Za-z_][A-Za-z0-9_.]*)`)
 	reDaAckBackfill = regexp.MustCompile(`(?im)^[ \t]*--[ \t]*da-ack:[ \t]*backfill-in-migration[ \t]+\S+`) // same line: a bare ack must not borrow the next line as its reason
 )
 
@@ -291,24 +294,31 @@ func backfillFindings(src string) []string {
 			created[bareTable(m[1])] = true
 			continue
 		}
-		var table, what string
+		var targets []string
+		what := ""
 		switch {
 		case reUpdateStmt.MatchString(t):
-			table, what = bareTable(reUpdateStmt.FindStringSubmatch(t)[1]), "UPDATE"
+			targets, what = []string{bareTable(reUpdateStmt.FindStringSubmatch(t)[1])}, "UPDATE"
 		case reDeleteStmt.MatchString(t):
-			table, what = bareTable(reDeleteStmt.FindStringSubmatch(t)[1]), "DELETE"
+			targets, what = []string{bareTable(reDeleteStmt.FindStringSubmatch(t)[1])}, "DELETE"
 		case reInsertSelect.MatchString(t):
-			table, what = bareTable(reInsertSelect.FindStringSubmatch(t)[1]), "INSERT ... SELECT"
+			// By what it reads: the FROM and JOIN tables of the select part.
+			for _, m := range reFromJoinTable.FindAllStringSubmatch(reInsertSelect.FindStringSubmatch(t)[2], -1) {
+				targets = append(targets, bareTable(m[1]))
+			}
+			what = "INSERT ... SELECT from"
 		default:
 			continue
 		}
-		if created[table] {
-			continue
+		for _, table := range targets {
+			if created[table] {
+				continue
+			}
+			if _, small := smallTables[table]; small {
+				continue
+			}
+			bad = append(bad, what+" "+table)
 		}
-		if _, small := smallTables[table]; small {
-			continue
-		}
-		bad = append(bad, what+" on "+table)
 	}
 	return bad
 }
@@ -583,19 +593,23 @@ func TestBackfillFindings(t *testing.T) {
 		sql  string
 		want int
 	}{
-		"schema only":                       {"CREATE TABLE a (id int);\nALTER TABLE b ADD COLUMN x int;", 0},
-		"update on an existing table":       {"UPDATE drives SET x = 1;", 1},
-		"update with a where is still data": {"UPDATE charges SET y = 2 WHERE y IS NULL;", 1},
-		"delete on an existing table":       {"DELETE FROM charges WHERE ended_at < now();", 1},
-		"insert select":                     {"INSERT INTO a2 (id) SELECT id FROM drives;", 1},
-		"insert values is a seed":           {"INSERT INTO flags (k) VALUES ('x') ON CONFLICT DO NOTHING;", 0},
-		"table created in the same file":    {"CREATE TABLE n (id int);\nINSERT INTO n (id) SELECT id FROM drives;\nUPDATE n SET id = 1;", 0},
-		"a small table":                     {"UPDATE flags SET v = 1;", 0},
-		"acked":                             {"-- da-ack: backfill-in-migration 40 rows, a lookup\nUPDATE drives SET x = 1;", 0},
-		"the ack needs a reason":            {"-- da-ack: backfill-in-migration\nUPDATE drives SET x = 1;", 1},
-		"a do block is not parsed":          {"DO $$ BEGIN UPDATE drives SET x = 1; END $$;", 0},
-		"two findings":                      {"UPDATE drives SET x = 1;\nDELETE FROM vehicles WHERE y;", 2},
-		"schema-qualified":                  {"UPDATE public.drives SET x = 1;", 1},
+		"schema only":                                        {"CREATE TABLE a (id int);\nALTER TABLE b ADD COLUMN x int;", 0},
+		"update on an existing table":                        {"UPDATE drives SET x = 1;", 1},
+		"update with a where is still data":                  {"UPDATE charges SET y = 2 WHERE y IS NULL;", 1},
+		"delete on an existing table":                        {"DELETE FROM charges WHERE ended_at < now();", 1},
+		"insert select reads a growable table":               {"INSERT INTO a2 (id) SELECT id FROM drives;", 1},
+		"insert select reads a table created in the file":    {"CREATE TABLE n (id int);\nCREATE TABLE m (id int);\nINSERT INTO m (id) SELECT id FROM n;", 0},
+		"insert select into a new table from a growable one": {"CREATE TABLE n (id int);\nINSERT INTO n (id) SELECT id FROM drives;", 1},
+		"insert select from a small table":                   {"INSERT INTO a2 (k) SELECT k FROM flags;", 0},
+		"insert select joins two":                            {"INSERT INTO a2 (id) SELECT d.id FROM drives d JOIN charges c ON c.id = d.id;", 2},
+		"insert values is a seed":                            {"INSERT INTO flags (k) VALUES ('x') ON CONFLICT DO NOTHING;", 0},
+		"table created in the same file":                     {"CREATE TABLE n (id int);\nUPDATE n SET id = 1;", 0},
+		"a small table":                                      {"UPDATE flags SET v = 1;", 0},
+		"acked":                                              {"-- da-ack: backfill-in-migration 40 rows, a lookup\nUPDATE drives SET x = 1;", 0},
+		"the ack needs a reason":                             {"-- da-ack: backfill-in-migration\nUPDATE drives SET x = 1;", 1},
+		"a do block is not parsed":                           {"DO $$ BEGIN UPDATE drives SET x = 1; END $$;", 0},
+		"two findings":                                       {"UPDATE drives SET x = 1;\nDELETE FROM vehicles WHERE y;", 2},
+		"schema-qualified":                                   {"UPDATE public.drives SET x = 1;", 1},
 	} {
 		if got := backfillFindings(tc.sql); len(got) != tc.want {
 			t.Errorf("%s: %v, want %d finding(s)", name, got, tc.want)

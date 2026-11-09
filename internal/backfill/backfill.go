@@ -7,16 +7,29 @@
 // transaction together with the update of the job's row in `backfills`, so the data and the progress commit or roll back as one. A drain or a
 // crash between batches loses nothing and repeats nothing; the next pod (or the next pass) resumes from the stored cursor.
 //
-// Rules for a job (the review checks them): idempotent (it can run over a row twice and get the same result: WHERE target IS DISTINCT FROM new),
-// bounded (LIMIT; one batch finishes well inside the statement timeout), key-ordered, and never assumed done by readers: code that reads what a
-// backfill fills treats the old shape as valid until `done` (and a "-- contract:" removal of the old shape waits for it via contract-after).
-// A job is a maintenance job like the sample thinner: it touches every user's rows in key order and calls nothing outside Postgres, so it is not
-// a group owner's write (the fence lint lists it as such).
+// Rules for a job (DA's rulings; the review checks them):
+//   - the new value is computed INSIDE the UPDATE statement from the row's own current columns (SET new = f(old) WHERE new IS DISTINCT FROM f(old)),
+//     never read in Go and written back: a recorder update that lands between the read and the write would be overwritten with a stale value. On
+//     the recorder's tables (drives, charges, vehicle_state, ...) a job writes only new or still-unfilled columns, never a column the recorder
+//     keeps writing;
+//   - idempotent (a second run over a row changes nothing), bounded (LIMIT; one batch finishes well inside the statement timeout) and key-ordered;
+//   - never assumed done by readers: code that reads what a backfill fills treats the old shape as valid until `done`, and a "-- contract:" removal
+//     of the old shape waits for it via contract-after;
+//   - registered by a DA-acked PR that carries a row-count test on a fixture.
+//
+// It runs on the system pool (the one that serves sweeps, the monitor's writes and migrations), never the RLS request pool. A job is a maintenance
+// job like the sample thinner: it touches every user's rows in key order and calls nothing outside Postgres, so it is not a group owner's write (the
+// fence lint lists it as such).
+//
+// Pausing: RIVOLT_BACKFILL=0 stops every job (the runner is on by default, with an empty registry); a row in `flags` named backfill.<job>.paused
+// with value {"paused": true} stops that one job, checked before every batch (a malformed row also pauses it: the safe reading). Progress is kept
+// either way. Default pace: 1000 rows per batch and one batch per 10 seconds (about 3 hours per million rows), per job via BatchSize and Interval.
 package backfill
 
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -41,16 +54,17 @@ type Result struct {
 // Job is one backfill. Name is permanent (it keys the progress row): never rename a job that has started.
 type Job struct {
 	Name string
-	// BatchSize is the rows per batch; 0 is DefaultBatch.
+	// BatchSize is the rows per batch; 0 is DefaultBatch. Interval is the wait between this job's batches; 0 is the runner's Pause.
 	BatchSize int
+	Interval  time.Duration
 	// Step processes one batch inside tx (already bounded by lock_timeout and statement_timeout) after cursor ("" at the start).
 	Step func(ctx context.Context, tx *sql.Tx, cursor string, limit int) (Result, error)
 }
 
 // Defaults of a Runner.
 const (
-	DefaultBatch        = 500
-	DefaultPause        = 50 * time.Millisecond
+	DefaultBatch        = 1000
+	DefaultPause        = 10 * time.Second
 	DefaultIdle         = 10 * time.Minute
 	DefaultFailedRetry  = 15 * time.Minute
 	defaultLockTimeout  = "5s"
@@ -71,7 +85,7 @@ type Runner struct {
 	DB   *sql.DB
 	Jobs []Job
 	Log  *slog.Logger
-	// Pause is the wait between batches (DefaultPause); Idle the wait between passes when every job is done or failed (DefaultIdle);
+	// Pause is the wait between batches when the job sets no Interval (DefaultPause); Idle the wait between passes when every job is done or failed (DefaultIdle);
 	// FailedRetry how long a failed job waits before it is tried again (DefaultFailedRetry).
 	Pause       time.Duration
 	Idle        time.Duration
@@ -199,6 +213,11 @@ func (r *Runner) runJob(ctx context.Context, j Job) (string, error) {
 	}
 	cursor := s.cursor
 	for ctx.Err() == nil {
+		if r.paused(ctx, j.Name) {
+			r.Metrics.observePaused(j.Name, true)
+			return StateRunning, nil // paused by its flag: progress kept, looked at again next pass
+		}
+		r.Metrics.observePaused(j.Name, false)
 		started := r.now()
 		res, err := r.batch(ctx, j, cursor, limit)
 		if err != nil {
@@ -215,9 +234,33 @@ func (r *Runner) runJob(ctx context.Context, j Job) (string, error) {
 			r.log().Info("backfill done", "job", j.Name)
 			return StateDone, nil
 		}
-		r.sleep(ctx, orDefault(r.Pause, DefaultPause))
+		r.sleep(ctx, orDefault(j.Interval, orDefault(r.Pause, DefaultPause)))
 	}
 	return StateRunning, nil
+}
+
+// paused reads the job's pause flag (a row in flags named backfill.<job>.paused, value {"paused": true}). No row is not paused; a row that cannot
+// be read as a boolean pauses the job (the safe side), and so does a database error reading it.
+func (r *Runner) paused(ctx context.Context, name string) bool {
+	var raw []byte
+	err := r.DB.QueryRowContext(ctx, `SELECT value FROM flags WHERE name = $1`, "backfill."+name+".paused").Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false
+	}
+	if err != nil {
+		if ctx.Err() == nil {
+			r.log().Warn("backfill: could not read the pause flag; pausing the job", "job", name, "err", err.Error())
+		}
+		return true
+	}
+	var v struct {
+		Paused *bool `json:"paused"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil || v.Paused == nil {
+		r.log().Warn("backfill: the pause flag is malformed; pausing the job", "job", name)
+		return true
+	}
+	return *v.Paused
 }
 
 // batch runs one batch and records its progress in the same transaction.
@@ -287,6 +330,7 @@ type Metrics struct {
 	done    *prometheus.GaugeVec
 	rowsNow *prometheus.GaugeVec
 	age     *prometheus.GaugeVec
+	paused  *prometheus.GaugeVec
 	Now     func() time.Time
 }
 
@@ -298,13 +342,14 @@ func NewMetrics() *Metrics {
 		failed:  prometheus.NewCounterVec(prometheus.CounterOpts{Name: "rivolt_backfill_failures_total", Help: "Backfill batches that failed."}, []string{"job"}),
 		done:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rivolt_backfill_done", Help: "1 when the backfill job has finished, else 0."}, []string{"job"}),
 		rowsNow: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rivolt_backfill_rows_done", Help: "Rows a backfill job has changed so far (from its stored progress)."}, []string{"job"}),
+		paused:  prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rivolt_backfill_paused", Help: "1 while the job's pause flag (flags backfill.<job>.paused) holds it."}, []string{"job"}),
 		age:     prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rivolt_backfill_age_seconds", Help: "Seconds since a backfill job started, while it is not done (0 once done or before it starts); alert when it stays high."}, []string{"job"}),
 	}
 }
 
 // Collectors are what the metrics registry registers.
 func (m *Metrics) Collectors() []prometheus.Collector {
-	return []prometheus.Collector{m.rows, m.batch, m.failed, m.done, m.rowsNow, m.age}
+	return []prometheus.Collector{m.rows, m.batch, m.failed, m.done, m.rowsNow, m.age, m.paused}
 }
 
 func (m *Metrics) observeBatch(job string, rows int, d time.Duration) {
@@ -313,6 +358,17 @@ func (m *Metrics) observeBatch(job string, rows int, d time.Duration) {
 	}
 	m.rows.WithLabelValues(job).Add(float64(rows))
 	m.batch.WithLabelValues(job).Observe(d.Seconds())
+}
+
+func (m *Metrics) observePaused(job string, paused bool) {
+	if m == nil {
+		return
+	}
+	v := 0.0
+	if paused {
+		v = 1
+	}
+	m.paused.WithLabelValues(job).Set(v)
 }
 
 func (m *Metrics) observeFailure(job string) {

@@ -3050,8 +3050,9 @@ func runServer() {
 		go retention.Run(ctx, logger, jobs)
 	}
 	// Background backfills (zero-impact deploys, G6b): data that moves after a schema change, in short batches on one pod at a time, resumable.
-	// RIVOLT_BACKFILL=0 stops them (a job that misbehaves is paused without a deploy; its progress is kept).
-	if pgPool != nil && !adminOnlyMode && len(backfillJobs) > 0 && os.Getenv("RIVOLT_BACKFILL") != "0" {
+	// On by default, with an empty registry today. RIVOLT_BACKFILL=0 stops them all; one job is paused by its flags row backfill.<job>.paused
+	// ({"paused": true}) without a deploy; progress is kept either way.
+	if pgPool != nil && !adminOnlyMode && os.Getenv("RIVOLT_BACKFILL") != "0" { // pgPool is the system pool: never the RLS request pool
 		bm := backfill.NewMetrics()
 		for _, c := range bm.Collectors() {
 			appMetrics.Registry().MustRegister(c)
