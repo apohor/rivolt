@@ -104,6 +104,8 @@ func (m *StateMonitor) noteTakeover(vehicleID string, sess *liveSessions, driveB
 		switch {
 		case t.driveSrc != "":
 			m.noteRollout(RolloutRehydrate, KindDrive, t.driveSrc)
+		case sess.drive != driveBefore && sess.drive.resumedFromDB:
+			m.noteRollout(RolloutRehydrate, KindDrive, SourceDB) // G2a: the open drive row, no snapshot needed
 		case sess.drive != driveBefore:
 			go m.classifyFresh(vehicleID, KindDrive, sess.drive.id, sess.drive.startedAt, t.at)
 		}
