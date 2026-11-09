@@ -9,8 +9,9 @@
 #   -- contract-after: unreleased <object> <why>
 #                                    nothing in any release ever read <object> (a column added and dropped inside one unreleased PR series)
 #
-# and the PR body must carry the pins ("Pins: prod=v0.41.5 demo=v0.41.4 admin=v0.41.5": the tags the deployments run now; CI cannot read the
-# infra repo). Rules, each a failure when broken:
+# and the PR body must carry the pins ("Pinned now: prod v0.41.5, demo v0.41.4, admin v0.41.5", the PR template's field; "Pins:" is accepted too):
+# the tags the deployments run now, filled in by the author from rivolt-infra (CI has no cross-repo token; the devils-advocate confirms the
+# field against the infra repo at ack). Rules, each a failure when broken:
 #   - vX.Y.Z is an existing FINAL tag (no -rc), strictly older than the newest final tag L: at least one release has shipped since, so the
 #     image a rollback goes to no longer reads it;
 #   - vX.Y.Z is not newer than the OLDEST pin: nothing still running reads it;
@@ -31,18 +32,28 @@ newest=$(printf '%s\n' "$finals" | tail -1)
 # older A B: true when A sorts strictly before B by version.
 older() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]; }
 
-pins=$(printf '%s\n' "$body" | grep -m1 -E '^Pins:[[:space:]]' | sed -E 's/^Pins:[[:space:]]*//' || true)
-oldest_pin=""
-if [ -n "$pins" ]; then
-  for tok in $pins; do
-    tag="${tok#*=}"
-    if ! printf '%s\n' "$tag" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-      echo "contract-check: Pins entry '$tok' is not name=vX.Y.Z" >&2
+load_pins() {
+  pins=$(printf '%s\n' "$body" | grep -m1 -E '^(Pinned now|Pins):[[:space:]]' | sed -E 's/^(Pinned now|Pins):[[:space:]]*//' || true)
+  oldest_pin=""
+  if [ -n "$pins" ]; then
+    # Every vX.Y.Z on the line is a pin (names and separators are free text); a line with none, or with a token that looks like a version
+    # but is not a plain final tag, is refused.
+    if printf '%s\n' "$pins" | grep -qE '[vV][0-9][^[:space:],;]*-rc|[vV][0-9]+\.[0-9]+([^.0-9]|$)'; then
+      echo "contract-check: the pinned-now line has a version that is not a plain final vX.Y.Z: $pins" >&2
       exit 1
     fi
-    if [ -z "$oldest_pin" ] || older "$tag" "$oldest_pin"; then oldest_pin="$tag"; fi
-  done
-fi
+    for tag in $(printf '%s\n' "$pins" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true); do
+      if [ -z "$oldest_pin" ] || older "$tag" "$oldest_pin"; then oldest_pin="$tag"; fi
+    done
+    if [ -z "$oldest_pin" ]; then
+      echo "contract-check: the pinned-now line names no vX.Y.Z tag: $pins" >&2
+      exit 1
+    fi
+  fi
+}
+pins=""
+oldest_pin=""
+pins_loaded=0
 
 fail=0
 checked=0
@@ -51,6 +62,8 @@ while IFS= read -r f; do
   content=$(git show "$head:$f")
   printf '%s\n' "$content" | grep -qE '^[[:space:]]*--[[:space:]]*contract:[[:space:]]*[^[:space:]]' || continue
   checked=$((checked + 1))
+  # The pins are read only when a contract migration is there: an unfilled template line on any other PR is not an error.
+  if [ "$pins_loaded" = 0 ]; then load_pins; pins_loaded=1; fi
   line=$(printf '%s\n' "$content" | grep -m1 -E '^[[:space:]]*--[[:space:]]*contract-after:' | sed -E 's/^[[:space:]]*--[[:space:]]*contract-after:[[:space:]]*//' || true)
   if [ -z "$line" ]; then
     echo "contract-check: $f has a '-- contract:' line but no '-- contract-after: vX.Y.Z' (the final release in which no code reads what it removes)" >&2
@@ -81,7 +94,7 @@ while IFS= read -r f; do
         fail=1; continue
       fi
       if [ -z "$oldest_pin" ]; then
-        echo "contract-check: $f: add a 'Pins: prod=vX.Y.Z demo=vX.Y.Z admin=vX.Y.Z ...' line to the PR body (the tags the deployments run now)" >&2
+        echo "contract-check: $f: add a 'Pinned now: prod vX.Y.Z, demo vX.Y.Z, admin vX.Y.Z' line to the PR body (the PR template's field: the tags the deployments run now, from rivolt-infra apps/platform/*/app.yaml)" >&2
         fail=1; continue
       fi
       if older "$oldest_pin" "$t"; then

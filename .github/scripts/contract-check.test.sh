@@ -25,12 +25,18 @@ run() {
   if [ "$got" != "$want" ]; then echo "FAIL $name: exit $got, want $want"; cat out.txt; fails=$((fails + 1)); else echo "ok   $name"; fi
 }
 run "not a contract migration" 0 "ALTER TABLE t ADD COLUMN x int;" ""
+run "an unfilled template line on a PR with no contract migration" 0 "ALTER TABLE t ADD COLUMN x int;" "Pinned now: prod vX.Y.Z, demo vX.Y.Z, admin vX.Y.Z"
+run "unfilled template line with a contract migration" 1 $'-- contract: x\n-- contract-after: v0.2.0\nALTER TABLE t DROP COLUMN x;' "Pinned now: prod vX.Y.Z, demo vX.Y.Z, admin vX.Y.Z"
 run "contract without contract-after" 1 $'-- contract: drops t.old_col\nALTER TABLE t DROP COLUMN old_col;' "Pins: prod=v0.3.0"
 run "older than newest, pins ok" 0 $'-- contract: drops t.old_col\n-- contract-after: v0.2.0\nALTER TABLE t DROP COLUMN old_col;' "Pins: prod=v0.3.0 demo=v0.2.0"
 run "same as the newest final" 1 $'-- contract: x\n-- contract-after: v0.3.0\nALTER TABLE t DROP COLUMN x;' "Pins: prod=v0.3.0"
 run "an rc tag" 1 $'-- contract: x\n-- contract-after: v0.4.0-rc.1\nALTER TABLE t DROP COLUMN x;' "Pins: prod=v0.3.0"
 run "a tag that does not exist" 1 $'-- contract: x\n-- contract-after: v0.9.9\nALTER TABLE t DROP COLUMN x;' "Pins: prod=v0.3.0"
 run "newer than the oldest pin" 1 $'-- contract: x\n-- contract-after: v0.2.0\nALTER TABLE t DROP COLUMN x;' "Pins: prod=v0.3.0 admin=v0.1.0"
+run "pinned-now line, comma form" 0 $'-- contract: x\n-- contract-after: v0.2.0\nALTER TABLE t DROP COLUMN x;' "Pinned now: prod v0.3.0, demo v0.2.0, admin v0.2.0"
+run "pinned-now line older than the tag" 1 $'-- contract: x\n-- contract-after: v0.2.0\nALTER TABLE t DROP COLUMN x;' "Pinned now: prod v0.3.0, admin v0.1.0"
+run "pinned-now with an rc" 1 $'-- contract: x\n-- contract-after: v0.2.0\nALTER TABLE t DROP COLUMN x;' "Pinned now: prod v0.4.0-rc.1"
+run "pinned-now with no tag" 1 $'-- contract: x\n-- contract-after: v0.2.0\nALTER TABLE t DROP COLUMN x;' "Pinned now: prod latest"
 run "no pins line" 1 $'-- contract: x\n-- contract-after: v0.2.0\nALTER TABLE t DROP COLUMN x;' "nothing here"
 run "bad pins entry" 1 $'-- contract: x\n-- contract-after: v0.1.0\nALTER TABLE t DROP COLUMN x;' "Pins: prod=latest"
 run "unreleased, never mentioned" 0 $'-- contract: x\n-- contract-after: unreleased brand_new_col added and dropped in one series\nALTER TABLE t DROP COLUMN brand_new_col;' ""
