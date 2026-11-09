@@ -10,6 +10,11 @@
   display: block;
 }
 
+/* A callout is always above the markers (the selected stop marker is raised to 1000 and used to paint over the leg tooltip's lines). */
+.maplibregl-popup {
+  z-index: 1100;
+}
+
 /* Popups (the trip map's charger popups and waypoint tooltips) are light text on a dark card on either basemap, as the Leaflet ones were. */
 .maplibregl-popup-content {
   background: #171717;
