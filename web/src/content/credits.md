@@ -1,5 +1,7 @@
 # Data credits
 
+**Weather radar.** Radar images are from the [NOAA/NWS](https://www.weather.gov/) MRMS base reflectivity service (US government work, public domain). Rivolt shows them as received, only reprojected to map tiles and made partly transparent, and they are not an official NWS product. Rivolt is not endorsed by or affiliated with NOAA or the National Weather Service. Radar is for general awareness, not for safety-critical decisions.
+
 **Weather.** Weather data by [Open-Meteo.com](https://open-meteo.com/), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). It is shown in the trip planner, on a drive's weather chart and as the outside temperature, and we may have changed it (rounded places, converted units, derived values such as headwind).
 
 Open-Meteo's forecasts are built from national weather services' models, including NOAA's GFS and RRFS (US government works) and Environment and Climate Change Canada's GEM (contains information licensed under the [Open Government Licence – Canada](https://open.canada.ca/en/open-government-licence-canada)). Data processed by Open-Meteo.com. Rivolt is not endorsed by Open-Meteo, NOAA or Environment and Climate Change Canada.
