@@ -72,6 +72,20 @@ final class PlannerApplyTests: XCTestCase {
         XCTAssertEqual(r.minFastKw, 50)
     }
 
+    func testTheWeatherDefaultComesFromTheSettings() async throws {
+        let m = try plannedModel(), src = Fake()
+        XCTAssertTrue(m.weatherOn, "on to begin with, and where there are no settings")
+        var p = prefs()
+        p.weatherOn = false
+        src.prefs = .success(p)
+        await m.prepareLayers(source: src)
+        XCTAssertFalse(m.weatherOn, "the setting says weather is off on the map to begin with")
+        let on = try plannedModel(), src2 = Fake()
+        src2.prefs = .success(prefs())
+        await on.prepareLayers(source: src2)
+        XCTAssertTrue(on.weatherOn)
+    }
+
     func testAnEmptyChoiceOfLayersMeansNoPinsAndNoSearch() async throws {
         let m = try plannedModel(), src = Fake()
         src.prefs = .success(prefs(layers: []))

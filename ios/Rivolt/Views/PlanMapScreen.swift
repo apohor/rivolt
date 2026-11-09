@@ -68,6 +68,8 @@ struct PlanMapScreen: View {
         .onChange(of: ax) { _, large in detent = large ? .peek : .half }
         .task { await radar.probe(source: state.client) }
         .task(id: radar.isOn) { if radar.isOn { await radar.keepFresh(source: state.client) } }
+        // The Trip planner settings' Radar default, once they are read (the Weather default is applied as they are read).
+        .task(id: model.plannerMap) { if let m = model.plannerMap { await radar.applyDefault(on: m.radarOn, source: state.client) } }
         .onChange(of: model.moving?.id) { _, new in if new != nil { detent = .peek } }
         .onChange(of: model.pickedCharger?.id) { _, new in
             if let c = model.pickedCharger, new != nil { model.schedulePreview(for: c, source: state.client) } else { model.clearPreview() }

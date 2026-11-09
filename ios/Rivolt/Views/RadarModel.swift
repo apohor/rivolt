@@ -47,8 +47,21 @@ final class RadarModel {
         }
     }
 
+    private var defaultApplied = false
+
+    /// The Radar default from the Trip planner settings: on for a person who set it, applied once per session when the server has radar (so a person who then
+    /// turns it off on the map is not switched back on at the next plan). Off, or no radar here, changes nothing.
+    func applyDefault(on: Bool, source: some RadarSource) async {
+        guard !defaultApplied else { return }
+        await probe(source: source)
+        guard availability == .available else { return }
+        defaultApplied = true
+        if on, !isOn { await toggle(source: source) }
+    }
+
     /// Another account or server: forget it all.
     func reset() {
+        defaultApplied = false
         availability = .unknown
         isOn = false
         frame = nil
