@@ -287,21 +287,20 @@ struct PlanLayerChips: View {
     /// At accessibility text sizes the chips would fill the map: one "Layers" button instead, and a menu of the same switches, each with a check when on.
     private var layersMenu: some View {
         Menu {
+            // Toggles, so VoiceOver says on or off for each, and the menu shows the checks itself.
             ForEach(MapLayer.allCases, id: \.self) { layer in
-                Button { Task { await model.setLayer(layer, on: !model.layers.contains(layer), source: state.client) } } label: {
-                    if model.layers.contains(layer) { Label(layer.title, systemImage: "checkmark") } else { Text(layer.title) }
-                }
+                Toggle(layer.title, isOn: Binding(
+                    get: { model.layers.contains(layer) },
+                    set: { on in Task { await model.setLayer(layer, on: on, source: state.client) } }))
             }
             if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
-                Button { model.setPreferredOnly(!model.preferredOnly) } label: {
-                    if model.preferredOnly { Label("Preferred only", systemImage: "checkmark") } else { Text("Preferred only") }
-                }
+                Toggle("Preferred only", isOn: Binding(get: { model.preferredOnly }, set: { model.setPreferredOnly($0) }))
             }
         } label: {
+            // Not capped: this is the control for people who asked for larger text, and "Layers · 4" fits one line even at the largest size.
             Text(layersSummary).themeText(.subline, color: Color.white).lineLimit(1)
                 .padding(.horizontal, 14).frame(minHeight: 44)
                 .background(Theme.accentButton, in: Capsule())
-                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         }
         .disabled(model.layerState == .loading)
         .accessibilityLabel("Map layers")
