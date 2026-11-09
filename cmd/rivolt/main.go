@@ -3159,7 +3159,10 @@ func runServer() {
 			Backoff: vehiclediscovery.NewRedisBackoff(sharedRedis, redisKeyPrefix, api.FailLimiterKey(cookieSecret)),
 		})
 	}
+	appBuild := api.NewAppBuildCounter()
+	appMetrics.Registry().MustRegister(appBuild.Collector())
 	handler := api.New(api.Deps{
+		AppBuild:              appBuild,
 		StateForward:          stateForward,
 		GroupOfVehicle:        groupOfVehicle,
 		ForwardReplayTest:     forwardReplayTestOn,

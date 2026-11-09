@@ -343,6 +343,8 @@ type Deps struct {
 	// mounts /metrics. nil disables both — useful for tests that
 	// don't want the global default registry pollution.
 	Metrics *metrics.Metrics
+	// AppBuild counts app-session requests by the app's build number; nil: not counted.
+	AppBuild *AppBuildCounter
 	// Users, when non-nil, provisions user identities in the
 	// configured IdP on POST /api/admin/users and DELETE.
 	// nil (or a disabled provider) skips IdP provisioning —
@@ -635,6 +637,9 @@ func New(d Deps) http.Handler {
 		// An iPhone app session may write only to a short list (app_write_allowlist.go);
 		// it must run once the session is known and before any route.
 		r.Use(appWriteAllowlistMW)
+		if d.AppBuild != nil {
+			r.Use(appBuildMW(d.AppBuild))
+		}
 		// Public demo (preview only): allowlisted anonymous GETs are
 		// served as the demo user. Not installed unless RIVOLT_DEMO.
 		if demo.Enabled() {
