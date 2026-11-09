@@ -362,6 +362,11 @@ type Coordinator struct {
 	// Shutdown just stopped, right before the lease is released. Guarded by mu.
 	closing bool
 
+	// signal tells peers about released groups and hears theirs (G1a); nil: the tick alone. sigAt/sigMu rate-limit the sends.
+	signal ReleaseSignal
+	sigMu  sync.Mutex
+	sigAt  time.Time
+
 	// streaming, when set, reports whether this pod is actually
 	// subscribed to a vehicle it holds the lease for. Holding a lease
 	// without a subscription is silent data loss: Sep 7–27 2026, two
@@ -617,6 +622,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	if err := c.leadModeProblem(); err != nil {
 		return err
 	}
+	c.runSignal(ctx)
 	c.reconcile(ctx)
 
 	t := time.NewTimer(c.nextTick())
@@ -1080,6 +1086,7 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 		delete(c.owned, vid)
 		c.mu.Unlock()
 	}
+	released := false
 	for g := range giving {
 		if failed[g] {
 			continue // a vehicle is still leased: keep the group and retry next pass
@@ -1089,6 +1096,10 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 			continue
 		}
 		delete(res.Held, g)
+		released = true
+	}
+	if released {
+		c.signalReleased(ctx)
 	}
 	if c.onGroups != nil {
 		c.onGroups(len(res.Held))
@@ -1339,6 +1350,7 @@ func (c *Coordinator) Shutdown(ctx context.Context) {
 	} else {
 		c.log.Info("lease release-all", "count", n)
 	}
+	c.signalReleased(ctx) // the peers acquire now, not at their next tick
 	c.fireCount()
 }
 
