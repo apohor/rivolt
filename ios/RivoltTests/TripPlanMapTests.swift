@@ -342,3 +342,42 @@ extension TripPlanMapTests {
 private extension TripMultiday {
     func with(days: [Day]) -> TripMultiday { var t = self; t.days = days; return t }
 }
+
+extension TripPlanMapTests {
+    /// A polyline at precision 6 (the test's own encoder: the app only reads them).
+    private func polyline6(_ points: [RouteSnap.Coord]) -> String {
+        var out = "", lastLat = 0, lastLon = 0
+        func put(_ v: Int) {
+            var n = v < 0 ? ~(v << 1) : v << 1
+            while n >= 0x20 { out.append(Character(UnicodeScalar(UInt8((0x20 | (n & 0x1f)) + 63)))); n >>= 5 }
+            out.append(Character(UnicodeScalar(UInt8(n + 63))))
+        }
+        for p in points {
+            let la = Int((p.lat * 1e6).rounded()), lo = Int((p.lon * 1e6).rounded())
+            put(la - lastLat); put(lo - lastLon)
+            lastLat = la; lastLon = lo
+        }
+        return out
+    }
+
+    func testTwoLegsOfRoadsJoinWithTheSharedPointOnceAndNoLegsIsNoLine() throws {
+        let a = polyline6([RouteSnap.Coord(lat: 0, lon: 0), RouteSnap.Coord(lat: 0.1, lon: 0.1)])
+        let b = polyline6([RouteSnap.Coord(lat: 0.1, lon: 0.1), RouteSnap.Coord(lat: 0.2, lon: 0.2)])
+        let body = try JSONSerialization.data(withJSONObject: ["trip": ["legs": [["shape": a], ["shape": b]]]])
+        let line = try XCTUnwrap(PlanRouteLogic.roadLine(try JSONDecoder().decode(ValhallaRouteResponse.self, from: body)))
+        XCTAssertEqual(line.count, 3, "the point the legs share is there once")
+        XCTAssertEqual(line[2].lat, 0.2, accuracy: 1e-6)
+        XCTAssertNil(PlanRouteLogic.roadLine(try JSONDecoder().decode(ValhallaRouteResponse.self, from: Data(#"{"trip":{"legs":[]}}"#.utf8))))
+    }
+
+    func testBothMapsLayTheSameThingsOverTheDrawing() {
+        let line = [RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)]
+        let base = RouteSnap.Drawing(pieces: [RouteSnap.Piece(coords: line, speed: nil)], routedGaps: [], gaps: [], start: line.first, end: line.last, hasSpeed: false)
+        let tag = RouteSnap.Drawing.LegTag(coord: line[0], text: "41°")
+        let d = PlanRouteLogic.overlaid(base, focus: 2, along: [AlongCharger(lat: 45.6, lon: -122.0, kind: "hotel")], legTags: [tag])
+        XCTAssertEqual(d.focus, 2)
+        XCTAssertEqual(d.along.map(\.kind), [1])
+        XCTAssertEqual(d.legTags, [tag])
+        XCTAssertEqual(d.pieces, base.pieces, "the line itself is not touched")
+    }
+}

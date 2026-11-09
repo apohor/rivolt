@@ -50,16 +50,29 @@ enum PlanRouteLogic {
         }
         let places = places(route)
         guard places.count >= 2 else { return places }
-        if let r = try? await source.valhallaRoute(routeRequest(places)), let legs = r.trip?.legs, !legs.isEmpty {
-            var out: [RouteSnap.Coord] = []
-            for (i, leg) in legs.enumerated() {
-                var seg = leg.shape.map { DriveRoute.decode($0, precision: 6) } ?? []
-                if i > 0, !seg.isEmpty { seg.removeFirst() }
-                out += seg
-            }
-            if out.count > 1 { return out }
-        }
+        if let r = try? await source.valhallaRoute(routeRequest(places)), let out = roadLine(r), out.count > 1 { return out }
         return places
+    }
+
+    /// Valhalla's answer as one line: each leg's shape, the shared point between two legs once. Nil when it has no legs.
+    static func roadLine(_ r: ValhallaRouteResponse) -> [RouteSnap.Coord]? {
+        guard let legs = r.trip?.legs, !legs.isEmpty else { return nil }
+        var out: [RouteSnap.Coord] = []
+        for (i, leg) in legs.enumerated() {
+            var seg = leg.shape.map { DriveRoute.decode($0, precision: 6) } ?? []
+            if i > 0, !seg.isEmpty { seg.removeFirst() }
+            out += seg
+        }
+        return out
+    }
+
+    /// What both maps (one route, or the days of a trip) lay over the drawing of the plan: the ringed pin, the layer pins and the weather labels.
+    static func overlaid(_ base: RouteSnap.Drawing, focus: Int?, along: [AlongCharger], legTags: [RouteSnap.Drawing.LegTag]) -> RouteSnap.Drawing {
+        var d = base
+        d.focus = focus
+        d.along = alongStops(along)
+        d.legTags = legTags
+        return d
     }
 
     /// The pins of one day, in the order they are drawn and numbered: its charging stops that have a place, then its night.
@@ -194,10 +207,7 @@ enum PlanRouteLogic {
     /// The days map as shown: the drawing with the ringed pin, the layer pins and, for one day, the camera framed on that day's line.
     static func daysShown(_ base: RouteSnap.Drawing, focus: Int?, along: [AlongCharger], lines: [[RouteSnap.Coord]], day: Int?,
                           days: [TripMultiday.Day] = [], weatherOn: Bool = false) -> RouteSnap.Drawing {
-        var d = base
-        d.legTags = weatherOn ? legTags(days: days, lines: lines) : []
-        d.focus = focus
-        d.along = alongStops(along)
+        var d = overlaid(base, focus: focus, along: along, legTags: weatherOn ? legTags(days: days, lines: lines) : [])
         d.fitTo = day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil }
         return d
     }
@@ -312,11 +322,9 @@ struct PlanRouteMap: View {
     @State private var provisional: [RouteSnap.Coord]?
 
     private var shown: RouteSnap.Drawing? {
-        guard var d = drawing else { return nil }
-        d.focus = focus
+        guard let base = drawing else { return nil }
+        var d = PlanRouteLogic.overlaid(base, focus: focus, along: along, legTags: PlanRouteLogic.legTags(route: route, weather: weather, line: base.pieces.flatMap(\.coords)))
         d.preview = previewLine.count >= 2 ? previewLine : nil
-        d.along = PlanRouteLogic.alongStops(along)
-        d.legTags = PlanRouteLogic.legTags(route: route, weather: weather, line: d.pieces.flatMap(\.coords))
         if let provisional, provisional.count >= 2 {
             d.pieces = [RouteSnap.Piece(coords: provisional, speed: nil)]
             d.start = provisional.first
@@ -338,13 +346,7 @@ struct PlanRouteMap: View {
             .task(id: pendingVias) {
                 guard let pendingVias else { provisional = nil; return }
                 let places = PlanRouteLogic.places(route, vias: pendingVias)
-                if let r = try? await state.client.valhallaRoute(PlanRouteLogic.routeRequest(places)), let legs = r.trip?.legs, !legs.isEmpty {
-                    var out: [RouteSnap.Coord] = []
-                    for (i, leg) in legs.enumerated() {
-                        var seg = leg.shape.map { DriveRoute.decode($0, precision: 6) } ?? []
-                        if i > 0, !seg.isEmpty { seg.removeFirst() }
-                        out += seg
-                    }
+                if let r = try? await state.client.valhallaRoute(PlanRouteLogic.routeRequest(places)), let out = PlanRouteLogic.roadLine(r) {
                     if !Task.isCancelled, out.count > 1 { provisional = out }
                 }
             }
