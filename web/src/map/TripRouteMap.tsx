@@ -208,10 +208,17 @@ export function TripRouteMap({
           d.textContent = l;
           root.appendChild(d);
         }
-        legPopup = new ml.Popup({ closeButton: true, offset: 14, maxWidth: "280px", className: "rivolt-popup" });
-        // Pinned so it stays inside the map: below the badge in the upper half, above it in the lower, leaning in from either side edge.
+        // Pinned so it stays inside the map: below the badge in the upper half, above it in the lower, and sideways toward the roomier side, with the
+        // card narrowed to the room that side has (a phone's map is 350 px wide: a 280 px card from a badge at 95 px ran 20 px past the edge).
         const ll = { lng: at[1], lat: at[0] };
-        if (legPopup.options) legPopup.options.anchor = pinSide(map, map.project(ll).y < mapRoomBottom(map) / 2 ? "top" : "bottom", ll, 280);
+        const side = fitSideways(map, ll, 280);
+        legPopup = new ml.Popup({ closeButton: true, offset: 14, maxWidth: `${side.width}px`, className: "rivolt-popup" });
+        const vertical = map.project(ll).y < mapRoomBottom(map) / 2 ? "top" : "bottom";
+        // A short map (a small phone) cannot hold every line: the card scrolls inside the room its side has, instead of running under the page.
+        const roomY = vertical === "top" ? mapRoomBottom(map) - map.project(ll).y : map.project(ll).y;
+        root.style.maxHeight = `${Math.max(120, Math.floor(roomY - 24))}px`;
+        root.style.overflowY = "auto";
+        if (legPopup.options) legPopup.options.anchor = (side.side ? `${vertical}-${side.side}` : vertical) as never;
         legPopup.setLngLat([at[1], at[0]]).setDOMContent(root).addTo(map);
         exclusive(legPopup);
         reclearOfChips(map, legPopup, ll);
@@ -247,6 +254,17 @@ export function TripRouteMap({
     const x = map.project(ll).x;
     const w = map.getContainer().clientWidth;
     return x < widthPx / 2 ? `${vertical}-left` : x > w - widthPx / 2 ? `${vertical}-right` : vertical;
+  };
+  // Where a card of up to `want` px can sit beside a point without leaving the map: centred when both sides have room, else toward the roomier
+  // side, at the width that side has (never below 160 px).
+  const fitSideways = (map: MLMap, ll: { lng: number; lat: number }, want: number): { side: "left" | "right" | ""; width: number } => {
+    const x = map.project(ll).x;
+    const w = map.getContainer().clientWidth;
+    const margin = 18; // the card's 14 px offset from the point leans diagonally from a corner anchor
+    if (Math.min(x, w - x) * 2 - margin * 2 >= want) return { side: "", width: want };
+    const roomRight = w - x - margin;
+    const roomLeft = x - margin;
+    return roomRight >= roomLeft ? { side: "left", width: Math.max(160, Math.min(want, Math.floor(roomRight))) } : { side: "right", width: Math.max(160, Math.min(want, Math.floor(roomLeft))) };
   };
   const keepClearOfChips = (map: MLMap, p: Popup, ll: { lng: number; lat: number }) => {
     const h = mapRoomBottom(map);

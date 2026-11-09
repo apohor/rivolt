@@ -231,7 +231,8 @@ export function RouteCard({
       climb ? TERRAIN_ATTRIBUTION : null,
     ].filter((l): l is string => !!l);
   };
-  const shortPlace = (i: number) => (route.Waypoints[i]?.Name ?? "").split(",")[0].trim() || "the stop";
+  // The origin of a plan from the truck's position has no name: "Start to Kettleman City", not "the stop to Kettleman City".
+  const shortPlace = (i: number) => (route.Waypoints[i]?.Name ?? "").split(",")[0].trim() || (i === 0 ? "Start" : "the stop");
   const legWeather: (LegWeatherInfo | null)[] | undefined = adjustment
     ? route.Waypoints.slice(1).map((_, k) => {
         const facts = legWeatherFacts(adjustment.legs[k], temperatureUnit, distanceUnit);
