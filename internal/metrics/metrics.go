@@ -192,6 +192,10 @@ type Metrics struct {
 	TakeoverWaitSeconds    *prometheus.HistogramVec
 	TakeoverStarvedTotal   *prometheus.CounterVec
 	TakeoverLocalOnlyTotal *prometheus.CounterVec
+	// LeaseReconcileTotal counts the coordinator's reconcile passes by what started them: start (boot), tick (the timer), signal (a peer released
+	// groups and said so, G1a) or other (a fenced write, a refused call or the first request asking for a pass). Created at 0. The share of
+	// signal against tick is how much of the hand-off wait the signal removed.
+	LeaseReconcileTotal *prometheus.CounterVec
 	// ReauthRaiseDeferred counts rejections whose needs_reauth raise was held back because
 	// the client did not yet know which stored session it was using (the next sync decides).
 	ReauthRaiseDeferred prometheus.Counter
@@ -473,6 +477,10 @@ func New() *Metrics {
 			Name: "rivolt_rivian_takeover_local_only_total",
 			Help: "Takeover calls paced by the process's own bucket alone because the fleet budget in Redis did not answer.",
 		}, []string{"class"}),
+		LeaseReconcileTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_lease_reconcile_total",
+			Help: "Lease reconcile passes by trigger: start, tick, signal (a peer released groups) or other.",
+		}, []string{"trigger"}),
 		LeaseSelfFence: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Name: "rivolt_lease_self_fence_total",
@@ -995,6 +1003,7 @@ func New() *Metrics {
 		m.TakeoverWaitSeconds,
 		m.TakeoverStarvedTotal,
 		m.TakeoverLocalOnlyTotal,
+		m.LeaseReconcileTotal,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
 		m.RivianCallRefused,
@@ -1106,6 +1115,9 @@ func New() *Metrics {
 			m.TakeoverWaitSeconds.WithLabelValues(class, prio)
 			m.TakeoverStarvedTotal.WithLabelValues(class, prio).Add(0)
 		}
+	}
+	for _, tr := range []string{"start", "tick", "signal", "other"} {
+		m.LeaseReconcileTotal.WithLabelValues(tr).Add(0)
 	}
 	for _, op := range RivianPermitOps {
 		if op != "ws_dial" {

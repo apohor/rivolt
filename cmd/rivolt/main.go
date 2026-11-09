@@ -2170,6 +2170,7 @@ func runServer() {
 			logger.Error("lease coordinator", "err", err.Error())
 			os.Exit(1)
 		}
+		coord.SetReconcileObserver(func(trigger string) { appMetrics.LeaseReconcileTotal.WithLabelValues(trigger).Inc() })
 		coord.SetCountObserver(func(n int) {
 			appMetrics.SubscriptionLeases.Set(float64(n))
 		})

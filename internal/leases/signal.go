@@ -115,7 +115,10 @@ func (c *Coordinator) onReleasedSignal() {
 	if c.isClosing() {
 		return
 	}
-	time.AfterFunc(time.Duration(rand.Int63n(int64(signalJitter))), c.TriggerReconcile)
+	time.AfterFunc(time.Duration(rand.Int63n(int64(signalJitter))), func() {
+		c.signalled.Store(true) // the next pass off the trigger channel is counted as the signal's
+		c.TriggerReconcile()
+	})
 }
 
 // runSignal listens for peers' signals for the life of ctx.
