@@ -306,9 +306,9 @@ indentation of a "template:" key two spaces in (its content at four), starting o
       serviceAccountName: {{ include "rivolt.serviceAccountName" . }}
       # Give the binary time to (a) stop receiving new traffic via
       # the preStop sleep, then (b) finish in-flight requests +
-      # release Rivian websocket subscriptions cleanly. 45s is
-      # enough headroom for a slow GraphQL roundtrip; bump if a
-      # specific upstream call regularly exceeds that.
+      # release Rivian websocket subscriptions cleanly. 75s covers
+      # the 35s HTTP drain on top of the lease release; bump it
+      # together with httpDrainTimeout in cmd/rivolt/shutdown.go.
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:

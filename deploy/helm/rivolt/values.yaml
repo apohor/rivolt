@@ -77,10 +77,12 @@ deploymentAnnotations: {}
 # in-flight rollouts don't 502.
 #
 # terminationGracePeriodSeconds: must be > preStopSleepSeconds plus
-# the longest expected request duration. 45s covers the 5s preStop, the
-# drain flush, the subscription stop and group release, and the HTTP drain.
+# the longest expected request duration. 75s covers the 5s preStop, the
+# drain flush, the subscription stop and group release, the 35s HTTP drain
+# (a 30s trip plan in flight finishes) and the background wait; cmd/rivolt's
+# TestShutdownBudgetFitsTheGracePeriod holds the binary's steps to it.
 preStopSleepSeconds: 5
-terminationGracePeriodSeconds: 45
+terminationGracePeriodSeconds: 75
 
 nameOverride: ""
 fullnameOverride: ""
