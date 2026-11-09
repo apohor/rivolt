@@ -190,3 +190,19 @@ func TestRolloutStopEndedLongBeforeTheAcquireIsANewDrive(t *testing.T) {
 		t.Fatalf("events %v, want none: the stop ended before the hand-off", got)
 	}
 }
+
+// A drive continued from its database row at takeover (RIVOLT_DRIVE_DB_RESUME) counts as a db rehydrate, not as a fresh drive that could be a split.
+func TestRolloutDriveResumedFromTheDatabase(t *testing.T) {
+	ev := &rolloutEvents{}
+	m := rolloutMonitor(newMemLiveStateStore(), ev, func() (time.Time, bool) { return rolloutAt.Add(4 * time.Minute), true })
+	sess := &liveSessions{takeover: &takeoverTrack{at: rolloutAt.Add(5 * time.Minute)}}
+	sess.drive = &liveDrive{id: "d1", startedAt: rolloutAt, resumedFromDB: true}
+	m.noteTakeover(rolloutVID, sess, nil, nil)
+	if got := ev.waitFor(t, 1); len(got) != 1 || got[0] != "rehydrate/drive/db" {
+		t.Fatalf("events %v, want one rehydrate/drive/db and no split", got)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := ev.list(); len(got) != 1 {
+		t.Errorf("more events after the db rehydrate: %v", got)
+	}
+}
