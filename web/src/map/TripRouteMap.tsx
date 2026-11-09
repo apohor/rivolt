@@ -284,7 +284,7 @@ export function TripRouteMap({
         if (legPopup.options) legPopup.options.anchor = (side.side ? `${vertical}-${side.side}` : vertical) as never;
         legPopup.setLngLat([at[1], at[0]]).setDOMContent(root).addTo(map);
         exclusive(legPopup);
-        reclearOfChips(map, legPopup, ll);
+        reclearOfChips(map, legPopup, ll, true);
       });
     });
     return () => {
@@ -334,10 +334,43 @@ export function TripRouteMap({
     const y = map.project(ll).y;
     if (p.options) p.options.anchor = y < h * 0.45 && y + 300 < h ? pinSide(map, "top", ll, 280) : undefined;
   };
+  // The last word on the sides: after it is placed, a popup whose box leaves the map on the left or the right is re-anchored by that corner (its point
+  // sits near that edge), once the browser has laid it out. The pinned anchors above judge by a width that can still change.
+  const clampWatched = useRef(new Set<Popup>());
+  const clampSideways = (map: MLMap, p: Popup) => {
+    const fix = () => {
+      const pe = p.getElement();
+      if (!pe || !p.options || !p.isOpen()) return;
+      const m = map.getContainer().getBoundingClientRect();
+      const b = pe.getBoundingClientRect();
+      if (b.left >= m.left + 2 && b.right <= m.right - 2) return;
+      // It leaves the map: pick the side again from where its point is now, as when it opened (centred, else toward the roomier side, at the width that
+      // side has).
+      const a = String(p.options.anchor ?? [...pe.classList].find((c) => c.startsWith("maplibregl-popup-anchor-"))?.replace("maplibregl-popup-anchor-", "") ?? "top");
+      const vertical = a.startsWith("bottom") ? "bottom" : "top";
+      const want = Number.parseFloat(String(p.options.maxWidth)) || b.width;
+      const ll = p.getLngLat();
+      const side = fitSideways(map, ll, Math.max(want, 160));
+      p.options.anchor = (side.side ? `${vertical}-${side.side}` : vertical) as never;
+      p.setMaxWidth(`${side.width}px`);
+      p.setLngLat(ll);
+    };
+    requestAnimationFrame(fix);
+    window.setTimeout(fix, 250);
+    // The map can move after the popup is placed (the pan to a selected stop, the nudge clear of the chips, the visitor dragging it): look again when it stops.
+    if (!clampWatched.current.has(p)) {
+      clampWatched.current.add(p);
+      map.on("moveend", fix);
+      p.once("close", () => {
+        map.off("moveend", fix);
+        clampWatched.current.delete(p);
+      });
+    }
+  };
   // A popup's text can arrive after it opens (the what-if line, a charger's preview) and grow it into the chips above or under the phone's bottom sheet.
   // MapLibre re-picks an unset anchor on every move, so pin one: below the point when it fits there, else above it when that clears the chips, else below
   // with the map nudged up by the shortfall.
-  const reclearOfChips = (map: MLMap, p: Popup, ll: { lng: number; lat: number }) => {
+  const reclearOfChips = (map: MLMap, p: Popup, ll: { lng: number; lat: number }, keepInside = false) => {
     const chips = map.getContainer().parentElement?.querySelector<HTMLElement>("[data-map-chips]");
     const pe = p.getElement();
     if (!p.options || !chips || !pe) return;
@@ -345,17 +378,21 @@ export function TripRouteMap({
     const b = pe.getBoundingClientRect();
     const cr = map.getContainer().getBoundingClientRect();
     const limit = cr.top + mapRoomBottom(map);
+    // keepInside (the leg tooltip only) also re-picks the side whenever the card leaves the map; other popups keep their own placement rules.
+    // The card's width as laid out right now can be short of its final width (its text is not all in yet, a web font is still loading): pin the side for the
+    // widest it is allowed to get, or a point near an edge is judged to have room and the card runs past it.
+    const wide = (keepInside ? Math.max(b.width, Number.parseFloat(String(p.options.maxWidth)) || 0) : b.width) + 16;
     const underChips = !(b.right <= c.left || b.left >= c.right) && b.top < c.bottom && b.bottom > c.top;
-    if (!underChips && b.bottom <= limit) return;
+    if (!underChips && b.bottom <= limit) { if (keepInside) clampSideways(map, p); return; }
     const pointY = cr.top + map.project(ll).y;
     const room = limit - pointY - 24;
     const roomAbove = pointY - c.bottom - 24;
     if (b.height <= room) {
-      p.options.anchor = pinSide(map, "top", ll, b.width + 16);
+      p.options.anchor = pinSide(map, "top", ll, wide);
     } else if (b.height <= roomAbove) {
-      p.options.anchor = pinSide(map, "bottom", ll, b.width + 16);
+      p.options.anchor = pinSide(map, "bottom", ll, wide);
     } else {
-      p.options.anchor = pinSide(map, "top", ll, b.width + 16);
+      p.options.anchor = pinSide(map, "top", ll, wide);
       p.setLngLat(ll);
       // Below its point the popup spans pointY + 8 (the popup's offset) to that plus its height. Move the map up by what lifts its bottom 8 px clear of the
       // limit, but never so far that its top leaves the map (the old height-based sum overshot when the popup had been above its point). A positive y moves
@@ -364,9 +401,11 @@ export function TripRouteMap({
       const needUp = Math.ceil(top + b.height - (limit - 8));
       const maxUp = Math.max(0, Math.floor(top - (cr.top + 4)));
       map.panBy([0, Math.max(0, Math.min(needUp, maxUp))], { duration: 200 }, { rivoltPan: true });
+      if (keepInside) clampSideways(map, p);
       return;
     }
     p.setLngLat(ll);
+    if (keepInside) clampSideways(map, p);
   };
   const onSelectStopRef = useRef(onSelectStop);
   useEffect(() => { onSelectStopRef.current = onSelectStop; }, [onSelectStop]);
