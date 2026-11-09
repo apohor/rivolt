@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -24,8 +25,24 @@ type Fill struct {
 	Table   string
 	Key     string
 	KeyType string
-	Columns []FillColumn
+	// MoreKeys are the further columns of a composite key, after Key, in order (vehicle_state is keyed by vehicle_id, at). The cursor then covers the
+	// whole key (row comparison, `(a, b) > (x, y)`), so rows that share a leading value are walked in full. Key plus MoreKeys must be exactly the
+	// columns of one unique index, or the job is refused.
+	MoreKeys []FillKey
+	Columns  []FillColumn
+	// WriterRelease is the final tag (vX.Y.Z) of the release whose writers (the recorder, the API) already fill these columns on every new row.
+	// A job is registered only in a later release: a row written behind the cursor by an old writer is never revisited, yet the job would report
+	// done. The registration PR shows the writer live in that tag.
+	WriterRelease string
 }
+
+var releaseRE = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+
+// FillKey is one further column of a composite key.
+type FillKey struct{ Name, Type string }
+
+// keys lists the key columns in order.
+func (f Fill) keys() []FillKey { return append([]FillKey{{f.Key, f.KeyType}}, f.MoreKeys...) }
 
 // FillColumn is one column a Fill writes.
 type FillColumn struct {
@@ -47,11 +64,19 @@ func (f Fill) validate() error {
 	if !identRE.MatchString(f.Table) || !identRE.MatchString(f.Key) || !keyTypeRE.MatchString(f.KeyType) {
 		return fmt.Errorf("fill: table %q, key %q and key type %q must be plain identifiers and a known key type", f.Table, f.Key, f.KeyType)
 	}
+	for _, k := range f.MoreKeys {
+		if !identRE.MatchString(k.Name) || !keyTypeRE.MatchString(k.Type) {
+			return fmt.Errorf("fill: key column %q (%q) must be a plain identifier and a known key type", k.Name, k.Type)
+		}
+	}
+	if !releaseRE.MatchString(f.WriterRelease) {
+		return fmt.Errorf("fill: WriterRelease %q must be the final tag (vX.Y.Z) whose writers already fill the columns; register the job in a later release", f.WriterRelease)
+	}
 	if len(f.Columns) == 0 {
 		return fmt.Errorf("fill: no columns declared")
 	}
 	for _, c := range f.Columns {
-		if !identRE.MatchString(c.Name) || c.Name == f.Key {
+		if !identRE.MatchString(c.Name) || f.isKey(c.Name) {
 			return fmt.Errorf("fill: column %q must be a plain identifier and not the key", c.Name)
 		}
 		if strings.TrimSpace(c.Expr) == "" || strings.Contains(c.Expr, ";") || strings.Contains(c.Empty, ";") {
@@ -61,6 +86,15 @@ func (f Fill) validate() error {
 	return nil
 }
 
+func (f Fill) isKey(name string) bool {
+	for _, k := range f.keys() {
+		if k.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (c FillColumn) empty() string {
 	if strings.TrimSpace(c.Empty) != "" {
 		return "(" + c.Empty + ")"
@@ -68,8 +102,8 @@ func (c FillColumn) empty() string {
 	return "t." + c.Name + " IS NULL"
 }
 
-// sql is the batch statement: $1 is the cursor (the last key done, "" at the start), $2 the limit. It returns the number of rows changed and the
-// greatest key among them.
+// sql is the batch statement: $1 is the cursor (the last key done, "" at the start; for a composite key a JSON array of the key columns as text),
+// $2 the limit. It returns the number of rows changed and the greatest key among them (in the same form).
 func (f Fill) sql() string {
 	var anyEmpty, sets []string
 	for _, c := range f.Columns {
@@ -78,18 +112,48 @@ func (f Fill) sql() string {
 		sets = append(sets, fmt.Sprintf("%s = CASE WHEN %s THEN %s ELSE t.%s END", c.Name, e, c.Expr, c.Name))
 	}
 	where := strings.Join(anyEmpty, " OR ")
+	keys := f.keys()
+	var cols, cur, join, desc, bcols []string
+	for i, k := range keys {
+		cols = append(cols, "t."+k.Name)
+		bcols = append(bcols, "t."+k.Name)
+		join = append(join, fmt.Sprintf("t.%[1]s = b.%[1]s", k.Name))
+		desc = append(desc, k.Name+" DESC")
+		if len(keys) == 1 {
+			cur = append(cur, fmt.Sprintf("($1)::%s", k.Type))
+		} else {
+			cur = append(cur, fmt.Sprintf("(($1)::jsonb->>%d)::%s", i, k.Type))
+		}
+	}
+	after := fmt.Sprintf("(%s) > (%s)", strings.Join(cols, ", "), strings.Join(cur, ", "))
+	if len(keys) == 1 {
+		after = cols[0] + " > " + cur[0]
+	}
+	order := strings.Join(cols, ", ")
+	last := "max(" + keys[0].Name + ")::text"
+	if len(keys) > 1 {
+		var parts []string
+		for _, k := range keys {
+			parts = append(parts, k.Name+"::text")
+		}
+		last = fmt.Sprintf("(array_agg(json_build_array(%s) ORDER BY %s))[1]::text", strings.Join(parts, ", "), strings.Join(desc, ", "))
+	}
+	var ret []string
+	for _, k := range keys {
+		ret = append(ret, "t."+k.Name)
+	}
 	return fmt.Sprintf(`
 		WITH b AS (
-		    SELECT t.%[2]s FROM %[1]s t
-		     WHERE (($1)::text = '' OR t.%[2]s > ($1)::%[3]s) AND (%[4]s)
-		     ORDER BY t.%[2]s LIMIT $2
+		    SELECT %[2]s FROM %[1]s t
+		     WHERE (($1)::text = '' OR %[3]s) AND (%[4]s)
+		     ORDER BY %[6]s LIMIT $2
 		       FOR UPDATE OF t),
 		u AS (
 		    UPDATE %[1]s t SET %[5]s
-		      FROM b WHERE t.%[2]s = b.%[2]s AND (%[4]s)
-		 RETURNING t.%[2]s)
-		SELECT count(*), max(%[2]s)::text FROM u`,
-		f.Table, f.Key, f.KeyType, where, strings.Join(sets, ", "))
+		      FROM b WHERE %[7]s AND (%[4]s)
+		 RETURNING %[8]s)
+		SELECT count(*), %[9]s FROM u`,
+		f.Table, strings.Join(bcols, ", "), after, where, strings.Join(sets, ", "), order, strings.Join(join, " AND "), strings.Join(ret, ", "), last)
 }
 
 // keyError says the Fill's key cannot carry the cursor.
@@ -97,23 +161,36 @@ type keyError struct{ msg string }
 
 func (e *keyError) Error() string { return e.msg }
 
-// checkKey refuses a Fill whose Key is not a single-column, non-null, valid unique index (a primary key counts) on the table: the cursor is
-// `key > last`, so on a key that repeats, a batch boundary inside equal keys would skip the rest of that value forever.
+// checkKey refuses a Fill whose key columns are not exactly the columns of one valid, non-partial, plain-column unique index (a primary key counts)
+// on the table, all of them NOT NULL: the cursor walks `key > last` in key order, so a key that repeats would skip the rest of a value at a batch
+// boundary.
 func (f Fill) checkKey(ctx context.Context, db *sql.DB) error {
+	var names []string
+	for _, k := range f.keys() {
+		names = append(names, k.Name)
+	}
 	var ok bool
 	err := db.QueryRowContext(ctx, `
 		SELECT EXISTS (
 		    SELECT 1 FROM pg_index i
-		      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
-		     WHERE i.indrelid = to_regclass($1) AND i.indisunique AND i.indisvalid AND i.indnatts = 1
-		       AND i.indpred IS NULL AND i.indexprs IS NULL AND a.attname = $2 AND a.attnotnull)`, f.Table, f.Key).Scan(&ok)
+		     WHERE i.indrelid = to_regclass($1) AND i.indisunique AND i.indisvalid
+		       AND i.indpred IS NULL AND i.indexprs IS NULL AND i.indnkeyatts = $3
+		       AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text) FROM pg_attribute a
+		             WHERE a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey::int2[]) AND a.attnotnull) = $2::text[])`,
+		f.Table, "{"+strings.Join(sortedCopy(names), ",")+"}", len(names)).Scan(&ok)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return &keyError{fmt.Sprintf("fill: %s.%s is not a single-column primary key or unique index; the keyset cursor would skip rows", f.Table, f.Key)}
+		return &keyError{fmt.Sprintf("fill: %s(%s) is not exactly the not-null columns of one unique index; the keyset cursor would skip rows", f.Table, strings.Join(names, ", "))}
 	}
 	return nil
+}
+
+func sortedCopy(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
 }
 
 // Step makes the Job.Step of a Fill.

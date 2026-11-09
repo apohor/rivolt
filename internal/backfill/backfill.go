@@ -27,9 +27,9 @@
 // back with its progress and is retried after the pause (rivolt_backfill_retries_total); only five in a row, or any other error, mark the job failed.
 //
 // Registration order: a job is registered only in a release AFTER the one whose writers (the recorder, the API) fill the new column for every new
-// row. A row written behind the cursor by a writer that does not yet fill the column stays unfilled while the job reports done, and nothing walks
-// back to it. A Fill's key must be a single-column primary key or unique index (checked before the first batch; vehicle_state, keyed by
-// (vehicle_id, at), is refused until the cursor supports composite keys).
+// row; Fill.WriterRelease names that tag and is required. A row written behind the cursor by a writer that does not yet fill the column stays
+// unfilled while the job reports done, and nothing walks back to it. A Fill's key (Key plus MoreKeys, a composite key walked as a row comparison)
+// must be exactly the columns of one unique index (checked before the first batch), so no row is skipped at a batch boundary.
 //
 // Pausing: RIVOLT_BACKFILL=0 stops every job (the runner is on by default, with an empty registry); a row in `flags` named backfill.<job>.paused
 // with value {"paused": true} stops that one job, checked before every batch (a malformed row also pauses it: the safe reading). Progress is kept
