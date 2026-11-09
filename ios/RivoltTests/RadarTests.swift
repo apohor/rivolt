@@ -118,4 +118,35 @@ final class RadarTests: XCTestCase {
         XCTAssertNil(style.layer(withIdentifier: RadarLayer.sourceID))
         XCTAssertNil(style.source(withIdentifier: RadarLayer.sourceID))
     }
+
+    func testTheRadarDefaultFromTheSettingsTurnsItOnOncePerSessionWhereThereIsRadar() async {
+        let m = RadarModel(), src = Fake()
+        src.answers = [.success(frame(100)), .success(frame(200))]
+        await m.applyDefault(on: true, source: src)
+        XCTAssertEqual(m.availability, .available)
+        XCTAssertTrue(m.isOn, "the setting says radar is on to begin with")
+        await m.toggle(source: src)
+        XCTAssertFalse(m.isOn, "the person turns it off on the map")
+        await m.applyDefault(on: true, source: src)
+        XCTAssertFalse(m.isOn, "the next plan does not switch it back on")
+        m.reset()
+        src.answers = [.success(frame(300))]
+        await m.applyDefault(on: true, source: src)
+        XCTAssertTrue(m.isOn, "a new session or server applies it again")
+    }
+
+    func testTheRadarDefaultChangesNothingWhenOffOrWhereThereIsNoRadar() async {
+        let off = RadarModel(), a = Fake()
+        a.answers = [.success(frame(100))]
+        await off.applyDefault(on: false, source: a)
+        XCTAssertEqual(off.availability, .available)
+        XCTAssertFalse(off.isOn)
+        XCTAssertEqual(a.calls, 0, "no frame asked for when it stays off")
+        let none = RadarModel(), b = Fake()
+        b.config = .success(MapsConfig(tiles: .init()))
+        await none.applyDefault(on: true, source: b)
+        XCTAssertEqual(none.availability, .unavailable)
+        XCTAssertFalse(none.isOn)
+        XCTAssertEqual(b.calls, 0)
+    }
 }

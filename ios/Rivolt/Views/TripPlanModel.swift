@@ -324,6 +324,7 @@ final class TripPlanModel {
         prefsLoaded = true
         guard let prefs = try? await source.plannerPrefs(), let m = PlannerMapSettings(prefs) else { return }
         plannerMap = m
+        weatherOn = m.weatherOn
         layers = Set(m.layersOn.compactMap(MapLayer.init(kind:)))
         wantsPreferredOnly = m.preferredOnly
         if wantsPreferredOnly, !preferredSlugs.isEmpty, layers.contains(.chargers) { preferredOnly = true; wantsPreferredOnly = false }
