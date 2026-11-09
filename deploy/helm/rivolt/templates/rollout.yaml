@@ -1,0 +1,28 @@
+{{- if .Values.rollout.enabled }}
+# Argo Rollouts' Rollout in place of the Deployment (rollout.enabled): the same pod template (rivolt.podTemplate), the same selector, the same
+# replica count, plus the strategy from rollout.strategy. The migrate Job at wave 0 still runs first: this is applied at wave 1 like the Deployment.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "rivolt.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+  {{- if .Values.migrate.job.enabled }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  {{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      {{- include "rivolt.selectorLabels" . | nindent 6 }}
+  {{- with .Values.rollout.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:{{ include "rivolt.podTemplate" . }}
+{{- end }}
