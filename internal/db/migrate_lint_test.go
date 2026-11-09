@@ -115,9 +115,11 @@ var (
 	reDropTrig    = regexp.MustCompile(`(?is)^drop\s+trigger\s+(?:if\s+exists\s+)?\S+\s+on\s+(\S+)`)
 	reDropTable   = regexp.MustCompile(`(?is)^drop\s+table\s+(?:if\s+exists\s+)?(\S+)`)
 	reTruncate    = regexp.MustCompile(`(?is)^truncate\s+(?:table\s+)?(?:only\s+)?(\S+)`)
-	reDropIndex   = regexp.MustCompile(`(?is)^drop\s+index\b`)
-	reDoBlock     = regexp.MustCompile(`(?is)^do\b`)
-	reDynamicDDL  = regexp.MustCompile(`(?is)\b(alter\s+table|create\s+(?:unique\s+)?index|create\s+(?:or\s+replace\s+)?(?:constraint\s+)?trigger|drop\s+trigger|drop\s+table|truncate)\b`)
+	// A foreign key (inline REFERENCES or table-level FOREIGN KEY ... REFERENCES) takes SHARE ROW EXCLUSIVE on the referenced table.
+	reReferences = regexp.MustCompile(`(?is)\breferences\s+("?[A-Za-z_][A-Za-z0-9_.]*"?)`)
+	reDropIndex  = regexp.MustCompile(`(?is)^drop\s+index\b`)
+	reDoBlock    = regexp.MustCompile(`(?is)^do\b`)
+	reDynamicDDL = regexp.MustCompile(`(?is)\b(alter\s+table|create\s+(?:unique\s+)?index|create\s+(?:or\s+replace\s+)?(?:constraint\s+)?trigger|drop\s+trigger|drop\s+table|truncate)\b`)
 )
 
 // lockTimeoutSet matches a SET LOCAL lock_timeout and captures its value and unit. Postgres reads a bare number as milliseconds.
@@ -158,7 +160,13 @@ func lockFindings(src string) []string {
 			continue
 		}
 		if m := reCreateTable.FindStringSubmatch(t); m != nil {
-			created[bareTable(m[1])] = true
+			self := bareTable(m[1])
+			for _, r := range reReferences.FindAllStringSubmatch(t, -1) {
+				if ref := bareTable(r[1]); ref != self && !created[ref] && !bounded {
+					bad = append(bad, "a foreign key to "+ref)
+				}
+			}
+			created[self] = true
 			continue
 		}
 		var table, what string
@@ -169,6 +177,14 @@ func lockFindings(src string) []string {
 			if m := re.re.FindStringSubmatch(t); m != nil {
 				table, what = bareTable(m[1]), re.what
 				break
+			}
+		}
+		if what == "ALTER TABLE" {
+			// ADD [CONSTRAINT x] FOREIGN KEY ... REFERENCES other / ADD COLUMN ... REFERENCES other: a lock on the other table as well.
+			for _, r := range reReferences.FindAllStringSubmatch(t, -1) {
+				if ref := bareTable(r[1]); ref != table && !created[ref] && !bounded {
+					bad = append(bad, "a foreign key to "+ref)
+				}
 			}
 		}
 		switch {
@@ -293,9 +309,14 @@ func TestLockFindings(t *testing.T) {
 		"TRUNCATE TABLE caches;",
 		"DROP INDEX some_idx;",
 		"DO $$ BEGIN EXECUTE 'ALTER TABLE users ADD COLUMN z int'; END $$;",
-		"CREATE TABLE a (id int);\nALTER TABLE b ADD COLUMN x int;",        // another table
-		"ALTER TABLE users ADD COLUMN x int;\n" + set,                      // the timeout comes after
-		"SET LOCAL lock_timeout = 0;\nALTER TABLE users ADD COLUMN x int;", // zero is unbounded
+		"CREATE TABLE a (id int);\nALTER TABLE b ADD COLUMN x int;",                                                        // another table
+		"ALTER TABLE users ADD COLUMN x int;\n" + set,                                                                      // the timeout comes after
+		"SET LOCAL lock_timeout = 0;\nALTER TABLE users ADD COLUMN x int;",                                                 // zero is unbounded
+		"CREATE TABLE notes (id int, user_id uuid REFERENCES users (id));",                                                 // inline REFERENCES locks users
+		"CREATE TABLE notes (id int, user_id uuid, FOREIGN KEY (user_id) REFERENCES public.users (id));",                   // table-level
+		"CREATE TABLE a (id int);\nCREATE TABLE notes (id int, a_id int REFERENCES a (id), u uuid REFERENCES users (id));", // one is new, one is not
+		"CREATE TABLE a (id int);\nALTER TABLE a ADD COLUMN u uuid REFERENCES users (id);",                         // ADD COLUMN ... REFERENCES
+		"CREATE TABLE a (id int, u uuid);\nALTER TABLE a ADD CONSTRAINT fk FOREIGN KEY (u) REFERENCES users (id);", // ADD CONSTRAINT
 	} {
 		if len(lockFindings(bad)) == 0 {
 			t.Errorf("lint misses %q", bad)
@@ -311,6 +332,10 @@ func TestLockFindings(t *testing.T) {
 		"INSERT INTO t (note) VALUES ('ALTER TABLE users ADD COLUMN x int');",
 		"CREATE FUNCTION f() RETURNS trigger AS $$ BEGIN ALTER TABLE users ADD COLUMN x int; RETURN NEW; END $$ LANGUAGE plpgsql;", // defined, not run
 		"CREATE TABLE a (id int);\nCREATE TABLE b (LIKE a);\nCREATE INDEX i ON b (id);",
+		"CREATE TABLE a (id int PRIMARY KEY);\nCREATE TABLE b (id int, a_id int REFERENCES a (id));", // references a table made here
+		"CREATE TABLE tree (id int PRIMARY KEY, parent int REFERENCES tree (id));",                   // self reference
+		set + "CREATE TABLE notes (id int, user_id uuid REFERENCES users (id));",                     // bounded first
+		"-- REFERENCES users in a comment\nCREATE TABLE plain (id int);",
 		"SELECT 1;",
 	} {
 		if bad := lockFindings(fine); len(bad) > 0 {
