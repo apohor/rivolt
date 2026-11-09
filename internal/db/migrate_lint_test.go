@@ -20,6 +20,10 @@ import (
 // this one covers all tables from lintAllFrom on, so history is not re-litigated.
 const lintAllFrom = 109
 
+// backfillLintFrom: data-moving statements are refused from migration 0110 on (DA: no warning period). The list of small tables below is the one
+// exemption, and changing it needs DA's ack.
+const backfillLintFrom = 110
+
 // sqlStatements splits a migration into its statements, comments removed, string literals and dollar-quoted bodies kept whole (a DO block
 // or function body is one statement). A statement carries the byte offset where it starts in the original file.
 type sqlStmt struct {
@@ -421,8 +425,10 @@ func TestEveryExistingTableLockSetsLockTimeout(t *testing.T) {
 		if bad := lockFindings(string(body)); len(bad) > 0 {
 			t.Errorf("%s: %s without a bounded (1 ms to 10 s) SET LOCAL lock_timeout = '5s' before it (a table created in the same file is exempt)", base, strings.Join(bad, ", "))
 		}
-		if bad := backfillFindings(string(body)); len(bad) > 0 {
-			t.Errorf("%s: %s moves data in a migration; schema only here, move the data with a backfill job (internal/backfill), or add a line \"-- da-ack: backfill-in-migration <reason>\" once DA has acked it on the PR", base, strings.Join(bad, ", "))
+		if n, ok := migrationNumber(base); !ok || n >= backfillLintFrom { // a date-prefixed name is newer than any numbered one
+			if bad := backfillFindings(string(body)); len(bad) > 0 {
+				t.Errorf("%s: %s moves data in a migration; schema only here, move the data with a backfill job (internal/backfill), or add a line \"-- da-ack: backfill-in-migration <reason>\" once DA has acked it on the PR", base, strings.Join(bad, ", "))
+			}
 		}
 		if bad := rewriteFindings(string(body)); len(bad) > 0 {
 			t.Errorf("%s: %s can rewrite or scan an existing table under a lock; add a line \"-- da-ack: rewrite <reason>\" once DA has acked it on the PR", base, strings.Join(bad, ", "))

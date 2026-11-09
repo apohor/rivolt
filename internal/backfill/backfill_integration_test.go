@@ -43,7 +43,7 @@ func setup(t *testing.T, n int) *sql.DB {
 // fillJob sets v = 1 on the rows after the cursor, in key order, counting every touch so a repeated row shows.
 func fillJob(name string, fail *atomic.Int32) backfill.Job {
 	return backfill.Job{
-		Name: name, BatchSize: 500,
+		Name: name, Table: "bf_test", BatchSize: 500,
 		Step: func(ctx context.Context, tx *sql.Tx, cursor string, limit int) (backfill.Result, error) {
 			if fail != nil && fail.Add(-1) >= 0 {
 				return backfill.Result{}, errors.New("boom")
@@ -245,5 +245,56 @@ func TestPauseFlagHoldsOneJob(t *testing.T) {
 	}
 	if u, rep := counts(t, pool); u != 0 || rep != 0 {
 		t.Errorf("after the flag cleared: unfilled %d repeated %d", u, rep)
+	}
+}
+
+// A Fill writes only its declared columns and only where they are still empty, and a value written meanwhile is never overwritten.
+func TestFillWritesOnlyEmptyDeclaredColumns(t *testing.T) {
+	pool := setup(t, 3000)
+	ctx := context.Background()
+	for _, q := range []string{
+		`ALTER TABLE bf_test ADD COLUMN w int NOT NULL DEFAULT 0`,
+		`ALTER TABLE bf_test ADD COLUMN untouched int`,
+		`UPDATE bf_test SET v = 99 WHERE id % 10 = 0`, // already filled by someone else: stays 99
+		`UPDATE bf_test SET w = 5 WHERE id % 7 = 0`,   // w has its own notion of empty (0): these stay 5
+		`UPDATE bf_test SET untouched = id`,           // not declared: must be identical afterwards
+	} {
+		if _, err := pool.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fill := &backfill.Fill{Table: "bf_test", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{
+		{Name: "v", Expr: "t.id * 2"},
+		{Name: "w", Expr: "t.id + 1", Empty: "t.w = 0"},
+	}}
+
+	// A concurrent writer holds row 1003 and fills v itself before the batch gets there.
+	holder, err := pool.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := holder.ExecContext(ctx, `UPDATE bf_test SET v = 77 WHERE id = 1003`); err != nil {
+		t.Fatal(err)
+	}
+	released := make(chan struct{})
+	go func() { time.Sleep(300 * time.Millisecond); _ = holder.Commit(); close(released) }()
+
+	r := &backfill.Runner{DB: pool, Jobs: []backfill.Job{{Name: "fillcols", Fill: fill, BatchSize: 1000}}, Pause: time.Millisecond}
+	if _, working, err := r.Pass(ctx); err != nil || working {
+		t.Fatalf("pass: working %v err %v", working, err)
+	}
+	<-released
+
+	var wrongV, wrongW, changedUntouched, row1003 int
+	if err := pool.QueryRowContext(ctx, `
+		SELECT count(*) FILTER (WHERE v IS DISTINCT FROM CASE WHEN id % 10 = 0 THEN 99 WHEN id = 1003 THEN 77 ELSE id * 2 END),
+		       count(*) FILTER (WHERE w IS DISTINCT FROM CASE WHEN id % 7 = 0 THEN 5 ELSE id + 1 END),
+		       count(*) FILTER (WHERE untouched IS DISTINCT FROM id),
+		       max(v) FILTER (WHERE id = 1003)
+		  FROM bf_test`).Scan(&wrongV, &wrongW, &changedUntouched, &row1003); err != nil {
+		t.Fatal(err)
+	}
+	if wrongV != 0 || wrongW != 0 || changedUntouched != 0 || row1003 != 77 {
+		t.Errorf("wrong v %d, wrong w %d, changed undeclared %d, row 1003 v %d: want 0 0 0 and the concurrent writer's 77 kept", wrongV, wrongW, changedUntouched, row1003)
 	}
 }

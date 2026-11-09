@@ -54,6 +54,10 @@ type Result struct {
 // Job is one backfill. Name is permanent (it keys the progress row): never rename a job that has started.
 type Job struct {
 	Name string
+	// Table is the table the job writes (set from the Fill; a raw Step declares it). A job on a recorder table must be a Fill.
+	Table string
+	// Fill, when set, builds the job's Step (see Fill): the declared columns, written only where still empty, computed inside the UPDATE.
+	Fill *Fill
 	// BatchSize is the rows per batch; 0 is DefaultBatch. Interval is the wait between this job's batches; 0 is the runner's Pause.
 	BatchSize int
 	Interval  time.Duration
@@ -155,6 +159,10 @@ func (r *Runner) Pass(ctx context.Context) (ran, working bool, err error) {
 		for _, j := range r.Jobs {
 			if ctx.Err() != nil {
 				return ctx.Err()
+			}
+			if err := j.Validate(); err != nil {
+				r.log().Error("backfill refused", "err", err.Error()) // a job that breaks the rules does not run; the others do
+				continue
 			}
 			st, err := r.runJob(ctx, j)
 			if err != nil {
