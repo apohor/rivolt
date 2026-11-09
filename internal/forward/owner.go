@@ -306,8 +306,10 @@ func (o *Owner) run(ctx context.Context, req *Request, args any, nowMS int64) {
 	}
 	body := res.Body
 	if len(body) > MaxReplyBytes-1024 {
-		o.reply(ctx, req, Reply{OK: false, Status: StatusTooBig, Class: ClassReplyTooBig})
+		// Counted before the answer is sent, like every other outcome: once the requester has the reply the count must already be there (a reader
+		// of the metric, or a test, that sees the reply must also see the count).
 		o.count(req.Kind, "too_big")
+		o.reply(ctx, req, Reply{OK: false, Status: StatusTooBig, Class: ClassReplyTooBig})
 		return
 	}
 	o.count(req.Kind, "ok")
