@@ -8,3 +8,8 @@ Tick the first line, or every other line that applies:
 
 ### Policy pages
 CI (`policy-dates`) fails a PR that changes the text of `web/src/content/privacy.md` or `terms.md` without moving its "Last updated" date forward, in the same PR. The frozen October 23, 2026 Terms (`terms-2026-10-23.md`, served at `/terms/2026-10-23`) never change. If you change policy text, put the merge date at the top and say so here.
+
+### Contract migrations (zero-impact deploys)
+CI (`contract-gate`) checks a migration this PR adds with a `-- contract:` line (it drops, renames or tightens something). It must also say `-- contract-after: vX.Y.Z`, the final release in which no code reads what it removes: older than the newest final release and not newer than any deployment's pin. Fill in the pins from `rivolt-infra` (`apps/platform/*/app.yaml`) and delete the line when the PR adds no contract migration:
+
+Pinned now: prod vX.Y.Z, demo vX.Y.Z, admin vX.Y.Z
