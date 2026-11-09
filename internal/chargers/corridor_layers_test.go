@@ -529,3 +529,59 @@ func TestSpreadPrefersTheStationNearestTheRoute(t *testing.T) {
 		t.Errorf("kept %v, want [near350 tail]", names)
 	}
 }
+
+// The planner settings: a preset resizes each kind's width, start exclusion drops stations near the route's start (and Total agrees), and the
+// minimum fast power drops only fast chargers of a known power below it.
+func TestPlannerSettingsPresetsStartAndPower(t *testing.T) {
+	const row, x0 = 6000, 1000
+	mk := func(i int, rows int, p map[string]any) station {
+		return station{x: x0 + uint32(i), y: uint32(row + rows), props: p}
+	}
+	a := loaded(t, archiveAt(t, []station{
+		mk(2, 0, map[string]any{"@id": "fast_start", "dcfc_count": 2, "max_power_kw": 350}),
+		mk(30, 2, map[string]any{"@id": "fast_slow", "dcfc_count": 2, "max_power_kw": 62}),
+		mk(40, 2, map[string]any{"@id": "fast_unknown", "dcfc_count": 2}),
+		mk(50, 3, map[string]any{"@id": "fast_mid", "dcfc_count": 2, "max_power_kw": 150}),     // about 5.2 km: outside close (3.2), inside normal (8)
+		mk(60, 8, map[string]any{"@id": "fast_wide", "dcfc_count": 2, "max_power_kw": 150}),    // about 14 km: only wide (16)
+		mk(70, 4, map[string]any{"@id": "hotel_mid", "facility_type": "HOTEL", "l2_count": 1}), // about 7 km: close (8) keeps it
+	}))
+	path := make([][2]float64, 0, 100)
+	for i := 0; i < 100; i++ {
+		c := maptile.New(uint32(x0+i), row, 14).Bound().Center()
+		path = append(path, [2]float64{c[1], c[0]})
+	}
+	kinds := []string{"dcfc", "hotels"}
+	q := func(preset string, o LayerOptions) map[string]bool {
+		o.QueryCorridorOptions.IncludeEndpoints = true
+		o.KindKm = CorridorPresets[preset]
+		r, err := a.QueryLayers(path, kinds, o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Total != len(r.POIs) {
+			t.Errorf("%s: total %d but %d returned", preset, r.Total, len(r.POIs))
+		}
+		got := map[string]bool{}
+		for _, id := range ids(r) {
+			got[id] = true
+		}
+		return got
+	}
+	if g := q("normal", LayerOptions{}); !g["fast_mid"] || g["fast_wide"] || !g["hotel_mid"] {
+		t.Errorf("normal: %v", g)
+	}
+	if g := q("close", LayerOptions{}); g["fast_mid"] || !g["hotel_mid"] {
+		t.Errorf("close: %v", g)
+	}
+	if g := q("wide", LayerOptions{}); !g["fast_mid"] || !g["fast_wide"] {
+		t.Errorf("wide: %v", g)
+	}
+	// 25 miles is about 40 km: fast_start (about 5 km along) goes, the rest stay.
+	if g := q("normal", LayerOptions{MinAlongKm: 25 * 1.609344}); g["fast_start"] || !g["fast_mid"] {
+		t.Errorf("start exclusion: %v", g)
+	}
+	// 150 kW: the 62 kW charger goes, the unknown-power one stays, the 150 stays; a hotel is not a fast charger and is untouched.
+	if g := q("normal", LayerOptions{MinFastKW: 150}); g["fast_slow"] || !g["fast_unknown"] || !g["fast_mid"] || !g["hotel_mid"] {
+		t.Errorf("min fast power: %v", g)
+	}
+}
