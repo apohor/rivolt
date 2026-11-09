@@ -534,6 +534,7 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	registerMigrateMetrics(appMetrics)
 	var planElevation api.ElevationBlocking // the recorder's DEM resolver when ELEVATION_ENABLED=1: the plan reads the climb along each leg from it
 	weatherClient, werr := newWeatherClient(os.Getenv, appMetrics)
 	if werr != nil {
