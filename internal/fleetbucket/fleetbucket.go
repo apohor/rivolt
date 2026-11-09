@@ -22,7 +22,9 @@ import (
 // Config sizes a Bucket. Zero values fall back to the defaults below.
 type Config struct {
 	// LocalRPS and FleetRPS are the calls per second one process and the whole fleet may start. Defaults 10 and 20 (no Rivian 429 data yet: raise
-	// them only from observed 429s and the takeover p95).
+	// them only from observed 429s and the takeover p95). FleetRPS is the budget for ACTIVE calls: idle calls have their own counter, at most
+	// FleetRPS/2, and an active call does not read it, so the two together can reach 1.5 x FleetRPS in one second (20 active + 10 idle at the
+	// default). Do not size FleetRPS from Rivian 429 data as if it were the total.
 	LocalRPS int
 	FleetRPS int
 	// ActiveMaxWait and IdleMaxWait bound one Wait. Active vehicles must not wait long; idle ones may queue.
@@ -233,6 +235,11 @@ func (b *Bucket) fleetSlot(wctx context.Context, active bool) (ok, local bool) {
 		}
 		n, other, err := b.take(wctx, sec, kind, !active)
 		if err != nil {
+			if wctx.Err() != nil {
+				// The caller's own bound ran out before or during the call (a long local wait left it little time): Redis did not fail, so do not
+				// send the whole pod to local-only pacing for the backoff, and do not claim a slot that was never taken.
+				return false, false
+			}
 			b.markRedisDown()
 			return true, true
 		}

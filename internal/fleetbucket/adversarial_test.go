@@ -179,3 +179,22 @@ func TestActiveAndIdleTogetherCanReachOneAndAHalfTimesTheBudget(t *testing.T) {
 	}
 	// 30 calls started in one fleet second against a budget of 20.
 }
+
+// A caller whose own bound has run out (a long local wait used it up) reaches the Redis call with no time left and gets DeadlineExceeded. That is
+// the caller's bound, not a Redis failure: it must not send the whole pod to local-only pacing for the backoff, in the middle of the surge.
+func TestACallersOwnBoundRunningOutDoesNotMarkRedisDown(t *testing.T) {
+	mr := miniredis.RunT(t)
+	b := New(Config{Redis: client(t, mr), Prefix: "t", RedisBackoff: 10 * time.Second})
+	wctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	time.Sleep(5 * time.Millisecond)
+	if ok, _ := b.fleetSlot(wctx, true); ok {
+		t.Error("a slot was reported taken with the bound already past")
+	}
+	if b.redisDown() {
+		t.Error("the caller's expired bound marked a healthy Redis down")
+	}
+	if r := b.Wait(context.Background(), "x", "", true); r.Local {
+		t.Errorf("a later caller was paced locally only: %+v", r)
+	}
+}

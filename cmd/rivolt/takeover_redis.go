@@ -12,7 +12,7 @@ func takeoverRedis(shared *redis.Client) *redis.Client {
 	}
 	o := *shared.Options()
 	o.ContextTimeoutEnabled = true
-	o.PoolSize = 4
+	o.PoolSize = takeoverRedisPoolSize
 	o.MinIdleConns = 0
 	return redis.NewClient(&o)
 }
