@@ -4,11 +4,13 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/fence"
 )
 
 // G2a: a takeover without the Redis snapshot continues the drive from its row. Pod A opens and writes a drive; pod B, a new monitor with no
@@ -127,5 +129,58 @@ func TestDriveResumesFromTheDatabaseAfterATakeover(t *testing.T) {
 	_ = sc.handleDriveLifecycle(frame(t0.Add(20*time.Minute), "D", 15, 35.2), nil, c, ctx)
 	if sc.drive == nil || sc.drive.id == first {
 		t.Errorf("the next trip reused the closed drive: %+v", sc.drive)
+	}
+}
+
+// Under the group lease: the row a new owner resumed is written by the new epoch, and the old owner's late write of the same row is refused.
+func TestResumedDriveIsWrittenByTheNewEpochAndTheOldOneIsRefused(t *testing.T) {
+	pool := ownerTestPool(t)
+	ctx := context.Background()
+	uid, err := db.EnsureUser(ctx, pool, "drive-resume-fence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := drives.NewFactory(pool, db.NewVehicleResolverFactory(pool)).For(uid)
+	const vid = "v-drf"
+	lease := func(pod string) fence.Token {
+		var epoch int64
+		if err := pool.QueryRowContext(ctx, `INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
+			VALUES ($1, $2, nextval('account_lease_epoch'), now(), now(), now() + interval '30 seconds')
+			ON CONFLICT (group_id) DO UPDATE SET pod_id = EXCLUDED.pod_id, epoch = EXCLUDED.epoch, expires_at = EXCLUDED.expires_at, released_at = NULL
+			RETURNING epoch`, uid, pod).Scan(&epoch); err != nil {
+			t.Fatal(err)
+		}
+		return fence.Token{Group: uid.String(), Pod: pod, Epoch: epoch}
+	}
+	t0 := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+	row := drives.Drive{ID: "live_v-drf_d_1", VehicleID: vid, StartedAt: t0, EndedAt: t0.Add(2 * time.Minute), StartSoCPct: 80, EndSoCPct: 78,
+		StartOdometerMi: 600, EndOdometerMi: 610, DistanceMi: 10, Source: "live", Open: true}
+
+	old := lease("pod-old")
+	if err := store.Upsert(fence.With(ctx, old), row); err != nil {
+		t.Fatalf("the old owner's write: %v", err)
+	}
+	cur := lease("pod-new") // the takeover: a new epoch
+	found, err := store.LatestOpenLive(ctx, vid)
+	if err != nil || found == nil || found.ID != row.ID {
+		t.Fatalf("the new owner finds %v (%v), want the open row", found, err)
+	}
+	// The resumed drive's first write, after the warm-up, lands...
+	resumed := *found
+	resumed.EndedAt = resumed.EndedAt.Add(3 * time.Minute)
+	resumed.EndOdometerMi += 5
+	resumed.Open = true
+	if err := store.Upsert(fence.With(ctx, cur), resumed); err != nil {
+		t.Fatalf("the new epoch's write was refused: %v", err)
+	}
+	// ...and the old epoch's late write of the same drive is refused and changes nothing.
+	late := row
+	late.EndedAt = row.EndedAt.Add(30 * time.Second)
+	if err := store.Upsert(fence.With(ctx, old), late); err == nil || !errors.Is(err, fence.ErrFenced) {
+		t.Fatalf("the old epoch's late write: %v, want fence.ErrFenced", err)
+	}
+	got, err := store.LatestOpenLive(ctx, vid)
+	if err != nil || got == nil || got.EndOdometerMi != resumed.EndOdometerMi || !got.EndedAt.Equal(resumed.EndedAt) {
+		t.Errorf("the row after the refused write: %+v (%v), want the new epoch's", got, err)
 	}
 }
