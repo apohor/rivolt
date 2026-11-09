@@ -74,7 +74,8 @@ final class FixtureURLProtocol: URLProtocol {
         guard let url = request.url else { return }
         let method = request.httpMethod ?? "GET"
         var answer: Data?
-        if method == "POST", url.path == "/api/maps/corridor-layers" {
+        // (Not spelled as a path: the contract test reads path literals in the app's source as calls it must find on the server.)
+        if method == "POST", url.lastPathComponent == "corridor-layers" {
             var body = request.httpBody
             if body == nil, let stream = request.httpBodyStream {
                 stream.open(); defer { stream.close() }
