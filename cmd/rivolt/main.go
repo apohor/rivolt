@@ -1316,6 +1316,21 @@ func runServer() {
 			monitorRegistry.SetTakeoverLimiter(fleetbucket.New(fleetbucket.Config{
 				LocalRPS: envInt("RIVOLT_TAKEOVER_LOCAL_RPS", 0), FleetRPS: envInt("RIVOLT_TAKEOVER_FLEET_RPS", 0),
 				Redis: sharedRedis, Prefix: redisKeyPrefix,
+				Observe: func(class string, active bool, r fleetbucket.Result) {
+					prio := "idle"
+					if active {
+						prio = "active"
+					}
+					if !r.Shared {
+						appMetrics.TakeoverWaitSeconds.WithLabelValues(class, prio).Observe(r.Waited.Seconds())
+					}
+					if r.Starved {
+						appMetrics.TakeoverStarvedTotal.WithLabelValues(class, prio).Inc()
+					}
+					if r.Local {
+						appMetrics.TakeoverLocalOnlyTotal.WithLabelValues(class).Inc()
+					}
+				},
 			}))
 			logger.Info("takeover pacing enabled")
 		}

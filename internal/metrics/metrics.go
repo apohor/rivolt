@@ -185,6 +185,13 @@ type Metrics struct {
 	// LeaseAcquireToFrame is the seconds from a vehicle lease being acquired to the first frame
 	// recorded after it, by state (active: open drive or charge; idle). The flag-on bar is active p95 <= 12 s.
 	LeaseAcquireToFrame *prometheus.HistogramVec
+	// TakeoverWaitSeconds is how long a takeover's Rivian call waited for its slot in the pacing (G7), by class (dial, seed, features) and
+	// priority (active: a driving or charging vehicle; idle). TakeoverStarvedTotal counts the calls that went ahead after the bound without a
+	// slot, TakeoverLocalOnlyTotal the ones paced by the local bucket alone because Redis did not answer. A call that shared a session's slot
+	// waits zero and is not counted in the wait histogram. All created at 0.
+	TakeoverWaitSeconds    *prometheus.HistogramVec
+	TakeoverStarvedTotal   *prometheus.CounterVec
+	TakeoverLocalOnlyTotal *prometheus.CounterVec
 	// LeaseReconcileTotal counts the coordinator's reconcile passes by what started them: start (boot), tick (the timer), signal (a peer released
 	// groups and said so, G1a) or other (a fenced write, a refused call or the first request asking for a pass). Created at 0. The share of
 	// signal against tick is how much of the hand-off wait the signal removed.
@@ -457,6 +464,19 @@ func New() *Metrics {
 			},
 			[]string{"state"},
 		),
+		TakeoverWaitSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "rivolt_rivian_takeover_wait_seconds",
+			Help:    "Seconds a takeover's Rivian call waited for its pacing slot, by class (dial, seed, features) and priority (active, idle).",
+			Buckets: []float64{0.01, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 300},
+		}, []string{"class", "priority"}),
+		TakeoverStarvedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_rivian_takeover_starved_total",
+			Help: "Takeover calls that went ahead without a pacing slot after the wait bound (30 s active, 5 min idle).",
+		}, []string{"class", "priority"}),
+		TakeoverLocalOnlyTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_rivian_takeover_local_only_total",
+			Help: "Takeover calls paced by the process's own bucket alone because the fleet budget in Redis did not answer.",
+		}, []string{"class"}),
 		LeaseReconcileTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_lease_reconcile_total",
 			Help: "Lease reconcile passes by trigger: start, tick, signal (a peer released groups) or other.",
@@ -980,6 +1000,9 @@ func New() *Metrics {
 		m.Accounts,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
+		m.TakeoverWaitSeconds,
+		m.TakeoverStarvedTotal,
+		m.TakeoverLocalOnlyTotal,
 		m.LeaseReconcileTotal,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
@@ -1086,6 +1109,13 @@ func New() *Metrics {
 	for _, kind := range LeaseFencedKinds {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
 	}
+	for _, class := range TakeoverClasses {
+		m.TakeoverLocalOnlyTotal.WithLabelValues(class)
+		for _, prio := range []string{"active", "idle"} {
+			m.TakeoverWaitSeconds.WithLabelValues(class, prio)
+			m.TakeoverStarvedTotal.WithLabelValues(class, prio).Add(0)
+		}
+	}
 	for _, tr := range []string{"start", "tick", "signal", "other"} {
 		m.LeaseReconcileTotal.WithLabelValues(tr).Add(0)
 	}
@@ -1151,6 +1181,9 @@ var LeaseShedChoices = []string{"idle", "awake", "deferred"}
 // LeaseFencedKinds are the write classes rivolt_lease_fenced_total counts.
 // RivianCallSites are the label values of rivolt_rivian_call_refused_total; rivian.CallSites must list the same (a test in cmd/rivolt).
 var RivianCallSites = []string{"seed", "refresh_once", "janitor_confirm", "wake_safety", "ws_dial", "live_session"}
+
+// TakeoverClasses are the label values of the takeover pacing metrics; the call sites in rivian.StateMonitor use the same names.
+var TakeoverClasses = []string{"dial", "seed", "features"}
 
 // RivianPermitOps are the label values of rivolt_rivian_unpermitted_total; rivian.PermitOps must list the same (a test in cmd/rivolt).
 var RivianPermitOps = []string{"__Introspect", "CreateCSRFToken", "GetChargingSchedule", "GetCompletedSessionSummaries", "GetDetailedSessionInfoByTxnId",

@@ -156,6 +156,17 @@ func TestLeaseCountersExistFromBoot(t *testing.T) {
 			t.Errorf("%s is not exported at 0 from boot", name)
 		}
 	}
+	for _, class := range TakeoverClasses {
+		for _, prio := range []string{"active", "idle"} {
+			if !strings.Contains(body, `rivolt_rivian_takeover_starved_total{class="`+class+`",priority="`+prio+`"} 0`) ||
+				!strings.Contains(body, `rivolt_rivian_takeover_wait_seconds_count{class="`+class+`",priority="`+prio+`"} 0`) {
+				t.Errorf("the takeover pacing series for class %q priority %q are not exported at 0 from boot", class, prio)
+			}
+		}
+		if !strings.Contains(body, `rivolt_rivian_takeover_local_only_total{class="`+class+`"} 0`) {
+			t.Errorf("rivolt_rivian_takeover_local_only_total{class=%q} is not exported at 0 from boot", class)
+		}
+	}
 	for _, reason := range []string{"drain", "rebalance", "expired", "other"} {
 		if !strings.Contains(body, `rivolt_rollout_handoffs_total{reason="`+reason+`"} 0`) {
 			t.Errorf("rivolt_rollout_handoffs_total{reason=%q} is not exported at 0 from boot", reason)
