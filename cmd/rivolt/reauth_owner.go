@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"strconv"
 
 	"github.com/apohor/rivolt/internal/fence"
 )
@@ -36,4 +38,12 @@ func reauthRefusedReason(err error) string {
 		return "fenced"
 	}
 	return "not_owner"
+}
+
+// envInt reads a non-negative integer setting; unset or invalid is def (0 lets the callee use its own default).
+func envInt(name string, def int) int {
+	if n, err := strconv.Atoi(os.Getenv(name)); err == nil && n > 0 {
+		return n
+	}
+	return def
 }

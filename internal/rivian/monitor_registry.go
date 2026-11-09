@@ -13,6 +13,7 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/fence"
+	"github.com/apohor/rivolt/internal/fleetbucket"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -79,6 +80,8 @@ type MonitorRegistry struct {
 	// stagger is shared by every monitor the registry creates: the whole
 	// process spaces its first WebSocket connects, not each user on their own.
 	stagger *Stagger
+	// takeoverLimiter paces the Rivian calls of a takeover (RIVOLT_TAKEOVER_LIMIT); nil: unpaced, as before.
+	takeoverLimiter *fleetbucket.Bucket
 
 	mu       sync.RWMutex
 	monitors map[uuid.UUID]*monitorEntry
@@ -424,6 +427,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		mon = NewSourceMonitor(src, vehicles, r.logger.With("user_id", uid.String()))
 	}
 	mon.SetStagger(r.stagger)
+	mon.SetTakeoverLimiter(r.takeoverLimiter)
 	mon.SetFence(registryFence{r}, r.fenced)
 	mon.SetScheduleObserver(r.scheduleObserver())
 	mon.SetStores(
@@ -895,4 +899,12 @@ func composeDriveClose(hooks []DriveCloseHook) DriveCloseHook {
 			h(ctx, d)
 		}
 	}
+}
+
+// SetTakeoverLimiter wires the shared pacing of takeover calls (zero-impact deploys, G7); nil leaves them unpaced. Call before the first monitor.
+func (r *MonitorRegistry) SetTakeoverLimiter(b *fleetbucket.Bucket) {
+	r.mu.Lock()
+	r.wiring("SetTakeoverLimiter")
+	r.takeoverLimiter = b
+	r.mu.Unlock()
 }
