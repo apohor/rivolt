@@ -545,11 +545,12 @@ func TestOwnerPackagesDoNotPersistSessions(t *testing.T) {
 }
 
 // TestUnownedMarkerHasOneWriterAndOneReader keeps fence.Unowned from becoming a general bypass: it may be set only where the needs_reauth raise
-// for a user with no group is prepared, and read only by the raise's own owner check. A new caller needs DA's ack (and an edit here).
+// for a user with no group is prepared, and read only by the raise's own owner check (and, to label a counter, by the sink that prepares it). A new caller needs DA's ack (and an edit here).
 func TestUnownedMarkerHasOneWriterAndOneReader(t *testing.T) {
-	allowed := map[string]string{
-		"Unowned":   "/cmd/rivolt/reauth_owner.go",
-		"IsUnowned": "/db/reauth.go",
+	// Each name maps to the files that may use it, with why. IsUnowned has a second reader that only labels a metric (DA ack, #1745).
+	allowed := map[string][]string{
+		"Unowned":   {"/cmd/rivolt/reauth_owner.go"},
+		"IsUnowned": {"/db/reauth.go", "/cmd/rivolt/reauth_owner.go" /* metric label only: reauth_raise_attempts carries=unowned */},
 	}
 	for _, f := range sources(t) {
 		if pkgKey(f) == "fence" {
@@ -565,8 +566,16 @@ func TestUnownedMarkerHasOneWriterAndOneReader(t *testing.T) {
 				return true
 			}
 			if id, ok := sel.X.(*ast.Ident); ok && id.Name == "fence" {
-				if want, marked := allowed[sel.Sel.Name]; marked && !strings.HasSuffix(filepath.ToSlash(f), want) {
-					t.Errorf("%s uses fence.%s: only %s may (it is the needs_reauth raise for a user with no group; a new caller needs DA's ack)", f, sel.Sel.Name, want)
+				if want, marked := allowed[sel.Sel.Name]; marked {
+					ok := false
+					for _, w := range want {
+						if strings.HasSuffix(filepath.ToSlash(f), w) {
+							ok = true
+						}
+					}
+					if !ok {
+						t.Errorf("%s uses fence.%s: only %v may (it is the needs_reauth raise for a user with no group; a new caller needs DA's ack)", f, sel.Sel.Name, want)
+					}
 				}
 			}
 			return true

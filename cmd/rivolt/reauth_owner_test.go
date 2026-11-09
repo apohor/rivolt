@@ -70,3 +70,16 @@ func TestReauthOwnerCtx(t *testing.T) {
 		t.Error("refusal reasons")
 	}
 }
+
+func TestReauthCarries(t *testing.T) {
+	bg := context.Background()
+	for want, ctx := range map[string]context.Context{
+		"token":   fence.With(bg, fence.Token{Group: "g"}),
+		"unowned": fence.Unowned(bg),
+		"none":    bg,
+	} {
+		if got := reauthCarries(ctx); got != want {
+			t.Errorf("reauthCarries = %q, want %q", got, want)
+		}
+	}
+}

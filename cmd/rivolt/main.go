@@ -1134,10 +1134,12 @@ func runServer() {
 						logger.Info("rivian reauth raise deferred: session version unknown", "user_id", boundUID.String())
 						return
 					}
+					appMetrics.ReauthRaiseAttempts.WithLabelValues(reauthCarries(sinkCtx)).Inc()
 					transitioned, err = db.RaiseNeedsReauthIfCurrent(sinkCtx, pgPool, boundUID, reason, loaded)
 				} else {
 					// No account sync (no secrets store): there is no stored session to be
 					// stale against.
+					appMetrics.ReauthRaiseAttempts.WithLabelValues(reauthCarries(sinkCtx)).Inc()
 					transitioned, err = db.RaiseNeedsReauth(sinkCtx, pgPool, boundUID, reason)
 				}
 				if errors.Is(err, db.ErrNotOwner) || errors.Is(err, fence.ErrFenced) {

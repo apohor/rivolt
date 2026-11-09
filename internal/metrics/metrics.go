@@ -191,6 +191,10 @@ type Metrics struct {
 	// ReauthRaiseRefused counts needs_reauth raises refused because the pod that saw the rejection does not hold the user's group: reason
 	// not_owner (raises are owner-only and no token) or fenced (it held the group and lost it). Both created at 0. Single-owner M4-3.
 	ReauthRaiseRefused *prometheus.CounterVec
+	// ReauthRaiseAttempts counts needs_reauth raises about to be written, by what they carry: token (the group's epoch: this pod owns the user),
+	// unowned (the user has no group: nobody could own it, so the raise goes through, fence.Unowned) or none (no token: with RIVOLT_SINGLE_OWNER on
+	// this is the raise refused as not_owner, so with it off this is the would-be refusal count). All three created at 0.
+	ReauthRaiseAttempts *prometheus.CounterVec
 	// RivianAccountMismatch is, per field ("session", "flag"), how many Rivian accounts loaded
 	// on this pod still disagreed with the database after the last 5-second sync round
 	// corrected them. Zero when the cross-pod sync works; sustained non-zero (alert: 10 min)
@@ -640,6 +644,10 @@ func New() *Metrics {
 			Name: "rivolt_reauth_raise_refused_total",
 			Help: "needs_reauth raises refused because this pod does not hold the user's group (not_owner) or just lost it (fenced).",
 		}, []string{"reason"}),
+		ReauthRaiseAttempts: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_reauth_raise_attempts_total",
+			Help: "needs_reauth raises about to be written, by what they carry: token (this pod owns the user), unowned (the user has no group) or none (no token; refused as not_owner once raises are owner-only).",
+		}, []string{"carries"}),
 		ReauthRaiseDeferred: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Name: "rivolt_rivian_reauth_raise_deferred_total",
@@ -969,6 +977,7 @@ func New() *Metrics {
 		m.RivianCallRefused,
 		m.RivianRequestSeconds,
 		m.ReauthRaiseRefused,
+		m.ReauthRaiseAttempts,
 		m.RivianWSReconnects,
 		m.RivianUnpermitted,
 		m.RivianScheduleReadTotal,
@@ -1075,6 +1084,9 @@ func New() *Metrics {
 	}
 	for _, reason := range []string{"not_owner", "fenced"} {
 		m.ReauthRaiseRefused.WithLabelValues(reason).Add(0)
+	}
+	for _, c := range []string{"token", "unowned", "none"} {
+		m.ReauthRaiseAttempts.WithLabelValues(c).Add(0)
 	}
 	for _, reason := range RivianWSReconnectReasons {
 		m.RivianWSReconnects.WithLabelValues(reason).Add(0)
