@@ -86,6 +86,11 @@ enum PlanRouteLogic {
         return at + p.stops.count + (p.night ? 1 : 0)
     }
 
+    /// What the map says about the layer pins on it: "12 places along the route", "1 place along the route", nothing for none.
+    static func alongPinsSpoken(_ count: Int) -> String {
+        count == 0 ? "" : "\(count) \(count == 1 ? "place" : "places") along the route"
+    }
+
     /// The layer pins (chargers, hotels, campgrounds along the route) as the drawing's own: kind 0 a fast charger, 1 a hotel, 2 a campground, 3 a Medium one.
     static func alongStops(_ along: [AlongCharger]) -> [RouteSnap.Drawing.Stop] {
         along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "", emphasis: $0.preferred, kind: $0.kind == "hotel" ? 1 : $0.kind == "camp" ? 2 : $0.kind == "l2" ? 3 : 0) }
@@ -154,6 +159,8 @@ struct PlanMapCanvas: View {
                 RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, bottomInset: bottomInset, onStop: onStop, onLongPress: onLongPress, onCenter: onCenter)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
+                    // The places drawn along the route (the layer chips' pins), for VoiceOver and for a UI test: nothing is said when there are none.
+                    .accessibilityValue(PlanRouteLogic.alongPinsSpoken(drawing.along.count))
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
             } else {
