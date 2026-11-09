@@ -12,13 +12,15 @@ struct PlanMapScreen: View {
     @State private var detent = PlanSheetDetent.half
     @State private var day: Int?
     @State private var showingNetworks = false
+    /// What the sheet's header needs at this text size: the sheet is never shorter (see DetentSheet.height).
+    @State private var headerNeed: CGFloat = 0
 
     private var metric: Bool { NowFormat.usesMetric }
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
-                map(coverHeight: DetentSheet<EmptyView, EmptyView>.height(PlanSheetDetent.half, in: geo.size.height))
+                map(coverHeight: DetentSheet<EmptyView, EmptyView>.height(PlanSheetDetent.half, in: geo.size.height, floor: headerNeed))
                     .overlay(alignment: .topLeading) { overlays }
                 if let v = model.moving {
                     // The stop follows the middle of the map: a crosshair there, and a bar to say what it does and to finish.
@@ -26,7 +28,7 @@ struct PlanMapScreen: View {
                         .frame(maxHeight: .infinity, alignment: .center).allowsHitTesting(false).accessibilityHidden(true)
                     PlanMoveBar(name: v.name, lines: PlanSheetLogic.previewLines(model, metric: metric), previewing: model.preview == .loading,
                                 onCancel: { model.cancelMove() }, onDone: { Task { await model.confirmMove(source: state.client) } })
-                        .padding(.horizontal, 12).padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height) + 10)
+                        .padding(.horizontal, 12).padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height, floor: headerNeed) + 10)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
                 if let c = model.pickedCharger {
@@ -34,10 +36,10 @@ struct PlanMapScreen: View {
                                    previewLines: PlanSheetLogic.previewLines(model, metric: metric), previewing: model.preview == .loading,
                                    adding: model.updating, onAdd: { Task { await model.addVia(c, source: state.client) } }, onClose: { model.closeCallout() })
                         .padding(.horizontal, 12)
-                        .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height) + 10)
+                        .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height, floor: headerNeed) + 10)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
-                DetentSheet(detent: $detent, container: geo.size.height) {
+                DetentSheet(detent: $detent, container: geo.size.height, floor: headerNeed, onHeaderNeed: { headerNeed = $0 }) {
                     header
                 } content: {
                     ScrollViewReader { proxy in
@@ -237,25 +239,24 @@ struct PlanLayerChips: View {
     var body: some View {
         if model.layerState != .unavailable {
             VStack(alignment: .leading, spacing: 6) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(MapLayer.allCases, id: \.self) { layer in
-                            chip(layer.title, on: model.layers.contains(layer)) { Task { await model.setLayer(layer, on: !model.layers.contains(layer), source: state.client) } }
-                        }
-                        chip(ChargerLabels.all, on: model.allLayersOn) { Task { await model.setAllLayers(on: !model.allLayersOn, source: state.client) } }
-                        if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
-                            chip("Preferred only", on: model.preferredOnly) { model.setPreferredOnly(!model.preferredOnly) }
-                        }
-                        ChargerTypeInfoButton(kinds: [.fast, .medium, .hotel, .camping])
+                // The chips wrap onto more rows rather than scroll sideways: every one is on screen and tappable at any text size (a scrolling row
+                // clipped "Preferred only" on a phone and could not be swiped).
+                FlowLayout(spacing: 8) {
+                    ForEach(MapLayer.allCases, id: \.self) { layer in
+                        chip(layer.title, on: model.layers.contains(layer)) { Task { await model.setLayer(layer, on: !model.layers.contains(layer), source: state.client) } }
                     }
+                    if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
+                        chip("Preferred only", on: model.preferredOnly) { model.setPreferredOnly(!model.preferredOnly) }
+                    }
+                    ChargerTypeInfoButton(kinds: [.fast, .medium, .hotel, .camping])
                 }
                 if let note = PlanSheetLogic.layerNote(model) {
-                    Text(note).themeText(.caption, color: model.layerState == .loading ? Theme.textSecondary : Theme.textTertiary)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Theme.card.opacity(0.9), in: Capsule())
+                    LayerNotePill(text: note, loading: model.layerState == .loading)
                 }
             }
             .task { await loadPreferred() }
+            // Fast is on from the start: its pins are asked for when the route arrives, and again when the route changes.
+            .task(id: model.plan?.best) { await model.reloadLayers(source: state.client) }
         }
     }
 
@@ -278,6 +279,21 @@ struct PlanLayerChips: View {
     private func loadPreferred() async {
         guard model.preferredSlugs.isEmpty, let rows = try? await state.client.chargingNetworks() else { return }
         model.setPreferred(Set(rows.filter { $0.preferred == true }.compactMap { ($0.slug ?? "").isEmpty ? nil : $0.slug }))
+    }
+}
+
+/// The line under the chips: what is loading, how many are shown, when the listing was built. At most two lines, so a large type size does not let it
+/// cover the route; the whole text is the accessibility label.
+struct LayerNotePill: View {
+    let text: String
+    var loading = false
+
+    var body: some View {
+        Text(text).themeText(.caption, color: loading ? Theme.textSecondary : Theme.textTertiary)
+            .lineLimit(2).truncationMode(.tail)
+            .accessibilityLabel(text)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Theme.card.opacity(0.9), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
