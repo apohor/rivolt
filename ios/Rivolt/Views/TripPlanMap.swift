@@ -91,6 +91,57 @@ enum PlanRouteLogic {
         count == 0 ? "" : "\(count) \(count == 1 ? "place" : "places") along the route"
     }
 
+    /// The weather on a plan's legs and how to say it: the account's units, and whether the plan used a driver profile ("Weather and your setup").
+    struct Weather: Equatable {
+        var legs: [TripWeatherLeg]
+        var celsius: Bool
+        var metric: Bool
+        var withSetup: Bool
+
+        init?(_ plan: TripPlan?, celsius: Bool = DisplayUnits.celsius, metric: Bool = DisplayUnits.distanceMetric) {
+            guard let adj = plan?.weatherAdjustment, !adj.legs.isEmpty else { return nil }
+            legs = adj.legs
+            self.celsius = celsius
+            self.metric = metric
+            withSetup = (adj.profileMultiplier ?? 1) != 1
+        }
+    }
+
+    /// Where leg `from` to `to` is half way along the drawn line (by vertex), or the straight middle when there is no line to follow; the vertices nearest the
+    /// two stops bound the leg.
+    static func legMiddle(line: [RouteSnap.Coord], from: RouteSnap.Coord, to: RouteSnap.Coord) -> RouteSnap.Coord {
+        let straight = RouteSnap.Coord(lat: (from.lat + to.lat) / 2, lon: (from.lon + to.lon) / 2)
+        guard line.count >= 3 else { return straight }
+        func nearest(_ p: RouteSnap.Coord, from start: Int = 0) -> Int {
+            func d(_ c: RouteSnap.Coord) -> Double {
+                let dl = c.lat - p.lat, dn = (c.lon - p.lon) * cos(p.lat * .pi / 180)
+                return dl * dl + dn * dn
+            }
+            var best = start
+            for i in start..<line.count where d(line[i]) < d(line[best]) { best = i }
+            return best
+        }
+        let a = nearest(from), b = nearest(to, from: a)
+        return b - a < 2 ? straight : line[(a + b) / 2]
+    }
+
+    /// One weather label per leg that has weather to say, at the leg's middle. Leg i runs from waypoint i to i+1 of the route.
+    static func legTags(route: TripRoute, weather: Weather?, line: [RouteSnap.Coord]) -> [RouteSnap.Drawing.LegTag] {
+        guard let weather else { return [] }
+        let places = route.waypoints.compactMap { w -> RouteSnap.Coord? in
+            guard let la = w.latitude, let lo = w.longitude else { return nil }
+            return RouteSnap.Coord(lat: la, lon: lo)
+        }
+        // A waypoint without a place would shift the legs: then the labels have nowhere sure to go.
+        guard places.count == route.waypoints.count else { return [] }
+        var out: [RouteSnap.Drawing.LegTag] = []
+        for (i, leg) in weather.legs.enumerated() where i + 1 < places.count {
+            guard let text = LegWeather.mapLabel(LegWeather.facts(leg, celsius: weather.celsius, metric: weather.metric)) else { continue }
+            out.append(.init(coord: legMiddle(line: line, from: places[i], to: places[i + 1]), text: text))
+        }
+        return out
+    }
+
     /// The layer pins (chargers, hotels, campgrounds along the route) as the drawing's own: kind 0 a fast charger, 1 a hotel, 2 a campground, 3 a Medium one.
     static func alongStops(_ along: [AlongCharger]) -> [RouteSnap.Drawing.Stop] {
         along.map { .init(coord: .init(lat: $0.lat, lon: $0.lon), label: "", emphasis: $0.preferred, kind: $0.kind == "hotel" ? 1 : $0.kind == "camp" ? 2 : $0.kind == "l2" ? 3 : 0) }
@@ -196,6 +247,8 @@ struct PlanRouteMap: View {
     var pendingVias: [PlanVia]?
     /// The what-if preview's line (the edited stretch).
     var previewLine: [RouteSnap.Coord] = []
+    /// The weather on the plan's legs, drawn as labels while the Weather toggle is on (nil: none).
+    var weather: PlanRouteLogic.Weather?
 
     @Environment(AppState.self) private var state
     @State private var drawing: RouteSnap.Drawing?
@@ -206,6 +259,7 @@ struct PlanRouteMap: View {
         d.focus = focus
         d.preview = previewLine.count >= 2 ? previewLine : nil
         d.along = PlanRouteLogic.alongStops(along)
+        d.legTags = PlanRouteLogic.legTags(route: route, weather: weather, line: d.pieces.flatMap(\.coords))
         if let provisional, provisional.count >= 2 {
             d.pieces = [RouteSnap.Piece(coords: provisional, speed: nil)]
             d.start = provisional.first
