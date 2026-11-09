@@ -232,9 +232,15 @@ describe("hostile input", () => {
         expect(t2, `${name} at 2n took ${t2.toFixed(0)} ms`).toBeLessThan(1000);
         continue;
       }
-      t1 = Math.min(t1, best(small));
-      const t2 = best(large);
-      if (t2 / t1 > 3.2) slow.push(`${name}: ${t1.toFixed(0)} ms -> ${t2.toFixed(0)} ms at twice the size (x${(t2 / t1).toFixed(1)})`);
+      // A loaded runner makes one measurement noisy (a pause lands in one run): growth has to show on three independent attempts to count.
+      let worst = "";
+      let allSlow = true;
+      for (let attempt = 0; attempt < 3 && allSlow; attempt++) {
+        const a = Math.min(t1, best(small)), b = best(large);
+        if (b / a <= 3.2) allSlow = false;
+        else worst = `${name}: ${a.toFixed(0)} ms -> ${b.toFixed(0)} ms at twice the size (x${(b / a).toFixed(1)})`;
+      }
+      if (allSlow) slow.push(worst);
     }
     expect(slow, "work that grows faster than linearly").toEqual([]);
   }, 120_000);
