@@ -57,6 +57,7 @@ import (
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/fleetbucket"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/identity"
@@ -1301,6 +1302,15 @@ func runServer() {
 			logger,
 		)
 		monitorRegistry.SetParent(ctx)
+		// Takeover pacing (zero-impact deploys, G7): the first dial of a session, the capability probe and the REST seed of a start take a slot
+		// from a per-process bucket and a fleet-wide per-second budget in Redis, active vehicles first. Off unless RIVOLT_TAKEOVER_LIMIT=1.
+		if os.Getenv("RIVOLT_TAKEOVER_LIMIT") == "1" {
+			monitorRegistry.SetTakeoverLimiter(fleetbucket.New(fleetbucket.Config{
+				LocalRPS: envInt("RIVOLT_TAKEOVER_LOCAL_RPS", 0), FleetRPS: envInt("RIVOLT_TAKEOVER_FLEET_RPS", 0),
+				Redis: sharedRedis, Prefix: redisKeyPrefix,
+			}))
+			logger.Info("takeover pacing enabled")
+		}
 		// Lead mode: until the lease store is installed as the fence (SetFence, after the boot hydrate sweep below), every group
 		// reads as Lost, not Off, so a monitor the sweep started cannot write or call Rivian unfenced in that window.
 		monitorRegistry.RequireFence(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
