@@ -1,0 +1,25 @@
+[
+  {
+    "name": "Example Fast Network",
+    "price_per_kwh": 0.48,
+    "currency": "USD",
+    "member_price_per_kwh": 0.38,
+    "member_active": true,
+    "member_plan": "Example Pass",
+    "slug": "example",
+    "preferred": true
+  },
+  {
+    "name": "Another Network",
+    "price_per_kwh": 0,
+    "currency": "USD",
+    "seeded": true
+  },
+  {
+    "name": "My building's charger",
+    "price_per_kwh": 0.31,
+    "currency": "USD",
+    "lat": 47.6205,
+    "lon": -122.3493
+  }
+]

@@ -1,0 +1,38 @@
+[
+  {
+    "label": "Home",
+    "lat": 32.7767,
+    "lon": -96.797,
+    "sessions": 41,
+    "energy_kwh": 1532.4,
+    "radius_m": 28.5,
+    "member_ids": ["chg-home-1", "chg-home-2"]
+  },
+  {
+    "label": "Fast",
+    "lat": 29.7604,
+    "lon": -95.3698,
+    "sessions": 3,
+    "energy_kwh": 182.7,
+    "radius_m": 40,
+    "member_ids": ["chg-fast-1"]
+  },
+  {
+    "label": "Public",
+    "lat": 32.7555,
+    "lon": -97.3308,
+    "sessions": 5,
+    "energy_kwh": 61.2,
+    "radius_m": 35,
+    "member_ids": ["chg-away-1"]
+  },
+  {
+    "label": "",
+    "lat": 0,
+    "lon": 0,
+    "sessions": 2,
+    "energy_kwh": 9.1,
+    "radius_m": 0,
+    "member_ids": ["chg-nofix-1"]
+  }
+]

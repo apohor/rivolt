@@ -1,0 +1,7 @@
+{
+  "body": {
+    "class": "transient",
+    "error": "rivian planTripWithMultiStopV2: transient: HTTP 502"
+  },
+  "status": 502
+}
