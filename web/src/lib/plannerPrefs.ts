@@ -39,7 +39,10 @@ function deviceWeather(): boolean | null {
 // nobody who turned weather off gets it back.
 export function usePlannerPrefs() {
   const qc = useQueryClient();
-  const q = useQuery({ queryKey: PLANNER_PREFS_KEY, queryFn: backend.plannerPrefsGet, staleTime: 60 * 1000 });
+  const q = useQuery({ queryKey: PLANNER_PREFS_KEY, queryFn: backend.plannerPrefsGet, staleTime: 60 * 1000,
+    // A failed read means the defaults, now: the map waits for this answer, so it must not sit through the app-wide retries first.
+    retry: false,
+  });
   const device = deviceWeather();
   useEffect(() => {
     if (!q.isSuccess || device === null) return;
