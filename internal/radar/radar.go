@@ -535,12 +535,29 @@ func (s *Service) sharedTile(ctx context.Context, key string) ([]byte, bool) {
 	return b, err == nil && len(b) > 0
 }
 
+// Shared Redis is small and holds the lease, forward and rate-limit keys, so radar may only borrow a little of it: a tile over sharedTileMax
+// is never shared, and each frame gets sharedFrameBudget bytes in total. Pods past either limit serve from their own cache.
+const sharedTileMax = 256 << 10
+
+var sharedFrameBudget int64 = 16 << 20 // a var so the test can shrink it
+
 func (s *Service) storeSharedTile(ctx context.Context, key string, b []byte) {
-	if s.cfg.Redis == nil {
+	if s.cfg.Redis == nil || len(b) > sharedTileMax {
 		return
 	}
 	c, cancel := context.WithTimeout(context.WithoutCancel(ctx), redisOp)
 	defer cancel()
+	frame, _, _ := strings.Cut(key, ":")
+	used, err := s.cfg.Redis.IncrBy(c, s.rkey("bytes", frame), int64(len(b))).Result()
+	if err != nil {
+		return
+	}
+	if used == int64(len(b)) {
+		_ = s.cfg.Redis.Expire(c, s.rkey("bytes", frame), tileTTL).Err()
+	}
+	if used > sharedFrameBudget {
+		return
+	}
 	_ = s.cfg.Redis.Set(c, s.rkey("tile", key), b, tileTTL).Err()
 }
 

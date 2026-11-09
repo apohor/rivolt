@@ -289,6 +289,66 @@ func TestReplicasShareThroughRedis(t *testing.T) {
 	}
 }
 
+// Shared Redis is small and holds the leases: radar may only borrow a few MB per frame, and a pod past the budget serves from its own cache.
+func TestSharedTileBytesAreBudgeted(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	s := New(Config{BaseURL: "http://127.0.0.1:1", Redis: rdb, Prefix: "rivolt", Now: func() time.Time { return t0 }})
+	ctx := context.Background()
+
+	s.storeSharedTile(ctx, "100:3:1:1", make([]byte, sharedTileMax+1))
+	if _, ok := s.sharedTile(ctx, "100:3:1:1"); ok {
+		t.Error("a tile over the per-tile cap was shared")
+	}
+	old := sharedFrameBudget
+	t.Cleanup(func() { sharedFrameBudget = old })
+	sharedFrameBudget = 250 << 10
+	blob := make([]byte, 100<<10)
+	stored := 0
+	for i := 0; i < 6; i++ {
+		k := fmt.Sprintf("100:3:1:%d", i)
+		s.storeSharedTile(ctx, k, blob)
+		if _, ok := s.sharedTile(ctx, k); ok {
+			stored++
+		}
+	}
+	if stored != 2 {
+		t.Errorf("%d tiles shared under a 250 KB budget of 100 KB tiles, want 2", stored)
+	}
+	// Another frame has its own budget.
+	s.storeSharedTile(ctx, "200:3:1:1", blob)
+	if _, ok := s.sharedTile(ctx, "200:3:1:1"); !ok {
+		t.Error("a new frame shares nothing")
+	}
+}
+
+// Past the budget the waiting pod does not get the tile from Redis, so after its wait it fetches on its own and still answers.
+func TestPodPastTheBudgetFetchesItself(t *testing.T) {
+	mr := miniredis.RunT(t)
+	old := sharedFrameBudget
+	t.Cleanup(func() { sharedFrameBudget = old })
+	sharedFrameBudget = 1
+	f := &fakeNOAA{t: t, newest: t0.Add(-3 * time.Minute)}
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	mk := func() *Service {
+		rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+		t.Cleanup(func() { _ = rdb.Close() })
+		return New(Config{BaseURL: srv.URL, Redis: rdb, Prefix: "rivolt", Now: func() time.Time { return t0 }})
+	}
+	a, b := mk(), mk()
+	if _, _, err := a.Tile(context.Background(), zC, xC, yC, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := b.Tile(context.Background(), zC, xC, yC, 0); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.maps()); n != 2 {
+		t.Errorf("%d upstream tile requests, want 2 (the second pod fetched itself)", n)
+	}
+}
+
 // If the server stops reprojecting (answers the Web Mercator request with a service exception) the native EPSG:4326 picture is fetched and
 // resampled, and the 4326 path is then used first for a while.
 func TestFallsBackToTheNativeProjection(t *testing.T) {
