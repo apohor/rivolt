@@ -58,9 +58,12 @@ type Store struct {
 	// was last taken from a holder that had not released it (for the warm-up).
 	vehicleGroup map[string]string
 	stolenAt     map[string]time.Time
-	groupOKAt    time.Time // when the last successful RenewGroups was sent (monotonic)
-	lead         bool      // lead mode: the group lease decides ownership (groups_lead.go)
-	draining     bool
+	// priorOf is, for each group this pod took in an acquire pass, how it came free: the previous holder's release time and the reason
+	// (see Prior). A vehicle's coordinator takes it once, for the hand-off measurement.
+	priorOf   map[string]Prior
+	groupOKAt time.Time // when the last successful RenewGroups was sent (monotonic)
+	lead      bool      // lead mode: the group lease decides ownership (groups_lead.go)
+	draining  bool
 }
 
 // NewStore wraps a *sql.DB and pins the calling pod's identity. The
@@ -76,7 +79,7 @@ func NewStore(db *sql.DB, podID string) (*Store, error) {
 	if podID == "" {
 		return nil, errors.New("leases: empty pod_id (set RIVOLT_POD_ID via downward API)")
 	}
-	return &Store{db: db, podID: podID, ttl: DefaultTTL, groups: map[string]int64{}, stolenAt: map[string]time.Time{}}, nil
+	return &Store{db: db, podID: podID, ttl: DefaultTTL, groups: map[string]int64{}, stolenAt: map[string]time.Time{}, priorOf: map[string]Prior{}}, nil
 }
 
 // PodID returns the identity this Store acquires leases under.
@@ -362,6 +365,11 @@ type Coordinator struct {
 	// Shutdown just stopped, right before the lease is released. Guarded by mu.
 	closing bool
 
+	// signal tells peers about released groups and hears theirs (G1a); nil: the tick alone. sigAt/sigMu rate-limit the sends.
+	signal ReleaseSignal
+	sigMu  sync.Mutex
+	sigAt  time.Time
+
 	// streaming, when set, reports whether this pod is actually
 	// subscribed to a vehicle it holds the lease for. Holding a lease
 	// without a subscription is silent data loss: Sep 7–27 2026, two
@@ -401,6 +409,13 @@ type Coordinator struct {
 	acquiredAt map[string]time.Time
 	frameAt    func(vehicleID string) time.Time
 	onFrame    func(seconds float64, active bool)
+	// The hand-off measurement (SetHandoffObserver): priorRel[vid] is when the previous holder released the vehicle's group, kept until its
+	// first frame here. Guarded by mu.
+	priorWait    map[string]time.Duration
+	kindOf       func(vehicleID string) string
+	onHandoff    func(reason string, wait time.Duration, hasWait bool)
+	onStop       func(seconds float64)
+	onHandoffGap func(seconds float64, state string)
 	// unstreamed[vehicleID] is when the current episode's last
 	// re-subscribe was fired. Guarded by mu.
 	unstreamed map[string]time.Time
@@ -617,6 +632,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	if err := c.leadModeProblem(); err != nil {
 		return err
 	}
+	c.runSignal(ctx)
 	c.reconcile(ctx)
 
 	t := time.NewTimer(c.nextTick())
@@ -928,7 +944,35 @@ func (c *Coordinator) SetFrameObserver(frameAt func(vehicleID string) time.Time,
 	c.frameAt, c.onFrame = frameAt, observe
 }
 
+// SetHandoffObserver wires the whole hand-off measurement. onHandoff is told the reason (ReasonDrain, ReasonExpired, ReasonRebalance,
+// ReasonOther) for every vehicle this pod takes from another holder, and for a release the wait: the time the group sat free between the
+// previous holder's release and this acquire, both on the database's clock (what a released-group signal shrinks). onGap is told, at the
+// first frame, the wait plus the time from this acquire to that frame (this pod's clock): two same-clock parts, never a difference between
+// two machines' clocks. The old pod's stop before its release is not in it (SetStopObserver). The state is driving, charging or idle, from
+// kindOf ("drive", "charge" or ""). Needs SetFrameObserver for the frame times.
+func (c *Coordinator) SetHandoffObserver(kindOf func(vehicleID string) string, onHandoff func(reason string, wait time.Duration, hasWait bool), onGap func(seconds float64, state string)) {
+	c.kindOf, c.onHandoff, c.onHandoffGap = kindOf, onHandoff, onGap
+}
+
+// priorTaker is the part of a store that remembers how a group came free (the lead-mode Store).
+type priorTaker interface {
+	TakePrior(vehicleID string) (Prior, bool)
+}
+
 func (c *Coordinator) markAcquired(vid string) {
+	if pt, ok := c.store.(priorTaker); ok && c.onHandoff != nil {
+		if p, ok := pt.TakePrior(vid); ok {
+			c.onHandoff(p.Reason, p.Wait, p.HasWait)
+			if p.HasWait && c.onHandoffGap != nil {
+				c.mu.Lock()
+				if c.priorWait == nil {
+					c.priorWait = map[string]time.Duration{}
+				}
+				c.priorWait[vid] = p.Wait
+				c.mu.Unlock()
+			}
+		}
+	}
 	if c.frameAt == nil || c.onFrame == nil {
 		return
 	}
@@ -962,6 +1006,7 @@ func (c *Coordinator) observeFrames() {
 		case !owned || now.Sub(at) > 10*time.Minute:
 			c.mu.Lock()
 			delete(c.acquiredAt, vid)
+			delete(c.priorWait, vid)
 			c.mu.Unlock()
 		case !f.IsZero() && !f.Before(at):
 			// Active means an open drive or charge when the first frame is seen (the recorder rehydrates the
@@ -970,7 +1015,21 @@ func (c *Coordinator) observeFrames() {
 			c.onFrame(f.Sub(at).Seconds(), active)
 			c.mu.Lock()
 			delete(c.acquiredAt, vid)
+			wait, hadWait := c.priorWait[vid]
+			delete(c.priorWait, vid)
 			c.mu.Unlock()
+			if hadWait && c.onHandoffGap != nil {
+				state := "idle"
+				if c.kindOf != nil {
+					switch c.kindOf(vid) {
+					case "drive":
+						state = "driving"
+					case "charge":
+						state = "charging"
+					}
+				}
+				c.onHandoffGap(wait.Seconds()+f.Sub(at).Seconds(), state)
+			}
 		}
 	}
 }
@@ -1069,8 +1128,9 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 	failed := map[string]bool{}
 	for _, vid := range stop {
 		c.log.Info("lease released: group not held, or over its share", "vehicle", vid)
+		since := time.Now()
 		c.onRelease(vid)
-		c.waitStopped(ctx, vid)
+		c.waitStopped(ctx, vid, since)
 		if rerr := c.store.Release(ctx, vid); rerr != nil {
 			c.log.Warn("group lead vehicle release failed", "vehicle", vid, "err", rerr.Error())
 			failed[vg[vid]] = true
@@ -1080,6 +1140,7 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 		delete(c.owned, vid)
 		c.mu.Unlock()
 	}
+	released := false
 	for g := range giving {
 		if failed[g] {
 			continue // a vehicle is still leased: keep the group and retry next pass
@@ -1089,6 +1150,10 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 			continue
 		}
 		delete(res.Held, g)
+		released = true
+	}
+	if released {
+		c.signalReleased(ctx)
 	}
 	if c.onGroups != nil {
 		c.onGroups(len(res.Held))
@@ -1270,8 +1335,9 @@ func (c *Coordinator) healSplitUsers(ctx context.Context) {
 			continue
 		}
 		c.log.Info("lease released: the user's other vehicles are held by a lower pod id", "vehicle", vid)
+		since := time.Now()
 		c.onRelease(vid)
-		c.waitStopped(ctx, vid)
+		c.waitStopped(ctx, vid, since)
 		if rerr := c.store.Release(ctx, vid); rerr != nil {
 			c.log.Warn("split lease release failed", "vehicle", vid, "err", rerr.Error())
 			continue
@@ -1284,7 +1350,7 @@ func (c *Coordinator) healSplitUsers(ctx context.Context) {
 
 // waitStopped waits, up to handoffWait, until the streaming check says this pod
 // no longer subscribes to vid. Without a check there is nothing to wait on.
-func (c *Coordinator) waitStopped(ctx context.Context, vid string) {
+func (c *Coordinator) waitStopped(ctx context.Context, vid string, since time.Time) {
 	if c.streaming == nil {
 		return
 	}
@@ -1296,6 +1362,18 @@ func (c *Coordinator) waitStopped(ctx context.Context, vid string) {
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+	c.noteStopped(vid, since)
+}
+
+// SetStopObserver wires the old owner's half of a hand-off: observe is told, for each vehicle this pod stops streaming to give it up, the
+// seconds from the stop being asked for to the subscription being gone (a vehicle still streaming at the 5 s limit is not reported).
+func (c *Coordinator) SetStopObserver(observe func(seconds float64)) { c.onStop = observe }
+
+func (c *Coordinator) noteStopped(vid string, since time.Time) {
+	if c.onStop == nil || (c.streaming != nil && c.streaming(vid)) {
+		return
+	}
+	c.onStop(time.Since(since).Seconds())
 }
 
 func (c *Coordinator) fireCount() {
@@ -1326,10 +1404,11 @@ func (c *Coordinator) Shutdown(ctx context.Context) {
 	// Stop the subscriptions first, wait (bounded) until they have stopped, and only
 	// then give the leases up. Releasing first lets a peer dial a vehicle while this
 	// pod's WebSocket for it is still up: the collision the lease healing avoids.
+	since := time.Now()
 	for _, vid := range owned {
 		c.onRelease(vid)
 	}
-	c.waitAllStopped(ctx, owned)
+	c.waitAllStopped(ctx, owned, since)
 
 	c.mu.Lock()
 	c.owned = make(map[string]struct{})
@@ -1339,6 +1418,7 @@ func (c *Coordinator) Shutdown(ctx context.Context) {
 	} else {
 		c.log.Info("lease release-all", "count", n)
 	}
+	c.signalReleased(ctx) // the peers acquire now, not at their next tick
 	c.fireCount()
 }
 
@@ -1365,7 +1445,7 @@ func (c *Coordinator) isClosing() bool {
 // waitAllStopped waits until none of vids is streaming, for at most handoffWait
 // and at most two thirds of what is left of ctx, so ReleaseAll always keeps time
 // to run. Without a streaming check there is nothing to wait on.
-func (c *Coordinator) waitAllStopped(ctx context.Context, vids []string) {
+func (c *Coordinator) waitAllStopped(ctx context.Context, vids []string, since time.Time) {
 	if c.streaming == nil || len(vids) == 0 {
 		return
 	}
@@ -1376,16 +1456,22 @@ func (c *Coordinator) waitAllStopped(ctx context.Context, vids []string) {
 		}
 	}
 	deadline := time.Now().Add(limit)
-	for time.Now().Before(deadline) {
-		busy := false
-		for _, vid := range vids {
+	pending := append([]string(nil), vids...)
+	for {
+		still := pending[:0]
+		for _, vid := range pending {
 			if c.streaming(vid) {
-				busy = true
-				break
+				still = append(still, vid)
+			} else if c.onStop != nil {
+				c.onStop(time.Since(since).Seconds())
 			}
 		}
-		if !busy {
+		pending = still
+		if len(pending) == 0 {
 			return
+		}
+		if !time.Now().Before(deadline) {
+			break
 		}
 		select {
 		case <-ctx.Done():

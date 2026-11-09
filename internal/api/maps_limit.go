@@ -18,6 +18,8 @@ const (
 	mapsGlyphsPerMin = 600
 	// A hillshade view loads a few dozen terrain tiles and a pan more; the tiles are small and static.
 	mapsDEMPerMin = 1200
+	// A radar view loads a screenful of tiles (about twenty) on open, on each refresh every few minutes and as the map is panned.
+	mapsRadarPerMin = 600
 	// Each call walks a tile box on the server (bounded by the corridor caps),
 	// so a re-render per route edit is fine and a loop is not.
 	mapsChargersAlongPerMin = 30
@@ -58,6 +60,11 @@ func tilesMount(ls *limiterSet, proxy http.Handler) http.Handler {
 func demMount(ls *limiterSet, proxy http.Handler) http.Handler {
 	return ls.user("maps-dem", mapsDEMPerMin).Middleware(
 		http.StripPrefix("/api/maps/dem", maps.AllowDEM(proxy)))
+}
+
+// radarMount is what api.go mounts at /api/maps/radar: radar tiles and the frame time, from the radar service (internal/radar).
+func radarMount(ls *limiterSet, h http.Handler) http.Handler {
+	return ls.user("maps-radar", mapsRadarPerMin).Middleware(http.StripPrefix("/api/maps/radar", h))
 }
 
 // glyphsMount is what api.go mounts at /api/maps/glyphs: the label glyph ranges embedded in the binary (no upstream, no configuration).

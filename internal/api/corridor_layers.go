@@ -5,24 +5,35 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/dcfcrates"
+	"github.com/apohor/rivolt/internal/settings"
 )
+
+const kmPerMile = 1.609344
 
 // corridorLayersRequest is the planner map's layer query: several kinds in one pass, along the whole route, in route order.
 // Page with after_km (the previous response's next_after_km) and limit.
 type corridorLayersRequest struct {
-	Path       [][2]float64 `json:"path"`
-	Kinds      []string     `json:"kinds"`
-	CorridorKm float64      `json:"corridor_km,omitempty"`
-	MinPowerKW float64      `json:"min_power_kw,omitempty"`
-	Limit      int          `json:"limit,omitempty"`
-	AfterKm    float64      `json:"after_km,omitempty"`
+	Path  [][2]float64 `json:"path"`
+	Kinds []string     `json:"kinds"`
+	// CorridorKm is the half-width for every kind (capped at chargers.MaxCorridorKm). Unset: each kind has its own (chargers.LayerKindKm).
+	CorridorKm float64 `json:"corridor_km,omitempty"`
+	MinPowerKW float64 `json:"min_power_kw,omitempty"`
+	Limit      int     `json:"limit,omitempty"`
+	AfterKm    float64 `json:"after_km,omitempty"`
 	// Paged asks for route-ordered pages (first Limit, then next_after_km). Without it a corridor with more stations than the limit comes back
 	// spread along the whole route, so a client showing one capped answer shows the entire route and not just its first stretch.
 	Paged bool `json:"paged,omitempty"`
+	// Preset is the planner settings' "how far from the route" choice (close, normal, wide); absent is normal. Ignored when corridor_km is set.
+	Preset string `json:"preset,omitempty"`
+	// StartExcludeMi drops fast and Level 2 chargers (not hotels or campgrounds) within this many miles of the route's start, along the route: 0, 25 or 50 (the planner settings' choices).
+	StartExcludeMi int `json:"start_exclude_mi,omitempty"`
+	// MinFastKW drops fast chargers of a known power below it: 0, 50, 150 or 250.
+	MinFastKW int `json:"min_fast_kw,omitempty"`
 	// Networks keeps only stations of these networks (slugs of the user's price book: ea, tesla_sc, ran, evgo, shell_recharge,
 	// chargepoint, ionna, flo, ev_connect, walmart). Empty: every network.
 	Networks []string `json:"networks,omitempty"`
@@ -78,6 +89,18 @@ func handleCorridorLayers(a *chargers.Archive) http.HandlerFunc {
 			http.Error(w, "path has too many points", http.StatusBadRequest)
 			return
 		}
+		kindKm, ok := chargers.CorridorPresets[req.Preset]
+		if req.Preset == "" {
+			kindKm, ok = chargers.CorridorPresets["normal"], true
+		}
+		if !ok {
+			http.Error(w, "preset must be close, normal or wide", http.StatusBadRequest)
+			return
+		}
+		if !slices.Contains(settings.StartExcludeMiles, req.StartExcludeMi) || !slices.Contains(settings.MinFastKWs, req.MinFastKW) {
+			http.Error(w, "start_exclude_mi must be 0, 25 or 50 and min_fast_kw 0, 50, 150 or 250", http.StatusBadRequest)
+			return
+		}
 		req.Path = chargers.ThinPath(req.Path, chargers.MaxPathPoints)
 		if a.LoadedAt().IsZero() {
 			ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -110,6 +133,7 @@ func handleCorridorLayers(a *chargers.Archive) http.HandlerFunc {
 			QueryCorridorOptions: chargers.QueryCorridorOptions{
 				CorridorKm: req.CorridorKm, MinPowerKW: req.MinPowerKW, IncludeEndpoints: true, Context: r.Context(),
 			},
+			KindKm: kindKm, MinAlongKm: float64(req.StartExcludeMi) * kmPerMile, MinFastKW: float64(req.MinFastKW),
 			AfterKm: req.AfterKm, Limit: req.Limit, Paged: req.Paged, Accept: accept,
 		})
 		if errors.Is(err, chargers.ErrBadKinds) {

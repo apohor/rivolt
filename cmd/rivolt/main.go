@@ -78,6 +78,7 @@ import (
 	"github.com/apohor/rivolt/internal/plugreminder"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/r2arrival"
+	"github.com/apohor/rivolt/internal/radar"
 	"github.com/apohor/rivolt/internal/ratelimit"
 	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/retention"
@@ -2126,6 +2127,11 @@ func runServer() {
 			monitorRegistry.Unsubscribe,
 			logger,
 		)
+		// A pod that gives groups up bumps a Redis counter its peers read every second, so they take them now instead of at their next tick (zero-impact deploys, G1a).
+		// The tick stays the fallback; RIVOLT_RELEASE_SIGNAL=0 turns the signal off.
+		if sharedRedis != nil && os.Getenv("RIVOLT_RELEASE_SIGNAL") != "0" {
+			coord.SetReleaseSignal(leases.NewRedisSignal(sharedRedis, redisKeyPrefix))
+		}
 		// Lead mode asked for but the store would not lead: refuse to start rather than run the old mode while believing otherwise.
 		if err := coord.CheckLeadMode(os.Getenv("RIVOLT_GROUP_LEAD") == "1"); err != nil {
 			logger.Error("lease coordinator", "err", err.Error())
@@ -2169,6 +2175,14 @@ func runServer() {
 				coord.TriggerReconcile()
 			})
 		}
+		monitorRegistry.SetRolloutObserver(func(event, kind, source string) {
+			switch event {
+			case rivian.RolloutRehydrate:
+				appMetrics.SessionRehydrateTotal.WithLabelValues(kind, source).Inc()
+			case rivian.RolloutSplit:
+				appMetrics.SessionSplitTotal.WithLabelValues(kind).Inc()
+			}
+		})
 		monitorRegistry.SetScheduleObserver(func(outcome string) { appMetrics.RivianScheduleReadTotal.WithLabelValues(outcome).Inc() })
 		coord.SetFrameObserver(monitorRegistry.FirstFrameAt, func(seconds float64, active bool) {
 			state := "idle"
@@ -2177,6 +2191,17 @@ func runServer() {
 			}
 			appMetrics.LeaseAcquireToFrame.WithLabelValues(state).Observe(seconds)
 		})
+		coord.SetHandoffObserver(monitorRegistry.SessionKind,
+			func(reason string, wait time.Duration, hasWait bool) {
+				appMetrics.RolloutHandoffsTotal.WithLabelValues(reason).Inc()
+				if hasWait {
+					appMetrics.HandoffWaitSeconds.Observe(wait.Seconds())
+				}
+			},
+			func(seconds float64, state string) {
+				appMetrics.HandoffGapSeconds.WithLabelValues(state).Observe(seconds)
+			})
+		coord.SetStopObserver(appMetrics.HandoffStopSeconds.Observe)
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and
@@ -2781,6 +2806,18 @@ func runServer() {
 		logger.Info("terrain tile same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_DEM_BASE_URL"))
 	}
 
+	// Live weather radar (RIVOLT_RADAR=1, off by default): NOAA/NWS MRMS base reflectivity, fetched and cached by this server so no browser or phone
+	// calls NOAA. RIVOLT_RADAR_UPSTREAM overrides the GeoServer (default https://opengeo.ncep.noaa.gov/geoserver).
+	var radarHandler http.Handler
+	if os.Getenv("RIVOLT_RADAR") == "1" {
+		rcfg := radar.Config{BaseURL: strings.TrimSpace(os.Getenv("RIVOLT_RADAR_UPSTREAM")), Prefix: redisKeyPrefix}
+		if sharedRedis != nil {
+			rcfg.Redis = sharedRedis
+		}
+		radarHandler = radar.New(rcfg).Handler()
+		logger.Info("radar tile proxy enabled", "upstream", firstNonEmpty(rcfg.BaseURL, radar.DefaultBaseURL))
+	}
+
 	// Photon geocoder. RIVOLT_PHOTON_BASE_URL points at the
 	// in-cluster Service (e.g. http://photon.photon.svc.cluster.local).
 	// Empty disables; /api/geocode then falls through to Open-Meteo
@@ -3133,7 +3170,10 @@ func runServer() {
 			Backoff: vehiclediscovery.NewRedisBackoff(sharedRedis, redisKeyPrefix, api.FailLimiterKey(cookieSecret)),
 		})
 	}
+	appBuild := api.NewAppBuildCounter()
+	appMetrics.Registry().MustRegister(appBuild.Collector())
 	handler := api.New(api.Deps{
+		AppBuild:              appBuild,
 		StateForward:          stateForward,
 		GroupOfVehicle:        groupOfVehicle,
 		ForwardReplayTest:     forwardReplayTestOn,
@@ -3217,6 +3257,7 @@ func runServer() {
 		Valhalla:         maps.NewValhalla(os.Getenv("RIVOLT_VALHALLA_BASE_URL")), // the server calls it itself (overnight search); nil without the URL
 		TilesProxy:       tilesProxy,
 		DEMProxy:         demProxy,
+		Radar:            radarHandler,
 		ChargersArchive:  chargersArchive,
 		Photon:           photonClient,
 		GeocodeOpenMeteo: rivian.ParseBoolEnv(os.Getenv("RIVOLT_GEOCODE_OPEN_METEO")),

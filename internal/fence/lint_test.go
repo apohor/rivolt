@@ -542,3 +542,33 @@ func TestOwnerPackagesDoNotPersistSessions(t *testing.T) {
 		}
 	}
 }
+
+// TestUnownedMarkerHasOneWriterAndOneReader keeps fence.Unowned from becoming a general bypass: it may be set only where the needs_reauth raise
+// for a user with no group is prepared, and read only by the raise's own owner check. A new caller needs DA's ack (and an edit here).
+func TestUnownedMarkerHasOneWriterAndOneReader(t *testing.T) {
+	allowed := map[string]string{
+		"Unowned":   "/cmd/rivolt/reauth_owner.go",
+		"IsUnowned": "/db/reauth.go",
+	}
+	for _, f := range sources(t) {
+		if pkgKey(f) == "fence" {
+			continue // the definitions
+		}
+		af, err := parser.ParseFile(token.NewFileSet(), f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(af, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := sel.X.(*ast.Ident); ok && id.Name == "fence" {
+				if want, marked := allowed[sel.Sel.Name]; marked && !strings.HasSuffix(filepath.ToSlash(f), want) {
+					t.Errorf("%s uses fence.%s: only %s may (it is the needs_reauth raise for a user with no group; a new caller needs DA's ack)", f, sel.Sel.Name, want)
+				}
+			}
+			return true
+		})
+	}
+}

@@ -54,7 +54,7 @@ var secretPathPrefixes = []string{"/api/signup/token/"}
 
 // tilePathPrefixes are routes whose path says where a signed-in user is looking (a map tile address). The access log keeps the route, not the
 // tile, so it cannot be read as a location history.
-var tilePathPrefixes = []string{"/api/maps/dem/"}
+var tilePathPrefixes = []string{"/api/maps/radar/", "/api/maps/dem/"}
 
 // loggedPath is the path as it is written to the access log.
 func loggedPath(p string) string {
@@ -64,7 +64,7 @@ func loggedPath(p string) string {
 		}
 	}
 	for _, prefix := range tilePathPrefixes {
-		if strings.HasPrefix(p, prefix) {
+		if strings.HasPrefix(p, prefix) && !strings.HasSuffix(p, "/frame") {
 			return prefix + ":tile"
 		}
 	}

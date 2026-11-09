@@ -19,9 +19,10 @@ import (
 // produce the right apply order.
 //
 // Adding a new migration is "drop a .sql file in internal/db/migrations/
-// and rebuild". Nothing else to touch, except that one altering
-// vehicle_state sets a bounded lock_timeout first (see
-// migrate_locktimeout_test.go). Hitting that timeout fails the
+// and rebuild". Nothing else to touch, except that one touching an existing
+// table (ALTER, CREATE INDEX or TRIGGER, DROP, TRUNCATE; from 0109 on, any
+// table) sets a bounded lock_timeout first (migrate_lint_test.go, and
+// migrate_locktimeout_test.go for the hot tables). Hitting that timeout fails the
 // migration, so Open fails and the server exits at startup; the pod
 // restarts and retries. That is the intended trade: a delayed boot
 // instead of every vehicle_state insert queued behind the ALTER's lock.

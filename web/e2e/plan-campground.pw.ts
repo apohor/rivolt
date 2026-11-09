@@ -71,10 +71,10 @@ async function open(page: Page, asked: { kinds?: string[] }[]) {
     asked.push(r.request().postDataJSON());
     return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CANDIDATES) });
   });
-  await page.route("**/api/maps/chargers-along", (r) => {
-    const f = (r.request().postDataJSON() as { filter?: string }).filter;
-    const chargers = f === "camp" || f === "all" ? [CAMP_POI] : [];
-    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ chargers, count: chargers.length }) });
+  await page.route("**/api/maps/corridor-layers", (r) => {
+    const kinds = (r.request().postDataJSON() as { kinds?: string[] }).kinds ?? [];
+    const pois = kinds.includes("camp") ? [{ ...CAMP_POI, offKm: 4.2 }] : [];
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ pois, count: pois.length, total: pois.length, asof: "2026-10-20", route_km: 500 }) });
   });
   await page.route("**/api/trips/plan-multiday", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(BODY) }));
   await page.route("**/api/trips/saved", (r) =>
