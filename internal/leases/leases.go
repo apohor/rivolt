@@ -58,9 +58,12 @@ type Store struct {
 	// was last taken from a holder that had not released it (for the warm-up).
 	vehicleGroup map[string]string
 	stolenAt     map[string]time.Time
-	groupOKAt    time.Time // when the last successful RenewGroups was sent (monotonic)
-	lead         bool      // lead mode: the group lease decides ownership (groups_lead.go)
-	draining     bool
+	// priorOf is, for each group this pod took in an acquire pass, how it came free: the previous holder's release time and the reason
+	// (see Prior). A vehicle's coordinator takes it once, for the hand-off measurement.
+	priorOf   map[string]Prior
+	groupOKAt time.Time // when the last successful RenewGroups was sent (monotonic)
+	lead      bool      // lead mode: the group lease decides ownership (groups_lead.go)
+	draining  bool
 }
 
 // NewStore wraps a *sql.DB and pins the calling pod's identity. The
@@ -76,7 +79,7 @@ func NewStore(db *sql.DB, podID string) (*Store, error) {
 	if podID == "" {
 		return nil, errors.New("leases: empty pod_id (set RIVOLT_POD_ID via downward API)")
 	}
-	return &Store{db: db, podID: podID, ttl: DefaultTTL, groups: map[string]int64{}, stolenAt: map[string]time.Time{}}, nil
+	return &Store{db: db, podID: podID, ttl: DefaultTTL, groups: map[string]int64{}, stolenAt: map[string]time.Time{}, priorOf: map[string]Prior{}}, nil
 }
 
 // PodID returns the identity this Store acquires leases under.
@@ -401,6 +404,12 @@ type Coordinator struct {
 	acquiredAt map[string]time.Time
 	frameAt    func(vehicleID string) time.Time
 	onFrame    func(seconds float64, active bool)
+	// The hand-off measurement (SetHandoffObserver): priorRel[vid] is when the previous holder released the vehicle's group, kept until its
+	// first frame here. Guarded by mu.
+	priorRel     map[string]time.Time
+	kindOf       func(vehicleID string) string
+	onHandoff    func(reason string)
+	onHandoffGap func(seconds float64, state string)
 	// unstreamed[vehicleID] is when the current episode's last
 	// re-subscribe was fired. Guarded by mu.
 	unstreamed map[string]time.Time
@@ -928,7 +937,33 @@ func (c *Coordinator) SetFrameObserver(frameAt func(vehicleID string) time.Time,
 	c.frameAt, c.onFrame = frameAt, observe
 }
 
+// SetHandoffObserver wires the whole hand-off measurement. onHandoff is told the reason (ReasonDrain, ReasonExpired, ReasonRebalance,
+// ReasonOther) for every vehicle this pod takes from another holder. onGap is told, for a released group, the seconds from the previous
+// holder's release to the first frame here (the stop before the release, up to 5 s, is not in it) and the state at that frame: driving,
+// charging or idle, from kindOf ("drive", "charge" or ""). Needs SetFrameObserver for the frame times.
+func (c *Coordinator) SetHandoffObserver(kindOf func(vehicleID string) string, onHandoff func(reason string), onGap func(seconds float64, state string)) {
+	c.kindOf, c.onHandoff, c.onHandoffGap = kindOf, onHandoff, onGap
+}
+
+// priorTaker is the part of a store that remembers how a group came free (the lead-mode Store).
+type priorTaker interface {
+	TakePrior(vehicleID string) (Prior, bool)
+}
+
 func (c *Coordinator) markAcquired(vid string) {
+	if pt, ok := c.store.(priorTaker); ok && c.onHandoff != nil {
+		if p, ok := pt.TakePrior(vid); ok {
+			c.onHandoff(p.Reason)
+			if !p.Released.IsZero() && c.onHandoffGap != nil {
+				c.mu.Lock()
+				if c.priorRel == nil {
+					c.priorRel = map[string]time.Time{}
+				}
+				c.priorRel[vid] = p.Released
+				c.mu.Unlock()
+			}
+		}
+	}
 	if c.frameAt == nil || c.onFrame == nil {
 		return
 	}
@@ -962,6 +997,7 @@ func (c *Coordinator) observeFrames() {
 		case !owned || now.Sub(at) > 10*time.Minute:
 			c.mu.Lock()
 			delete(c.acquiredAt, vid)
+			delete(c.priorRel, vid)
 			c.mu.Unlock()
 		case !f.IsZero() && !f.Before(at):
 			// Active means an open drive or charge when the first frame is seen (the recorder rehydrates the
@@ -970,7 +1006,21 @@ func (c *Coordinator) observeFrames() {
 			c.onFrame(f.Sub(at).Seconds(), active)
 			c.mu.Lock()
 			delete(c.acquiredAt, vid)
+			rel, hadRel := c.priorRel[vid]
+			delete(c.priorRel, vid)
 			c.mu.Unlock()
+			if hadRel && c.onHandoffGap != nil && !f.Before(rel) {
+				state := "idle"
+				if c.kindOf != nil {
+					switch c.kindOf(vid) {
+					case "drive":
+						state = "driving"
+					case "charge":
+						state = "charging"
+					}
+				}
+				c.onHandoffGap(f.Sub(rel).Seconds(), state)
+			}
 		}
 	}
 }

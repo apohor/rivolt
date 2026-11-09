@@ -791,6 +791,25 @@ func (r *MonitorRegistry) SessionActivity(rivianVehicleID string) (open, asleep 
 	return false, asleep
 }
 
+// SessionKind is the kind of open session ("drive", "charge") any monitor holds for the vehicle, or "". No database lookup.
+func (r *MonitorRegistry) SessionKind(rivianVehicleID string) string {
+	r.mu.RLock()
+	mons := make([]*StateMonitor, 0, len(r.monitors))
+	for _, e := range r.monitors {
+		mons = append(mons, e.monitor)
+	}
+	r.mu.RUnlock()
+	for _, m := range mons {
+		if m == nil {
+			continue
+		}
+		if k := m.SessionKind(rivianVehicleID); k != "" {
+			return k
+		}
+	}
+	return ""
+}
+
 // Unsubscribe tears the vehicle's subscription down on every monitor
 // that runs it, not only its current owner's. After an owner flip (users
 // sharing a VIN) the old owner's run is still the one streaming; routing

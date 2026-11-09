@@ -157,6 +157,14 @@ type Metrics struct {
 	// WeatherRequestsTotal counts calls to the Open-Meteo forecast and archive APIs (ours or the public one) by endpoint (forecast, archive) and
 	// outcome (ok, error, skipped_old: a self-hosted client declined a time older than its server keeps). No coordinates, no user.
 	WeatherRequestsTotal *prometheus.CounterVec
+	// HandoffGapSeconds is the whole hand-off gap of a vehicle that changed pods by a release: from the previous holder's release of its group to
+	// the first frame on the new pod, by what the vehicle was doing at that frame (driving, charging, idle). The old pod's stop before its release
+	// (up to 5 s) is not in it, and the two clocks are the database's and the pod's, so read it to about a second. Expired takeovers have no
+	// release and are not in it. The deploy-safety gate is its active (driving or charging) p95.
+	HandoffGapSeconds *prometheus.HistogramVec
+	// RolloutHandoffsTotal counts vehicles a pod took from another holder, by reason: drain (a peer was shutting down), rebalance (released with
+	// no peer draining: a fair-share shed or a retired candidate), expired (the holder's lease ran out), other (an open session's group re-keyed).
+	RolloutHandoffsTotal *prometheus.CounterVec
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -469,6 +477,15 @@ func New() *Metrics {
 			Name: "rivolt_open_charges",
 			Help: "Open live charge rows by state (charging or not_charging by the stale-charge janitor's rule, or no_frame: the vehicle sent nothing in 2 days); no vehicle or user labels.",
 		}, []string{"state"}),
+		HandoffGapSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "rivolt_handoff_gap_seconds",
+			Help:    "Seconds from the previous holder releasing a vehicle's group to the first frame on the new pod, by state at that frame (driving, charging, idle).",
+			Buckets: []float64{2, 4, 6, 8, 10, 12, 15, 20, 30, 45, 60, 120},
+		}, []string{"state"}),
+		RolloutHandoffsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_rollout_handoffs_total",
+			Help: "Vehicles a pod took from another holder, by reason (drain, rebalance, expired, other).",
+		}, []string{"reason"}),
 		WeatherRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_weather_requests_total",
 			Help: "Open-Meteo requests by endpoint (forecast, archive) and outcome (ok, error, skipped_old).",
@@ -907,6 +924,8 @@ func New() *Metrics {
 		m.VehiclesFallbackTotal,
 		m.VehicleDiscoveryTotal,
 		m.WeatherRequestsTotal,
+		m.HandoffGapSeconds,
+		m.RolloutHandoffsTotal,
 		m.Accounts,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
@@ -1036,6 +1055,12 @@ func New() *Metrics {
 	}
 	for _, outcome := range []string{"ok", "retried_ok", "dropped", "error"} {
 		m.RivianScheduleReadTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, state := range []string{"driving", "charging", "idle"} {
+		m.HandoffGapSeconds.WithLabelValues(state) // exported at count 0 from boot
+	}
+	for _, reason := range []string{"drain", "rebalance", "expired", "other"} {
+		m.RolloutHandoffsTotal.WithLabelValues(reason).Add(0)
 	}
 	m.EntitlementsLookupErrors.Add(0) // exported at 0 so the first failure is an increase
 	for _, scope := range []string{"vehicle", "group"} {

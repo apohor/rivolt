@@ -1390,6 +1390,22 @@ func (m *StateMonitor) SessionActivity(vehicleID string) (open, asleep bool) {
 	return open, asleep
 }
 
+// SessionKind is what the vehicle's open session is: "drive", "charge", or "" when none (or a drive and charge never both open).
+func (m *StateMonitor) SessionKind(vehicleID string) string {
+	m.sessMu.Lock()
+	defer m.sessMu.Unlock()
+	ls := m.sessions[vehicleID]
+	switch {
+	case ls == nil:
+		return ""
+	case ls.drive != nil:
+		return "drive"
+	case ls.charge != nil:
+		return "charge"
+	}
+	return ""
+}
+
 // Unsubscribe tears down the background subscription for vehicleID
 // if one is running, and is a no-op otherwise. Used by the lease
 // coordinator when this pod loses ownership of a vehicle to a peer.
