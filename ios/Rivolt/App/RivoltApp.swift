@@ -10,7 +10,11 @@ import UserNotifications
 @main
 struct RivoltApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #if DEBUG
+    @State private var state = UITestLaunch.makeState() ?? AppState()
+    #else
     @State private var state = AppState()
+    #endif
 
     init() {
         // The bundled Geist fonts, before the first screen asks for them.

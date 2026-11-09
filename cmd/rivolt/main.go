@@ -2179,6 +2179,14 @@ func runServer() {
 				coord.TriggerReconcile()
 			})
 		}
+		monitorRegistry.SetRolloutObserver(func(event, kind, source string) {
+			switch event {
+			case rivian.RolloutRehydrate:
+				appMetrics.SessionRehydrateTotal.WithLabelValues(kind, source).Inc()
+			case rivian.RolloutSplit:
+				appMetrics.SessionSplitTotal.WithLabelValues(kind).Inc()
+			}
+		})
 		monitorRegistry.SetScheduleObserver(func(outcome string) { appMetrics.RivianScheduleReadTotal.WithLabelValues(outcome).Inc() })
 		coord.SetFrameObserver(monitorRegistry.FirstFrameAt, func(seconds float64, active bool) {
 			state := "idle"

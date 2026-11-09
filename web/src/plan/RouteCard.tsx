@@ -45,6 +45,7 @@ export function RouteCard({
   stacked = false,
   chooser,
   dayLabel,
+  startsAtOrigin,
 }: {
   route: TripRoute;
   index: number;
@@ -53,6 +54,8 @@ export function RouteCard({
   destLabel: string;
   // "Day 2" on a multi-day plan: the map's legend card says which day its legs belong to.
   dayLabel?: string;
+  // False for a line that does not start at the trip's origin (a later day, a re-plan from the truck): the map then ignores "hide chargers near the start".
+  startsAtOrigin?: boolean;
   onAddStop?: StopAdder;
   onAddOvernight?: OvernightAdder;
   onPreviewStop?: StopPreviewer;
@@ -192,7 +195,7 @@ export function RouteCard({
               {" / "}
               <span
                 className="text-rose-400 font-mono cursor-help"
-                title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal (Settings → Trip planner defaults).`}
+                title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal (Settings → Trip planner → Costs).`}
               >{fmtCurrency(gasEquiv)}</span>
             </>
           )}
@@ -305,6 +308,7 @@ export function RouteCard({
               onSelectStop={(idx) => setSelectedStop(idx)}
               departureAt={departureAt}
               dayLabel={dayLabel}
+              startsAtOrigin={startsAtOrigin}
               originLabel={originLabel}
               destLabel={destLabel}
               legWeather={legWeather}
@@ -371,6 +375,7 @@ export function RouteCard({
             onSelectStop={(idx) => setSelectedStop(idx)}
             departureAt={departureAt}
             dayLabel={dayLabel}
+              startsAtOrigin={startsAtOrigin}
             originLabel={originLabel}
             destLabel={destLabel}
             legWeather={legWeather}

@@ -419,6 +419,7 @@ type memLiveStateStore struct {
 	mu     sync.Mutex
 	items  map[string]LiveStateSnapshot
 	states map[string]State
+	feats  map[string]memFeatures
 }
 
 func newMemLiveStateStore() *memLiveStateStore {
