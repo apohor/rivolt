@@ -13,7 +13,11 @@ vi.mock("../lib/config", () => ({
   valhallaBase: () => (globalThis as { __valhalla?: string }).__valhalla ?? "",
   bookingAffiliateID: () => "",
 }));
-vi.mock("../lib/poi", () => ({ findChargersAlongPath: () => Promise.resolve([]), HOTEL_FACILITY_TYPES: new Set<string>() }));
+vi.mock("../lib/poi", () => ({
+  findLayersAlongPath: () => Promise.resolve({ pois: [], total: 0 }),
+  findChargersOfNetworks: () => Promise.resolve([]),
+  HOTEL_FACILITY_TYPES: new Set<string>(),
+}));
 
 import { TripRouteMap } from "./TripRouteMap";
 import { tripCardText } from "./tripPure";

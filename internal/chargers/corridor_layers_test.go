@@ -450,3 +450,82 @@ func TestCappedCorridorNeverExceedsTheLimitWithManyKinds(t *testing.T) {
 		}
 	}
 }
+
+// With no corridor_km each kind has its own width: fast 8 km, Level 2 4.8 km, hotels and campgrounds 16 km. A row is about 1.75 km at this latitude (a tile is 2.4 km at the equator).
+func TestEachKindHasItsOwnDefaultWidth(t *testing.T) {
+	const row, x0 = 6000, 1000
+	mk := func(i int, rows int, p map[string]any) station {
+		return station{x: x0 + uint32(i), y: uint32(row + rows), props: p}
+	}
+	a := loaded(t, archiveAt(t, []station{
+		mk(10, 3, map[string]any{"@id": "dcfc_near", "dcfc_count": 2}),                          // about 5.2 km: inside 8
+		mk(20, 6, map[string]any{"@id": "dcfc_far", "dcfc_count": 2}),                           // about 10.5 km: outside 8
+		mk(30, 2, map[string]any{"@id": "l2_near", "l2_count": 2}),                              // about 3.5 km: inside 4.8
+		mk(40, 4, map[string]any{"@id": "l2_far", "l2_count": 2}),                               // about 7 km: outside 4.8
+		mk(50, 7, map[string]any{"@id": "hotel_near", "facility_type": "HOTEL", "l2_count": 1}), // about 12 km: inside 16
+		mk(60, 12, map[string]any{"@id": "hotel_far", "facility_type": "HOTEL", "l2_count": 1}), // about 21 km: outside 16
+		mk(70, 7, map[string]any{"@id": "camp_near", "facility_type": "CAMPGROUND", "hookup_amps": 50}),
+		mk(80, 12, map[string]any{"@id": "camp_far", "facility_type": "CAMPGROUND", "hookup_amps": 50}),
+	}))
+	path := make([][2]float64, 0, 100)
+	for i := 0; i < 100; i++ {
+		c := maptile.New(uint32(x0+i), row, 14).Bound().Center()
+		path = append(path, [2]float64{c[1], c[0]})
+	}
+	r, err := a.QueryLayers(path, []string{"dcfc", "l2", "hotels", "camp"}, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, id := range ids(r) {
+		got[id] = true
+	}
+	for _, want := range []string{"dcfc_near", "l2_near", "hotel_near", "camp_near"} {
+		if !got[want] {
+			t.Errorf("%s dropped; kept %v", want, ids(r))
+		}
+	}
+	for _, bad := range []string{"dcfc_far", "l2_far", "hotel_far", "camp_far"} {
+		if got[bad] {
+			t.Errorf("%s kept; it is outside its kind's width", bad)
+		}
+	}
+	// The total counts after the per-kind filter, so "showing x of y" is true.
+	if r.Total != 4 || len(r.POIs) != 4 {
+		t.Errorf("total %d, returned %d, want 4 and 4", r.Total, len(r.POIs))
+	}
+	// A station that is both fast and a hotel keeps only the kinds whose width it is inside.
+	// Asking for fast alone scans only 8 km: the hotels are not even looked at.
+	f, _ := a.QueryLayers(path, []string{"dcfc"}, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true}})
+	if ids(f)[0] != "dcfc_near" || len(f.POIs) != 1 || f.Total != 1 {
+		t.Errorf("fast only: %v total %d", ids(f), f.Total)
+	}
+	// An explicit corridor_km is used for every kind, as before.
+	e, _ := a.QueryLayers(path, []string{"dcfc", "l2"}, LayerOptions{QueryCorridorOptions: QueryCorridorOptions{IncludeEndpoints: true, CorridorKm: 20}})
+	eg := map[string]bool{}
+	for _, id := range ids(e) {
+		eg[id] = true
+	}
+	if !eg["dcfc_far"] || !eg["l2_far"] {
+		t.Errorf("explicit 20 km: %v", ids(e))
+	}
+}
+
+// Inside a stretch the station nearest the route wins, power only breaks a tie: an off-route 350 kW site does not beat an on-highway 150 kW one.
+func TestSpreadPrefersTheStationNearestTheRoute(t *testing.T) {
+	all := []CorridorPOI{
+		{POI: POI{EntityID: "far350", MaxPowerKW: 350}, AlongKm: 10, OffKm: 28},
+		{POI: POI{EntityID: "near150", MaxPowerKW: 150}, AlongKm: 12, OffKm: 0.4},
+		{POI: POI{EntityID: "near350", MaxPowerKW: 350}, AlongKm: 14, OffKm: 0.4},
+		{POI: POI{EntityID: "tail", MaxPowerKW: 50}, AlongKm: 95, OffKm: 1},
+	}
+	got := spreadAlongRoute(all, []int{0, 1, 2, 3}, 2, 100, true)
+	var names []string
+	for _, i := range got {
+		names = append(names, all[i].EntityID)
+	}
+	// One slot for the stretch with three stations: the equally near pair is decided by power, never the 28 km one.
+	if len(names) != 2 || names[0] != "near350" || names[1] != "tail" {
+		t.Errorf("kept %v, want [near350 tail]", names)
+	}
+}

@@ -57,6 +57,8 @@ export type POI = {
   reservable?: boolean;
   ridbID?: string;
   asof?: string;
+  // How far the station is from the route, in kilometres (corridor layers only).
+  offKm?: number;
   fee?: string;
   openingHours?: string;
   // OSM canonical id (`node/12345`) when known. Lets the popup
@@ -390,8 +392,9 @@ export async function findChargersAlongPath(
   return resp.chargers.map(serverChargerToPOI);
 }
 
-function serverChargerToPOI(c: AlongCharger): POI {
+function serverChargerToPOI(c: AlongCharger & { offKm?: number }): POI {
   return {
+    offKm: c.offKm,
     lat: c.lat,
     lon: c.lon,
     name: c.name,
@@ -416,6 +419,23 @@ function serverChargerToPOI(c: AlongCharger): POI {
       c.socketChademo ? "chademo" : "",
     ].filter(Boolean),
   };
+}
+
+export type LayerKind = "dcfc" | "l2" | "hotels" | "camp";
+
+// The stations of the given layer kinds along a route, from the corridor query: each kind within its own distance of the route (fast 5 mi,
+// medium 3 mi, hotels and camping 10 mi, set by the server), spread along the whole route when there are more than the cap. `total` is how many
+// there are before the cap. No kinds: nothing, and no request. Null when the install has no archive (or the signed-out demo).
+export async function findLayersAlongPath(path: [number, number][], kinds: LayerKind[], signal?: AbortSignal): Promise<{ pois: POI[]; total: number } | null> {
+  if (path.length < 2 || kinds.length === 0) return { pois: [], total: 0 };
+  if (inDemo()) return null;
+  try {
+    const r = await backend.corridorLayers({ path: thinPath(path), kinds }, signal);
+    return { pois: r.pois.map(serverChargerToPOI), total: r.total };
+  } catch (e: unknown) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
 }
 
 // The fast chargers along a route that belong to the given networks (slugs), from the corridor query. Null when the install has no archive.

@@ -51,6 +51,11 @@ type LayerResult struct {
 	RouteKm     float64
 }
 
+// LayerKindKm is the default half-width of the corridor for each layer kind, used when the request names no corridor_km: a fast charger a
+// driver would detour for is within 5 miles of the route, a Level 2 within 3 (nobody drives further for slow charging), a hotel or a
+// campground within 10. The query runs once at the widest requested width and each station is then kept only within its own kind's width.
+var LayerKindKm = map[string]float64{"dcfc": 8, "l2": 4.8, "hotels": 16, "camp": 16}
+
 func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
 
 // QueryLayers returns the stations of the requested kinds along the route in route order (nearest the start first), with
@@ -78,6 +83,15 @@ func (a *Archive) QueryLayers(path [][2]float64, kinds []string, opts LayerOptio
 	if limit > MaxLayerLimit {
 		limit = MaxLayerLimit
 	}
+	// No corridor_km: every kind has its own width (LayerKindKm), and the scan runs at the widest of the kinds asked for.
+	perKind := opts.CorridorKm <= 0
+	if perKind {
+		for _, k := range want {
+			if w := LayerKindKm[k]; w > opts.CorridorKm {
+				opts.CorridorKm = w
+			}
+		}
+	}
 	hits, proj, err := a.corridorHits(path, func(p POI) bool {
 		if opts.Accept != nil && !opts.Accept(p) {
 			return false
@@ -97,9 +111,12 @@ func (a *Archive) QueryLayers(path [][2]float64, kinds []string, opts LayerOptio
 	for _, h := range hits {
 		c := CorridorPOI{POI: h.POI, AlongKm: round3(h.alongM / 1000), OffKm: round3(h.offM / 1000)}
 		for _, k := range want {
-			if h.POI.matches(filters[k]) {
+			if h.POI.matches(filters[k]) && (!perKind || c.OffKm <= LayerKindKm[k]) {
 				c.Kinds = append(c.Kinds, k)
 			}
+		}
+		if len(c.Kinds) == 0 {
+			continue // inside the scan's width but outside every kind it matches
 		}
 		if h.POI.AsOf > asof {
 			asof = h.POI.AsOf
@@ -250,11 +267,12 @@ func spreadAlongRoute(all []CorridorPOI, idx []int, limit int, routeKm float64, 
 		}
 		sort.SliceStable(ix, func(i, j int) bool {
 			a, c := all[ix[i]], all[ix[j]]
-			if byPower && a.MaxPowerKW != c.MaxPowerKW {
-				return a.MaxPowerKW > c.MaxPowerKW
-			}
+			// Nearest the route first: a site 18 miles off with 350 kW must not beat one on the highway with 150 kW. Power only breaks ties.
 			if a.OffKm != c.OffKm {
 				return a.OffKm < c.OffKm
+			}
+			if byPower && a.MaxPowerKW != c.MaxPowerKW {
+				return a.MaxPowerKW > c.MaxPowerKW
 			}
 			return a.AlongKm < c.AlongKm
 		})

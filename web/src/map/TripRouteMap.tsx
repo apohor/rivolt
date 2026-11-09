@@ -7,8 +7,8 @@ import type { GeoJSONSource, Map as MLMap, Marker, Popup } from "maplibre-gl";
 import { inDemo } from "../lib/demo";
 import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
 import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
-import { findChargersAlongPath, findChargersOfNetworks, HOTEL_FACILITY_TYPES } from "../lib/poi";
-import type { POI } from "../lib/poi";
+import { findChargersOfNetworks, findLayersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
+import type { LayerKind, POI } from "../lib/poi";
 import type { HookupId } from "../plan/hookups";
 import { campgroundOfPoi } from "../plan/stays";
 import { backend, type PlannedWaypoint, type TripRoute } from "../lib/api";
@@ -24,14 +24,14 @@ import { measurePill, pillAwayFromLine, pillBox, pillSide, placeStopPill, setPil
 import { watchDrawn } from "./drawn";
 import { localUnits, usePreferences } from "../lib/preferences";
 import { MAP_CAPTION_PX } from "../lib/mapCaption";
-import { ALL_LABEL, chargerLabel, type ChargerKind } from "../lib/chargerLabels";
+import { chargerLabel, type ChargerKind } from "../lib/chargerLabels";
 import { ChargerTypeInfo } from "../components/ChargerTypeInfo";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
 import { drawLegBadges, type LegWeatherInfo } from "./legBadges";
 import { legWeatherTags } from "../plan/legWeather";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
-  bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, sameSpot, valhallaMultiRoute, waypointTooltip,
+  bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, offRouteLine, sameSpot, valhallaMultiRoute, waypointTooltip,
   decodePolyline6, tripCardText, type PreviewResult,
 } from "./tripPure";
 
@@ -150,15 +150,21 @@ export function TripRouteMap({
   const departureAtRef = useRef(departureAt);
   departureAtRef.current = departureAt;
   const [routePath, setRoutePath] = useState<LatLng[]>([]);
-  const [chargerFilter, setChargerFilter] = useState<"dcfc" | "l2" | "hotels" | "camp" | "all">("dcfc");
+  // The layers shown, each an independent switch: tap a lit chip to turn it off. Fast is on by default; with every chip off nothing is drawn and
+  // nothing is requested.
+  const [layers, setLayers] = useState<ReadonlySet<LayerKind>>(() => new Set<LayerKind>(["dcfc"]));
+  const toggleLayer = (k: LayerKind) => setLayers((cur) => { const next = new Set(cur); if (next.has(k)) next.delete(k); else next.add(k); return next; });
+  const layersKey = (["dcfc", "l2", "hotels", "camp"] as const).filter((k) => layers.has(k)).join(",");
+  const fastOn = layers.has("dcfc");
   const [campCount, setCampCount] = useState(0);
   // "Preferred only": just the fast chargers of the networks marked "Prefer in planner" in Settings (the same list). It narrows the map; the planner
   // still only favours them.
   const [preferredOnly, setPreferredOnly] = useState(false);
   const preferredSlugs = usePreferredSlugs();
   const preferredKey = preferredSlugs.join(",");
-  const onlyPreferred = preferredOnly && preferredSlugs.length > 0 && (chargerFilter === "dcfc" || chargerFilter === "all");
+  const onlyPreferred = preferredOnly && preferredSlugs.length > 0 && fastOn;
   const [chargerCount, setChargerCount] = useState<number | null>(null);
+  const [chargerTotal, setChargerTotal] = useState<number | null>(null);
   const [chargersLoading, setChargersLoading] = useState(false);
   // No charger source (the signed-out demo, or a server without the archive): the chips would contradict a route that has charging stops.
   const [noChargerSource, setNoChargerSource] = useState(inDemo());
@@ -671,8 +677,8 @@ export function TripRouteMap({
         popupRef.current?.remove();
         const { isHotel, camp } = chargerVariant(poi);
         const html = camp
-          ? campPopupHTML(poi, camp, !!onAddOvernightRef.current)
-          : chargerPopupHTML(poi, !!onAddStopRef.current, !!onPreviewStopRef.current, isHotel ? bookingDeepLink(poi, departureAtRef.current) : "", isHotel && !!onAddOvernightRef.current);
+          ? campPopupHTML(poi, camp, !!onAddOvernightRef.current, offRouteLine(poi.offKm, localUnits().distanceUnit))
+          : chargerPopupHTML(poi, !!onAddStopRef.current, !!onPreviewStopRef.current, isHotel ? bookingDeepLink(poi, departureAtRef.current) : "", isHotel && !!onAddOvernightRef.current, offRouteLine(poi.offKm, localUnits().distanceUnit));
         const popup = new ml.Popup({ closeButton: true, offset: 8, maxWidth: "280px", className: "rivolt-popup" });
         keepClearOfChips(map, popup, { lng: poi.lon, lat: poi.lat });
         popup.setLngLat([poi.lon, poi.lat]).setHTML(html).addTo(map);
@@ -749,13 +755,40 @@ export function TripRouteMap({
     const map = mapReady;
     if (routePath.length < 2 || !map) return;
     const ac = new AbortController();
+    const kinds = layersKey ? (layersKey.split(",") as LayerKind[]) : [];
+    // Every chip off: draw nothing and ask for nothing.
+    if (kinds.length === 0) {
+      pois.current = [];
+      chargersRef.current = { type: "FeatureCollection", features: [] };
+      setChargerCount(0);
+      setChargerTotal(0);
+      setChargersLoading(false);
+      const src = map.getSource(CHARGERS_SOURCE) as GeoJSONSource | undefined;
+      if (src && styleReadyRef.current) src.setData(chargersRef.current as never);
+      return;
+    }
     setChargersLoading(true);
     void (async () => {
-      const found = onlyPreferred ? await findChargersOfNetworks(routePath, preferredKey.split(",")) : await findChargersAlongPath(routePath, chargerFilter);
+      // "Preferred only" narrows the fast layer to the preferred networks; the other layers on are unchanged.
+      const others = onlyPreferred ? kinds.filter((k) => k !== "dcfc") : kinds;
+      let pref: POI[] | null, rest: { pois: POI[]; total: number } | null;
+      try {
+        [pref, rest] = await Promise.all([
+          onlyPreferred ? findChargersOfNetworks(routePath, preferredKey.split(",")) : Promise.resolve([] as POI[]),
+          findLayersAlongPath(routePath, others, ac.signal),
+        ]);
+      } catch {
+        // A chip toggled while this request was in flight cancels it (the next effect run asks again); any other failure leaves the pins as they were.
+        if (!ac.signal.aborted) setChargersLoading(false);
+        return;
+      }
+      const found = pref === null || rest === null ? null : [...pref, ...rest.pois];
+      const total = pref === null || rest === null ? 0 : pref.length + rest.total;
       if (ac.signal.aborted || mapRef.current !== map) return;
       setNoChargerSource(found === null);
       const chargers = found ?? [];
       setChargerCount(chargers.length);
+      setChargerTotal(total);
       setChargersLoading(false);
       pois.current = chargers;
       chargersRef.current = {
@@ -778,25 +811,25 @@ export function TripRouteMap({
       ac.abort();
       setChargersLoading(false);
     };
-  }, [routePath, chargerFilter, mapReady, onlyPreferred, preferredKey]);
+  }, [routePath, layersKey, mapReady, onlyPreferred, preferredKey]);
 
   // Is there any campground with a hookup along the route? Decides whether the chip shows at all.
   useEffect(() => {
     if (routePath.length < 2) return;
     let live = true;
-    void findChargersAlongPath(routePath, "camp")
-      .then((found) => { if (live) setCampCount((found ?? []).filter((p) => campgroundOfPoi(p)).length); })
+    void findLayersAlongPath(routePath, ["camp"])
+      .then((found) => { if (live) setCampCount((found?.pois ?? []).filter((p) => campgroundOfPoi(p)).length); })
       .catch(() => { if (live) setCampCount(0); });
     return () => { live = false; };
   }, [routePath]);
 
-  const filterLabels: Record<typeof chargerFilter, string> = {
+  const filterLabels: Record<LayerKind, string> = {
     dcfc: chargerLabel("fast"),
     l2: chargerLabel("medium"),
     hotels: chargerLabel("hotel"),
     camp: chargerLabel("camping"),
-    all: ALL_LABEL,
   };
+  const dotColor: Record<LayerKind, string> = { dcfc: "#06b6d4", l2: "#a3e635", hotels: "#a78bfa", camp: "#22c55e" };
 
   if (!supported) {
     return (
@@ -812,21 +845,22 @@ export function TripRouteMap({
         <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
           {!noChargerSource && <>
           <span className="whitespace-nowrap text-xs text-neutral-500 mr-1">Chargers:</span>
-          {(["dcfc", "l2", "hotels", "camp", "all"] as const).filter((f) => f !== "camp" || campCount > 0 || chargerFilter === "camp").map((f) => (
+          {(["dcfc", "l2", "hotels", "camp"] as const).filter((f) => f !== "camp" || campCount > 0 || layers.has("camp")).map((f) => (
             <button
               key={f}
-              onClick={() => setChargerFilter(f)}
+              aria-pressed={layers.has(f)}
+              onClick={() => toggleLayer(f)}
               className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors ${
-                chargerFilter === f ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                layers.has(f) ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
               }`}
             >
               {filterLabels[f]}
             </button>
           ))}
           <ChargerTypeInfo
-            kinds={["fast", "medium", "hotel", ...(campCount > 0 || chargerFilter === "camp" ? (["camping"] as ChargerKind[]) : [])]}
+            kinds={["fast", "medium", "hotel", ...(campCount > 0 || layers.has("camp") ? (["camping"] as ChargerKind[]) : [])]}
           />
-          {preferredSlugs.length > 0 && (chargerFilter === "dcfc" || chargerFilter === "all") && (
+          {preferredSlugs.length > 0 && fastOn && (
             <button
               aria-pressed={preferredOnly}
               onClick={() => setPreferredOnly((v) => !v)}
@@ -836,24 +870,24 @@ export function TripRouteMap({
               Preferred only
             </button>
           )}
-          {!chargersLoading && chargerCount === 0 ? (
+          {layers.size > 0 && !chargersLoading && chargerCount === 0 ? (
             <span className="basis-full text-xs text-neutral-400">No chargers in this area at this zoom. Zoom out or move the map.</span>
           ) : (
-            <span className="whitespace-nowrap text-xs text-neutral-500 ml-1">{chargersLoading ? "…" : chargerCount != null ? `${chargerCount} found` : ""}</span>
-          )}
-          {chargerFilter === "all" && (
-            <span className="whitespace-nowrap text-xs text-neutral-600 ml-1">
-              <span style={{ color: "#06b6d4" }}>●</span> {chargerLabel("fast")} &nbsp;
-              <span style={{ color: "#a3e635" }}>●</span> {chargerLabel("medium")} &nbsp;
-              <span style={{ color: "#a78bfa" }}>●</span> {chargerLabel("hotel")} &nbsp;
-              {campCount > 0 && (<><span style={{ color: "#22c55e" }}>●</span> {chargerLabel("camping")}</>)}
+            <span className="whitespace-nowrap text-xs text-neutral-500 ml-1" data-layer-count>
+              {layers.size === 0 ? "" : chargersLoading ? "…" : chargerCount != null ? (chargerTotal != null && chargerTotal > chargerCount ? `Showing ${chargerCount} of ${chargerTotal}` : `${chargerCount} found`) : ""}
             </span>
           )}
-          {chargerFilter === "camp" && (
-            <span className="text-xs text-neutral-600 ml-1"><span style={{ color: "#22c55e" }}>●</span> {chargerLabel("camping")}</span>
+          {layers.size > 1 && (
+            <span className="whitespace-nowrap text-xs text-neutral-600 ml-1">
+              {(["dcfc", "l2", "hotels", "camp"] as const).filter((k) => layers.has(k)).map((k) => (
+                <span key={k}><span style={{ color: dotColor[k] }}>●</span> {filterLabels[k]} &nbsp;</span>
+              ))}
+            </span>
           )}
-          {chargerFilter === "hotels" && (
-            <span className="text-xs text-neutral-600 ml-1"><span style={{ color: "#a78bfa" }}>●</span> {chargerLabel("hotel")}</span>
+          {layers.size === 1 && (
+            <span className="text-xs text-neutral-600 ml-1">
+              {(["dcfc", "l2", "hotels", "camp"] as const).filter((k) => layers.has(k)).map((k) => (<span key={k}><span style={{ color: dotColor[k] }}>●</span> {filterLabels[k]}</span>))}
+            </span>
           )}
           </>}
         </div>

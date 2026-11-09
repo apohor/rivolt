@@ -14,6 +14,8 @@ for (const v of [
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
     await stubApi(page);
+    const layerReqs: string[][] = [];
+    page.on("request", (r) => { if (r.url().includes("/api/maps/corridor-layers")) layerReqs.push((r.postDataJSON() as { kinds: string[] }).kinds); });
     await page.route("**/api/trips/saved", (r) => r.fulfill(j([{ id: "st-a", name: "Old trip", inputs: INPUTS, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])));
     await page.route("**/api/trips/plan", (r) => r.fulfill(j(DEMO_PLAN)));
     await page.goto("/trips/plan");
@@ -23,7 +25,27 @@ for (const v of [
     await page.getByRole("button", { name: "Plan trip" }).click();
     await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
     const chips = page.locator("[data-map-chips]").first();
-    for (const name of ["Fast", "Medium", "Hotel", "All"]) await expect(chips.getByRole("button", { name, exact: true })).toBeVisible();
+    for (const name of ["Fast", "Medium", "Hotel"]) await expect(chips.getByRole("button", { name, exact: true })).toBeVisible();
+    // No All chip: the layers are independent switches, Fast on by default, and a lit chip turns off when tapped.
+    await expect(chips.getByRole("button", { name: "All", exact: true })).toHaveCount(0);
+    await expect(chips.getByRole("button", { name: "Fast", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(chips.getByRole("button", { name: "Medium", exact: true })).toHaveAttribute("aria-pressed", "false");
+    await chips.getByRole("button", { name: "Medium", exact: true }).click();
+    await expect(chips.getByRole("button", { name: "Medium", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(chips.getByRole("button", { name: "Fast", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await chips.getByRole("button", { name: "Fast", exact: true }).click();
+    await expect(chips.getByRole("button", { name: "Fast", exact: true })).toHaveAttribute("aria-pressed", "false");
+    // Every chip off (Medium is still on): turn it off too; then nothing is requested and no pins are drawn.
+    await chips.getByRole("button", { name: "Medium", exact: true }).click();
+    await expect(chips.getByRole("button", { name: "Medium", exact: true })).toHaveAttribute("aria-pressed", "false");
+    await page.waitForTimeout(300);
+    const before = layerReqs.length;
+    await chips.getByRole("button", { name: "Hotel", exact: true }).click(); // on: one request
+    await expect.poll(() => layerReqs.length).toBe(before + 1);
+    expect(layerReqs[layerReqs.length - 1]).toEqual(["hotels"]);
+    await chips.getByRole("button", { name: "Hotel", exact: true }).click(); // off again: none
+    await page.waitForTimeout(500);
+    expect(layerReqs.length).toBe(before + 1);
     await expect(chips).not.toContainText(/Level 2|Hotels with|Fast charging/);
     // The (i): a tap opens one sentence per type, Escape closes it and gives focus back.
     const info = chips.getByRole("button", { name: "What the charger types mean" });

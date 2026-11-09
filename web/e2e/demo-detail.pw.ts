@@ -77,7 +77,7 @@ test("the demo never requests anonymous routing or the corridor query", async ({
   page.on("request", (r) => {
     // No anonymous routing/map-matching and no server-side corridor query.
     // The public tile archives (us.pmtiles, chargers.pmtiles) are allowed.
-    if (r.url().includes("/api/maps/valhalla") || r.url().includes("/api/maps/chargers-along")) tileReqs.push(r.url());
+    if (r.url().includes("/api/maps/valhalla") || r.url().includes("/api/maps/chargers-along") || r.url().includes("/api/maps/corridor-layers")) tileReqs.push(r.url());
   });
   await openDemo(page, "/demo/activity");
   await page.locator('a[href^="/demo/drives/"]').first().click();
