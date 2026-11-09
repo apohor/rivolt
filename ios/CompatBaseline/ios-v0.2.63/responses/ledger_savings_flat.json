@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "flat_rate": true,
+  "reason": "flat_rate",
+  "basis": "You said your electricity is one flat rate, so there are no off-peak hours to move charging into and Rivolt makes no off-peak estimate."
+}

@@ -316,6 +316,22 @@ jobs:
             echo "::endgroup::"
           done
 
+      # rollout.enabled swaps the Deployment for a Rollout and nothing else: the pod template is one shared definition, and exactly one
+      # of the two kinds is rendered (zero-impact deploys, the Rollouts spike).
+      - name: The Rollout and the Deployment share one pod template
+        run: |
+          set -o pipefail
+          d=$(helm template rivolt "$CHART" -f "$CHART/ci/default-values.yaml")
+          r=$(helm template rivolt "$CHART" -f "$CHART/ci/rollout-values.yaml")
+          a=$(echo "$d" | yq 'select(.kind == "Deployment") | .spec.template')
+          b=$(echo "$r" | yq 'select(.kind == "Rollout") | .spec.template')
+          [ -n "$a" ] && [ "$a" = "$b" ] || { echo "::error::the Rollout's pod template differs from the Deployment's (or one is missing)"; exit 1; }
+          [ -z "$(echo "$d" | yq 'select(.kind == "Rollout")')" ] || { echo "::error::the default render has a Rollout"; exit 1; }
+          [ -z "$(echo "$r" | yq 'select(.kind == "Deployment")')" ] || { echo "::error::the rollout render still has a Deployment"; exit 1; }
+          echo "$r" | yq 'select(.kind == "PodMonitor") | .spec.selector.matchLabels' | grep -q 'app.kubernetes.io/instance' \
+            || { echo "::error::the rollout case has no PodMonitor selecting the app"; exit 1; }
+          echo "one pod template, one workload kind per render"
+
       # The migrate Job's pod must never match the Service's (or the PDB's,
       # or the Deployment's) selector: with no readiness probe it would count
       # as Ready and receive traffic (migrations-job design, architect).

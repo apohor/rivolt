@@ -1,0 +1,30 @@
+{
+  "days" : [
+    {
+      "end" : {
+        "label" : "Example Destination",
+        "lat" : 47.6588,
+        "lon" : -117.426
+      },
+      "overnight" : {
+        "l2_kw" : 7,
+        "max_soc_pct" : 90,
+        "name" : "Example Inn",
+        "until" : "08:00"
+      },
+      "target_arrival_soc_pct" : 20
+    }
+  ],
+  "max_overnight_soc_pct" : 90,
+  "origin" : {
+    "label" : "Example Origin",
+    "lat" : 47.6205,
+    "lon" : -122.3493
+  },
+  "pack_kwh" : 135,
+  "start_at" : "2027-01-12T15:00:00Z",
+  "starting_soc" : 88,
+  "target_arrival_soc_percent" : 10,
+  "tz" : "America\/Los_Angeles",
+  "vehicle_id" : "veh-example"
+}

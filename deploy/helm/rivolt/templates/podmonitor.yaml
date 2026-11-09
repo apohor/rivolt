@@ -1,0 +1,22 @@
+{{- if .Values.metrics.podMonitor.enabled }}
+# PodMonitor for rivolt's /metrics: scrapes every pod the app labels select (the canary of a Rollout included), independent of which Service
+# points at them. The job label is the instance value, the same job the ServiceMonitor gives (the alerts match on it). Turn on this OR the
+# ServiceMonitor, not both.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "rivolt.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+spec:
+  jobLabel: app.kubernetes.io/instance
+  selector:
+    matchLabels:
+      {{- include "rivolt.selectorLabels" . | nindent 6 }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.metrics.podMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.podMonitor.scrapeTimeout }}
+{{- end }}

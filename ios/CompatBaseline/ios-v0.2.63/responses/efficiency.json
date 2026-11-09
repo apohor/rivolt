@@ -1,0 +1,135 @@
+{
+  "units": "imperial",
+  "distance_unit": "mi",
+  "efficiency_unit": "mi/kWh",
+  "min_bucket_distance": 25,
+  "total": {
+    "key": "total",
+    "label": "All drives",
+    "distance": 238,
+    "energy_kwh": 87.9,
+    "efficiency": 2.71,
+    "drives": 7,
+    "not_enough_data": false
+  },
+  "by_temperature": [
+    {
+      "key": "below_0c",
+      "label": "Below 32 °F",
+      "distance": 0,
+      "energy_kwh": 0,
+      "efficiency": null,
+      "drives": 0,
+      "not_enough_data": true
+    },
+    {
+      "key": "0_10c",
+      "label": "32–50 °F",
+      "distance": 42,
+      "energy_kwh": 17.5,
+      "efficiency": 2.4,
+      "drives": 1,
+      "not_enough_data": false
+    },
+    {
+      "key": "10_20c",
+      "label": "50–68 °F",
+      "distance": 93,
+      "energy_kwh": 33.3,
+      "efficiency": 2.79,
+      "drives": 2,
+      "not_enough_data": false
+    },
+    {
+      "key": "20_30c",
+      "label": "68–86 °F",
+      "distance": 73,
+      "energy_kwh": 25.8,
+      "efficiency": 2.83,
+      "drives": 2,
+      "not_enough_data": false
+    },
+    {
+      "key": "30c_up",
+      "label": "86 °F and above",
+      "distance": 3,
+      "energy_kwh": 1.4,
+      "efficiency": 2.14,
+      "drives": 1,
+      "not_enough_data": true
+    }
+  ],
+  "by_speed": [
+    {
+      "key": "city",
+      "label": "City (under 35 mph)",
+      "distance": 15,
+      "energy_kwh": 5.5,
+      "efficiency": 2.73,
+      "drives": 2,
+      "not_enough_data": true
+    },
+    {
+      "key": "mixed",
+      "label": "Mixed (35–55 mph)",
+      "distance": 27,
+      "energy_kwh": 9.9,
+      "efficiency": 2.73,
+      "drives": 1,
+      "not_enough_data": false
+    },
+    {
+      "key": "highway",
+      "label": "Highway (55–70 mph)",
+      "distance": 135,
+      "energy_kwh": 50.8,
+      "efficiency": 2.66,
+      "drives": 3,
+      "not_enough_data": false
+    },
+    {
+      "key": "fast_highway",
+      "label": "Fast highway (70 mph and above)",
+      "distance": 61,
+      "energy_kwh": 21.7,
+      "efficiency": 2.81,
+      "drives": 1,
+      "not_enough_data": false
+    }
+  ],
+  "by_drive_mode": [
+    {
+      "key": "everyday",
+      "label": "All-Purpose",
+      "distance": 138,
+      "energy_kwh": 52.2,
+      "efficiency": 2.64,
+      "drives": 4,
+      "not_enough_data": false
+    },
+    {
+      "key": "sport",
+      "label": "Sport",
+      "distance": 61,
+      "energy_kwh": 21.7,
+      "efficiency": 2.81,
+      "drives": 1,
+      "not_enough_data": false
+    },
+    {
+      "key": "conserve",
+      "label": "Conserve",
+      "distance": 12,
+      "energy_kwh": 4.1,
+      "efficiency": 2.93,
+      "drives": 1,
+      "not_enough_data": true
+    }
+  ],
+  "excluded": {
+    "no_energy": 1,
+    "duplicates": 0,
+    "no_temperature": 1,
+    "no_drive_mode": 1
+  }
+}

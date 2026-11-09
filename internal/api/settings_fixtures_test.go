@@ -47,7 +47,7 @@ func settingsFixtures(t *testing.T) map[string]any {
 		"error_offpeak_field.json":       ferr,
 		"settings_networks.json":         nets,
 		"settings_membership_terms.json": map[string]any{"terms": terms},
-		"settings_planner.json":          settings.PlannerPrefs{DriveMode: "EVERYDAY", HasAdapter: &yes},
+		"settings_planner.json":          settings.PlannerPrefs{DriveMode: "EVERYDAY", HasAdapter: &yes}.WithDefaults(),
 	}
 }
 

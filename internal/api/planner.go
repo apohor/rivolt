@@ -211,8 +211,8 @@ func handleHomeAddressSearch(photon *geocoding.PhotonClient) http.HandlerFunc {
 }
 
 // handlePlannerPrefsGet returns the user's saved trip-planner
-// defaults (drive mode + Tesla adapter). Used by the SPA to
-// pre-fill the per-trip form.
+// defaults: drive mode, Tesla adapter and the Trip planner settings page's fields, every one filled in (the defaults for ones never set).
+// Used by the SPA to pre-fill the per-trip form and the map.
 func handlePlannerPrefsGet(store *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, err := settings.GetPlannerPrefs(r.Context(), store)
@@ -220,7 +220,7 @@ func handlePlannerPrefsGet(store *settings.Store) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, p)
+		writeJSON(w, http.StatusOK, p.WithDefaults())
 	}
 }
 
@@ -232,13 +232,17 @@ func handlePlannerPrefsPut(store *settings.Store) http.HandlerFunc {
 			http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		if err := p.Validate(); err != nil { // nothing is written for a value outside the fixed choices
+			jsonError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if err := settings.SetPlannerPrefs(r.Context(), store, p); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		logSettingsWrite(r, "planner.defaults", "drive_mode", "has_adapter")
+		logSettingsWrite(r, "planner.defaults", "drive_mode", "has_adapter", "corridor", "start_exclude_mi", "min_fast_kw", "layers_on", "preferred_only", "weather_on", "radar_on")
 		out, _ := settings.GetPlannerPrefs(r.Context(), store)
-		writeJSON(w, http.StatusOK, out)
+		writeJSON(w, http.StatusOK, out.WithDefaults())
 	}
 }
 
