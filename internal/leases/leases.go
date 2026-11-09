@@ -36,6 +36,7 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -330,6 +331,10 @@ type Coordinator struct {
 	// owned-lease count. The metrics package wires this to the
 	// rivolt_subscription_leases gauge. Optional.
 	onCountChange func(count int)
+	// onReconcile hears what started each reconcile pass (start, tick, signal, other); signalled marks that a peer's release signal is among
+	// the reasons pending (the trigger channel coalesces, so the reason is a flag, not a message).
+	onReconcile func(trigger string)
+	signalled   atomic.Bool
 
 	// onGroups and onDryRun report the group leases (SetGroupObserver).
 	onGroups func(held int)
@@ -520,6 +525,15 @@ func (c *Coordinator) TriggerReconcile() {
 	}
 }
 
+// SetReconcileObserver wires a callback that hears what started each reconcile pass. Safe to call before Run.
+func (c *Coordinator) SetReconcileObserver(fn func(trigger string)) { c.onReconcile = fn }
+
+func (c *Coordinator) noteReconcile(trigger string) {
+	if c.onReconcile != nil {
+		c.onReconcile(trigger)
+	}
+}
+
 // SetCountObserver wires a callback that fires after every reconcile
 // with the current number of leases owned. Safe to call before Run.
 func (c *Coordinator) SetCountObserver(fn func(count int)) {
@@ -634,6 +648,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		return err
 	}
 	c.runSignal(ctx)
+	c.noteReconcile("start")
 	c.reconcile(ctx)
 
 	t := time.NewTimer(c.nextTick())
@@ -644,6 +659,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-t.C:
 			started := time.Now()
+			c.noteReconcile("tick")
 			c.reconcile(ctx)
 			// The next tick is counted from this one's start, so a slow pass does not stretch the gap.
 			next := c.nextTick() - time.Since(started)
@@ -652,6 +668,11 @@ func (c *Coordinator) Run(ctx context.Context) error {
 			}
 			t.Reset(next)
 		case <-c.trigger:
+			if c.signalled.Swap(false) {
+				c.noteReconcile("signal")
+			} else {
+				c.noteReconcile("other")
+			}
 			c.reconcile(ctx)
 		}
 	}
