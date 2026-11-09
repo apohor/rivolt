@@ -266,6 +266,53 @@ func rewriteFindings(src string) []string {
 	return bad
 }
 
+// Part 3: data moves out of migrations (zero-impact deploys, G6b). A migration changes schema; moving data after a schema change is a background
+// backfill (internal/backfill: keyset batches in short transactions, one pod at a time, resumable). A table-wide UPDATE, a DELETE or an
+// INSERT ... SELECT on an existing table inside a migration holds row locks in one long transaction, bloats the table and holds up the migration job
+// that runs before every rollout. So a statement of that kind on a table that is neither created in the same file nor on smallTables (tables bounded
+// by design) needs "-- da-ack: backfill-in-migration <reason>" (DA acks per PR, with the row estimate), unless it is a job. A DO block is not parsed.
+var (
+	reUpdateStmt    = regexp.MustCompile(`(?is)^update\s+(?:only\s+)?(\S+)`)
+	reDeleteStmt    = regexp.MustCompile(`(?is)^delete\s+from\s+(?:only\s+)?(\S+)`)
+	reInsertSelect  = regexp.MustCompile(`(?is)^insert\s+into\s+(\S+)[^;]*?\bselect\b`)
+	reDaAckBackfill = regexp.MustCompile(`(?im)^[ \t]*--[ \t]*da-ack:[ \t]*backfill-in-migration[ \t]+\S+`) // same line: a bare ack must not borrow the next line as its reason
+)
+
+// backfillFindings lists the data-moving statements of a migration on existing growing tables, unless the file carries the ack.
+func backfillFindings(src string) []string {
+	if reDaAckBackfill.MatchString(src) {
+		return nil
+	}
+	var bad []string
+	created := map[string]bool{}
+	for _, st := range sqlStatements(src) {
+		t := st.text
+		if m := reCreateTable.FindStringSubmatch(t); m != nil {
+			created[bareTable(m[1])] = true
+			continue
+		}
+		var table, what string
+		switch {
+		case reUpdateStmt.MatchString(t):
+			table, what = bareTable(reUpdateStmt.FindStringSubmatch(t)[1]), "UPDATE"
+		case reDeleteStmt.MatchString(t):
+			table, what = bareTable(reDeleteStmt.FindStringSubmatch(t)[1]), "DELETE"
+		case reInsertSelect.MatchString(t):
+			table, what = bareTable(reInsertSelect.FindStringSubmatch(t)[1]), "INSERT ... SELECT"
+		default:
+			continue
+		}
+		if created[table] {
+			continue
+		}
+		if _, small := smallTables[table]; small {
+			continue
+		}
+		bad = append(bad, what+" on "+table)
+	}
+	return bad
+}
+
 // Part 2: indexes on existing tables. A plain CREATE INDEX takes a SHARE lock that blocks every write for as long as the build takes, so on a table that
 // can grow it must be CREATE INDEX CONCURRENTLY IF NOT EXISTS, alone in a file whose first line is "-- migrate:no-transaction" (the runner,
 // migrate_notx.go, sets the timeouts and repairs an invalid leftover). How the lint knows a table can grow: it assumes every existing table can, except the
@@ -363,6 +410,9 @@ func TestEveryExistingTableLockSetsLockTimeout(t *testing.T) {
 		}
 		if bad := lockFindings(string(body)); len(bad) > 0 {
 			t.Errorf("%s: %s without a bounded (1 ms to 10 s) SET LOCAL lock_timeout = '5s' before it (a table created in the same file is exempt)", base, strings.Join(bad, ", "))
+		}
+		if bad := backfillFindings(string(body)); len(bad) > 0 {
+			t.Errorf("%s: %s moves data in a migration; schema only here, move the data with a backfill job (internal/backfill), or add a line \"-- da-ack: backfill-in-migration <reason>\" once DA has acked it on the PR", base, strings.Join(bad, ", "))
 		}
 		if bad := rewriteFindings(string(body)); len(bad) > 0 {
 			t.Errorf("%s: %s can rewrite or scan an existing table under a lock; add a line \"-- da-ack: rewrite <reason>\" once DA has acked it on the PR", base, strings.Join(bad, ", "))
@@ -526,4 +576,29 @@ func TestLockFindingsOverHistory(t *testing.T) {
 		}
 	}
 	t.Logf("%d of %d earlier migrations would be flagged by the all-tables rule, %d by the rewrite rule (not enforced)", flagged, len(names), rewrites)
+}
+
+func TestBackfillFindings(t *testing.T) {
+	for name, tc := range map[string]struct {
+		sql  string
+		want int
+	}{
+		"schema only":                       {"CREATE TABLE a (id int);\nALTER TABLE b ADD COLUMN x int;", 0},
+		"update on an existing table":       {"UPDATE drives SET x = 1;", 1},
+		"update with a where is still data": {"UPDATE charges SET y = 2 WHERE y IS NULL;", 1},
+		"delete on an existing table":       {"DELETE FROM charges WHERE ended_at < now();", 1},
+		"insert select":                     {"INSERT INTO a2 (id) SELECT id FROM drives;", 1},
+		"insert values is a seed":           {"INSERT INTO flags (k) VALUES ('x') ON CONFLICT DO NOTHING;", 0},
+		"table created in the same file":    {"CREATE TABLE n (id int);\nINSERT INTO n (id) SELECT id FROM drives;\nUPDATE n SET id = 1;", 0},
+		"a small table":                     {"UPDATE flags SET v = 1;", 0},
+		"acked":                             {"-- da-ack: backfill-in-migration 40 rows, a lookup\nUPDATE drives SET x = 1;", 0},
+		"the ack needs a reason":            {"-- da-ack: backfill-in-migration\nUPDATE drives SET x = 1;", 1},
+		"a do block is not parsed":          {"DO $$ BEGIN UPDATE drives SET x = 1; END $$;", 0},
+		"two findings":                      {"UPDATE drives SET x = 1;\nDELETE FROM vehicles WHERE y;", 2},
+		"schema-qualified":                  {"UPDATE public.drives SET x = 1;", 1},
+	} {
+		if got := backfillFindings(tc.sql); len(got) != tc.want {
+			t.Errorf("%s: %v, want %d finding(s)", name, got, tc.want)
+		}
+	}
 }

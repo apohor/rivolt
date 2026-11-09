@@ -40,6 +40,7 @@ import (
 	"github.com/apohor/rivolt/internal/appsettings"
 	"github.com/apohor/rivolt/internal/archive"
 	"github.com/apohor/rivolt/internal/auth"
+	"github.com/apohor/rivolt/internal/backfill"
 	"github.com/apohor/rivolt/internal/bg"
 	"github.com/apohor/rivolt/internal/cfaccess"
 	"github.com/apohor/rivolt/internal/changelog"
@@ -3047,6 +3048,16 @@ func runServer() {
 			jobs = append(jobs, retention.Job{Name: "vehicle_state_thinning", Run: thinner.Run})
 		}
 		go retention.Run(ctx, logger, jobs)
+	}
+	// Background backfills (zero-impact deploys, G6b): data that moves after a schema change, in short batches on one pod at a time, resumable.
+	// RIVOLT_BACKFILL=0 stops them (a job that misbehaves is paused without a deploy; its progress is kept).
+	if pgPool != nil && !adminOnlyMode && len(backfillJobs) > 0 && os.Getenv("RIVOLT_BACKFILL") != "0" {
+		bm := backfill.NewMetrics()
+		for _, c := range bm.Collectors() {
+			appMetrics.Registry().MustRegister(c)
+		}
+		go (&backfill.Runner{DB: pgPool, Jobs: backfillJobs, Log: logger, Metrics: bm}).Run(ctx)
+		logger.Info("backfills on", "jobs", len(backfillJobs))
 	}
 
 	// The plug-in reminder (internal/plugreminder): an opt-in push, once a day,
