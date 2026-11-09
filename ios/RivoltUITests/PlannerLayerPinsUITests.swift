@@ -11,8 +11,10 @@ final class PlannerLayerPinsUITests: XCTestCase {
         return [here.appendingPathComponent("Fixtures").path, ios.appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
     }
 
-    private func launch() -> XCUIApplication {
+    /// `largestText` is the largest accessibility text size (AX5), where the layer chips give way to a Layers menu.
+    private func launch(largestText: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
+        if largestText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = Self.fixtureDirectories
         app.launch()
         return app
@@ -68,6 +70,39 @@ final class PlannerLayerPinsUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'DC fast'")).firstMatch.exists, "with a sentence for Fast")
         app.otherElements["PopoverDismissRegion"].firstMatch.tap()
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'DC fast'")).firstMatch.waitForExistence(timeout: 2), "a tap outside closes it")
+    }
+
+    func testAtTheLargestTextTheLayersAreOneMenuThatStillDrawsPins() throws {
+        let app = launch(largestText: true)
+        let map = open("Seattle to Spokane", in: app)
+        expectPins(map, "3 places along the route", "Fast is on to begin with, at the largest text too")
+        XCTAssertFalse(app.buttons["Medium"].firstMatch.exists, "no chips at this size: they would fill the map")
+        let layers = app.buttons["Map layers"].firstMatch
+        XCTAssertTrue(layers.waitForExistence(timeout: 10), "one Layers button instead")
+        XCTAssertTrue(layers.isHittable, "and a thumb can reach it")
+        layers.tap()
+        let hotel = app.buttons["Hotel"].firstMatch
+        XCTAssertTrue(hotel.waitForExistence(timeout: 5), "the menu has the same switches")
+        hotel.tap()
+        expectPins(map, "5 places along the route", "Hotel adds its two from the menu")
+        XCTAssertTrue((layers.value as? String ?? "").contains("Hotel"), "the button says what is on: \(String(describing: layers.value))")
+    }
+
+    func testAtTheLargestTextATwoDayTripsDaysAreReachable() throws {
+        let app = launch(largestText: true)
+        let map = open("Two days to Spokane", in: app)
+        expectPins(map, "3 places along the route", "the layers reach the two-day map at the largest text")
+        let day2 = app.buttons["Day 2"].firstMatch
+        XCTAssertTrue(day2.waitForExistence(timeout: 10), "Day 2 is in the sheet")
+        // The sheet starts down to its title at this size: its handle opens it.
+        let handle = app.buttons["Itinerary"].firstMatch
+        XCTAssertEqual(handle.value as? String, "collapsed")
+        handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)))
+        XCTAssertNotEqual(handle.value as? String, "collapsed", "the handle opened the sheet")
+        XCTAssertTrue(day2.isHittable, "after the sheet is opened, Day 2 can be tapped")
+        day2.tap()
+        XCTAssertTrue(day2.isSelected, "Day 2 is the one picked")
+        expectPins(map, "3 places along the route", "a day still has its pins")
     }
 
     private func expectPins(_ map: XCUIElement, _ spoken: String, _ why: String, file: StaticString = #filePath, line: UInt = #line) {

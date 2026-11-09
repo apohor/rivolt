@@ -6,6 +6,8 @@ import Foundation
 /// unknown path is a 404, so nothing reaches a real server. Debug builds only: Release has none of this.
 enum UITestLaunch {
     static let variable = "RIVOLT_UITEST_FIXTURES"
+    /// An account with no vehicle yet: the vehicles list is empty and the discovery answer is this state (looking, none, reauth), for the connect screen.
+    static let noTruckVariable = "RIVOLT_UITEST_NO_TRUCK"
 
     /// The directories to answer from, or nil on a normal launch.
     static var directories: [URL]? {
@@ -48,8 +50,11 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/trips/saved"): return "trip_saved_list"
         case ("GET", "/api/settings/planner"): return "settings_planner"
         case ("GET", "/api/app/config"): return "app_config"
+        case ("GET", "/api/activity"): return "activity"
         default:
             if method == "GET", path.hasPrefix("/api/vehicles/"), path.hasSuffix("/state") { return "state_full" }
+            // One charge's row (not the lists under the same path).
+            if method == "GET", path.hasPrefix("/api/charges/"), !path.hasSuffix("/to-confirm"), !path.hasSuffix("/clusters") { return "charge_one" }
             return nil
         }
     }
@@ -84,6 +89,8 @@ final class FixtureURLProtocol: URLProtocol {
                 body = out
             }
             answer = corridorLayers(body: body)
+        } else if let state = ProcessInfo.processInfo.environment[UITestLaunch.noTruckVariable], method == "GET", url.path == "/api/vehicles" || url.lastPathComponent == "discovery" {
+            answer = Data((url.lastPathComponent == "discovery" ? #"{"state":"\#(state)"}"# : "[]").utf8)
         } else if let name = Self.file(method: method, path: url.path) {
             answer = data(named: name)
         }
