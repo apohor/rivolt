@@ -64,6 +64,12 @@ func TestFenceUser_GroupTokenForEveryMember(t *testing.T) {
 	if _, st, err := a.FenceUser(ctx, uid["fu-novehicle"]); err != nil || st != fence.Lost {
 		t.Errorf("user with no vehicle: %v %v; want Lost (no group)", st, err)
 	}
+	// Ungrouped is only the user with no vehicle: a group another pod holds is not it.
+	for u, want := range map[string]bool{"fu-novehicle": true, "fu-1": false, "fu-2": false} {
+		if got, err := b.UserUngrouped(ctx, uid[u]); err != nil || got != want {
+			t.Errorf("UserUngrouped(%s) = %v, %v; want %v", u, got, err, want)
+		}
+	}
 	off := leadStore(t, pool, "pod-off")
 	off.SetGroupLead(false)
 	if _, st, err := off.FenceUser(ctx, uid["fu-1"]); err != nil || st != fence.Off {

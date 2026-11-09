@@ -38,6 +38,15 @@ func From(ctx context.Context) (Token, bool) {
 	return t, ok
 }
 
+type unownedKey struct{}
+
+// Unowned marks ctx as acting for a user who has no group (no vehicle row yet), so there is no owner whose token could exist. A write that
+// would otherwise be refused for lacking a token (owner-only needs_reauth raises) may go ahead: nobody else could make it.
+func Unowned(ctx context.Context) context.Context { return context.WithValue(ctx, unownedKey{}, true) }
+
+// IsUnowned reports whether ctx was marked by Unowned.
+func IsUnowned(ctx context.Context) bool { v, _ := ctx.Value(unownedKey{}).(bool); return v }
+
 // State is what a pod may do for a vehicle right now.
 type State int
 
