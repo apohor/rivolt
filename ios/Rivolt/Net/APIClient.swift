@@ -42,9 +42,7 @@ actor APIClient {
 
         self.decoder = JSON.decoder()
 
-        let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        self.encoder = encoder
+        self.encoder = JSON.requestEncoder()
     }
 
     /// Called when the server answers 403 `terms_required`: the person has to accept the updated Terms on the web.
@@ -62,7 +60,7 @@ actor APIClient {
         try await request("GET", "/api/app/config", authenticated: false)
     }
 
-    private struct AppTokenBody: Encodable {
+    struct AppTokenBody: Encodable {
         let code: String
         let codeVerifier: String
         let deviceName: String
