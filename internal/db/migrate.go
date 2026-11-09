@@ -26,6 +26,9 @@ import (
 // restarts and retries. That is the intended trade: a delayed boot
 // instead of every vehicle_state insert queued behind the ALTER's lock.
 //
+// A migration whose first line is "-- migrate:no-transaction" runs outside a transaction, as one CREATE INDEX CONCURRENTLY IF NOT EXISTS
+// statement (migrate_notx.go).
+//
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
@@ -261,6 +264,9 @@ func loadApplied(ctx context.Context, db *sql.DB) (map[string]bool, error) {
 // pgx uses for `Exec`) runs them serially. A failure rolls everything
 // back and the migration will retry on the next boot.
 func run(ctx context.Context, db *sql.DB, m migration) error {
+	if isNoTx(m.sql) {
+		return runNoTx(ctx, db, m)
+	}
 	started := time.Now()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
