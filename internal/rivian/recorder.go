@@ -139,6 +139,9 @@ type liveSessions struct {
 	// with no SoC gain is the stuck state still, not a new charge (its
 	// merged power sticks too, so it looks like one).
 	stuck *stuckCharge
+
+	// takeover tracks how this ownership's sessions came back after a takeover (rollout_obs.go); nil without a shared store, or once decided.
+	takeover *takeoverTrack
 }
 
 type stuckCharge struct {
@@ -533,6 +536,7 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// still run on the next lifecycle pass and will drop
 		// rehydrated state that's clearly out of date.
 		sess = m.maybeRehydrate(vehicleID, curr)
+		m.beginTakeover(vehicleID, sess)
 		m.sessions[vehicleID] = sess
 	}
 
@@ -556,11 +560,13 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// raw frame.
 		lc := sess.lifecycleView(curr, m)
 		sess.applyMutualExclusion(lc, m, wctx)
+		driveBefore, chargeBefore := sess.drive, sess.charge
 
 		// Handle session lifecycle so the sample row carries the
 		// right drive_number / charge_number for this frame.
 		driveNum = sess.handleDriveLifecycle(lc, prev, m, wctx)
 		chargeNum = sess.handleChargeLifecycle(lc, prev, m, wctx)
+		m.noteTakeover(vehicleID, sess, driveBefore, chargeBefore)
 
 		// Snapshot the post-lifecycle accumulator while we still
 		// hold sessMu; the actual Redis write happens after unlock

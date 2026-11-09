@@ -157,6 +157,12 @@ type Metrics struct {
 	// WeatherRequestsTotal counts calls to the Open-Meteo forecast and archive APIs (ours or the public one) by endpoint (forecast, archive) and
 	// outcome (ok, error, skipped_old: a self-hosted client declined a time older than its server keeps). No coordinates, no user.
 	WeatherRequestsTotal *prometheus.CounterVec
+	// SessionRehydrateTotal counts, per ownership of a vehicle (a roll, a crash, a rebalance), how an open drive or charge came back at
+	// takeover: kind (drive, charge) by source (snapshot: the Redis snapshot; db: the charge's open row; fresh: nothing came back, and the
+	// previous session had ended minutes before, so this is a split). A vehicle that was not mid-session counts nothing. No vehicle or user labels.
+	SessionRehydrateTotal *prometheus.CounterVec
+	// SessionSplitTotal counts drives and charges split in two by a takeover that lost the open session (SessionRehydrateTotal source fresh).
+	SessionSplitTotal *prometheus.CounterVec
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -469,6 +475,14 @@ func New() *Metrics {
 			Name: "rivolt_open_charges",
 			Help: "Open live charge rows by state (charging or not_charging by the stale-charge janitor's rule, or no_frame: the vehicle sent nothing in 2 days); no vehicle or user labels.",
 		}, []string{"state"}),
+		SessionRehydrateTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_session_rehydrate_total",
+			Help: "Open drives and charges found at a takeover, by kind (drive, charge) and source (snapshot, db, fresh: nothing came back, a split).",
+		}, []string{"kind", "source"}),
+		SessionSplitTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_session_split_total",
+			Help: "Drives and charges split in two because a takeover lost the open session, by kind (drive, charge).",
+		}, []string{"kind"}),
 		WeatherRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_weather_requests_total",
 			Help: "Open-Meteo requests by endpoint (forecast, archive) and outcome (ok, error, skipped_old).",
@@ -907,6 +921,8 @@ func New() *Metrics {
 		m.VehiclesFallbackTotal,
 		m.VehicleDiscoveryTotal,
 		m.WeatherRequestsTotal,
+		m.SessionRehydrateTotal,
+		m.SessionSplitTotal,
 		m.Accounts,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
@@ -1036,6 +1052,12 @@ func New() *Metrics {
 	}
 	for _, outcome := range []string{"ok", "retried_ok", "dropped", "error"} {
 		m.RivianScheduleReadTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, kind := range []string{"drive", "charge"} {
+		m.SessionSplitTotal.WithLabelValues(kind).Add(0)
+		for _, source := range []string{"snapshot", "db", "fresh"} {
+			m.SessionRehydrateTotal.WithLabelValues(kind, source).Add(0)
+		}
 	}
 	m.EntitlementsLookupErrors.Add(0) // exported at 0 so the first failure is an increase
 	for _, scope := range []string{"vehicle", "group"} {
