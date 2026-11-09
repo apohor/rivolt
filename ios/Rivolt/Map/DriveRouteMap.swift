@@ -531,6 +531,12 @@ struct RouteMapView: UIViewRepresentable {
                 f.attributes = ["i": i, "label": s.label, "p": s.emphasis ? 1 : 0, "k": s.kind]
                 return f
             }
+            let legTags: [MLNPointFeature] = d.legTags.map { t in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: t.coord.lat, longitude: t.coord.lon)
+                f.attributes = ["t": t.text]
+                return f
+            }
             // The picked pin again on its own, so it can be drawn over the rest: a stop, or past the stops a charger along the route.
             let focus: [MLNPointFeature] = d.focus.flatMap { i -> MLNPointFeature? in
                 if d.stops.indices.contains(i) { return stops[i] }
@@ -539,6 +545,7 @@ struct RouteMapView: UIViewRepresentable {
             }.map { [$0] } ?? []
             return [
                 "stops": MLNShapeCollectionFeature(shapes: stops),
+                "legtags": MLNShapeCollectionFeature(shapes: legTags),
                 "along": MLNShapeCollectionFeature(shapes: along),
                 "focus": MLNShapeCollectionFeature(shapes: focus.map { f in
                     let copy = MLNPointFeature()
@@ -631,6 +638,17 @@ struct RouteMapView: UIViewRepresentable {
                 text.textAnchor = NSExpression(forConstantValue: "bottom")
                 text.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: -1.1)))
                 style.addLayer(text)
+                // The weather on each leg, as a label beside the line: a label that would lie over another is left out by the map itself.
+                let weather = MLNSymbolStyleLayer(identifier: "\(RouteMapView.sourceID)-legtags", source: sources["legtags"]!)
+                weather.text = NSExpression(forKeyPath: "t")
+                weather.textFontNames = NSExpression(forConstantValue: ["Noto Sans Medium"])
+                weather.textFontSize = NSExpression(forConstantValue: ThemeTokens.typeMapCaption)
+                weather.textColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
+                weather.textHaloColor = NSExpression(forConstantValue: UIColor(Theme.background))
+                weather.textHaloWidth = NSExpression(forConstantValue: 2)
+                weather.textAnchor = NSExpression(forConstantValue: "left")
+                weather.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0.9, dy: 0)))
+                style.addLayer(weather)
                 let ring = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-stop-focus", source: sources["focus"]!)
                 ring.circleColor = NSExpression(forConstantValue: UIColor(Theme.accent))
                 ring.circleRadius = NSExpression(forConstantValue: 12)
