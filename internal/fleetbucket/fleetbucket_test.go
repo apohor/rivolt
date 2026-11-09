@@ -166,3 +166,36 @@ func TestSharedKeyCountsOnce(t *testing.T) {
 		t.Error("a call after the share's time was still shared")
 	}
 }
+
+// Observe is told the outcome of every Wait, once: the class and priority as given, and whether it waited, shared a session's slot, starved or
+// went local-only.
+func TestObserveHearsEveryWait(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := client(t, mr)
+	clk := newFakeClock()
+	type seen struct {
+		class  string
+		active bool
+		r      Result
+	}
+	var got []seen
+	b := New(Config{LocalRPS: 1000, FleetRPS: 1, Redis: rdb, Prefix: "rivolt", Now: clk.Now, Sleep: clk.Sleep,
+		Observe: func(class string, active bool, r Result) { got = append(got, seen{class, active, r}) }})
+	b.Wait(context.Background(), "dial", "s1", true)
+	b.Wait(context.Background(), "dial", "s1", true) // shared
+	b.Wait(context.Background(), "seed", "", false)  // the second's budget is used by the dial: waits for the next second
+	if len(got) != 3 {
+		t.Fatalf("%d observations for 3 waits", len(got))
+	}
+	if got[0].class != "dial" || !got[0].active || got[0].r.Shared || got[0].r.Starved {
+		t.Errorf("first: %+v", got[0])
+	}
+	if !got[1].r.Shared {
+		t.Errorf("second should be shared: %+v", got[1])
+	}
+	if got[2].class != "seed" || got[2].active || got[2].r.Waited <= 0 {
+		t.Errorf("third should be an idle seed that waited for the next second: %+v", got[2])
+	}
+	var nilBucket *Bucket
+	nilBucket.Wait(context.Background(), "dial", "", true) // a nil bucket neither waits nor panics
+}

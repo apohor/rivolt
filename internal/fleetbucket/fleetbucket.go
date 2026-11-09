@@ -37,6 +37,9 @@ type Config struct {
 	// machine is). Sleep returns when d has passed or ctx is done.
 	Now   func() time.Time
 	Sleep func(ctx context.Context, d time.Duration)
+	// Observe hears the outcome of every Wait (class and priority as the caller gave them): how long it waited, and whether it was shared,
+	// starved or local-only. It is called once per Wait, on the caller's goroutine, and must not block.
+	Observe func(class string, active bool, r Result)
 }
 
 const (
@@ -105,6 +108,14 @@ func New(cfg Config) *Bucket {
 // Wait blocks until the call may start. class names the call (for the caller's metrics); shareKey, when not empty, lets the calls of one Rivian
 // session's shared socket count once. It returns when ctx is done too (Waited then says how long it waited; the caller checks ctx).
 func (b *Bucket) Wait(ctx context.Context, class, shareKey string, active bool) Result {
+	r := b.wait(ctx, shareKey, active)
+	if b != nil && b.cfg.Observe != nil {
+		b.cfg.Observe(class, active, r)
+	}
+	return r
+}
+
+func (b *Bucket) wait(ctx context.Context, shareKey string, active bool) Result {
 	if b == nil {
 		return Result{}
 	}
