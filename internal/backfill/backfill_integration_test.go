@@ -417,6 +417,7 @@ func TestFillRefusesAKeyThatRepeats(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(`DROP TABLE IF EXISTS bf_multi, bf_loose`) })
 	jobs := []backfill.Job{
+		{Name: "reversed", Fill: &backfill.Fill{Table: "bf_multi", WriterRelease: "v0.1.0", Key: "at", KeyType: "timestamptz", MoreKeys: []backfill.FillKey{{Name: "a", Type: "integer"}}, Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
 		{Name: "half-key", Fill: &backfill.Fill{Table: "bf_multi", WriterRelease: "v0.1.0", Key: "at", KeyType: "timestamptz", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
 		{Name: "loose", Fill: &backfill.Fill{Table: "bf_loose", WriterRelease: "v0.1.0", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
 		{Name: "ok", Fill: &backfill.Fill{Table: "bf_test", WriterRelease: "v0.1.0", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
@@ -425,7 +426,7 @@ func TestFillRefusesAKeyThatRepeats(t *testing.T) {
 	if _, _, err := r.Pass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"half-key", "loose"} {
+	for _, name := range []string{"reversed", "half-key", "loose"} {
 		if st, rows := progress(t, pool, name); st != backfill.StateFailed || rows != 0 {
 			t.Errorf("%s: %s %d, want failed 0", name, st, rows)
 		}

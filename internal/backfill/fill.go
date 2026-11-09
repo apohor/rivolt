@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 )
 
@@ -162,8 +161,8 @@ type keyError struct{ msg string }
 func (e *keyError) Error() string { return e.msg }
 
 // checkKey refuses a Fill whose key columns are not exactly the columns of one valid, non-partial, plain-column unique index (a primary key counts)
-// on the table, all of them NOT NULL: the cursor walks `key > last` in key order, so a key that repeats would skip the rest of a value at a batch
-// boundary.
+// on the table, in the index's own column order, all of them NOT NULL. Uniqueness keeps the cursor from skipping rows at a batch boundary; the
+// order lets each batch's ORDER BY and `(a, b) > (x, y)` use the index instead of sorting the table.
 func (f Fill) checkKey(ctx context.Context, db *sql.DB) error {
 	var names []string
 	for _, k := range f.keys() {
@@ -175,22 +174,18 @@ func (f Fill) checkKey(ctx context.Context, db *sql.DB) error {
 		    SELECT 1 FROM pg_index i
 		     WHERE i.indrelid = to_regclass($1) AND i.indisunique AND i.indisvalid
 		       AND i.indpred IS NULL AND i.indexprs IS NULL AND i.indnkeyatts = $3
-		       AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text) FROM pg_attribute a
-		             WHERE a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey::int2[]) AND a.attnotnull) = $2::text[])`,
-		f.Table, "{"+strings.Join(sortedCopy(names), ",")+"}", len(names)).Scan(&ok)
+		       AND (SELECT array_agg(a.attname::text ORDER BY u.ord)
+		              FROM unnest(i.indkey::int2[]) WITH ORDINALITY u(attnum, ord)
+		              JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = u.attnum
+		             WHERE u.ord <= i.indnkeyatts AND a.attnotnull) = $2::text[])`,
+		f.Table, "{"+strings.Join(names, ",")+"}", len(names)).Scan(&ok)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return &keyError{fmt.Sprintf("fill: %s(%s) is not exactly the not-null columns of one unique index; the keyset cursor would skip rows", f.Table, strings.Join(names, ", "))}
+		return &keyError{fmt.Sprintf("fill: %s(%s) is not exactly the not-null columns of one unique index, in its column order; the keyset cursor would skip rows or sort the table", f.Table, strings.Join(names, ", "))}
 	}
 	return nil
-}
-
-func sortedCopy(in []string) []string {
-	out := append([]string(nil), in...)
-	sort.Strings(out)
-	return out
 }
 
 // Step makes the Job.Step of a Fill.
