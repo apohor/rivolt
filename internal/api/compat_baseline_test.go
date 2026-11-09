@@ -10,6 +10,9 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/apohor/rivolt/internal/offpeak"
+	"github.com/apohor/rivolt/internal/settings"
 )
 
 // Old-client compatibility (zero-impact deploys, G5). A deploy replaces the server while builds from before it are still in people's hands: a
@@ -47,7 +50,51 @@ var compatRetiredRoutes = map[string]string{}
 // requestFixtureTargets maps a baseline request fixture to the server request type it must decode into. Request fixtures are the bodies the
 // clients send (the iPhone app's encoders, recorded by its tests). An old-build request fixture with no entry here fails, so none is skipped.
 func requestFixtureTargets() map[string]any {
-	return map[string]any{}
+	return map[string]any{
+		"app_token_body.json":           &appTokenRequest{},
+		"charging_rates_patch.json":     &chargingRatePatch{},
+		"corridor_layers_plain.json":    &corridorLayersRequest{},
+		"corridor_layers_settings.json": &corridorLayersRequest{},
+		"offpeak_put.json":              &offpeak.Schedule{},
+		"planner_prefs_full.json":       &settings.PlannerPrefs{},
+		"planner_prefs_old.json":        &settings.PlannerPrefs{}, // an older client: only drive_mode and has_adapter; the rest must stay accepted as absent
+		"saved_trip_body.json":          &savedTripBody{},
+		"trip_multiday_request.json":    &tripPlanMultidayRequest{},
+		"trip_plan_request.json":        &tripPlanRequest{},
+	}
+}
+
+const iosRequestFixtureDir = "../../ios/RivoltTests/RequestFixtures"
+
+// The request bodies the iPhone app sends today (ios/RivoltTests/RequestFixtures, recorded from the app's own encoders by its tests) decode
+// strictly into the server's current request types, and every file has a type: none can skip the check. They join the old-client baseline at
+// the next freeze of an iOS tag (ios/freeze-compat.sh), where TestOldIOSRequestBodiesAreStillAccepted keeps them honest against later servers.
+func TestIOSRequestFixturesMatchServerTypes(t *testing.T) {
+	targets := requestFixtureTargets()
+	have := map[string]bool{}
+	for _, name := range readBaselineDir(t, iosRequestFixtureDir) {
+		have[name] = true
+		target, ok := targets[name]
+		if !ok {
+			t.Errorf("%s has no entry in requestFixtureTargets: add the server request type it is sent to", name)
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(iosRequestFixtureDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := decodeStrict(b, target); err != nil {
+			t.Errorf("%s no longer decodes into the server's request type (the app would get a 400): %v", name, err)
+		}
+	}
+	for name := range targets {
+		if !have[name] {
+			t.Errorf("requestFixtureTargets names %s, which is not in %s: delete the entry", name, iosRequestFixtureDir)
+		}
+	}
+	if len(have) == 0 {
+		t.Error("no request fixtures found: the directory moved?")
+	}
 }
 
 type compatEntry struct{ tag, kind string }
