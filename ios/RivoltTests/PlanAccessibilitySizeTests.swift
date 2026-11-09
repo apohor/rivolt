@@ -47,9 +47,11 @@ final class PlanAccessibilitySizeTests: XCTestCase {
         XCTAssertLessThanOrEqual(normal.width, 393)
         XCTAssertGreaterThan(normal.height, 36 * 1.5, "at the normal size the chips take two rows, none clipped")
         for type in [DynamicTypeSize.accessibility3, .accessibility5] {
-            let s = try await size(of: PlanLayerChips(model: model).environment(AppState()).environment(\.dynamicTypeSize, type), width: 393)
-            XCTAssertLessThanOrEqual(s.width, 393, "\(type)")
-            XCTAssertLessThan(s.height, 80, "\(type): one Layers button, not rows of chips over the map")
+            for width in [CGFloat(393), 375] {
+                let s = try await size(of: PlanLayerChips(model: model).environment(AppState()).environment(\.dynamicTypeSize, type), width: width)
+                XCTAssertLessThanOrEqual(s.width, width, "\(type), \(width) pt")
+                XCTAssertLessThan(s.height, 110, "\(type), \(width) pt: one Layers button on one line, not rows of chips over the map, and not capped below the size asked for")
+            }
         }
     }
 

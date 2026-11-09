@@ -97,7 +97,7 @@ func TestMainWiresTheRegistryBeforeTheBootSweepStartsMonitors(t *testing.T) {
 	if start < 0 {
 		t.Fatal("no monitorRegistry.Start in main.go: the sweep moved; update this test")
 	}
-	forwarded := map[string]string{"SetFence": "", "SetScheduleObserver": ""}
+	forwarded := map[string]string{"SetFence": "", "SetScheduleObserver": "", "SetRolloutObserver": ""}
 	seen := 0
 	for _, m := range regexp.MustCompile(`monitorRegistry\.((?:Set|Add|Require)\w+)\(`).FindAllStringSubmatchIndex(text, -1) {
 		name := text[m[2]:m[3]]

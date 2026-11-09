@@ -27,7 +27,7 @@ import { PbfReader } from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { PMTiles, FetchSource } from "pmtiles";
 import { tilesPMTilesURL, chargersPMTilesURL, ensureConfig } from "./config";
-import { ApiError, backend, type AlongCharger } from "./api";
+import { ApiError, backend, type AlongCharger, type LayerFilters } from "./api";
 import { thinPath } from "./thinPath";
 
 export type POI = {
@@ -426,11 +426,11 @@ export type LayerKind = "dcfc" | "l2" | "hotels" | "camp";
 // The stations of the given layer kinds along a route, from the corridor query: each kind within its own distance of the route (fast 5 mi,
 // medium 3 mi, hotels and camping 10 mi, set by the server), spread along the whole route when there are more than the cap. `total` is how many
 // there are before the cap. No kinds: nothing, and no request. Null when the install has no archive (or the signed-out demo).
-export async function findLayersAlongPath(path: [number, number][], kinds: LayerKind[], signal?: AbortSignal): Promise<{ pois: POI[]; total: number } | null> {
+export async function findLayersAlongPath(path: [number, number][], kinds: LayerKind[], signal?: AbortSignal, filters?: LayerFilters): Promise<{ pois: POI[]; total: number } | null> {
   if (path.length < 2 || kinds.length === 0) return { pois: [], total: 0 };
   if (inDemo()) return null;
   try {
-    const r = await backend.corridorLayers({ path: thinPath(path), kinds }, signal);
+    const r = await backend.corridorLayers({ path: thinPath(path), kinds, ...filters }, signal);
     return { pois: r.pois.map(serverChargerToPOI), total: r.total };
   } catch (e: unknown) {
     if (e instanceof ApiError && e.status === 404) return null;
@@ -439,11 +439,11 @@ export async function findLayersAlongPath(path: [number, number][], kinds: Layer
 }
 
 // The fast chargers along a route that belong to the given networks (slugs), from the corridor query. Null when the install has no archive.
-export async function findChargersOfNetworks(path: [number, number][], slugs: string[], signal?: AbortSignal): Promise<POI[] | null> {
+export async function findChargersOfNetworks(path: [number, number][], slugs: string[], signal?: AbortSignal, filters?: LayerFilters): Promise<POI[] | null> {
   if (path.length < 2 || slugs.length === 0) return [];
   if (inDemo()) return null;
   try {
-    const r = await backend.corridorLayers({ path: thinPath(path), kinds: ["dcfc"], networks: slugs }, signal);
+    const r = await backend.corridorLayers({ path: thinPath(path), kinds: ["dcfc"], networks: slugs, ...filters }, signal);
     return r.pois.map(serverChargerToPOI);
   } catch (e: unknown) {
     if (e instanceof ApiError && e.status === 404) return null;

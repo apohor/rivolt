@@ -1,0 +1,25 @@
+[
+  {
+    "ID": "drv-fixture",
+    "VehicleID": "veh-fixture",
+    "StartedAt": "2026-10-21T15:30:00Z",
+    "EndedAt": "2026-10-21T16:00:00Z",
+    "StartSoCPct": 86,
+    "EndSoCPct": 81,
+    "StartOdometerMi": 18221.9,
+    "EndOdometerMi": 18240.2,
+    "DistanceMi": 18.3,
+    "StartLat": 0,
+    "StartLon": 0,
+    "EndLat": 0,
+    "EndLon": 0,
+    "MaxSpeedMph": 68,
+    "AvgSpeedMph": 39.5,
+    "EnergyUsedKWh": 6.6,
+    "Source": "live",
+    "RoutePolyline": "",
+    "estimated_cost": 0.858,
+    "estimated_currency": "USD",
+    "estimated_price_per_kwh": 0.13
+  }
+]

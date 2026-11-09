@@ -1,0 +1,4 @@
+{
+  "field": "windows[1].start",
+  "error": "Window 2: the start must be a time like 21:00."
+}
