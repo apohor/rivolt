@@ -315,8 +315,8 @@ func TestLockFindings(t *testing.T) {
 		"CREATE TABLE notes (id int, user_id uuid REFERENCES users (id));",                                                 // inline REFERENCES locks users
 		"CREATE TABLE notes (id int, user_id uuid, FOREIGN KEY (user_id) REFERENCES public.users (id));",                   // table-level
 		"CREATE TABLE a (id int);\nCREATE TABLE notes (id int, a_id int REFERENCES a (id), u uuid REFERENCES users (id));", // one is new, one is not
-		"CREATE TABLE a (id int);\nALTER TABLE a ADD COLUMN u uuid REFERENCES users (id);",                         // ADD COLUMN ... REFERENCES
-		"CREATE TABLE a (id int, u uuid);\nALTER TABLE a ADD CONSTRAINT fk FOREIGN KEY (u) REFERENCES users (id);", // ADD CONSTRAINT
+		"CREATE TABLE a (id int);\nALTER TABLE a ADD COLUMN u uuid REFERENCES users (id);",                                 // ADD COLUMN ... REFERENCES
+		"CREATE TABLE a (id int, u uuid);\nALTER TABLE a ADD CONSTRAINT fk FOREIGN KEY (u) REFERENCES users (id);",         // ADD CONSTRAINT
 	} {
 		if len(lockFindings(bad)) == 0 {
 			t.Errorf("lint misses %q", bad)
