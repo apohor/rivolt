@@ -1289,6 +1289,9 @@ export const backend = {
     }
   },
   vehicles: () => api.get<Vehicle[]>("/api/vehicles"),
+  // GET /api/vehicles/discovery: what the server knows about finding the vehicles of a linked Rivian account (unlinked, reauth, found, none, looking). A
+  // server where the feature is off answers 404.
+  vehicleDiscovery: () => api.get<{ state: string }>("/api/vehicles/discovery"),
   // listOwnedVehicles is the DB-backed listing used by the import
   // picker. Always returns the calling user's vehicles, even when the
   // Rivian gateway is unreachable (unlike /api/vehicles which proxies

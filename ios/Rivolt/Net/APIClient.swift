@@ -667,6 +667,11 @@ actor APIClient {
         try await request("GET", "/api/vehicles")
     }
 
+    /// What the server knows about finding the vehicles of a linked Rivian account. A server without the feature answers 404.
+    func vehicleDiscovery() async throws -> VehicleDiscovery {
+        try await request("GET", "/api/vehicles/discovery")
+    }
+
     func vehicleState(id: String) async throws -> VehicleState {
         // Path components with slashes aren't expected here (Rivian
         // vehicle IDs are UUIDs), but addingPercentEncoding is cheap
