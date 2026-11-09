@@ -26,6 +26,11 @@
 // recorder's worst wait behind a backfill is about 5 s. A batch that hits either timeout (SQLSTATE 55P03, 57014) is ordinary contention: it rolls
 // back with its progress and is retried after the pause (rivolt_backfill_retries_total); only five in a row, or any other error, mark the job failed.
 //
+// Registration order: a job is registered only in a release AFTER the one whose writers (the recorder, the API) fill the new column for every new
+// row. A row written behind the cursor by a writer that does not yet fill the column stays unfilled while the job reports done, and nothing walks
+// back to it. A Fill's key must be a single-column primary key or unique index (checked before the first batch; vehicle_state, keyed by
+// (vehicle_id, at), is refused until the cursor supports composite keys).
+//
 // Pausing: RIVOLT_BACKFILL=0 stops every job (the runner is on by default, with an empty registry); a row in `flags` named backfill.<job>.paused
 // with value {"paused": true} stops that one job, checked before every batch (a malformed row also pauses it: the safe reading). Progress is kept
 // either way. Default pace: 1000 rows per batch and one batch per 10 seconds (about 3 hours per million rows), per job via BatchSize and Interval.
@@ -199,7 +204,7 @@ type state struct {
 }
 
 func (r *Runner) load(ctx context.Context, name string) (state, error) {
-	if _, err := r.DB.ExecContext(ctx, `INSERT INTO backfills (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`, name); err != nil {
+	if _, err := r.DB.ExecContext(ctx, `INSERT INTO backfills (name, batch_size) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING`, name, DefaultBatch); err != nil {
 		return state{}, err
 	}
 	var s state
@@ -230,6 +235,21 @@ func (r *Runner) runJob(ctx context.Context, j Job) (string, error) {
 	}
 	if limit <= 0 {
 		limit = DefaultBatch
+	}
+	if j.Fill != nil {
+		// The cursor walks `key > last` in key order: a key that is not unique would skip the rest of a value at a batch boundary for good.
+		if err := j.Fill.checkKey(ctx, r.DB); err != nil {
+			if ctx.Err() != nil {
+				return StateRunning, nil
+			}
+			var ke *keyError
+			if !errors.As(err, &ke) {
+				return "", err // the catalog could not be read: not the job's fault, try again next pass
+			}
+			r.log().Warn("backfill refused", "job", j.Name, "err", err.Error())
+			r.fail(ctx, j.Name, err)
+			return StateFailed, nil
+		}
 	}
 	cursor := s.cursor
 	for ctx.Err() == nil {
