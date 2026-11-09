@@ -146,6 +146,31 @@ func TestLeaseCountersExistFromBoot(t *testing.T) {
 			t.Errorf("rivolt_rivian_schedule_read_total{outcome=%q} is not exported at 0 from boot", outcome)
 		}
 	}
+	for _, state := range []string{"driving", "charging", "idle"} {
+		if !strings.Contains(body, `rivolt_handoff_gap_seconds_count{state="`+state+`"} 0`) {
+			t.Errorf("rivolt_handoff_gap_seconds{state=%q} is not exported at 0 from boot", state)
+		}
+	}
+	for _, name := range []string{"rivolt_handoff_wait_seconds", "rivolt_handoff_stop_seconds"} {
+		if !strings.Contains(body, name+`_count 0`) {
+			t.Errorf("%s is not exported at 0 from boot", name)
+		}
+	}
+	for _, reason := range []string{"drain", "rebalance", "expired", "other"} {
+		if !strings.Contains(body, `rivolt_rollout_handoffs_total{reason="`+reason+`"} 0`) {
+			t.Errorf("rivolt_rollout_handoffs_total{reason=%q} is not exported at 0 from boot", reason)
+		}
+	}
+	for _, kind := range []string{"drive", "charge"} {
+		if !strings.Contains(body, `rivolt_session_split_total{kind="`+kind+`"} 0`) {
+			t.Errorf("rivolt_session_split_total{kind=%q} is not exported at 0 from boot", kind)
+		}
+		for _, source := range []string{"snapshot", "db", "fresh"} {
+			if !strings.Contains(body, `rivolt_session_rehydrate_total{kind="`+kind+`",source="`+source+`"} 0`) {
+				t.Errorf("rivolt_session_rehydrate_total{kind=%q,source=%q} is not exported at 0 from boot", kind, source)
+			}
+		}
+	}
 	for _, state := range []string{"active", "idle"} {
 		if !strings.Contains(body, `rivolt_lease_acquire_to_frame_seconds_count{state="`+state+`"} 0`) {
 			t.Errorf("rivolt_lease_acquire_to_frame_seconds{state=%q} is not exported at 0 from boot", state)

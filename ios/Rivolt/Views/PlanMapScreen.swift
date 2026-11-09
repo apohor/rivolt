@@ -12,13 +12,18 @@ struct PlanMapScreen: View {
     @State private var detent = PlanSheetDetent.half
     @State private var day: Int?
     @State private var showingNetworks = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// At accessibility text sizes the sheet's header would cover the map, so it is only the title; the rest sits at the top of the sheet's own content.
+    private var ax: Bool { typeSize.isAccessibilitySize }
+    /// What the sheet's header needs at this text size: the sheet is never shorter (see DetentSheet.height).
+    @State private var headerNeed: CGFloat = 0
 
     private var metric: Bool { NowFormat.usesMetric }
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
-                map(coverHeight: DetentSheet<EmptyView, EmptyView>.height(PlanSheetDetent.half, in: geo.size.height))
+                map(coverHeight: DetentSheet<EmptyView, EmptyView>.height(PlanSheetDetent.half, in: geo.size.height, floor: headerNeed))
                     .overlay(alignment: .topLeading) { overlays }
                 if let v = model.moving {
                     // The stop follows the middle of the map: a crosshair there, and a bar to say what it does and to finish.
@@ -26,7 +31,7 @@ struct PlanMapScreen: View {
                         .frame(maxHeight: .infinity, alignment: .center).allowsHitTesting(false).accessibilityHidden(true)
                     PlanMoveBar(name: v.name, lines: PlanSheetLogic.previewLines(model, metric: metric), previewing: model.preview == .loading,
                                 onCancel: { model.cancelMove() }, onDone: { Task { await model.confirmMove(source: state.client) } })
-                        .padding(.horizontal, 12).padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height) + 10)
+                        .padding(.horizontal, 12).padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height, floor: headerNeed) + 10)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
                 if let c = model.pickedCharger {
@@ -34,14 +39,15 @@ struct PlanMapScreen: View {
                                    previewLines: PlanSheetLogic.previewLines(model, metric: metric), previewing: model.preview == .loading,
                                    adding: model.updating, onAdd: { Task { await model.addVia(c, source: state.client) } }, onClose: { model.closeCallout() })
                         .padding(.horizontal, 12)
-                        .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height) + 10)
+                        .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height, floor: headerNeed) + 10)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
-                DetentSheet(detent: $detent, container: geo.size.height) {
+                DetentSheet(detent: $detent, container: geo.size.height, floor: headerNeed, scrollsAtEveryDetent: ax, onHeaderNeed: { headerNeed = $0 }) {
                     header
                 } content: {
                     ScrollViewReader { proxy in
                         VStack(alignment: .leading, spacing: 4 * Theme.unit) {
+                            if ax { axControls }
                             TripPlanResult(model: model, metric: metric, showsMap: false, onlyDay: day)
                             if model.plan != nil { SaveTripSection(model: model, saved: saved) }
                         }
@@ -55,6 +61,9 @@ struct PlanMapScreen: View {
             }
         }
         .ignoresSafeArea(.container, edges: .bottom)
+        // Large text: the map first, the sheet down to its title; the person opens it for the rest.
+        .onAppear { if ax { detent = .peek } }
+        .onChange(of: ax) { _, large in detent = large ? .peek : .half }
         .onChange(of: model.moving?.id) { _, new in if new != nil { detent = .peek } }
         .onChange(of: model.pickedCharger?.id) { _, new in
             if let c = model.pickedCharger, new != nil { model.schedulePreview(for: c, source: state.client) } else { model.clearPreview() }
@@ -68,6 +77,7 @@ struct PlanMapScreen: View {
     private var overlays: some View {
         VStack(alignment: .leading, spacing: 8) {
             PlanLayerChips(model: model)
+            WeatherToggle(model: model)
             if model.updating {
                 HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Updating route…").themeText(.subline, color: Theme.textPrimary) }
                     .padding(.horizontal, 12).frame(minHeight: 36)
@@ -93,47 +103,57 @@ struct PlanMapScreen: View {
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
                          onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
                          onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) },
-                         vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine)
+                         vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine,
+                         weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil)
         }
     }
 
     @ViewBuilder
     private var header: some View {
-        PlanSheetHeader(title: PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line),
-                        summary: model.plan?.best.map { TripPlanLogic.summary($0, metric: metric) }, onEdit: onEdit) {
-            if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
-            if !state.isDemo {
-                Button { showingNetworks = true } label: {
-                    Text("Networks").themeText(.subline, color: Theme.textPrimary)
-                        .padding(.horizontal, 12).frame(minHeight: 36)
-                        .background(Theme.background, in: Capsule())
-                        .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("Pick the charging networks to prefer, then plan again")
+        let title = PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line)
+        if ax {
+            // Only the title (two lines at most): the summary, Edit, the day chips and Networks are in the sheet below it.
+            PlanSheetCompactHeader(title: title)
+        } else {
+            PlanSheetHeader(title: title, summary: model.plan?.best.map { TripPlanLogic.summary($0, metric: metric) }, onEdit: onEdit) {
+                if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
+                networksButton
             }
+        }
+    }
+
+    /// The trip's summary, Edit, the day chips and Networks, at the top of the sheet's content at accessibility sizes.
+    private var axControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let summary = model.plan?.best.map({ TripPlanLogic.summary($0, metric: metric) }) {
+                Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                .accessibilityHint("Change the trip or open a saved one")
+            if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
+            networksButton
+        }
+    }
+
+    @ViewBuilder
+    private var networksButton: some View {
+        if !state.isDemo {
+            Button { showingNetworks = true } label: {
+                Text("Networks").themeText(.subline, color: Theme.textPrimary)
+                    .padding(.horizontal, 12).frame(minHeight: 36)
+                    .background(Theme.background, in: Capsule())
+                    .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Pick the charging networks to prefer, then plan again")
         }
     }
 
     private func dayChips(_ trip: TripMultiday) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chip("Whole trip", on: day == nil) { day = nil }
-                ForEach(trip.days) { d in chip("Day \(d.index)", on: day == d.index) { day = d.index } }
-            }
-        }
+        PlanDayChips(days: trip.days.map(\.index), day: $day)
     }
 
-    private func chip(_ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).themeText(.subline, color: on ? Color.white : Theme.textSecondary)
-                .padding(.horizontal, 12).frame(minHeight: 36)
-                .background(on ? Theme.accentButton : Theme.background, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? .isSelected : [])
-    }
 }
 
 /// The sheet's title, the trip's one-line summary, Edit, and what goes under them (the day chips). At accessibility text sizes Edit drops under the
@@ -237,26 +257,62 @@ struct PlanLayerChips: View {
     var body: some View {
         if model.layerState != .unavailable {
             VStack(alignment: .leading, spacing: 6) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(MapLayer.allCases, id: \.self) { layer in
-                            chip(layer.title, on: model.layers.contains(layer)) { Task { await model.setLayer(layer, on: !model.layers.contains(layer), source: state.client) } }
-                        }
-                        chip(ChargerLabels.all, on: model.allLayersOn) { Task { await model.setAllLayers(on: !model.allLayersOn, source: state.client) } }
-                        if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
-                            chip("Preferred only", on: model.preferredOnly) { model.setPreferredOnly(!model.preferredOnly) }
-                        }
-                        ChargerTypeInfoButton(kinds: [.fast, .medium, .hotel, .camping])
+                if typeSize.isAccessibilitySize {
+                    layersMenu
+                } else {
+                // The chips wrap onto more rows rather than scroll sideways: every one is on screen and tappable at any text size (a scrolling row
+                // clipped "Preferred only" on a phone and could not be swiped).
+                FlowLayout(spacing: 8) {
+                    ForEach(MapLayer.allCases, id: \.self) { layer in
+                        chip(layer.title, on: model.layers.contains(layer)) { Task { await model.setLayer(layer, on: !model.layers.contains(layer), source: state.client) } }
                     }
+                    if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
+                        chip("Preferred only", on: model.preferredOnly) { model.setPreferredOnly(!model.preferredOnly) }
+                    }
+                    ChargerTypeInfoButton(kinds: [.fast, .medium, .hotel, .camping])
+                }
                 }
                 if let note = PlanSheetLogic.layerNote(model) {
-                    Text(note).themeText(.caption, color: model.layerState == .loading ? Theme.textSecondary : Theme.textTertiary)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Theme.card.opacity(0.9), in: Capsule())
+                    LayerNotePill(text: note, loading: model.layerState == .loading)
+                        // A note over the map stays small: the whole text is still its accessibility label.
+                        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 }
             }
             .task { await loadPreferred() }
+            // Fast is on from the start: its pins are asked for when the route arrives, and again when the route changes.
+            .task(id: model.plan?.best) { await model.reloadLayers(source: state.client) }
         }
+    }
+
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// At accessibility text sizes the chips would fill the map: one "Layers" button instead, and a menu of the same switches, each with a check when on.
+    private var layersMenu: some View {
+        Menu {
+            // Toggles, so VoiceOver says on or off for each, and the menu shows the checks itself.
+            ForEach(MapLayer.allCases, id: \.self) { layer in
+                Toggle(layer.title, isOn: Binding(
+                    get: { model.layers.contains(layer) },
+                    set: { on in Task { await model.setLayer(layer, on: on, source: state.client) } }))
+            }
+            if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
+                Toggle("Preferred only", isOn: Binding(get: { model.preferredOnly }, set: { model.setPreferredOnly($0) }))
+            }
+        } label: {
+            // Not capped: this is the control for people who asked for larger text, and "Layers · 4" fits one line even at the largest size.
+            Text(layersSummary).themeText(.subline, color: Color.white).lineLimit(1)
+                .padding(.horizontal, 14).frame(minHeight: 44)
+                .background(Theme.accentButton, in: Capsule())
+        }
+        .disabled(model.layerState == .loading)
+        .accessibilityLabel("Map layers")
+        .accessibilityValue(model.layers.isEmpty ? "none on" : MapLayer.allCases.filter { model.layers.contains($0) }.map(\.title).joined(separator: ", "))
+    }
+
+    /// "Layers" and how many are on, on one line.
+    private var layersSummary: String {
+        let n = MapLayer.allCases.filter { model.layers.contains($0) }.count
+        return n == 0 ? "Layers" : "Layers · \(n)"
     }
 
     private func chip(_ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
@@ -278,6 +334,21 @@ struct PlanLayerChips: View {
     private func loadPreferred() async {
         guard model.preferredSlugs.isEmpty, let rows = try? await state.client.chargingNetworks() else { return }
         model.setPreferred(Set(rows.filter { $0.preferred == true }.compactMap { ($0.slug ?? "").isEmpty ? nil : $0.slug }))
+    }
+}
+
+/// The line under the chips: what is loading, how many are shown, when the listing was built. At most two lines, so a large type size does not let it
+/// cover the route; the whole text is the accessibility label.
+struct LayerNotePill: View {
+    let text: String
+    var loading = false
+
+    var body: some View {
+        Text(text).themeText(.caption, color: loading ? Theme.textSecondary : Theme.textTertiary)
+            .lineLimit(2).truncationMode(.tail)
+            .accessibilityLabel(text)
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Theme.card.opacity(0.9), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -361,5 +432,64 @@ struct PlanMoveBar: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
         .shadow(color: .black.opacity(0.25), radius: 10, y: 2)
         .accessibilityElement(children: .contain)
+    }
+}
+
+
+/// The sheet's header at accessibility text sizes: the title, two lines at most. The rest (summary, Edit, the day chips, Networks) is at the top of the
+/// sheet's content, so the header never takes the map.
+struct PlanSheetCompactHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title).themeText(.title, color: Theme.textPrimary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// Whole trip and each day of a multi-day plan: chips that wrap onto more rows rather than scroll sideways, so none is clipped at any text size.
+struct PlanDayChips: View {
+    let days: [Int]
+    @Binding var day: Int?
+
+    var body: some View {
+        FlowLayout(spacing: 8) {
+            chip("Whole trip", on: day == nil) { day = nil }
+            ForEach(days, id: \.self) { d in chip("Day \(d)", on: day == d) { day = d } }
+        }
+    }
+
+    private func chip(_ title: String, on: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).themeText(.subline, color: on ? Color.white : Theme.textSecondary)
+                .padding(.horizontal, 12).frame(minHeight: 44)
+                .background(on ? Theme.accentButton : Theme.background, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+
+/// The Weather button over the map (the web's, under the zoom buttons): the weather on each leg as labels on the route. Shown only for a plan that has
+/// weather. The itinerary's weather lines do not depend on it.
+struct WeatherToggle: View {
+    let model: TripPlanModel
+
+    var body: some View {
+        if PlanRouteLogic.Weather(model.plan) != nil {
+            Button { model.weatherOn.toggle() } label: {
+                Image(systemName: "cloud.sun").imageScale(.large)
+                    .foregroundStyle(model.weatherOn ? Color.white : Theme.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .background(model.weatherOn ? Theme.accentButton : Theme.card.opacity(0.92), in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Weather")
+            .accessibilityValue(model.weatherOn ? "on" : "off")
+            .accessibilityHint("Shows the weather on each leg of the route")
+        }
     }
 }

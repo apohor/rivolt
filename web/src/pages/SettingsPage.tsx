@@ -1,5 +1,7 @@
 import { UNSET_RATE_NOTE, memberSaving, networkRateSet } from "../lib/networkRates";
-import { useAIEnabled } from "../lib/config";
+import { useAIEnabled, useTripPlannerEnabled } from "../lib/config";
+import { usePlannerPrefs, useSavePlannerPrefs } from "../lib/plannerPrefs";
+import { ChargersOnMapCard, MapDefaultsCard } from "../components/TripPlannerSettings";
 import { useAIConsent } from "../lib/aiConsent";
 import { AMBIENT_TEMP_TEXT, useAmbientTemp } from "../lib/ambientTemp";
 import { R2CheckedSettings } from "../components/R2Checked";
@@ -67,7 +69,7 @@ import {
   type TemperatureUnit,
 } from "../lib/preferences";
 
-type TabId = "account" | "security" | "vehicle" | "charging" | "notifications" | "data";
+type TabId = "account" | "security" | "vehicle" | "charging" | "planner" | "notifications" | "data";
 
 // Which tab "owns" a given section anchor id — used so a deep link
 // like /settings#rivian still auto-selects the right tab on mount.
@@ -93,7 +95,10 @@ const HASH_TO_TAB: Record<string, TabId> = {
   cost: "charging",
   offpeak: "charging",
   networks: "charging",
-  planner: "charging",
+  planner: "planner",
+  "charger-map": "planner",
+  "map-defaults": "planner",
+  costs: "planner",
   notifications: "notifications",
   "statement-email": "notifications",
   "weekly-recap": "notifications",
@@ -124,12 +129,15 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "security", label: "Security" },
   { id: "vehicle", label: "Vehicle" },
   { id: "charging", label: "Charging" },
+  { id: "planner", label: "Trip planner" },
   { id: "notifications", label: "Notifications" },
   { id: "data", label: "Data" },
 ];
 
 function SettingsPageInner() {
   const location = useLocation();
+  // The Trip planner tab exists only where the planner does. The networks card stays under Charging: it is the price book the charge costs use too.
+  const plannerOn = useTripPlannerEnabled();
   // The tab's cards that load their own data appear after the first frame; watching this root (not the target's
   // parent, which does not exist yet) is what lets the anchor re-align once the target card has mounted.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -200,12 +208,19 @@ function SettingsPageInner() {
     window.history.replaceState(null, "", next);
   }, [tab]);
 
+  const networksCard = (
+    <Card title="Charging networks" id="networks">
+      <ChargingNetworksPanel />
+      <MembershipTerms />
+    </Card>
+  );
+
   return (
     <div ref={rootRef} className="space-y-4">
       <PageHeader title="Settings" />
 
       <div className="flex flex-wrap gap-1 border-b border-neutral-800 overflow-x-auto">
-        {TABS.map((t) => (
+        {TABS.filter((t) => t.id !== "planner" || plannerOn).map((t) => (
           <button
             key={t.id}
             type="button"
@@ -276,12 +291,19 @@ function SettingsPageInner() {
           <Card title="Off-peak schedule" id="offpeak">
             <OffpeakPanel />
           </Card>
-          <Card title="Charging networks" id="networks">
-            <ChargingNetworksPanel />
-            <MembershipTerms />
+          {networksCard}
+        </>
+      )}
+
+      {tab === "planner" && plannerOn && (
+        <>
+          <ChargersOnMapCard />
+          <Card title="Planning" id="planner">
+            <PlanningPanel />
           </Card>
-          <Card title="Trip planner defaults" id="planner">
-            <PlannerPrefsPanel />
+          <MapDefaultsCard />
+          <Card title="Costs" id="costs">
+            <CostsPanel />
           </Card>
         </>
       )}
@@ -3071,22 +3093,11 @@ export function parseHomeCoordinates(lat: string, lon: string): { ok: true; lat:
   return { ok: true, lat: a, lon: b };
 }
 
-// PlannerPrefsPanel saves defaults for the trip planner: drive
-// mode and Tesla NACS adapter flag. The planner page reads these
-// on load to pre-fill its per-trip form.
-function PlannerPrefsPanel() {
-  const qc = useQueryClient();
-  const prefsQ = useQuery({
-    queryKey: ["settings", "plannerPrefs"],
-    queryFn: backend.plannerPrefsGet,
-    staleTime: 60 * 1000,
-  });
-  // Gas $/gal + ICE MPG live in ChargingConfig server-side but the user
-  // edits them here, next to other trip-planner defaults.
-  const chargingQ = useQuery({
-    queryKey: ["charging-settings"],
-    queryFn: () => backend.getChargingSettings(),
-  });
+// PlanningPanel saves the trip planner's drive mode and Tesla NACS adapter flag; the planner page reads them on load to pre-fill its per-trip form.
+// The save sends every planner setting (useSavePlannerPrefs), so the map choices on this tab are never reset by it.
+function PlanningPanel() {
+  const { prefs, settled } = usePlannerPrefs();
+  const save = useSavePlannerPrefs();
   // Drive the adapter-toggle visibility: if every vehicle on the
   // account would be native NACS by the model-year heuristic, the
   // adapter selector is hidden. The per-vehicle profile override
@@ -3100,55 +3111,20 @@ function PlannerPrefsPanel() {
   const anyNeedsAdapter =
     !vehiclesQ.data ||
     vehiclesQ.data.vehicles.length === 0 ||
-    vehiclesQ.data.vehicles.some(
-      (v) => (v.model_year ?? 0) < 2026,
-    );
-  const save = useMutation({
-    mutationFn: (p: PlannerPrefs) => backend.plannerPrefsPut(p),
-    onSuccess: (data) => {
-      qc.setQueryData(["settings", "plannerPrefs"], data);
-    },
-  });
-  const saveCharging = useMutation({
-    mutationFn: () =>
-      backend.setChargingSettings({
-        // Preserve the home-rate fields ChargingCostPanel owns.
-        ...(chargingQ.data ?? { home_price_per_kwh: 0, home_currency: "USD" }),
-        gas_price_per_gallon: Number(gasPrice) || 0,
-        comparison_mpg: Number(mpg) || 0,
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["charging-settings"] }),
-  });
+    vehiclesQ.data.vehicles.some((v) => (v.model_year ?? 0) < 2026);
 
   const [mode, setMode] = useState<PlannerPrefs["drive_mode"]>("");
   const [hasAdapter, setHasAdapter] = useState<"unset" | "yes" | "no">("unset");
-  const [gasPrice, setGasPrice] = useState<string>("");
-  const [mpg, setMpg] = useState<string>("");
-
   // Sync local state with loaded prefs on first load.
   const [synced, setSynced] = useState(false);
   useEffect(() => {
-    if (synced) return;
-    if (!prefsQ.data || !chargingQ.data) return;
-    setMode(prefsQ.data.drive_mode || "");
-    setHasAdapter(
-      typeof prefsQ.data.has_adapter === "boolean"
-        ? prefsQ.data.has_adapter ? "yes" : "no"
-        : "unset",
-    );
-    setGasPrice(chargingQ.data.gas_price_per_gallon ? String(chargingQ.data.gas_price_per_gallon) : "");
-    setMpg(chargingQ.data.comparison_mpg ? String(chargingQ.data.comparison_mpg) : "");
+    if (synced || !settled) return;
+    setMode(prefs.drive_mode || "");
+    setHasAdapter(typeof prefs.has_adapter === "boolean" ? (prefs.has_adapter ? "yes" : "no") : "unset");
     setSynced(true);
-  }, [prefsQ.data, chargingQ.data, synced]);
+  }, [prefs, settled, synced]);
 
-  const onSave = () => {
-    const payload: PlannerPrefs = { drive_mode: mode };
-    if (hasAdapter !== "unset") {
-      payload.has_adapter = hasAdapter === "yes";
-    }
-    save.mutate(payload);
-    saveCharging.mutate();
-  };
+  const onSave = () => save.mutate({ drive_mode: mode, has_adapter: hasAdapter === "unset" ? undefined : hasAdapter === "yes" });
 
   return (
     <div className="space-y-3 text-sm">
@@ -3168,9 +3144,7 @@ function PlannerPrefsPanel() {
           <span className="text-neutral-400">Tesla NACS adapter</span>
           <select
             value={hasAdapter}
-            onChange={(e) =>
-              setHasAdapter(e.target.value as "unset" | "yes" | "no")
-            }
+            onChange={(e) => setHasAdapter(e.target.value as "unset" | "yes" | "no")}
             className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
           >
             <option value="unset">Not specified (let planner default)</option>
@@ -3179,6 +3153,52 @@ function PlannerPrefsPanel() {
           </select>
         </label>
       )}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={save.isPending || !synced}
+          className="rounded-md bg-emerald-700 px-4 py-2 text-xs font-medium text-emerald-50 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
+        >
+          Save defaults
+        </button>
+        {save.isSuccess && <span className="text-xs text-emerald-400">Saved.</span>}
+        {save.isError && <span className="text-xs text-rose-400">Save failed: {String(save.error)}</span>}
+      </div>
+    </div>
+  );
+}
+
+// CostsPanel: gas $/gal + ICE MPG live in ChargingConfig server-side; they sit with the other trip planner settings because they drive the
+// gas-equivalent chip on route cards.
+function CostsPanel() {
+  const qc = useQueryClient();
+  const chargingQ = useQuery({
+    queryKey: ["charging-settings"],
+    queryFn: () => backend.getChargingSettings(),
+  });
+  const saveCharging = useMutation({
+    mutationFn: () =>
+      backend.setChargingSettings({
+        // Preserve the home-rate fields ChargingCostPanel owns.
+        ...(chargingQ.data ?? { home_price_per_kwh: 0, home_currency: "USD" }),
+        gas_price_per_gallon: Number(gasPrice) || 0,
+        comparison_mpg: Number(mpg) || 0,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["charging-settings"] }),
+  });
+  const [gasPrice, setGasPrice] = useState<string>("");
+  const [mpg, setMpg] = useState<string>("");
+  const [synced, setSynced] = useState(false);
+  useEffect(() => {
+    if (synced || !chargingQ.data) return;
+    setGasPrice(chargingQ.data.gas_price_per_gallon ? String(chargingQ.data.gas_price_per_gallon) : "");
+    setMpg(chargingQ.data.comparison_mpg ? String(chargingQ.data.comparison_mpg) : "");
+    setSynced(true);
+  }, [chargingQ.data, synced]);
+
+  return (
+    <div className="space-y-3 text-sm">
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1">
           <span className="text-neutral-400">Gas $/gal</span>
@@ -3213,20 +3233,14 @@ function PlannerPrefsPanel() {
       <div className="flex items-center gap-3">
         <button
           type="button"
-          onClick={onSave}
-          disabled={save.isPending}
+          onClick={() => saveCharging.mutate()}
+          disabled={saveCharging.isPending || !synced}
           className="rounded-md bg-emerald-700 px-4 py-2 text-xs font-medium text-emerald-50 hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
         >
-          Save defaults
+          Save costs
         </button>
-        {save.isSuccess && (
-          <span className="text-xs text-emerald-400">Saved.</span>
-        )}
-        {save.isError && (
-          <span className="text-xs text-rose-400">
-            Save failed: {String(save.error)}
-          </span>
-        )}
+        {saveCharging.isSuccess && <span className="text-xs text-emerald-400">Saved.</span>}
+        {saveCharging.isError && <span className="text-xs text-rose-400">Save failed: {String(saveCharging.error)}</span>}
       </div>
     </div>
   );

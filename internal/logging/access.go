@@ -52,11 +52,20 @@ func AccessLog(r *http.Request, ww middleware.WrapResponseWriter, dur time.Durat
 // kept for 90 days and read by more people than the database.
 var secretPathPrefixes = []string{"/api/signup/token/"}
 
+// tilePathPrefixes are routes whose path says where a signed-in user is looking (a map tile address). The access log keeps the route, not the
+// tile, so it cannot be read as a location history.
+var tilePathPrefixes = []string{"/api/maps/radar/"}
+
 // loggedPath is the path as it is written to the access log.
 func loggedPath(p string) string {
 	for _, prefix := range secretPathPrefixes {
 		if strings.HasPrefix(p, prefix) {
 			return prefix + ":redacted"
+		}
+	}
+	for _, prefix := range tilePathPrefixes {
+		if strings.HasPrefix(p, prefix) && !strings.HasSuffix(p, "/frame") {
+			return prefix + ":tile"
 		}
 	}
 	return p

@@ -157,6 +157,27 @@ type Metrics struct {
 	// WeatherRequestsTotal counts calls to the Open-Meteo forecast and archive APIs (ours or the public one) by endpoint (forecast, archive) and
 	// outcome (ok, error, skipped_old: a self-hosted client declined a time older than its server keeps). No coordinates, no user.
 	WeatherRequestsTotal *prometheus.CounterVec
+	// HandoffGapSeconds is the hand-off gap of a vehicle that changed pods by a release, from the group being released to the first frame on the new
+	// pod, by what the vehicle was doing at that frame (driving, charging, idle). It is two same-clock parts added: the wait (release to acquire,
+	// both the database's clock; HandoffWaitSeconds) and the acquire to the first frame (this pod's clock). The old pod's stop before its release is
+	// HandoffStopSeconds; the plan's gate adds the two. A group free for over 10 minutes and expired takeovers are not in it. The gate is its
+	// driving and charging p95.
+	HandoffGapSeconds *prometheus.HistogramVec
+	// HandoffWaitSeconds is the first part of the gap on its own: how long a released group sat free before a peer took it. It is what a
+	// released-group signal (G1a) shrinks.
+	HandoffWaitSeconds prometheus.Histogram
+	// HandoffStopSeconds is the old owner's part: seconds from a pod asking a vehicle's subscription to stop to it being gone, for hand-offs it
+	// starts (a drain, a shed). A stop that did not finish within 5 s is not reported.
+	HandoffStopSeconds prometheus.Histogram
+	// RolloutHandoffsTotal counts vehicles a pod took from another holder, by reason: drain (a peer was shutting down), rebalance (released with
+	// no peer draining: a fair-share shed or a retired candidate), expired (the holder's lease ran out), other (an open session's group re-keyed).
+	RolloutHandoffsTotal *prometheus.CounterVec
+	// SessionRehydrateTotal counts, per ownership of a vehicle (a roll, a crash, a rebalance), how an open drive or charge came back at
+	// takeover: kind (drive, charge) by source (snapshot: the Redis snapshot; db: the charge's open row; fresh: nothing came back, and the
+	// previous session had ended minutes before, so this is a split). A vehicle that was not mid-session counts nothing. No vehicle or user labels.
+	SessionRehydrateTotal *prometheus.CounterVec
+	// SessionSplitTotal counts drives and charges split in two by a takeover that lost the open session (SessionRehydrateTotal source fresh).
+	SessionSplitTotal *prometheus.CounterVec
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -170,9 +191,9 @@ type Metrics struct {
 	// ReauthRaiseRefused counts needs_reauth raises refused because the pod that saw the rejection does not hold the user's group: reason
 	// not_owner (raises are owner-only and no token) or fenced (it held the group and lost it). Both created at 0. Single-owner M4-3.
 	ReauthRaiseRefused *prometheus.CounterVec
-	// ReauthRaiseAttempts counts needs_reauth raises about to be written, by what they carry: token (the group's epoch: this pod owns the user)
-	// or none (no token: with RIVOLT_SINGLE_OWNER on this is the raise refused as not_owner, so with it off this is the would-be refusal count).
-	// Both created at 0.
+	// ReauthRaiseAttempts counts needs_reauth raises about to be written, by what they carry: token (the group's epoch: this pod owns the user),
+	// unowned (the user has no group: nobody could own it, so the raise goes through, fence.Unowned) or none (no token: with RIVOLT_SINGLE_OWNER on
+	// this is the raise refused as not_owner, so with it off this is the would-be refusal count). All three created at 0.
 	ReauthRaiseAttempts *prometheus.CounterVec
 	// RivianAccountMismatch is, per field ("session", "flag"), how many Rivian accounts loaded
 	// on this pod still disagreed with the database after the last 5-second sync round
@@ -473,6 +494,33 @@ func New() *Metrics {
 			Name: "rivolt_open_charges",
 			Help: "Open live charge rows by state (charging or not_charging by the stale-charge janitor's rule, or no_frame: the vehicle sent nothing in 2 days); no vehicle or user labels.",
 		}, []string{"state"}),
+		HandoffGapSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "rivolt_handoff_gap_seconds",
+			Help:    "Seconds from the previous holder releasing a vehicle's group to the first frame on the new pod, by state at that frame (driving, charging, idle).",
+			Buckets: []float64{2, 4, 6, 8, 10, 12, 15, 20, 30, 45, 60, 120},
+		}, []string{"state"}),
+		HandoffWaitSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "rivolt_handoff_wait_seconds",
+			Help:    "Seconds a released vehicle group sat free before another pod took it (both ends on the database clock).",
+			Buckets: []float64{0.5, 1, 2, 3, 4, 5, 6, 8, 10, 15, 30, 60},
+		}),
+		HandoffStopSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "rivolt_handoff_stop_seconds",
+			Help:    "Seconds from this pod asking a vehicle's subscription to stop (to hand it over) to it being gone.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 3, 4, 5},
+		}),
+		RolloutHandoffsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_rollout_handoffs_total",
+			Help: "Vehicles a pod took from another holder, by reason (drain, rebalance, expired, other).",
+		}, []string{"reason"}),
+		SessionRehydrateTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_session_rehydrate_total",
+			Help: "Open drives and charges found at a takeover, by kind (drive, charge) and source (snapshot, db, fresh: nothing came back, a split).",
+		}, []string{"kind", "source"}),
+		SessionSplitTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_session_split_total",
+			Help: "Drives and charges split in two because a takeover lost the open session, by kind (drive, charge).",
+		}, []string{"kind"}),
 		WeatherRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_weather_requests_total",
 			Help: "Open-Meteo requests by endpoint (forecast, archive) and outcome (ok, error, skipped_old).",
@@ -598,7 +646,7 @@ func New() *Metrics {
 		}, []string{"reason"}),
 		ReauthRaiseAttempts: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_reauth_raise_attempts_total",
-			Help: "needs_reauth raises about to be written, by what they carry: token (this pod owns the user) or none (no token; refused as not_owner once raises are owner-only).",
+			Help: "needs_reauth raises about to be written, by what they carry: token (this pod owns the user), unowned (the user has no group) or none (no token; refused as not_owner once raises are owner-only).",
 		}, []string{"carries"}),
 		ReauthRaiseDeferred: prometheus.NewCounter(
 			prometheus.CounterOpts{
@@ -915,6 +963,12 @@ func New() *Metrics {
 		m.VehiclesFallbackTotal,
 		m.VehicleDiscoveryTotal,
 		m.WeatherRequestsTotal,
+		m.HandoffGapSeconds,
+		m.HandoffWaitSeconds,
+		m.HandoffStopSeconds,
+		m.RolloutHandoffsTotal,
+		m.SessionRehydrateTotal,
+		m.SessionSplitTotal,
 		m.Accounts,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
@@ -1031,7 +1085,7 @@ func New() *Metrics {
 	for _, reason := range []string{"not_owner", "fenced"} {
 		m.ReauthRaiseRefused.WithLabelValues(reason).Add(0)
 	}
-	for _, c := range []string{"token", "none"} {
+	for _, c := range []string{"token", "unowned", "none"} {
 		m.ReauthRaiseAttempts.WithLabelValues(c).Add(0)
 	}
 	for _, reason := range RivianWSReconnectReasons {
@@ -1048,6 +1102,18 @@ func New() *Metrics {
 	}
 	for _, outcome := range []string{"ok", "retried_ok", "dropped", "error"} {
 		m.RivianScheduleReadTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, state := range []string{"driving", "charging", "idle"} {
+		m.HandoffGapSeconds.WithLabelValues(state) // exported at count 0 from boot
+	}
+	for _, reason := range []string{"drain", "rebalance", "expired", "other"} {
+		m.RolloutHandoffsTotal.WithLabelValues(reason).Add(0)
+	}
+	for _, kind := range []string{"drive", "charge"} {
+		m.SessionSplitTotal.WithLabelValues(kind).Add(0)
+		for _, source := range []string{"snapshot", "db", "fresh"} {
+			m.SessionRehydrateTotal.WithLabelValues(kind, source).Add(0)
+		}
 	}
 	m.EntitlementsLookupErrors.Add(0) // exported at 0 so the first failure is an increase
 	for _, scope := range []string{"vehicle", "group"} {

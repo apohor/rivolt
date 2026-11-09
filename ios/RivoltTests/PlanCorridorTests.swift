@@ -64,17 +64,19 @@ final class PlanCorridorTests: XCTestCase {
         XCTAssertEqual(MapLayer.allCases.map(\.kind), ["dcfc", "l2", "hotels", "camp"], "the server's own layer kinds")
     }
 
-    func testTheAllChipTurnsEveryLayerOnOrOff() async {
+    func testFastIsOnToBeginWithEachChipTogglesOnItsOwnAndAllOffMeansNoPinsAndNoRequest() async {
         let src = Fake()
         let m = TripPlanModel()
-        XCTAssertFalse(m.allLayersOn)
-        await m.setAllLayers(on: true, source: src)
-        XCTAssertEqual(m.layers, Set(MapLayer.allCases))
-        XCTAssertTrue(m.allLayersOn)
-        await m.setLayer(.medium, on: false, source: src)
-        XCTAssertFalse(m.allLayersOn, "one layer off: All is no longer on")
-        await m.setAllLayers(on: false, source: src)
-        XCTAssertTrue(m.layers.isEmpty)
+        XCTAssertEqual(m.layers, [.chargers], "Fast is on to begin with")
+        await m.setLayer(.hotels, on: true, source: src)
+        XCTAssertEqual(m.layers, [.chargers, .hotels], "another chip on does not turn Fast off")
+        await m.setLayer(.chargers, on: false, source: src)
+        XCTAssertEqual(m.layers, [.hotels], "Fast off leaves the others")
+        await m.setLayer(.hotels, on: false, source: src)
+        XCTAssertTrue(m.layers.isEmpty, "all off")
+        XCTAssertTrue(m.layerPOIs.isEmpty)
+        XCTAssertTrue(m.markers.isEmpty, "no pins")
+        XCTAssertTrue(src.requests.isEmpty, "and no request (there is no plan here to ask about, and none is asked for with every chip off)")
     }
 
     func testAMediumStationIsSaidAsMediumWithItsRating() {

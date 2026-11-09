@@ -19,12 +19,13 @@ var ErrNotOwner = errors.New("needs_reauth: only the group's owner raises it")
 
 var reauthRequiresOwner atomic.Bool
 
+// A raise for a user with no group (fence.Unowned: no vehicle row, so no owner can exist) is allowed.
 // SetReauthRequiresOwner makes a raise without a fence token fail with ErrNotOwner (RIVOLT_SINGLE_OWNER; called once at boot). Off, a raise without
 // a token is unguarded, as before; a raise WITH a token is always guarded by the epoch.
 func SetReauthRequiresOwner(on bool) { reauthRequiresOwner.Store(on) }
 
 func requireOwnerToken(ctx context.Context) error {
-	if _, guarded := fence.From(ctx); !guarded && reauthRequiresOwner.Load() {
+	if _, guarded := fence.From(ctx); !guarded && !fence.IsUnowned(ctx) && reauthRequiresOwner.Load() {
 		return ErrNotOwner
 	}
 	return nil
