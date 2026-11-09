@@ -77,6 +77,8 @@ final class AppState {
     private(set) var serverURL: URL
     /// The client the screens read through: the signed-in one, or the demo's while the demo truck is open.
     private(set) var client: APIClient
+    /// The planner's Radar button for this session and server (what the server advertises, whether it is on, the newest frame).
+    let radar = RadarModel()
     private let signedInClient: APIClient
     let tokens: TokenStore
     /// Notifications on this iPhone (the Apple token, permission, the switches).
@@ -166,6 +168,7 @@ final class AppState {
         guard phase == .demo else { return }
         client = signedInClient
         MapNetwork.reset()
+        radar.reset()
         activityMap.clear()
         efficiency.clear()
         if let username = resumeAfterDemo {
@@ -277,6 +280,7 @@ final class AppState {
             DisplayUnits.reset()
             WidgetCenter.shared.reloadAllTimelines()
             MapNetwork.reset()
+            radar.reset()
             activityMap.clear()
             efficiency.clear()
             serverURL = url
@@ -360,6 +364,7 @@ final class AppState {
         WidgetStore().clear()
         DisplayUnits.reset()
         MapNetwork.reset()
+        radar.reset()
         activityMap.clear()
         efficiency.clear()
         WidgetCenter.shared.reloadAllTimelines()
@@ -430,6 +435,7 @@ final class AppState {
         WidgetStore().clear()
         DisplayUnits.reset()
         MapNetwork.reset()
+        radar.reset()
         activityMap.clear()
         efficiency.clear()
         WidgetCenter.shared.reloadAllTimelines()
