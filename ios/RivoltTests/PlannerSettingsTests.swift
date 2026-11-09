@@ -78,6 +78,8 @@ final class PlannerSettingsTests: XCTestCase {
         XCTAssertEqual(PlannerSettingsCopy.startNote, "Turn on to hide chargers in the first miles of the first day, if you usually start charged. Rivian's planned stops always show.")
         XCTAssertTrue(PlannerSettingsCopy.corridorNote(metric: false).hasSuffix("about 2 mi, 5 mi or 10 mi."))
         XCTAssertTrue(PlannerSettingsCopy.corridorNote(metric: true).hasSuffix("about 3 km, 8 km or 16 km."))
+        XCTAssertEqual(PlannerSettingsCopy.weatherLabel, "Weather on each leg", "the web's label")
+        XCTAssertEqual(PlannerSettingsCopy.weatherNote, "The temperature, wind, rain and snow on each leg, on by default.", "the web's note: what the badges really show")
         XCTAssertEqual(PlannerSettingsCopy.minFast.map(\.value), [0, 50, 150, 250])
         XCTAssertEqual(PlannerSettingsCopy.corridors.map(\.value), ["close", "normal", "wide"])
         XCTAssertEqual(PlannerSettingsCopy.layers.map(\.kind), ["dcfc", "l2", "hotels", "camp"], "the server's layer kinds, the charger words as titles")

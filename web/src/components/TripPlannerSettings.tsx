@@ -105,7 +105,7 @@ export function MapDefaultsCard() {
   return (
     <Card title="Map" id="map-defaults">
       <div className="space-y-4 text-sm" aria-busy={!settled}>
-        <Row label="Weather on each leg" hint="The temperature and wind on each leg, on by default.">
+        <Row label="Weather on each leg" hint="The temperature, wind, rain and snow on each leg, on by default.">
           <Toggle id="planner-weather-on" checked={prefs.weather_on} disabled={!settled} onChange={(v) => save.mutate({ weather_on: v })} />
         </Row>
         {radarAvailable() && (

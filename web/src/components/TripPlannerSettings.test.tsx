@@ -64,6 +64,13 @@ describe("Trip planner settings cards", () => {
     expect(await screen.findByText("Saved.", { selector: "span" })).toBeTruthy();
   });
 
+  it("says what the weather on each leg really shows: temperature, wind, rain and snow (the iPhone says the same)", async () => {
+    stub();
+    renderCards();
+    expect(await screen.findByText("The temperature, wind, rain and snow on each leg, on by default.")).toBeTruthy();
+    expect(screen.queryByText(/temperature and wind/)).toBeNull();
+  });
+
   it("turns a layer on in the fixed order, and a toggle saves at once", async () => {
     const puts = stub();
     renderCards();

@@ -162,8 +162,8 @@ enum PlannerSettingsCopy {
     static let preferredLabel = "Only my preferred networks"
     static let preferredNote = "Fast pins only from the networks you prefer. Choose them under Charging networks in Settings."
 
-    static let weatherLabel = "Weather on the route"
-    static let weatherNote = "The temperature and wind on each leg, on by default."
+    static let weatherLabel = "Weather on each leg"
+    static let weatherNote = "The temperature, wind, rain and snow on each leg, on by default."
     /// The Radar default row: only where the server has radar (the map's Radar button exists only there).
     static func showsRadarRow(_ availability: RadarModel.Availability) -> Bool { availability == .available }
 
