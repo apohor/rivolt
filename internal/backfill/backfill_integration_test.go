@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/apohor/rivolt/internal/backfill"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/testpg"
@@ -40,7 +42,8 @@ func setup(t *testing.T, n int) *sql.DB {
 	return pool
 }
 
-// fillJob sets v = 1 on the rows after the cursor, in key order, counting every touch so a repeated row shows.
+// fillJob sets v = 1 on the rows after the cursor, in key order, counting every touch so a repeated row shows. It waits for a row another
+// transaction holds (FOR UPDATE, bounded by the batch lock_timeout): SKIP LOCKED would leave the row behind the cursor for good.
 func fillJob(name string, fail *atomic.Int32) backfill.Job {
 	return backfill.Job{
 		Name: name, Table: "bf_test", BatchSize: 500,
@@ -52,7 +55,7 @@ func fillJob(name string, fail *atomic.Int32) backfill.Job {
 			var last sql.NullInt64
 			var n int
 			err := tx.QueryRowContext(ctx, `
-				WITH b AS (SELECT id FROM bf_test WHERE id > $1 AND v IS NULL ORDER BY id LIMIT $2 FOR UPDATE SKIP LOCKED),
+				WITH b AS (SELECT id FROM bf_test WHERE id > $1 AND v IS NULL ORDER BY id LIMIT $2 FOR UPDATE),
 				u AS (UPDATE bf_test t SET v = 1, touched = touched + 1 FROM b WHERE t.id = b.id RETURNING t.id)
 				SELECT count(*), max(id) FROM u`, after, limit).Scan(&n, &last)
 			if err != nil {
@@ -296,5 +299,101 @@ func TestFillWritesOnlyEmptyDeclaredColumns(t *testing.T) {
 	}
 	if wrongV != 0 || wrongW != 0 || changedUntouched != 0 || row1003 != 77 {
 		t.Errorf("wrong v %d, wrong w %d, changed undeclared %d, row 1003 v %d: want 0 0 0 and the concurrent writer's 77 kept", wrongV, wrongW, changedUntouched, row1003)
+	}
+}
+
+// holdRow locks one row of bf_test in a transaction of its own until the returned func is called.
+func holdRow(t *testing.T, pool *sql.DB, id int) (release func()) {
+	t.Helper()
+	tx, err := pool.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`SELECT 1 FROM bf_test WHERE id = $1 FOR UPDATE`, id); err != nil {
+		t.Fatal(err)
+	}
+	var once sync.Once
+	return func() { once.Do(func() { _ = tx.Commit() }) }
+}
+
+func retries(t *testing.T, reg *prometheus.Registry) float64 {
+	t.Helper()
+	fams, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range fams {
+		if f.GetName() == "rivolt_backfill_retries_total" {
+			n := 0.0
+			for _, m := range f.GetMetric() {
+				n += m.GetCounter().GetValue()
+			}
+			return n
+		}
+	}
+	return 0
+}
+
+// Ordinary contention with the recorder is not a failure: a row another transaction holds times one batch out (55P03), the job stays running,
+// the retry is counted, and once the row is free the next batch goes through. The job is never marked failed.
+func TestLockTimeoutIsRetriedNotFailed(t *testing.T) {
+	pool := setup(t, 2000)
+	reg := prometheus.NewRegistry()
+	m := backfill.NewMetrics()
+	reg.MustRegister(m.Collectors()...)
+	release := holdRow(t, pool, 500)
+	defer release()
+	go func() { time.Sleep(700 * time.Millisecond); release() }()
+
+	var sawFailed atomic.Bool
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			var st string
+			if err := pool.QueryRow(`SELECT state FROM backfills WHERE name = 'fill'`).Scan(&st); err == nil && st == backfill.StateFailed {
+				sawFailed.Store(true)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	r := &backfill.Runner{DB: pool, Jobs: []backfill.Job{fillJob("fill", nil)}, Pause: 50 * time.Millisecond, LockTimeout: 150 * time.Millisecond, Metrics: m}
+	if _, working, err := r.Pass(context.Background()); err != nil || working {
+		t.Fatalf("pass: working %v err %v", working, err)
+	}
+	close(stop)
+	if sawFailed.Load() {
+		t.Error("the job was marked failed by a lock timeout")
+	}
+	if n := retries(t, reg); n < 1 {
+		t.Errorf("retries counted %v, want at least one", n)
+	}
+	if st, rows := progress(t, pool, "fill"); st != backfill.StateDone || rows != 2000 {
+		t.Errorf("progress %s %d, want done 2000", st, rows)
+	}
+	if u, rep := counts(t, pool); u != 0 || rep != 0 {
+		t.Errorf("unfilled %d repeated %d", u, rep)
+	}
+}
+
+// A lock that never frees is five timeouts in a row, and then the job is failed (with the error), not retried for ever.
+func TestFiveTimeoutsInARowFailTheJob(t *testing.T) {
+	pool := setup(t, 1000)
+	release := holdRow(t, pool, 500)
+	defer release()
+	r := &backfill.Runner{DB: pool, Jobs: []backfill.Job{fillJob("fill", nil)}, Pause: time.Millisecond, LockTimeout: 50 * time.Millisecond}
+	if _, working, err := r.Pass(context.Background()); err != nil || !working {
+		t.Fatalf("pass: working %v err %v", working, err)
+	}
+	var st, msg string
+	if err := pool.QueryRow(`SELECT state, error FROM backfills WHERE name = 'fill'`).Scan(&st, &msg); err != nil {
+		t.Fatal(err)
+	}
+	if st != backfill.StateFailed || msg == "" {
+		t.Errorf("state %q error %q, want failed with the error", st, msg)
 	}
 }

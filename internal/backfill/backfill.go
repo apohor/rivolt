@@ -21,6 +21,11 @@
 // job like the sample thinner: it touches every user's rows in key order and calls nothing outside Postgres, so it is not a group owner's write (the
 // fence lint lists it as such).
 //
+// Bound on the recorder: a batch takes its row locks in key order and holds them until it commits, so a recorder write to one of those rows waits for
+// the rest of the batch. A batch runs under statement_timeout and lock_timeout of 5 s each (a 1000-row keyed UPDATE takes milliseconds), so the
+// recorder's worst wait behind a backfill is about 5 s. A batch that hits either timeout (SQLSTATE 55P03, 57014) is ordinary contention: it rolls
+// back with its progress and is retried after the pause (rivolt_backfill_retries_total); only five in a row, or any other error, mark the job failed.
+//
 // Pausing: RIVOLT_BACKFILL=0 stops every job (the runner is on by default, with an empty registry); a row in `flags` named backfill.<job>.paused
 // with value {"paused": true} stops that one job, checked before every batch (a malformed row also pauses it: the safe reading). Progress is kept
 // either way. Default pace: 1000 rows per batch and one batch per 10 seconds (about 3 hours per million rows), per job via BatchSize and Interval.
@@ -36,6 +41,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/apohor/rivolt/internal/singleton"
@@ -71,9 +77,10 @@ const (
 	DefaultPause        = 10 * time.Second
 	DefaultIdle         = 10 * time.Minute
 	DefaultFailedRetry  = 15 * time.Minute
-	defaultLockTimeout  = "5s"
-	defaultStmtTimeout  = "30s"
-	passProgressBackoff = time.Second // between passes while a job is still running
+	DefaultLockTimeout  = 5 * time.Second
+	DefaultStmtTimeout  = 5 * time.Second // a 1000-row keyed UPDATE takes milliseconds: 5 s is a failure, not a slow batch
+	maxTransient        = 5               // consecutive lock or statement timeouts before a job is marked failed
+	passProgressBackoff = time.Second     // between passes while a job is still running
 )
 
 // States of a job's row.
@@ -95,6 +102,11 @@ type Runner struct {
 	Idle        time.Duration
 	FailedRetry time.Duration
 	Metrics     *Metrics
+	// LockTimeout and StatementTimeout bound one batch (5 s each by default). They are also the longest a recorder write can wait behind a batch:
+	// a batch holds its row locks until it commits, so the worst case for the recorder is StatementTimeout, about 5 s.
+	LockTimeout      time.Duration
+	StatementTimeout time.Duration
+	transient        map[string]int
 	// Now and Sleep are for tests.
 	Now   func() time.Time
 	Sleep func(ctx context.Context, d time.Duration)
@@ -232,9 +244,29 @@ func (r *Runner) runJob(ctx context.Context, j Job) (string, error) {
 			if ctx.Err() != nil {
 				return StateRunning, nil // a drain between or inside a batch: nothing committed, resume later
 			}
+			if isTransient(err) {
+				// Ordinary contention with the recorder: a row another transaction holds, or a batch that ran past its bound. The batch rolled back
+				// with its progress; try again after the pause, and only after maxTransient in a row call it a failure.
+				if r.transient == nil {
+					r.transient = map[string]int{}
+				}
+				r.transient[j.Name]++
+				r.Metrics.observeRetry(j.Name)
+				if r.transient[j.Name] < maxTransient {
+					r.log().Debug("backfill batch timed out; retrying", "job", j.Name, "cursor", cursor, "n", r.transient[j.Name])
+					r.sleep(ctx, orDefault(j.Interval, orDefault(r.Pause, DefaultPause)))
+					continue
+				}
+			}
+			if r.transient != nil {
+				r.transient[j.Name] = 0
+			}
 			r.log().Warn("backfill batch failed", "job", j.Name, "cursor", cursor, "err", err.Error())
 			r.fail(ctx, j.Name, err)
 			return StateFailed, nil
+		}
+		if r.transient != nil {
+			r.transient[j.Name] = 0
 		}
 		r.Metrics.observeBatch(j.Name, res.Rows, r.now().Sub(started))
 		cursor = res.Next
@@ -278,10 +310,10 @@ func (r *Runner) batch(ctx context.Context, j Job, cursor string, limit int) (Re
 		return Result{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `SET LOCAL lock_timeout = '`+defaultLockTimeout+`'`); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`SET LOCAL lock_timeout = '%dms'`, orDefault(r.LockTimeout, DefaultLockTimeout).Milliseconds())); err != nil {
 		return Result{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '`+defaultStmtTimeout+`'`); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`SET LOCAL statement_timeout = '%dms'`, orDefault(r.StatementTimeout, DefaultStmtTimeout).Milliseconds())); err != nil {
 		return Result{}, err
 	}
 	res, err := j.Step(ctx, tx, cursor, limit)
@@ -315,6 +347,12 @@ func (r *Runner) batch(ctx context.Context, j Job, cursor string, limit int) (Re
 	return res, nil
 }
 
+// isTransient reports a lock timeout (55P03) or a statement timeout (57014): ordinary contention, not a broken job.
+func isTransient(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && (pg.Code == "55P03" || pg.Code == "57014")
+}
+
 // fail records a failed batch on the job's row (outside the batch transaction, which rolled back).
 func (r *Runner) fail(ctx context.Context, name string, cause error) {
 	msg := cause.Error()
@@ -339,6 +377,7 @@ type Metrics struct {
 	rowsNow *prometheus.GaugeVec
 	age     *prometheus.GaugeVec
 	paused  *prometheus.GaugeVec
+	retries *prometheus.CounterVec
 	Now     func() time.Time
 }
 
@@ -350,6 +389,7 @@ func NewMetrics() *Metrics {
 		failed:  prometheus.NewCounterVec(prometheus.CounterOpts{Name: "rivolt_backfill_failures_total", Help: "Backfill batches that failed."}, []string{"job"}),
 		done:    prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rivolt_backfill_done", Help: "1 when the backfill job has finished, else 0."}, []string{"job"}),
 		rowsNow: prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rivolt_backfill_rows_done", Help: "Rows a backfill job has changed so far (from its stored progress)."}, []string{"job"}),
+		retries: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "rivolt_backfill_retries_total", Help: "Backfill batches retried after a lock or statement timeout (contention with the recorder); a job is marked failed only after five in a row."}, []string{"job"}),
 		paused:  prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rivolt_backfill_paused", Help: "1 while the job's pause flag (flags backfill.<job>.paused) holds it."}, []string{"job"}),
 		age:     prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "rivolt_backfill_age_seconds", Help: "Seconds since a backfill job started, while it is not done (0 once done or before it starts); alert when it stays high."}, []string{"job"}),
 	}
@@ -357,7 +397,7 @@ func NewMetrics() *Metrics {
 
 // Collectors are what the metrics registry registers.
 func (m *Metrics) Collectors() []prometheus.Collector {
-	return []prometheus.Collector{m.rows, m.batch, m.failed, m.done, m.rowsNow, m.age, m.paused}
+	return []prometheus.Collector{m.rows, m.batch, m.failed, m.done, m.rowsNow, m.age, m.paused, m.retries}
 }
 
 func (m *Metrics) observeBatch(job string, rows int, d time.Duration) {
@@ -377,6 +417,13 @@ func (m *Metrics) observePaused(job string, paused bool) {
 		v = 1
 	}
 	m.paused.WithLabelValues(job).Set(v)
+}
+
+func (m *Metrics) observeRetry(job string) {
+	if m == nil {
+		return
+	}
+	m.retries.WithLabelValues(job).Inc()
 }
 
 func (m *Metrics) observeFailure(job string) {
