@@ -9,7 +9,7 @@ import (
 
 // Pool sizes (single-owner C5): every Redis client sets PoolSize explicitly, because go-redis's default is 10 x GOMAXPROCS, so the
 // connection count would depend on the pod's CPU and not on a number anyone chose. Valkey's maxclients is 10000; at N=20 pods the
-// connections are 20 x (shared + forwarder + the short-lived preflight/CLI clients). The shared client carries the rate limiter's
+// connections are 20 x (shared 20 + forwarder 10 + takeover limiter 4 = 34 per serving pod, plus the short-lived preflight/CLI clients). The shared client carries the rate limiter's
 // script calls, the live-state publish/read and the plan-leg cache, all short commands: 20 is well above their concurrency (the
 // limiter is bounded by the Rivian call rate, the live state by the vehicles this pod streams). The forwarder has its own client so a
 // stuck BLPOP cannot starve them: 1 owner BLPOP + 1 readiness SET + up to 8 requesters (the worker cap) = 10.
@@ -17,6 +17,7 @@ const (
 	sharedRedisPoolSize     = 20
 	forwardRedisPoolSize    = 10
 	oneShotRedisPoolSize    = 2 // the preflight and other one-shot CLIs
+	takeoverRedisPoolSize   = 4 // the takeover limiter's own client (takeoverRedis): one pipelined call per takeover, bounded by the limiter's rate
 	envRedisPoolSize        = "RIVOLT_REDIS_POOL_SIZE"
 	maxRedisPoolSizeAllowed = 100
 )

@@ -15,7 +15,7 @@ func TestTakeoverRedisHonoursTheContextAndKeepsTheCredentials(t *testing.T) {
 	c := takeoverRedis(shared)
 	defer func() { _ = c.Close() }()
 	o := c.Options()
-	if !o.ContextTimeoutEnabled || o.PoolSize != 4 || o.Addr != "127.0.0.1:1" || o.Username != "u" || o.Password != "p" {
+	if !o.ContextTimeoutEnabled || o.PoolSize != takeoverRedisPoolSize || o.Addr != "127.0.0.1:1" || o.Username != "u" || o.Password != "p" {
 		t.Errorf("options %+v", o)
 	}
 	if shared.Options().ContextTimeoutEnabled || shared.Options().PoolSize != 20 {
