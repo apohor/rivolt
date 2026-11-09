@@ -217,6 +217,23 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app.tests
         GENERATE_INFOPLIST_FILE: YES
 
+  # UI tests: the app launched signed in with every call answered from fixtures (Rivolt/App/UITestFixtures.swift, Debug only), driven like a person would.
+  # Their own scheme (RivoltUITests), so the unit-test run of the Rivolt scheme stays as quick as it was.
+  RivoltUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: RivoltUITests
+        excludes:
+          - Fixtures
+    dependencies:
+      - target: Rivolt
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.rivolt.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Rivolt
+
 schemes:
   Rivolt:
     build:
@@ -228,3 +245,11 @@ schemes:
     test:
       targets:
         - RivoltTests
+  RivoltUITests:
+    build:
+      targets:
+        Rivolt: all
+        RivoltUITests: [test]
+    test:
+      targets:
+        - RivoltUITests
