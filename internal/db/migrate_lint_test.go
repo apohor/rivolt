@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The migration lint, every table (zero-impact deploys, G6a part 1). A statement that locks a table other sessions use waits behind a long
@@ -119,6 +120,26 @@ var (
 	reDynamicDDL  = regexp.MustCompile(`(?is)\b(alter\s+table|create\s+(?:unique\s+)?index|create\s+(?:or\s+replace\s+)?(?:constraint\s+)?trigger|drop\s+trigger|drop\s+table|truncate)\b`)
 )
 
+// lockTimeoutSet matches a SET LOCAL lock_timeout and captures its value and unit. Postgres reads a bare number as milliseconds.
+var lockTimeoutSet = regexp.MustCompile(`(?is)^set\s+local\s+lock_timeout\s*(?:=|to)\s*'?\s*(\d+)\s*(ms|s|min|h|d)?\s*'?\s*$`)
+
+// maxLockTimeout is the longest wait a migration may allow: it bounds how long a migration can queue writes behind itself. 0 means no limit.
+const maxLockTimeout = 10 * time.Second
+
+// boundedLockTimeout is true for a SET LOCAL lock_timeout of 1 ms to 10 s.
+func boundedLockTimeout(stmt string) bool {
+	m := lockTimeoutSet.FindStringSubmatch(stmt)
+	if m == nil {
+		return false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil || n <= 0 {
+		return false
+	}
+	unit := map[string]time.Duration{"": time.Millisecond, "ms": time.Millisecond, "s": time.Second, "min": time.Minute, "h": time.Hour, "d": 24 * time.Hour}[strings.ToLower(m[2])]
+	return time.Duration(n)*unit <= maxLockTimeout
+}
+
 func bareTable(s string) string {
 	s = strings.TrimRight(s, "(,;")
 	s = strings.TrimPrefix(strings.ToLower(s), "public.")
@@ -132,7 +153,7 @@ func lockFindings(src string) []string {
 	bounded := false
 	for _, st := range sqlStatements(src) {
 		t := st.text
-		if boundedLockTO.MatchString(t) {
+		if boundedLockTimeout(t) {
 			bounded = true
 			continue
 		}
@@ -168,6 +189,67 @@ func lockFindings(src string) []string {
 	return bad
 }
 
+// 1b: lock_timeout bounds the wait for a lock, not how long it is held. DDL that rewrites the table (or scans it all under the lock) holds ACCESS
+// EXCLUSIVE for as long as the table is big, so on an existing table it needs DA's per-PR ack: a "-- da-ack: rewrite <reason>" line in the file.
+var (
+	reAlterType    = regexp.MustCompile(`(?is)\balter\s+column\s+\S+\s+(?:set\s+data\s+)?type\b`)
+	reSetNotNull   = regexp.MustCompile(`(?is)\balter\s+column\s+\S+\s+set\s+not\s+null\b`)
+	reAddColumn    = regexp.MustCompile(`(?is)\badd\s+column\b(.*?)(?:,\s*(?:add|drop|alter)\b|$)`)
+	reVolatile     = regexp.MustCompile(`(?is)\bdefault\b[^,]*?\b(random|gen_random_uuid|gen_random_bytes|uuid_generate_v\d|clock_timestamp|timeofday|nextval|txid_current)\s*\(`)
+	reRewriteCol   = regexp.MustCompile(`(?is)\b(?:small|big)?serial\b|\bgenerated\s+always\s+as\s*\(.*\)\s*stored\b|\bgenerated\s+(?:always|by\s+default)\s+as\s+identity\b`)
+	reVacuumFull   = regexp.MustCompile(`(?is)^vacuum\s*(?:\([^)]*\bfull\b[^)]*\)|full\b)`)
+	reCluster      = regexp.MustCompile(`(?is)^cluster\b`)
+	reReindex      = regexp.MustCompile(`(?is)^reindex\b`)
+	reConcurrently = regexp.MustCompile(`(?is)\bconcurrently\b`)
+	reValidate     = regexp.MustCompile(`(?is)\bvalidate\s+constraint\b`)
+	reDaAckRewrite = regexp.MustCompile(`(?im)^\s*--\s*da-ack:\s*rewrite\s+\S+`)
+)
+
+// rewriteFindings lists the statements that can rewrite or fully scan an existing table under a lock, unless the file carries the ack.
+func rewriteFindings(src string) []string {
+	if reDaAckRewrite.MatchString(src) {
+		return nil
+	}
+	var bad []string
+	created := map[string]bool{}
+	validated := false
+	for _, st := range sqlStatements(src) {
+		t := st.text
+		if m := reCreateTable.FindStringSubmatch(t); m != nil {
+			created[bareTable(m[1])] = true
+			continue
+		}
+		if reValidate.MatchString(t) {
+			validated = true
+		}
+		switch {
+		case reVacuumFull.MatchString(t):
+			bad = append(bad, "VACUUM FULL")
+		case reCluster.MatchString(t):
+			bad = append(bad, "CLUSTER")
+		case reReindex.MatchString(t) && !reConcurrently.MatchString(t):
+			bad = append(bad, "REINDEX without CONCURRENTLY")
+		}
+		m := reAlterTable.FindStringSubmatch(t)
+		if m == nil || created[bareTable(m[1])] {
+			continue
+		}
+		table := bareTable(m[1])
+		if reAlterType.MatchString(t) {
+			bad = append(bad, "ALTER COLUMN TYPE on "+table)
+		}
+		if reSetNotNull.MatchString(t) && !validated {
+			bad = append(bad, "SET NOT NULL on "+table+" without a validated CHECK before it")
+		}
+		for _, c := range reAddColumn.FindAllStringSubmatch(t, -1) {
+			if reVolatile.MatchString("default "+c[1]) || reVolatile.MatchString(c[1]) || reRewriteCol.MatchString(c[1]) {
+				bad = append(bad, "ADD COLUMN with a volatile default, serial, identity or stored generated column on "+table)
+			}
+		}
+	}
+	return bad
+}
+
 func migrationNumber(base string) (int, bool) {
 	n, err := strconv.Atoi(strings.SplitN(base, "_", 2)[0])
 	return n, err == nil
@@ -189,7 +271,10 @@ func TestEveryExistingTableLockSetsLockTimeout(t *testing.T) {
 			t.Fatal(err)
 		}
 		if bad := lockFindings(string(body)); len(bad) > 0 {
-			t.Errorf("%s: %s without a bounded SET LOCAL lock_timeout = '5s' before it (a table created in the same file is exempt)", base, strings.Join(bad, ", "))
+			t.Errorf("%s: %s without a bounded (1 ms to 10 s) SET LOCAL lock_timeout = '5s' before it (a table created in the same file is exempt)", base, strings.Join(bad, ", "))
+		}
+		if bad := rewriteFindings(string(body)); len(bad) > 0 {
+			t.Errorf("%s: %s can rewrite or scan an existing table under a lock; add a line \"-- da-ack: rewrite <reason>\" once DA has acked it on the PR", base, strings.Join(bad, ", "))
 		}
 	}
 }
@@ -234,12 +319,61 @@ func TestLockFindings(t *testing.T) {
 	}
 }
 
+func TestBoundedLockTimeout(t *testing.T) {
+	for _, ok := range []string{"SET LOCAL lock_timeout = '5s'", "set local lock_timeout to '10s'", "SET LOCAL lock_timeout = 3000", "SET LOCAL lock_timeout = '250ms'"} {
+		if !boundedLockTimeout(ok) {
+			t.Errorf("%q should be bounded", ok)
+		}
+	}
+	for _, bad := range []string{"SET LOCAL lock_timeout = 0", "SET LOCAL lock_timeout = '0'", "SET LOCAL lock_timeout = '11s'", "SET LOCAL lock_timeout = '1min'", "SET lock_timeout = '5s'", "SET LOCAL lock_timeout = DEFAULT", "SET LOCAL statement_timeout = '5s'"} {
+		if boundedLockTimeout(bad) {
+			t.Errorf("%q should not count as bounded", bad)
+		}
+	}
+}
+
+func TestRewriteFindings(t *testing.T) {
+	for _, bad := range []string{
+		"ALTER TABLE users ALTER COLUMN age TYPE bigint;",
+		"ALTER TABLE users ALTER COLUMN age SET DATA TYPE text;",
+		"ALTER TABLE users ADD COLUMN token uuid DEFAULT gen_random_uuid();",
+		"ALTER TABLE users ADD COLUMN seq bigserial;",
+		"ALTER TABLE users ADD COLUMN full_name text GENERATED ALWAYS AS (a || b) STORED;",
+		"ALTER TABLE users ALTER COLUMN age SET NOT NULL;",
+		"ALTER TABLE users ADD CONSTRAINT c CHECK (age IS NOT NULL) NOT VALID;\nALTER TABLE users ALTER COLUMN age SET NOT NULL;", // not validated
+		"VACUUM FULL users;",
+		"VACUUM (FULL, ANALYZE) users;",
+		"CLUSTER users USING users_pkey;",
+		"REINDEX TABLE users;",
+	} {
+		if len(rewriteFindings(bad)) == 0 {
+			t.Errorf("rewrite lint misses %q", bad)
+		}
+	}
+	for _, fine := range []string{
+		"ALTER TABLE users ADD COLUMN x int;",
+		"ALTER TABLE users ADD COLUMN x int NOT NULL DEFAULT 0;",
+		"ALTER TABLE users ADD COLUMN at timestamptz DEFAULT now();",
+		"ALTER TABLE users ADD COLUMN tags text[] DEFAULT '{}';",
+		"ALTER TABLE users ADD CONSTRAINT c CHECK (age IS NOT NULL) NOT VALID;\nALTER TABLE users VALIDATE CONSTRAINT c;\nALTER TABLE users ALTER COLUMN age SET NOT NULL;",
+		"CREATE TABLE fresh (id int);\nALTER TABLE fresh ALTER COLUMN id TYPE bigint;",
+		"VACUUM users;",
+		"REINDEX INDEX CONCURRENTLY i;",
+		"-- da-ack: rewrite the table is empty on every install (feature flag never shipped)\nALTER TABLE users ALTER COLUMN age TYPE bigint;",
+		"ALTER TABLE users ADD COLUMN x int; -- not a serial, just a comment",
+	} {
+		if bad := rewriteFindings(fine); len(bad) > 0 {
+			t.Errorf("rewrite lint wrongly flags %q: %v", fine, bad)
+		}
+	}
+}
+
 // Calibration, not a rule: how the lint would have judged every migration before lintAllFrom. Logged so a reviewer sees what a stricter start
 // would have caught (run with -v). It never fails.
 func TestLockFindingsOverHistory(t *testing.T) {
 	names, _ := fs.Glob(migrationFS, "migrations/*.sql")
 	sort.Strings(names)
-	flagged := 0
+	flagged, rewrites := 0, 0
 	for _, name := range names {
 		base := strings.TrimPrefix(name, "migrations/")
 		if n, ok := migrationNumber(base); !ok || n >= lintAllFrom {
@@ -249,6 +383,10 @@ func TestLockFindingsOverHistory(t *testing.T) {
 		if bad := lockFindings(string(body)); len(bad) > 0 {
 			flagged++
 		}
+		if bad := rewriteFindings(string(body)); len(bad) > 0 {
+			rewrites++
+			t.Logf("%s: %s", base, strings.Join(bad, ", "))
+		}
 	}
-	t.Logf("%d of %d earlier migrations would be flagged by the all-tables rule (not enforced)", flagged, len(names))
+	t.Logf("%d of %d earlier migrations would be flagged by the all-tables rule, %d by the rewrite rule (not enforced)", flagged, len(names), rewrites)
 }
