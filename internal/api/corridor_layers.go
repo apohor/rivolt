@@ -14,13 +14,13 @@ import (
 // corridorLayersRequest is the planner map's layer query: several kinds in one pass, along the whole route, in route order.
 // Page with after_km (the previous response's next_after_km) and limit.
 type corridorLayersRequest struct {
-	Path       [][2]float64 `json:"path"`
-	Kinds      []string     `json:"kinds"`
+	Path  [][2]float64 `json:"path"`
+	Kinds []string     `json:"kinds"`
 	// CorridorKm is the half-width for every kind (capped at chargers.MaxCorridorKm). Unset: each kind has its own (chargers.LayerKindKm).
-	CorridorKm float64      `json:"corridor_km,omitempty"`
-	MinPowerKW float64      `json:"min_power_kw,omitempty"`
-	Limit      int          `json:"limit,omitempty"`
-	AfterKm    float64      `json:"after_km,omitempty"`
+	CorridorKm float64 `json:"corridor_km,omitempty"`
+	MinPowerKW float64 `json:"min_power_kw,omitempty"`
+	Limit      int     `json:"limit,omitempty"`
+	AfterKm    float64 `json:"after_km,omitempty"`
 	// Paged asks for route-ordered pages (first Limit, then next_after_km). Without it a corridor with more stations than the limit comes back
 	// spread along the whole route, so a client showing one capped answer shows the entire route and not just its first stretch.
 	Paged bool `json:"paged,omitempty"`
