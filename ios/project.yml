@@ -207,6 +207,9 @@ targets:
       # The charger-type words, so the generated Swift can be checked against them (ChargerLabelsTests).
       - path: design/charger-labels.json
         buildPhase: resources
+      # The vehicle-discovery words, likewise (VehicleDiscoveryTests).
+      - path: design/vehicle-discovery.json
+        buildPhase: resources
     dependencies:
       - target: Rivolt
     settings:
