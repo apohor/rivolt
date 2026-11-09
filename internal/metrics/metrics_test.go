@@ -161,6 +161,16 @@ func TestLeaseCountersExistFromBoot(t *testing.T) {
 			t.Errorf("rivolt_rollout_handoffs_total{reason=%q} is not exported at 0 from boot", reason)
 		}
 	}
+	for _, kind := range []string{"drive", "charge"} {
+		if !strings.Contains(body, `rivolt_session_split_total{kind="`+kind+`"} 0`) {
+			t.Errorf("rivolt_session_split_total{kind=%q} is not exported at 0 from boot", kind)
+		}
+		for _, source := range []string{"snapshot", "db", "fresh"} {
+			if !strings.Contains(body, `rivolt_session_rehydrate_total{kind="`+kind+`",source="`+source+`"} 0`) {
+				t.Errorf("rivolt_session_rehydrate_total{kind=%q,source=%q} is not exported at 0 from boot", kind, source)
+			}
+		}
+	}
 	for _, state := range []string{"active", "idle"} {
 		if !strings.Contains(body, `rivolt_lease_acquire_to_frame_seconds_count{state="`+state+`"} 0`) {
 			t.Errorf("rivolt_lease_acquire_to_frame_seconds{state=%q} is not exported at 0 from boot", state)

@@ -107,6 +107,12 @@ extension TripPlanMapTests {
         XCTAssertEqual(PlanRouteLogic.layerLine(lines: lines, day: 9), lines.flatMap { $0 }, "a day that is not there falls back to the whole trip")
     }
 
+    func testTheMapSaysHowManyPlacesAreDrawnAlongTheRoute() {
+        XCTAssertEqual(PlanRouteLogic.alongPinsSpoken(0), "")
+        XCTAssertEqual(PlanRouteLogic.alongPinsSpoken(1), "1 place along the route")
+        XCTAssertEqual(PlanRouteLogic.alongPinsSpoken(557), "557 places along the route")
+    }
+
     func testTheNightPinNamesTheStayOrJustSaysNight() {
         XCTAssertEqual(PlanRouteLogic.nightLabel(nil, place: nil), "Night")
         let o = try! JSON.decoder().decode(TripMultiday.Overnight.self, from: Data(#"{"name":"Sample Inn"}"#.utf8))

@@ -1,0 +1,106 @@
+{
+  "pois": [
+    {
+      "lat": 47.5,
+      "lon": -121.8,
+      "name": "Sample Fast A",
+      "isDCFC": true,
+      "maxPowerKW": 150,
+      "alongKm": 60,
+      "offKm": 1.2,
+      "kinds": [
+        "dcfc"
+      ],
+      "networkSlug": "ea",
+      "networkName": "EA"
+    },
+    {
+      "lat": 47.4,
+      "lon": -120.5,
+      "name": "Sample Fast B",
+      "isDCFC": true,
+      "maxPowerKW": 250,
+      "alongKm": 150,
+      "offKm": 1.2,
+      "kinds": [
+        "dcfc"
+      ],
+      "networkSlug": "ea",
+      "networkName": "EA"
+    },
+    {
+      "lat": 47.3,
+      "lon": -119.4,
+      "name": "Sample Fast C",
+      "isDCFC": true,
+      "maxPowerKW": 350,
+      "alongKm": 230,
+      "offKm": 1.2,
+      "kinds": [
+        "dcfc"
+      ]
+    },
+    {
+      "lat": 47.55,
+      "lon": -121.0,
+      "name": "Sample Medium A",
+      "isDCFC": false,
+      "maxPowerKW": 7,
+      "alongKm": 100,
+      "offKm": 1.2,
+      "kinds": [
+        "l2"
+      ]
+    },
+    {
+      "lat": 47.35,
+      "lon": -119.9,
+      "name": "Sample Medium B",
+      "isDCFC": false,
+      "maxPowerKW": 11,
+      "alongKm": 190,
+      "offKm": 1.2,
+      "kinds": [
+        "l2"
+      ]
+    },
+    {
+      "lat": 47.45,
+      "lon": -120.2,
+      "name": "Sample Inn",
+      "isDCFC": false,
+      "maxPowerKW": 7,
+      "alongKm": 170,
+      "offKm": 1.2,
+      "kinds": [
+        "hotels"
+      ]
+    },
+    {
+      "lat": 47.3,
+      "lon": -118.8,
+      "name": "Sample Lodge",
+      "isDCFC": false,
+      "maxPowerKW": 7,
+      "alongKm": 270,
+      "offKm": 1.2,
+      "kinds": [
+        "hotels"
+      ]
+    },
+    {
+      "lat": 47.5,
+      "lon": -120.9,
+      "name": "Sample Camp",
+      "isDCFC": false,
+      "maxPowerKW": 7,
+      "alongKm": 110,
+      "offKm": 1.2,
+      "kinds": [
+        "camp"
+      ]
+    }
+  ],
+  "total": 8,
+  "asof": "2026-10-20"
+}

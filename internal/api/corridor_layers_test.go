@@ -101,3 +101,30 @@ func TestCorridorLayersAlwaysHasTheAsOfKey(t *testing.T) {
 		}
 	}
 }
+
+// The planner settings fields are fixed choices: anything else is a 400, the valid ones are accepted.
+func TestCorridorLayersTakesOnlyTheFixedPlannerChoices(t *testing.T) {
+	h := handleCorridorLayers(emptyArchive(t))
+	route := longRoute(100)
+	for name, extra := range map[string]map[string]any{
+		"unknown preset": {"preset": "huge"},
+		"free start":     {"start_exclude_mi": 10},
+		"negative start": {"start_exclude_mi": -25},
+		"free power":     {"min_fast_kw": 100},
+		"big start":      {"start_exclude_mi": 5000},
+	} {
+		body := map[string]any{"path": route, "kinds": []string{"dcfc"}}
+		for k, v := range extra {
+			body[k] = v
+		}
+		if rec := postLayers(h, body); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %q", name, rec.Code, rec.Body.String())
+		}
+	}
+	for _, preset := range []string{"", "close", "normal", "wide"} {
+		body := map[string]any{"path": route, "kinds": []string{"dcfc", "hotels"}, "preset": preset, "start_exclude_mi": 50, "min_fast_kw": 250}
+		if rec := postLayers(h, body); rec.Code != http.StatusOK {
+			t.Errorf("preset %q: %d %q", preset, rec.Code, rec.Body.String())
+		}
+	}
+}
