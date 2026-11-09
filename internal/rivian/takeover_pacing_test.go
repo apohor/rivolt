@@ -44,3 +44,23 @@ func TestTakeoverWaitPaces(t *testing.T) {
 		t.Errorf("4 calls at 2/s took %v, want about 1 s", d)
 	}
 }
+
+// A slow roll logs one line a minute per class, with the number of calls it stands for.
+func TestStarvedLogIsOneLineAMinutePerClass(t *testing.T) {
+	r := &rateLimitedCount{every: time.Minute}
+	t0 := time.Now()
+	if n, ok := r.note("seed", t0); !ok || n != 1 {
+		t.Fatalf("first: %d %v, want a line for 1", n, ok)
+	}
+	for i := 0; i < 50; i++ {
+		if _, ok := r.note("seed", t0.Add(time.Duration(i)*time.Second/2)); ok {
+			t.Fatal("logged again inside the minute")
+		}
+	}
+	if n, ok := r.note("dial", t0.Add(time.Second)); !ok || n != 1 {
+		t.Errorf("another class is its own line: %d %v", n, ok)
+	}
+	if n, ok := r.note("seed", t0.Add(61*time.Second)); !ok || n != 51 {
+		t.Errorf("after the minute: %d %v, want a line for the 51 calls since", n, ok)
+	}
+}

@@ -4452,10 +4452,36 @@ func (m *StateMonitor) takeoverWait(ctx context.Context, class, shareKey string,
 	}
 	r := m.takeoverLimiter.Wait(ctx, class, shareKey, active)
 	if r.Starved {
-		m.logger.Warn("takeover pacing: went ahead without a slot after the bound", "vehicle", vehicleID, "class", class, "active", active, "waited", r.Waited.Round(time.Millisecond))
-	} else if r.Waited > 10*time.Second {
-		m.logger.Info("takeover pacing: a long wait", "vehicle", vehicleID, "class", class, "active", active, "waited", r.Waited.Round(time.Second))
+		if n, ok := starvedLog.note(class, m.clock()); ok {
+			m.logger.Warn("takeover pacing: calls went ahead without a slot after the bound", "class", class, "last_vehicle", vehicleID, "active", active, "count", n, "waited", r.Waited.Round(time.Millisecond))
+		}
 	}
+}
+
+// starvedLog keeps a slow roll from logging one line per vehicle: one line a minute per class, with how many calls it stands for.
+var starvedLog = &rateLimitedCount{every: time.Minute}
+
+type rateLimitedCount struct {
+	every time.Duration
+	mu    sync.Mutex
+	last  map[string]time.Time
+	n     map[string]int
+}
+
+// note counts one event for the class and reports whether to log now (and how many events the line covers).
+func (r *rateLimitedCount) note(class string, now time.Time) (int, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.last == nil {
+		r.last, r.n = map[string]time.Time{}, map[string]int{}
+	}
+	r.n[class]++
+	if at, ok := r.last[class]; ok && now.Sub(at) < r.every {
+		return 0, false
+	}
+	n := r.n[class]
+	r.last[class], r.n[class] = now, 0
+	return n, true
 }
 
 // SetStagger replaces the monitor's slot clock; the registry passes one shared
