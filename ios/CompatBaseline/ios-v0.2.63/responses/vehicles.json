@@ -1,0 +1,23 @@
+[
+  {
+    "id": "veh-fixture",
+    "vin": "7FCTGAAL0PN000001",
+    "name": "Sample truck",
+    "model": "R1T",
+    "model_year": 2023,
+    "make": "Rivian",
+    "pack_kwh": 135,
+    "ota": {
+      "current": {
+        "version": "2026.34.1",
+        "has_notes": true
+      }
+    }
+  },
+  {
+    "id": "veh-fixture-2",
+    "vin": "7PDSGABA2RN000002",
+    "name": "Second",
+    "model": "R1S"
+  }
+]

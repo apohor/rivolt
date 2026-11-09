@@ -1,0 +1,339 @@
+{
+  "version": 1,
+  "period": "2026-09",
+  "tz": "America/Chicago",
+  "tz_source": "",
+  "range": {
+    "start": "2026-09-01T05:00:00Z",
+    "end": "2026-10-01T05:00:00Z"
+  },
+  "currency": "USD",
+  "vehicle_id": null,
+  "is_current_month": false,
+  "first_activity_at": "2026-09-04T02:00:00Z",
+  "last_activity_at": "2026-09-24T15:00:00Z",
+  "spend": {
+    "total": 35.43,
+    "by_source": {
+      "home_rate": 12.02,
+      "network_estimate": 0,
+      "observed_estimate": 0,
+      "rivian": 23.41,
+      "user": 0
+    },
+    "estimated_share": 0,
+    "priced_sessions": 3,
+    "unpriced_sessions": 1,
+    "unpriced_kwh": 16.2,
+    "unpriced_home_rate_estimate": 0,
+    "estimate_pending_sessions": 0,
+    "estimate_pending_kwh": 0,
+    "observed_estimate_cost": 0,
+    "observed_estimate_sessions": 0,
+    "unpriced_fast_sessions": 0
+  },
+  "energy": {
+    "sessions": 4,
+    "kwh_added": 180,
+    "null_energy_sessions": 0,
+    "by_kind": {
+      "ac": {
+        "sessions": 3,
+        "kwh": 108.7,
+        "cost": 12.02,
+        "peak_kw": 11.5
+      },
+      "dcfc": {
+        "sessions": 1,
+        "kwh": 71.3,
+        "cost": 23.41,
+        "peak_kw": 198
+      }
+    },
+    "by_place": {
+      "away": {
+        "sessions": 2,
+        "kwh": 87.5,
+        "cost": 23.41,
+        "peak_kw": 198
+      },
+      "home": {
+        "sessions": 2,
+        "kwh": 92.5,
+        "cost": 12.02,
+        "peak_kw": 11.5
+      },
+      "unknown": {
+        "sessions": 0,
+        "kwh": 0,
+        "cost": 0,
+        "peak_kw": null
+      }
+    },
+    "by_place_kind": {
+      "away": {
+        "ac": {
+          "sessions": 1,
+          "kwh": 16.2,
+          "cost": 0,
+          "peak_kw": 7.2
+        },
+        "dcfc": {
+          "sessions": 1,
+          "kwh": 71.3,
+          "cost": 23.41,
+          "peak_kw": 198
+        }
+      },
+      "home": {
+        "ac": {
+          "sessions": 2,
+          "kwh": 92.5,
+          "cost": 12.02,
+          "peak_kw": 11.5
+        },
+        "dcfc": {
+          "sessions": 0,
+          "kwh": 0,
+          "cost": 0,
+          "peak_kw": null
+        }
+      },
+      "unknown": {
+        "ac": {
+          "sessions": 0,
+          "kwh": 0,
+          "cost": 0,
+          "peak_kw": null
+        },
+        "dcfc": {
+          "sessions": 0,
+          "kwh": 0,
+          "cost": 0,
+          "peak_kw": null
+        }
+      }
+    }
+  },
+  "driving": {
+    "drives": 3,
+    "miles": 273.7,
+    "miles_with_energy": 273.7,
+    "kwh_used_known": 111.4,
+    "coverage": 1,
+    "cost_per_mile": 0.1294,
+    "cost_per_mile_basis": "spend_over_miles"
+  },
+  "receipts": [
+    {
+      "receipt_id": "rcpt_chg-away-1",
+      "vehicle_id": "veh-fixture",
+      "kind": "ac",
+      "place": "away",
+      "km_from_home": 118.19,
+      "started_at": "2026-09-24T15:00:00Z",
+      "ended_at": "2026-09-24T18:00:00Z",
+      "local_date": "2026-09-24",
+      "spans_days": 1,
+      "soc_start": 60,
+      "soc_end": 72,
+      "kwh": 16.2,
+      "peak_kw": 7.2,
+      "cost": null,
+      "cost_source": "unknown",
+      "network": null,
+      "network_state": null,
+      "network_confidence": null,
+      "network_evidence": null,
+      "rate": null,
+      "session_count": 1,
+      "unpriced_sessions": 1,
+      "flags": [
+        "unpriced"
+      ],
+      "sessions": [
+        {
+          "charge_id": "chg-away-1",
+          "started_at": "2026-09-24T15:00:00Z",
+          "ended_at": "2026-09-24T18:00:00Z",
+          "soc_start": 60,
+          "soc_end": 72,
+          "kwh": 16.2,
+          "peak_kw": 7.2,
+          "cost": null,
+          "price_per_kwh": null,
+          "cost_source": "unknown",
+          "cost_source_derived": true,
+          "network": null,
+          "network_state": null,
+          "network_confidence": null,
+          "network_evidence": null,
+          "kind": "ac",
+          "place": "away",
+          "final_state": "charging_complete",
+          "source": "live",
+          "flags": [
+            "unpriced"
+          ]
+        }
+      ]
+    },
+    {
+      "receipt_id": "rcpt_chg-home-2",
+      "vehicle_id": "veh-fixture",
+      "kind": "ac",
+      "place": "home",
+      "km_from_home": 0,
+      "started_at": "2026-09-18T03:00:00Z",
+      "ended_at": "2026-09-18T08:00:00Z",
+      "local_date": "2026-09-17",
+      "spans_days": 2,
+      "soc_start": 55,
+      "soc_end": 85,
+      "kwh": 40.1,
+      "peak_kw": 11.4,
+      "cost": 5.21,
+      "cost_source": "home_rate",
+      "network": null,
+      "network_state": null,
+      "network_confidence": null,
+      "network_evidence": null,
+      "rate": 0.1299,
+      "session_count": 1,
+      "unpriced_sessions": 0,
+      "flags": [],
+      "sessions": [
+        {
+          "charge_id": "chg-home-2",
+          "started_at": "2026-09-18T03:00:00Z",
+          "ended_at": "2026-09-18T08:00:00Z",
+          "soc_start": 55,
+          "soc_end": 85,
+          "kwh": 40.1,
+          "peak_kw": 11.4,
+          "cost": 5.21,
+          "price_per_kwh": 0.13,
+          "cost_source": "home_rate",
+          "cost_source_derived": false,
+          "network": null,
+          "network_state": null,
+          "network_confidence": null,
+          "network_evidence": null,
+          "kind": "ac",
+          "place": "home",
+          "final_state": "charging_complete",
+          "source": "live",
+          "flags": []
+        }
+      ]
+    },
+    {
+      "receipt_id": "rcpt_chg-fast-1",
+      "vehicle_id": "veh-fixture",
+      "kind": "dcfc",
+      "place": "away",
+      "km_from_home": 157.24,
+      "started_at": "2026-09-11T18:00:00Z",
+      "ended_at": "2026-09-11T19:00:00Z",
+      "local_date": "2026-09-11",
+      "spans_days": 1,
+      "soc_start": 18,
+      "soc_end": 74,
+      "kwh": 71.3,
+      "peak_kw": 198,
+      "cost": 23.41,
+      "cost_source": "rivian",
+      "network": null,
+      "network_state": null,
+      "network_confidence": null,
+      "network_evidence": null,
+      "rate": 0.3283,
+      "session_count": 1,
+      "unpriced_sessions": 0,
+      "flags": [],
+      "sessions": [
+        {
+          "charge_id": "chg-fast-1",
+          "started_at": "2026-09-11T18:00:00Z",
+          "ended_at": "2026-09-11T19:00:00Z",
+          "soc_start": 18,
+          "soc_end": 74,
+          "kwh": 71.3,
+          "peak_kw": 198,
+          "cost": 23.41,
+          "price_per_kwh": 0.328,
+          "cost_source": "rivian",
+          "cost_source_derived": false,
+          "network": null,
+          "network_state": null,
+          "network_confidence": null,
+          "network_evidence": null,
+          "kind": "dcfc",
+          "place": "away",
+          "final_state": "charging_complete",
+          "source": "live",
+          "flags": []
+        }
+      ]
+    },
+    {
+      "receipt_id": "rcpt_chg-home-1",
+      "vehicle_id": "veh-fixture",
+      "kind": "ac",
+      "place": "home",
+      "km_from_home": 0,
+      "started_at": "2026-09-04T02:00:00Z",
+      "ended_at": "2026-09-04T09:00:00Z",
+      "local_date": "2026-09-03",
+      "spans_days": 2,
+      "soc_start": 41,
+      "soc_end": 80,
+      "kwh": 52.4,
+      "peak_kw": 11.5,
+      "cost": 6.81,
+      "cost_source": "home_rate",
+      "network": null,
+      "network_state": null,
+      "network_confidence": null,
+      "network_evidence": null,
+      "rate": 0.13,
+      "session_count": 1,
+      "unpriced_sessions": 0,
+      "flags": [],
+      "sessions": [
+        {
+          "charge_id": "chg-home-1",
+          "started_at": "2026-09-04T02:00:00Z",
+          "ended_at": "2026-09-04T09:00:00Z",
+          "soc_start": 41,
+          "soc_end": 80,
+          "kwh": 52.4,
+          "peak_kw": 11.5,
+          "cost": 6.81,
+          "price_per_kwh": 0.13,
+          "cost_source": "home_rate",
+          "cost_source_derived": false,
+          "network": null,
+          "network_state": null,
+          "network_confidence": null,
+          "network_evidence": null,
+          "kind": "ac",
+          "place": "home",
+          "final_state": "charging_complete",
+          "source": "live",
+          "flags": []
+        }
+      ]
+    }
+  ],
+  "data_quality": {
+    "cost_source_inferred": true,
+    "cost_source_derived_sessions": 1,
+    "superseded_excluded": 0,
+    "drives_superseded_excluded": 0,
+    "open_sessions": 0,
+    "home_rate_on_dcfc": 0,
+    "home_rate_away": 0,
+    "currency_mismatch_excluded": 0
+  }
+}
