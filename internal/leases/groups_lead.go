@@ -2,6 +2,7 @@ package leases
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"time"
@@ -229,8 +230,8 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 		if want > maxGroupsPerTick {
 			want = maxGroupsPerTick
 		}
-		got, stolen, err := s.queryEpochsStolen(ctx, userGroups+candidateGroups+`,
-			prev AS (SELECT group_id, (pod_id IS NOT NULL) AS was_held FROM account_leases),
+		got, stolen, wait, err := s.queryEpochsStolen(ctx, userGroups+candidateGroups+`,
+			prev AS (SELECT group_id, (pod_id IS NOT NULL) AS was_held, released_at FROM account_leases),
 			ins AS (
 			INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
 			SELECT c.gid::uuid, $1, nextval('account_lease_epoch'), now(), now(), now() + $2::interval
@@ -250,10 +251,16 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 			    renewed_at = EXCLUDED.renewed_at, expires_at = EXCLUDED.expires_at, released_at = NULL
 			WHERE account_leases.pod_id IS NULL OR account_leases.expires_at < now()
 			RETURNING group_id, epoch)
-			SELECT ins.group_id::text, ins.epoch, COALESCE(p.was_held, false) FROM ins LEFT JOIN prev p ON p.group_id = ins.group_id`,
+			SELECT ins.group_id::text, ins.epoch, COALESCE(p.was_held, false), EXTRACT(EPOCH FROM (statement_timestamp() - p.released_at))::float8 FROM ins LEFT JOIN prev p ON p.group_id = ins.group_id`,
 			s.podID, ttl, isNewest, want, fmt.Sprintf("%d seconds", int(releasedGrace.Seconds())))
 		if err != nil {
 			return res, fmt.Errorf("lease acquire: %w", err)
+		}
+		reason := ReasonRebalance
+		for _, p := range pods {
+			if p.draining && p.id != s.podID {
+				reason = ReasonDrain // a peer is shutting down: what it released is its drain
+			}
 		}
 		s.groupMu.Lock()
 		for g, e := range got {
@@ -263,6 +270,8 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 			} else {
 				delete(s.stolenAt, g)
 			}
+			w, hasW := wait[g]
+			s.notePrior(g, stolen[g], hasW, w, reason)
 		}
 		s.groupMu.Unlock()
 	}
@@ -335,8 +344,8 @@ func (s *Store) AcquireGroups(ctx context.Context, groups []string) (map[string]
 		return map[string]int64{}, nil
 	}
 	ttl := fmt.Sprintf("%d seconds", int(s.ttl.Seconds()))
-	got, stolen, err := s.queryEpochsStolen(ctx, userGroups+candidateGroups+`,
-		prev AS (SELECT group_id, (pod_id IS NOT NULL) AS was_held FROM account_leases),
+	got, stolen, wait, err := s.queryEpochsStolen(ctx, userGroups+candidateGroups+`,
+		prev AS (SELECT group_id, (pod_id IS NOT NULL) AS was_held, released_at FROM account_leases),
 		ins AS (
 		INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
 		SELECT c.gid::uuid, $1, nextval('account_lease_epoch'), now(), now(), now() + $2::interval
@@ -352,7 +361,7 @@ func (s *Store) AcquireGroups(ctx context.Context, groups []string) (map[string]
 		    renewed_at = EXCLUDED.renewed_at, expires_at = EXCLUDED.expires_at, released_at = NULL
 		WHERE account_leases.pod_id IS NULL OR account_leases.expires_at < now()
 		RETURNING group_id, epoch)
-		SELECT ins.group_id::text, ins.epoch, COALESCE(p.was_held, false) FROM ins LEFT JOIN prev p ON p.group_id = ins.group_id`,
+		SELECT ins.group_id::text, ins.epoch, COALESCE(p.was_held, false), EXTRACT(EPOCH FROM (statement_timestamp() - p.released_at))::float8 FROM ins LEFT JOIN prev p ON p.group_id = ins.group_id`,
 		s.podID, ttl, groups)
 	if err != nil {
 		return nil, fmt.Errorf("lease acquire for an open session: %w", err)
@@ -365,6 +374,8 @@ func (s *Store) AcquireGroups(ctx context.Context, groups []string) (map[string]
 		} else {
 			delete(s.stolenAt, g)
 		}
+		w, hasW := wait[g]
+		s.notePrior(g, stolen[g], hasW, w, ReasonOther)
 	}
 	s.groupMu.Unlock()
 	return got, nil
@@ -490,25 +501,30 @@ func (s *Store) tokenLocked(g string) (fence.Token, fence.State) {
 	return fence.Token{Group: g, Pod: s.podID, Epoch: e}, fence.Held
 }
 
-// queryEpochsStolen is queryEpochs for the acquire statement, which also returns whether the row was
-// held by a pod (an expired lease stolen) rather than free (released, or new).
-func (s *Store) queryEpochsStolen(ctx context.Context, q string, args ...any) (map[string]int64, map[string]bool, error) {
+// queryEpochsStolen is queryEpochs for the acquire statement, which also returns whether the row was still held by another pod (expired,
+// taken over) and, when it had been released, how long ago: the database's own clock at both ends (statement_timestamp() minus released_at),
+// so the figure does not depend on the pod's clock.
+func (s *Store) queryEpochsStolen(ctx context.Context, q string, args ...any) (map[string]int64, map[string]bool, map[string]time.Duration, error) {
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer rows.Close()
-	out, stolen := map[string]int64{}, map[string]bool{}
+	out, stolen, waited := map[string]int64{}, map[string]bool{}, map[string]time.Duration{}
 	for rows.Next() {
 		var g string
 		var e int64
 		var was bool
-		if err := rows.Scan(&g, &e, &was); err != nil {
-			return nil, nil, err
+		var secs sql.NullFloat64
+		if err := rows.Scan(&g, &e, &was, &secs); err != nil {
+			return nil, nil, nil, err
 		}
 		out[g], stolen[g] = e, was
+		if secs.Valid {
+			waited[g] = time.Duration(secs.Float64 * float64(time.Second))
+		}
 	}
-	return out, stolen, rows.Err()
+	return out, stolen, waited, rows.Err()
 }
 
 // Deadline is the local lease deadline for the vehicle's group: when the last renew was sent plus the

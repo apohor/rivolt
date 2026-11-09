@@ -32,3 +32,14 @@ func (s *Store) FenceUser(ctx context.Context, uid string) (fence.Token, fence.S
 	tok, st := s.tokenLocked(gid)
 	return tok, st, nil
 }
+
+// UserUngrouped reports whether the user has no group at all: no vehicle row to hold a lease for, so no pod owns them and none can. (A group
+// that another pod holds is not ungrouped.) The needs_reauth raise for such a user, found by the vehicle discovery job, has no owner to wait for.
+func (s *Store) UserUngrouped(ctx context.Context, uid string) (bool, error) {
+	var gid string
+	err := s.db.QueryRowContext(ctx, userGroups+` SELECT gid FROM grp WHERE user_id = $1::uuid`, uid).Scan(&gid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	return false, err
+}

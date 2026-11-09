@@ -121,6 +121,8 @@ type StateMonitor struct {
 	// stall for minutes and replay stale fixes (observed 2026-07-14: a
 	// 5-minute full blackout mid-drive).
 	parallaxGPS bool
+	// driveDBResume (RIVOLT_DRIVE_DB_RESUME) lets a takeover without the Redis snapshot continue the vehicle's open drive row (G2a).
+	driveDBResume bool
 	// fastTakeover (RIVOLT_FAST_TAKEOVER) takes work off the takeover's critical path: the capability map comes from the shared store when a peer
 	// already probed it (zero-impact deploys, G1b).
 	fastTakeover bool
@@ -515,6 +517,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		client:                client,
 		logger:                logger,
 		parallaxGPS:           parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
+		driveDBResume:         parseBoolEnv(os.Getenv("RIVOLT_DRIVE_DB_RESUME")),
 		fastTakeover:          parseBoolEnv(os.Getenv("RIVOLT_FAST_TAKEOVER")),
 		parallaxDriveDynamics: parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
 		parallaxCapture:       parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
@@ -1441,6 +1444,22 @@ func (m *StateMonitor) SessionActivity(vehicleID string) (open, asleep bool) {
 		asleep = strings.EqualFold(strings.TrimSpace(st.PowerState), "sleep")
 	}
 	return open, asleep
+}
+
+// SessionKind is what the vehicle's open session is: "drive", "charge", or "" when none (or a drive and charge never both open).
+func (m *StateMonitor) SessionKind(vehicleID string) string {
+	m.sessMu.Lock()
+	defer m.sessMu.Unlock()
+	ls := m.sessions[vehicleID]
+	switch {
+	case ls == nil:
+		return ""
+	case ls.drive != nil:
+		return "drive"
+	case ls.charge != nil:
+		return "charge"
+	}
+	return ""
 }
 
 // Unsubscribe tears down the background subscription for vehicleID
