@@ -44,6 +44,9 @@ for (const v of [
     await page.getByRole("button", { name: "Plan trip" }).click();
     await expect(page.getByText(/Sample Fast Charge, Barstow/).first()).toBeVisible();
 
+    // A selected stop's marker is raised (z-index 1000): the case qa hit on rc.2, where that marker painted over the tooltip. Select it first.
+    await page.getByText(/Sample Fast Charge, Barstow/).first().dispatchEvent("click");
+    await expect.poll(() => page.evaluate(() => [...document.querySelectorAll<HTMLElement>(".maplibregl-marker > div, .maplibregl-marker")].some((e) => e.style.zIndex === "1000"))).toBe(true);
     const badges = page.locator("[data-leg-badge]");
     await expect(badges).toHaveCount(2);
     for (let i = 0; i < 2; i++) {
