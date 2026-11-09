@@ -272,3 +272,285 @@ characters. Called with (dict "root" . "spec" <the rendered spec>).
 {{- $room := sub 63 (add (len $prefix) 9) | int -}}
 {{- printf "%s%s-%s" $prefix ($v | trunc $room | trimSuffix "-" | trimSuffix ".") $h -}}
 {{- end }}
+
+{{/*
+The pod template of the app: shared by the Deployment and, with rollout.enabled, the Rollout, so the two can never differ. Rendered at the
+indentation of a "template:" key two spaces in (its content at four), starting on a new line; call it as
+  template:{{ include "rivolt.podTemplate" . }}
+*/}}
+{{- define "rivolt.podTemplate" }}
+    metadata:
+      labels:
+        {{- include "rivolt.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Roll the pod when config or app secrets change so we don't
+        # serve stale env until the next manual restart.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.secrets.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        # Deploy-time image tag. The binary's compile-time VERSION
+        # stamp is fixed to the main commit a retag was based on; the
+        # actual tag we deployed (set by ops in apps/platform/rivolt/values.yaml)
+        # lives here and is surfaced into the pod via the downward-API
+        # volume mount below. /api/health reads /etc/podinfo/image-tag
+        # and prefers it over the compile-time stamp.
+        rivolt.dev/image-tag: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "rivolt.serviceAccountName" . }}
+      # Give the binary time to (a) stop receiving new traffic via
+      # the preStop sleep, then (b) finish in-flight requests +
+      # release Rivian websocket subscriptions cleanly. 45s is
+      # enough headroom for a slow GraphQL roundtrip; bump if a
+      # specific upstream call regularly exceeds that.
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: rivolt
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+            {{- if .Values.metrics.port }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "rivolt.fullname" . }}-config
+            - secretRef:
+                name: {{ include "rivolt.appSecretName" . }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- if not .Values.adminOnly }}
+            # Pod identity for the subscription-lease coordinator
+            # (internal/leases). Must be unique per pod across the
+            # ReplicaSet — `metadata.name` from the downward API
+            # gives us exactly that.
+            - name: RIVOLT_POD_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # This pod's generation for the single-owner rollout rules: the
+            # ReplicaSet's pod-template-hash, so a new image and a rollout
+            # restart both make a new generation (design 4.5). Read by
+            # internal/leases (generation()); inert until M2's preference lands.
+            - name: RIVOLT_POD_GENERATION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['pod-template-hash']
+            {{- end }}
+            # The container's memory limit, in bytes: the binary sets the Go
+            # runtime's soft limit (GOMEMLIMIT) to 90% of it, so the GC works
+            # harder before the kernel OOM-kills the pod. An explicit
+            # GOMEMLIMIT in env wins.
+            - name: RIVOLT_MEMORY_LIMIT_BYTES
+              valueFrom:
+                resourceFieldRef:
+                  resource: limits.memory
+            {{- if .Values.metrics.port }}
+            - name: RIVOLT_METRICS_ADDR
+              value: {{ printf ":%v" .Values.metrics.port | quote }}
+            {{- end }}
+            {{- with .Values.ratelimit }}
+            {{- if .redis.addr }}
+            # Global token bucket: when set, every
+            # outbound Rivian call passes through a Redis-backed
+            # main+priority bucket. Empty string disables it
+            # cleanly — useful for single-binary local dev.
+            - name: RIVOLT_REDIS_ADDR
+              value: {{ .redis.addr | quote }}
+            {{- if .redis.keyPrefix }}
+            # Install-wide Redis key prefix. Defaults to "rivolt"
+            # in the binary; preview env overrides to e.g.
+            # "rivolt-preview" so two environments sharing one
+            # Redis don't collide on rate-limiter token buckets
+            # (livestate keys are already disjoint by user_id,
+            # but limiter classes are install-wide constants).
+            - name: RIVOLT_REDIS_KEY_PREFIX
+              value: {{ .redis.keyPrefix | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.maps }}
+            {{- if and .valhalla .valhalla.baseUrl }}
+            # Same-origin Valhalla proxy. When set, /api/maps/valhalla/*
+            # forwards to this URL and /api/config advertises the path
+            # so the SPA uses it for /trace_route (snap) and /route
+            # (gap fill). Empty/unset disables snap entirely.
+            - name: RIVOLT_VALHALLA_BASE_URL
+              value: {{ .valhalla.baseUrl | quote }}
+            {{- end }}
+            {{- if and .photon .photon.baseUrl }}
+            # Self-hosted Photon geocoder. When set, /api/geocode
+            # tries Photon first for street-level resolution;
+            # Open-Meteo (city-level) is the fallback.
+            - name: RIVOLT_PHOTON_BASE_URL
+              value: {{ .photon.baseUrl | quote }}
+            {{- end }}
+            {{- if and .weather .weather.baseUrl }}
+            # Our own Open-Meteo for weather (planner, outside temperature,
+            # recaps). When set, the public API is not used at all; the
+            # server keeps a few days of past hours and has no archive.
+            - name: RIVOLT_WEATHER_BASE_URL
+              value: {{ .weather.baseUrl | quote }}
+            {{- end }}
+            {{- if .tiles.baseUrl }}
+            # Same-origin PMTiles proxy. When set, the rivolt API
+            # mounts /api/maps/tiles/* and forwards to this URL,
+            # and /api/config advertises the .pmtiles file so the
+            # SPA's protomaps-leaflet layer fetches it via
+            # byte-range reads. Empty/unset falls back to CARTO's
+            # public dark raster basemap.
+            - name: RIVOLT_TILES_BASE_URL
+              value: {{ .tiles.baseUrl | quote }}
+            {{- end }}
+            {{- if and .dem .dem.baseUrl }}
+            # Same-origin terrain tile proxy (Terrarium PNG, for the hillshade): mounts /api/maps/dem/{z}/{x}/{y}.png.
+            - name: RIVOLT_DEM_BASE_URL
+              value: {{ .dem.baseUrl | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.grafana.baseUrl }}
+            # Operator's Grafana origin. Surfaced via /api/config so
+            # the admin user drawer can deep-link to Explore queries
+            # scoped to a user_id + time range. Empty/unset hides
+            # the links — no broken anchors on self-hosted installs
+            # without Grafana.
+            - name: RIVOLT_GRAFANA_BASE_URL
+              value: {{ .Values.grafana.baseUrl | quote }}
+            {{- end }}
+            {{- if .Values.tracing }}
+            {{- if .Values.tracing.environment }}
+            # Stamp deployment.environment on every OTel span (and
+            # any resource-attribute-aware metric) so Grafana can
+            # distinguish prod traces from preview traces. The
+            # tracing package already runs resource.WithFromEnv(),
+            # which picks up OTEL_RESOURCE_ATTRIBUTES.
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "deployment.environment={{ .Values.tracing.environment }}"
+            {{- end }}
+            {{- end }}
+            {{- with .Values.elevation }}
+            {{- if .enabled }}
+            # Elevation lookup is opt-in. ELEVATION_ENABLED gates the
+            # whole feature; ELEVATION_TILES_URL points at a self-
+            # hosted Terrarium mirror (empty -> Mapzen on AWS Open
+            # Data, which is off-LAN); ELEVATION_CACHE_DIR persists
+            # fetched PNGs to disk so pod restarts don't re-fetch
+            # and so a pre-built dump can be rsynced in for fully
+            # offline operation. See values.yaml for the full story.
+            - name: ELEVATION_ENABLED
+              value: "1"
+            {{- if .tilesUrl }}
+            - name: ELEVATION_TILES_URL
+              value: {{ .tilesUrl | quote }}
+            {{- end }}
+            {{- if .cacheDir }}
+            - name: ELEVATION_CACHE_DIR
+              value: {{ .cacheDir | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            # DB_USER and DB_PASSWORD (CNPG's <cluster>-app Secret, a
+            # user-supplied one, or the chart's): rivolt.dbCredentialsEnv,
+            # shared with the migrate Job.
+            {{- include "rivolt.dbCredentialsEnv" . | trim | nindent 12 }}
+            {{- if .Values.migrate.job.enabled }}
+            # The migrate Job (templates/migrate-job.yaml) changes the
+            # schema before this Deployment rolls; the server only checks
+            # that the schema is current and refuses to start if not.
+            - name: RIVOLT_MIGRATE_ON_START
+              value: "false"
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          # Drain hook: kubelet pulls the pod out of the Service's
+          # Endpoints concurrently with sending SIGTERM. There's a
+          # brief race where new traffic can still hit a terminating
+          # pod. A short preStop sleep gives kube-proxy / Traefik
+          # time to remove the endpoint before the binary starts
+          # tearing down — eliminates 502s during rollouts. The hook is an exec of the binary itself (the image is distroless, so there is
+          # no shell): `rivolt prestop` signals the server (PID 1) with SIGUSR1 so it stops
+          # taking leases, then sleeps. No HTTP endpoint: the kubelet runs httpGet hooks
+          # against the pod IP, so anything that reached the port could force a drain.
+          {{- if gt (int .Values.preStopSleepSeconds) 0 }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/app/rivolt", "prestop", "--sleep", "{{ int .Values.preStopSleepSeconds }}s"]
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # readOnlyRootFilesystem=true means we need a writable
+            # /tmp for any transient scratch (Go's os.MkdirTemp,
+            # net/http multipart, …). Mounted from emptyDir.
+            - name: tmp
+              mountPath: /tmp
+            # Downward-API projected pod info. /etc/podinfo/image-tag
+            # holds the rivolt.dev/image-tag annotation value (the
+            # deploy-time tag from Helm values), which /api/health
+            # reads to override the binary's compile-time VERSION
+            # stamp.
+            - name: podinfo
+              mountPath: /etc/podinfo
+              readOnly: true
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-data" (include "rivolt.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+        - name: podinfo
+          downwardAPI:
+            items:
+              - path: image-tag
+                fieldRef:
+                  fieldPath: metadata.annotations['rivolt.dev/image-tag']
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
