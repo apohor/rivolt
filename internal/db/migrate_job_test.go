@@ -38,6 +38,9 @@ func TestSchemaBehindMessageNamesTheFix(t *testing.T) {
 // migration that deletes user data cannot be undone except from a backup. Any NEW migration that drops, renames, tightens or
 // deletes must say so with a "-- contract: <why no running version needs this>" line; review (and the devils-advocate's ack in
 // that PR) is the gate, this test only makes the statement impossible to forget. The 90 migrations that exist are grandfathered.
+// The CI job contract-gate (.github/scripts/contract-check.sh) adds the timing: a contract migration added by a PR must also carry
+// "-- contract-after: vX.Y.Z", a final release older than the newest and not newer than the oldest deployment's pin (the PR body's "Pins:" line),
+// so it ships only after every image still running has stopped reading what it removes.
 
 const contractFrom = 91
 

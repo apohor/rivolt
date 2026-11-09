@@ -871,6 +871,28 @@ jobs:
           if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
           bash .github/scripts/policy-date-check.sh "$base" HEAD
 
+  # The two-release rule for contract migrations (zero-impact deploys, G6c): a migration ADDED by the PR with a "-- contract:" line must name,
+  # in "-- contract-after: vX.Y.Z", a final release older than the newest one and not newer than the oldest deployment's pin (the PR body's
+  # "Pins:" line). Needs the tags, hence fetch-depth 0. See .github/scripts/contract-check.sh.
+  contract-gate:
+    name: contract-gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: The check's own tests
+        run: bash .github/scripts/contract-check.test.sh
+      - name: Added contract migrations carry a safe contract-after
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
+          bash .github/scripts/contract-check.sh "$base" HEAD
+
   # golangci-lint (config: .golangci.yml, the standard set), as its own job so it
   # runs beside `go` and adds nothing to the critical path, and so a lint finding
   # never hides test results. NOT a required check until it has stayed green; main
