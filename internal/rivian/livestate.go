@@ -77,6 +77,10 @@ type LiveDriveSnapshot struct {
 	// Distinct location fixes seen so far (recorder.go liveDrive.locFixes), so a handover keeps the count.
 	LocFixes int    `json:"loc_fixes,omitempty"`
 	LocKey   string `json:"loc_key,omitempty"`
+	// LastFixAt is when the last path point arrived (liveDrive.lastFixAt): the start of the gap the new owner's first fix may have to fill. Without it
+	// the first fix after a hand-off had no gap to measure and the road between the two owners was drawn as a straight line. A snapshot from before
+	// this field falls back to EndAt (the last frame the old owner saw).
+	LastFixAt time.Time `json:"last_fix_at,omitempty"`
 }
 
 // LiveChargeSnapshot mirrors liveCharge.
@@ -150,7 +154,7 @@ func (s *liveSessions) snapshot() LiveStateSnapshot {
 			EndLat: d.endLat, EndLon: d.endLon,
 			TrailerPresentSec: d.trailer.present.Seconds(), TrailerKnownSec: d.trailer.known.Seconds(),
 			TrailerLast: d.trailer.last, TrailerAt: d.trailer.lastAt,
-			Path: path, LocFixes: d.locFixes, LocKey: d.locKey,
+			Path: path, LocFixes: d.locFixes, LocKey: d.locKey, LastFixAt: d.lastFixAt,
 		}
 	}
 	if s.charge != nil {
@@ -197,7 +201,7 @@ func liveSessionsFromSnapshot(snap LiveStateSnapshot) *liveSessions {
 				known:   time.Duration(d.TrailerKnownSec * float64(time.Second)),
 				last:    d.TrailerLast, lastAt: d.TrailerAt,
 			},
-			path: path, locFixes: d.LocFixes, locKey: d.LocKey,
+			path: path, locFixes: d.LocFixes, locKey: d.LocKey, lastFixAt: restoredLastFixAt(d),
 		}
 	}
 	if snap.Charge != nil {
@@ -469,4 +473,16 @@ func (s *memLiveStateStore) Delete(_ context.Context, vehicleID string) error {
 	defer s.mu.Unlock()
 	delete(s.items, vehicleID)
 	return nil
+}
+
+// restoredLastFixAt is when a restored drive's last path point arrived: the snapshot's own, else its last frame time (a snapshot written before the
+// field existed), but only when there is a path to extend: a drive with no points has no gap to fill.
+func restoredLastFixAt(d *LiveDriveSnapshot) time.Time {
+	if len(d.Path) == 0 {
+		return time.Time{}
+	}
+	if !d.LastFixAt.IsZero() {
+		return d.LastFixAt
+	}
+	return d.EndAt
 }

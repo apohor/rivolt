@@ -2712,8 +2712,14 @@ func liveDriveFromRow(row *drives.Drive) *liveDrive {
 	if n < 1 {
 		n = 1
 	}
+	path := drives.DecodeRoute(row.RoutePolyline)
+	var lastFix time.Time
+	if len(path) > 0 {
+		lastFix = row.EndedAt // the row's last write is its last frame: the start of the gap the first fix after the takeover may have to fill
+	}
 	return &liveDrive{
 		resumedFromDB: true,
+		lastFixAt:     lastFix,
 		id:            row.ID,
 		startedAt:     row.StartedAt,
 		startSoC:      row.StartSoCPct,
@@ -2728,6 +2734,6 @@ func liveDriveFromRow(row *drives.Drive) *liveDrive {
 		endOdoMi:      row.EndOdometerMi,
 		endLat:        row.EndLat,
 		endLon:        row.EndLon,
-		path:          drives.DecodeRoute(row.RoutePolyline),
+		path:          path,
 	}
 }
