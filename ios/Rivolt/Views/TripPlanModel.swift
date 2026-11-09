@@ -280,7 +280,8 @@ final class TripPlanModel {
 
     // MARK: Map layers (corridor layers)
 
-    private(set) var layers: Set<MapLayer> = []
+    /// The layer chips that are on. Each toggles on its own; Fast is on to begin with, and with every one off there are no pins and no request.
+    private(set) var layers: Set<MapLayer> = [.chargers]
     /// Show only the fast chargers of the networks the person prefers (hotels and campgrounds are unaffected).
     private(set) var preferredOnly = false
     /// The slugs of the networks marked "Prefer in planner" in Settings.
@@ -302,14 +303,11 @@ final class TripPlanModel {
         await refreshLayers(source: source)
     }
 
-    /// The "All" chip: every layer at once (one request), or none.
-    func setAllLayers(on: Bool, source: some CorridorLayersSource) async {
-        layers = on ? Set(MapLayer.allCases) : []
-        if !on { preferredOnly = false }
+    /// Searches along the plan's route for the layers that are on (Fast is on from the start): called when a route arrives or changes. Nothing is
+    /// asked when every layer is off.
+    func reloadLayers(source: some CorridorLayersSource) async {
         await refreshLayers(source: source)
     }
-
-    var allLayersOn: Bool { layers == Set(MapLayer.allCases) }
 
     private func refreshLayers(source: some CorridorLayersSource) async {
         if let f = focusedStop, f >= pinCount { focusedStop = nil; dropped = nil }

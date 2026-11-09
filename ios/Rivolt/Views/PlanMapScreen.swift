@@ -245,7 +245,6 @@ struct PlanLayerChips: View {
                     ForEach(MapLayer.allCases, id: \.self) { layer in
                         chip(layer.title, on: model.layers.contains(layer)) { Task { await model.setLayer(layer, on: !model.layers.contains(layer), source: state.client) } }
                     }
-                    chip(ChargerLabels.all, on: model.allLayersOn) { Task { await model.setAllLayers(on: !model.allLayersOn, source: state.client) } }
                     if model.layers.contains(.chargers), !model.preferredSlugs.isEmpty {
                         chip("Preferred only", on: model.preferredOnly) { model.setPreferredOnly(!model.preferredOnly) }
                     }
@@ -256,6 +255,8 @@ struct PlanLayerChips: View {
                 }
             }
             .task { await loadPreferred() }
+            // Fast is on from the start: its pins are asked for when the route arrives, and again when the route changes.
+            .task(id: model.plan?.best) { await model.reloadLayers(source: state.client) }
         }
     }
 
