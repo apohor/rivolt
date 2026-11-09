@@ -13,10 +13,21 @@ vi.mock("../lib/config", () => ({
   valhallaBase: () => (globalThis as { __valhalla?: string }).__valhalla ?? "",
   bookingAffiliateID: () => "",
 }));
+const findLayers = vi.hoisted(() => vi.fn());
+const findOfNetworks = vi.hoisted(() => vi.fn());
 vi.mock("../lib/poi", () => ({
-  findLayersAlongPath: () => Promise.resolve({ pois: [], total: 0 }),
-  findChargersOfNetworks: () => Promise.resolve([]),
+  findLayersAlongPath: findLayers,
+  findChargersOfNetworks: findOfNetworks,
   HOTEL_FACILITY_TYPES: new Set<string>(),
+}));
+// The Trip planner settings the map starts from; a test sets `plannerPrefs` before it renders.
+const plannerState = vi.hoisted(() => ({
+  prefs: { drive_mode: "", corridor: "normal", start_exclude_mi: 25, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: false } as Record<string, unknown>,
+  settled: true,
+}));
+vi.mock("../lib/plannerPrefs", () => ({
+  usePlannerPrefs: () => plannerState,
+  layerFiltersOf: (p: { corridor: string; start_exclude_mi: number; min_fast_kw: number }) => ({ preset: p.corridor, start_exclude_mi: p.start_exclude_mi, min_fast_kw: p.min_fast_kw }),
 }));
 
 import { TripRouteMap } from "./TripRouteMap";
@@ -96,6 +107,10 @@ const route = { Waypoints: [wp(10, 10, "A"), wp(10.5, 10.5, "Stop"), wp(11, 11, 
 describe("TripRouteMap", () => {
   beforeEach(() => {
     FakeMarker.all = [];
+    findLayers.mockResolvedValue({ pois: [], total: 0 });
+    findOfNetworks.mockResolvedValue([]);
+    plannerState.settled = true;
+    plannerState.prefs = { drive_mode: "", corridor: "normal", start_exclude_mi: 25, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: false };
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     webgl.mockReturnValue(true);
     loadMapLibre.mockResolvedValue({ Map: FakeMap, Marker: FakeMarker, Popup: FakePopup, NavigationControl: FakeControl, AttributionControl: FakeControl });
@@ -103,6 +118,26 @@ describe("TripRouteMap", () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("asks for the layers and filters the Trip planner settings chose, and not before they are in", async () => {
+    plannerState.settled = false;
+    plannerState.prefs = { ...plannerState.prefs, corridor: "wide", start_exclude_mi: 50, min_fast_kw: 150, layers_on: ["dcfc", "hotels"] };
+    const { rerender } = render(<TripRouteMap route={route} />);
+    await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+    expect(findLayers).not.toHaveBeenCalled(); // the settings are not in yet: no request with the defaults
+    plannerState.settled = true;
+    rerender(<TripRouteMap route={route} />);
+    await waitFor(() => expect(findLayers).toHaveBeenCalled());
+    const last = findLayers.mock.calls[findLayers.mock.calls.length - 1];
+    expect(last[1]).toEqual(["dcfc", "hotels"]);
+    expect(last[3]).toEqual({ preset: "wide", start_exclude_mi: 50, min_fast_kw: 150 });
+  });
+
+  it("says so when the charger request fails, instead of leaving the old pins unexplained", async () => {
+    findLayers.mockRejectedValue(new Error("boom"));
+    render(<TripRouteMap route={route} />);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't load the chargers/);
   });
 
   it("says the map is unavailable without WebGL and never loads MapLibre", () => {

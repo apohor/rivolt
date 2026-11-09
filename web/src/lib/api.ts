@@ -1942,7 +1942,7 @@ export const backend = {
   plannerFavoritesPut: async (list: PlannerFavorite[]): Promise<PlannerFavorite[]> =>
     inDemo() ? list : api.put<PlannerFavorite[]>("/api/settings/planner/favorites", list),
   plannerPrefsGet: async (): Promise<PlannerPrefs> =>
-    inDemo() ? { drive_mode: "EVERYDAY", has_adapter: false } : api.get<PlannerPrefs>("/api/settings/planner"),
+    inDemo() ? { drive_mode: "EVERYDAY", has_adapter: false, ...PLANNER_DEFAULTS, layers_on: [...PLANNER_DEFAULTS.layers_on] } : api.get<PlannerPrefs>("/api/settings/planner"),
   plannerPrefsPut: async (p: PlannerPrefs): Promise<PlannerPrefs> =>
     inDemo() ? p : api.put<PlannerPrefs>("/api/settings/planner", p),
   // Geocoding for the trip planner: free-text → city/town
@@ -1963,7 +1963,7 @@ export const backend = {
     api.post<TripPlanMultidayResponse>("/api/trips/plan-multiday", req),
   // The planner map's layers along a whole route in one archive query (nothing stored). `networks` keeps only stations of those network slugs
   // (the Settings → Charging networks slugs). 404: no archive on this install.
-  corridorLayers: (req: { path: [number, number][]; kinds: ("dcfc" | "l2" | "hotels" | "camp")[]; networks?: string[]; limit?: number }, signal?: AbortSignal) =>
+  corridorLayers: (req: { path: [number, number][]; kinds: ("dcfc" | "l2" | "hotels" | "camp")[]; networks?: string[]; limit?: number } & LayerFilters, signal?: AbortSignal) =>
     api.post<{ pois: (AlongCharger & { networkSlug?: string; networkName?: string; offKm?: number })[]; total: number; asof?: string }>("/api/maps/corridor-layers", req, signal),
   chargersAlongPath: (req: {
     path: [number, number][];
@@ -2528,7 +2528,34 @@ export type PlannerPrefs = {
     | "WINTER"
     | "OFF_ROAD_AUTO";
   has_adapter?: boolean;
+  // The Trip planner settings page. The server's GET fills every one in; a PUT that leaves one out leaves it as it was, but send them all (the
+  // way the settings page does) so a stale cache can never write a default over a choice.
+  corridor?: Corridor;
+  start_exclude_mi?: StartExcludeMi;
+  min_fast_kw?: MinFastKW;
+  layers_on?: LayerKindName[];
+  preferred_only?: boolean;
+  weather_on?: boolean;
+  radar_on?: boolean;
 };
+
+// The fixed choices of the Trip planner settings (the server refuses anything else).
+export type Corridor = "close" | "normal" | "wide";
+export type StartExcludeMi = 0 | 25 | 50;
+export type MinFastKW = 0 | 50 | 150 | 250;
+export type LayerKindName = "dcfc" | "l2" | "hotels" | "camp";
+// LayerFilters are the corridor-layers request fields the settings feed.
+export type LayerFilters = { preset?: Corridor; start_exclude_mi?: StartExcludeMi; min_fast_kw?: MinFastKW };
+// The defaults the server fills in for a field never set (kept in step with internal/settings/planner_prefs.go).
+export const PLANNER_DEFAULTS = {
+  corridor: "normal",
+  start_exclude_mi: 25,
+  min_fast_kw: 0,
+  layers_on: ["dcfc"],
+  preferred_only: false,
+  weather_on: true,
+  radar_on: false,
+} as const;
 
 // PlannerFavorite is one user-saved place surfaced as a preset on
 // the trip planner's From/To rows. id is a stable client-minted

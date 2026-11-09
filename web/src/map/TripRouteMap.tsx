@@ -8,6 +8,7 @@ import { inDemo } from "../lib/demo";
 import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
 import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
 import { findChargersOfNetworks, findLayersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
+import { layerFiltersOf, usePlannerPrefs } from "../lib/plannerPrefs";
 import type { LayerKind, POI } from "../lib/poi";
 import type { HookupId } from "../plan/hookups";
 import { campgroundOfPoi } from "../plan/stays";
@@ -150,22 +151,32 @@ export function TripRouteMap({
   const departureAtRef = useRef(departureAt);
   departureAtRef.current = departureAt;
   const [routePath, setRoutePath] = useState<LatLng[]>([]);
-  // The layers shown, each an independent switch: tap a lit chip to turn it off. Fast is on by default; with every chip off nothing is drawn and
-  // nothing is requested.
+  // The Trip planner settings: what the map starts with (layers, preferred only, weather) and how the charger query is shaped. The map waits for
+  // them so it does not ask once with the defaults and again with the user's choices.
+  const { prefs, settled: prefsSettled } = usePlannerPrefs();
+  const filters = useMemo(() => layerFiltersOf(prefs), [prefs.corridor, prefs.start_exclude_mi, prefs.min_fast_kw]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filtersKey = `${filters.preset}|${filters.start_exclude_mi}|${filters.min_fast_kw}`;
+  // A switch the person has already flipped on this map is theirs; the settings only supply the starting state of the others.
+  const touchedRef = useRef({ layers: false, preferred: false, weather: false });
+  // The layers shown, each an independent switch: tap a lit chip to turn it off. Fast is on unless the settings say otherwise; with every chip off
+  // nothing is drawn and nothing is requested.
   const [layers, setLayers] = useState<ReadonlySet<LayerKind>>(() => new Set<LayerKind>(["dcfc"]));
-  const toggleLayer = (k: LayerKind) => setLayers((cur) => { const next = new Set(cur); if (next.has(k)) next.delete(k); else next.add(k); return next; });
+  const toggleLayer = (k: LayerKind) => { touchedRef.current.layers = true; setLayers((cur) => { const next = new Set(cur); if (next.has(k)) next.delete(k); else next.add(k); return next; }); };
   const layersKey = (["dcfc", "l2", "hotels", "camp"] as const).filter((k) => layers.has(k)).join(",");
   const fastOn = layers.has("dcfc");
   const [campCount, setCampCount] = useState(0);
   // "Preferred only": just the fast chargers of the networks marked "Prefer in planner" in Settings (the same list). It narrows the map; the planner
   // still only favours them.
-  const [preferredOnly, setPreferredOnly] = useState(false);
+  const [preferredOnly, setPreferredOnlyState] = useState(false);
+  const setPreferredOnly = (v: boolean) => { touchedRef.current.preferred = true; setPreferredOnlyState(v); };
   const preferredSlugs = usePreferredSlugs();
   const preferredKey = preferredSlugs.join(",");
   const onlyPreferred = preferredOnly && preferredSlugs.length > 0 && fastOn;
   const [chargerCount, setChargerCount] = useState<number | null>(null);
   const [chargerTotal, setChargerTotal] = useState<number | null>(null);
   const [chargersLoading, setChargersLoading] = useState(false);
+  // The last layer request failed (not cancelled): the pins on the map are the ones from before, and the person is told.
+  const [layerError, setLayerError] = useState(false);
   // No charger source (the signed-out demo, or a server without the archive): the chips would contradict a route that has charging stops.
   const [noChargerSource, setNoChargerSource] = useState(inDemo());
   const hasWeather = !!legWeather?.some((l) => l);
@@ -173,16 +184,25 @@ export function TripRouteMap({
   const weatherKey = JSON.stringify(legWeather ?? null);
   const legWeatherRef = useRef(legWeather);
   legWeatherRef.current = legWeather;
-  // On by default; the choice is kept on this device.
-  const [showWeather, setShowWeather] = useState(() => { try { return localStorage.getItem("rivolt.weatherLayer") !== "off"; } catch { return true; } });
+  // The starting state comes from the Trip planner settings (on unless turned off there); the chip changes this map only.
+  const [showWeather, setShowWeather] = useState(true);
   const [weatherNote, setWeatherNote] = useState("");
   const toggleWeather = () => {
     const next = !showWeather;
+    touchedRef.current.weather = true;
     setShowWeather(next);
-    try { localStorage.setItem("rivolt.weatherLayer", next ? "on" : "off"); } catch { /* a private window keeps it for the session only */ }
     setWeatherNote(next ? "Weather on" : "Weather off");
     window.setTimeout(() => setWeatherNote(""), 1600);
   };
+  // Effect: once the settings are in, they set the starting state of every switch the person has not flipped yet.
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (!prefsSettled || startedRef.current) return;
+    startedRef.current = true;
+    if (!touchedRef.current.layers) setLayers(new Set(prefs.layers_on));
+    if (!touchedRef.current.preferred) setPreferredOnlyState(prefs.preferred_only);
+    if (!touchedRef.current.weather) setShowWeather(prefs.weather_on);
+  }, [prefsSettled, prefs]);
   // Effect: one weather badge per leg while the "Weather" chip is on. A tap on one opens that leg's details.
   useEffect(() => {
     const map = mapReady;
@@ -771,7 +791,7 @@ export function TripRouteMap({
   // Effect 2: the charger overlay. Re-runs on filter or route-path change; only the charger source is rewritten, so a filter swap is instant.
   useEffect(() => {
     const map = mapReady;
-    if (routePath.length < 2 || !map) return;
+    if (routePath.length < 2 || !map || !prefsSettled) return;
     const ac = new AbortController();
     const kinds = layersKey ? (layersKey.split(",") as LayerKind[]) : [];
     // Every chip off: draw nothing and ask for nothing.
@@ -786,18 +806,19 @@ export function TripRouteMap({
       return;
     }
     setChargersLoading(true);
+    setLayerError(false);
     void (async () => {
       // "Preferred only" narrows the fast layer to the preferred networks; the other layers on are unchanged.
       const others = onlyPreferred ? kinds.filter((k) => k !== "dcfc") : kinds;
       let pref: POI[] | null, rest: { pois: POI[]; total: number } | null;
       try {
         [pref, rest] = await Promise.all([
-          onlyPreferred ? findChargersOfNetworks(routePath, preferredKey.split(",")) : Promise.resolve([] as POI[]),
-          findLayersAlongPath(routePath, others, ac.signal),
+          onlyPreferred ? findChargersOfNetworks(routePath, preferredKey.split(","), ac.signal, filters) : Promise.resolve([] as POI[]),
+          findLayersAlongPath(routePath, others, ac.signal, filters),
         ]);
       } catch {
         // A chip toggled while this request was in flight cancels it (the next effect run asks again); any other failure leaves the pins as they were.
-        if (!ac.signal.aborted) setChargersLoading(false);
+        if (!ac.signal.aborted) { setChargersLoading(false); setLayerError(true); }
         return;
       }
       const found = pref === null || rest === null ? null : [...pref, ...rest.pois];
@@ -829,7 +850,7 @@ export function TripRouteMap({
       ac.abort();
       setChargersLoading(false);
     };
-  }, [routePath, layersKey, mapReady, onlyPreferred, preferredKey]);
+  }, [routePath, layersKey, mapReady, onlyPreferred, preferredKey, prefsSettled, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Is there any campground with a hookup along the route? Decides whether the chip shows at all.
   useEffect(() => {
@@ -881,14 +902,16 @@ export function TripRouteMap({
           {preferredSlugs.length > 0 && fastOn && (
             <button
               aria-pressed={preferredOnly}
-              onClick={() => setPreferredOnly((v) => !v)}
+              onClick={() => setPreferredOnly(!preferredOnly)}
               title="Only the networks you prefer in Settings. The planner favours them; it doesn't promise one."
               className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors ${preferredOnly ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"}`}
             >
               Preferred only
             </button>
           )}
-          {layers.size > 0 && !chargersLoading && chargerCount === 0 ? (
+          {layerError && !chargersLoading ? (
+            <span role="alert" data-layer-error className="basis-full text-xs text-rose-300">Couldn't load the chargers along this route. The pins shown may be out of date; change a switch to try again.</span>
+          ) : layers.size > 0 && !chargersLoading && chargerCount === 0 ? (
             <span className="basis-full text-xs text-neutral-400">No chargers in this area at this zoom. Zoom out or move the map.</span>
           ) : (
             <span className="whitespace-nowrap text-xs text-neutral-500 ml-1" data-layer-count>

@@ -192,7 +192,7 @@ export function RouteCard({
               {" / "}
               <span
                 className="text-rose-400 font-mono cursor-help"
-                title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal (Settings → Trip planner defaults).`}
+                title={`Same distance in a ${cost?.gas_mpg?.toFixed(0) ?? "20"} MPG ICE at ${fmtCurrency(cost?.gas_price_per_gallon ?? 0)}/gal (Settings → Trip planner → Costs).`}
               >{fmtCurrency(gasEquiv)}</span>
             </>
           )}
