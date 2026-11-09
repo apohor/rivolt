@@ -3,6 +3,8 @@ package fleetbucket
 import (
 	"context"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -100,8 +102,6 @@ func TestAThreePodSurgeStaysWithinTheFleetBudgetEachSecond(t *testing.T) {
 	}
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
-	var mu sync.Mutex
-	grants := map[int64]int{}
 	var pods []*Bucket
 	for i := 0; i < 3; i++ {
 		pods = append(pods, New(Config{LocalRPS: 100, FleetRPS: 20, Redis: rdb, Prefix: "t", ActiveMaxWait: time.Minute}))
@@ -112,22 +112,25 @@ func TestAThreePodSurgeStaysWithinTheFleetBudgetEachSecond(t *testing.T) {
 			wg.Add(1)
 			go func(b *Bucket) {
 				defer wg.Done()
-				r := b.Wait(context.Background(), "dial", "", true)
-				if r.Starved || r.Local {
+				if r := b.Wait(context.Background(), "dial", "", true); r.Starved || r.Local {
 					t.Errorf("unexpected result %+v", r)
 				}
-				mu.Lock()
-				grants[time.Now().Unix()]++
-				mu.Unlock()
 			}(b)
 		}
 	}
 	wg.Wait()
+	// The fleet's own record of what it granted, second by second (miniredis keeps the keys: nothing advances its clock). Reading it, not the
+	// test's clock, keeps a descheduled goroutine on a loaded runner from looking like an over-grant.
 	total := 0
-	for sec, n := range grants {
+	for _, k := range mr.Keys() {
+		if !strings.Contains(k, ":takeover:a:") {
+			continue
+		}
+		v, _ := mr.Get(k)
+		n, _ := strconv.Atoi(v)
 		total += n
-		if n > 20+4 { // a few milliseconds of slack at a second boundary: a grant is recorded just after it is made
-			t.Errorf("second %d: %d active calls started, budget 20", sec, n)
+		if n > 20 {
+			t.Errorf("%s: %d active calls granted, budget 20", k, n)
 		}
 	}
 	if total != 120 {
