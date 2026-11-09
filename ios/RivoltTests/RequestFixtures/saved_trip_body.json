@@ -1,0 +1,20 @@
+{
+  "inputs" : {
+    "destination" : {
+      "label" : "Example Destination",
+      "lat" : 47.6588,
+      "lon" : -117.426
+    },
+    "origin" : {
+      "label" : "Example Origin",
+      "lat" : 47.6205,
+      "lon" : -122.3493
+    },
+    "pack_kwh" : 135,
+    "starting_soc" : 88
+  },
+  "name" : "Example trip",
+  "plan" : {
+    "Status" : "SUCCESS"
+  }
+}

@@ -54,6 +54,7 @@ type MonitorRegistry struct {
 	started        bool // a monitor has been built: setters called after this reach only monitors built later
 	lateWirings    int
 	onScheduleRead func(outcome string)
+	onRollout      func(event, kind, source string)
 	// wanted are subscriptions EnsureSubscribed could not start because the owner has no monitor yet
 	// (vehicle -> owner); Start runs them when the owner's monitor comes up, so a lease acquired before
 	// the monitor does not wait for the next lease tick to stream. Guarded by mu.
@@ -426,6 +427,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	mon.SetStagger(r.stagger)
 	mon.SetFence(registryFence{r}, r.fenced)
 	mon.SetScheduleObserver(r.scheduleObserver())
+	mon.SetRolloutObserver(r.rolloutObserver())
 	mon.SetStores(
 		r.samples.For(uid),
 		r.drives.For(uid),
@@ -676,6 +678,24 @@ func (r *MonitorRegistry) scheduleObserver() func(outcome string) {
 		r.mu.Unlock()
 		if fn != nil {
 			fn(outcome)
+		}
+	}
+}
+
+// SetRolloutObserver wires the takeover counters into every monitor, those already running included (see SetScheduleObserver).
+func (r *MonitorRegistry) SetRolloutObserver(fn func(event, kind, source string)) {
+	r.mu.Lock()
+	r.onRollout = fn
+	r.mu.Unlock()
+}
+
+func (r *MonitorRegistry) rolloutObserver() func(event, kind, source string) {
+	return func(event, kind, source string) {
+		r.mu.Lock()
+		fn := r.onRollout
+		r.mu.Unlock()
+		if fn != nil {
+			fn(event, kind, source)
 		}
 	}
 }

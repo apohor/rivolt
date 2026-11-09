@@ -123,6 +123,9 @@ type StateMonitor struct {
 	parallaxGPS bool
 	// driveDBResume (RIVOLT_DRIVE_DB_RESUME) lets a takeover without the Redis snapshot continue the vehicle's open drive row (G2a).
 	driveDBResume bool
+	// fastTakeover (RIVOLT_FAST_TAKEOVER) takes work off the takeover's critical path: the capability map comes from the shared store when a peer
+	// already probed it (zero-impact deploys, G1b).
+	fastTakeover bool
 	// parallaxDriveDynamics (RIVOLT_PARALLAX_DRIVE_DYNAMICS) subscribes to
 	// dynamics.vehicle.{gear,drive_mode,odometer} + vehicle.power.state,
 	// shadow-logs each value next to vehicleState, and makes them
@@ -321,6 +324,11 @@ type StateMonitor struct {
 	fetchSchedules           func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
 	// onScheduleRead counts schedule-read outcomes (SetScheduleObserver).
 	onScheduleRead func(outcome string)
+	// onRollout counts what a takeover did to open sessions (SetRolloutObserver); prevEnd replaces the store read of the previous row (tests).
+	onRollout func(event, kind, source string)
+	prevEnd   func(ctx context.Context, vehicleID, kind, exclude string) (time.Time, bool)
+	// acquiredAt is when this pod last started streaming each vehicle (an acquire). Guarded by mu.
+	acquiredAt map[string]time.Time
 	// vehicleInfoHook receives the vehicles RefreshVehicleInfo fetched (trim,
 	// image, pack guess) so they can be persisted, with the context the write
 	// uses (the group's fence token when this pod holds it). Set before
@@ -510,6 +518,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		logger:                logger,
 		parallaxGPS:           parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
 		driveDBResume:         parseBoolEnv(os.Getenv("RIVOLT_DRIVE_DB_RESUME")),
+		fastTakeover:          parseBoolEnv(os.Getenv("RIVOLT_FAST_TAKEOVER")),
 		parallaxDriveDynamics: parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
 		parallaxCapture:       parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
 		lastVehStateGPS:       make(map[string]time.Time),
@@ -1170,7 +1179,7 @@ func (m *StateMonitor) Start(ctx context.Context) {
 	// Source-fed monitors skip it: with no client the janitor can't
 	// confirm a session over REST, and a replay closes its charges
 	// through the normal lifecycle anyway.
-	if m.chargesStore != nil && m.client != nil {
+	if (m.chargesStore != nil || m.drivesStore != nil) && m.client != nil {
 		go m.runStaleChargeJanitor(ctx)
 	}
 }
@@ -1186,13 +1195,56 @@ func (m *StateMonitor) runStaleChargeJanitor(ctx context.Context) {
 	// Run once immediately so a freshly-restarted process doesn't
 	// leave stale rows visible for up to sweepInterval.
 	m.sweepStaleCharges(ctx, staleAfter)
+	m.sweepStaleOpenDrives(ctx, staleAfter)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			m.sweepStaleCharges(ctx, staleAfter)
+			m.sweepStaleOpenDrives(ctx, staleAfter)
 		}
+	}
+}
+
+// sweepStaleOpenDrives takes the "open" marker off live drive rows whose last write is older than staleAfter: the recorder that held them died
+// mid-drive and no owner resumed them (a resume needs the next driving frame within the stale gap), so the marker would otherwise stay on the
+// row, and in exports, for good. The row itself is untouched. Owner-only like the charge janitor, and it asks Rivian nothing.
+func (m *StateMonitor) sweepStaleOpenDrives(ctx context.Context, staleAfter time.Duration) {
+	if m.drivesStore == nil {
+		return
+	}
+	before := m.clock().Add(-staleAfter)
+	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
+	stale, err := m.drivesStore.ListStaleOpenLive(listCtx, before)
+	listCancel()
+	if err != nil {
+		m.noteWriteFailure("stale_drive", "", "", err)
+		return
+	}
+	cleared := 0
+	for _, d := range stale {
+		if ctx.Err() != nil {
+			return
+		}
+		fctx, owner := m.fenceCtxQuiet(ctx, d.RivianVehicleID)
+		if !owner {
+			continue
+		}
+		opCtx, opCancel := context.WithTimeout(fctx, 5*time.Second)
+		n, err := m.drivesStore.ClearOpen(opCtx, d.ExternalID, before)
+		opCancel()
+		switch {
+		case errors.Is(err, fence.ErrFenced):
+			m.fenced("drives", d.RivianVehicleID)
+		case err != nil:
+			m.noteWriteFailure("stale_drive", d.RivianVehicleID, d.ExternalID, err)
+		default:
+			cleared += int(n)
+		}
+	}
+	if cleared > 0 {
+		m.logger.Info("stale open drives closed out", "cleared", cleared, "candidates", len(stale))
 	}
 }
 
@@ -1360,6 +1412,7 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 	}
 	ctx, cancel := context.WithCancel(m.parent)
 	m.active[vehicleID] = cancel
+	m.noteAcquiredLocked(vehicleID)
 	if m.activeCtx != nil {
 		m.activeCtx[vehicleID] = ctx
 	}
@@ -1538,7 +1591,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	eligibleParallaxGPS := false
 	pxStatus := "master_off"
 	if m.parallaxGPS {
-		all, err := m.client.SupportedFeatures(ctx)
+		feats, err := m.supportedFeaturesFor(ctx, vehicleID)
 		if err != nil {
 			pxStatus = "probe_error"
 			if ctx.Err() == nil {
@@ -1546,7 +1599,6 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 					"vehicle", vehicleID, "err", err.Error())
 			}
 		} else {
-			feats := all[vehicleID]
 			connectivity := feats[FeatureConnectivityParallax]
 			eligibleParallaxGPS = connectivity == FeatureStatusAvailable
 			pxStatus = feats[FeatureParallaxVehicleState]
@@ -4444,3 +4496,61 @@ func (m *StateMonitor) clock() time.Time {
 
 // since is time.Since on the monitor's clock.
 func (m *StateMonitor) since(t time.Time) time.Duration { return m.clock().Sub(t) }
+
+// supportedFeaturesFor is the capability map the subscribe decision reads. With RIVOLT_FAST_TAKEOVER on and a store that keeps them, a map a peer
+// already probed is used at once, and re-asked in the background only when it is older than featuresRefreshAge; otherwise, or on a miss, it is
+// the call itself, as before, and its answer is stored for the next owner. One call answers for every vehicle on the account, so every
+// vehicle it names is stored.
+func (m *StateMonitor) supportedFeaturesFor(ctx context.Context, vehicleID string) (map[string]string, error) {
+	fs, _ := m.liveStateStore.(FeaturesStore)
+	if m.fastTakeover && fs != nil {
+		gctx, cancel := context.WithTimeout(ctx, time.Second)
+		cached, readAt, ok, err := fs.GetFeatures(gctx, vehicleID)
+		cancel()
+		if err != nil {
+			m.logger.Debug("supported features cache read failed", "vehicle", vehicleID, "err", err.Error())
+		} else if ok {
+			// A map Rivian was asked for within featuresRefreshAge makes no call at all: a roll must not be one call per vehicle.
+			if m.since(readAt) > featuresRefreshAge {
+				go m.refreshFeatures(context.WithoutCancel(ctx), fs, vehicleID, cached)
+			}
+			return cached, nil
+		}
+	}
+	all, err := m.client.SupportedFeatures(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.storeFeatures(ctx, fs, all)
+	return all[vehicleID], nil
+}
+
+// refreshFeatures re-asks Rivian after a start that used the cached map, stores the answer, and says so when this vehicle's Parallax
+// eligibility differs from what the start used (it takes effect at the next start; nothing is torn down mid-flight).
+func (m *StateMonitor) refreshFeatures(ctx context.Context, fs FeaturesStore, vehicleID string, used map[string]string) {
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	all, err := m.client.SupportedFeatures(rctx)
+	if err != nil {
+		m.logger.Debug("supported features background refresh failed", "vehicle", vehicleID, "err", err.Error())
+		return
+	}
+	m.storeFeatures(rctx, fs, all)
+	if all[vehicleID][FeatureConnectivityParallax] != used[FeatureConnectivityParallax] {
+		m.logger.Warn("supported features changed since the cached map this start used; applies at the next start",
+			"vehicle", vehicleID, "was", used[FeatureConnectivityParallax], "now", all[vehicleID][FeatureConnectivityParallax])
+	}
+}
+
+func (m *StateMonitor) storeFeatures(ctx context.Context, fs FeaturesStore, all map[string]map[string]string) {
+	if fs == nil {
+		return
+	}
+	for vid, feats := range all {
+		pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		if err := fs.PutFeatures(pctx, vid, feats, featuresTTL); err != nil {
+			m.logger.Debug("supported features cache write failed", "vehicle", vid, "err", err.Error())
+		}
+		cancel()
+	}
+}

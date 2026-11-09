@@ -749,3 +749,44 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Dr
 
 // DecodeRoute decodes a stored route polyline (precision 5) to [lat, lon] points.
 func DecodeRoute(s string) [][2]float64 { return decodePolyline5(s) }
+
+// StaleOpenDrive is a live drive row still marked open whose last write is old.
+type StaleOpenDrive struct {
+	ExternalID      string
+	RivianVehicleID string
+	EndedAt         time.Time
+}
+
+// ListStaleOpenLive lists the user's live drives that are marked open (metadata.open) and were last written before the given time: orphans of
+// a recorder that died mid-drive, which nothing will resume any more (LatestOpenLive bounds by age).
+func (s *Store) ListStaleOpenLive(ctx context.Context, before time.Time) ([]StaleOpenDrive, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.external_id, v.rivian_vehicle_id, d.ended_at
+		  FROM drives d JOIN vehicles v ON v.id = d.vehicle_id
+		 WHERE d.user_id = $1 AND d.source = 'live' AND d.metadata->>'open' = 'true' AND d.ended_at < $2
+		 ORDER BY d.ended_at LIMIT 200`, s.userID, before.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StaleOpenDrive
+	for rows.Next() {
+		var o StaleOpenDrive
+		if err := rows.Scan(&o.ExternalID, &o.RivianVehicleID, &o.EndedAt); err != nil {
+			return nil, err
+		}
+		o.EndedAt = o.EndedAt.UTC()
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// ClearOpen takes the open marker off one live drive that is still stale (re-checked in the statement, so a drive the recorder has meanwhile
+// resumed is left alone). It is the owner's write: with a fence token in the context it is guarded by the lease, and fence.ErrFenced comes back
+// when the pod no longer holds the group.
+func (s *Store) ClearOpen(ctx context.Context, externalID string, before time.Time) (int64, error) {
+	return fence.Exec(ctx, s.db, `
+		UPDATE drives SET metadata = metadata - 'open', updated_at = NOW()
+		 WHERE user_id = $1 AND external_id = $2 AND source = 'live' AND metadata->>'open' = 'true' AND ended_at < $3 AND `+fence.OK,
+		s.userID, externalID, before.UTC())
+}
