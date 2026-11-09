@@ -316,6 +316,23 @@ jobs:
             echo "::endgroup::"
           done
 
+      # The pod template's checksum/config and checksum/secret hash only the CONTENT (data / stringData). The helm.sh/chart label moves with every chart
+      # version, so hashing the whole rendered file made a version bump alone roll the pods (zero-impact deploys). A copy of the chart with another version must
+      # render the same checksums; a changed config value must change them.
+      - name: A chart version bump does not change the pod checksums
+        run: |
+          set -o pipefail
+          sums() { yq 'select(.kind == "Deployment") | .spec.template.metadata.annotations | to_entries | .[] | select(.key | test("^checksum/")) | .key + "=" + .value'; }
+          a=$(helm template rivolt "$CHART" -f "$CHART/ci/default-values.yaml" | sums)
+          cp -r "$CHART" "$RUNNER_TEMP/chart-bumped"
+          sed -i 's/^version: .*/version: 99.99.99/' "$RUNNER_TEMP/chart-bumped/Chart.yaml"
+          b=$(helm template rivolt "$RUNNER_TEMP/chart-bumped" -f "$CHART/ci/default-values.yaml" | sums)
+          c=$(helm template rivolt "$CHART" -f "$CHART/ci/default-values.yaml" --set config.tz=Europe/Paris | sums)
+          [ -n "$a" ] && echo "$a" | grep -q 'checksum/config=' || { echo "::error::no checksum annotations rendered"; exit 1; }
+          [ "$a" = "$b" ] || { echo "::error::a chart version bump changed the pod checksums:"; echo "$a"; echo "$b"; exit 1; }
+          [ "$a" != "$c" ] || { echo "::error::a changed config value did not change the pod checksums"; exit 1; }
+          echo "checksums follow the content, not the chart version"
+
       # rollout.enabled swaps the Deployment for a Rollout and nothing else: the pod template is one shared definition, and exactly one
       # of the two kinds is rendered (zero-impact deploys, the Rollouts spike).
       - name: The Rollout and the Deployment share one pod template

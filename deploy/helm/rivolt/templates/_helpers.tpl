@@ -287,10 +287,12 @@ indentation of a "template:" key two spaces in (its content at four), starting o
         {{- end }}
       annotations:
         # Roll the pod when config or app secrets change so we don't
-        # serve stale env until the next manual restart.
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        # serve stale env until the next manual restart. Only the CONTENT is
+        # hashed (data / stringData), not the metadata: the helm.sh/chart label
+        # changes with every chart version, and a chart bump alone must not roll pods.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | fromYaml | dig "data" (dict) | toJson | sha256sum }}
         {{- if not .Values.secrets.existingSecret }}
-        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/secret: {{ $sec := include (print $.Template.BasePath "/secret.yaml") . | fromYaml }}{{ dict "data" ($sec.data | default (dict)) "stringData" ($sec.stringData | default (dict)) | toJson | sha256sum }}
         {{- end }}
         # Deploy-time image tag. The binary's compile-time VERSION
         # stamp is fixed to the main commit a retag was based on; the
