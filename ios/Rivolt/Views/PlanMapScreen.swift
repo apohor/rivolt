@@ -103,7 +103,7 @@ struct PlanMapScreen: View {
     private func map(coverHeight: CGFloat) -> some View {
         if case .planned(let trip) = model.night {
             PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }, along: model.markers,
-                        onLine: { line in Task { await model.setDayLines(line, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, day: day)
+                        onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, day: day)
         } else if let route = model.plan?.best {
             PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.markers,
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
@@ -286,7 +286,7 @@ struct PlanLayerChips: View {
             }
             .task { await loadPreferred() }
             // Fast is on from the start: its pins are asked for when the route arrives, and again when the route changes.
-            .task(id: model.plan?.best) { await model.reloadLayers(source: state.client) }
+            .task(id: model.plan?.best) { await model.prepareLayers(source: state.client) }
         }
     }
 

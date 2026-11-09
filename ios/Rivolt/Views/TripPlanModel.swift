@@ -25,6 +25,12 @@ extension APIClient: CorridorLayersSource {}
 enum MapLayer: String, CaseIterable, Equatable {
     case chargers, medium, hotels, camps
 
+    /// The layer for a server kind ("dcfc", "l2", "hotels", "camp"); nil for one this app does not know.
+    init?(kind: String) {
+        guard let layer = Self.allCases.first(where: { $0.kind == kind }) else { return nil }
+        self = layer
+    }
+
     var kind: String {
         switch self {
         case .chargers: return "dcfc"
@@ -295,7 +301,39 @@ final class TripPlanModel {
     /// When the listing was built (the archive's date), not live; empty when unknown.
     private(set) var layerAsOf = ""
 
-    func setPreferred(_ slugs: Set<String>) { preferredSlugs = slugs }
+    func setPreferred(_ slugs: Set<String>) {
+        preferredSlugs = slugs
+        // "Preferred only" is on from the start in the person's settings: it takes hold once the networks are known (once, so a change on the map stays).
+        if wantsPreferredOnly, !slugs.isEmpty {
+            wantsPreferredOnly = false
+            if layers.contains(.chargers) { preferredOnly = true }
+        }
+    }
+
+    /// The Trip planner settings: read once, before the first search. They say which layers are on to begin with, whether "Preferred only" is, and
+    /// how the search is made (distance from the route, hiding the first miles, the smallest fast charger). Where they cannot be read, or the server
+    /// has none, the defaults stand and the search carries none of them.
+    private(set) var plannerMap: PlannerMapSettings?
+    private var prefsLoaded = false
+    private var wantsPreferredOnly = false
+    /// Whether the line the layers follow starts at the trip's own origin (the whole trip, or Day 1): only then are the first miles hidden.
+    private var lineFromOrigin = true
+
+    func loadPlannerPrefs(source: some PlannerPrefsSource) async {
+        guard !prefsLoaded else { return }
+        prefsLoaded = true
+        guard let prefs = try? await source.plannerPrefs(), let m = PlannerMapSettings(prefs) else { return }
+        plannerMap = m
+        layers = Set(m.layersOn.compactMap(MapLayer.init(kind:)))
+        wantsPreferredOnly = m.preferredOnly
+        if wantsPreferredOnly, !preferredSlugs.isEmpty, layers.contains(.chargers) { preferredOnly = true; wantsPreferredOnly = false }
+    }
+
+    /// A route arrived or changed: the settings first (once), then the search.
+    func prepareLayers(source: some CorridorLayersSource & PlannerPrefsSource) async {
+        await loadPlannerPrefs(source: source)
+        await refreshLayers(source: source)
+    }
 
     func setPreferredOnly(_ on: Bool) { preferredOnly = on && !preferredSlugs.isEmpty }
 
@@ -317,7 +355,7 @@ final class TripPlanModel {
         guard let route = plan?.best, layerState != .loading else { return }
         layerState = .loading
         let line = TripPlanLogic.thin(corridorLine, to: 1500).map { [$0.lat, $0.lon] }
-        let body = CorridorLayersRequest(path: line.count >= 2 ? line : TripPlanLogic.path(route), kinds: layers.map(\.kind).sorted(), limit: nil)
+        let body = LayerSearch.request(path: line.count >= 2 ? line : TripPlanLogic.path(route), kinds: layers.map(\.kind).sorted(), settings: plannerMap, startsAtOrigin: lineFromOrigin)
         do {
             let answer = try await source.corridorLayers(body)
             layerPOIs = answer.pois
@@ -364,9 +402,10 @@ final class TripPlanModel {
     }
 
     /// The days map found its road lines: the layers (when on) are searched again along the whole trip.
-    func setDayLines(_ line: [RouteSnap.Coord], source: some CorridorLayersSource) async {
-        guard line != dayLines else { return }
+    func setDayLines(_ line: [RouteSnap.Coord], startsAtOrigin: Bool = true, source: some CorridorLayersSource) async {
+        guard line != dayLines || startsAtOrigin != lineFromOrigin else { return }
         dayLines = line
+        lineFromOrigin = startsAtOrigin
         if !layers.isEmpty { await refreshLayers(source: source) }
     }
 
@@ -583,3 +622,28 @@ final class TripPlanModel {
 
     private var isFailedNight: Bool { if case .failed = night { return true } else { return false } }
 }
+
+
+/// The layer search as the settings shape it, apart from the model so a test can read what is sent.
+enum LayerSearch {
+    /// Whether the line searched starts at the trip's own origin, the only place the "hide chargers near the start" setting applies (the person starts charged
+    /// there). False for Day 2 and later (they start at an overnight stop) and for a re-plan from the truck's position partway through a trip (the web has
+    /// one: you are not leaving charged). The iPhone has no re-plan from the truck's position today; whoever adds one must pass `replanFromTruck: true`.
+    static func startsAtOrigin(day: Int?, replanFromTruck: Bool = false) -> Bool {
+        !replanFromTruck && (day == nil || day == 1)
+    }
+
+    /// The request for `kinds` along `path`. With the person's settings it carries the three that shape the search; `startsAtOrigin` is false for a line that
+    /// starts somewhere other than the trip's origin (Day 2 and later start at an overnight stop), and then nothing near its start is hidden.
+    static func request(path: [[Double]], kinds: [String], settings: PlannerMapSettings?, startsAtOrigin: Bool) -> CorridorLayersRequest {
+        guard let settings else { return CorridorLayersRequest(path: path, kinds: kinds, limit: nil) }
+        return CorridorLayersRequest(path: path, kinds: kinds, limit: nil, preset: settings.corridor,
+                                     startExcludeMi: startsAtOrigin ? settings.startExcludeMi : 0, minFastKw: settings.minFastKw)
+    }
+}
+
+protocol PlannerPrefsSource: Sendable {
+    func plannerPrefs() async throws -> PlannerPrefs
+}
+
+extension APIClient: PlannerPrefsSource {}

@@ -540,6 +540,11 @@ struct CorridorLayersRequest: Encodable, Equatable {
     /// Any of "dcfc", "l2", "hotels", "camp".
     var kinds: [String]
     var limit: Int?
+    /// The person's Trip planner settings, sent as they are (absent for a server or an account without them): how far off the route ("close", "normal",
+    /// "wide"), how many miles from the start to hide chargers (0, 25, 50), and the smallest fast charger's power (0, 50, 150, 250).
+    var preset: String? = nil
+    var startExcludeMi: Int? = nil
+    var minFastKw: Int? = nil
 }
 
 struct CorridorPOI: Decodable, Equatable, Identifiable {

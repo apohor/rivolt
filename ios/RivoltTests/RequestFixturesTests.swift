@@ -30,6 +30,11 @@ final class RequestFixturesTests: XCTestCase {
             ("offpeak_put", OffpeakPut(tz: "America/Los_Angeles", windows: [OffpeakWindow(days: "all", start: "21:00", end: "06:00", rate: 0.09, label: nil)])),
             ("app_token_body", APIClient.AppTokenBody(code: "example-code", codeVerifier: "example-verifier", deviceName: "Example phone")),
             ("corridor_layers_plain", CorridorLayersRequest(path: [[47.6205, -122.3493], [47.6588, -117.426]], kinds: ["dcfc", "hotels"], limit: nil)),
+            ("corridor_layers_settings", CorridorLayersRequest(path: [[47.6205, -122.3493], [47.6588, -117.426]], kinds: ["dcfc", "hotels"], limit: nil,
+                                                               preset: "wide", startExcludeMi: 25, minFastKw: 150)),
+            ("planner_prefs_old", PlannerPrefs(driveMode: "EVERYDAY", hasAdapter: true)),
+            ("planner_prefs_full", PlannerPrefs(driveMode: "EVERYDAY", hasAdapter: true, corridor: "normal", startExcludeMi: 0, minFastKw: 0,
+                                                layersOn: ["dcfc", "hotels"], preferredOnly: false, weatherOn: true, radarOn: false)),
         ]
     }
 

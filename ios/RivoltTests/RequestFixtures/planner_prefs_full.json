@@ -1,0 +1,14 @@
+{
+  "corridor" : "normal",
+  "drive_mode" : "EVERYDAY",
+  "has_adapter" : true,
+  "layers_on" : [
+    "dcfc",
+    "hotels"
+  ],
+  "min_fast_kw" : 0,
+  "preferred_only" : false,
+  "radar_on" : false,
+  "start_exclude_mi" : 0,
+  "weather_on" : true
+}
