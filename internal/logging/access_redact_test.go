@@ -45,3 +45,16 @@ func TestAccessLogRedactsTheSignupToken(t *testing.T) {
 		t.Error("loggedPath")
 	}
 }
+
+// Where a signed-in user is looking is not for the access log: terrain tile addresses are logged as a route. (The basemap path is a file
+// name, and the byte range is not logged, so it says nothing about location.)
+func TestAccessLogRedactsTerrainTileAddresses(t *testing.T) {
+	for in, want := range map[string]string{
+		"/api/maps/dem/7/20/45.png":       "/api/maps/dem/:tile",
+		"/api/maps/tiles/basemap.pmtiles": "/api/maps/tiles/basemap.pmtiles",
+	} {
+		if got := loggedPath(in); got != want {
+			t.Errorf("loggedPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
