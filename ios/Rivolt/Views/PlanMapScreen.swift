@@ -19,6 +19,8 @@ struct PlanMapScreen: View {
     @State private var headerNeed: CGFloat = 0
 
     private var metric: Bool { NowFormat.usesMetric }
+    /// The Radar button's state lives with the session, so the server is asked once what it has.
+    private var radar: RadarModel { state.radar }
 
     var body: some View {
         GeometryReader { geo in
@@ -64,6 +66,8 @@ struct PlanMapScreen: View {
         // Large text: the map first, the sheet down to its title; the person opens it for the rest.
         .onAppear { if ax { detent = .peek } }
         .onChange(of: ax) { _, large in detent = large ? .peek : .half }
+        .task { await radar.probe(source: state.client) }
+        .task(id: radar.isOn) { if radar.isOn { await radar.keepFresh(source: state.client) } }
         .onChange(of: model.moving?.id) { _, new in if new != nil { detent = .peek } }
         .onChange(of: model.pickedCharger?.id) { _, new in
             if let c = model.pickedCharger, new != nil { model.schedulePreview(for: c, source: state.client) } else { model.clearPreview() }
@@ -78,6 +82,8 @@ struct PlanMapScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             PlanLayerChips(model: model)
             WeatherToggle(model: model)
+            // The corner stack under the chips (the Weather button will sit above it): Radar, and its legend when on.
+            RadarControls(model: radar) { Task { await radar.toggle(source: state.client) } }
             if model.updating {
                 HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Updating route…").themeText(.subline, color: Theme.textPrimary) }
                     .padding(.horizontal, 12).frame(minHeight: 36)
@@ -97,14 +103,14 @@ struct PlanMapScreen: View {
     private func map(coverHeight: CGFloat) -> some View {
         if case .planned(let trip) = model.night {
             PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }, along: model.markers,
-                        onLine: { line in Task { await model.setDayLines(line, source: state.client) } }, fills: true, bottomInset: coverHeight, day: day)
+                        onLine: { line in Task { await model.setDayLines(line, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, day: day)
         } else if let route = model.plan?.best {
             PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.markers,
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
                          onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
                          onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) },
                          vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine,
-                         weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil)
+                         weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil, radar: radar.layer(server: state.mapServer))
         }
     }
 
@@ -491,5 +497,54 @@ struct WeatherToggle: View {
             .accessibilityValue(model.weatherOn ? "on" : "off")
             .accessibilityHint("Shows the weather on each leg of the route")
         }
+    }
+}
+/// The Radar button, under the layer chips over the map, and beside it (when on) the legend, how fresh the picture is, and the credit. NOAA's colours are drawn as
+/// they are: the legend only says light, moderate, heavy. There is no button where the server has no radar.
+struct RadarControls: View {
+    let model: RadarModel
+    let toggle: () -> Void
+
+    var body: some View {
+        if model.availability == .available {
+            HStack(alignment: .top, spacing: 8) {
+                Button(action: toggle) {
+                    Image(systemName: "cloud.rain").imageScale(.large)
+                        .foregroundStyle(model.isOn ? Color.white : Theme.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .background(model.isOn ? Theme.accentButton : Theme.card.opacity(0.92), in: Circle())
+                        .overlay(Circle().strokeBorder(Theme.border, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Radar")
+                .accessibilityValue(model.isOn ? "on" : "off")
+                .accessibilityHint("Shows live rain radar from NOAA under the route")
+                if model.isOn, let frame = model.frame {
+                    RadarLegend(asOf: RadarLogic.asOf(unix: frame.frameUnix))
+                }
+            }
+        }
+    }
+}
+
+struct RadarLegend: View {
+    let asOf: String
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            LinearGradient(colors: [Color(red: 0, green: 0.93, blue: 0.93), Color(red: 0, green: 0.78, blue: 0), Color.yellow, Color(red: 1, green: 0.56, blue: 0), Color.red, Color(red: 1, green: 0, blue: 1)],
+                           startPoint: .leading, endPoint: .trailing)
+                .frame(width: 120, height: 7).clipShape(Capsule()).accessibilityHidden(true)
+            HStack { ForEach(RadarLogic.legendWords, id: \.self) { Text($0); if $0 != "heavy" { Spacer(minLength: 4) } } }
+                .themeText(.caption, color: Theme.textTertiary).frame(width: 120).accessibilityHidden(true)
+            Text(asOf).themeText(.caption, color: Theme.textSecondary).lineLimit(2).multilineTextAlignment(.trailing)
+            Text(RadarLogic.credit).themeText(.caption, color: Theme.textTertiary)
+        }
+        .padding(8)
+        .background(Theme.card.opacity(0.92), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Radar legend, light to heavy. \(asOf). \(RadarLogic.credit). \(RadarLogic.kindLine)")
     }
 }

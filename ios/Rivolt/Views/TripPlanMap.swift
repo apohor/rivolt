@@ -189,6 +189,8 @@ enum PlanRouteLogic {
 /// on a charging stop's pin goes to `onStop` when it is given.
 struct PlanMapCanvas: View {
     let drawing: RouteSnap.Drawing?
+    /// The radar frame under the route, when the Radar button is on.
+    var radar: RadarLayer?
     var onStop: ((Int) -> Void)?
     /// A map to explore: pinch and pan (never rotate or tilt), filling the room it is given (the plan's full-height map), with the camera
     /// fitted above `bottomInset` points that something else (the itinerary sheet) covers.
@@ -207,7 +209,7 @@ struct PlanMapCanvas: View {
             if health == .failed {
                 MapMessage(text: "Map unavailable.")
             } else if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, bottomInset: bottomInset, onStop: onStop, onLongPress: onLongPress, onCenter: onCenter)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, radar: radar, bottomInset: bottomInset, onStop: onStop, onLongPress: onLongPress, onCenter: onCenter)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     // The places drawn along the route (the layer chips' pins), for VoiceOver and for a UI test: nothing is said when there are none.
@@ -249,6 +251,8 @@ struct PlanRouteMap: View {
     var previewLine: [RouteSnap.Coord] = []
     /// The weather on the plan's legs, drawn as labels while the Weather toggle is on (nil: none).
     var weather: PlanRouteLogic.Weather?
+    /// The radar frame under the route, when the Radar button is on.
+    var radar: RadarLayer?
 
     @Environment(AppState.self) private var state
     @State private var drawing: RouteSnap.Drawing?
@@ -269,7 +273,7 @@ struct PlanRouteMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: shown, onStop: onStop, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress, onCenter: onCenter)
+        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress, onCenter: onCenter)
             .task(id: route) {
                 MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
                 // The straight legs show at once; the roads replace them when they arrive.
@@ -303,6 +307,7 @@ struct PlanDaysMap: View {
     var along: [AlongCharger] = []
     /// Both days' road lines once they are known (what the layers are searched along).
     var onLine: ([RouteSnap.Coord]) -> Void = { _ in }
+    var radar: RadarLayer?
     var fills = false
     var bottomInset: CGFloat = 0
     /// Frame only this day (1-based), or the whole trip when nil.
@@ -318,7 +323,7 @@ struct PlanDaysMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing.map { PlanRouteLogic.daysShown($0, focus: focus, along: along, lines: lines, day: day) },
+        PlanMapCanvas(drawing: drawing.map { PlanRouteLogic.daysShown($0, focus: focus, along: along, lines: lines, day: day) }, radar: radar,
                       onStop: onStop, fills: fills, bottomInset: bottomInset)
             // The layers follow the line on show: the whole trip, or the day the person picked.
             .onChange(of: day) { reportLine() }
