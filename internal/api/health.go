@@ -14,6 +14,7 @@ import (
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/iosapp"
 	"github.com/apohor/rivolt/internal/maps"
+	"github.com/apohor/rivolt/internal/radar"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signupgate"
 )
@@ -121,6 +122,8 @@ func handleHealth(version string) http.HandlerFunc {
 type configExtras struct {
 	// DEM: the terrain tile route is mounted (RIVOLT_DEM_BASE_URL).
 	DEM bool
+	// Radar: the radar routes are mounted (RIVOLT_RADAR).
+	Radar bool
 }
 
 func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager, extras ...configExtras) http.HandlerFunc {
@@ -150,6 +153,13 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		GlyphsURL  string `json:"glyphs_url,omitempty"`
 		DEMMinZoom int    `json:"dem_minzoom,omitempty"`
 		DEMMaxZoom int    `json:"dem_maxzoom,omitempty"`
+		// RadarURL is the same-origin radar tile template ({z}/{x}/{y}) and RadarFrameURL the endpoint that names the newest frame (and the recent
+		// ones); both empty when radar is off, and the clients then hide the radar control. A client asks tiles only for RadarMinZoom..RadarMaxZoom,
+		// appends ?t=<frame_unix> to the template, and shows "Radar as of" from the frame (also in the X-Radar-Frame header of every answer).
+		RadarURL      string `json:"radar_url,omitempty"`
+		RadarFrameURL string `json:"radar_frame_url,omitempty"`
+		RadarMinZoom  int    `json:"radar_minzoom,omitempty"`
+		RadarMaxZoom  int    `json:"radar_maxzoom,omitempty"`
 	}
 	type aiCfg struct {
 		// Enabled is true when the install has at least one
@@ -268,6 +278,11 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	if ex.DEM {
 		base.Tiles.DEMURL = "/api/maps/dem/{z}/{x}/{y}.png"
 		base.Tiles.DEMMinZoom, base.Tiles.DEMMaxZoom = maps.DEMClientMinZoom, maps.DEMClientMaxZoom
+	}
+	if ex.Radar {
+		base.Tiles.RadarURL = "/api/maps/radar/{z}/{x}/{y}.png"
+		base.Tiles.RadarFrameURL = "/api/maps/radar/frame"
+		base.Tiles.RadarMinZoom, base.Tiles.RadarMaxZoom = radar.ClientMinZoom, radar.ClientMaxZoom
 	}
 	base.AI.Enabled = aiEnabled
 	base.Features.EventsEnabled = eventsEnabled()
