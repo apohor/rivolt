@@ -94,6 +94,11 @@ take() {
 }
 
 take chain "$main_tag" "$image:$main_tag"
+# No final tags (a checkout without tags, or none made yet) would carry no release at all, and say nothing: count it as missing so the gauge shows it.
+if [ -z "$(echo $FINAL_TAGS)" ]; then
+  missing+=("no final tags found")
+  echo "::warning::web carry: no final release tags found (a checkout without tags?); building without the releases' assets"
+fi
 for t in $FINAL_TAGS; do
   take final "$t" "$image:$t"
 done

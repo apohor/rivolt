@@ -593,6 +593,11 @@ maps:
     # open-meteo image's /v1/forecast API, synced with --past-days 7; no archive, so recaps cover recent drives only). Empty: the public API
     # (api.open-meteo.com), which is free for non-commercial use only.
     baseUrl: ""
+  radar:
+    # Optional forecast radar for the trip planner (RIVOLT_RADAR_BASE_URL), e.g. "http://radar.radar.svc.cluster.local": the grid files
+    # that rivolt-infra's radar build job writes from NOAA RRFS. Each planned leg is then tagged rain, snow or dry at the time the truck is
+    # there. Empty: no radar tags.
+    baseUrl: ""
   tiles:
     baseUrl: ""
   # Terrain tiles for the web map's hillshade (RIVOLT_DEM_BASE_URL). When set, the API mounts /api/maps/dem/{z}/{x}/{y}.png, forwards

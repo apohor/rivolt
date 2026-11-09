@@ -266,6 +266,74 @@ func rewriteFindings(src string) []string {
 	return bad
 }
 
+// Part 2: indexes on existing tables. A plain CREATE INDEX takes a SHARE lock that blocks every write for as long as the build takes, so on a table that
+// can grow it must be CREATE INDEX CONCURRENTLY IF NOT EXISTS, alone in a file whose first line is "-- migrate:no-transaction" (the runner,
+// migrate_notx.go, sets the timeouts and repairs an invalid leftover). How the lint knows a table can grow: it assumes every existing table can, except the
+// short list below of tables bounded by DESIGN (a lookup, a singleton or an install-wide table). Anything with a row per user, vehicle, session or event is
+// never on it, however small it is today, so a table forgotten here fails safe: its index costs a file of its own. No row counts in this list.
+// vehicle_state (partitioned: CONCURRENTLY is not allowed on a partitioned parent) takes no new index at all until a design for it exists.
+var smallTables = map[string]string{
+	"migrations":   "the migration bookkeeping table: one row per migration",
+	"flags":        "one global row of operator switches",
+	"app_settings": "install-wide key/value settings: a fixed set of keys",
+	"push_vapid":   "one VAPID keypair per install",
+	"lease_pods":   "one row per live pod, pruned after a day",
+}
+
+var (
+	reNoTxDirective = regexp.MustCompile(`(?m)\A\s*--\s*migrate:no-transaction\s*$`)
+	reCIC           = regexp.MustCompile(`(?is)^create\s+(?:unique\s+)?index\s+concurrently\b`)
+	reCICStrict     = regexp.MustCompile(`(?is)^create\s+(?:unique\s+)?index\s+concurrently\s+if\s+not\s+exists\s+\S+\s+on\s+(?:only\s+)?(\S+)`)
+	reVehicleState  = regexp.MustCompile(`^vehicle_state(_.*)?$`)
+)
+
+// indexFindings judges the index statements of a migration (see the comment above).
+func indexFindings(src string) []string {
+	noTx := reNoTxDirective.MatchString(src)
+	stmts := sqlStatements(src)
+	var bad []string
+	created := map[string]bool{}
+	if noTx {
+		if len(stmts) != 1 {
+			return []string{"a no-transaction file must be exactly one CREATE INDEX CONCURRENTLY IF NOT EXISTS statement"}
+		}
+		m := reCICStrict.FindStringSubmatch(stmts[0].text)
+		if m == nil {
+			return []string{"a no-transaction file must be exactly one CREATE INDEX CONCURRENTLY IF NOT EXISTS statement"}
+		}
+		if reVehicleState.MatchString(bareTable(m[1])) {
+			return []string{"an index on the partitioned vehicle_state (not supported: no design for it yet; ask DA)"}
+		}
+		return nil
+	}
+	for _, st := range stmts {
+		t := st.text
+		if m := reCreateTable.FindStringSubmatch(t); m != nil {
+			created[bareTable(m[1])] = true
+			continue
+		}
+		if reCIC.MatchString(t) {
+			bad = append(bad, "CREATE INDEX CONCURRENTLY outside a no-transaction file (it fails inside a transaction): put it alone in a file whose first line is -- migrate:no-transaction")
+			continue
+		}
+		m := reCreateIndex.FindStringSubmatch(t)
+		if m == nil {
+			continue
+		}
+		table := bareTable(m[1])
+		switch {
+		case created[table]:
+		case reVehicleState.MatchString(table):
+			bad = append(bad, "an index on the partitioned vehicle_state (not supported: no design for it yet; ask DA)")
+		default:
+			if _, small := smallTables[table]; !small {
+				bad = append(bad, "CREATE INDEX on "+table+" (an existing table that can grow): use CREATE INDEX CONCURRENTLY IF NOT EXISTS alone in a file starting with -- migrate:no-transaction")
+			}
+		}
+	}
+	return bad
+}
+
 func migrationNumber(base string) (int, bool) {
 	n, err := strconv.Atoi(strings.SplitN(base, "_", 2)[0])
 	return n, err == nil
@@ -285,6 +353,13 @@ func TestEveryExistingTableLockSetsLockTimeout(t *testing.T) {
 		body, err := fs.ReadFile(migrationFS, name)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if bad := indexFindings(string(body)); len(bad) > 0 {
+			t.Errorf("%s: %s", base, strings.Join(bad, "; "))
+		}
+		// A no-transaction file is one CREATE INDEX CONCURRENTLY: the runner sets lock_timeout and statement_timeout itself.
+		if reNoTxDirective.MatchString(string(body)) {
+			continue
 		}
 		if bad := lockFindings(string(body)); len(bad) > 0 {
 			t.Errorf("%s: %s without a bounded (1 ms to 10 s) SET LOCAL lock_timeout = '5s' before it (a table created in the same file is exempt)", base, strings.Join(bad, ", "))
@@ -340,6 +415,43 @@ func TestLockFindings(t *testing.T) {
 	} {
 		if bad := lockFindings(fine); len(bad) > 0 {
 			t.Errorf("lint wrongly flags %q: %v", fine, bad)
+		}
+	}
+}
+
+func TestIndexFindings(t *testing.T) {
+	noTx := "-- migrate:no-transaction\n"
+	for _, bad := range []string{
+		"CREATE INDEX i ON drives (user_id);",
+		"CREATE UNIQUE INDEX IF NOT EXISTS i ON public.users (email);",
+		"SET LOCAL lock_timeout = '5s';\nCREATE INDEX i ON sessions (user_id);", // bounded is not enough for a table that can grow
+		"CREATE INDEX CONCURRENTLY IF NOT EXISTS i ON drives (user_id);",        // not in a no-transaction file
+		"CREATE INDEX i ON vehicle_state (at);",
+		"CREATE INDEX i ON vehicle_state_2026_11 (at);",
+		noTx + "CREATE INDEX CONCURRENTLY i ON drives (user_id);", // no IF NOT EXISTS
+		noTx + "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON drives (x);\nCREATE INDEX CONCURRENTLY IF NOT EXISTS b ON drives (y);",
+		noTx + "ALTER TABLE drives ADD COLUMN x int;",
+		noTx + "CREATE INDEX CONCURRENTLY IF NOT EXISTS i ON vehicle_state (at);",
+	} {
+		if len(indexFindings(bad)) == 0 {
+			t.Errorf("index lint misses %q", bad)
+		}
+	}
+	for _, fine := range []string{
+		noTx + "-- why: the table grows\nCREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS i ON drives (user_id, started_at);",
+		"CREATE TABLE fresh (id int, k int);\nCREATE INDEX i ON fresh (k);",
+		"SET LOCAL lock_timeout = '5s';\nCREATE INDEX i ON app_settings (updated_at);",
+		"CREATE INDEX i ON lease_pods (seen_at);",
+		"CREATE TABLE a (id int);\nSELECT 1;",
+		"-- CREATE INDEX i ON drives (x) in a comment\nSELECT 1;",
+	} {
+		if bad := indexFindings(fine); len(bad) > 0 {
+			t.Errorf("index lint wrongly flags %q: %v", fine, bad)
+		}
+	}
+	for table, why := range smallTables {
+		if strings.TrimSpace(why) == "" {
+			t.Errorf("smallTables[%q] has no reason", table)
 		}
 	}
 }
