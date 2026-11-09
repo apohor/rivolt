@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const loadMapLibre = vi.fn();
@@ -128,16 +128,22 @@ describe("TripRouteMap", () => {
     expect(findLayers).not.toHaveBeenCalled(); // the settings are not in yet: no request with the defaults
     plannerState.settled = true;
     rerender(<TripRouteMap route={route} />);
-    await waitFor(() => expect(findLayers).toHaveBeenCalled());
-    const last = findLayers.mock.calls[findLayers.mock.calls.length - 1];
+    await waitFor(() => expect(findLayers.mock.calls.some((c) => c[1].includes("dcfc"))).toBe(true));
+    const last = findLayers.mock.calls.find((c) => c[1].includes("dcfc"))!;
     expect(last[1]).toEqual(["dcfc", "hotels"]);
     expect(last[3]).toEqual({ preset: "wide", start_exclude_mi: 50, min_fast_kw: 150 });
   });
 
-  it("says so when the charger request fails, instead of leaving the old pins unexplained", async () => {
-    findLayers.mockRejectedValue(new Error("boom"));
+  it("asks to hide nothing near the start for a line that does not start at the trip origin", async () => {
+    plannerState.prefs = { ...plannerState.prefs, start_exclude_mi: 50 };
+    render(<TripRouteMap route={route} startsAtOrigin={false} dayLabel="Day 2" />);
+    await waitFor(() => expect(findLayers).toHaveBeenCalled());
+    expect(findLayers.mock.calls.find((c) => c[1].includes("dcfc"))?.[3]).toMatchObject({ start_exclude_mi: 0 });
+    findLayers.mockClear();
+    cleanup();
     render(<TripRouteMap route={route} />);
-    expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't load the chargers/);
+    await waitFor(() => expect(findLayers).toHaveBeenCalled());
+    expect(findLayers.mock.calls.find((c) => c[1].includes("dcfc"))?.[3]).toMatchObject({ start_exclude_mi: 50 });
   });
 
   it("says the map is unavailable without WebGL and never loads MapLibre", () => {

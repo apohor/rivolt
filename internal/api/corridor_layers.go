@@ -30,7 +30,7 @@ type corridorLayersRequest struct {
 	Paged bool `json:"paged,omitempty"`
 	// Preset is the planner settings' "how far from the route" choice (close, normal, wide); absent is normal. Ignored when corridor_km is set.
 	Preset string `json:"preset,omitempty"`
-	// StartExcludeMi drops stations within this many miles of the route's start, along the route: 0, 25 or 50 (the planner settings' choices).
+	// StartExcludeMi drops fast and Level 2 chargers (not hotels or campgrounds) within this many miles of the route's start, along the route: 0, 25 or 50 (the planner settings' choices).
 	StartExcludeMi int `json:"start_exclude_mi,omitempty"`
 	// MinFastKW drops fast chargers of a known power below it: 0, 50, 150 or 250.
 	MinFastKW int `json:"min_fast_kw,omitempty"`

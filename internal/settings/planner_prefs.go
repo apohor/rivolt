@@ -39,7 +39,7 @@ var (
 // The defaults GET fills in for a field the user never set.
 const (
 	DefaultCorridor       = "normal"
-	DefaultStartExcludeMi = 25
+	DefaultStartExcludeMi = 0
 	DefaultMinFastKW      = 0
 	DefaultPreferredOnly  = false
 	DefaultWeatherOn      = true

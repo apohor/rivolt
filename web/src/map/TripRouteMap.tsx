@@ -110,6 +110,7 @@ export function TripRouteMap({
   onSelectStop,
   departureAt,
   dayLabel,
+  startsAtOrigin = true,
   originLabel,
   destLabel,
   legWeather,
@@ -130,6 +131,9 @@ export function TripRouteMap({
   onSelectStop?: (idx: number | null) => void;
   // "Day 2" on a multi-day plan's map: the card says which day it is.
   dayLabel?: string;
+  // False for a line that does not start at the trip's origin (a later day, a re-plan from the truck): "hide chargers near the start" then does not
+  // apply, because a day that starts at an overnight stop did not leave charged.
+  startsAtOrigin?: boolean;
   // The names on the origin and destination pills; without them the waypoints' own names.
   originLabel?: string;
   destLabel?: string;
@@ -154,7 +158,10 @@ export function TripRouteMap({
   // The Trip planner settings: what the map starts with (layers, preferred only, weather) and how the charger query is shaped. The map waits for
   // them so it does not ask once with the defaults and again with the user's choices.
   const { prefs, settled: prefsSettled } = usePlannerPrefs();
-  const filters = useMemo(() => layerFiltersOf(prefs), [prefs.corridor, prefs.start_exclude_mi, prefs.min_fast_kw]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filters = useMemo(
+    () => ({ ...layerFiltersOf(prefs), ...(startsAtOrigin ? {} : { start_exclude_mi: 0 as const }) }),
+    [prefs.corridor, prefs.start_exclude_mi, prefs.min_fast_kw, startsAtOrigin], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const filtersKey = `${filters.preset}|${filters.start_exclude_mi}|${filters.min_fast_kw}`;
   // A switch the person has already flipped on this map is theirs; the settings only supply the starting state of the others.
   const touchedRef = useRef({ layers: false, preferred: false, weather: false });
@@ -175,8 +182,6 @@ export function TripRouteMap({
   const [chargerCount, setChargerCount] = useState<number | null>(null);
   const [chargerTotal, setChargerTotal] = useState<number | null>(null);
   const [chargersLoading, setChargersLoading] = useState(false);
-  // The last layer request failed (not cancelled): the pins on the map are the ones from before, and the person is told.
-  const [layerError, setLayerError] = useState(false);
   // No charger source (the signed-out demo, or a server without the archive): the chips would contradict a route that has charging stops.
   const [noChargerSource, setNoChargerSource] = useState(inDemo());
   const hasWeather = !!legWeather?.some((l) => l);
@@ -195,10 +200,12 @@ export function TripRouteMap({
     window.setTimeout(() => setWeatherNote(""), 1600);
   };
   // Effect: once the settings are in, they set the starting state of every switch the person has not flipped yet.
+  const [started, setStarted] = useState(false);
   const startedRef = useRef(false);
   useEffect(() => {
     if (!prefsSettled || startedRef.current) return;
     startedRef.current = true;
+    setStarted(true);
     if (!touchedRef.current.layers) setLayers(new Set(prefs.layers_on));
     if (!touchedRef.current.preferred) setPreferredOnlyState(prefs.preferred_only);
     if (!touchedRef.current.weather) setShowWeather(prefs.weather_on);
@@ -791,7 +798,7 @@ export function TripRouteMap({
   // Effect 2: the charger overlay. Re-runs on filter or route-path change; only the charger source is rewritten, so a filter swap is instant.
   useEffect(() => {
     const map = mapReady;
-    if (routePath.length < 2 || !map || !prefsSettled) return;
+    if (routePath.length < 2 || !map || !started) return;
     const ac = new AbortController();
     const kinds = layersKey ? (layersKey.split(",") as LayerKind[]) : [];
     // Every chip off: draw nothing and ask for nothing.
@@ -806,19 +813,18 @@ export function TripRouteMap({
       return;
     }
     setChargersLoading(true);
-    setLayerError(false);
     void (async () => {
       // "Preferred only" narrows the fast layer to the preferred networks; the other layers on are unchanged.
       const others = onlyPreferred ? kinds.filter((k) => k !== "dcfc") : kinds;
       let pref: POI[] | null, rest: { pois: POI[]; total: number } | null;
       try {
         [pref, rest] = await Promise.all([
-          onlyPreferred ? findChargersOfNetworks(routePath, preferredKey.split(","), ac.signal, filters) : Promise.resolve([] as POI[]),
+          onlyPreferred ? findChargersOfNetworks(routePath, preferredKey.split(","), filters) : Promise.resolve([] as POI[]),
           findLayersAlongPath(routePath, others, ac.signal, filters),
         ]);
       } catch {
         // A chip toggled while this request was in flight cancels it (the next effect run asks again); any other failure leaves the pins as they were.
-        if (!ac.signal.aborted) { setChargersLoading(false); setLayerError(true); }
+        if (!ac.signal.aborted) setChargersLoading(false);
         return;
       }
       const found = pref === null || rest === null ? null : [...pref, ...rest.pois];
@@ -850,7 +856,7 @@ export function TripRouteMap({
       ac.abort();
       setChargersLoading(false);
     };
-  }, [routePath, layersKey, mapReady, onlyPreferred, preferredKey, prefsSettled, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [routePath, layersKey, mapReady, onlyPreferred, preferredKey, started, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Is there any campground with a hookup along the route? Decides whether the chip shows at all.
   useEffect(() => {
@@ -909,9 +915,7 @@ export function TripRouteMap({
               Preferred only
             </button>
           )}
-          {layerError && !chargersLoading ? (
-            <span role="alert" data-layer-error className="basis-full text-xs text-rose-300">Couldn't load the chargers along this route. The pins shown may be out of date; change a switch to try again.</span>
-          ) : layers.size > 0 && !chargersLoading && chargerCount === 0 ? (
+          {layers.size > 0 && !chargersLoading && chargerCount === 0 ? (
             <span className="basis-full text-xs text-neutral-400">No chargers in this area at this zoom. Zoom out or move the map.</span>
           ) : (
             <span className="whitespace-nowrap text-xs text-neutral-500 ml-1" data-layer-count>

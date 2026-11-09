@@ -38,8 +38,8 @@ type LayerOptions struct {
 	Paged bool
 	// KindKm, when set, replaces LayerKindKm as each kind's half-width (a CorridorPresets entry); ignored when CorridorKm is set.
 	KindKm map[string]float64
-	// MinAlongKm drops every station closer than this to the route's start, along the route. It is applied before paging, so Total and the
-	// pages agree.
+	// MinAlongKm drops the chargers (fast and Level 2, not hotels or campgrounds) closer than this to the route's start, along the route. It is
+	// applied before paging, so Total and the pages agree.
 	MinAlongKm float64
 	// MinFastKW drops a station from the fast layer when its power is known and below this. Unknown power stays (as MinPowerKW does).
 	MinFastKW float64
@@ -129,10 +129,11 @@ func (a *Archive) QueryLayers(path [][2]float64, kinds []string, opts LayerOptio
 	asof := ""
 	for _, h := range hits {
 		c := CorridorPOI{POI: h.POI, AlongKm: round3(h.alongM / 1000), OffKm: round3(h.offM / 1000)}
-		if c.AlongKm < opts.MinAlongKm {
-			continue
-		}
 		for _, k := range want {
+			// Leaving home charged says nothing about a hotel or a campground, so the start exclusion is for chargers only.
+			if c.AlongKm < opts.MinAlongKm && (k == "dcfc" || k == "l2") {
+				continue
+			}
 			if k == "dcfc" && opts.MinFastKW > 0 && h.POI.MaxPowerKW > 0 && h.POI.MaxPowerKW < opts.MinFastKW {
 				continue
 			}

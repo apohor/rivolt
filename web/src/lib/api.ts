@@ -2549,7 +2549,7 @@ export type LayerFilters = { preset?: Corridor; start_exclude_mi?: StartExcludeM
 // The defaults the server fills in for a field never set (kept in step with internal/settings/planner_prefs.go).
 export const PLANNER_DEFAULTS = {
   corridor: "normal",
-  start_exclude_mi: 25,
+  start_exclude_mi: 0,
   min_fast_kw: 0,
   layers_on: ["dcfc"],
   preferred_only: false,

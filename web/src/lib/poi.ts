@@ -439,11 +439,11 @@ export async function findLayersAlongPath(path: [number, number][], kinds: Layer
 }
 
 // The fast chargers along a route that belong to the given networks (slugs), from the corridor query. Null when the install has no archive.
-export async function findChargersOfNetworks(path: [number, number][], slugs: string[], signal?: AbortSignal, filters?: LayerFilters): Promise<POI[] | null> {
+export async function findChargersOfNetworks(path: [number, number][], slugs: string[], filters?: LayerFilters): Promise<POI[] | null> {
   if (path.length < 2 || slugs.length === 0) return [];
   if (inDemo()) return null;
   try {
-    const r = await backend.corridorLayers({ path: thinPath(path), kinds: ["dcfc"], networks: slugs, ...filters }, signal);
+    const r = await backend.corridorLayers({ path: thinPath(path), kinds: ["dcfc"], networks: slugs, ...filters });
     return r.pois.map(serverChargerToPOI);
   } catch (e: unknown) {
     if (e instanceof ApiError && e.status === 404) return null;
