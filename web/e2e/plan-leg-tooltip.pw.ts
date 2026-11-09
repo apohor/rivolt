@@ -47,7 +47,8 @@ for (const v of [
     const badges = page.locator("[data-leg-badge]");
     await expect(badges).toHaveCount(2);
     for (let i = 0; i < 2; i++) {
-      await badges.nth(i).click();
+      // dispatchEvent, not a pointer click: the first popup may sit over the second badge, which a click would wait on for ever.
+      await badges.nth(i).dispatchEvent("click");
       const pop = page.locator("[data-leg-popup]");
       await expect(pop).toBeVisible();
       if (i === 0) await expect(pop).toContainText(/^(Start|To) .*(to Sample Fast Charge|Sample Fast Charge)/);
@@ -82,7 +83,8 @@ for (const v of [
       });
       expect(stack.popup, JSON.stringify(stack)).toBeGreaterThan(stack.markers);
       await page.screenshot({ path: path.join(SHOTS, `leg-tooltip-${v.n}-${i}.png`) });
-      await page.locator("[data-leg-popup]").locator("xpath=ancestor::*[contains(@class,'maplibregl-popup')]").locator(".maplibregl-popup-close-button").click();
+      await page.evaluate(() => (document.querySelector(".maplibregl-popup-close-button") as HTMLElement | null)?.click());
+      await expect(page.locator("[data-leg-popup]")).toHaveCount(0);
     }
     await ctx.close();
   });
