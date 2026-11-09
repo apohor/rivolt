@@ -1042,6 +1042,9 @@ jobs:
       github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read   # pull the previous images for the web asset carry (scripts/web-carry.sh)
     outputs:
       version: ${{ steps.ver.outputs.version }}
       devtag: ${{ steps.ver.outputs.devtag }}
@@ -1140,9 +1143,26 @@ jobs:
           # (-trimpath leaves -ldflags out of the build info, so look for the stamped string itself.)
           grep -aqF -- "${VERSION}" image-ctx/rivolt || { echo "::error::binary is not stamped ${VERSION}"; exit 1; }
 
+      # The hashed web assets of the builds a browser may still be on (the last 48 h of main builds and the last two releases), taken from
+      # their registry images, so a rolling update does not 404 the chunks of the version a tab started on (zero-impact deploys, G4a).
+      # A source that cannot be copied does not fail the build: it is flagged here and in the image's manifest.
+      - name: Log in to GHCR (to read the previous images)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect the web asset carry
+        run: |
+          scripts/web-carry.sh internal/web/dist image-ctx/web-carry
+          find image-ctx/web-carry -type d -exec chmod 0755 {} +
+          find image-ctx/web-carry -type f -exec chmod 0644 {} +
+          du -sh image-ctx/web-carry
+
       # tar keeps the modes the upload would drop.
       - name: Pack the image context
-        run: tar -C image-ctx -cf image-ctx.tar rivolt data
+        run: tar -C image-ctx -cf image-ctx.tar rivolt data web-carry
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -1290,6 +1310,8 @@ jobs:
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
             type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
             type=raw,value=${{ needs.image.outputs.devtag }},enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') }}
+            # The latest main build: the next build takes its asset carry from it (scripts/web-carry.sh).
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
 
       # Only copies the prebuilt binary onto distroless (see `bin` and `image`), so this is seconds.
       - name: Build & push

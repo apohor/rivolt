@@ -2220,6 +2220,8 @@ func runServer() {
 	if webFS == nil {
 		logger.Warn("embedded web bundle missing; SPA routes will 404 until `make web` is run")
 	}
+	// The assets of other builds, so a roll does not 404 the chunks of the version a browser started on (scripts/web-carry.sh fills it).
+	webFS = installWebCarry(webFS, envOr("RIVOLT_WEB_CARRY_DIR", web.DefaultCarryDir), appMetrics, logger)
 
 	// Auth wiring. Rivolt has three issuers: OIDC sign-in (the
 	// default for any real deployment), a trusted-upstream-proxy

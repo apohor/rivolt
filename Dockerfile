@@ -49,7 +49,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/rivolt ./cmd/rivolt
 # Pre-create a /data directory owned by distroless "nonroot" (uid 65532) so
 # the named volume mounts it with the right ownership on first run.
-RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
+RUN mkdir -p /out/data /out/web-carry && chown -R 65532:65532 /out/data
 
 # ---- runtime -------------------------------------------------------------
 # The digest is the multi-arch index the nonroot tag pointed at (uploaded 2026-10-23; the tag's newest upload, 2026-10-31, was under Renovate's 3 days): a moved tag
@@ -57,6 +57,8 @@ RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
 FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
 WORKDIR /app
 COPY --from=build /out/rivolt /app/rivolt
+# Empty here: the published image's build fills it (scripts/web-carry.sh); kept so the two images have the same shape.
+COPY --from=build /out/web-carry /app/web-carry
 COPY --from=build --chown=nonroot:nonroot /out/data /data
 USER nonroot:nonroot
 EXPOSE 8080
