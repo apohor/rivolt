@@ -109,3 +109,41 @@ func TestWebCarryScript(t *testing.T) {
 		t.Errorf("dead registry: missing %v files %v (%v)\n%s", man.Missing, man.Files, err, raw)
 	}
 }
+
+// No final tags (FINAL_TAGS empty: a checkout without tags) must not pass silently: it is counted as a missing source with a warning.
+func TestWebCarryScriptCountsMissingFinalTags(t *testing.T) {
+	for _, tool := range []string{"bash", "jq"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not installed")
+		}
+	}
+	root := t.TempDir()
+	dist, out := filepath.Join(root, "dist"), filepath.Join(root, "out")
+	write(t, filepath.Join(dist, "assets", "own-DDDDDDDD.js"), "own")
+	script, _ := filepath.Abs("../../scripts/web-carry.sh")
+	cmd := exec.Command("bash", script, dist, out)
+	cmd.Env = append(os.Environ(), "DOCKER=/bin/false", "REGISTRY_IMAGE=ghcr.io/apohor/rivolt", "FINAL_TAGS=", "NOW=1000000000")
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("must stay green: %v\n%s", err, b)
+	}
+	if !strings.Contains(string(b), "no final release tags found") {
+		t.Errorf("no warning:\n%s", b)
+	}
+	raw, _ := os.ReadFile(filepath.Join(out, "MANIFEST.json"))
+	var man struct {
+		Missing []string `json:"missing"`
+	}
+	if err := json.Unmarshal(raw, &man); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range man.Missing {
+		if m == "no final tags found" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("missing %v does not list the absent final tags", man.Missing)
+	}
+}
