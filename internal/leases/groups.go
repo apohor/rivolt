@@ -35,6 +35,23 @@ type GroupResult struct {
 // RIVOLT_POD_GENERATION; empty when unset. M2's rollout rules read it.
 func generation() string { return os.Getenv("RIVOLT_POD_GENERATION") }
 
+// SetGeneration pins this store's pod-template generation instead of reading RIVOLT_POD_GENERATION: two pods of one process (the roll
+// test) are different generations. Call before the first pass.
+func (s *Store) SetGeneration(g string) {
+	s.groupMu.Lock()
+	s.gen = g
+	s.groupMu.Unlock()
+}
+
+func (s *Store) generation() string {
+	s.groupMu.Lock()
+	defer s.groupMu.Unlock()
+	if s.gen != "" {
+		return s.gen
+	}
+	return generation()
+}
+
 // RenewGroups writes this pod's group lease rows and registers the pod. It is
 // called once per reconcile, after the vehicle leases are renewed and acquired.
 //
@@ -56,7 +73,7 @@ func (s *Store) RenewGroups(ctx context.Context) (GroupResult, error) {
 		INSERT INTO lease_pods (pod_id, generation, started_at, seen_at)
 		VALUES ($1, $2, now(), now())
 		ON CONFLICT (pod_id) DO UPDATE SET generation = EXCLUDED.generation, seen_at = now()`,
-		s.podID, generation()); err != nil {
+		s.podID, s.generation()); err != nil {
 		return res, fmt.Errorf("lease pod register: %w", err)
 	}
 

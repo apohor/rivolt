@@ -1,0 +1,71 @@
+# Rollout test (zero-impact deploys, plan section 5).
+#
+# Two pods run in one process on a real Postgres (leases, recorder stores) and a Redis (live state), each with the lease coordinator, a state
+# monitor and the fence, fed by a fake drive and charge (internal/rolltest). The pods are rolled twice the way a rolling update does it, and
+# the test asserts one drive row and one charge row per vehicle, no group moved more than the plan allows, and the longest silence in the samples
+# under 30 s. The tests carry the e2e_roll build tag, so build.yml's integration job never runs them and no release build passes it
+# (cmd/rivolt TestReleaseBuildsDoNotUseTheE2ETag).
+#
+# NOT a required check, and it does not block merges: it takes about two minutes and the 12 s hand-off target is only logged until the G1
+# fixes land. It runs on PRs that touch the leases or the recorder, nightly on main, and on demand. A failure on main opens, or comments on,
+# one open issue titled "roll e2e red on main" (label: ci).
+name: roll e2e
+
+on:
+  schedule:
+    - cron: "10 1 * * *"
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - "internal/leases/**"
+      - "internal/rolltest/**"
+      - "internal/rivian/recorder*.go"
+      - "internal/rivian/livestate*.go"
+      - "internal/rivian/monitor*.go"
+      - ".github/workflows/roll-e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roll-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  roll-e2e:
+    name: roll-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Pull postgres image
+        run: docker pull postgres:16-alpine
+
+      # The web bundle is embedded by internal/web; a stub is enough for these packages.
+      - name: Stub the web bundle
+        run: mkdir -p internal/web/dist && [ -f internal/web/dist/index.html ] || echo '<!doctype html>' > internal/web/dist/index.html
+
+      - name: go test (roll e2e)
+        run: go test -tags=integration,e2e_roll -count=1 -timeout=10m -v -run 'TestRolloutKeepsEveryDriveAndCharge' ./internal/rolltest
+
+      - name: Report a red run on main
+        if: failure() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="roll e2e red on main"
+          n=$(gh issue list --state open --label ci --search "\"$title\" in:title" --json number -q '.[0].number // empty')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "Red again: $RUN"
+          else gh issue create --title "$title" --label ci --body "The nightly rollout test failed: $RUN"; fi

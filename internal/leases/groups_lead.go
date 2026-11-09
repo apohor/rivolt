@@ -187,7 +187,7 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 		INSERT INTO lease_pods (pod_id, generation, started_at, seen_at, draining)
 		VALUES ($1, $2, now(), now(), $3)
 		ON CONFLICT (pod_id) DO UPDATE SET generation = EXCLUDED.generation, seen_at = now(), draining = EXCLUDED.draining`,
-		s.podID, generation(), s.isDraining()); err != nil {
+		s.podID, s.generation(), s.isDraining()); err != nil {
 		return res, fmt.Errorf("lease pod register: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM lease_pods WHERE pod_id <> $1 AND seen_at < now() - interval '1 day'`, s.podID); err != nil {

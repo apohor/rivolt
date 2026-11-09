@@ -58,6 +58,7 @@ type Store struct {
 	// was last taken from a holder that had not released it (for the warm-up).
 	vehicleGroup map[string]string
 	stolenAt     map[string]time.Time
+	gen          string    // SetGeneration
 	groupOKAt    time.Time // when the last successful RenewGroups was sent (monotonic)
 	lead         bool      // lead mode: the group lease decides ownership (groups_lead.go)
 	draining     bool
