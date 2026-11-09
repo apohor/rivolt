@@ -181,6 +181,10 @@ export function TripRouteMap({
   const onlyPreferred = preferredOnly && preferredSlugs.length > 0 && fastOn;
   const [chargerCount, setChargerCount] = useState<number | null>(null);
   const [chargerTotal, setChargerTotal] = useState<number | null>(null);
+  // A layer request that failed for a reason other than a chip toggle cancelling it: said in the chip row, so an empty map is not mistaken for no stations.
+  const [layerError, setLayerError] = useState(false);
+  // "Try again" bumps this to re-run the same layer request (the effect below depends on it).
+  const [retry, setRetry] = useState(0);
   const [chargersLoading, setChargersLoading] = useState(false);
   // No charger source (the signed-out demo, or a server without the archive): the chips would contradict a route that has charging stops.
   const [noChargerSource, setNoChargerSource] = useState(inDemo());
@@ -813,18 +817,20 @@ export function TripRouteMap({
       return;
     }
     setChargersLoading(true);
+    setLayerError(false);
     void (async () => {
       // "Preferred only" narrows the fast layer to the preferred networks; the other layers on are unchanged.
       const others = onlyPreferred ? kinds.filter((k) => k !== "dcfc") : kinds;
       let pref: POI[] | null, rest: { pois: POI[]; total: number } | null;
       try {
         [pref, rest] = await Promise.all([
-          onlyPreferred ? findChargersOfNetworks(routePath, preferredKey.split(","), filters) : Promise.resolve([] as POI[]),
+          onlyPreferred ? findChargersOfNetworks(routePath, preferredKey.split(","), ac.signal, filters) : Promise.resolve([] as POI[]),
           findLayersAlongPath(routePath, others, ac.signal, filters),
         ]);
       } catch {
-        // A chip toggled while this request was in flight cancels it (the next effect run asks again); any other failure leaves the pins as they were.
-        if (!ac.signal.aborted) setChargersLoading(false);
+        // A chip toggled while this request was in flight cancels it (the next effect run asks again). Any other failure keeps the pins as they were
+        // and says so.
+        if (!ac.signal.aborted) { setChargersLoading(false); setLayerError(true); }
         return;
       }
       const found = pref === null || rest === null ? null : [...pref, ...rest.pois];
@@ -856,7 +862,7 @@ export function TripRouteMap({
       ac.abort();
       setChargersLoading(false);
     };
-  }, [routePath, layersKey, mapReady, onlyPreferred, preferredKey, started, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [routePath, layersKey, mapReady, onlyPreferred, preferredKey, started, filtersKey, retry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Is there any campground with a hookup along the route? Decides whether the chip shows at all.
   useEffect(() => {
@@ -915,7 +921,12 @@ export function TripRouteMap({
               Preferred only
             </button>
           )}
-          {layers.size > 0 && !chargersLoading && chargerCount === 0 ? (
+          {layerError && !chargersLoading ? (
+            <span className="basis-full text-xs text-amber-300" data-layer-error role="status">
+              Couldn't load stations along the route.{" "}
+              <button type="button" data-layer-retry onClick={() => setRetry((n) => n + 1)} className="underline underline-offset-2 hover:text-amber-200">Try again</button>
+            </span>
+          ) : layers.size > 0 && !chargersLoading && chargerCount === 0 ? (
             <span className="basis-full text-xs text-neutral-400">No chargers in this area at this zoom. Zoom out or move the map.</span>
           ) : (
             <span className="whitespace-nowrap text-xs text-neutral-500 ml-1" data-layer-count>

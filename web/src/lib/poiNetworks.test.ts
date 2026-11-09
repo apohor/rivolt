@@ -17,6 +17,12 @@ describe("findChargersOfNetworks", () => {
     expect(corridorLayers.mock.calls[0][0]).toMatchObject({ kinds: ["dcfc"], networks: ["ea", "ran"] });
     expect(r?.map((p) => p.name)).toEqual(["A"]);
   });
+  it("hands its abort signal to the request, so toggling a chip cancels the preferred-networks one too", async () => {
+    corridorLayers.mockResolvedValue({ pois: [], total: 0 });
+    const ac = new AbortController();
+    await findChargersOfNetworks(path, ["ea"], ac.signal);
+    expect(corridorLayers.mock.calls[0][1]).toBe(ac.signal);
+  });
   it("asks nothing with no networks, and is null without an archive", async () => {
     expect(await findChargersOfNetworks(path, [])).toEqual([]);
     expect(corridorLayers).not.toHaveBeenCalled();

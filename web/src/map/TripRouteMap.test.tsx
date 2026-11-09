@@ -146,6 +146,17 @@ describe("TripRouteMap", () => {
     expect(findLayers.mock.calls.find((c) => c[1].includes("dcfc"))?.[3]).toMatchObject({ start_exclude_mi: 50 });
   });
 
+  it("offers Try again when the charger request fails, and asking again re-runs the same request", async () => {
+    findLayers.mockRejectedValueOnce(new Error("boom"));
+    render(<TripRouteMap route={route} />);
+    const retry = await screen.findByText("Try again");
+    const before = findLayers.mock.calls.filter((c) => c[1].includes("dcfc")).length;
+    findLayers.mockResolvedValue({ pois: [], total: 0 });
+    fireEvent.click(retry);
+    await waitFor(() => expect(findLayers.mock.calls.filter((c) => c[1].includes("dcfc")).length).toBe(before + 1));
+    await waitFor(() => expect(screen.queryByText("Try again")).toBeNull());
+  });
+
   it("says the map is unavailable without WebGL and never loads MapLibre", () => {
     webgl.mockReturnValue(false);
     render(<TripRouteMap route={route} />);
