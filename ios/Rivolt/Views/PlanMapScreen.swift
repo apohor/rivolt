@@ -9,6 +9,8 @@ struct PlanMapScreen: View {
     let saved: SavedTripsModel
     let onEdit: () -> Void
 
+    /// The leg whose weather label was tapped on the map (its callout is open).
+    @State private var pickedLeg: RouteSnap.Drawing.LegTag?
     @State private var detent = PlanSheetDetent.half
     @State private var day: Int?
     @State private var showingNetworks = false
@@ -44,6 +46,12 @@ struct PlanMapScreen: View {
                         .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height, floor: headerNeed) + 10)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
+                if let leg = pickedLeg, model.pickedCharger == nil, model.weatherOn {
+                    PlanLegCallout(title: leg.title, lines: leg.lines, onClose: { pickedLeg = nil })
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height, floor: headerNeed) + 10)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                }
                 DetentSheet(detent: $detent, container: geo.size.height, floor: headerNeed, scrollsAtEveryDetent: ax, onHeaderNeed: { headerNeed = $0 }) {
                     header
                 } content: {
@@ -65,6 +73,8 @@ struct PlanMapScreen: View {
         .ignoresSafeArea(.container, edges: .bottom)
         // Large text: the map first, the sheet down to its title; the person opens it for the rest.
         .onAppear { if ax { detent = .peek } }
+        .onChange(of: day) { pickedLeg = nil }
+        .onChange(of: model.plan) { pickedLeg = nil }
         .onChange(of: ax) { _, large in detent = large ? .peek : .half }
         .task { await radar.probe(source: state.client) }
         .task(id: radar.isOn) { if radar.isOn { await radar.keepFresh(source: state.client) } }
@@ -101,13 +111,20 @@ struct PlanMapScreen: View {
         .padding(12)
     }
 
+    /// A leg's label picked (or none): the leg's callout replaces a charger's, and the other way round.
+    private func pickLeg(_ leg: RouteSnap.Drawing.LegTag?) {
+        pickedLeg = leg
+        if leg != nil { model.closeCallout() }
+    }
+
     @ViewBuilder
     private func map(coverHeight: CGFloat) -> some View {
         if case .planned(let trip) = model.night {
-            PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }, along: model.markers,
-                        onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, day: day)
+            PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, along: model.markers,
+                        onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } }, radar: radar.layer(server: state.mapServer), weatherOn: model.weatherOn,
+                        onLegTag: { pickLeg($0) }, fills: true, bottomInset: coverHeight, day: day)
         } else if let route = model.plan?.best {
-            PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.markers,
+            PlanRouteMap(route: route, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, focus: model.focusedStop, along: model.markers,
                          onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
                          onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
                          onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) },
@@ -407,6 +424,36 @@ struct PlanPinCallout: View {
     }
 }
 
+/// What a tap on a leg's weather label shows (the web's leg tooltip): the leg, what the weather is on it, and the estimate of what it does to the energy.
+struct PlanLegCallout: View {
+    let title: String
+    let lines: [String]
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                Text(title).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 8)
+                Button(action: onClose) { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                    .buttonStyle(.plain).foregroundStyle(Theme.textSecondary)
+                    .accessibilityLabel("Close")
+            }
+            ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                Text(line).themeText(i == lines.count - 1 && line == LegWeather.terrainCredit ? .caption : .subline,
+                                     color: line == LegWeather.terrainCredit ? Theme.textTertiary : Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+        .shadow(color: .black.opacity(0.25), radius: 10, y: 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("plan-leg-callout")
+    }
+}
+
 /// "Move a stop": the stop follows the crosshair at the middle of the map; this says what the move would add (an estimate) and has Cancel and Done.
 /// Done is the only thing that asks the planner.
 struct PlanMoveBar: View {
@@ -486,7 +533,7 @@ struct WeatherToggle: View {
     let model: TripPlanModel
 
     var body: some View {
-        if PlanRouteLogic.Weather(model.plan) != nil {
+        if PlanRouteLogic.hasWeather(plan: model.plan, night: model.night) {
             Button { model.weatherOn.toggle() } label: {
                 Image(systemName: "cloud.sun").imageScale(.large)
                     .foregroundStyle(model.weatherOn ? Color.white : Theme.textSecondary)

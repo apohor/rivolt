@@ -440,6 +440,8 @@ struct RouteMapView: UIViewRepresentable {
     }
     /// A tap on a charging stop's pin (its index in `drawing.stops`).
     var onStop: ((Int) -> Void)?
+    /// A tap on a leg's weather label (its index in `drawing.legTags`).
+    var onLegTag: ((Int) -> Void)?
     /// A long press on the map (the place under the finger): the planner's "drop a pin here". Only on a map that can be explored.
     var onLongPress: ((RouteSnap.Coord) -> Void)?
     /// The middle of the map each time it moves (the planner's "move a stop" mode, where the stop follows the crosshair).
@@ -465,7 +467,7 @@ struct RouteMapView: UIViewRepresentable {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator, interactive: interactive)
         context.coordinator.interactive = interactive
         if interactive { context.coordinator.onCamera = { [weak c = context.coordinator] m in c?.cameraMoved(m) } }
-        if onStop != nil {
+        if onStop != nil || onLegTag != nil {
             map.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
         }
         if interactive, onLongPress != nil {
@@ -478,6 +480,7 @@ struct RouteMapView: UIViewRepresentable {
 
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.onStop = onStop
+        context.coordinator.onLegTag = onLegTag
         context.coordinator.onLongPress = onLongPress
         context.coordinator.onCenter = onCenter
         context.coordinator.setStyle(styleJSON, on: map)
@@ -496,6 +499,7 @@ struct RouteMapView: UIViewRepresentable {
         private let onDrawn: () -> Void
         private let onPins: ((Pins) -> Void)?
         var onStop: ((Int) -> Void)?
+        var onLegTag: ((Int) -> Void)?
         var onLongPress: ((RouteSnap.Coord) -> Void)?
         var onCenter: ((RouteSnap.Coord) -> Void)?
 
@@ -535,10 +539,10 @@ struct RouteMapView: UIViewRepresentable {
                 f.attributes = ["i": i, "label": s.label, "p": s.emphasis ? 1 : 0, "k": s.kind]
                 return f
             }
-            let legTags: [MLNPointFeature] = d.legTags.map { t in
+            let legTags: [MLNPointFeature] = d.legTags.enumerated().map { i, t in
                 let f = MLNPointFeature()
                 f.coordinate = CLLocationCoordinate2D(latitude: t.coord.lat, longitude: t.coord.lon)
-                f.attributes = ["t": t.text]
+                f.attributes = ["i": i, "t": t.text]
                 return f
             }
             // The picked pin again on its own, so it can be drawn over the rest: a stop, or past the stops a charger along the route.
@@ -741,6 +745,8 @@ struct RouteMapView: UIViewRepresentable {
                 onStop?(i)
             } else if let j = map.visibleFeatures(in: box, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-along"]).first?.attribute(forKey: "i") as? Int {
                 onStop?(drawing.stops.count + j)
+            } else if let k = map.visibleFeatures(in: box, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-legtags"]).first?.attribute(forKey: "i") as? Int {
+                onLegTag?(k)
             }
         }
 
