@@ -72,6 +72,34 @@ struct PlannerDefaults: Equatable, Hashable {
     var gasPricePerGallon: Double
     var comparisonMpg: Double
     var askAdapter: Bool
+    /// The chargers-on-the-map and map settings; nil when the server does not have them (then those groups are not shown).
+    var map: PlannerMapSettings? = nil
+}
+
+/// The Trip planner page's map settings, with the server's defaults (corridor normal, nothing hidden near the start, any fast power, Fast pins on,
+/// weather on, radar off).
+struct PlannerMapSettings: Equatable, Hashable {
+    var corridor = "normal"
+    var startExcludeMi = 0
+    var minFastKw = 0
+    var layersOn: Set<String> = ["dcfc"]
+    var preferredOnly = false
+    var weatherOn = true
+    var radarOn = false
+
+    init() {}
+
+    /// From what the server sent; nil when it sent none of them (an older server).
+    init?(_ p: PlannerPrefs) {
+        guard p.corridor != nil || p.startExcludeMi != nil || p.minFastKw != nil || p.layersOn != nil || p.preferredOnly != nil || p.weatherOn != nil || p.radarOn != nil else { return nil }
+        corridor = p.corridor ?? "normal"
+        startExcludeMi = p.startExcludeMi ?? 0
+        minFastKw = p.minFastKw ?? 0
+        layersOn = Set(p.layersOn ?? ["dcfc"])
+        preferredOnly = p.preferredOnly ?? false
+        weatherOn = p.weatherOn ?? true
+        radarOn = p.radarOn ?? false
+    }
 }
 
 /// The calls behind the three screens, kept apart from `APIClient` so a test can see what is sent.
@@ -100,7 +128,7 @@ extension ChargingSettingsSource {
         // a failed or empty vehicle list keeps it shown.
         let ask = PlannerDefaultsForm.askAdapter(modelYears: (try? await vehicles())?.map(\.modelYear))
         return PlannerDefaults(driveMode: p.driveMode, hasAdapter: p.hasAdapter, gasPricePerGallon: c.gasPricePerGallon ?? 0,
-                               comparisonMpg: c.comparisonMpg ?? 0, askAdapter: ask)
+                               comparisonMpg: c.comparisonMpg ?? 0, askAdapter: ask, map: PlannerMapSettings(p))
     }
 
     /// Sends only what changed: the planner's own settings, and the gas inputs on the charging settings. The answer is the read again.

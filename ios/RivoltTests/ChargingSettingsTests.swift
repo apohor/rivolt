@@ -283,7 +283,8 @@ final class ChargingSettingsTests: XCTestCase {
         XCTAssertNil(ChargingNetworksForm.safeSourceURL(terms.terms?.first?.sourceUrl), "not a network's own site, so plain text")
 
         let prefs = try Fixture.decode(PlannerPrefs.self, "settings_planner")
-        XCTAssertEqual(prefs, PlannerPrefs(driveMode: "EVERYDAY", hasAdapter: true))
+        XCTAssertEqual(prefs.driveMode, "EVERYDAY")
+        XCTAssertEqual(prefs.hasAdapter, true)
 
         let rates = try Fixture.decode(ChargingRates.self, "settings_charging")
         XCTAssertEqual(rates.gasPricePerGallon, 3.5); XCTAssertEqual(rates.comparisonMpg, 25)
