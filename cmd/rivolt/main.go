@@ -1315,7 +1315,7 @@ func runServer() {
 		if os.Getenv("RIVOLT_TAKEOVER_LIMIT") == "1" {
 			monitorRegistry.SetTakeoverLimiter(fleetbucket.New(fleetbucket.Config{
 				LocalRPS: envInt("RIVOLT_TAKEOVER_LOCAL_RPS", 0), FleetRPS: envInt("RIVOLT_TAKEOVER_FLEET_RPS", 0),
-				Redis: sharedRedis, Prefix: redisKeyPrefix,
+				Redis: takeoverRedis(sharedRedis), Prefix: redisKeyPrefix,
 				Observe: func(class string, active bool, r fleetbucket.Result) {
 					prio := "idle"
 					if active {

@@ -54,6 +54,8 @@ const (
 	liveChargeMaxGap        = 30 * time.Minute
 	liveChargeMaxSoCDropPct = 2.0
 	liveDriveMaxGap         = 30 * time.Minute
+	// driveResumeClockSkew is how far before the row's last write the new owner's first frame may be stamped (pod clocks differ by a few seconds).
+	driveResumeClockSkew = 10 * time.Second
 
 	// Drive-close debounce. vehicleState can emit a phantom P for a
 	// frame or two mid-drive (observed 2026-07-14: P at 5 mph for 2-9s,
@@ -2686,7 +2688,7 @@ func (m *StateMonitor) resumeOpenDrive(ctx context.Context, curr *State) *liveDr
 		return nil
 	}
 	gap := curr.At.Sub(row.EndedAt)
-	if gap < 0 || gap > liveDriveMaxGap {
+	if gap < -driveResumeClockSkew || gap > liveDriveMaxGap {
 		m.logger.Info("not resuming an open drive row: its last write is outside the stale gap",
 			"vehicle", curr.VehicleID, "id", row.ID, "gap", gap.Round(time.Second))
 		return nil
