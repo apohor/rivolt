@@ -101,6 +101,7 @@ import (
 	"github.com/apohor/rivolt/internal/vehiclediscovery"
 	"github.com/apohor/rivolt/internal/weather"
 	"github.com/apohor/rivolt/internal/web"
+	"github.com/apohor/rivolt/internal/webcarry"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
@@ -2257,6 +2258,8 @@ func runServer() {
 	if webFS == nil {
 		logger.Warn("embedded web bundle missing; SPA routes will 404 until `make web` is run")
 	}
+	// The assets of other builds, so a roll does not 404 the chunks of the version a browser started on (scripts/web-carry.sh fills it).
+	webFS = installWebCarry(webFS, envOr("RIVOLT_WEB_CARRY_DIR", webcarry.DefaultCarryDir), appMetrics, logger)
 
 	// Auth wiring. Rivolt has three issuers: OIDC sign-in (the
 	// default for any real deployment), a trusted-upstream-proxy
