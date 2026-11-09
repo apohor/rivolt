@@ -30,6 +30,9 @@ type Config struct {
 	IdleMaxWait   time.Duration
 	// ShareTTL: calls with the same share key (one Rivian session's socket) within this long of a granted one go through without a slot.
 	ShareTTL time.Duration
+	// RedisBackoff: after a Redis error the fleet budget is skipped (local only) for this long, so a Redis that does not answer costs one slow call, not every one.
+	// Default 10 s.
+	RedisBackoff time.Duration
 	// Redis and Prefix: the fleet budget. Nil Redis: local only.
 	Redis  *redis.Client
 	Prefix string
@@ -48,6 +51,7 @@ const (
 	defaultActiveWait = 30 * time.Second
 	defaultIdleWait   = 5 * time.Minute
 	defaultShareTTL   = 30 * time.Second
+	defaultBackoff    = 10 * time.Second
 	redisOp           = 300 * time.Millisecond
 	counterTTLSeconds = 5
 	idleShareDivisor  = 2 // idle vehicles may use at most this fraction of the fleet budget (1/2), so active ones always find room
@@ -68,6 +72,8 @@ type Bucket struct {
 	idle  *rate.Limiter
 	mu    sync.Mutex
 	share map[string]time.Time
+	// redisDownUntil: while the clock is before it, the fleet budget is skipped (a Redis error set it).
+	redisDownUntil time.Time
 }
 
 // New builds a Bucket.
@@ -86,6 +92,9 @@ func New(cfg Config) *Bucket {
 	}
 	if cfg.ShareTTL <= 0 {
 		cfg.ShareTTL = defaultShareTTL
+	}
+	if cfg.RedisBackoff <= 0 {
+		cfg.RedisBackoff = defaultBackoff
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -135,21 +144,55 @@ func (b *Bucket) wait(ctx context.Context, shareKey string, active bool) Result 
 	if active {
 		lim = b.act
 	}
-	if err := lim.Wait(wctx); err != nil {
-		res.Starved = ctx.Err() == nil
-		res.Waited = b.cfg.Now().Sub(start)
-		return res
+	// Reserve, not Wait: rate.Limiter.Wait returns at once when the delay would pass the context's deadline, which released every caller beyond
+	// what the bound can queue immediately (the surge that most needs pacing was the one that was not paced). Here such a caller holds for the whole
+	// bound and then goes ahead, counted as starved, as the package comment says.
+	resv := lim.Reserve()
+	if d := resv.Delay(); d > 0 {
+		if d > maxWait {
+			resv.Cancel()
+			<-wctx.Done()
+			res.Starved = ctx.Err() == nil
+			res.Waited = b.cfg.Now().Sub(start)
+			return res
+		}
+		t := time.NewTimer(d)
+		select {
+		case <-t.C:
+		case <-wctx.Done():
+			t.Stop()
+			resv.Cancel()
+			res.Starved = ctx.Err() == nil
+			res.Waited = b.cfg.Now().Sub(start)
+			return res
+		}
 	}
 	if b.cfg.Redis != nil {
-		ok, local := b.fleetSlot(wctx, active)
-		res.Local = local
-		res.Starved = !ok && ctx.Err() == nil
+		if b.redisDown() {
+			res.Local = true // a recent Redis error: only the local bucket applies for the backoff
+		} else {
+			ok, local := b.fleetSlot(wctx, active)
+			res.Local = local
+			res.Starved = !ok && ctx.Err() == nil
+		}
 	}
 	if shareKey != "" && !res.Starved {
 		b.markShared(shareKey, b.cfg.Now())
 	}
 	res.Waited = b.cfg.Now().Sub(start)
 	return res
+}
+
+func (b *Bucket) redisDown() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.cfg.Now().Before(b.redisDownUntil)
+}
+
+func (b *Bucket) markRedisDown() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.redisDownUntil = b.cfg.Now().Add(b.cfg.RedisBackoff)
 }
 
 func (b *Bucket) sharedRecently(key string, now time.Time) bool {
@@ -190,6 +233,7 @@ func (b *Bucket) fleetSlot(wctx context.Context, active bool) (ok, local bool) {
 		}
 		n, other, err := b.take(wctx, sec, kind, !active)
 		if err != nil {
+			b.markRedisDown()
 			return true, true
 		}
 		limit := int64(b.cfg.FleetRPS)
