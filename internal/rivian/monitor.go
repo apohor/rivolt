@@ -121,6 +121,9 @@ type StateMonitor struct {
 	// stall for minutes and replay stale fixes (observed 2026-07-14: a
 	// 5-minute full blackout mid-drive).
 	parallaxGPS bool
+	// fastTakeover (RIVOLT_FAST_TAKEOVER) takes work off the takeover's critical path: the capability map comes from the shared store when a peer
+	// already probed it (zero-impact deploys, G1b).
+	fastTakeover bool
 	// parallaxDriveDynamics (RIVOLT_PARALLAX_DRIVE_DYNAMICS) subscribes to
 	// dynamics.vehicle.{gear,drive_mode,odometer} + vehicle.power.state,
 	// shadow-logs each value next to vehicleState, and makes them
@@ -507,6 +510,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		client:                client,
 		logger:                logger,
 		parallaxGPS:           parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
+		fastTakeover:          parseBoolEnv(os.Getenv("RIVOLT_FAST_TAKEOVER")),
 		parallaxDriveDynamics: parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
 		parallaxCapture:       parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
 		lastVehStateGPS:       make(map[string]time.Time),
@@ -1535,7 +1539,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	eligibleParallaxGPS := false
 	pxStatus := "master_off"
 	if m.parallaxGPS {
-		all, err := m.client.SupportedFeatures(ctx)
+		feats, err := m.supportedFeaturesFor(ctx, vehicleID)
 		if err != nil {
 			pxStatus = "probe_error"
 			if ctx.Err() == nil {
@@ -1543,7 +1547,6 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 					"vehicle", vehicleID, "err", err.Error())
 			}
 		} else {
-			feats := all[vehicleID]
 			connectivity := feats[FeatureConnectivityParallax]
 			eligibleParallaxGPS = connectivity == FeatureStatusAvailable
 			pxStatus = feats[FeatureParallaxVehicleState]
@@ -4441,3 +4444,59 @@ func (m *StateMonitor) clock() time.Time {
 
 // since is time.Since on the monitor's clock.
 func (m *StateMonitor) since(t time.Time) time.Duration { return m.clock().Sub(t) }
+
+// supportedFeaturesFor is the capability map the subscribe decision reads. With RIVOLT_FAST_TAKEOVER on and a store that keeps them, a map a peer
+// already probed is used at once and the Rivian call moves to the background (it also corrects the stored map); otherwise, or on a miss, it is
+// the call itself, as before, and its answer is stored for the next owner. One call answers for every vehicle on the account, so every
+// vehicle it names is stored.
+func (m *StateMonitor) supportedFeaturesFor(ctx context.Context, vehicleID string) (map[string]string, error) {
+	fs, _ := m.liveStateStore.(FeaturesStore)
+	if m.fastTakeover && fs != nil {
+		gctx, cancel := context.WithTimeout(ctx, time.Second)
+		cached, ok, err := fs.GetFeatures(gctx, vehicleID)
+		cancel()
+		if err != nil {
+			m.logger.Debug("supported features cache read failed", "vehicle", vehicleID, "err", err.Error())
+		} else if ok {
+			go m.refreshFeatures(context.WithoutCancel(ctx), fs, vehicleID, cached)
+			m.logger.Info("supported features from the shared cache; refreshing in the background", "vehicle", vehicleID)
+			return cached, nil
+		}
+	}
+	all, err := m.client.SupportedFeatures(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m.storeFeatures(ctx, fs, all)
+	return all[vehicleID], nil
+}
+
+// refreshFeatures re-asks Rivian after a start that used the cached map, stores the answer, and says so when this vehicle's Parallax
+// eligibility differs from what the start used (it takes effect at the next start; nothing is torn down mid-flight).
+func (m *StateMonitor) refreshFeatures(ctx context.Context, fs FeaturesStore, vehicleID string, used map[string]string) {
+	rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	all, err := m.client.SupportedFeatures(rctx)
+	if err != nil {
+		m.logger.Debug("supported features background refresh failed", "vehicle", vehicleID, "err", err.Error())
+		return
+	}
+	m.storeFeatures(rctx, fs, all)
+	if all[vehicleID][FeatureConnectivityParallax] != used[FeatureConnectivityParallax] {
+		m.logger.Warn("supported features changed since the cached map this start used; applies at the next start",
+			"vehicle", vehicleID, "was", used[FeatureConnectivityParallax], "now", all[vehicleID][FeatureConnectivityParallax])
+	}
+}
+
+func (m *StateMonitor) storeFeatures(ctx context.Context, fs FeaturesStore, all map[string]map[string]string) {
+	if fs == nil {
+		return
+	}
+	for vid, feats := range all {
+		pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		if err := fs.PutFeatures(pctx, vid, feats, featuresTTL); err != nil {
+			m.logger.Debug("supported features cache write failed", "vehicle", vid, "err", err.Error())
+		}
+		cancel()
+	}
+}
