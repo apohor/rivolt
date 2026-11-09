@@ -8,6 +8,34 @@ import (
 	"github.com/apohor/rivolt/internal/fence"
 )
 
+type fakeUngroupedFencer struct {
+	fakeUserFencer
+	none bool
+	err  error
+}
+
+func (f fakeUngroupedFencer) UserUngrouped(context.Context, string) (bool, error) {
+	return f.none, f.err
+}
+
+// A user with no group has no owner, ever: their raise is marked Unowned so owner-only raises let it through. A group another pod holds, or an
+// answer that cannot be had, is not that: those stay refused.
+func TestReauthOwnerCtxUngroupedUser(t *testing.T) {
+	for name, tc := range map[string]struct {
+		f    userFencer
+		want bool
+	}{
+		"no group":             {fakeUngroupedFencer{fakeUserFencer{st: fence.Lost}, true, nil}, true},
+		"group held elsewhere": {fakeUngroupedFencer{fakeUserFencer{st: fence.Lost}, false, nil}, false},
+		"cannot be told":       {fakeUngroupedFencer{fakeUserFencer{st: fence.Lost}, true, errors.New("db down")}, false},
+		"we hold it":           {fakeUngroupedFencer{fakeUserFencer{tok: fence.Token{Group: "g"}, st: fence.Held}, true, nil}, false},
+	} {
+		if got := fence.IsUnowned(reauthOwnerCtx(context.Background(), tc.f, "u")); got != tc.want {
+			t.Errorf("%s: unowned %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
 type fakeUserFencer struct {
 	tok fence.Token
 	st  fence.State
@@ -40,5 +68,18 @@ func TestReauthOwnerCtx(t *testing.T) {
 	}
 	if reauthRefusedReason(fence.ErrFenced) != "fenced" || reauthRefusedReason(errors.New("x")) != "not_owner" {
 		t.Error("refusal reasons")
+	}
+}
+
+func TestReauthCarries(t *testing.T) {
+	bg := context.Background()
+	for want, ctx := range map[string]context.Context{
+		"token":   fence.With(bg, fence.Token{Group: "g"}),
+		"unowned": fence.Unowned(bg),
+		"none":    bg,
+	} {
+		if got := reauthCarries(ctx); got != want {
+			t.Errorf("reauthCarries = %q, want %q", got, want)
+		}
 	}
 }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const loadMapLibre = vi.fn();
@@ -10,11 +10,27 @@ vi.mock("../lib/config", () => ({
   tilesPMTilesURL: () => "/api/maps/tiles/us.pmtiles",
   tilesGlyphsURL: () => "",
   tilesDEM: () => ({ url: "", minZoom: 3, maxZoom: 10 }),
-  tilesRadar: () => ({ url: "", frameUrl: "", minZoom: 3, maxZoom: 9 }),
+  tilesRadar: () => radarCfg,
   valhallaBase: () => (globalThis as { __valhalla?: string }).__valhalla ?? "",
   bookingAffiliateID: () => "",
 }));
-vi.mock("../lib/poi", () => ({ findChargersAlongPath: () => Promise.resolve([]), HOTEL_FACILITY_TYPES: new Set<string>() }));
+const radarCfg = vi.hoisted(() => ({ url: "", frameUrl: "", minZoom: 3, maxZoom: 9 }));
+const findLayers = vi.hoisted(() => vi.fn());
+const findOfNetworks = vi.hoisted(() => vi.fn());
+vi.mock("../lib/poi", () => ({
+  findLayersAlongPath: findLayers,
+  findChargersOfNetworks: findOfNetworks,
+  HOTEL_FACILITY_TYPES: new Set<string>(),
+}));
+// The Trip planner settings the map starts from; a test sets `plannerPrefs` before it renders.
+const plannerState = vi.hoisted(() => ({
+  prefs: { drive_mode: "", corridor: "normal", start_exclude_mi: 25, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: false } as Record<string, unknown>,
+  settled: true,
+}));
+vi.mock("../lib/plannerPrefs", () => ({
+  usePlannerPrefs: () => plannerState,
+  layerFiltersOf: (p: { corridor: string; start_exclude_mi: number; min_fast_kw: number }) => ({ preset: p.corridor, start_exclude_mi: p.start_exclude_mi, min_fast_kw: p.min_fast_kw }),
+}));
 
 import { TripRouteMap } from "./TripRouteMap";
 import { tripCardText } from "./tripPure";
@@ -93,6 +109,10 @@ const route = { Waypoints: [wp(10, 10, "A"), wp(10.5, 10.5, "Stop"), wp(11, 11, 
 describe("TripRouteMap", () => {
   beforeEach(() => {
     FakeMarker.all = [];
+    findLayers.mockResolvedValue({ pois: [], total: 0 });
+    findOfNetworks.mockResolvedValue([]);
+    plannerState.settled = true;
+    plannerState.prefs = { drive_mode: "", corridor: "normal", start_exclude_mi: 25, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: false };
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     webgl.mockReturnValue(true);
     loadMapLibre.mockResolvedValue({ Map: FakeMap, Marker: FakeMarker, Popup: FakePopup, NavigationControl: FakeControl, AttributionControl: FakeControl });
@@ -100,6 +120,76 @@ describe("TripRouteMap", () => {
   afterEach(() => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("asks for the layers and filters the Trip planner settings chose, and not before they are in", async () => {
+    plannerState.settled = false;
+    plannerState.prefs = { ...plannerState.prefs, corridor: "wide", start_exclude_mi: 50, min_fast_kw: 150, layers_on: ["dcfc", "hotels"] };
+    const { rerender } = render(<TripRouteMap route={route} />);
+    await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+    expect(findLayers).not.toHaveBeenCalled(); // the settings are not in yet: no request with the defaults
+    plannerState.settled = true;
+    rerender(<TripRouteMap route={route} />);
+    await waitFor(() => expect(findLayers.mock.calls.some((c) => c[1].includes("dcfc"))).toBe(true));
+    const last = findLayers.mock.calls.find((c) => c[1].includes("dcfc"))!;
+    expect(last[1]).toEqual(["dcfc", "hotels"]);
+    expect(last[3]).toEqual({ preset: "wide", start_exclude_mi: 50, min_fast_kw: 150 });
+  });
+
+  it("asks to hide nothing near the start for a line that does not start at the trip origin", async () => {
+    plannerState.prefs = { ...plannerState.prefs, start_exclude_mi: 50 };
+    render(<TripRouteMap route={route} startsAtOrigin={false} dayLabel="Day 2" />);
+    await waitFor(() => expect(findLayers).toHaveBeenCalled());
+    expect(findLayers.mock.calls.find((c) => c[1].includes("dcfc"))?.[3]).toMatchObject({ start_exclude_mi: 0 });
+    findLayers.mockClear();
+    cleanup();
+    render(<TripRouteMap route={route} />);
+    await waitFor(() => expect(findLayers).toHaveBeenCalled());
+    expect(findLayers.mock.calls.find((c) => c[1].includes("dcfc"))?.[3]).toMatchObject({ start_exclude_mi: 50 });
+  });
+
+  it("offers Try again when the charger request fails, and asking again re-runs the same request", async () => {
+    findLayers.mockRejectedValueOnce(new Error("boom"));
+    render(<TripRouteMap route={route} />);
+    const retry = await screen.findByText("Try again");
+    const before = findLayers.mock.calls.filter((c) => c[1].includes("dcfc")).length;
+    findLayers.mockResolvedValue({ pois: [], total: 0 });
+    fireEvent.click(retry);
+    await waitFor(() => expect(findLayers.mock.calls.filter((c) => c[1].includes("dcfc")).length).toBe(before + 1));
+    await waitFor(() => expect(screen.queryByText("Try again")).toBeNull());
+  });
+
+  it("starts the radar as the Trip planner settings say, and only where the server has radar", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ frame_unix: 1_700_000_000 }) }) as unknown as Response));
+    try {
+      radarCfg.url = "/api/maps/radar/{z}/{x}/{y}.png";
+      radarCfg.frameUrl = "/api/maps/radar/frame";
+      plannerState.prefs = { ...plannerState.prefs, radar_on: true };
+      render(<TripRouteMap route={route} />);
+      const btn = await screen.findByRole("button", { name: "Radar" });
+      await waitFor(() => expect(btn.getAttribute("aria-pressed")).toBe("true"));
+      expect((await screen.findByText(/Radar as of/)).textContent).toMatch(/Radar as of/);
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+      cleanup();
+      // Settings say off: the button is there and not lit.
+      plannerState.prefs = { ...plannerState.prefs, radar_on: false };
+      render(<TripRouteMap route={route} />);
+      const off = await screen.findByRole("button", { name: "Radar" });
+      expect(off.getAttribute("aria-pressed")).toBe("false");
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+      cleanup();
+      // No radar on the server: no button, whatever the setting.
+      radarCfg.url = "";
+      plannerState.prefs = { ...plannerState.prefs, radar_on: true };
+      render(<TripRouteMap route={route} />);
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+      expect(screen.queryByRole("button", { name: "Radar" })).toBeNull();
+    } finally {
+      cleanup();
+      radarCfg.url = "";
+      radarCfg.frameUrl = "";
+      vi.unstubAllGlobals();
+    }
   });
 
   it("says the map is unavailable without WebGL and never loads MapLibre", () => {

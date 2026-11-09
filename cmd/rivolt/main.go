@@ -57,6 +57,7 @@ import (
 	"github.com/apohor/rivolt/internal/entitlements"
 	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/fleetbucket"
 	"github.com/apohor/rivolt/internal/geocoding"
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/identity"
@@ -78,6 +79,7 @@ import (
 	"github.com/apohor/rivolt/internal/plugreminder"
 	"github.com/apohor/rivolt/internal/push"
 	"github.com/apohor/rivolt/internal/r2arrival"
+	"github.com/apohor/rivolt/internal/radar"
 	"github.com/apohor/rivolt/internal/ratelimit"
 	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/retention"
@@ -99,6 +101,7 @@ import (
 	"github.com/apohor/rivolt/internal/vehiclediscovery"
 	"github.com/apohor/rivolt/internal/weather"
 	"github.com/apohor/rivolt/internal/web"
+	"github.com/apohor/rivolt/internal/webcarry"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
@@ -532,6 +535,7 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	registerMigrateMetrics(appMetrics)
 	var planElevation api.ElevationBlocking // the recorder's DEM resolver when ELEVATION_ENABLED=1: the plan reads the climb along each leg from it
 	weatherClient, werr := newWeatherClient(os.Getenv, appMetrics)
 	if werr != nil {
@@ -1130,10 +1134,12 @@ func runServer() {
 						logger.Info("rivian reauth raise deferred: session version unknown", "user_id", boundUID.String())
 						return
 					}
+					appMetrics.ReauthRaiseAttempts.WithLabelValues(reauthCarries(sinkCtx)).Inc()
 					transitioned, err = db.RaiseNeedsReauthIfCurrent(sinkCtx, pgPool, boundUID, reason, loaded)
 				} else {
 					// No account sync (no secrets store): there is no stored session to be
 					// stale against.
+					appMetrics.ReauthRaiseAttempts.WithLabelValues(reauthCarries(sinkCtx)).Inc()
 					transitioned, err = db.RaiseNeedsReauth(sinkCtx, pgPool, boundUID, reason)
 				}
 				if errors.Is(err, db.ErrNotOwner) || errors.Is(err, fence.ErrFenced) {
@@ -1300,6 +1306,15 @@ func runServer() {
 			logger,
 		)
 		monitorRegistry.SetParent(ctx)
+		// Takeover pacing (zero-impact deploys, G7): the first dial of a session, the capability probe and the REST seed of a start take a slot
+		// from a per-process bucket and a fleet-wide per-second budget in Redis, active vehicles first. Off unless RIVOLT_TAKEOVER_LIMIT=1.
+		if os.Getenv("RIVOLT_TAKEOVER_LIMIT") == "1" {
+			monitorRegistry.SetTakeoverLimiter(fleetbucket.New(fleetbucket.Config{
+				LocalRPS: envInt("RIVOLT_TAKEOVER_LOCAL_RPS", 0), FleetRPS: envInt("RIVOLT_TAKEOVER_FLEET_RPS", 0),
+				Redis: sharedRedis, Prefix: redisKeyPrefix,
+			}))
+			logger.Info("takeover pacing enabled")
+		}
 		// Lead mode: until the lease store is installed as the fence (SetFence, after the boot hydrate sweep below), every group
 		// reads as Lost, not Off, so a monitor the sweep started cannot write or call Rivian unfenced in that window.
 		monitorRegistry.RequireFence(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
@@ -2126,6 +2141,11 @@ func runServer() {
 			monitorRegistry.Unsubscribe,
 			logger,
 		)
+		// A pod that gives groups up bumps a Redis counter its peers read every second, so they take them now instead of at their next tick (zero-impact deploys, G1a).
+		// The tick stays the fallback; RIVOLT_RELEASE_SIGNAL=0 turns the signal off.
+		if sharedRedis != nil && os.Getenv("RIVOLT_RELEASE_SIGNAL") != "0" {
+			coord.SetReleaseSignal(leases.NewRedisSignal(sharedRedis, redisKeyPrefix))
+		}
 		// Lead mode asked for but the store would not lead: refuse to start rather than run the old mode while believing otherwise.
 		if err := coord.CheckLeadMode(os.Getenv("RIVOLT_GROUP_LEAD") == "1"); err != nil {
 			logger.Error("lease coordinator", "err", err.Error())
@@ -2169,6 +2189,14 @@ func runServer() {
 				coord.TriggerReconcile()
 			})
 		}
+		monitorRegistry.SetRolloutObserver(func(event, kind, source string) {
+			switch event {
+			case rivian.RolloutRehydrate:
+				appMetrics.SessionRehydrateTotal.WithLabelValues(kind, source).Inc()
+			case rivian.RolloutSplit:
+				appMetrics.SessionSplitTotal.WithLabelValues(kind).Inc()
+			}
+		})
 		monitorRegistry.SetScheduleObserver(func(outcome string) { appMetrics.RivianScheduleReadTotal.WithLabelValues(outcome).Inc() })
 		coord.SetFrameObserver(monitorRegistry.FirstFrameAt, func(seconds float64, active bool) {
 			state := "idle"
@@ -2177,6 +2205,17 @@ func runServer() {
 			}
 			appMetrics.LeaseAcquireToFrame.WithLabelValues(state).Observe(seconds)
 		})
+		coord.SetHandoffObserver(monitorRegistry.SessionKind,
+			func(reason string, wait time.Duration, hasWait bool) {
+				appMetrics.RolloutHandoffsTotal.WithLabelValues(reason).Inc()
+				if hasWait {
+					appMetrics.HandoffWaitSeconds.Observe(wait.Seconds())
+				}
+			},
+			func(seconds float64, state string) {
+				appMetrics.HandoffGapSeconds.WithLabelValues(state).Observe(seconds)
+			})
+		coord.SetStopObserver(appMetrics.HandoffStopSeconds.Observe)
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and
@@ -2210,6 +2249,7 @@ func runServer() {
 		go watchDrain(drainSigs, func() {
 			dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer dcancel()
+			api.StartDrain() // /readyz fails from the start of the drain
 			coord.MarkDraining(dctx)
 			fwdRT.setDraining() // requesters stop forwarding here; what is already queued still gets answered
 			logger.Info("draining: no new leases will be taken")
@@ -2220,6 +2260,8 @@ func runServer() {
 	if webFS == nil {
 		logger.Warn("embedded web bundle missing; SPA routes will 404 until `make web` is run")
 	}
+	// The assets of other builds, so a roll does not 404 the chunks of the version a browser started on (scripts/web-carry.sh fills it).
+	webFS = installWebCarry(webFS, envOr("RIVOLT_WEB_CARRY_DIR", webcarry.DefaultCarryDir), appMetrics, logger)
 
 	// Auth wiring. Rivolt has three issuers: OIDC sign-in (the
 	// default for any real deployment), a trusted-upstream-proxy
@@ -2781,6 +2823,18 @@ func runServer() {
 		logger.Info("terrain tile same-origin proxy enabled", "upstream", os.Getenv("RIVOLT_DEM_BASE_URL"))
 	}
 
+	// Live weather radar (RIVOLT_RADAR=1, off by default): NOAA/NWS MRMS base reflectivity, fetched and cached by this server so no browser or phone
+	// calls NOAA. RIVOLT_RADAR_UPSTREAM overrides the GeoServer (default https://opengeo.ncep.noaa.gov/geoserver).
+	var radarHandler http.Handler
+	if os.Getenv("RIVOLT_RADAR") == "1" {
+		rcfg := radar.Config{BaseURL: strings.TrimSpace(os.Getenv("RIVOLT_RADAR_UPSTREAM")), Prefix: redisKeyPrefix}
+		if sharedRedis != nil {
+			rcfg.Redis = sharedRedis
+		}
+		radarHandler = radar.New(rcfg).Handler()
+		logger.Info("radar tile proxy enabled", "upstream", firstNonEmpty(rcfg.BaseURL, radar.DefaultBaseURL))
+	}
+
 	// Photon geocoder. RIVOLT_PHOTON_BASE_URL points at the
 	// in-cluster Service (e.g. http://photon.photon.svc.cluster.local).
 	// Empty disables; /api/geocode then falls through to Open-Meteo
@@ -3133,7 +3187,10 @@ func runServer() {
 			Backoff: vehiclediscovery.NewRedisBackoff(sharedRedis, redisKeyPrefix, api.FailLimiterKey(cookieSecret)),
 		})
 	}
+	appBuild := api.NewAppBuildCounter()
+	appMetrics.Registry().MustRegister(appBuild.Collector())
 	handler := api.New(api.Deps{
+		AppBuild:              appBuild,
 		StateForward:          stateForward,
 		GroupOfVehicle:        groupOfVehicle,
 		ForwardReplayTest:     forwardReplayTestOn,
@@ -3217,6 +3274,7 @@ func runServer() {
 		Valhalla:         maps.NewValhalla(os.Getenv("RIVOLT_VALHALLA_BASE_URL")), // the server calls it itself (overnight search); nil without the URL
 		TilesProxy:       tilesProxy,
 		DEMProxy:         demProxy,
+		Radar:            radarHandler,
 		ChargersArchive:  chargersArchive,
 		Photon:           photonClient,
 		GeocodeOpenMeteo: rivian.ParseBoolEnv(os.Getenv("RIVOLT_GEOCODE_OPEN_METEO")),
@@ -3300,12 +3358,15 @@ func runServer() {
 	signal.Notify(second, syscall.SIGINT, syscall.SIGTERM)
 	go exitOnSecondSignal(second, os.Exit, logger)
 
+	api.StartDrain() // /readyz fails from here (the preStop hook did it already when it ran)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpDrainTimeout)
 	defer cancel()
-	// Release leases BEFORE the HTTP server shuts down so peers
-	// can pick the vehicles up while we're still draining
-	// in-flight requests. ReleaseAll uses a short bounded context;
+	// The HTTP server stops listening and drains its in-flight requests (up to httpDrainTimeout, so a 30 s trip plan finishes) alongside
+	// the lease release below, not after it: the vehicles are handed to a peer while we are still answering the requests already in hand.
+	// ReleaseAll uses a short bounded context;
 	// a Postgres blip just delays acquisition until the TTL.
+	httpDone := make(chan error, 1)
+	go func() { httpDone <- srv.Shutdown(shutdownCtx) }()
 	// Write the drives and charges the 10 s throttle left behind first, so the
 	// peer that takes the vehicles over finds current rows.
 	if monitorRegistry != nil {
@@ -3324,7 +3385,7 @@ func runServer() {
 		leaseCoordinator.Shutdown(lctx)
 		lcancel()
 	}
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	if err := <-httpDone; err != nil {
 		logger.Warn("shutdown error", "err", err.Error())
 	}
 	// Let the detached work (re-auth email, close hooks, vehicle-info writes) finish

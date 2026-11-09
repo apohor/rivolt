@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/apohor/rivolt/internal/adminonly"
@@ -14,6 +15,7 @@ import (
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/iosapp"
 	"github.com/apohor/rivolt/internal/maps"
+	"github.com/apohor/rivolt/internal/radar"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/signupgate"
 )
@@ -32,6 +34,13 @@ func handleHealthz() http.HandlerFunc {
 	}
 }
 
+// draining is set when this pod starts to shut down (the chart's preStop hook, or SIGTERM): /readyz fails from then on, so the pod is out
+// of the Service's endpoints whether or not the kubelet has already marked it Terminating.
+var draining atomic.Bool
+
+// StartDrain makes /readyz answer 503 from now on. Idempotent.
+func StartDrain() { draining.Store(true) }
+
 // handleReadyz is the kubelet readiness endpoint. Pings Postgres
 // with a 500ms timeout — every request touches it, so a pod with no
 // DB cannot meaningfully serve. Failing here pulls the pod from the
@@ -44,6 +53,12 @@ func handleHealthz() http.HandlerFunc {
 // dependencies.
 func handleReadyz(pool *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if draining.Load() {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("draining\n"))
+			return
+		}
 		if pool == nil {
 			// No DB wired (single-tenant docker-compose UX). Treat
 			// as ready — the binary works without persistence.
@@ -121,6 +136,8 @@ func handleHealth(version string) http.HandlerFunc {
 type configExtras struct {
 	// DEM: the terrain tile route is mounted (RIVOLT_DEM_BASE_URL).
 	DEM bool
+	// Radar: the radar routes are mounted (RIVOLT_RADAR).
+	Radar bool
 }
 
 func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager, extras ...configExtras) http.HandlerFunc {
@@ -150,6 +167,13 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		GlyphsURL  string `json:"glyphs_url,omitempty"`
 		DEMMinZoom int    `json:"dem_minzoom,omitempty"`
 		DEMMaxZoom int    `json:"dem_maxzoom,omitempty"`
+		// RadarURL is the same-origin radar tile template ({z}/{x}/{y}) and RadarFrameURL the endpoint that names the newest frame (and the recent
+		// ones); both empty when radar is off, and the clients then hide the radar control. A client asks tiles only for RadarMinZoom..RadarMaxZoom,
+		// appends ?t=<frame_unix> to the template, and shows "Radar as of" from the frame (also in the X-Radar-Frame header of every answer).
+		RadarURL      string `json:"radar_url,omitempty"`
+		RadarFrameURL string `json:"radar_frame_url,omitempty"`
+		RadarMinZoom  int    `json:"radar_minzoom,omitempty"`
+		RadarMaxZoom  int    `json:"radar_maxzoom,omitempty"`
 	}
 	type aiCfg struct {
 		// Enabled is true when the install has at least one
@@ -268,6 +292,11 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	if ex.DEM {
 		base.Tiles.DEMURL = "/api/maps/dem/{z}/{x}/{y}.png"
 		base.Tiles.DEMMinZoom, base.Tiles.DEMMaxZoom = maps.DEMClientMinZoom, maps.DEMClientMaxZoom
+	}
+	if ex.Radar {
+		base.Tiles.RadarURL = "/api/maps/radar/{z}/{x}/{y}.png"
+		base.Tiles.RadarFrameURL = "/api/maps/radar/frame"
+		base.Tiles.RadarMinZoom, base.Tiles.RadarMaxZoom = radar.ClientMinZoom, radar.ClientMaxZoom
 	}
 	base.AI.Enabled = aiEnabled
 	base.Features.EventsEnabled = eventsEnabled()

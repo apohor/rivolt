@@ -42,9 +42,7 @@ actor APIClient {
 
         self.decoder = JSON.decoder()
 
-        let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        self.encoder = encoder
+        self.encoder = JSON.requestEncoder()
     }
 
     /// Called when the server answers 403 `terms_required`: the person has to accept the updated Terms on the web.
@@ -62,7 +60,7 @@ actor APIClient {
         try await request("GET", "/api/app/config", authenticated: false)
     }
 
-    private struct AppTokenBody: Encodable {
+    struct AppTokenBody: Encodable {
         let code: String
         let codeVerifier: String
         let deviceName: String
@@ -572,6 +570,16 @@ actor APIClient {
         try await request("POST", "/api/trips/what-if", body: body)
     }
 
+    /// The server's runtime config (public): which optional map services it has mounted.
+    func mapsConfig() async throws -> MapsConfig {
+        try await request("GET", "/api/config", authenticated: false)
+    }
+
+    /// The newest radar frame and the recent ones (a 404 means this server has no radar; a 503 that its feed is down).
+    func radarFrame() async throws -> RadarFrame {
+        try await request("GET", "/api/maps/radar/frame")
+    }
+
     func corridorLayers(_ body: CorridorLayersRequest) async throws -> CorridorLayers {
         try await request("POST", "/api/maps/corridor-layers", body: body)
     }
@@ -667,6 +675,11 @@ actor APIClient {
         try await request("GET", "/api/vehicles")
     }
 
+    /// What the server knows about finding the vehicles of a linked Rivian account. A server without the feature answers 404.
+    func vehicleDiscovery() async throws -> VehicleDiscovery {
+        try await request("GET", "/api/vehicles/discovery")
+    }
+
     func vehicleState(id: String) async throws -> VehicleState {
         // Path components with slashes aren't expected here (Rivian
         // vehicle IDs are UUIDs), but addingPercentEncoding is cheap
@@ -736,6 +749,9 @@ actor APIClient {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Which build of the app this is (the number only, nothing about the device or the person): the server counts requests by build, so it can tell
+        // which builds are still in use before it changes what an old one depends on.
+        if AppBuild.number > 0 { req.setValue(String(AppBuild.number), forHTTPHeaderField: AppBuild.header) }
         if authenticated, let token = try tokens.token(for: baseURL) {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"strconv"
 
 	"github.com/apohor/rivolt/internal/fence"
 )
@@ -10,6 +12,11 @@ import (
 // userFencer answers for a user's group (fence.Holder satisfies it).
 type userFencer interface {
 	FenceUser(ctx context.Context, uid string) (fence.Token, fence.State, error)
+}
+
+// ungroupedFencer tells whether a user has no group at all (fence.Holder satisfies it).
+type ungroupedFencer interface {
+	UserUngrouped(ctx context.Context, uid string) (bool, error)
 }
 
 // reauthOwnerCtx is the context a needs_reauth raise runs under (single-owner M4-3). When this pod holds the user's group (Held, or Warming: the
@@ -27,7 +34,27 @@ func reauthOwnerCtx(ctx context.Context, f userFencer, uid string) context.Conte
 	if st == fence.Held || st == fence.Warming {
 		return fence.With(ctx, tok)
 	}
+	// A user with no vehicle row has no group and so no owner, ever (the discovery job is who sees their dead session): their rejection is the
+	// only one there will be, so it may raise. The raise is still guarded by the session version and the rising-edge update.
+	if st == fence.Lost {
+		if g, ok := f.(ungroupedFencer); ok {
+			if none, err := g.UserUngrouped(ctx, uid); err == nil && none {
+				return fence.Unowned(ctx)
+			}
+		}
+	}
 	return ctx
+}
+
+// reauthCarries is the label of rivolt_reauth_raise_attempts_total: what the raise's context carries.
+func reauthCarries(ctx context.Context) string {
+	if _, ok := fence.From(ctx); ok {
+		return "token"
+	}
+	if fence.IsUnowned(ctx) {
+		return "unowned"
+	}
+	return "none"
 }
 
 // reauthRefusedReason is the label of rivolt_reauth_raise_refused_total for a raise that was refused.
@@ -36,4 +63,12 @@ func reauthRefusedReason(err error) string {
 		return "fenced"
 	}
 	return "not_owner"
+}
+
+// envInt reads a non-negative integer setting; unset or invalid is def (0 lets the callee use its own default).
+func envInt(name string, def int) int {
+	if n, err := strconv.Atoi(os.Getenv(name)); err == nil && n > 0 {
+		return n
+	}
+	return def
 }

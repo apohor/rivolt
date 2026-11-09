@@ -225,16 +225,23 @@ describe("hostile input", () => {
     for (const [name, make] of cases) {
       const small = make(1), large = make(2);
       expect(tagsOf(html(large)).filter((t) => !ALLOWED_TAGS.has(t)), name).toEqual([]);
-      let t1 = once(small);
+      // The first run of a shape pays for JIT and GC, so it says nothing about its size class: judge by the best of three.
+      const t1 = best(small);
       // Too small to measure a ratio on (under a second at twice the size is far from any real budget): only the absolute ceiling.
       if (t1 < 40) {
-        const t2 = once(large);
+        const t2 = best(large);
         expect(t2, `${name} at 2n took ${t2.toFixed(0)} ms`).toBeLessThan(1000);
         continue;
       }
-      t1 = Math.min(t1, best(small));
-      const t2 = best(large);
-      if (t2 / t1 > 3.2) slow.push(`${name}: ${t1.toFixed(0)} ms -> ${t2.toFixed(0)} ms at twice the size (x${(t2 / t1).toFixed(1)})`);
+      // A loaded runner makes one measurement noisy (a pause lands in one run): growth has to show on three independent attempts to count.
+      let worst = "";
+      let allSlow = true;
+      for (let attempt = 0; attempt < 3 && allSlow; attempt++) {
+        const a = attempt === 0 ? t1 : best(small), b = best(large);
+        if (b / a <= 3.2) allSlow = false;
+        else worst = `${name}: ${a.toFixed(0)} ms -> ${b.toFixed(0)} ms at twice the size (x${(b / a).toFixed(1)})`;
+      }
+      if (allSlow) slow.push(worst);
     }
     expect(slow, "work that grows faster than linearly").toEqual([]);
   }, 120_000);

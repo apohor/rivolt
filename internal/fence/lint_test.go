@@ -126,6 +126,7 @@ var notOwnerSide = map[string]string{
 	"leases.Store.Renew":           "lease protocol (epoch CAS)",
 	"db.VehicleResolver.Resolve":   "identity row only (user, Rivian id; ON CONFLICT changes nothing), no vehicle state; the guarded write that follows is what the lease decides",
 	"db.run":                       "migrations at server start",
+	"db.runNoTx":                   "migration runner, no-transaction form: one CREATE INDEX CONCURRENTLY and the migrations bookkeeping row, under the migration lock; no owner rows (db TestNoTxDirectiveAndStatementCheck refuses any other statement)",
 	"weather.Cache.Put":            "derived cache of public weather data; idempotent; no user-visible effect if a zombie writes it",
 	"weather.Cache.PutSeries":      "derived cache of public weather data; idempotent; no user-visible effect if a zombie writes it",
 	"cmd/rivolt.runReprice":        "operator CLI",
@@ -540,5 +541,44 @@ func TestOwnerPackagesDoNotPersistSessions(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// TestUnownedMarkerHasOneWriterAndOneReader keeps fence.Unowned from becoming a general bypass: it may be set only where the needs_reauth raise
+// for a user with no group is prepared, and read only by the raise's own owner check (and, to label a counter, by the sink that prepares it). A new caller needs DA's ack (and an edit here).
+func TestUnownedMarkerHasOneWriterAndOneReader(t *testing.T) {
+	// Each name maps to the files that may use it, with why. IsUnowned has a second reader that only labels a metric (DA ack, #1745).
+	allowed := map[string][]string{
+		"Unowned":   {"/cmd/rivolt/reauth_owner.go"},
+		"IsUnowned": {"/db/reauth.go", "/cmd/rivolt/reauth_owner.go" /* metric label only: reauth_raise_attempts carries=unowned */},
+	}
+	for _, f := range sources(t) {
+		if pkgKey(f) == "fence" {
+			continue // the definitions
+		}
+		af, err := parser.ParseFile(token.NewFileSet(), f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(af, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := sel.X.(*ast.Ident); ok && id.Name == "fence" {
+				if want, marked := allowed[sel.Sel.Name]; marked {
+					ok := false
+					for _, w := range want {
+						if strings.HasSuffix(filepath.ToSlash(f), w) {
+							ok = true
+						}
+					}
+					if !ok {
+						t.Errorf("%s uses fence.%s: only %v may (it is the needs_reauth raise for a user with no group; a new caller needs DA's ack)", f, sel.Sel.Name, want)
+					}
+				}
+			}
+			return true
+		})
 	}
 }

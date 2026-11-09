@@ -10,6 +10,7 @@ import { useAIEnabled } from "../lib/config";
 import { track } from "../lib/track";
 import { inDemo } from "../lib/demo";
 import { chargingStopCount, stopsBucket } from "./waypoints";
+import { DRAFT_EVENT, savePlannerDraft, takePlannerDraft, type PlannerDraft } from "./plannerDraft";
 import { DriveMode, Selection, collectInputs, totalsOf, haversineMeters, normalizeDriveMode, readLastTrip, relabelIfHome, writeLastTrip } from "./plannerHelpers";
 
 // usePlanner: the planner's state, queries, mutations and handlers, so TripPlanPage is layout.
@@ -179,6 +180,20 @@ export function usePlanner() {
     favoritesMutation.mutate(next);
   };
 
+  // asset-guard is about to reload this tab (a JS chunk went missing in a deploy): keep the form across it (plannerDraft.ts). The latest
+  // values are read through a ref so the listener is added once.
+  const draftRef = useRef<PlannerDraft | null>(null);
+  draftRef.current = { origin, destination, extraStops, overnightFlags, overnightOpts, maxOvernightSoCPct, overnightDepartureLocal, overnightL2Kw, targetSoc, startingSoc, driveMode, hasAdapter, departureAt, routePrefs };
+  useEffect(() => {
+    const save = () => {
+      if (draftRef.current) savePlannerDraft(draftRef.current);
+    };
+    window.addEventListener(DRAFT_EVENT, save);
+    return () => window.removeEventListener(DRAFT_EVENT, save);
+  }, []);
+  // A draft taken back on this load: its drive mode and adapter are the person's choices, so the saved prefs below must not overwrite them.
+  const draftRestoredRef = useRef(false);
+
   // Hydrate from the last successful plan on mount. Runs before the
   // current-position prefill below so a saved trip wins; the user
   // can clear / change any field from there. Skipped silently when
@@ -190,8 +205,27 @@ export function usePlanner() {
   useEffect(() => {
     if (lastTripApplied) return;
     if (homeQuery.isLoading) return;
-    const last = readLastTrip();
+    const draft = takePlannerDraft();
     setLastTripApplied(true);
+    if (draft) {
+      draftRestoredRef.current = true;
+      setOrigin(draft.origin ? relabelIfHome(draft.origin, home) : null);
+      setDestination(draft.destination ? relabelIfHome(draft.destination, home) : null);
+      setExtraStops(draft.extraStops.map((s) => relabelIfHome(s, home)));
+      setOvernightFlags(draft.overnightFlags);
+      setOvernightOpts(draft.overnightOpts ?? {});
+      setMaxOvernightSoCPct(draft.maxOvernightSoCPct);
+      setOvernightDepartureLocal(draft.overnightDepartureLocal);
+      setOvernightL2Kw(draft.overnightL2Kw);
+      setTargetSoc(draft.targetSoc);
+      setStartingSoc(draft.startingSoc ?? "");
+      setDriveMode(normalizeDriveMode(draft.driveMode));
+      setHasAdapter(!!draft.hasAdapter);
+      setDepartureAt(draft.departureAt ?? "");
+      setRoutePrefs({ ...noRoutePrefs, ...draft.routePrefs });
+      return;
+    }
+    const last = readLastTrip();
     if (!last) return;
     setOrigin(relabelIfHome(last.origin, home));
     setDestination(relabelIfHome(last.destination, home));
@@ -239,10 +273,10 @@ export function usePlanner() {
   useEffect(() => {
     if (prefsApplied) return;
     if (!prefsQuery.data) return;
-    if (prefsQuery.data.drive_mode) {
+    if (prefsQuery.data.drive_mode && !draftRestoredRef.current) {
       setDriveMode(normalizeDriveMode(prefsQuery.data.drive_mode));
     }
-    if (typeof prefsQuery.data.has_adapter === "boolean") {
+    if (typeof prefsQuery.data.has_adapter === "boolean" && !draftRestoredRef.current) {
       setHasAdapter(prefsQuery.data.has_adapter);
     }
     setPrefsApplied(true);

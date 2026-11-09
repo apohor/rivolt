@@ -70,4 +70,13 @@ struct MembershipTermsResponse: Decodable, Equatable {
 struct PlannerPrefs: Codable, Equatable {
     var driveMode: String
     var hasAdapter: Bool?
+    // The Trip planner page's settings. A server that does not know them sends none (nil), and they are then left out of a save; one that does
+    // sends every one, and a save sends every one back (a PUT that leaves the older two out clears them).
+    var corridor: String? = nil
+    var startExcludeMi: Int? = nil
+    var minFastKw: Int? = nil
+    var layersOn: [String]? = nil
+    var preferredOnly: Bool? = nil
+    var weatherOn: Bool? = nil
+    var radarOn: Bool? = nil
 }

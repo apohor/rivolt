@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "generated_at": "2026-10-23T15:00:00Z",
+  "state": "more",
+  "this_week": {
+    "days": 7,
+    "sleeps": 30,
+    "failed_sleeps": 9
+  },
+  "baseline_days": 30,
+  "usual_failed_sleeps": 5,
+  "more_by": 4
+}

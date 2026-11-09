@@ -22,26 +22,36 @@ struct DetentSheet<Header: View, Content: View>: View {
     let container: CGFloat
     /// Whether the content scrolls (false renders it flat, for a snapshot).
     var scrolls = true
+    /// What the header needs (see `height`), measured here and told to the owner, which passes it back as `floor`.
+    var floor: CGFloat = 0
+    /// Large text: the header is only a title and the rest is in the content, so the content scrolls at every height, not only fully open.
+    var scrollsAtEveryDetent = false
+    var onHeaderNeed: (CGFloat) -> Void = { _ in }
     @ViewBuilder var header: () -> Header
     @ViewBuilder var content: () -> Content
 
     @GestureState private var drag: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    static func height(_ d: SheetDetent, in container: CGFloat) -> CGFloat {
+    /// `floor` is the height the sheet's own header needs (the handle, the title, the summary, Edit, the day chips): at large text sizes it is more
+    /// than a resting height, and what lies below the fold is out of reach while the content does not scroll. A resting height is never less than
+    /// the header, up to 65 % of the container (then the header itself is what is cut).
+    static func height(_ d: SheetDetent, in container: CGFloat, floor: CGFloat = 0) -> CGFloat {
+        let own: CGFloat
         switch d {
-        case .peek: return min(150, container * 0.3)
-        case .half: return container * 0.46
+        case .peek: own = min(150, container * 0.3)
+        case .half: own = container * 0.46
         case .full: return container - 8
         }
+        return max(own, min(floor, container * 0.65))
     }
 
     /// The detent a released drag settles on: the nearest height to where the drag was heading (the release point plus a share of its velocity).
     /// `raised` is how far up the drag went (negative: down); `velocity` the upward speed at release (points per second).
-    static func settle(from: SheetDetent, raised: CGFloat, velocity: CGFloat, container: CGFloat) -> SheetDetent {
-        let start = height(from, in: container)
+    static func settle(from: SheetDetent, raised: CGFloat, velocity: CGFloat, container: CGFloat, floor: CGFloat = 0) -> SheetDetent {
+        let start = height(from, in: container, floor: floor)
         let aimed = start + raised + velocity * 0.12
-        return SheetDetent.allCases.min { abs(height($0, in: container) - aimed) < abs(height($1, in: container) - aimed) } ?? from
+        return SheetDetent.allCases.min { abs(height($0, in: container, floor: floor) - aimed) < abs(height($1, in: container, floor: floor) - aimed) } ?? from
     }
 
     private func move(_ d: SheetDetent) {
@@ -50,7 +60,7 @@ struct DetentSheet<Header: View, Content: View>: View {
 
     var body: some View {
         let full = Self.height(.full, in: container)
-        let shown = min(full, max(Self.height(.peek, in: container) * 0.8, Self.height(detent, in: container) + drag))
+        let shown = min(full, max(Self.height(.peek, in: container, floor: floor) * 0.8, Self.height(detent, in: container, floor: floor) + drag))
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 Button { move(detent == .full ? .half : .full) } label: {
@@ -71,19 +81,21 @@ struct DetentSheet<Header: View, Content: View>: View {
                 }
                 header().padding(.horizontal, 4 * Theme.unit).padding(.bottom, 8)
             }
+            .background(GeometryReader { g in Color.clear.preference(key: HeaderNeedKey.self, value: g.size.height + 1) })
+            .onPreferenceChange(HeaderNeedKey.self) { onHeaderNeed($0) }
             .contentShape(Rectangle())
             .gesture(dragGesture)
             Divider().overlay(Theme.border)
             Group {
                 if scrolls {
                     ScrollView { content().padding(.horizontal, 4 * Theme.unit).padding(.vertical, 3 * Theme.unit) }
-                        .scrollDisabled(detent != .full)
+                        .scrollDisabled(detent != .full && !scrollsAtEveryDetent)
                 } else {
                     content().padding(.horizontal, 4 * Theme.unit).padding(.vertical, 3 * Theme.unit)
                 }
             }
             // Below fully open a drag anywhere on the sheet moves it; fully open, the content scrolls.
-            .gesture(dragGesture, including: detent == .full ? .subviews : .all)
+            .gesture(dragGesture, including: detent == .full || scrollsAtEveryDetent ? .subviews : .all)
         }
         .frame(maxWidth: .infinity)
         .frame(height: shown, alignment: .top)
@@ -97,7 +109,12 @@ struct DetentSheet<Header: View, Content: View>: View {
         DragGesture(minimumDistance: 6)
             .updating($drag) { v, state, _ in state = -v.translation.height }
             .onEnded { v in
-                move(Self.settle(from: detent, raised: -v.translation.height, velocity: -(v.predictedEndTranslation.height - v.translation.height), container: container))
+                move(Self.settle(from: detent, raised: -v.translation.height, velocity: -(v.predictedEndTranslation.height - v.translation.height), container: container, floor: floor))
             }
     }
+}
+
+private struct HeaderNeedKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

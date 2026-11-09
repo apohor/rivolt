@@ -13,6 +13,7 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/fence"
+	"github.com/apohor/rivolt/internal/fleetbucket"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/settings"
 )
@@ -54,6 +55,7 @@ type MonitorRegistry struct {
 	started        bool // a monitor has been built: setters called after this reach only monitors built later
 	lateWirings    int
 	onScheduleRead func(outcome string)
+	onRollout      func(event, kind, source string)
 	// wanted are subscriptions EnsureSubscribed could not start because the owner has no monitor yet
 	// (vehicle -> owner); Start runs them when the owner's monitor comes up, so a lease acquired before
 	// the monitor does not wait for the next lease tick to stream. Guarded by mu.
@@ -79,6 +81,8 @@ type MonitorRegistry struct {
 	// stagger is shared by every monitor the registry creates: the whole
 	// process spaces its first WebSocket connects, not each user on their own.
 	stagger *Stagger
+	// takeoverLimiter paces the Rivian calls of a takeover (RIVOLT_TAKEOVER_LIMIT); nil: unpaced, as before.
+	takeoverLimiter *fleetbucket.Bucket
 
 	mu       sync.RWMutex
 	monitors map[uuid.UUID]*monitorEntry
@@ -424,8 +428,10 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		mon = NewSourceMonitor(src, vehicles, r.logger.With("user_id", uid.String()))
 	}
 	mon.SetStagger(r.stagger)
+	mon.SetTakeoverLimiter(r.takeoverLimiter)
 	mon.SetFence(registryFence{r}, r.fenced)
 	mon.SetScheduleObserver(r.scheduleObserver())
+	mon.SetRolloutObserver(r.rolloutObserver())
 	mon.SetStores(
 		r.samples.For(uid),
 		r.drives.For(uid),
@@ -680,6 +686,24 @@ func (r *MonitorRegistry) scheduleObserver() func(outcome string) {
 	}
 }
 
+// SetRolloutObserver wires the takeover counters into every monitor, those already running included (see SetScheduleObserver).
+func (r *MonitorRegistry) SetRolloutObserver(fn func(event, kind, source string)) {
+	r.mu.Lock()
+	r.onRollout = fn
+	r.mu.Unlock()
+}
+
+func (r *MonitorRegistry) rolloutObserver() func(event, kind, source string) {
+	return func(event, kind, source string) {
+		r.mu.Lock()
+		fn := r.onRollout
+		r.mu.Unlock()
+		if fn != nil {
+			fn(event, kind, source)
+		}
+	}
+}
+
 // want remembers a subscription that could not start yet (no monitor for its owner).
 func (r *MonitorRegistry) want(vehicleID string, uid uuid.UUID) {
 	r.mu.Lock()
@@ -791,6 +815,25 @@ func (r *MonitorRegistry) SessionActivity(rivianVehicleID string) (open, asleep 
 	return false, asleep
 }
 
+// SessionKind is the kind of open session ("drive", "charge") any monitor holds for the vehicle, or "". No database lookup.
+func (r *MonitorRegistry) SessionKind(rivianVehicleID string) string {
+	r.mu.RLock()
+	mons := make([]*StateMonitor, 0, len(r.monitors))
+	for _, e := range r.monitors {
+		mons = append(mons, e.monitor)
+	}
+	r.mu.RUnlock()
+	for _, m := range mons {
+		if m == nil {
+			continue
+		}
+		if k := m.SessionKind(rivianVehicleID); k != "" {
+			return k
+		}
+	}
+	return ""
+}
+
 // Unsubscribe tears the vehicle's subscription down on every monitor
 // that runs it, not only its current owner's. After an owner flip (users
 // sharing a VIN) the old owner's run is still the one streaming; routing
@@ -895,4 +938,12 @@ func composeDriveClose(hooks []DriveCloseHook) DriveCloseHook {
 			h(ctx, d)
 		}
 	}
+}
+
+// SetTakeoverLimiter wires the shared pacing of takeover calls (zero-impact deploys, G7); nil leaves them unpaced. Call before the first monitor.
+func (r *MonitorRegistry) SetTakeoverLimiter(b *fleetbucket.Bucket) {
+	r.mu.Lock()
+	r.wiring("SetTakeoverLimiter")
+	r.takeoverLimiter = b
+	r.mu.Unlock()
 }

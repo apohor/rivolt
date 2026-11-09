@@ -19,12 +19,16 @@ import (
 // produce the right apply order.
 //
 // Adding a new migration is "drop a .sql file in internal/db/migrations/
-// and rebuild". Nothing else to touch, except that one altering
-// vehicle_state sets a bounded lock_timeout first (see
-// migrate_locktimeout_test.go). Hitting that timeout fails the
+// and rebuild". Nothing else to touch, except that one touching an existing
+// table (ALTER, CREATE INDEX or TRIGGER, DROP, TRUNCATE; from 0109 on, any
+// table) sets a bounded lock_timeout first (migrate_lint_test.go, and
+// migrate_locktimeout_test.go for the hot tables). Hitting that timeout fails the
 // migration, so Open fails and the server exits at startup; the pod
 // restarts and retries. That is the intended trade: a delayed boot
 // instead of every vehicle_state insert queued behind the ALTER's lock.
+//
+// A migration whose first line is "-- migrate:no-transaction" runs outside a transaction, as one CREATE INDEX CONCURRENTLY IF NOT EXISTS
+// statement (migrate_notx.go).
 //
 //go:embed migrations/*.sql
 var migrationFS embed.FS
@@ -261,6 +265,9 @@ func loadApplied(ctx context.Context, db *sql.DB) (map[string]bool, error) {
 // pgx uses for `Exec`) runs them serially. A failure rolls everything
 // back and the migration will retry on the next boot.
 func run(ctx context.Context, db *sql.DB, m migration) error {
+	if isNoTx(m.sql) {
+		return runNoTx(ctx, db, m)
+	}
 	started := time.Now()
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {

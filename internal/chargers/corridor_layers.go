@@ -36,6 +36,13 @@ type LayerOptions struct {
 	// stations than Limit comes back as a set spread along the whole route (spreadAlongRoute), because a client that shows one capped page
 	// would otherwise show only the first stretch of a long route.
 	Paged bool
+	// KindKm, when set, replaces LayerKindKm as each kind's half-width (a CorridorPresets entry); ignored when CorridorKm is set.
+	KindKm map[string]float64
+	// MinAlongKm drops the chargers (fast and Level 2, not hotels or campgrounds) closer than this to the route's start, along the route. It is
+	// applied before paging, so Total and the pages agree.
+	MinAlongKm float64
+	// MinFastKW drops a station from the fast layer when its power is known and below this. Unknown power stays (as MinPowerKW does).
+	MinFastKW float64
 	// Accept, when set, keeps only stations it returns true for (applied before paging, so Total and the pages agree).
 	Accept func(POI) bool
 }
@@ -49,6 +56,19 @@ type LayerResult struct {
 	NextAfterKm *float64
 	AsOf        string
 	RouteKm     float64
+}
+
+// LayerKindKm is the default half-width of the corridor for each layer kind, used when the request names no corridor_km: a fast charger a
+// driver would detour for is within 5 miles of the route, a Level 2 within 3 (nobody drives further for slow charging), a hotel or a
+// campground within 10. The query runs once at the widest requested width and each station is then kept only within its own kind's width.
+var LayerKindKm = map[string]float64{"dcfc": 8, "l2": 4.8, "hotels": 16, "camp": 16}
+
+// CorridorPresets are the planner settings' "how far from the route" choices, as per-kind half-widths in km (the miles in the setting's labels:
+// close 2/1/5, normal 5/3/10, wide 10/5/20 for fast / Level 2 / hotels and campgrounds). Normal is LayerKindKm, so no preset set means no change.
+var CorridorPresets = map[string]map[string]float64{
+	"close":  {"dcfc": 3.2, "l2": 1.6, "hotels": 8, "camp": 8},
+	"normal": LayerKindKm,
+	"wide":   {"dcfc": 16, "l2": 8, "hotels": 32, "camp": 32},
 }
 
 func round3(v float64) float64 { return math.Round(v*1000) / 1000 }
@@ -78,6 +98,19 @@ func (a *Archive) QueryLayers(path [][2]float64, kinds []string, opts LayerOptio
 	if limit > MaxLayerLimit {
 		limit = MaxLayerLimit
 	}
+	// No corridor_km: every kind has its own width (LayerKindKm), and the scan runs at the widest of the kinds asked for.
+	perKind := opts.CorridorKm <= 0
+	kindKm := LayerKindKm
+	if opts.KindKm != nil {
+		kindKm = opts.KindKm
+	}
+	if perKind {
+		for _, k := range want {
+			if w := kindKm[k]; w > opts.CorridorKm {
+				opts.CorridorKm = w
+			}
+		}
+	}
 	hits, proj, err := a.corridorHits(path, func(p POI) bool {
 		if opts.Accept != nil && !opts.Accept(p) {
 			return false
@@ -97,9 +130,19 @@ func (a *Archive) QueryLayers(path [][2]float64, kinds []string, opts LayerOptio
 	for _, h := range hits {
 		c := CorridorPOI{POI: h.POI, AlongKm: round3(h.alongM / 1000), OffKm: round3(h.offM / 1000)}
 		for _, k := range want {
-			if h.POI.matches(filters[k]) {
+			// Leaving home charged says nothing about a hotel or a campground, so the start exclusion is for chargers only.
+			if c.AlongKm < opts.MinAlongKm && (k == "dcfc" || k == "l2") {
+				continue
+			}
+			if k == "dcfc" && opts.MinFastKW > 0 && h.POI.MaxPowerKW > 0 && h.POI.MaxPowerKW < opts.MinFastKW {
+				continue
+			}
+			if h.POI.matches(filters[k]) && (!perKind || c.OffKm <= kindKm[k]) {
 				c.Kinds = append(c.Kinds, k)
 			}
+		}
+		if len(c.Kinds) == 0 {
+			continue // inside the scan's width but outside every kind it matches
 		}
 		if h.POI.AsOf > asof {
 			asof = h.POI.AsOf
@@ -250,11 +293,12 @@ func spreadAlongRoute(all []CorridorPOI, idx []int, limit int, routeKm float64, 
 		}
 		sort.SliceStable(ix, func(i, j int) bool {
 			a, c := all[ix[i]], all[ix[j]]
-			if byPower && a.MaxPowerKW != c.MaxPowerKW {
-				return a.MaxPowerKW > c.MaxPowerKW
-			}
+			// Nearest the route first: a site 18 miles off with 350 kW must not beat one on the highway with 150 kW. Power only breaks ties.
 			if a.OffKm != c.OffKm {
 				return a.OffKm < c.OffKm
+			}
+			if byPower && a.MaxPowerKW != c.MaxPowerKW {
+				return a.MaxPowerKW > c.MaxPowerKW
 			}
 			return a.AlongKm < c.AlongKm
 		})

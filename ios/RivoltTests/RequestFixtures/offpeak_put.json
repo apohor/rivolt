@@ -1,0 +1,11 @@
+{
+  "tz" : "America\/Los_Angeles",
+  "windows" : [
+    {
+      "days" : "all",
+      "end" : "06:00",
+      "rate" : 0.09,
+      "start" : "21:00"
+    }
+  ]
+}

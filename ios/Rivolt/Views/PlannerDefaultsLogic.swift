@@ -55,11 +55,13 @@ enum PlannerDefaultsForm {
         var adapter: Adapter
         var gas: String
         var mpg: String
+        /// The map settings; nil where the server does not have them.
+        var map: PlannerMapSettings?
     }
 
     static func draft(_ d: PlannerDefaults) -> Draft {
         Draft(driveMode: shownMode(d.driveMode), adapter: Adapter(d.hasAdapter),
-              gas: ChargingRatesForm.fieldText(d.gasPricePerGallon), mpg: ChargingRatesForm.fieldText(d.comparisonMpg))
+              gas: ChargingRatesForm.fieldText(d.gasPricePerGallon), mpg: ChargingRatesForm.fieldText(d.comparisonMpg), map: d.map)
     }
 
     enum FieldError: Error, Equatable {
@@ -89,12 +91,24 @@ enum PlannerDefaultsForm {
         return out
     }
 
-    /// The planner's own settings, only when they differ from what is saved. The mode and adapter go together (the server replaces both).
+    /// The planner's own settings, only when they differ from what is saved. The mode and adapter go together (the server replaces both), and where the
+    /// server has the map settings every one goes too: a save is the whole set, so none is ever left out and cleared.
     static func prefsPatch(_ d: Draft, saved: PlannerDefaults) -> PlannerPrefs? {
         let mode = d.driveMode
         let adapter = d.adapter.value
-        if mode == shownMode(saved.driveMode) && adapter == saved.hasAdapter { return nil }
-        return PlannerPrefs(driveMode: mode, hasAdapter: adapter)
+        if mode == shownMode(saved.driveMode) && adapter == saved.hasAdapter && d.map == saved.map { return nil }
+        var p = PlannerPrefs(driveMode: mode, hasAdapter: adapter)
+        if let m = d.map {
+            p.corridor = m.corridor
+            p.startExcludeMi = m.startExcludeMi
+            p.minFastKw = m.minFastKw
+            // In the server's own order, so the same choice is always the same list.
+            p.layersOn = PlannerSettingsCopy.layers.map(\.kind).filter { m.layersOn.contains($0) }
+            p.preferredOnly = m.preferredOnly
+            p.weatherOn = m.weatherOn
+            p.radarOn = m.radarOn
+        }
+        return p
     }
 
     /// The gas inputs, only the one(s) that changed.
@@ -106,4 +120,50 @@ enum PlannerDefaultsForm {
     }
 
     static func changed(_ d: Draft, saved: PlannerDefaults) -> Bool { prefsPatch(d, saved: saved) != nil || costsPatch(d, saved: saved) != nil }
+}
+
+
+/// The words of the Trip planner page: its groups, each setting and the one line under it, and the choices. One plain sentence under every setting; a
+/// setting that is off by default is worded as an invitation, never as if it were on.
+enum PlannerSettingsCopy {
+    static let chargersGroup = "Chargers on the map"
+    static let planningGroup = "Planning"
+    static let mapGroup = "Map"
+    static let costsGroup = "Costs"
+
+    struct Choice<Value: Hashable>: Identifiable {
+        let value: Value
+        let title: String
+        var id: Value { value }
+    }
+
+    static let corridorLabel = "Distance from your route"
+    static let corridors = [Choice(value: "close", title: "Close"), Choice(value: "normal", title: "Normal"), Choice(value: "wide", title: "Wide")]
+    /// Fast chargers: 2, 5 or 10 mi (3, 8 or 16 km).
+    static func corridorNote(metric: Bool) -> String {
+        "How far off the route a charger can be and still show. Fast chargers: about \(metric ? "3 km, 8 km or 16 km" : "2 mi, 5 mi or 10 mi")."
+    }
+
+    static let startLabel = "Hide chargers near the start"
+    static func startChoices(metric: Bool) -> [Choice<Int>] {
+        [Choice(value: 0, title: "Off"), Choice(value: 25, title: metric ? "First 40 km" : "First 25 mi"), Choice(value: 50, title: metric ? "First 80 km" : "First 50 mi")]
+    }
+    static let startNote = "Turn on to hide chargers in the first miles of the first day, if you usually start charged. Rivian's planned stops always show."
+
+    static let minFastLabel = "Smallest fast charger to show"
+    static let minFast = [Choice(value: 0, title: "Any"), Choice(value: 50, title: "50 kW"), Choice(value: 150, title: "150 kW"), Choice(value: 250, title: "250 kW")]
+    static let minFastNote = "Hides fast chargers rated below this. A charger with no listed power stays."
+
+    static let layersLabel = "Pins on when a route opens"
+    /// The server's layer kinds, with the charger-type words.
+    static let layers: [(kind: String, title: String)] = MapLayer.allCases.map { ($0.kind, $0.title) }
+    static let layersNote = "You can still switch them on and off on the map."
+
+    static let preferredLabel = "Only my preferred networks"
+    static let preferredNote = "Fast pins only from the networks you prefer. Choose them under Charging networks in Settings."
+
+    static let weatherLabel = "Weather on the route"
+    static let weatherNote = "The temperature and wind on each leg, on by default."
+    static let radarLabel = "Radar"
+    static let radarNote = "Live NOAA radar under the route. Shown only where this server has radar."
 }

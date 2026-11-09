@@ -139,6 +139,9 @@ type liveSessions struct {
 	// with no SoC gain is the stuck state still, not a new charge (its
 	// merged power sticks too, so it looks like one).
 	stuck *stuckCharge
+
+	// takeover tracks how this ownership's sessions came back after a takeover (rollout_obs.go); nil without a shared store, or once decided.
+	takeover *takeoverTrack
 }
 
 type stuckCharge struct {
@@ -155,6 +158,8 @@ type liveDrive struct {
 	rejected   bool
 	rejectedAt time.Time
 	final      bool
+	// resumedFromDB: the drive was continued from its stored row at a takeover (resumeOpenDrive), not from the Redis snapshot.
+	resumedFromDB bool
 	// touch throttles the periodic in-session re-upsert (touchLiveDrive).
 	touch      touchGate
 	trim       *sessionTrim
@@ -533,6 +538,7 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// still run on the next lifecycle pass and will drop
 		// rehydrated state that's clearly out of date.
 		sess = m.maybeRehydrate(vehicleID, curr)
+		m.beginTakeover(vehicleID, sess)
 		m.sessions[vehicleID] = sess
 	}
 
@@ -556,11 +562,13 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// raw frame.
 		lc := sess.lifecycleView(curr, m)
 		sess.applyMutualExclusion(lc, m, wctx)
+		driveBefore, chargeBefore := sess.drive, sess.charge
 
 		// Handle session lifecycle so the sample row carries the
 		// right drive_number / charge_number for this frame.
 		driveNum = sess.handleDriveLifecycle(lc, prev, m, wctx)
 		chargeNum = sess.handleChargeLifecycle(lc, prev, m, wctx)
+		m.noteTakeover(vehicleID, sess, driveBefore, chargeBefore)
 
 		// Snapshot the post-lifecycle accumulator while we still
 		// hold sessMu; the actual Redis write happens after unlock
@@ -906,6 +914,7 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 				"vehicle", curr.VehicleID,
 				"id", s.drive.id,
 				"gap", gap.Round(time.Second))
+			s.drive.final = true // closed for good: no longer an open drive anyone may resume
 			m.upsertLiveDrive(ctx, curr.VehicleID, s.drive)
 			m.noteLocationUnavailable(curr.VehicleID, s.drive)
 			s.drive = nil
@@ -933,6 +942,15 @@ func (s *liveSessions) handleDriveLifecycle(curr, prev *State, m *StateMonitor, 
 				// folds this frame into the resumed accumulator and
 				// re-upserts the row.
 			}
+		}
+	}
+	// A takeover without the Redis snapshot (evicted, Redis restarted, older than the stale gap) finds the drive in the database instead of
+	// opening a second row for the same trip (zero-impact deploys, G2a). Charges have always done this (resumeOpenCharge).
+	if driving && s.drive == nil && m.driveDBResume {
+		if resumed := m.resumeOpenDrive(ctx, curr); resumed != nil {
+			s.driveCounter++
+			resumed.number = s.driveCounter
+			s.drive = resumed
 		}
 	}
 	if driving && s.drive == nil {
@@ -1759,6 +1777,8 @@ func (m *StateMonitor) liveDriveRow(vehicleID string, d *liveDrive) drives.Drive
 		Trailer:         d.trailer.result(d.endAt),
 		// Whether the drive moved without the truck reporting where it was; the live row sets and clears it (drives.Upsert).
 		LocationUnavailable: d.locationUnavailable(),
+		// Open until the closing upsert: what a pod that takes the vehicle over without the Redis snapshot finds (resumeOpenDrive).
+		Open: !d.final,
 	}
 	trimDrive(&row, d.trim, m.PackKWhFor(vehicleID))
 	return row
@@ -2642,4 +2662,72 @@ func shapeValid(shape [][2]float64) bool {
 		}
 	}
 	return true
+}
+
+// driveResumeMaxMilesPerMin bounds how far the odometer may have moved, per minute since the row was last written, for a driving frame to be
+// the same trip: 90 mph. A truck that was parked and left again does not match (the odometer is where the row ended).
+const driveResumeMaxMilesPerMin = 1.5
+
+// resumeOpenDrive looks for the vehicle's live drive that the previous owner left open and continues it when this driving frame is plausibly the
+// same trip: written within liveDriveMaxGap, the odometer moved no more than a truck could in that time (and did not go back), the row's
+// vehicle and user are this monitor's. nil starts a new drive, as before. Any lookup problem is also nil: the worst case is the old behaviour.
+func (m *StateMonitor) resumeOpenDrive(ctx context.Context, curr *State) *liveDrive {
+	if m.drivesStore == nil || curr == nil {
+		return nil
+	}
+	rctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	row, err := m.drivesStore.LatestOpenLive(rctx, curr.VehicleID)
+	if err != nil {
+		m.logger.Debug("drive resume lookup failed", "vehicle", curr.VehicleID, "err", err.Error())
+		return nil
+	}
+	if row == nil {
+		return nil
+	}
+	gap := curr.At.Sub(row.EndedAt)
+	if gap < 0 || gap > liveDriveMaxGap {
+		m.logger.Info("not resuming an open drive row: its last write is outside the stale gap",
+			"vehicle", curr.VehicleID, "id", row.ID, "gap", gap.Round(time.Second))
+		return nil
+	}
+	if odoNow := curr.OdometerKm * kmToMi; odoNow > 0 && row.EndOdometerMi > 0 {
+		moved := odoNow - row.EndOdometerMi
+		if moved < -driveReopenMaxMi || moved > 0.5+driveResumeMaxMilesPerMin*gap.Minutes() {
+			m.logger.Info("not resuming an open drive row: the odometer does not fit the same trip",
+				"vehicle", curr.VehicleID, "id", row.ID, "moved_mi", moved)
+			return nil
+		}
+	}
+	d := liveDriveFromRow(row)
+	m.logger.Info("resumed open drive from DB", "vehicle", curr.VehicleID, "id", row.ID,
+		"started_at", row.StartedAt, "gap", gap.Round(time.Second).String(), "path_points", len(d.path))
+	return d
+}
+
+// liveDriveFromRow rebuilds the in-memory drive from its stored row. The speed average continues from the stored value, weighted as one sample
+// per minute of the drive (the row does not keep the sample count); the trailer reading and fix bookkeeping start fresh.
+func liveDriveFromRow(row *drives.Drive) *liveDrive {
+	n := int(row.EndedAt.Sub(row.StartedAt).Minutes())
+	if n < 1 {
+		n = 1
+	}
+	return &liveDrive{
+		resumedFromDB: true,
+		id:            row.ID,
+		startedAt:     row.StartedAt,
+		startSoC:      row.StartSoCPct,
+		startOdoMi:    row.StartOdometerMi,
+		startLat:      row.StartLat,
+		startLon:      row.StartLon,
+		maxSpeed:      row.MaxSpeedMph,
+		sumSpeed:      row.AvgSpeedMph * float64(n),
+		speedN:        n,
+		endAt:         row.EndedAt,
+		endSoC:        row.EndSoCPct,
+		endOdoMi:      row.EndOdometerMi,
+		endLat:        row.EndLat,
+		endLon:        row.EndLon,
+		path:          drives.DecodeRoute(row.RoutePolyline),
+	}
 }

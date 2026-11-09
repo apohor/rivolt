@@ -524,3 +524,51 @@ func TestLead_CoordinatorFeedsTheStoreSoTheOwnerIsHeld(t *testing.T) {
 		t.Errorf("subscriptions started for vehicles that were not yet Held: %v", acquiredNotHeld)
 	}
 }
+
+// How a group came free is remembered for the hand-off measurement: a released group carries the release time and a reason (rebalance
+// with no peer draining, drain with one), a crashed holder's group is "expired" with no time, and a first acquire is no hand-off.
+func TestLead_PriorOfAGroupTakenFromARelease(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedSessionGroups(ctx, t, pool, 1)
+	a, b := leadStore(t, pool, "pod-a"), leadStore(t, pool, "pod-b")
+	ra := pass(ctx, t, a)
+	var group string
+	for g := range ra.Held {
+		group = g
+	}
+	vg := map[string]string{"veh-sp-00": group}
+	a.SetVehicleGroups(vg)
+	if _, ok := a.TakePrior("veh-sp-00"); ok {
+		t.Fatal("a first acquire is not a hand-off")
+	}
+
+	if err := a.ReleaseGroup(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond) // the group sits free for a moment: the wait
+	if r := pass(ctx, t, b); len(r.Held) != 1 {
+		t.Fatalf("b held %d", len(r.Held))
+	}
+	b.SetVehicleGroups(vg)
+	p, ok := b.TakePrior("veh-sp-00")
+	if !ok || p.Reason != leases.ReasonRebalance || !p.HasWait || p.Wait < time.Second || p.Wait > time.Minute {
+		t.Fatalf("prior %+v ok=%v, want a rebalance with a wait of about a second and a half", p, ok)
+	}
+	if _, again := b.TakePrior("veh-sp-00"); again {
+		t.Error("a prior is handed out once")
+	}
+
+	// b crashes: a takes the expired row with a reason and no release time.
+	if _, err := pool.ExecContext(ctx, `UPDATE account_leases SET expires_at = now() - interval '1 second', renewed_at = now() - interval '31 seconds'`); err != nil {
+		t.Fatal(err)
+	}
+	if r := pass(ctx, t, a); len(r.Held) != 1 {
+		t.Fatalf("a held %d", len(r.Held))
+	}
+	a.SetVehicleGroups(vg)
+	p, ok = a.TakePrior("veh-sp-00")
+	if !ok || p.Reason != leases.ReasonExpired || p.HasWait {
+		t.Fatalf("prior %+v ok=%v, want expired with no release time", p, ok)
+	}
+}
