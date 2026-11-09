@@ -292,6 +292,11 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 		cctx, cancelClimb := withClimbBudget(r.Context())
 		addLegClimb(cctx, resp.WeatherAdjustment, resp.TripPlan)
 		cancelClimb()
+		if !farFuture {
+			rctx, cancelRadar := withRadarBudget(r.Context())
+			addLegRadar(rctx, resp.WeatherAdjustment, resp.TripPlan)
+			cancelRadar()
+		}
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
@@ -350,6 +355,9 @@ type tripWeatherAdjLegDTO struct {
 	// (addLegClimb). Absent when there is no line or no DEM. They do not change any energy figure.
 	ClimbM   *float64 `json:"climb_m,omitempty"`
 	DescentM *float64 `json:"descent_m,omitempty"`
+	// Radar is the forecast radar along the leg at the times the truck is there (addLegRadar): rain or snow likely, or dry. Absent when the
+	// forecast cannot say (no radar, outside its coverage or horizon, a stale cycle). Absent is never "dry".
+	Radar *legRadarDTO `json:"radar,omitempty"`
 }
 
 // computeTripWeatherAdjustment runs FetchHourCached for each leg in

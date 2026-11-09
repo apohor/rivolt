@@ -411,6 +411,12 @@ indentation of a "template:" key two spaces in (its content at four), starting o
             - name: RIVOLT_WEATHER_BASE_URL
               value: {{ .weather.baseUrl | quote }}
             {{- end }}
+            {{- if and .radar .radar.baseUrl }}
+            # Forecast radar grids (NOAA RRFS, built in-cluster). The planner
+            # tags each leg rain, snow or dry at its arrival time; unset: no tags.
+            - name: RIVOLT_RADAR_BASE_URL
+              value: {{ .radar.baseUrl | quote }}
+            {{- end }}
             {{- if .tiles.baseUrl }}
             # Same-origin PMTiles proxy. When set, the rivolt API
             # mounts /api/maps/tiles/* and forwards to this URL,

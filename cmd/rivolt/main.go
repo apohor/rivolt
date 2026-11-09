@@ -537,6 +537,10 @@ func runServer() {
 	appMetrics := metrics.New()
 	registerMigrateMetrics(appMetrics)
 	var planElevation api.ElevationBlocking // the recorder's DEM resolver when ELEVATION_ENABLED=1: the plan reads the climb along each leg from it
+	planRadar, rerr := newPlanRadar(os.Getenv, appMetrics)
+	if rerr != nil {
+		logger.Error("radar", "err", rerr.Error())
+	}
 	weatherClient, werr := newWeatherClient(os.Getenv, appMetrics)
 	if werr != nil {
 		logger.Error("weather", "err", werr.Error())
@@ -3279,6 +3283,7 @@ func runServer() {
 		Photon:           photonClient,
 		GeocodeOpenMeteo: rivian.ParseBoolEnv(os.Getenv("RIVOLT_GEOCODE_OPEN_METEO")),
 		PlanElevation:    planElevation,
+		PlanRadar:        planRadar,
 		WeatherClient:    weatherClient,
 		WeatherCache:     weather.NewMemCache(15*time.Minute, 1024),
 		Hydra:            hydraClient,
