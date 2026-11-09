@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/apohor/rivolt/internal/drives"
 )
 
 // A drive's stored route must never hold a point that is not on the globe: it draws as two segments of thousands of kilometres, out and back,
@@ -158,3 +160,44 @@ type badShape struct{ kind string }
 func (badShape) Error() string       { return "valhalla: shape refused" }
 func (badShape) BadShape() bool      { return true }
 func (b badShape) ShapeKind() string { return b.kind }
+
+// The road between two owners of a vehicle is filled like any other gap. The new owner restores the drive from the snapshot (or the stored row), and
+// its first fix arrives a hand-off later: without the old owner's last fix time there was no gap to measure and the filler was never asked, so a
+// straight line was drawn across 30 to 60 seconds of driving (the dropouts found in prod after #1356).
+func TestFirstFixAfterAHandoffIsFilled(t *testing.T) {
+	t0 := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	from, to, mid := [2]float64{10.000, 10.000}, [2]float64{10.010, 10.010}, [2]float64{10.005, 10.004}
+	old := &liveSessions{drive: &liveDrive{id: "d1", startedAt: t0.Add(-time.Hour), path: [][2]float64{from}, lastFixAt: t0, endAt: t0}}
+	snap := old.snapshot()
+
+	// Through the snapshot (current format).
+	d := liveSessionsFromSnapshot(snap).drive
+	if !d.lastFixAt.Equal(t0) {
+		t.Fatalf("lastFixAt after the snapshot = %v, want %v", d.lastFixAt, t0)
+	}
+	f := &fakeFiller{shape: [][2]float64{from, mid, to}}
+	m := &StateMonitor{logger: slog.Default(), routeFiller: f}
+	m.appendDrivePath(context.Background(), "veh-1", d, to[0], to[1], t0.Add(40*time.Second))
+	if f.calls != 1 || len(d.path) != 3 || d.path[1] != mid {
+		t.Fatalf("filler calls %d, path %v: the hand-off gap was not filled", f.calls, d.path)
+	}
+
+	// A snapshot written before the field existed falls back to the last frame time.
+	snap.Drive.LastFixAt = time.Time{}
+	d = liveSessionsFromSnapshot(snap).drive
+	if !d.lastFixAt.Equal(t0) {
+		t.Errorf("lastFixAt from an older snapshot = %v, want the last frame time %v", d.lastFixAt, t0)
+	}
+
+	// A drive with no path yet has no gap to fill.
+	snap.Drive.Path = nil
+	if d = liveSessionsFromSnapshot(snap).drive; !d.lastFixAt.IsZero() {
+		t.Errorf("a drive with no points got lastFixAt %v", d.lastFixAt)
+	}
+
+	// The stored row (RIVOLT_DRIVE_DB_RESUME) the same way.
+	row := &drives.Drive{ID: "d1", StartedAt: t0.Add(-time.Hour), EndedAt: t0, RoutePolyline: encodePolyline([][2]float64{from, mid})}
+	if d = liveDriveFromRow(row); !d.lastFixAt.Equal(t0) {
+		t.Errorf("lastFixAt from a stored row = %v, want %v", d.lastFixAt, t0)
+	}
+}
