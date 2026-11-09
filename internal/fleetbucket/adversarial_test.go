@@ -159,25 +159,27 @@ func TestARedisErrorStopsTheNextCallsFromAskingForTheBackoff(t *testing.T) {
 	}
 }
 
-// Idle calls never take the active calls' room, but active and idle together can exceed FleetRPS: an active call does not read the idle counter.
-// This pins the arithmetic so a change is deliberate: with the budget 20, at most 20 active and 10 idle start in one second (30), not 20.
-func TestActiveAndIdleTogetherCanReachOneAndAHalfTimesTheBudget(t *testing.T) {
+// Active and idle together never pass FleetRPS (G7): with the budget 20, after 10 idle calls (their half) only 10 active ones fit in that second;
+// the next one waits for the following second.
+func TestActiveAndIdleTogetherStayWithinTheBudget(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
 	clk := newFakeClock()
 	b := New(Config{LocalRPS: 1000, FleetRPS: 20, Redis: rdb, Prefix: "t", Now: clk.Now, Sleep: clk.Sleep, ActiveMaxWait: time.Hour, IdleMaxWait: time.Hour})
-	// Idle first: they fill their half (10) and see 0 active.
 	for i := 0; i < 10; i++ {
 		b.Wait(context.Background(), "dial", "", false)
 	}
 	at := clk.Now().Unix()
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 10; i++ {
 		b.Wait(context.Background(), "dial", "", true)
 	}
 	if clk.Now().Unix() != at {
-		t.Fatalf("the 20 active calls spilled into the next second after 10 idle ones; they should have the whole budget")
+		t.Fatalf("10 active calls after 10 idle ones should still fit in the same second of a budget of 20")
 	}
-	// 30 calls started in one fleet second against a budget of 20.
+	b.Wait(context.Background(), "dial", "", true)
+	if clk.Now().Unix() == at {
+		t.Fatalf("the 21st call in one fleet second started inside it")
+	}
 }
 
 // A caller whose own bound has run out (a long local wait used it up) reaches the Redis call with no time left and gets DeadlineExceeded. That is
