@@ -10,6 +10,7 @@ vi.mock("../lib/config", () => ({
   tilesPMTilesURL: () => "/api/maps/tiles/us.pmtiles",
   tilesGlyphsURL: () => "",
   tilesDEM: () => ({ url: "", minZoom: 3, maxZoom: 10 }),
+  tilesRadar: () => ({ url: "", frameUrl: "", minZoom: 3, maxZoom: 9 }),
   valhallaBase: () => (globalThis as { __valhalla?: string }).__valhalla ?? "",
   bookingAffiliateID: () => "",
 }));

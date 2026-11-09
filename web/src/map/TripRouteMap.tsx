@@ -2,6 +2,7 @@
 // then Valhalla, else straight legs), markers for the origin (green), each charging stop (amber) and the destination (rose), and a
 // charger overlay along the route with add / preview popups. MapLibre loads as its own chunk when this mounts (loader.ts); without WebGL it
 // says the map is unavailable and the itinerary beside it stands.
+import { fetchRadarFrame, hideRadar, radarAsOf, radarEnabled, RADAR_REFRESH_MS, showRadar as addRadar } from "./radar";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { GeoJSONSource, Map as MLMap, Marker, Popup } from "maplibre-gl";
 import { inDemo } from "../lib/demo";
@@ -177,6 +178,37 @@ export function TripRouteMap({
     setWeatherNote(next ? "Weather on" : "Weather off");
     window.setTimeout(() => setWeatherNote(""), 1600);
   };
+  // Live radar: off by default, kept on this device, hidden entirely when the server has the radar flag off.
+  const radarOn = radarEnabled();
+  const [showRadar, setShowRadar] = useState(() => { try { return localStorage.getItem("rivolt.radarLayer") === "on"; } catch { return false; } });
+  const [radarLabel, setRadarLabel] = useState("");
+  const toggleRadar = () => {
+    const next = !showRadar;
+    setShowRadar(next);
+    try { localStorage.setItem("rivolt.radarLayer", next ? "on" : "off"); } catch { /* session only */ }
+  };
+  // Effect: while the radar button is on, draw the newest frame under the route and look for a newer one every few minutes.
+  useEffect(() => {
+    const map = mapReady;
+    if (!map || !radarOn || !showRadar) return;
+    let alive = true;
+    const ac = new AbortController();
+    const refresh = async () => {
+      const f = await fetchRadarFrame(ac.signal);
+      if (!alive) return;
+      if (!f) { // feed down or stale: show nothing rather than an old picture
+        hideRadar(map);
+        setRadarLabel("Radar unavailable");
+        return;
+      }
+      drawRadar(map, f.frameUnix);
+      setRadarLabel(radarAsOf(f.frameUnix));
+    };
+    const drawRadar = (m: MLMap, t: number) => { if (m.isStyleLoaded()) addRadar(m, t); else m.once("style.load", () => alive && addRadar(m, t)); };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), RADAR_REFRESH_MS);
+    return () => { alive = false; ac.abort(); window.clearInterval(timer); hideRadar(map); setRadarLabel(""); };
+  }, [mapReady, radarOn, showRadar]);
   // Effect: one weather badge per leg while the "Weather" chip is on. A tap on one opens that leg's details.
   useEffect(() => {
     const map = mapReady;
@@ -858,7 +890,7 @@ export function TripRouteMap({
           </>}
         </div>
       )}
-      {hasWeather && (
+      {(hasWeather || radarOn) && (
         // Map layers other than chargers sit under the zoom buttons, as the map apps do: the charger row stays one line.
         <div className={fill ? "absolute left-[11px] top-[78px] z-[500] flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
           <button
@@ -873,6 +905,32 @@ export function TripRouteMap({
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
           </button>
           <span role="status" className="rounded bg-neutral-950/85 px-1.5 py-0.5 text-xs text-neutral-200 empty:hidden">{weatherNote}</span>
+        </div>
+      )}
+      {radarOn && (
+        <div className={fill ? "absolute left-[11px] top-[118px] z-[500] flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
+          <button
+            type="button"
+            aria-label="Radar"
+            aria-pressed={showRadar}
+            onClick={toggleRadar}
+            data-radar-chip
+            title="Live weather radar (NOAA/NWS)"
+            className={`flex h-8 w-8 items-center justify-center rounded border ${showRadar ? "border-cyan-700 bg-cyan-800 text-cyan-100" : "border-neutral-700 bg-neutral-900/90 text-neutral-400 hover:text-neutral-200"}`}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12l6-6" /></svg>
+          </button>
+          {showRadar && radarLabel && (
+            <span role="status" data-radar-label className="flex items-center gap-1.5 rounded bg-neutral-950/85 px-1.5 py-0.5 text-xs text-neutral-200">
+              {radarLabel}
+              <span aria-label="Light, moderate, heavy precipitation" className="flex items-center gap-0.5 text-[10px] text-neutral-400">
+                <i style={{ background: "#4ade80" }} className="inline-block h-2 w-3 rounded-sm" />light
+                <i style={{ background: "#facc15" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />moderate
+                <i style={{ background: "#ef4444" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />heavy
+              </span>
+              <span className="text-[10px] text-neutral-500">NOAA/NWS</span>
+            </span>
+          )}
         </div>
       )}
       <div
