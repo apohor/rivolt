@@ -533,7 +533,7 @@ func runServer() {
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
 	var planElevation api.ElevationBlocking // the recorder's DEM resolver when ELEVATION_ENABLED=1: the plan reads the climb along each leg from it
-	planRadar, rerr := newPlanRadar(os.Getenv)
+	planRadar, rerr := newPlanRadar(os.Getenv, appMetrics)
 	if rerr != nil {
 		logger.Error("radar", "err", rerr.Error())
 	}
