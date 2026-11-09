@@ -741,6 +741,9 @@ actor APIClient {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        // Which build of the app this is (the number only, nothing about the device or the person): the server counts requests by build, so it can tell
+        // which builds are still in use before it changes what an old one depends on.
+        if AppBuild.number > 0 { req.setValue(String(AppBuild.number), forHTTPHeaderField: AppBuild.header) }
         if authenticated, let token = try tokens.token(for: baseURL) {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
