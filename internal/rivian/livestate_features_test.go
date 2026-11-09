@@ -47,7 +47,7 @@ func TestSupportedFeaturesAreSharedBetweenPods(t *testing.T) {
 	if err != nil || got[FeatureConnectivityParallax] != FeatureStatusAvailable || hitsA.Load() != 1 {
 		t.Fatalf("first pod: %v %v hits %d, want a probe", got, err, hitsA.Load())
 	}
-	if f, ok, _ := store.GetFeatures(context.Background(), "veh-b"); !ok || f[FeatureConnectivityParallax] != "UNAVAILABLE" {
+	if f, _, ok, _ := store.GetFeatures(context.Background(), "veh-b"); !ok || f[FeatureConnectivityParallax] != "UNAVAILABLE" {
 		t.Errorf("the other vehicle of the account was not stored: %v %v", f, ok)
 	}
 
@@ -60,12 +60,32 @@ func TestSupportedFeaturesAreSharedBetweenPods(t *testing.T) {
 	if d := time.Since(start); d > 200*time.Millisecond {
 		t.Errorf("the second pod waited %v for a map that was cached", d)
 	}
+	time.Sleep(300 * time.Millisecond)
+	if hitsB.Load() != 0 {
+		t.Errorf("a fresh cached map made %d Rivian calls, want none", hitsB.Load())
+	}
+
+	// An entry older than featuresRefreshAge is used at once and re-asked once in the background; the answer replaces it.
+	store.mu.Lock()
+	e := store.feats["veh-a"]
+	e.at = time.Now().Add(-featuresRefreshAge - time.Hour)
+	store.feats["veh-a"] = e
+	store.mu.Unlock()
+	var hitsOld atomic.Int32
+	old := featuresPod(t, &hitsOld, 400*time.Millisecond, store, true)
+	start = time.Now()
+	if got, err = old.supportedFeaturesFor(context.Background(), "veh-a"); err != nil || got[FeatureConnectivityParallax] != FeatureStatusAvailable {
+		t.Fatalf("old entry: %v %v", got, err)
+	}
+	if d := time.Since(start); d > 200*time.Millisecond {
+		t.Errorf("an old entry made the start wait %v", d)
+	}
 	deadline := time.Now().Add(3 * time.Second)
-	for hitsB.Load() == 0 && time.Now().Before(deadline) {
+	for hitsOld.Load() == 0 && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if hitsB.Load() != 1 {
-		t.Errorf("%d background refreshes, want 1", hitsB.Load())
+	if hitsOld.Load() != 1 {
+		t.Errorf("%d background refreshes of an old entry, want 1", hitsOld.Load())
 	}
 
 	var hitsC atomic.Int32
@@ -84,7 +104,7 @@ func TestSupportedFeaturesProbeFailureStoresNothing(t *testing.T) {
 	if _, err := m.supportedFeaturesFor(context.Background(), "veh-a"); err == nil {
 		t.Fatal("want an error")
 	}
-	if _, ok, _ := store.GetFeatures(context.Background(), "veh-a"); ok {
+	if _, _, ok, _ := store.GetFeatures(context.Background(), "veh-a"); ok {
 		t.Error("a failed probe left a map behind")
 	}
 }
@@ -97,15 +117,15 @@ func TestFeaturesRoundTripThroughRedisAndTheGate(t *testing.T) {
 	t.Cleanup(func() { _ = rdb.Close() })
 	store := NewGatedLiveStateStore(NewRedisLiveStateStore(rdb, "uid-1", "rivolt"), nil)
 	ctx := context.Background()
-	if _, ok, err := store.GetFeatures(ctx, "veh-a"); ok || err != nil {
+	if _, _, ok, err := store.GetFeatures(ctx, "veh-a"); ok || err != nil {
 		t.Fatalf("empty: %v %v", ok, err)
 	}
 	want := map[string]string{FeatureConnectivityParallax: FeatureStatusAvailable}
 	if err := store.PutFeatures(ctx, "veh-a", want, featuresTTL); err != nil {
 		t.Fatal(err)
 	}
-	got, ok, err := store.GetFeatures(ctx, "veh-a")
-	if err != nil || !ok || got[FeatureConnectivityParallax] != FeatureStatusAvailable {
+	got, at, ok, err := store.GetFeatures(ctx, "veh-a")
+	if err != nil || !ok || time.Since(at) > time.Minute || got[FeatureConnectivityParallax] != FeatureStatusAvailable {
 		t.Fatalf("round trip: %v %v %v", got, ok, err)
 	}
 	if ttl := mr.TTL("rivolt:livestate:uid-1:veh-a:features"); ttl <= 0 {
@@ -113,5 +133,33 @@ func TestFeaturesRoundTripThroughRedisAndTheGate(t *testing.T) {
 	}
 	if n, err := (&LiveStatePurger{Rdb: rdb, Prefix: "rivolt"}).PurgeNow(ctx, "uid-1"); err != nil || n != 1 {
 		t.Errorf("the account purge removed %d keys (%v), want the features key", n, err)
+	}
+}
+
+// A background refresh that fails keeps the stored map for the next start.
+func TestFailedFeaturesRefreshKeepsTheStoredMap(t *testing.T) {
+	store := newMemLiveStateStore()
+	_ = store.PutFeatures(context.Background(), "veh-a", map[string]string{FeatureConnectivityParallax: FeatureStatusAvailable}, featuresTTL)
+	store.mu.Lock()
+	e := store.feats["veh-a"]
+	e.at = time.Now().Add(-featuresRefreshAge - time.Hour)
+	store.feats["veh-a"] = e
+	store.mu.Unlock()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "boom", http.StatusBadGateway) }))
+	t.Cleanup(srv.Close)
+	c := NewLive()
+	c.userSessionToken = "u"
+	c.endpoint = srv.URL + "/gateway"
+	m := NewStateMonitor(c, slog.Default())
+	m.fastTakeover = true
+	m.SetLiveStateStore(store)
+	got, err := m.supportedFeaturesFor(context.Background(), "veh-a")
+	if err != nil || got[FeatureConnectivityParallax] != FeatureStatusAvailable {
+		t.Fatalf("%v %v", got, err)
+	}
+	time.Sleep(500 * time.Millisecond) // the background refresh has failed by now
+	f, at, ok, _ := store.GetFeatures(context.Background(), "veh-a")
+	if !ok || f[FeatureConnectivityParallax] != FeatureStatusAvailable || time.Since(at) < featuresRefreshAge {
+		t.Errorf("the stored map changed after a failed refresh: %v %v %v", f, at, ok)
 	}
 }

@@ -4446,20 +4446,22 @@ func (m *StateMonitor) clock() time.Time {
 func (m *StateMonitor) since(t time.Time) time.Duration { return m.clock().Sub(t) }
 
 // supportedFeaturesFor is the capability map the subscribe decision reads. With RIVOLT_FAST_TAKEOVER on and a store that keeps them, a map a peer
-// already probed is used at once and the Rivian call moves to the background (it also corrects the stored map); otherwise, or on a miss, it is
+// already probed is used at once, and re-asked in the background only when it is older than featuresRefreshAge; otherwise, or on a miss, it is
 // the call itself, as before, and its answer is stored for the next owner. One call answers for every vehicle on the account, so every
 // vehicle it names is stored.
 func (m *StateMonitor) supportedFeaturesFor(ctx context.Context, vehicleID string) (map[string]string, error) {
 	fs, _ := m.liveStateStore.(FeaturesStore)
 	if m.fastTakeover && fs != nil {
 		gctx, cancel := context.WithTimeout(ctx, time.Second)
-		cached, ok, err := fs.GetFeatures(gctx, vehicleID)
+		cached, readAt, ok, err := fs.GetFeatures(gctx, vehicleID)
 		cancel()
 		if err != nil {
 			m.logger.Debug("supported features cache read failed", "vehicle", vehicleID, "err", err.Error())
 		} else if ok {
-			go m.refreshFeatures(context.WithoutCancel(ctx), fs, vehicleID, cached)
-			m.logger.Info("supported features from the shared cache; refreshing in the background", "vehicle", vehicleID)
+			// A map Rivian was asked for within featuresRefreshAge makes no call at all: a roll must not be one call per vehicle.
+			if m.since(readAt) > featuresRefreshAge {
+				go m.refreshFeatures(context.WithoutCancel(ctx), fs, vehicleID, cached)
+			}
 			return cached, nil
 		}
 	}
