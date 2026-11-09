@@ -175,7 +175,7 @@ struct TripPlanResult: View {
         if case .planned = model.night {
             LongDriveSection(model: model, metric: metric, showsMap: showsMap, onlyDay: onlyDay)
         } else {
-            if showsMap { PlanRouteMap(route: route, onStop: { model.focusedStop = $0 }, focus: model.focusedStop, along: model.chargers, onLine: { model.roadLine = $0 }) }
+            if showsMap { PlanMap(content: .route(.init(route: route)), focus: model.focusedStop, onStop: { model.focusedStop = $0 }, along: model.chargers, onLine: { line, _ in model.roadLine = line }) }
             if showsMap, !state.isDemo { AlongToggle(model: model) }
             ThemeSection(title: "The plan") {
                 if let arrive = TripPlanLogic.arrival(route, timeZone: TripPlanLogic.zone(plan.destinationTz) ?? .current) {
@@ -359,7 +359,7 @@ struct MultidaySections: View {
     var onlyDay: Int?
 
     var body: some View {
-        if showsMap { PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { model.focusedStop = $0 }) }
+        if showsMap { PlanMap(content: .days(.init(days: trip.days)), focus: model.focusedStop, onStop: { model.focusedStop = $0 }) }
         let offsets = PlanRouteLogic.pinOffsets(trip.days)
         ForEach(Array(trip.days.enumerated()).filter { onlyDay == nil || $0.element.index == onlyDay }, id: \.element.id) { n, day in
             ThemeSection(title: "Day \(day.index)") {

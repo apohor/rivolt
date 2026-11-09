@@ -289,110 +289,128 @@ struct PlanMapCanvas: View {
     }
 }
 
-/// The plan's route: the line, the start and the destination, and a pin for each charging stop with its charge-to and minutes. A tap
-/// on a pin goes to that stop in the list. No location services.
-struct PlanRouteMap: View {
-    let route: TripRoute
-    let onStop: (Int) -> Void
-    /// A tap on a leg's weather label.
-    var onLegTag: ((RouteSnap.Drawing.LegTag) -> Void)?
-    /// The stop the person picked in the list, ringed on the map.
-    var focus: Int?
-    /// Fast chargers along the route, when the person asked to see them.
-    var along: [AlongCharger] = []
-    /// The road line once it is known (for finding a place to sleep along it).
-    var onLine: ([RouteSnap.Coord]) -> Void = { _ in }
-    var fills = false
-    var bottomInset: CGFloat = 0
-    var onLongPress: ((RouteSnap.Coord) -> Void)?
-    var onCenter: ((RouteSnap.Coord) -> Void)?
-    /// The person's own stops on this route (pins; the route passes through them).
-    var vias: [PlanVia] = []
-    /// The stops of a re-plan under way: our own roads line through them is drawn at once, until the planner's answer replaces it.
-    var pendingVias: [PlanVia]?
-    /// The what-if preview's line (the edited stretch).
-    var previewLine: [RouteSnap.Coord] = []
-    /// The weather on the plan's legs, drawn as labels while the Weather toggle is on (nil: none).
-    var weather: PlanRouteLogic.Weather?
-    /// The radar frame under the route, when the Radar button is on.
-    var radar: RadarLayer?
-
-    @Environment(AppState.self) private var state
-    @State private var drawing: RouteSnap.Drawing?
-    @State private var provisional: [RouteSnap.Coord]?
-
-    private var shown: RouteSnap.Drawing? {
-        guard let base = drawing else { return nil }
-        var d = PlanRouteLogic.overlaid(base, focus: focus, along: along, legTags: PlanRouteLogic.legTags(route: route, weather: weather, line: base.pieces.flatMap(\.coords)))
-        d.preview = previewLine.count >= 2 ? previewLine : nil
-        if let provisional, provisional.count >= 2 {
-            d.pieces = [RouteSnap.Piece(coords: provisional, speed: nil)]
-            d.start = provisional.first
-            d.end = provisional.last
-        }
-        return d
+/// A planned trip on our own map: one route, or both days of a two-day trip. One view with two modes, so what the map does for a plan (the ringed pin,
+/// the layer pins, the weather labels and their taps, the radar, the line the layers follow) is the same code for both.
+///  - `.route`: the line, the start and the destination, and a pin for each charging stop with its charge-to and minutes; the full-height map can also be edited (the person's own
+///    stops, the what-if preview's line, a long press to drop a pin, the crosshair to move a stop).
+///  - `.days`: each day's line, a pin for every charging stop and one for each night; the camera can frame one day.
+/// A tap on a pin goes to that stop in the list. No location services.
+struct PlanMap: View {
+    struct OneRoute {
+        var route: TripRoute
+        /// The weather on the plan's legs, drawn as labels while the Weather toggle is on (nil: none).
+        var weather: PlanRouteLogic.Weather?
+        /// The person's own stops on this route (pins; the route passes through them).
+        var vias: [PlanVia] = []
+        /// The stops of a re-plan under way: our own roads line through them is drawn at once, until the planner's answer replaces it.
+        var pendingVias: [PlanVia]?
+        /// The what-if preview's line (the edited stretch).
+        var previewLine: [RouteSnap.Coord] = []
     }
 
-    var body: some View {
-        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress, onCenter: onCenter)
-            .task(id: route) {
-                MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
-                // The straight legs show at once; the roads replace them when they arrive.
-                drawing = PlanRouteLogic.drawing(route: route, line: PlanRouteLogic.places(route), vias: vias)
-                let line = await PlanRouteLogic.line(route: route, source: state.client)
-                if !Task.isCancelled, let d = PlanRouteLogic.drawing(route: route, line: line, vias: vias) { drawing = d; onLine(line); provisional = nil }
-            }
-            // A stop just added or removed: our own roads line (Valhalla's route through the places with the new set) at once, while the planner works.
-            .task(id: pendingVias) {
-                guard let pendingVias else { provisional = nil; return }
-                let places = PlanRouteLogic.places(route, vias: pendingVias)
-                if let r = try? await state.client.valhallaRoute(PlanRouteLogic.routeRequest(places)), let out = PlanRouteLogic.roadLine(r) {
-                    if !Task.isCancelled, out.count > 1 { provisional = out }
-                }
-            }
+    struct Days {
+        var days: [TripMultiday.Day]
+        /// Frame only this day (1-based), or the whole trip when nil.
+        var day: Int?
+        /// The weather on each day's legs, drawn as labels while the Weather toggle is on.
+        var weatherOn = false
     }
-}
 
-/// Both days of a two-day trip, with a pin where each night is spent.
-struct PlanDaysMap: View {
-    let days: [TripMultiday.Day]
+    enum Content {
+        case route(OneRoute)
+        case days(Days)
+    }
+
+    /// What a new load of lines is for: the route, or the days (the person's stops and the weather are drawn from what is on show).
+    private enum Key: Equatable {
+        case route(TripRoute)
+        case days([TripMultiday.Day])
+    }
+
+    let content: Content
     var focus: Int?
     var onStop: ((Int) -> Void)?
-    /// The layer pins (chargers, hotels, campgrounds along the trip) the person asked to see.
-    var along: [AlongCharger] = []
-    /// Both days' road lines once they are known (what the layers are searched along).
-    var onLine: ([RouteSnap.Coord], Bool) -> Void = { _, _ in }
-    var radar: RadarLayer?
-    /// The weather on each day's legs, drawn as labels while the Weather toggle is on.
-    var weatherOn = false
-    /// A tap on a leg's label.
+    /// A tap on a leg's weather label.
     var onLegTag: ((RouteSnap.Drawing.LegTag) -> Void)?
+    /// The layer pins (chargers, hotels, campgrounds along the route) the person asked to see.
+    var along: [AlongCharger] = []
+    /// The road line the layers follow once it is known, and whether it starts at the trip's own origin (see `LayerSearch.startsAtOrigin`).
+    var onLine: ([RouteSnap.Coord], Bool) -> Void = { _, _ in }
+    /// The radar frame under the route, when the Radar button is on.
+    var radar: RadarLayer?
     var fills = false
     var bottomInset: CGFloat = 0
-    /// Frame only this day (1-based), or the whole trip when nil.
-    var day: Int?
+    /// Edit mode of the one-route map (never on the days map): a long press drops a pin, the middle of the map moves a stop.
+    var onLongPress: ((RouteSnap.Coord) -> Void)?
+    var onCenter: ((RouteSnap.Coord) -> Void)?
 
     @Environment(AppState.self) private var state
     @State private var drawing: RouteSnap.Drawing?
     @State private var lines: [[RouteSnap.Coord]] = []
+    @State private var provisional: [RouteSnap.Coord]?
 
+    private var key: Key {
+        switch content {
+        case .route(let r): return .route(r.route)
+        case .days(let d): return .days(d.days)
+        }
+    }
+
+    private var day: Int? { if case .days(let d) = content { return d.day } else { return nil } }
+
+    private var pendingVias: [PlanVia]? { if case .route(let r) = content { return r.pendingVias } else { return nil } }
+
+    private var shown: RouteSnap.Drawing? {
+        guard let base = drawing else { return nil }
+        switch content {
+        case .route(let r):
+            var d = PlanRouteLogic.overlaid(base, focus: focus, along: along, legTags: PlanRouteLogic.legTags(route: r.route, weather: r.weather, line: base.pieces.flatMap(\.coords)))
+            d.preview = r.previewLine.count >= 2 ? r.previewLine : nil
+            if let provisional, provisional.count >= 2 {
+                d.pieces = [RouteSnap.Piece(coords: provisional, speed: nil)]
+                d.start = provisional.first
+                d.end = provisional.last
+            }
+            return d
+        case .days(let d):
+            return PlanRouteLogic.daysShown(base, focus: focus, along: along, lines: lines, day: d.day, days: d.days, weatherOn: d.weatherOn)
+        }
+    }
+
+    /// The layers follow the line on show: the whole trip, or the day the person picked.
     private func reportLine() {
         guard !lines.isEmpty else { return }
         onLine(PlanRouteLogic.layerLine(lines: lines, day: day), PlanRouteLogic.layerLineStartsAtOrigin(day: day))
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: drawing.map { PlanRouteLogic.daysShown($0, focus: focus, along: along, lines: lines, day: day, days: days, weatherOn: weatherOn) }, radar: radar,
-                      onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset)
-            // The layers follow the line on show: the whole trip, or the day the person picked.
+        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress, onCenter: onCenter)
             .onChange(of: day) { reportLine() }
-            .task(id: days) {
-                MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
-                let routes = days.compactMap(\.plan.best)
-                drawing = PlanRouteLogic.drawing(days: days, lines: routes.map { PlanRouteLogic.places($0) })
-                var found: [[RouteSnap.Coord]] = []
-                for r in routes { found.append(await PlanRouteLogic.line(route: r, source: state.client)) }
-                if !Task.isCancelled, let d = PlanRouteLogic.drawing(days: days, lines: found) { drawing = d; lines = found; reportLine() }
+            .task(id: key) { await load() }
+            // A stop just added or removed: our own roads line (Valhalla's route through the places with the new set) at once, while the planner works.
+            .task(id: pendingVias) {
+                guard let pendingVias, case .route(let r) = content else { provisional = nil; return }
+                let places = PlanRouteLogic.places(r.route, vias: pendingVias)
+                if let resp = try? await state.client.valhallaRoute(PlanRouteLogic.routeRequest(places)), let out = PlanRouteLogic.roadLine(resp) {
+                    if !Task.isCancelled, out.count > 1 { provisional = out }
+                }
             }
+    }
+
+    /// The straight legs show at once; the roads replace them when they arrive.
+    private func load() async {
+        MapNetwork.prepare(server: state.mapServer, token: state.mapToken)
+        switch content {
+        case .route(let r):
+            drawing = PlanRouteLogic.drawing(route: r.route, line: PlanRouteLogic.places(r.route), vias: r.vias)
+            let line = await PlanRouteLogic.line(route: r.route, source: state.client)
+            if !Task.isCancelled, let d = PlanRouteLogic.drawing(route: r.route, line: line, vias: r.vias) { drawing = d; lines = [line]; provisional = nil; reportLine() }
+        case .days(let d):
+            let routes = d.days.compactMap(\.plan.best)
+            drawing = PlanRouteLogic.drawing(days: d.days, lines: routes.map { PlanRouteLogic.places($0) })
+            var found: [[RouteSnap.Coord]] = []
+            for r in routes { found.append(await PlanRouteLogic.line(route: r, source: state.client)) }
+            if !Task.isCancelled, let dr = PlanRouteLogic.drawing(days: d.days, lines: found) { drawing = dr; lines = found; reportLine() }
+        }
     }
 }
