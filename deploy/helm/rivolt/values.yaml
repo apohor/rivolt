@@ -55,6 +55,19 @@ updateStrategy:
     maxSurge: 1
     maxUnavailable: 0
 
+# -- Argo Rollouts (preview spike; off everywhere else). With rollout.enabled the chart renders a `kind: Rollout` with the SAME pod template instead of
+# the Deployment (the template is shared, so the two cannot drift), and the Deployment is not rendered. Needs the Argo Rollouts CRDs and
+# controller in the cluster. `strategy` is the Rollout's spec.strategy, passed through as it is (steps, stable/canary Services, trafficRouting,
+# analysis...); replicaCount sets spec.replicas. Switching an existing release from the Deployment to the Rollout without a gap: first give the
+# Deployment `deploymentAnnotations` argocd.argoproj.io/sync-options: PruneLast=true (and sync), then set rollout.enabled: true, so Argo
+# creates the Rollout, waits for it to be Healthy and only then prunes the Deployment (both run for a moment).
+rollout:
+  enabled: false
+  strategy: {}
+
+# -- Extra annotations on the Deployment (for example Argo CD sync options). Not used by the Rollout.
+deploymentAnnotations: {}
+
 # -- Graceful shutdown knobs.
 #
 # preStopSleepSeconds: how long the kubelet sleeps in the container's
@@ -154,6 +167,13 @@ metrics:
     # Disabled by default for environments without
     # kube-prometheus-stack installed. The rivolt-infra umbrella
     # turns this on for the rivolt cluster.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+  # -- A PodMonitor instead of the ServiceMonitor: it scrapes every pod the app labels select, whatever Services point at them, so a canary
+  # (or any pod behind a Service with other labels) always has series. Turn ONE of the two on, not both (every series would be doubled).
+  # The job label is the release name's value of app.kubernetes.io/instance, which is the job the ServiceMonitor gives (the Service name).
+  podMonitor:
     enabled: false
     interval: 30s
     scrapeTimeout: 10s

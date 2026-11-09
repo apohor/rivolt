@@ -278,6 +278,14 @@ enum RouteSnap {
         var fitTo: [Coord]?
         /// Fast chargers along the route the person asked to see, drawn small under the stops. A focus past the stops points here.
         var along: [Stop] = []
+        /// The weather on each leg of a planned route, as a label at the leg's middle (the web's leg badges).
+        var legTags: [LegTag] = []
+
+        struct LegTag: Equatable {
+            var coord: Coord
+            var text: String
+        }
+
         /// The line again as unbroken runs with a speed at each vertex, for the gradient (empty where there are no speeds, or on a plan).
         var runs: [Run] = []
 

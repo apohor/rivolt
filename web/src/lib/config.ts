@@ -41,6 +41,12 @@ export type RuntimeConfig = {
     demUrl: string;
     demMinZoom: number;
     demMaxZoom: number;
+    // radarUrl / radarFrameUrl: the same-origin live weather radar tile template and frame-list endpoint; empty when the server's
+    // RIVOLT_RADAR flag is off (the radar button is then hidden). radarMinZoom/radarMaxZoom are the zooms to ask for.
+    radarUrl: string;
+    radarFrameUrl: string;
+    radarMinZoom: number;
+    radarMaxZoom: number;
   };
   valhalla: {
     // path is the same-origin URL prefix to the Valhalla HTTP API,
@@ -125,7 +131,7 @@ export type RuntimeConfig = {
 
 const fallback: RuntimeConfig = {
   valhalla: { path: "" },
-  tiles: { url: "", chargersUrl: "", glyphsUrl: "", demUrl: "", demMinZoom: 3, demMaxZoom: 10 },
+  tiles: { url: "", chargersUrl: "", glyphsUrl: "", demUrl: "", demMinZoom: 3, demMaxZoom: 10, radarUrl: "", radarFrameUrl: "", radarMinZoom: 3, radarMaxZoom: 9 },
   ai: { enabled: false },
   features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false, demoOnly: false, adminOnly: false, appUrl: "", iosAppUrl: "" },
   grafana: { baseUrl: "" },
@@ -147,7 +153,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
     if (!r.ok) return fallback;
     const j = (await r.json()) as {
       valhalla?: { path?: string };
-      tiles?: { url?: string; chargers_url?: string; glyphs_url?: string; dem_url?: string; dem_minzoom?: number; dem_maxzoom?: number };
+      tiles?: { url?: string; chargers_url?: string; glyphs_url?: string; dem_url?: string; dem_minzoom?: number; dem_maxzoom?: number; radar_url?: string; radar_frame_url?: string; radar_minzoom?: number; radar_maxzoom?: number };
       ai?: { enabled?: boolean };
       features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; admin_only?: boolean; app_url?: string; ios_app_url?: string; rivian_actions?: boolean };
       grafana?: { base_url?: string };
@@ -164,6 +170,10 @@ async function loadConfig(): Promise<RuntimeConfig> {
         demUrl: j?.tiles?.dem_url ?? "",
         demMinZoom: typeof j?.tiles?.dem_minzoom === "number" ? j.tiles.dem_minzoom : 3,
         demMaxZoom: typeof j?.tiles?.dem_maxzoom === "number" ? j.tiles.dem_maxzoom : 10,
+        radarUrl: j?.tiles?.radar_url ?? "",
+        radarFrameUrl: j?.tiles?.radar_frame_url ?? "",
+        radarMinZoom: typeof j?.tiles?.radar_minzoom === "number" ? j.tiles.radar_minzoom : 3,
+        radarMaxZoom: typeof j?.tiles?.radar_maxzoom === "number" ? j.tiles.radar_maxzoom : 9,
       },
       ai: { enabled: !!j?.ai?.enabled },
       features: {
@@ -245,6 +255,12 @@ export function tilesGlyphsURL(): string {
 }
 export function tilesDEM(): { url: string; minZoom: number; maxZoom: number } {
   return { url: cached.tiles.demUrl, minZoom: cached.tiles.demMinZoom, maxZoom: cached.tiles.demMaxZoom };
+}
+
+// tilesRadar is the live radar layer's same-origin endpoints ("" urls when the server has RIVOLT_RADAR off).
+export function tilesRadar(): { url: string; frameUrl: string; minZoom: number; maxZoom: number } {
+  const t = cached.tiles;
+  return { url: t.radarUrl, frameUrl: t.radarFrameUrl, minZoom: t.radarMinZoom, maxZoom: t.radarMaxZoom };
 }
 
 // bookingAffiliateID returns the operator's Booking.com partner

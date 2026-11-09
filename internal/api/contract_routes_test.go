@@ -57,6 +57,8 @@ type clientCall struct {
 var ignoredClientCalls = map[string]string{
 	"swift GET /api": "WidgetFetch.request checks that a path the widget was handed starts with \"/api/\"; it is a prefix test, not a call",
 	"swift POST /api/billing/apple/transaction": "mounted only where StoreKit is configured (Deps.AppleIAPTransaction: RIVOLT_APPLE_IAP_BUNDLE_ID); the app sends it only when /api/app/config carries iap, which the server shows on the same condition",
+	"swift GET /api/vehicles/discovery":         "the owner-side vehicle discovery (RIVOLT_OWNER_DISCOVERY, #1722) is off by default and a server without it answers 404: the app then keeps its older wording. Drop this entry once the route is always mounted",
+	"web GET /api/vehicles/discovery":           "the same: a 404 where RIVOLT_OWNER_DISCOVERY is off keeps the older wording on the page",
 	"web GET /api/auth/hydra":                   "api.ts's 401 handler checks url.startsWith(\"/api/auth/hydra/\") to leave the signed-out Hydra sign-in alone; it is a prefix test, not a call",
 }
 

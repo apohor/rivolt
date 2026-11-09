@@ -15,3 +15,12 @@ The terrain dataset requires its sources to be credited **wherever the hillshade
   Protomaps credits are already there; the terrain one is separate and is not covered by them.
 - Elevation used for numbers (drive altitude, the Elevation colour mode) comes from the same dataset but draws no layer; its disclosure is the
   Privacy page's line about the self-hosted Terrarium copy.
+
+## Radar (live weather) and its credit
+
+`internal/radar` serves NOAA/NWS MRMS base reflectivity tiles at `/api/maps/radar/{z}/{x}/{y}.png` (and the frame time at
+`/api/maps/radar/frame`), behind `RIVOLT_RADAR=1` (off by default; `RIVOLT_RADAR_UPSTREAM` overrides the GeoServer). NWS content is public
+domain, free for any lawful purpose provided we do not claim it as our own, imply an endorsement or affiliation, or modify it and present it as
+official. So wherever radar is drawn the map credit says "Radar: NOAA/NWS" and the credits page says Rivolt is not endorsed by or affiliated with
+NOAA/NWS; the picture is NOAA's own colouring (we reproject, we do not recolour). Clients never call NOAA: this server does, with no user, viewport
+or account in the request, one fetch per tile per frame across replicas.

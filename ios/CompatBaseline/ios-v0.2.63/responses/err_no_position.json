@@ -1,0 +1,7 @@
+{
+  "body": {
+    "class": "no_position",
+    "error": "Your truck's position isn't available right now. Rivolt needs a recent reading from the truck to re-plan. Try again once it's awake."
+  },
+  "status": 409
+}

@@ -5,8 +5,8 @@
 set -euo pipefail
 app="${1:?path to Rivolt.app}"
 test -d "$app" || { echo "not a directory: $app" >&2; exit 2; }
-# The marker, and the names of the two launch variables: none of them is in a build without the hook.
-found=$(grep -rlE --binary-files=text "QA_SIGNIN_HOOK_MARKER|RIVOLT_QA_TOKEN|RIVOLT_QA_SERVER" "$app" 2>/dev/null || true)
+# The marker, the names of the launch variables, and the UI-test fixture server: none of them is in a build without them (Release).
+found=$(grep -rlE --binary-files=text "QA_SIGNIN_HOOK_MARKER|RIVOLT_QA_TOKEN|RIVOLT_QA_SERVER|RIVOLT_UITEST_FIXTURES|FixtureURLProtocol" "$app" 2>/dev/null || true)
 if [ "${2:-}" = "--expect-present" ]; then
   [ -n "$found" ] || { echo "the check cannot see the marker in a Debug build: it proves nothing" >&2; exit 1; }
   echo "ok: the marker is in the Debug build ($(echo "$found" | head -1 | xargs basename))"

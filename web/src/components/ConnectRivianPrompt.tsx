@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { backend } from "../lib/api";
+import { ApiError, backend } from "../lib/api";
+import { discoveryStateOf, discoveryView } from "../lib/vehicleDiscovery";
 import { useDemoEnabled } from "../lib/config";
 import { AuthorizedDriverNote, NO_VEHICLE_CAUSE, NO_VEHICLE_MAIN_ACCOUNT, RivianAccountPanel } from "./RivianAccountPanel";
 import { Card } from "./ui";
@@ -44,10 +46,49 @@ export default function ConnectRivianPrompt({
     queryFn: () => backend.listOwnedVehicles(),
     enabled: authenticated,
   });
-  if (status.isLoading || !status.data || !status.data.enabled) return null;
   const noVehicles =
     authenticated && !!owned.data && owned.data.vehicles.length === 0;
+  // With the server's discovery on, it says why there is no vehicle yet: looking, none, or Rivian needs a new sign-in (that one first). While it looks the
+  // page asks again every 30 s, and a vehicle that turns up takes the card away.
+  const discovery = useQuery({
+    queryKey: ["vehicles", "discovery"],
+    queryFn: () => backend.vehicleDiscovery(),
+    enabled: noVehicles,
+    retry: false,
+    refetchInterval: (q) => (discoveryStateOf(q.state.data, q.state.error instanceof ApiError ? q.state.error.status : undefined) === "looking" ? 30_000 : false),
+  });
+  const dstate = discoveryStateOf(discovery.data, discovery.error instanceof ApiError ? discovery.error.status : undefined);
+  const dview = noVehicles ? discoveryView(dstate) : null;
+  useEffect(() => {
+    if (dstate === "found") void owned.refetch();
+  }, [dstate]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (status.isLoading || !status.data || !status.data.enabled) return null;
   if (authenticated && !noVehicles) return null;
+  if (dview) {
+    return (
+      <Card>
+        <div data-discovery={dview.kind} className="flex flex-wrap items-center gap-4">
+          <div className="flex-1 min-w-[200px]">
+            <h2 className="text-base font-semibold text-neutral-100">{dview.title}</h2>
+            <p className="mt-1 text-sm text-neutral-400">{dview.body}</p>
+            {dview.kind === "none" && (
+              <p className="mt-1 text-sm text-neutral-400">
+                {NO_VEHICLE_CAUSE} <strong className="text-neutral-200">Check again</strong> in Settings. {NO_VEHICLE_MAIN_ACCOUNT}
+              </p>
+            )}
+          </div>
+          {dview.kind !== "looking" && (
+            <Link
+              to="/settings?tab=account#rivian"
+              className="shrink-0 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+            >
+              {dview.kind === "reauth" ? dview.action : "Open Rivian settings"}
+            </Link>
+          )}
+        </div>
+      </Card>
+    );
+  }
 
   const headline = noVehicles
     ? "Connected, but no vehicles found"
@@ -80,7 +121,7 @@ export default function ConnectRivianPrompt({
 
   return (
     <Card>
-      <div className="flex flex-wrap items-center gap-4">
+      <div data-discovery={noVehicles ? "legacy" : undefined} className="flex flex-wrap items-center gap-4">
         <div className="flex-1 min-w-[200px]">
           <h2 className="text-base font-semibold text-neutral-100">
             {headline}

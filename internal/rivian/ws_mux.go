@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -35,6 +36,9 @@ type wsMux struct {
 	// Write side — serialise all writes to the conn via writeMu.
 	writeMu sync.Mutex
 	conn    *websocket.Conn
+
+	// onClose hears how the connection ended (the close code, -1 for no close frame): the client counts it.
+	onClose func(code websocket.StatusCode, err error)
 
 	// Mutable state.
 	mu       sync.Mutex
@@ -119,6 +123,7 @@ func (c *LiveClient) acquireMux(ctx context.Context) (*wsMux, error) {
 	}
 	conn.SetReadLimit(1 << 20)
 	mux.conn = conn
+	mux.onClose = c.noteWSClose
 
 	initFrame := map[string]any{
 		"type": "connection_init",
@@ -300,6 +305,9 @@ func (m *wsMux) receive() {
 		_, data, err := m.conn.Read(readCtx)
 		cancel()
 		if err != nil {
+			if m.onClose != nil {
+				m.onClose(websocket.CloseStatus(err), err)
+			}
 			// Before ack, a read error ends up as the mux's terminal
 			// err; waitReady picks it up via doneCh and surfaces a
 			// descriptive message to the caller.
@@ -446,5 +454,39 @@ func (c *LiveClient) reportWS(ctx context.Context, err error) {
 	case errors.Is(err, context.Canceled) || ctx.Err() != nil:
 	default:
 		c.breaker.Observe(ClassTransient)
+	}
+}
+
+// wsCloseClass is the result class a WebSocket close code counts under (rivolt_rivian_results_total{op="ws_close"}). The Rivian app's own
+// handling (APK study, Nov 9): 4420 is the connection TTL (reopen at once, about every 3 minutes), 1013 "try again later" is the throttle on
+// connect (the app does not reopen), 4401 is unauthenticated (the app logs out), 4410 is "do not reopen". -1: no close frame (a dropped
+// connection or a read timeout).
+func wsCloseClass(code websocket.StatusCode) string {
+	switch code {
+	case 4420, websocket.StatusNormalClosure:
+		return "success"
+	case websocket.StatusTryAgainLater:
+		return "rate_limited"
+	case 4401:
+		return "user_action"
+	case 4410:
+		return "unknown"
+	case -1, websocket.StatusGoingAway, websocket.StatusAbnormalClosure:
+		return "transient"
+	default:
+		return "unknown"
+	}
+}
+
+// noteWSClose counts how a subscription connection ended, and says so for the codes that are not the routine TTL: 1013, 4401 and 4410 mean
+// Rivian refused or ended the session, which the tuning of the takeover pacing (G7) and the reconnect handling depend on seeing.
+func (c *LiveClient) noteWSClose(code websocket.StatusCode, err error) {
+	class := wsCloseClass(code)
+	if c.results != nil {
+		c.results.OnResult("ws_close", class)
+	}
+	switch code {
+	case websocket.StatusTryAgainLater, 4401, 4410:
+		slog.Warn("rivian ws closed by the server", "code", int(code), "class", class, "err", err.Error())
 	}
 }

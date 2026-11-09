@@ -18,6 +18,14 @@ enum JSON {
         return d
     }
 
+    /// The encoder every request body goes through (snake_case keys). The request fixtures in the tests use this same one, so what is checked in is
+    /// what is sent.
+    static func requestEncoder() -> JSONEncoder {
+        let e = JSONEncoder()
+        e.keyEncodingStrategy = .convertToSnakeCase
+        return e
+    }
+
     /// RFC 3339, with or without fractional seconds. Go may send up to nine
     /// fractional digits; ISO8601DateFormatter reads at most milliseconds, so
     /// longer fractions are cut to three first.

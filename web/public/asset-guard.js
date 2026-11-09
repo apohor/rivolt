@@ -10,6 +10,9 @@
 // because the CSP forbids inline scripts. Plain ES5: it runs before, and
 // without, the app's own polyfills.
 //
+// Just before it reloads, it fires "rivolt:before-reload" on window, synchronously, so a page with work in progress (the trip planner's
+// form) can put it in sessionStorage; the page restores it on its next load. A listener that throws is ignored.
+//
 // The file name is fixed (not hashed): bump ?v= in index.html on ANY change
 // here, or browsers and Cloudflare may keep the old copy (the server gives
 // unhashed root files max-age=300, which caps how long).
@@ -38,6 +41,11 @@
     }
     pending = true;
     setTimeout(function () {
+      try {
+        window.dispatchEvent(new CustomEvent("rivolt:before-reload"));
+      } catch (e) {
+        /* no CustomEvent, or a listener threw: reload anyway */
+      }
       location.reload();
     }, DELAY_MS);
     return true;
