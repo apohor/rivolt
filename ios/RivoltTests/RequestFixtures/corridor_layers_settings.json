@@ -1,0 +1,19 @@
+{
+  "kinds" : [
+    "dcfc",
+    "hotels"
+  ],
+  "min_fast_kw" : 150,
+  "path" : [
+    [
+      47.6205,
+      -122.3493
+    ],
+    [
+      47.6588,
+      -117.426
+    ]
+  ],
+  "preset" : "wide",
+  "start_exclude_mi" : 25
+}

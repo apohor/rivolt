@@ -156,6 +156,9 @@ enum PlanRouteLogic {
         return d
     }
 
+    /// Whether the line the layers follow starts at the trip's own origin: the whole trip and Day 1 do; Day 2 and later start at an overnight stop.
+    static func layerLineStartsAtOrigin(day: Int?) -> Bool { LayerSearch.startsAtOrigin(day: day) }
+
     /// The line the layers are searched along: the picked day's, else every day's.
     static func layerLine(lines: [[RouteSnap.Coord]], day: Int?) -> [RouteSnap.Coord] {
         day.flatMap { n in lines.indices.contains(n - 1) ? lines[n - 1] : nil } ?? lines.flatMap { $0 }
@@ -306,7 +309,7 @@ struct PlanDaysMap: View {
     /// The layer pins (chargers, hotels, campgrounds along the trip) the person asked to see.
     var along: [AlongCharger] = []
     /// Both days' road lines once they are known (what the layers are searched along).
-    var onLine: ([RouteSnap.Coord]) -> Void = { _ in }
+    var onLine: ([RouteSnap.Coord], Bool) -> Void = { _, _ in }
     var radar: RadarLayer?
     var fills = false
     var bottomInset: CGFloat = 0
@@ -319,7 +322,7 @@ struct PlanDaysMap: View {
 
     private func reportLine() {
         guard !lines.isEmpty else { return }
-        onLine(PlanRouteLogic.layerLine(lines: lines, day: day))
+        onLine(PlanRouteLogic.layerLine(lines: lines, day: day), PlanRouteLogic.layerLineStartsAtOrigin(day: day))
     }
 
     var body: some View {
