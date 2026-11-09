@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { e2eNow } from "./clock";
 import { stubApi } from "./stub";
 
 // Now and Truck: screenshots per state and viewport, and axe.
@@ -23,7 +24,9 @@ for (const v of VIEWS) {
         await page.addInitScript(() => localStorage.setItem("rivolt.theme", "dark"));
         await stubApi(page, { scenario });
         // A charging session collects a power reading per poll: let three polls pass.
-        if (scenario === "charging") await page.clock.install();
+        // Fake timers that start at the suite's pinned instant (not the machine's own date): the state the stub serves is stamped relative to it, and
+        // fake timers started at the real date saw it as days old on the nightly runs pinned before today, and drew no charging view.
+        if (scenario === "charging") await page.clock.install({ time: e2eNow() });
         await page.goto("/");
         await expect(page.getByRole("region", { name: "Now" })).toBeVisible();
         if (scenario === "charging") {
