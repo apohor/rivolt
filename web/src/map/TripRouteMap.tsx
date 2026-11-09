@@ -252,7 +252,7 @@ export function TripRouteMap({
         if (legPopup.options) legPopup.options.anchor = (side.side ? `${vertical}-${side.side}` : vertical) as never;
         legPopup.setLngLat([at[1], at[0]]).setDOMContent(root).addTo(map);
         exclusive(legPopup);
-        reclearOfChips(map, legPopup, ll);
+        reclearOfChips(map, legPopup, ll, true);
       });
     });
     return () => {
@@ -338,7 +338,7 @@ export function TripRouteMap({
   // A popup's text can arrive after it opens (the what-if line, a charger's preview) and grow it into the chips above or under the phone's bottom sheet.
   // MapLibre re-picks an unset anchor on every move, so pin one: below the point when it fits there, else above it when that clears the chips, else below
   // with the map nudged up by the shortfall.
-  const reclearOfChips = (map: MLMap, p: Popup, ll: { lng: number; lat: number }) => {
+  const reclearOfChips = (map: MLMap, p: Popup, ll: { lng: number; lat: number }, keepInside = false) => {
     const chips = map.getContainer().parentElement?.querySelector<HTMLElement>("[data-map-chips]");
     const pe = p.getElement();
     if (!p.options || !chips || !pe) return;
@@ -346,11 +346,12 @@ export function TripRouteMap({
     const b = pe.getBoundingClientRect();
     const cr = map.getContainer().getBoundingClientRect();
     const limit = cr.top + mapRoomBottom(map);
+    // keepInside (the leg tooltip only) also re-picks the side whenever the card leaves the map; other popups keep their own placement rules.
     // The card's width as laid out right now can be short of its final width (its text is not all in yet, a web font is still loading): pin the side for the
     // widest it is allowed to get, or a point near an edge is judged to have room and the card runs past it.
-    const wide = Math.max(b.width, Number.parseFloat(String(p.options.maxWidth)) || 0) + 16;
+    const wide = (keepInside ? Math.max(b.width, Number.parseFloat(String(p.options.maxWidth)) || 0) : b.width) + 16;
     const underChips = !(b.right <= c.left || b.left >= c.right) && b.top < c.bottom && b.bottom > c.top;
-    if (!underChips && b.bottom <= limit) { clampSideways(map, p); return; }
+    if (!underChips && b.bottom <= limit) { if (keepInside) clampSideways(map, p); return; }
     const pointY = cr.top + map.project(ll).y;
     const room = limit - pointY - 24;
     const roomAbove = pointY - c.bottom - 24;
@@ -368,11 +369,11 @@ export function TripRouteMap({
       const needUp = Math.ceil(top + b.height - (limit - 8));
       const maxUp = Math.max(0, Math.floor(top - (cr.top + 4)));
       map.panBy([0, Math.max(0, Math.min(needUp, maxUp))], { duration: 200 }, { rivoltPan: true });
-      clampSideways(map, p);
+      if (keepInside) clampSideways(map, p);
       return;
     }
     p.setLngLat(ll);
-    clampSideways(map, p);
+    if (keepInside) clampSideways(map, p);
   };
   const onSelectStopRef = useRef(onSelectStop);
   useEffect(() => { onSelectStopRef.current = onSelectStop; }, [onSelectStop]);
