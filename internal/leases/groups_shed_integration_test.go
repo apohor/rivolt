@@ -86,3 +86,27 @@ func TestLead_AcquireGroupsForAnOpenSession(t *testing.T) {
 		t.Errorf("draining pod acquired %v, %v; want nothing", got, err)
 	}
 }
+
+// During a rollout (a second pod generation is live) an over-share pod sheds nothing, so the group a new pod could take from it is not moved
+// twice; the same imbalance with one generation still sheds.
+func TestLead_NoShedDuringARollout(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	seedSessionGroups(ctx, t, pool, 4)
+	t.Setenv("RIVOLT_POD_GENERATION", "g1")
+	a, b := leadStore(t, pool, "pod-a"), leadStore(t, pool, "pod-b")
+	pass(ctx, t, a) // a holds all four
+	pass(ctx, t, b) // b registers (same generation)
+	if r, err := a.LeadGroups(ctx); err != nil || len(r.Shed) != 1 {
+		t.Fatalf("one generation, over share: shed %v (%v), want one", r.Shed, err)
+	}
+
+	t.Setenv("RIVOLT_POD_GENERATION", "g2")
+	c := leadStore(t, pool, "pod-c")
+	pass(ctx, t, c) // a g2 pod is live: a rollout
+	t.Setenv("RIVOLT_POD_GENERATION", "g1")
+	if r, err := a.LeadGroups(ctx); err != nil || len(r.Shed) != 0 || len(r.ShedOrder) != 0 {
+		t.Fatalf("during a rollout: shed %v order %v (%v), want none", r.Shed, r.ShedOrder, err)
+	}
+
+}

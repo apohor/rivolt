@@ -329,6 +329,12 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 	if s.isDraining() {
 		res.Shed, res.ShedOrder = nil, nil // a draining pod releases everything at shutdown, not one by one
 	}
+	if rollingUpdate(pods) {
+		// One move per group per roll (zero-impact deploys, G1c). While a pod drains, or two pod generations are live, the pod count is not the
+		// steady one: the fair share is worked out for a pod that is about to go, so shedding to the new pod would move a group that has to
+		// move again when its old pod's peer drains. Groups move when their pod releases them; the balance is settled once the roll is over.
+		res.Shed, res.ShedOrder = nil, nil
+	}
 	res.Held = held
 	return res, nil
 }
@@ -541,4 +547,19 @@ func (s *Store) Deadline(vehicleID string) (time.Time, bool) {
 		return time.Unix(0, 0), true
 	}
 	return s.groupOKAt.Add(s.localDeadline()), true
+}
+
+// rollingUpdate reports whether the live pods look like a rollout in progress: one of them is draining, or they come from more than one pod
+// generation (an empty generation counts as none).
+func rollingUpdate(pods []livePod) bool {
+	gens := map[string]bool{}
+	for _, p := range pods {
+		if p.draining {
+			return true
+		}
+		if p.generation != "" {
+			gens[p.generation] = true
+		}
+	}
+	return len(gens) > 1
 }
