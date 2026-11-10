@@ -192,8 +192,9 @@ export function TripRouteMap({
   const hasWeather = !!legWeather?.some((l) => l);
   // The caller builds the array afresh each render; redraw only when its content changes.
   const weatherKey = JSON.stringify(legWeather ?? null);
-  // What the stop pills and pins take up on the map right now, for the leg badges to keep clear of.
+  // Where the pins are on the map right now (the leg badges keep clear of them), and the pills' placement, which the badges call again once they move.
   const pillTakenRef = useRef<Box[]>([]);
+  const updatePillsRef = useRef<((force?: boolean) => void) | null>(null);
   const legWeatherRef = useRef(legWeather);
   legWeatherRef.current = legWeather;
   // The starting state comes from the Trip planner settings (on unless turned off there); the chip changes this map only.
@@ -256,6 +257,8 @@ export function TripRouteMap({
     let alive = true;
     let remove = () => {};
     let redraw: (() => void) | null = null;
+    let later: (() => void) | null = null;
+    let timer: number | undefined;
     let legPopup: Popup | null = null;
     void loadMapLibre().then((ml) => {
       if (!alive || mapRef.current !== map) return;
@@ -290,13 +293,19 @@ export function TripRouteMap({
         reclearOfChips(map, legPopup, ll, true);
       }, pillTakenRef.current);
       remove = draw();
-      // The pills move with the zoom and the pan: the badges are placed again clear of where they are now.
-      redraw = () => { remove(); remove = draw(); };
+      updatePillsRef.current?.(true);
+      // The pills move with the zoom and the pan: the badges are placed again clear of the pins, and the pills go round them.
+      redraw = () => { remove(); remove = draw(); updatePillsRef.current?.(true); };
+      // While the map moves (a pan with its glide, a zoom) the badges are placed again at most every 150 ms, and when it stops.
+      later = () => { timer ??= window.setTimeout(() => { timer = undefined; redraw?.(); }, 150); };
+      map.on("move", later);
       map.on("moveend", redraw);
     });
     return () => {
       alive = false;
       if (redraw) map.off("moveend", redraw);
+      if (later) map.off("move", later);
+      if (timer !== undefined) window.clearTimeout(timer);
       remove();
       legPopup?.remove();
     };
@@ -552,18 +561,26 @@ export function TripRouteMap({
           const p = map.project([w.Longitude, w.Latitude]);
           return { x0: p.x - 14, y0: p.y - 14, x1: p.x + 14, y1: p.y + 14 };
         });
-        const taken: Box[] = [...pinBoxes];
+        pillTakenRef.current = pinBoxes;
+        // The leg badges are placed first and win: a pill goes round them (to the pin's other side or above or below), or is dropped.
+        const here = el.getBoundingClientRect();
+        const badgeBoxes: Box[] = Array.from(el.querySelectorAll<HTMLElement>("[data-leg-badge]")).map((b) => {
+          const r = b.getBoundingClientRect();
+          return { x0: r.left - here.left, y0: r.top - here.top, x1: r.right - here.left, y1: r.bottom - here.top };
+        });
+        const taken: Box[] = [...pinBoxes, ...badgeBoxes];
         const specs: PillSpec[] = [];
-        pillTakenRef.current = taken;
         const ends = [0, last].filter((i, k, a) => a.indexOf(i) === k && !(i === last && last > 0 && sameSpot(ws[0], ws[last]))); // a round trip: one pill
         for (const i of ends) {
           const w = ws[i];
           const ll: [number, number] = [w.Longitude, w.Latitude];
           // The ends sit where the route leaves or arrives: the pill goes on the side away from the line, a little off its height.
-          const side = pillAwayFromLine(map.project(ll), awayPoint(i === 0), view.w);
+          const away = pillAwayFromLine(map.project(ll), awayPoint(i === 0), view.w);
           const name = (i === 0 ? originLabel : destLabel) || w.Name || (i === 0 ? "Origin" : "Destination");
           const text = shortName(name);
           const size = measurePill(text, true);
+          // Away from the line, unless that runs past the map's edge or over a pin or badge: then the first side that fits (else where it was).
+          const side = (size && placeStopPill(map.project(ll), size, away, taken.filter((b) => b !== pinBoxes[i]), view)) || away;
           if (size) taken.push(pillBox(map.project(ll), side.anchor, side.offset, size));
           specs.push({ id: `wp${i}`, text, lngLat: ll, ...side, dot: i === 0 ? "#10b981" : "#f43f5e", priority: i === 0 ? 0 : 1 });
         }
@@ -586,6 +603,11 @@ export function TripRouteMap({
         pillKeyRef.key = key;
         setPills(map, specs, flavor, true);
       };
+      // The pills were placed for the view the route was fitted in: while the map moves (and when it stops) they are placed again, so one near the map's edge flips
+      // to the pin's other side instead of running past it.
+      map.on("move", () => updatePills());
+      map.on("moveend", () => updatePills());
+      updatePillsRef.current = updatePills;
       map.on("style.load", () => {
         styleReadyRef.current = true;
         cardOn = false; // setStyle keeps controls only on the same map; the card goes back

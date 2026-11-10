@@ -29,17 +29,17 @@ describe("drawLegBadges placement", () => {
     const placed: { anchor: string }[] = [];
     const map = { project: ([lng, lat]: [number, number]) => ({ x: lng, y: lat }), getContainer: () => ({ clientWidth: width }) };
     class Marker {
-      constructor(o: { anchor: string }) { placed.push(o); }
+      constructor(private o: { anchor: string }) {}
       setLngLat() { return this; }
-      addTo() { return this; }
-      remove() {}
+      addTo() { placed.push(this.o); return this; }
+      remove() { placed.splice(placed.indexOf(this.o), 1); }
     }
     const path: LatLng[] = [[100, x - 20], [100, x + 20]];
     const stops: LatLng[] = [[100, x - 20], [100, x + 20]];
     return { placed, run: (avoid: { x0: number; y0: number; x1: number; y1: number }[] = []) => drawLegBadges({ Marker } as never, map as never, path, stops, [info], "dark", () => {}, avoid) };
   };
 
-  it("puts a badge on the other side of the line when a pill or pin is in its way", () => {
+  it("puts a badge on the other side of the line when a pin is in its way", () => {
     const a = fake(170);
     a.run();
     const preferred = a.placed[0].anchor;
@@ -54,7 +54,7 @@ describe("drawLegBadges placement", () => {
     const blocked = fake(170);
     blocked.run([{ x0: 0, y0: 80, x1: 350, y1: 120 }]);
     expect(blocked.placed).toHaveLength(0);
-    const edge = fake(20, 120);
+    const edge = fake(20, 60);
     edge.run();
     expect(edge.placed).toHaveLength(0);
   });
