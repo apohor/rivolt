@@ -192,6 +192,17 @@ export function TripRouteMap({
   const hasWeather = !!legWeather?.some((l) => l);
   // The caller builds the array afresh each render; redraw only when its content changes.
   const weatherKey = JSON.stringify(legWeather ?? null);
+  // Where the pins are on the map right now (the leg badges keep clear of them), and the pills' placement, which the badges call again once they move.
+  const pillTakenRef = useRef<Box[]>([]);
+  // What floats over the map's top and bottom (the charger chips, the radar strip, the route summary card), in the map's own px.
+  const overlayBoxes = (container: HTMLElement): Box[] => {
+    const here = container.getBoundingClientRect();
+    return Array.from(container.parentElement?.querySelectorAll<HTMLElement>("[data-map-chips], [data-radar-label], .rivolt-trip-card") ?? []).map((o) => {
+      const r = o.getBoundingClientRect();
+      return { x0: r.left - here.left, y0: r.top - here.top, x1: r.right - here.left, y1: r.bottom - here.top };
+    });
+  };
+  const updatePillsRef = useRef<((force?: boolean) => void) | null>(null);
   const legWeatherRef = useRef(legWeather);
   legWeatherRef.current = legWeather;
   // The starting state comes from the Trip planner settings (on unless turned off there); the chip changes this map only.
@@ -253,11 +264,14 @@ export function TripRouteMap({
     if (!map || !showWeather || !legs || !hasWeather) return;
     let alive = true;
     let remove = () => {};
+    let redraw: (() => void) | null = null;
+    let later: (() => void) | null = null;
+    let timer: number | undefined;
     let legPopup: Popup | null = null;
     void loadMapLibre().then((ml) => {
       if (!alive || mapRef.current !== map) return;
       const stops = route.Waypoints.map((w) => [w.Latitude, w.Longitude] as LatLng);
-      remove = drawLegBadges(ml, map, routePath, stops, legs, appMapFlavor(), (info, at) => {
+      const draw = () => drawLegBadges(ml, map, routePath, stops, legs, appMapFlavor(), (info, at) => {
         legPopup?.remove();
         const lines = [legWeatherTags(info.facts).join(" · "), ...info.note].filter(Boolean);
         const root = document.createElement("div");
@@ -285,10 +299,21 @@ export function TripRouteMap({
         legPopup.setLngLat([at[1], at[0]]).setDOMContent(root).addTo(map);
         exclusive(legPopup);
         reclearOfChips(map, legPopup, ll, true);
-      });
+      }, overlayBoxes(map.getContainer()), pillTakenRef.current);
+      remove = draw();
+      updatePillsRef.current?.(true);
+      // The pills move with the zoom and the pan: the badges are placed again clear of the pins, and the pills go round them.
+      redraw = () => { remove(); remove = draw(); updatePillsRef.current?.(true); };
+      // While the map moves (a pan with its glide, a zoom) the badges are placed again at most every 150 ms, and when it stops.
+      later = () => { timer ??= window.setTimeout(() => { timer = undefined; redraw?.(); }, 150); };
+      map.on("move", later);
+      map.on("moveend", redraw);
     });
     return () => {
       alive = false;
+      if (redraw) map.off("moveend", redraw);
+      if (later) map.off("move", later);
+      if (timer !== undefined) window.clearTimeout(timer);
       remove();
       legPopup?.remove();
     };
@@ -476,7 +501,8 @@ export function TripRouteMap({
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
-        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom) : 24;
+        // ...and the radar strip under them (one line, and the label of a pin that sits just under it), when the server has radar: reserved whether or not it is on, so turning it on covers no pin.
+        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom + (radarEnabled() ? 52 : 0)) : 24;
         const base = fill ? (narrow ? 40 : 24) : 24;
         const bottom = Math.max(base, Math.min(lift, el.clientHeight - top - 60));
         return { top, bottom, left: 24, right: 24 };
@@ -543,17 +569,27 @@ export function TripRouteMap({
           const p = map.project([w.Longitude, w.Latitude]);
           return { x0: p.x - 14, y0: p.y - 14, x1: p.x + 14, y1: p.y + 14 };
         });
-        const taken: Box[] = [...pinBoxes];
+        pillTakenRef.current = pinBoxes;
+        // The leg badges are placed first and win: a pill goes round them (to the pin's other side or above or below), or is dropped.
+        const here = el.getBoundingClientRect();
+        const badgeBoxes: Box[] = Array.from(el.querySelectorAll<HTMLElement>("[data-leg-badge]")).map((b) => {
+          const r = b.getBoundingClientRect();
+          return { x0: r.left - here.left, y0: r.top - here.top, x1: r.right - here.left, y1: r.bottom - here.top };
+        });
+        // What floats over the map (the chips, the radar strip, the summary card) is taken too: a pill goes round it, never under it.
+        const taken: Box[] = [...pinBoxes, ...badgeBoxes, ...overlayBoxes(el)];
         const specs: PillSpec[] = [];
         const ends = [0, last].filter((i, k, a) => a.indexOf(i) === k && !(i === last && last > 0 && sameSpot(ws[0], ws[last]))); // a round trip: one pill
         for (const i of ends) {
           const w = ws[i];
           const ll: [number, number] = [w.Longitude, w.Latitude];
           // The ends sit where the route leaves or arrives: the pill goes on the side away from the line, a little off its height.
-          const side = pillAwayFromLine(map.project(ll), awayPoint(i === 0), view.w);
+          const away = pillAwayFromLine(map.project(ll), awayPoint(i === 0), view.w);
           const name = (i === 0 ? originLabel : destLabel) || w.Name || (i === 0 ? "Origin" : "Destination");
           const text = shortName(name);
           const size = measurePill(text, true);
+          // Away from the line, unless that runs past the map's edge or over a pin or badge: then the first side that fits (else where it was).
+          const side = (size && placeStopPill(map.project(ll), size, away, taken.filter((b) => b !== pinBoxes[i]), view)) || away;
           if (size) taken.push(pillBox(map.project(ll), side.anchor, side.offset, size));
           specs.push({ id: `wp${i}`, text, lngLat: ll, ...side, dot: i === 0 ? "#10b981" : "#f43f5e", priority: i === 0 ? 0 : 1 });
         }
@@ -576,6 +612,11 @@ export function TripRouteMap({
         pillKeyRef.key = key;
         setPills(map, specs, flavor, true);
       };
+      // The pills were placed for the view the route was fitted in: while the map moves (and when it stops) they are placed again, so one near the map's edge flips
+      // to the pin's other side instead of running past it.
+      map.on("move", () => updatePills());
+      map.on("moveend", () => updatePills());
+      updatePillsRef.current = updatePills;
       map.on("style.load", () => {
         styleReadyRef.current = true;
         cardOn = false; // setStyle keeps controls only on the same map; the card goes back
@@ -963,8 +1004,10 @@ export function TripRouteMap({
 
   return (
     <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
+      {/* The chips and, under them, the radar strip: one column at the map's top left, so the strip never lands on the route. */}
+      <div className={fill ? "pointer-events-none absolute left-14 right-2 top-3 z-[500] flex flex-col items-start gap-1" : "contents"}>
       {!noChargerSource && (
-        <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
+        <div className={fill ? "pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
           {!noChargerSource && <>
           <span className="whitespace-nowrap text-xs text-neutral-500 mr-1">Chargers:</span>
           {(["dcfc", "l2", "hotels", "camp"] as const).filter((f) => f !== "camp" || campCount > 0 || layers.has("camp")).map((f) => (
@@ -1019,6 +1062,18 @@ export function TripRouteMap({
           </>}
         </div>
       )}
+      {showRadar && radarLabel && (
+        <span role="status" data-radar-label className={`pointer-events-auto flex w-fit max-w-full items-center gap-1 whitespace-nowrap rounded bg-neutral-950/85 px-1.5 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}>
+          {radarLabel}
+          <span aria-label="Light, moderate, heavy precipitation" className="flex items-center gap-0.5 text-neutral-400">
+            <i style={{ background: "#4ade80" }} className="inline-block h-2 w-2 rounded-sm" />light
+            <i style={{ background: "#facc15" }} className="ml-0.5 inline-block h-2 w-2 rounded-sm" />moderate
+            <i style={{ background: "#ef4444" }} className="ml-0.5 inline-block h-2 w-2 rounded-sm" />heavy
+          </span>
+          <span className="text-neutral-500">NOAA/NWS</span>
+        </span>
+      )}
+      </div>
       {(hasWeather || radarOn) && (
         // Map layers other than chargers sit under the zoom buttons, as the map apps do: the charger row stays one line.
         <div className={fill ? "absolute left-[11px] top-[78px] z-[500] flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
@@ -1049,17 +1104,6 @@ export function TripRouteMap({
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12l6-6" /></svg>
           </button>
-          {showRadar && radarLabel && (
-            <span role="status" data-radar-label className="flex items-center gap-1.5 rounded bg-neutral-950/85 px-1.5 py-0.5 text-xs text-neutral-200">
-              {radarLabel}
-              <span aria-label="Light, moderate, heavy precipitation" className="flex items-center gap-0.5 text-[10px] text-neutral-400">
-                <i style={{ background: "#4ade80" }} className="inline-block h-2 w-3 rounded-sm" />light
-                <i style={{ background: "#facc15" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />moderate
-                <i style={{ background: "#ef4444" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />heavy
-              </span>
-              <span className="text-[10px] text-neutral-500">NOAA/NWS</span>
-            </span>
-          )}
         </div>
       )}
       <div
