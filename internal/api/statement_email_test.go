@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"github.com/apohor/rivolt/internal/auth"
 	"net/http"
@@ -214,6 +215,23 @@ func TestStatementUnsubscribe_GetShowsPostPerformsAndIsIdempotent(t *testing.T) 
 	}
 }
 
+// tamperSignature flips a whole byte in the middle of the decoded signature.
+// Editing the last base64 characters is not enough: they carry partial bits, so
+// some edits decode to the same bytes and the token stays valid.
+func tamperSignature(t *testing.T, tok string) string {
+	t.Helper()
+	i := strings.LastIndex(tok, ".")
+	if i < 0 {
+		t.Fatalf("token has no signature part: %q", tok)
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(tok[i+1:])
+	if err != nil {
+		t.Fatalf("signature is not raw base64url: %v", err)
+	}
+	sig[len(sig)/2] ^= 0xff
+	return tok[:i+1] + base64.RawURLEncoding.EncodeToString(sig)
+}
+
 func TestStatementUnsubscribe_RejectsTamperedExpiredAndOtherKeys(t *testing.T) {
 	a, store, uid, now := stmFixture(true)
 	_ = store.SetPrefs(context.Background(), uid, statement.Prefs{Enabled: true, Timezone: "UTC"})
@@ -221,7 +239,7 @@ func TestStatementUnsubscribe_RejectsTamperedExpiredAndOtherKeys(t *testing.T) {
 	expired := a.signer.Sign(uid, "2026-09", now.Add(-time.Second))
 	foreign := statement.NewSigner([]byte("ffffffffffffffffffffffffffffffff")).Sign(uid, "2026-09", now.Add(statement.TokenTTL))
 	for name, tok := range map[string]string{
-		"tampered": good[:len(good)-2] + "AA", "expired": expired, "foreign key": foreign, "empty": "", "junk": "abc",
+		"tampered": tamperSignature(t, good), "expired": expired, "foreign key": foreign, "empty": "", "junk": "abc",
 	} {
 		for _, m := range []string{"GET", "POST"} {
 			rec := stmDo(a, uuid.Nil, m, "/api/statement-email/unsubscribe?t="+tok, "")
