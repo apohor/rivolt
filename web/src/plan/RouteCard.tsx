@@ -40,7 +40,6 @@ export function RouteCard({
   cost,
   primaryCost,
   adjustment,
-  credit,
   defaultCollapsed,
   forceNext = false,
   stacked = false,
@@ -64,8 +63,6 @@ export function RouteCard({
   cost?: TripCostEstimate;
   primaryCost?: TripCostEstimate;
   adjustment?: TripPlan["weather_adjustment"];
-  // The weather data's credit: with the itinerary (a phone's sheet), not under the fixed sheet where the page's other children land.
-  credit?: React.ReactNode;
   // Collapse the body (map + stops table + per-network breakdown)
   // behind a "Tap to view" affordance on first render. Caller sets
   // this for alternatives so the page doesn't pile maps on top of
@@ -297,7 +294,6 @@ export function RouteCard({
           <section data-plan-area="itinerary" aria-label="Itinerary">
             <h2 className="ui-label mb-1">Itinerary</h2>
             {timeline}
-            {credit}
           </section>
         </BottomSheet>
         <div data-plan-area="map">
