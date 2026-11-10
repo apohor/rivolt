@@ -192,6 +192,8 @@ export function TripRouteMap({
   const hasWeather = !!legWeather?.some((l) => l);
   // The caller builds the array afresh each render; redraw only when its content changes.
   const weatherKey = JSON.stringify(legWeather ?? null);
+  // What the stop pills and pins take up on the map right now, for the leg badges to keep clear of.
+  const pillTakenRef = useRef<Box[]>([]);
   const legWeatherRef = useRef(legWeather);
   legWeatherRef.current = legWeather;
   // The starting state comes from the Trip planner settings (on unless turned off there); the chip changes this map only.
@@ -253,11 +255,12 @@ export function TripRouteMap({
     if (!map || !showWeather || !legs || !hasWeather) return;
     let alive = true;
     let remove = () => {};
+    let redraw: (() => void) | null = null;
     let legPopup: Popup | null = null;
     void loadMapLibre().then((ml) => {
       if (!alive || mapRef.current !== map) return;
       const stops = route.Waypoints.map((w) => [w.Latitude, w.Longitude] as LatLng);
-      remove = drawLegBadges(ml, map, routePath, stops, legs, appMapFlavor(), (info, at) => {
+      const draw = () => drawLegBadges(ml, map, routePath, stops, legs, appMapFlavor(), (info, at) => {
         legPopup?.remove();
         const lines = [legWeatherTags(info.facts).join(" · "), ...info.note].filter(Boolean);
         const root = document.createElement("div");
@@ -285,10 +288,15 @@ export function TripRouteMap({
         legPopup.setLngLat([at[1], at[0]]).setDOMContent(root).addTo(map);
         exclusive(legPopup);
         reclearOfChips(map, legPopup, ll, true);
-      });
+      }, pillTakenRef.current);
+      remove = draw();
+      // The pills move with the zoom and the pan: the badges are placed again clear of where they are now.
+      redraw = () => { remove(); remove = draw(); };
+      map.on("moveend", redraw);
     });
     return () => {
       alive = false;
+      if (redraw) map.off("moveend", redraw);
       remove();
       legPopup?.remove();
     };
@@ -545,6 +553,7 @@ export function TripRouteMap({
         });
         const taken: Box[] = [...pinBoxes];
         const specs: PillSpec[] = [];
+        pillTakenRef.current = taken;
         const ends = [0, last].filter((i, k, a) => a.indexOf(i) === k && !(i === last && last > 0 && sameSpot(ws[0], ws[last]))); // a round trip: one pill
         for (const i of ends) {
           const w = ws[i];
@@ -1049,18 +1058,18 @@ export function TripRouteMap({
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12l6-6" /></svg>
           </button>
-          {showRadar && radarLabel && (
-            <span role="status" data-radar-label className="flex items-center gap-1.5 rounded bg-neutral-950/85 px-1.5 py-0.5 text-xs text-neutral-200">
-              {radarLabel}
-              <span aria-label="Light, moderate, heavy precipitation" className="flex items-center gap-0.5 text-[10px] text-neutral-400">
-                <i style={{ background: "#4ade80" }} className="inline-block h-2 w-3 rounded-sm" />light
-                <i style={{ background: "#facc15" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />moderate
-                <i style={{ background: "#ef4444" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />heavy
-              </span>
-              <span className="text-[10px] text-neutral-500">NOAA/NWS</span>
-            </span>
-          )}
         </div>
+      )}
+      {showRadar && radarLabel && (
+        <span role="status" data-radar-label className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded bg-neutral-950/85 px-1.5 py-0.5 text-xs text-neutral-200 ${fill ? "absolute bottom-12 left-2 z-[500] w-fit max-w-[calc(100%-3.5rem)]" : "mb-1 w-fit"}`}>
+          {radarLabel}
+          <span aria-label="Light, moderate, heavy precipitation" className="flex items-center gap-0.5 text-[10px] text-neutral-400">
+            <i style={{ background: "#4ade80" }} className="inline-block h-2 w-3 rounded-sm" />light
+            <i style={{ background: "#facc15" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />moderate
+            <i style={{ background: "#ef4444" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />heavy
+          </span>
+          <span className="text-[10px] text-neutral-500">NOAA/NWS</span>
+        </span>
       )}
       <div
         ref={ref}

@@ -3,6 +3,7 @@
 import type { Map as MLMap, Marker, Popup } from "maplibre-gl";
 import type { LatLng } from "./route";
 import type { MapFlavor } from "./style";
+import type { Box } from "./pills";
 import { legWeatherTags, type LegWeatherFacts } from "../plan/legWeather";
 
 export type LegWeatherInfo = {
@@ -91,7 +92,8 @@ export function badgeElement(f: LegWeatherFacts, travelDeg: number, label: strin
 export const badgeLabel = (info: LegWeatherInfo) => `${info.title}: ${legWeatherTags(info.facts).join(", ")}`;
 
 // drawLegBadges puts one badge at each leg's midpoint, nudged to the right of the line so it does not sit on it, and returns a remover. A badge
-// whose box would lie over one already placed is left out (the nearer legs win), so a crowded route shows fewer rather than a pile.
+// whose box would lie over one already placed, or over a pin or a stop's pill (`avoid`), or past the map's edge, goes to the other side of the line, and
+// if neither side is clear it is left out (the nearer legs win), so a crowded route shows fewer rather than a pile.
 export function drawLegBadges(
   ml: { Marker: new (o: { element: HTMLElement; anchor: "left" | "right"; offset: [number, number] }) => Marker },
   map: MLMap,
@@ -100,6 +102,7 @@ export function drawLegBadges(
   infos: (LegWeatherInfo | null)[],
   flavor: MapFlavor,
   onOpen: (info: LegWeatherInfo, at: LatLng, el: HTMLElement) => void,
+  avoid: Box[] = [],
 ): () => void {
   const markers: Marker[] = [];
   const taken: { x0: number; y0: number; x1: number; y1: number }[] = [];
@@ -112,13 +115,20 @@ export function drawLegBadges(
     const p = map.project([at[1], at[0]]);
     const w = 150;
     // ...unless that side has no room: then the other.
-    const roomRight = map.getContainer().clientWidth - p.x - 12;
-    const right = roomRight < w && p.x - 12 >= w ? false : roomRight >= w ? Math.sin((deg * Math.PI) / 180) >= 0 || p.x - 12 < w : true;
+    const width = map.getContainer().clientWidth;
+    const roomRight = width - p.x - 12;
+    const preferRight = roomRight < w && p.x - 12 >= w ? false : roomRight >= w ? Math.sin((deg * Math.PI) / 180) >= 0 || p.x - 12 < w : true;
+    const clear = (right: boolean) => {
+      const full = right ? { x0: p.x + 12, x1: p.x + 12 + w, y0: p.y - 12, y1: p.y + 12 } : { x0: p.x - 12 - w, x1: p.x - 12, y0: p.y - 12, y1: p.y + 12 };
+      const inside = full.x0 >= 4 && full.x1 <= width - 4;
+      return inside && ![...taken, ...avoid].some((t) => t.x0 < full.x1 && t.x1 > full.x0 && t.y0 < full.y1 && t.y1 > full.y0) ? full : null;
+    };
+    // The side of the line it prefers, else the other one.
+    const right = clear(preferRight) ? preferRight : !preferRight;
+    const full = clear(right);
+    if (!full) return;
     const anchor = right ? "left" : "right";
     const offset: [number, number] = [right ? 12 : -12, 0];
-    const box = right ? { x0: p.x + 12, x1: p.x + 12 + w } : { x0: p.x - 12 - w, x1: p.x - 12 };
-    const full = { ...box, y0: p.y - 12, y1: p.y + 12 };
-    if (taken.some((t) => t.x0 < full.x1 && t.x1 > full.x0 && t.y0 < full.y1 && t.y1 > full.y0)) return;
     taken.push(full);
     el.addEventListener("click", (e) => {
       e.stopPropagation();
