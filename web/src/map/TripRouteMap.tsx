@@ -489,7 +489,7 @@ export function TripRouteMap({
         // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
         const card = el.querySelector<HTMLElement>(".rivolt-trip-card");
-        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 : 0;
+        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 52 : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
@@ -568,7 +568,10 @@ export function TripRouteMap({
           const r = b.getBoundingClientRect();
           return { x0: r.left - here.left, y0: r.top - here.top, x1: r.right - here.left, y1: r.bottom - here.top };
         });
-        const taken: Box[] = [...pinBoxes, ...badgeBoxes];
+        // The route summary card at the bottom left is taken too: a pill goes round it, never under it.
+        const cardEl = el.querySelector<HTMLElement>(".rivolt-trip-card");
+        const cardBox: Box[] = cardEl ? [(() => { const r = cardEl.getBoundingClientRect(); return { x0: r.left - here.left, y0: r.top - here.top, x1: r.right - here.left, y1: r.bottom - here.top }; })()] : [];
+        const taken: Box[] = [...pinBoxes, ...badgeBoxes, ...cardBox];
         const specs: PillSpec[] = [];
         const ends = [0, last].filter((i, k, a) => a.indexOf(i) === k && !(i === last && last > 0 && sameSpot(ws[0], ws[last]))); // a round trip: one pill
         for (const i of ends) {
@@ -1057,9 +1060,9 @@ export function TripRouteMap({
         <span role="status" data-radar-label className={`pointer-events-auto flex w-fit max-w-full items-center gap-1 whitespace-nowrap rounded bg-neutral-950/85 px-1.5 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}>
           {radarLabel}
           <span aria-label="Light, moderate, heavy precipitation" className="flex items-center gap-0.5 text-neutral-400">
-            <i style={{ background: "#4ade80" }} className="inline-block h-2 w-3 rounded-sm" />light
-            <i style={{ background: "#facc15" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />moderate
-            <i style={{ background: "#ef4444" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />heavy
+            <i style={{ background: "#4ade80" }} className="inline-block h-2 w-2 rounded-sm" />light
+            <i style={{ background: "#facc15" }} className="ml-0.5 inline-block h-2 w-2 rounded-sm" />moderate
+            <i style={{ background: "#ef4444" }} className="ml-0.5 inline-block h-2 w-2 rounded-sm" />heavy
           </span>
           <span className="text-neutral-500">NOAA/NWS</span>
         </span>

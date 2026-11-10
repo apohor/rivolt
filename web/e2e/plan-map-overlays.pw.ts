@@ -61,7 +61,7 @@ test("@webkit phone: radar strip, leg badges and the weather credit stay clear o
   const chips = await box(page.locator("[data-plan-chips]"));
   expect(s.y0).toBeGreaterThanOrEqual(chips.y1);
   expect(s.x0).toBeGreaterThanOrEqual(map.x0);
-  expect(s.x1).toBeLessThanOrEqual(map.x1);
+  expect(s.x1).toBeLessThanOrEqual(map.x1 - 8);
   const markers = page.locator("[data-trip-map] .maplibregl-marker");
   for (let i = 0; i < (await markers.count()); i++) {
     const m = await box(markers.nth(i));
@@ -77,6 +77,13 @@ test("@webkit phone: radar strip, leg badges and the weather credit stay clear o
     bs.push(b);
   }
   for (let i = 0; i < bs.length; i++) for (let k = i + 1; k < bs.length; k++) expect(overlap(bs[i], bs[k])).toBe(false);
+  // The start pill (a map symbol) cannot be measured; the summary card's room is reserved in the fit, and the card is not under the strip or a badge.
+  const card = page.locator(".rivolt-trip-card");
+  if (await card.count()) {
+    const c = await box(card);
+    expect(overlap(s, c)).toBe(false);
+    for (const b of bs) expect(overlap(b, c)).toBe(false);
+  }
   // The weather credit is with the itinerary.
   await expect(page.locator("[data-plan-area='itinerary'] [data-weather-credit]")).toHaveCount(1);
 });
