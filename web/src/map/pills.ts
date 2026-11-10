@@ -85,7 +85,11 @@ export function setPills(map: MLMap, specs: PillSpec[], flavor: MapFlavor, colli
       properties: { image: `pill-${s.id}`, anchor: s.anchor, offset: s.offset, p: s.priority ?? 0 },
     });
   }
-  if (features.length === 0) return;
+  if (features.length === 0) {
+    // Nothing fits any more (after a pan): the pills drawn before must go, not stay on the map where they no longer fit.
+    (map.getSource(PILLS_SOURCE) as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: [] });
+    return;
+  }
   // The reserve: a clear 22 px square at each pin.
   map.addImage(RESERVE_IMAGE, { width: 22, height: 22, data: new Uint8ClampedArray(22 * 22 * 4) });
   const data = { type: "FeatureCollection" as const, features };
