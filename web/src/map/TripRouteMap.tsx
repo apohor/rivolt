@@ -29,7 +29,7 @@ import { MAP_CAPTION_PX } from "../lib/mapCaption";
 import { chargerLabel, type ChargerKind } from "../lib/chargerLabels";
 import { ChargerTypeInfo } from "../components/ChargerTypeInfo";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
-import { drawLegBadges, type LegWeatherInfo } from "./legBadges";
+import { drawLegBadges, type BadgesHandle, type LegWeatherInfo } from "./legBadges";
 import { legWeatherTags } from "../plan/legWeather";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
@@ -146,6 +146,8 @@ export function TripRouteMap({
   const mapRef = useRef<MLMap | null>(null);
   const [mapReady, setMapReady] = useState<MLMap | null>(null);
   // Waypoint markers by their index in route.Waypoints, so a table-row selection can restyle the right one.
+  const selectedIdxRef = useRef(selectedIdx);
+  selectedIdxRef.current = selectedIdx;
   const wpMarkersRef = useRef<Map<number, { marker: Marker; color: string; size: number; wrap: HTMLElement; bolt: boolean }>>(new Map());
   const chargersRef = useRef<GeoJSON.FeatureCollection>({ type: "FeatureCollection", features: [] });
   const popupRef = useRef<Popup | null>(null);
@@ -257,22 +259,28 @@ export function TripRouteMap({
     if (!touchedRef.current.weather) setShowWeather(prefs.weather_on);
     if (!touchedRef.current.radar) setShowRadar(prefs.radar_on && radarOn); // the Radar default of the Trip planner settings
   }, [prefsSettled, prefs, radarOn]);
+  // The open leg tooltip belongs to the map, not to one drawing of the badges: the badges are drawn again when the route's path arrives or the map moves,
+  // and that must not close it. It closes when the weather goes off, on another tap, and with the map.
+  const legPopupRef = useRef<Popup | null>(null);
+  useEffect(() => {
+    if (!showWeather || !hasWeather) { legPopupRef.current?.remove(); legPopupRef.current = null; }
+  }, [showWeather, hasWeather]);
+  useEffect(() => () => { legPopupRef.current?.remove(); legPopupRef.current = null; }, []);
   // Effect: one weather badge per leg while the "Weather" chip is on. A tap on one opens that leg's details.
   useEffect(() => {
     const map = mapReady;
     const legs = legWeatherRef.current;
     if (!map || !showWeather || !legs || !hasWeather) return;
     let alive = true;
-    let remove = () => {};
+    let remove: BadgesHandle = () => {};
     let redraw: (() => void) | null = null;
     let later: (() => void) | null = null;
     let timer: number | undefined;
-    let legPopup: Popup | null = null;
     void loadMapLibre().then((ml) => {
       if (!alive || mapRef.current !== map) return;
       const stops = route.Waypoints.map((w) => [w.Latitude, w.Longitude] as LatLng);
-      const draw = () => drawLegBadges(ml, map, routePath, stops, legs, appMapFlavor(), (info, at) => {
-        legPopup?.remove();
+      const draw = (prev?: BadgesHandle) => drawLegBadges(ml, map, routePath, stops, legs, appMapFlavor(), (info, at) => {
+        legPopupRef.current?.remove();
         const lines = [legWeatherTags(info.facts).join(" · "), ...info.note].filter(Boolean);
         const root = document.createElement("div");
         root.setAttribute("data-leg-popup", "");
@@ -289,7 +297,7 @@ export function TripRouteMap({
         // card narrowed to the room that side has (a phone's map is 350 px wide: a 280 px card from a badge at 95 px ran 20 px past the edge).
         const ll = { lng: at[1], lat: at[0] };
         const side = fitSideways(map, ll, 280);
-        legPopup = new ml.Popup({ closeButton: true, offset: 14, maxWidth: `${side.width}px`, className: "rivolt-popup" });
+        const legPopup = new ml.Popup({ closeButton: true, offset: 14, maxWidth: `${side.width}px`, className: "rivolt-popup" });
         const vertical = map.project(ll).y < mapRoomBottom(map) / 2 ? "top" : "bottom";
         // A short map (a small phone) cannot hold every line: the card scrolls inside the room its side has, instead of running under the page.
         const roomY = vertical === "top" ? mapRoomBottom(map) - map.project(ll).y : map.project(ll).y;
@@ -297,13 +305,14 @@ export function TripRouteMap({
         root.style.overflowY = "auto";
         if (legPopup.options) legPopup.options.anchor = (side.side ? `${vertical}-${side.side}` : vertical) as never;
         legPopup.setLngLat([at[1], at[0]]).setDOMContent(root).addTo(map);
+        legPopupRef.current = legPopup;
         exclusive(legPopup);
         reclearOfChips(map, legPopup, ll, true);
-      }, overlayBoxes(map.getContainer()), pillTakenRef.current);
+      }, overlayBoxes(map.getContainer()), pillTakenRef.current, prev);
       remove = draw();
       updatePillsRef.current?.(true);
       // The pills move with the zoom and the pan: the badges are placed again clear of the pins, and the pills go round them.
-      redraw = () => { remove(); remove = draw(); updatePillsRef.current?.(true); };
+      redraw = () => { const next = draw(remove); if (next !== remove) { remove(); remove = next; } updatePillsRef.current?.(true); };
       // While the map moves (a pan with its glide, a zoom) the badges are placed again at most every 150 ms, and when it stops.
       later = () => { timer ??= window.setTimeout(() => { timer = undefined; redraw?.(); }, 150); };
       map.on("move", later);
@@ -315,7 +324,6 @@ export function TripRouteMap({
       if (later) map.off("move", later);
       if (timer !== undefined) window.clearTimeout(timer);
       remove();
-      legPopup?.remove();
     };
   }, [mapReady, showWeather, weatherKey, hasWeather, routePath, route.Waypoints]);
   // Refs so async handlers call the latest callbacks without being effect dependencies (which would re-mount the map every render).
@@ -660,7 +668,13 @@ export function TripRouteMap({
         });
         element.addEventListener("mouseenter", () => { if (!callout.isOpen()) tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); });
         element.addEventListener("mouseleave", () => tip.remove());
-        wpMarkersRef.current.set(origIdx, { marker, color, size, wrap: element, bolt: !isEnd && isChargingWaypoint(w) });
+        const bolt = !isEnd && isChargingWaypoint(w);
+        wpMarkersRef.current.set(origIdx, { marker, color, size, wrap: element, bolt });
+        // A stop picked before its marker existed (the map was still starting) or before the markers were drawn again: the marker comes up already selected.
+        if (selectedIdxRef.current === origIdx) {
+          element.replaceChildren(dotElement(color, size, true, bolt));
+          element.style.zIndex = "1000";
+        }
       }
       // A long press (touch) or a right click (mouse) drops a pin with an "Add as a stop" callout. Only where stops can be added (the signed-in planner).
       const drop = new ml.Popup({ closeButton: true, closeOnClick: true, offset: 8, className: "rivolt-tip rivolt-live", maxWidth: "240px" });

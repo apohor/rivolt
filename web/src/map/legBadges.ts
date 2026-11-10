@@ -94,6 +94,9 @@ export const badgeLabel = (info: LegWeatherInfo) => `${info.title}: ${legWeather
 // drawLegBadges puts one badge at each leg's midpoint, nudged to the right of the line so it does not sit on it, and returns a remover. A badge
 // whose box would lie over one already placed is left out (the nearer legs win), so a crowded route shows fewer rather than a pile. A badge goes to the
 // side of the line that is clear of the pins and the overlays (`avoid`: the chips, the radar strip, the summary card), nudged sideways to stay on the map.
+// Drawn again while the map moves, it returns `prev` itself when every badge would sit where it already is: a badge that is replaced under a finger
+// between touch-down and touch-up loses the tap.
+export type BadgesHandle = (() => void) & { key?: string };
 export function drawLegBadges(
   ml: { Marker: new (o: { element: HTMLElement; anchor: "left" | "right"; offset: [number, number] }) => Marker },
   map: MLMap,
@@ -104,8 +107,11 @@ export function drawLegBadges(
   onOpen: (info: LegWeatherInfo, at: LatLng, el: HTMLElement) => void,
   avoid: Box[] = [],
   pins: Box[] = [],
-): () => void {
+  prev?: BadgesHandle,
+): BadgesHandle {
   const markers: Marker[] = [];
+  const commits: (() => void)[] = [];
+  let key = "";
   const taken: { x0: number; y0: number; x1: number; y1: number }[] = [];
   infos.forEach((info, i) => {
     if (!info || !stops[i] || !stops[i + 1]) return;
@@ -143,15 +149,22 @@ export function drawLegBadges(
     }
     const pick = tries.find((t) => t.clear) ?? tries.find((t) => t.free);
     if (!pick) return;
-    const placed = new ml.Marker({ element: el, anchor: pick.right ? "left" : "right", offset: [(pick.right ? 12 : -12) + pick.dx, 0] }).setLngLat([at[1], at[0]]).addTo(map);
     taken.push(pick.box);
-    el.addEventListener("click", (e) => {
-      e.stopPropagation();
-      onOpen(info, at, el);
+    key += `${i}:${pick.right ? "r" : "l"}${Math.round(pick.dx)};`;
+    commits.push(() => {
+      const placed = new ml.Marker({ element: el, anchor: pick.right ? "left" : "right", offset: [(pick.right ? 12 : -12) + pick.dx, 0] }).setLngLat([at[1], at[0]]).addTo(map);
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        onOpen(info, at, el);
+      });
+      markers.push(placed);
     });
-    markers.push(placed);
   });
-  return () => markers.forEach((m) => m.remove());
+  if (prev && prev.key === key) return prev;
+  commits.forEach((c) => c());
+  const handle: BadgesHandle = () => markers.forEach((m) => m.remove());
+  handle.key = key;
+  return handle;
 }
 
 export type { Popup };

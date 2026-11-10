@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { drawLegBadges, legAnchor, travelBearing, type LegWeatherInfo } from "./legBadges";
+import { drawLegBadges, legAnchor, type BadgesHandle, travelBearing, type LegWeatherInfo } from "./legBadges";
 import type { LatLng } from "./route";
 
 describe("legAnchor", () => {
@@ -37,8 +37,19 @@ describe("drawLegBadges placement", () => {
     // `legs` legs on the same spot: the second one's badge would lie over the first's.
     const path: LatLng[] = [[100, x - 20], [100, x + 20]];
     const stops: LatLng[] = [[100, x - 20], [100, x + 20]];
-    return { placed, run: (avoid: { x0: number; y0: number; x1: number; y1: number }[] = [], pins: { x0: number; y0: number; x1: number; y1: number }[] = []) => drawLegBadges({ Marker } as never, map as never, path, stops, Array(legs).fill(info), "dark", () => {}, avoid, pins) };
+    return { placed, run: (avoid: { x0: number; y0: number; x1: number; y1: number }[] = [], pins: { x0: number; y0: number; x1: number; y1: number }[] = [], prev?: BadgesHandle) => drawLegBadges({ Marker } as never, map as never, path, stops, Array(legs).fill(info), "dark", () => {}, avoid, pins, prev) };
   };
+
+  it("keeps the badges it drew when drawn again with nothing moved, and replaces them when one would sit on the other side", () => {
+    const a = fake(170);
+    const first = a.run();
+    expect(a.run([], [], first)).toBe(first);
+    expect(a.placed).toHaveLength(1);
+    const next = a.run(a.placed[0].anchor === "left" ? [{ x0: 170, y0: 80, x1: 340, y1: 120 }] : [{ x0: 0, y0: 80, x1: 170, y1: 120 }], [], first);
+    expect(next).not.toBe(first);
+    first();
+    expect(a.placed).toHaveLength(1);
+  });
 
   it("puts a badge on the other side of the line when an overlay is in its way", () => {
     const a = fake(170);
