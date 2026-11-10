@@ -111,7 +111,7 @@ export function drawLegBadges(
 ): BadgesHandle {
   const markers: Marker[] = [];
   const commits: (() => void)[] = [];
-  let key = "";
+  let key = `${flavor};`;
   const taken: { x0: number; y0: number; x1: number; y1: number }[] = [];
   infos.forEach((info, i) => {
     if (!info || !stops[i] || !stops[i + 1]) return;

@@ -263,8 +263,9 @@ export function TripRouteMap({
   // and that must not close it. It closes when the weather goes off, on another tap, and with the map.
   const legPopupRef = useRef<Popup | null>(null);
   useEffect(() => {
-    if (!showWeather || !hasWeather) { legPopupRef.current?.remove(); legPopupRef.current = null; }
-  }, [showWeather, hasWeather]);
+    // ...or when the numbers change (a new departure time, other units): the card would show the old ones under new badges.
+    legPopupRef.current?.remove(); legPopupRef.current = null;
+  }, [showWeather, hasWeather, weatherKey]);
   useEffect(() => () => { legPopupRef.current?.remove(); legPopupRef.current = null; }, []);
   // Effect: one weather badge per leg while the "Weather" chip is on. A tap on one opens that leg's details.
   useEffect(() => {

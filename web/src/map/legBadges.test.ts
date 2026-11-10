@@ -51,6 +51,12 @@ describe("drawLegBadges placement", () => {
     expect(a.placed).toHaveLength(1);
   });
 
+  it("draws the badges again when the map flavor changes", () => {
+    const a = fake(170);
+    const first = a.run();
+    expect(drawLegBadges({ Marker: class { constructor(private o: unknown) { void this.o; } setLngLat() { return this; } addTo() { return this; } remove() {} } } as never, { project: ([lng, lat]: [number, number]) => ({ x: lng, y: lat }), getContainer: () => ({ clientWidth: 350 }) } as never, [[100, 150], [100, 190]], [[100, 150], [100, 190]], [info], "light", () => {}, [], [], first)).not.toBe(first);
+  });
+
   it("puts a badge on the other side of the line when an overlay is in its way", () => {
     const a = fake(170);
     a.run();
