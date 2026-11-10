@@ -62,7 +62,6 @@ export function TripPlanResult({
       {!inDemo() && (aiEnabled || !!advice) && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={aiEnabled ? onAnalyze : undefined} aiOff={aiOff} error={adviceError} />}
       <FarFutureNote show={plan.far_future} />
       <WeatherAdjustmentChip plan={plan} />
-      {plan.weather_adjustment && <WeatherCredit />}
       {(() => {
           const i = Math.min(active, plan.Routes.length - 1);
           const route = plan.Routes[i];
@@ -83,6 +82,7 @@ export function TripPlanResult({
               cost={plan.costs?.[i]}
               primaryCost={plan.costs?.[0]}
               adjustment={i === 0 ? plan.weather_adjustment : undefined}
+              credit={i === 0 && plan.weather_adjustment ? <WeatherCredit className="mt-3 text-xs text-neutral-500" /> : undefined}
               chooser={
                 plan.Routes.length > 1 ? (
                   <RouteChooser routes={plan.Routes} costs={plan.costs} active={i} onChange={setActive} />
