@@ -484,7 +484,8 @@ export function TripRouteMap({
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
-        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom) : 24;
+        // ...and the radar strip under them (one line, and the label of a pin that sits just under it), when the server has radar: reserved whether or not it is on, so turning it on covers no pin.
+        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom + (radarEnabled() ? 52 : 0)) : 24;
         const base = fill ? (narrow ? 40 : 24) : 24;
         const bottom = Math.max(base, Math.min(lift, el.clientHeight - top - 60));
         return { top, bottom, left: 24, right: 24 };
@@ -972,8 +973,10 @@ export function TripRouteMap({
 
   return (
     <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
+      {/* The chips and, under them, the radar strip: one column at the map's top left, so the strip never lands on the route. */}
+      <div className={fill ? "pointer-events-none absolute left-14 right-2 top-3 z-[500] flex flex-col items-start gap-1" : "contents"}>
       {!noChargerSource && (
-        <div className={fill ? "absolute left-14 top-3 z-[500] flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
+        <div className={fill ? "pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
           {!noChargerSource && <>
           <span className="whitespace-nowrap text-xs text-neutral-500 mr-1">Chargers:</span>
           {(["dcfc", "l2", "hotels", "camp"] as const).filter((f) => f !== "camp" || campCount > 0 || layers.has("camp")).map((f) => (
@@ -1028,6 +1031,18 @@ export function TripRouteMap({
           </>}
         </div>
       )}
+      {showRadar && radarLabel && (
+        <span role="status" data-radar-label className={`pointer-events-auto flex w-fit max-w-full items-center gap-1 whitespace-nowrap rounded bg-neutral-950/85 px-1.5 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}>
+          {radarLabel}
+          <span aria-label="Light, moderate, heavy precipitation" className="flex items-center gap-0.5 text-neutral-400">
+            <i style={{ background: "#4ade80" }} className="inline-block h-2 w-3 rounded-sm" />light
+            <i style={{ background: "#facc15" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />moderate
+            <i style={{ background: "#ef4444" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />heavy
+          </span>
+          <span className="text-neutral-500">NOAA/NWS</span>
+        </span>
+      )}
+      </div>
       {(hasWeather || radarOn) && (
         // Map layers other than chargers sit under the zoom buttons, as the map apps do: the charger row stays one line.
         <div className={fill ? "absolute left-[11px] top-[78px] z-[500] flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
@@ -1059,17 +1074,6 @@ export function TripRouteMap({
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12l6-6" /></svg>
           </button>
         </div>
-      )}
-      {showRadar && radarLabel && (
-        <span role="status" data-radar-label className={`flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded bg-neutral-950/85 px-1.5 py-0.5 text-xs text-neutral-200 ${fill ? "absolute bottom-12 left-2 z-[500] w-fit max-w-[calc(100%-3.5rem)]" : "mb-1 w-fit"}`}>
-          {radarLabel}
-          <span aria-label="Light, moderate, heavy precipitation" className="flex items-center gap-0.5 text-[10px] text-neutral-400">
-            <i style={{ background: "#4ade80" }} className="inline-block h-2 w-3 rounded-sm" />light
-            <i style={{ background: "#facc15" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />moderate
-            <i style={{ background: "#ef4444" }} className="ml-1 inline-block h-2 w-3 rounded-sm" />heavy
-          </span>
-          <span className="text-[10px] text-neutral-500">NOAA/NWS</span>
-        </span>
       )}
       <div
         ref={ref}

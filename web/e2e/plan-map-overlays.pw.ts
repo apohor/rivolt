@@ -56,10 +56,17 @@ test("@webkit phone: radar strip, leg badges and the weather credit stay clear o
 
   const map = await box(page.locator("[data-plan-area='map']"));
   const s = await box(strip);
-  // Docked in the lower half of the map and inside it, not floating mid-map at the radar button's height.
-  expect(s.y0).toBeGreaterThan((map.y0 + map.y1) / 2);
+  // One line, under the charger chips at the map's top left, inside the map, and over no pin or badge (every marker on the map).
+  expect(s.y1 - s.y0).toBeLessThan(26);
+  const chips = await box(page.locator("[data-plan-chips]"));
+  expect(s.y0).toBeGreaterThanOrEqual(chips.y1);
   expect(s.x0).toBeGreaterThanOrEqual(map.x0);
   expect(s.x1).toBeLessThanOrEqual(map.x1);
+  const markers = page.locator("[data-trip-map] .maplibregl-marker");
+  for (let i = 0; i < (await markers.count()); i++) {
+    const m = await box(markers.nth(i));
+    expect(overlap(s, m), `marker ${i} at ${JSON.stringify(m)} under the strip ${JSON.stringify(s)}`).toBe(false);
+  }
   const badges = page.locator("[data-leg-badge]");
   const n = await badges.count();
   const bs = [];
