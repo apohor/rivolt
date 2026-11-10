@@ -92,8 +92,8 @@ export function badgeElement(f: LegWeatherFacts, travelDeg: number, label: strin
 export const badgeLabel = (info: LegWeatherInfo) => `${info.title}: ${legWeatherTags(info.facts).join(", ")}`;
 
 // drawLegBadges puts one badge at each leg's midpoint, nudged to the right of the line so it does not sit on it, and returns a remover. A badge
-// whose box would lie over one already placed, or over a pin (`avoid`), or past the map's edge, goes to the other side of the line, and
-// if neither side is clear it is left out (the nearer legs win), so a crowded route shows fewer rather than a pile.
+// whose box would lie over one already placed is left out (the nearer legs win), so a crowded route shows fewer rather than a pile. A badge goes to the
+// side of the line that is clear of the pins and the overlays (`avoid`: the chips, the radar strip, the summary card), nudged sideways to stay on the map.
 export function drawLegBadges(
   ml: { Marker: new (o: { element: HTMLElement; anchor: "left" | "right"; offset: [number, number] }) => Marker },
   map: MLMap,
@@ -103,6 +103,7 @@ export function drawLegBadges(
   flavor: MapFlavor,
   onOpen: (info: LegWeatherInfo, at: LatLng, el: HTMLElement) => void,
   avoid: Box[] = [],
+  pins: Box[] = [],
 ): () => void {
   const markers: Marker[] = [];
   const taken: { x0: number; y0: number; x1: number; y1: number }[] = [];
@@ -119,26 +120,31 @@ export function drawLegBadges(
     // About as wide as its words until it is on the map and can be measured.
     const guess = Math.min(170, 30 + 7 * (el.textContent?.length ?? 10));
     const preferRight = roomRight < guess && p.x - 12 >= guess ? false : roomRight >= guess ? Math.sin((deg * Math.PI) / 180) >= 0 || p.x - 12 < guess : true;
-    // The preferred side of the line, else the other: put the badge there, measure the real box, and keep it only if it is inside the map and clear.
-    let placed: Marker | null = null;
-    let box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+    // Each side of the line in turn (the preferred one first): put the badge there, measure where it really is, and nudge it sideways into the map.
+    // The first side that is clear of the pins and the other overlays wins; else one that at least clears the pins and the other badges (the nearer legs win), else none.
+    // On a map this narrow (a 320 px phone) there is no room to keep clear of everything: a badge over a pin still beats no badge.
+    const tight = width < 340;
+    type Try = { right: boolean; dx: number; box: Box; clear: boolean; free: boolean };
+    const tries: Try[] = [];
     for (const right of [preferRight, !preferRight]) {
       const marker = new ml.Marker({ element: el, anchor: right ? "left" : "right", offset: [right ? 12 : -12, 0] }).setLngLat([at[1], at[0]]).addTo(map);
       // Where it really is on the map, measured (a fake map in a test has no layout: then from its point and a guessed size).
       const r = el.getBoundingClientRect?.();
       const c = map.getContainer().getBoundingClientRect?.();
-      box = r && c && r.width > 0
+      const raw = r && c && r.width > 0
         ? { x0: r.left - c.left, x1: r.right - c.left, y0: r.top - c.top, y1: r.bottom - c.top }
         : right ? { x0: p.x + 12, x1: p.x + 12 + guess, y0: p.y - 12, y1: p.y + 12 } : { x0: p.x - 12 - guess, x1: p.x - 12, y0: p.y - 12, y1: p.y + 12 };
-      const inside = box.x0 >= 4 && box.x1 <= width - 4;
-      if (inside && ![...taken, ...avoid].some((t) => t.x0 < box.x1 && t.x1 > box.x0 && t.y0 < box.y1 && t.y1 > box.y0)) {
-        placed = marker;
-        break;
-      }
       marker.remove();
+      const dx = raw.x0 < 4 ? 4 - raw.x0 : raw.x1 > width - 4 ? width - 4 - raw.x1 : 0;
+      const box = { ...raw, x0: raw.x0 + dx, x1: raw.x1 + dx };
+      const hits = (list: Box[]) => list.some((t) => t.x0 < box.x1 && t.x1 > box.x0 && t.y0 < box.y1 && t.y1 > box.y0);
+      // A badge wider than the map cannot be nudged in: it is not "clear".
+      tries.push({ right, dx, box, free: !hits(taken) && (tight || !hits(pins)), clear: box.x0 >= 4 && box.x1 <= width - 4 && !hits(taken) && !hits(pins) && !hits(avoid) });
     }
-    if (!placed) return;
-    taken.push(box);
+    const pick = tries.find((t) => t.clear) ?? tries.find((t) => t.free);
+    if (!pick) return;
+    const placed = new ml.Marker({ element: el, anchor: pick.right ? "left" : "right", offset: [(pick.right ? 12 : -12) + pick.dx, 0] }).setLngLat([at[1], at[0]]).addTo(map);
+    taken.push(pick.box);
     el.addEventListener("click", (e) => {
       e.stopPropagation();
       onOpen(info, at, el);

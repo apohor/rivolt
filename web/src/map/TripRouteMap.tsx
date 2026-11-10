@@ -194,6 +194,14 @@ export function TripRouteMap({
   const weatherKey = JSON.stringify(legWeather ?? null);
   // Where the pins are on the map right now (the leg badges keep clear of them), and the pills' placement, which the badges call again once they move.
   const pillTakenRef = useRef<Box[]>([]);
+  // What floats over the map's top and bottom (the charger chips, the radar strip, the route summary card), in the map's own px.
+  const overlayBoxes = (container: HTMLElement): Box[] => {
+    const here = container.getBoundingClientRect();
+    return Array.from(container.parentElement?.querySelectorAll<HTMLElement>("[data-map-chips], [data-radar-label], .rivolt-trip-card") ?? []).map((o) => {
+      const r = o.getBoundingClientRect();
+      return { x0: r.left - here.left, y0: r.top - here.top, x1: r.right - here.left, y1: r.bottom - here.top };
+    });
+  };
   const updatePillsRef = useRef<((force?: boolean) => void) | null>(null);
   const legWeatherRef = useRef(legWeather);
   legWeatherRef.current = legWeather;
@@ -291,7 +299,7 @@ export function TripRouteMap({
         legPopup.setLngLat([at[1], at[0]]).setDOMContent(root).addTo(map);
         exclusive(legPopup);
         reclearOfChips(map, legPopup, ll, true);
-      }, pillTakenRef.current);
+      }, overlayBoxes(map.getContainer()), pillTakenRef.current);
       remove = draw();
       updatePillsRef.current?.(true);
       // The pills move with the zoom and the pan: the badges are placed again clear of the pins, and the pills go round them.
@@ -489,7 +497,7 @@ export function TripRouteMap({
         // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
         const card = el.querySelector<HTMLElement>(".rivolt-trip-card");
-        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 52 : 0;
+        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
@@ -568,10 +576,8 @@ export function TripRouteMap({
           const r = b.getBoundingClientRect();
           return { x0: r.left - here.left, y0: r.top - here.top, x1: r.right - here.left, y1: r.bottom - here.top };
         });
-        // The route summary card at the bottom left is taken too: a pill goes round it, never under it.
-        const cardEl = el.querySelector<HTMLElement>(".rivolt-trip-card");
-        const cardBox: Box[] = cardEl ? [(() => { const r = cardEl.getBoundingClientRect(); return { x0: r.left - here.left, y0: r.top - here.top, x1: r.right - here.left, y1: r.bottom - here.top }; })()] : [];
-        const taken: Box[] = [...pinBoxes, ...badgeBoxes, ...cardBox];
+        // What floats over the map (the chips, the radar strip, the summary card) is taken too: a pill goes round it, never under it.
+        const taken: Box[] = [...pinBoxes, ...badgeBoxes, ...overlayBoxes(el)];
         const specs: PillSpec[] = [];
         const ends = [0, last].filter((i, k, a) => a.indexOf(i) === k && !(i === last && last > 0 && sameSpot(ws[0], ws[last]))); // a round trip: one pill
         for (const i of ends) {
