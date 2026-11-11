@@ -29,4 +29,9 @@
   :root [data-activity-table] td {
     font-size: 0.75rem;
   }
+  /* A round trip's note goes under the date: beside it, it pushed SoC and Cost off the screen. */
+  :root [data-activity-table] [data-round-trip-legs] {
+    display: block;
+    margin-left: 0;
+  }
 }
