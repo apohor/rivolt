@@ -282,7 +282,9 @@
 }
 /* Below full a finger on any part of the sheet moves it (the browser must not scroll under it); at full the details scroll (pan-y), and a drag down
    with them at their top closes the sheet (BottomSheet's touch listener takes that one). Pinch-zoom stays everywhere (low vision; iOS honours
-   touch-action, not user-scalable), and a sideways scroller in the sheet (the route chips) keeps its swipe. */
+   touch-action, not user-scalable), and a sideways scroller in the sheet (the route chips) keeps its swipe. The chips also allow pan-y: a vertical
+   pan is checked against every element from the finger up to the scroller, so pan-x alone would stop a drag that starts on them from scrolling the
+   details at full (below full the sheet's own pinch-zoom still blocks it). */
 :root [data-plan-sheet] {
   touch-action: pinch-zoom;
 }
@@ -290,7 +292,7 @@
   touch-action: pan-y pinch-zoom;
 }
 :root [data-plan-sheet] [data-sheet-pan-x] {
-  touch-action: pan-x pinch-zoom;
+  touch-action: pan-x pan-y pinch-zoom;
 }
 :root [data-plan-sheet-handle] {
   flex: none;
