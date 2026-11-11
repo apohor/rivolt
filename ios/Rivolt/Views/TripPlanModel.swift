@@ -594,13 +594,15 @@ final class TripPlanModel {
         do {
             let result = try await TripPlanLogic.retryOnceAfterReconnect { try await source.planMultiday(body) }
             night = result.days.isEmpty ? .failed("The planner found no route for that trip.") : .planned(result)
+            focusedStop = nil
         } catch {
             if Task.isCancelled { night = .none; return }
             night = .failed(TripPlanLogic.failure(error))
         }
     }
 
-    func clearNight() { night = .none; chosenStay = nil }
+    /// Back to one day. The pins are numbered differently on the one route than on the two days, so a picked pin is let go either way.
+    func clearNight() { night = .none; chosenStay = nil; focusedStop = nil }
 
     /// Shows a saved trip as it was saved, with no planner call. The form takes its places, so planning again starts from them.
     func open(_ r: SavedTripLogic.Restored) {

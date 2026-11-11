@@ -1,0 +1,18 @@
+{
+ "candidates": [
+  {
+   "name": "Example Hotel",
+   "lat": 46.9965,
+   "lon": -120.5478,
+   "l2_kw": 7,
+   "detour_m": 800,
+   "kind": "hotel"
+  }
+ ],
+ "fallback_stays": [],
+ "route_m": 450000,
+ "target": {
+  "reaches_end": false,
+  "along_m": 172000
+ }
+}
