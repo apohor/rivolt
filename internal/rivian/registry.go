@@ -102,8 +102,11 @@ func (r *liveAccountRegistry) SetNoStandingTokens(hold func(context.Context, uui
 func (r *liveAccountRegistry) NoStandingTokens() bool { return r.gate.Load() != nil }
 
 // held reports whether uid may have a client here: always without the gate.
-func (r *liveAccountRegistry) held(uid uuid.UUID) bool {
-	g := r.gate.Load()
+func (r *liveAccountRegistry) held(uid uuid.UUID) bool { return r.gate.Load().allows(uid) }
+
+// allows is whether the gate lets uid have a client: always for a nil gate (the flag is off), else the hold predicate, bounded by
+// gateLookupTimeout, with an unanswerable lookup counting as not held. The live and the replay registry share it.
+func (g *tokenGate) allows(uid uuid.UUID) bool {
 	if g == nil {
 		return true
 	}

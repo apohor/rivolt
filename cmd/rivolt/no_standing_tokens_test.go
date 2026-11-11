@@ -90,3 +90,17 @@ func TestGroupHoldBootWindowHoldsNothing(t *testing.T) {
 		}
 	}
 }
+
+func TestNoStandingTokensRefusesTheStandaloneDemo(t *testing.T) {
+	for _, v := range []string{"true", "1"} {
+		m := allOn()
+		m["RIVOLT_DEMO_ONLY"] = v
+		if err := noStandingTokensError(envOf(m)); err == nil || !strings.Contains(err.Error(), "RIVOLT_DEMO_ONLY") {
+			t.Errorf("RIVOLT_DEMO_ONLY=%s: err = %v, want a refusal", v, err)
+		}
+	}
+	// The flag off is not affected by it.
+	if err := noStandingTokensError(envOf(map[string]string{"RIVOLT_DEMO_ONLY": "true"})); err != nil {
+		t.Fatalf("flag off: %v", err)
+	}
+}

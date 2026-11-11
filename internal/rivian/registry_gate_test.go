@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -173,5 +174,66 @@ func TestUnheldClientAnswersAnOutage(t *testing.T) {
 	ue, ok := err.(*UpstreamError)
 	if !ok || ue.Class != ClassOutage {
 		t.Fatalf("Vehicles error = %#v, want an outage UpstreamError (503)", err)
+	}
+}
+
+func gatedReplay(t *testing.T) (*replayAccountRegistry, *answers) {
+	t.Helper()
+	feed, _ := testFeed(time.Date(2026, 5, 8, 0, 0, 0, 0, time.UTC), time.Hour)
+	reg := NewReplayAccountRegistry(feed, nil).(*replayAccountRegistry)
+	a := &answers{m: map[uuid.UUID][2]bool{}}
+	reg.SetNoStandingTokens(a.hold, nil)
+	return reg, a
+}
+
+// The replay registry (preview) runs the same gate: a literal nil for an unheld or unanswerable user, nothing registered; a held user gets a
+// client; ForLogin gives an unheld user a client that is not registered.
+func TestGatedReplayRegistry(t *testing.T) {
+	reg, a := gatedReplay(t)
+	if !NoStandingTokens(reg) {
+		t.Fatal("the replay registry did not report the gate")
+	}
+	unheld, held, blip := uuid.New(), uuid.New(), uuid.New()
+	a.set(unheld, false, true)
+	a.set(held, true, true)
+	a.set(blip, false, false)
+	for _, u := range []uuid.UUID{unheld, blip} {
+		var acct Account = reg.For(u)
+		if acct != nil {
+			t.Fatalf("For(%v) = %#v, want a nil interface", u, acct)
+		}
+	}
+	if reg.For(held) == nil {
+		t.Fatal("a held user must get a client")
+	}
+	if got := reg.Loaded(); len(got) != 1 || got[0] != held {
+		t.Fatalf("Loaded() = %v, want only the held user", got)
+	}
+	acct, done := ForLogin(reg, unheld)
+	done()
+	if acct == nil || len(reg.Loaded()) != 1 {
+		t.Fatalf("ForLogin on an unheld user: %#v, loaded %v; want an unregistered client", acct, reg.Loaded())
+	}
+}
+
+func TestGatedReplayReleaseUnheld(t *testing.T) {
+	reg, a := gatedReplay(t)
+	lost, kept, blip := uuid.New(), uuid.New(), uuid.New()
+	for _, u := range []uuid.UUID{lost, kept, blip} {
+		a.set(u, true, true)
+		reg.For(u)
+	}
+	a.set(lost, false, true)
+	a.set(blip, false, false)
+	if n := reg.ReleaseUnheld(context.Background()); n != 1 || len(reg.Loaded()) != 2 {
+		t.Fatalf("ReleaseUnheld = %d, loaded %v; want the lost group dropped and the rest kept", n, reg.Loaded())
+	}
+}
+
+func TestUngatedReplayRegistryUnchanged(t *testing.T) {
+	feed, _ := testFeed(time.Date(2026, 5, 8, 0, 0, 0, 0, time.UTC), time.Hour)
+	reg := NewReplayAccountRegistry(feed, nil).(*replayAccountRegistry)
+	if NoStandingTokens(reg) || reg.For(uuid.New()) == nil || reg.ReleaseUnheld(context.Background()) != 0 {
+		t.Fatal("an ungated replay registry changed behaviour")
 	}
 }

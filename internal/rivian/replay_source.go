@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -594,6 +595,10 @@ type replayAccountRegistry struct {
 	feed    *ReplayFeed
 	planner TripPlanner
 
+	// gate is single-owner M4-5 (RIVOLT_NO_STANDING_TOKENS), the same gate the live registry uses: a user whose group this pod does not
+	// hold has no client here. Replay holds no real token; this is so a replay install (preview) runs the same gating code paths.
+	gate atomic.Pointer[tokenGate]
+
 	mu    sync.RWMutex
 	users map[uuid.UUID]*ReplayClient
 }
@@ -604,7 +609,70 @@ func NewReplayAccountRegistry(feed *ReplayFeed, planner TripPlanner) AccountRegi
 	return &replayAccountRegistry{feed: feed, planner: planner, users: make(map[uuid.UUID]*ReplayClient)}
 }
 
+// SetNoStandingTokens turns the gate on (see liveAccountRegistry.SetNoStandingTokens); bare is unused, a replay sign-in client holds no token.
+func (r *replayAccountRegistry) SetNoStandingTokens(hold func(context.Context, uuid.UUID) (held, known bool), _ func(uuid.UUID) *LiveClient) {
+	r.gate.Store(&tokenGate{hold: hold})
+}
+
+// NoStandingTokens reports whether the gate is on.
+func (r *replayAccountRegistry) NoStandingTokens() bool { return r.gate.Load() != nil }
+
+// ForLogin is For for a user this pod holds; any other user's sign-in works on a throwaway client that is not registered.
+func (r *replayAccountRegistry) ForLogin(uid uuid.UUID) (Account, func()) {
+	if r.gate.Load().allows(uid) {
+		return r.For(uid), func() {}
+	}
+	c := NewReplayClient(r.feed, uid)
+	c.planner = r.planner
+	return c, func() {}
+}
+
+// ReleaseUnheld drops every client whose group the lookup says this pod no longer holds; an unanswerable lookup keeps it.
+func (r *replayAccountRegistry) ReleaseUnheld(ctx context.Context) int {
+	g := r.gate.Load()
+	if g == nil {
+		return 0
+	}
+	n := 0
+	for _, uid := range r.Loaded() {
+		qctx, cancel := context.WithTimeout(ctx, gateLookupTimeout)
+		held, known := g.hold(qctx, uid)
+		cancel()
+		if held || !known {
+			continue
+		}
+		r.mu.Lock()
+		_, had := r.users[uid]
+		delete(r.users, uid)
+		r.mu.Unlock()
+		if had {
+			n++
+		}
+	}
+	return n
+}
+
+// UnheldTokens counts the signed-in clients for a user whose group held says this pod does not hold.
+func (r *replayAccountRegistry) UnheldTokens(held func(uuid.UUID) bool) int {
+	r.mu.RLock()
+	with := make(map[uuid.UUID]*ReplayClient, len(r.users))
+	for uid, c := range r.users {
+		with[uid] = c
+	}
+	r.mu.RUnlock()
+	n := 0
+	for uid, c := range with {
+		if c.Authenticated() && !held(uid) {
+			n++
+		}
+	}
+	return n
+}
+
 func (r *replayAccountRegistry) For(uid uuid.UUID) Account {
+	if !r.gate.Load().allows(uid) {
+		return nil // a literal nil, never a typed nil, never an entry in r.users
+	}
 	r.mu.RLock()
 	c, ok := r.users[uid]
 	r.mu.RUnlock()
