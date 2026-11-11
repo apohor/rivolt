@@ -67,7 +67,7 @@ final class FixtureURLProtocol: URLProtocol {
         return nil
     }
 
-    /// The one point of the fixture road line (valhalla_route.json) that is not a stop, about 20 km off the straight legs between them.
+    /// The one point of the fixture road line (ios/RivoltUITests/Fixtures/valhalla_route.json) that is not a stop, about 20 km off the straight legs between them.
     static let roadOnlyPoint = (lat: 47.5, lon: -121.4)
 
     /// The corridor-layers answer: the stations of the kinds asked for, from the UI tests' own list, and only for a search along the road line

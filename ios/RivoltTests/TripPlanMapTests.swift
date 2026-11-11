@@ -370,10 +370,11 @@ extension TripPlanMapTests {
         XCTAssertNil(PlanRouteLogic.roadLine(try JSONDecoder().decode(ValhallaRouteResponse.self, from: Data(#"{"trip":{"legs":[]}}"#.utf8))))
     }
 
-    /// The UI tests' road line (valhalla_route.json) reads at Valhalla's precision: from the trip's start, through the point only the roads reach, to its end
-    /// (a precision slip would put it ten times off).
+    /// The UI tests' road line (ios/RivoltUITests/Fixtures/valhalla_route.json, Valhalla's answer, not the server's) reads at Valhalla's precision: from the
+    /// trip's start, through the point only the roads reach, to its end (a precision slip would put it ten times off).
     func testTheUITestRoadLineIsPolyline6ThroughTheRoadOnlyPoint() throws {
-        let line = try XCTUnwrap(PlanRouteLogic.roadLine(try Fixture.decode(ValhallaRouteResponse.self, "valhalla_route")))
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("RivoltUITests/Fixtures/valhalla_route.json")
+        let line = try XCTUnwrap(PlanRouteLogic.roadLine(try JSONDecoder().decode(ValhallaRouteResponse.self, from: Data(contentsOf: file))))
         XCTAssertEqual(line.count, 4)
         XCTAssertEqual(line[0].lat, 47.6205, accuracy: 1e-6); XCTAssertEqual(line[0].lon, -122.3493, accuracy: 1e-6)
         XCTAssertEqual(line[1].lat, FixtureURLProtocol.roadOnlyPoint.lat, accuracy: 1e-6); XCTAssertEqual(line[1].lon, FixtureURLProtocol.roadOnlyPoint.lon, accuracy: 1e-6)
