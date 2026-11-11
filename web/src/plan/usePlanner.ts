@@ -11,7 +11,7 @@ import { track } from "../lib/track";
 import { inDemo } from "../lib/demo";
 import { chargingStopCount, stopsBucket } from "./waypoints";
 import { DRAFT_EVENT, savePlannerDraft, takePlannerDraft, type PlannerDraft } from "./plannerDraft";
-import { DriveMode, Selection, collectInputs, totalsOf, haversineMeters, normalizeDriveMode, readLastTrip, relabelIfHome, writeLastTrip } from "./plannerHelpers";
+import { DriveMode, Selection, collectInputs, retryOnceAfterReconnect, totalsOf, haversineMeters, normalizeDriveMode, readLastTrip, relabelIfHome, writeLastTrip } from "./plannerHelpers";
 
 // usePlanner: the planner's state, queries, mutations and handlers, so TripPlanPage is layout.
 export function usePlanner() {
@@ -302,7 +302,7 @@ export function usePlanner() {
       const liveSoc = stateQuery.data?.battery_level_pct;
       const manualSoc = startingSoc.trim() !== "" ? Number(startingSoc) : undefined;
       const soc = manualSoc ?? (typeof liveSoc === "number" && liveSoc > 0 ? liveSoc : undefined);
-      return backend.planTrip({
+      return retryOnceAfterReconnect(() => backend.planTrip({
         vehicle_id: vid,
         starting_soc: soc,
         origin_bearing: 0,
@@ -325,7 +325,7 @@ export function usePlanner() {
           })),
           { latitude: destination.lat, longitude: destination.lon, waypoint_type: "OTHER" },
         ],
-      });
+      }));
     },
     onSuccess: (plan) => {
       // One count per plan run, with the number of charging stops in the first route in three buckets: no places, no amounts.
@@ -391,7 +391,7 @@ export function usePlanner() {
       const req = buildMultidayRequest();
       if (!req) return Promise.reject(new Error("origin + destination required"));
       lastMultidayRequest.current = req;
-      return backend.planTripMultiday(req);
+      return retryOnceAfterReconnect(() => backend.planTripMultiday(req));
     },
   });
 
