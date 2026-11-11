@@ -92,6 +92,30 @@ func (f Fill) sql() string {
 		f.Table, f.Key, f.KeyType, where, strings.Join(sets, ", "))
 }
 
+// keyError says the Fill's key cannot carry the cursor.
+type keyError struct{ msg string }
+
+func (e *keyError) Error() string { return e.msg }
+
+// checkKey refuses a Fill whose Key is not a single-column, non-null, valid unique index (a primary key counts) on the table: the cursor is
+// `key > last`, so on a key that repeats, a batch boundary inside equal keys would skip the rest of that value forever.
+func (f Fill) checkKey(ctx context.Context, db *sql.DB) error {
+	var ok bool
+	err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+		    SELECT 1 FROM pg_index i
+		      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+		     WHERE i.indrelid = to_regclass($1) AND i.indisunique AND i.indisvalid AND i.indnatts = 1
+		       AND i.indpred IS NULL AND i.indexprs IS NULL AND a.attname = $2 AND a.attnotnull)`, f.Table, f.Key).Scan(&ok)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return &keyError{fmt.Sprintf("fill: %s.%s is not a single-column primary key or unique index; the keyset cursor would skip rows", f.Table, f.Key)}
+	}
+	return nil
+}
+
 // Step makes the Job.Step of a Fill.
 func (f Fill) Step() func(ctx context.Context, tx *sql.Tx, cursor string, limit int) (Result, error) {
 	q := f.sql()
