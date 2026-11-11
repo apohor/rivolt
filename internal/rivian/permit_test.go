@@ -210,18 +210,41 @@ func TestPermitCtxGatesAndMarksLongLivedCalls(t *testing.T) {
 	marked := func(ctx context.Context) bool { _, ok := ctx.Value(permitKey{}).(string); return ok }
 	m := NewStateMonitor(nil, nil)
 	m.SetFence(deadlineFence{fakeFence{tok: fence.Token{Group: "g", Pod: "p", Epoch: 1}, st: fence.Held}, time.Now().Add(time.Minute), true}, func(string) {})
-	ctx, ok := m.permitCtx(context.Background(), "veh", CallSiteSubscription)
+	ctx, ok := m.permitCtx(context.Background(), "veh", CallSiteSubscription, true)
 	if _, has := ctx.Deadline(); !ok || !marked(ctx) || has {
 		t.Errorf("held: ok=%v marked=%v deadline=%v, want an allowed, marked context with no deadline", ok, marked(ctx), has)
 	}
 	m.SetFence(deadlineFence{fakeFence{st: fence.Lost}, time.Now().Add(time.Minute), true}, func(string) {})
-	if ctx, ok := m.permitCtx(context.Background(), "veh", CallSiteSubscription); ok || marked(ctx) {
+	if ctx, ok := m.permitCtx(context.Background(), "veh", CallSiteSubscription, true); ok || marked(ctx) {
 		t.Errorf("lost: ok=%v marked=%v, want refused and unmarked", ok, marked(ctx))
 	}
 	wctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if _, ok := m.permitCtxWait(wctx, "veh", CallSiteSubscription); ok {
 		t.Error("permitCtxWait returned ok for a group that is not ours")
+	}
+}
+
+// One lost-group episode is one refusal: permitCtxWait counts on its first try, not on every second it waits, so infra's refused-call alert
+// counts leaks and not seconds.
+func TestPermitCtxWaitCountsTheEpisodeOnce(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	var mu sync.Mutex
+	counts := map[string]int{}
+	m.SetFence(deadlineFence{fakeFence{st: fence.Lost}, time.Now().Add(time.Minute), true}, func(kind string) {
+		mu.Lock()
+		counts[kind]++
+		mu.Unlock()
+	})
+	wctx, cancel := context.WithTimeout(context.Background(), 2500*time.Millisecond)
+	defer cancel()
+	if _, ok := m.permitCtxWait(wctx, "veh", CallSiteSubscription); ok {
+		t.Fatal("permitCtxWait returned ok for a group that is not ours")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if counts[CallRefusedPrefix+CallSiteSubscription] != 1 || counts["rivian"] != 1 {
+		t.Errorf("counted %v over a 2.5 s wait, want one refusal of the site and one fenced{rivian}", counts)
 	}
 }
 
@@ -267,7 +290,7 @@ func TestReconnectAfterLosingTheGroupIsRefused(t *testing.T) {
 	f.st.Store(int32(fence.Held))
 	m := NewStateMonitor(nil, nil)
 	m.SetFence(f, func(string) {})
-	ctx, ok := m.permitCtx(context.Background(), "veh", CallSiteSubscription)
+	ctx, ok := m.permitCtx(context.Background(), "veh", CallSiteSubscription, true)
 	if !ok {
 		t.Fatal("refused a held group")
 	}
