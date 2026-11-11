@@ -83,7 +83,7 @@ export default function DrivesPage() {
                 height={480}
               />
             ) : (
-              <DriveTable drives={rows} />
+              <DriveTable drives={rows} compact />
             )}
           </div>
         )}

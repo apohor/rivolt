@@ -131,7 +131,7 @@ export default function ChargesPage() {
                 height={480}
               />
             ) : (
-              <ChargeTable charges={rows} labelByID={labelByID} />
+              <ChargeTable charges={rows} labelByID={labelByID} compact />
             )}
           </div>
         )}
