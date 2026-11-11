@@ -56,8 +56,19 @@ func (c *fakeClock) slept() int {
 	return len(c.sleeps)
 }
 
-func (c *fakeClock) key(kind string) string {
-	return fmt.Sprintf("rivolt:{rivian:takeover}:%s:%d", kind, c.Now().Unix())
+const windowKey = "rivolt:{rivian:takeover}"
+
+// setWindow writes the fleet budget's window for the clock's current second: a active and i idle calls granted in it.
+func (c *fakeClock) setWindow(a, i int) {
+	c.mr.HSet(windowKey, "sec", fmt.Sprint(c.Now().Unix()), "a", fmt.Sprint(a), "i", fmt.Sprint(i))
+}
+
+// window reads the fleet budget's window: the Redis second it counts and the active and idle calls granted in it.
+func window(mr *miniredis.Miniredis, key string) (sec int64, a, i int) {
+	fmt.Sscan(mr.HGet(key, "sec"), &sec)
+	fmt.Sscan(mr.HGet(key, "a"), &a)
+	fmt.Sscan(mr.HGet(key, "i"), &i)
+	return sec, a, i
 }
 
 // The per-process bucket: after its burst a call waits for a token (a lower bound only: how long a call took is not asserted, a loaded machine
@@ -109,9 +120,7 @@ func TestActiveVehiclesAreNotBehindIdleOnes(t *testing.T) {
 	rdb := client(t, mr)
 	clk := newFakeClock(mr)
 	b := New(Config{LocalRPS: 1000, FleetRPS: 4, Redis: rdb, Prefix: "rivolt", Now: clk.Now, Sleep: clk.Sleep})
-	if err := mr.Set(clk.key("i"), "2"); err != nil { // two idle calls granted this second: the idle share of a budget of 4
-		t.Fatal(err)
-	}
+	clk.setWindow(0, 2) // two idle calls granted this second: the idle share of a budget of 4
 	if r := b.Wait(context.Background(), "seed", "", true); r.Starved || clk.slept() != 0 {
 		t.Fatalf("an active call waited (%d sleeps) behind idle ones: %+v", clk.slept(), r)
 	}
@@ -139,9 +148,7 @@ func TestWaitIsBoundedAndSaysStarved(t *testing.T) {
 	clk := newFakeClock(mr)
 	b := New(Config{LocalRPS: 1000, FleetRPS: 1, Redis: rdb, Prefix: "rivolt", Now: clk.Now,
 		Sleep: func(ctx context.Context, _ time.Duration) { <-ctx.Done() }, ActiveMaxWait: 30 * time.Millisecond})
-	if err := mr.Set(clk.key("a"), "5"); err != nil {
-		t.Fatal(err)
-	}
+	clk.setWindow(5, 0)
 	if r := b.Wait(context.Background(), "seed", "", true); !r.Starved {
 		t.Errorf("%+v, want starved", r)
 	}
