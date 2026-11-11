@@ -55,6 +55,11 @@ var appWrites = map[string]bool{
 	// web-only: a leaked token must not wipe a user's trips, and there is no undo. Capped per account and per trip (trips.MaxPerUser,
 	// savedTripMaxBytes), and limited to 30 writes a minute.
 	"POST /api/trips/saved": true,
+
+	// "Check again" on "No vehicles on this Rivian account yet": asks Rivian for the account's vehicles now, one
+	// call per tap (the web's Settings button). The worst a leaked token can do is ask Rivian again, 6 a minute per user (api.go).
+	"POST /api/settings/rivian/refresh-vehicles": true,
+
 	// Home location (Essential Settings on iPhone, DA-approved Oct 25): set, clear, restore and the address search. The worst a
 	// leaked token can do is move "home", which relabels and re-prices new charges and is undone by restore; it cannot read more
 	// than the app's GET already does. Audited by field names, limited per user, and the account is emailed when the app sets it.
