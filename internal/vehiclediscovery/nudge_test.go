@@ -38,3 +38,20 @@ func TestNudgeReachesARunningOwnerJob(t *testing.T) {
 		t.Errorf("owner job handled %d of 8 nudges", got)
 	}
 }
+
+// The sign-in memory does not grow without bound: a sign-in drops the entries older than ForceEvery and keeps the recent ones.
+func TestSignedInPrunesOldForcedEntries(t *testing.T) {
+	old, recent := uuid.New(), uuid.New()
+	j := &Job{DB: &sql.DB{}, lastForced: map[uuid.UUID]time.Time{
+		old:    time.Now().Add(-2 * ForceEvery),
+		recent: time.Now(),
+	}}
+	j.OwnerMode(func(context.Context) ([]OwnedUser, error) { return nil, nil })
+	j.signedIn(context.Background(), uuid.New())
+	if _, ok := j.lastForced[old]; ok {
+		t.Error("an entry older than ForceEvery was kept")
+	}
+	if _, ok := j.lastForced[recent]; !ok {
+		t.Error("a recent entry was dropped")
+	}
+}

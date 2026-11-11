@@ -203,6 +203,12 @@ func (j *Job) signedIn(ctx context.Context, uid uuid.UUID) {
 	if at, ok := j.lastForced[uid]; ok && time.Since(at) < ForceEvery {
 		return
 	}
+	// Entries older than ForceEvery no longer suppress anything; drop them so the map holds only recent sign-ins.
+	for id, at := range j.lastForced {
+		if time.Since(at) >= ForceEvery {
+			delete(j.lastForced, id)
+		}
+	}
 	mine, err := j.Users(ctx)
 	if err != nil {
 		return
