@@ -15,7 +15,7 @@ type processRole string
 const (
 	roleAll    processRole = "all"
 	roleIngest processRole = "ingest" // Rivian sessions, leases, the recorder; no public routes
-	roleAPI    processRole = "api"    // public routes; holds no leases and reaches Rivian only through forward
+	roleAPI    processRole = "api"    // public routes; holds no leases, so it never runs a Rivian subscription
 	roleJobs   processRole = "jobs"   // background work; holds no leases and serves no public routes
 )
 
