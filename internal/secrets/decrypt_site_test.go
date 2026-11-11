@@ -33,7 +33,7 @@ func TestLoadRivianSessionCallersNameTheirSite(t *testing.T) {
 	root := filepath.Join("..", "..")
 	var bad []string
 	for _, dir := range []string{"cmd", "internal"} {
-		filepath.Walk(filepath.Join(root, dir), func(p string, info os.FileInfo, err error) error {
+		err := filepath.Walk(filepath.Join(root, dir), func(p string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 				return nil
 			}
@@ -50,6 +50,9 @@ func TestLoadRivianSessionCallersNameTheirSite(t *testing.T) {
 			}
 			return nil
 		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(bad) > 0 {
 		t.Fatalf("LoadRivianSession called without WithSite: %v", bad)
