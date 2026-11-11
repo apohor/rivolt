@@ -82,7 +82,7 @@ export default function ConnectRivianPrompt({
               to="/settings?tab=account#rivian"
               className="shrink-0 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
             >
-              {dview.kind === "reauth" ? dview.action : "Open Rivian settings"}
+              {dview.action}
             </Link>
           )}
         </div>

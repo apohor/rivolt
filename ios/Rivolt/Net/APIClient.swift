@@ -680,6 +680,11 @@ actor APIClient {
         try await request("GET", "/api/vehicles/discovery")
     }
 
+    /// Asks Rivian again for the connected account's vehicles and stores any new ones (the web's Settings "Check again").
+    func refreshRivianVehicles() async throws -> RivianVehicleCount {
+        try await request("POST", "/api/settings/rivian/refresh-vehicles")
+    }
+
     func vehicleState(id: String) async throws -> VehicleState {
         // Path components with slashes aren't expected here (Rivian
         // vehicle IDs are UUIDs), but addingPercentEncoding is cheap

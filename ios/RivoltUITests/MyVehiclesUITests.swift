@@ -26,11 +26,12 @@ final class MyVehiclesUITests: XCTestCase {
         XCTAssertTrue(app.buttons["See the sample truck"].exists)
     }
 
-    func testNoVehiclesSaysSoAndPointsToTheWeb() {
+    func testNoVehiclesSaysSoAndPointsToRivianSettings() {
         let app = launch("none")
         XCTAssertTrue(text("No vehicles on this Rivian account yet", in: app).waitForExistence(timeout: 20))
         XCTAssertTrue(text("Your Rivian account is connected, but it lists no vehicle. Rivolt looks again about once a day.", in: app).exists)
-        XCTAssertTrue(app.links["Connect on the web"].exists || app.buttons["Connect on the web"].exists, "none: another account is connected on the web")
+        XCTAssertTrue(app.links["Open Rivian settings"].exists || app.buttons["Open Rivian settings"].exists, "none: the account is connected; its settings are on the web")
+        XCTAssertFalse(app.links["Connect on the web"].exists, "none: the account is already connected")
         XCTAssertTrue(app.buttons["Check again"].exists)
     }
 

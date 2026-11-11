@@ -21,6 +21,7 @@ describe("vehicle discovery copy", () => {
       expect(`${v.title} ${v.body}`).not.toMatch(/error|failed|wrong|sorry/i);
     }
     expect(discoveryView("none")!.title).toBe("No vehicles on this Rivian account yet");
+    expect(discoveryView("none")!.action).toBe("Open Rivian settings");
     expect(discoveryView("reauth")!.action).toBe("Reconnect Rivian");
     expect(discoveryView("looking")!.action).toBeUndefined();
   });

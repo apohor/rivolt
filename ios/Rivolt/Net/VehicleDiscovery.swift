@@ -6,6 +6,12 @@ struct VehicleDiscovery: Decodable, Equatable {
     var state: String
 }
 
+/// `POST /api/settings/rivian/refresh-vehicles`: how many vehicles the account lists now.
+struct RivianVehicleCount: Decodable, Equatable {
+    var vehicleCount: Int
+    enum CodingKeys: String, CodingKey { case vehicleCount = "vehicle_count" }
+}
+
 enum VehicleDiscoveryState: Equatable {
     case unlinked, reauth, found, empty, looking
 
@@ -30,7 +36,7 @@ enum VehicleDiscoveryState: Equatable {
     var view: DiscoveryView? {
         switch self {
         case .looking: return DiscoveryView(kind: .looking, title: VehicleDiscoveryCopy.lookingTitle, body: VehicleDiscoveryCopy.lookingBody, action: nil)
-        case .empty: return DiscoveryView(kind: .noVehicles, title: VehicleDiscoveryCopy.noneTitle, body: VehicleDiscoveryCopy.noneBody, action: nil)
+        case .empty: return DiscoveryView(kind: .noVehicles, title: VehicleDiscoveryCopy.noneTitle, body: VehicleDiscoveryCopy.noneBody, action: VehicleDiscoveryCopy.noneAction)
         case .reauth: return DiscoveryView(kind: .reauth, title: VehicleDiscoveryCopy.reauthTitle, body: VehicleDiscoveryCopy.reauthBody, action: VehicleDiscoveryCopy.reauthAction)
         case .unlinked, .found: return nil
         }

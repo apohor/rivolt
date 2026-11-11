@@ -39,7 +39,7 @@ struct SignedInGate: View {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
             case .noTruck:
-                NoTruckView(discovery: discovery, onCheck: { await check() })
+                NoTruckView(discovery: discovery, onCheck: { await check(askRivian: discovery?.kind == .noVehicles) })
             case .hasTruck:
                 AppShell()
             }
@@ -59,9 +59,12 @@ struct SignedInGate: View {
         }
     }
 
-    private func check() async {
+    /// askRivian: the "Check again" tap on "none". The server only looks again about once a day, so the tap asks Rivian now (as the web's Settings
+    /// does) before reading the list; a failure there still re-reads. The automatic checks never ask Rivian.
+    private func check(askRivian: Bool = false) async {
         await state.recheckTerms()
         if state.termsRequired { return }
+        if askRivian { _ = try? await state.client.refreshRivianVehicles() }
         let list = try? await state.client.vehicles()
         gate = Onboarding.gate(vehicles: list)
         guard gate == .noTruck else { discovery = nil; return }
@@ -108,7 +111,7 @@ struct NoTruckContent: View {
             Text(discovery?.title ?? Onboarding.title).font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             Text(discovery?.body ?? Onboarding.explanation).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
-            // Looking: nothing to do but wait (and ask again). None: the web page is where another account is connected. Reconnect: that page too.
+            // Looking: nothing to do but wait (and ask again). None: the Rivian settings on the web. Reconnect: that page too.
             if let connect, discovery?.kind != .looking {
                 Link(destination: connect) {
                     Text(discovery?.action ?? "Connect on the web").frame(maxWidth: .infinity)
