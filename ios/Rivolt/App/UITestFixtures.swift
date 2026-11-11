@@ -51,6 +51,7 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/settings/planner"): return "settings_planner"
         case ("GET", "/api/app/config"): return "app_config"
         case ("GET", "/api/activity"): return "activity"
+        case ("POST", "/api/maps/valhalla/route"): return "valhalla_route"
         default:
             if method == "GET", path.hasPrefix("/api/vehicles/"), path.hasSuffix("/state") { return "state_full" }
             // One charge's row (not the lists under the same path).
@@ -66,12 +67,18 @@ final class FixtureURLProtocol: URLProtocol {
         return nil
     }
 
-    /// The corridor-layers answer: the stations of the kinds asked for, from the UI tests' own list.
+    /// The one point of the fixture road line (ios/RivoltUITests/Fixtures/valhalla_route.json) that is not a stop, about 20 km off the straight legs between them.
+    static let roadOnlyPoint = (lat: 47.5, lon: -121.4)
+
+    /// The corridor-layers answer: the stations of the kinds asked for, from the UI tests' own list, and only for a search along the road line
+    /// (a path through `roadOnlyPoint`): a search along the stops alone, the map's line never reaching the layers, finds nothing.
     private func corridorLayers(body: Data?) -> Data? {
-        struct Ask: Decodable { var kinds: [String] }
+        struct Ask: Decodable { var path: [[Double]]; var kinds: [String] }
         guard let all = data(named: "corridor_pois"), let body, let ask = try? JSONDecoder().decode(Ask.self, from: body),
               let json = try? JSONSerialization.jsonObject(with: all) as? [String: Any], let pois = json["pois"] as? [[String: Any]] else { return nil }
-        let kept = pois.filter { poi in ((poi["kinds"] as? [String]) ?? []).contains { ask.kinds.contains($0) } }
+        // Within about 1 km (0.01° of latitude, 0.015° of longitude at this latitude).
+        let alongRoad = ask.path.contains { $0.count == 2 && abs($0[0] - Self.roadOnlyPoint.lat) < 0.01 && abs($0[1] - Self.roadOnlyPoint.lon) < 0.015 }
+        let kept = alongRoad ? pois.filter { poi in ((poi["kinds"] as? [String]) ?? []).contains { ask.kinds.contains($0) } } : []
         return try? JSONSerialization.data(withJSONObject: ["pois": kept, "total": kept.count, "asof": json["asof"] ?? "2026-10-20"])
     }
 

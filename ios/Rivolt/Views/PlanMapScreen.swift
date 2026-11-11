@@ -119,8 +119,6 @@ struct PlanMapScreen: View {
 
     @ViewBuilder
     private func map(coverHeight: CGFloat) -> some View {
-        // The layer search can miss the line either map reports: the route's road line doesn't search again, and a day line that lands while
-        // a search is loading is dropped (#1824).
         if case .planned(let trip) = model.night {
             PlanMap(content: .days(.init(days: trip.days, day: day, weatherOn: model.weatherOn)), focus: model.focusedStop,
                     onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
@@ -130,7 +128,7 @@ struct PlanMapScreen: View {
             PlanMap(content: .route(.init(route: route, weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil, vias: model.vias,
                                           pendingVias: model.pendingVias, previewLine: model.previewLine)),
                     focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
-                    onLine: { line, _ in model.roadLine = line }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight,
+                    onLine: { line, _ in Task { await model.setRoadLine(line, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight,
                     onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
                     onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) })
         }
