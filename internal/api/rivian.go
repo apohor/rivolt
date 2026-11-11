@@ -450,8 +450,9 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 // Rivian session persisted - i.e. whether a successful sign-in is a
 // re-login rather than their first connect.
 func hasStoredRivianSession(ctx context.Context, store *secrets.Store, uid uuid.UUID) bool {
-	existing, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "settings"), store, uid)
-	return err == nil && existing.UserSessionToken != ""
+	// A row check, not a decrypt: a sign-out deletes the row, and a pod that does not own the account must decrypt nothing at sign-in.
+	has, err := secrets.HasRivianSession(ctx, store, uid)
+	return err == nil && has
 }
 
 // upstreamClass is the bounded error class for funnel/log labels:

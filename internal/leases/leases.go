@@ -66,6 +66,11 @@ type Store struct {
 	groupOKAt time.Time // when the last successful RenewGroups was sent (monotonic)
 	lead      bool      // lead mode: the group lease decides ownership (groups_lead.go)
 	draining  bool
+
+	// userGroup caches the user -> group answer FenceUser reads (groupOfUser); lookupUserGroup replaces the query in tests.
+	userGroupMu     sync.Mutex
+	userGroup       map[string]userGroupEntry
+	lookupUserGroup func(ctx context.Context, uid string) (string, bool, error)
 }
 
 // NewStore wraps a *sql.DB and pins the calling pod's identity. The
