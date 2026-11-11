@@ -113,6 +113,11 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 	}
 	if epoch, ok := f.cfg.Leases.Held(c.Group); ok && !f.cfg.Leases.PastDeadline() && epoch > 0 {
 		f.count(c.Kind, "held") // the normal case on the owner: not a fail-soft path (left out of the local share), but counted for volume
+		if f.cfg.Token != nil {
+			if tok, has := f.cfg.Token(c.Group); has {
+				ctx = fence.With(ctx, tok) // the call is the group's own, so it carries the permit like an acquired one does
+			}
+		}
 		res, err := local(ctx)
 		return res, "held", err
 	}
