@@ -787,6 +787,11 @@ func handleRivianRefreshVehicles(reg rivian.AccountRegistry, store *secrets.Stor
 		}
 		lc := reg.For(uid)
 		if lc == nil && rivian.NoStandingTokens(reg) {
+			// Check again on a pod that does not hold the account: ask the owner to look (it keeps its own ForceEvery limit), and answer 503 so
+			// the client polls the stored answer.
+			if nudge := signInNudgeFrom(r.Context()); nudge != nil {
+				nudge(r.Context(), uid)
+			}
 			writeUnheld(w)
 			return
 		}

@@ -119,3 +119,24 @@ func TestNoStandingTokensRivianStatusAndLogoutOnATokenlessPod(t *testing.T) {
 		t.Fatalf("logout on a token-less pod = %d %q", rec.Code, rec.Body.String())
 	}
 }
+
+// "Check again" on a pod that does not hold the account asks the owner to look the user up (the sign-in nudge) and answers the retry-able 503
+// with Retry-After, so the client polls the stored answer instead of failing.
+func TestRefreshVehiclesOnAnUnheldPodNudgesTheOwner(t *testing.T) {
+	reg := rivian.NewLiveAccountRegistry(func(uuid.UUID) *rivian.LiveClient { return rivian.NewLive() })
+	reg.(interface {
+		SetNoStandingTokens(func(context.Context, uuid.UUID) (bool, bool), func(uuid.UUID) *rivian.LiveClient)
+	}).SetNoStandingTokens(func(context.Context, uuid.UUID) (bool, bool) { return false, true }, func(uuid.UUID) *rivian.LiveClient { return rivian.NewLive() })
+	uid := uuid.New()
+	var nudged []uuid.UUID
+	h := withSignInNudge(func(_ context.Context, u uuid.UUID) { nudged = append(nudged, u) })(handleRivianRefreshVehicles(reg, nil, nil, nil, nil))
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req.WithContext(auth.WithUser(req.Context(), uid)))
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("status %d, Retry-After %q, want 503 with Retry-After", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if len(nudged) != 1 || nudged[0] != uid {
+		t.Fatalf("nudged %v, want the user once", nudged)
+	}
+}
