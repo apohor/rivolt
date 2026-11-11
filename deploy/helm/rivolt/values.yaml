@@ -482,10 +482,26 @@ cnpg:
   #   requests: { cpu: 100m, memory: 256Mi }
   #   limits:   { cpu: 500m, memory: 512Mi }
 
+  # Pod placement, rendered as the Cluster's spec.affinity. Empty keeps
+  # CNPG's default (preferred anti-affinity on the hostname).
+  # affinity:
+  #   enablePodAntiAffinity: true
+  #   podAntiAffinityType: required
+  #   topologyKey: kubernetes.io/hostname
+  #   nodeAffinity:
+  #     requiredDuringSchedulingIgnoredDuringExecution:
+  #       nodeSelectorTerms:
+  #         - matchExpressions:
+  #             - { key: kubernetes.io/hostname, operator: NotIn, values: [nuc] }
+  affinity: {}
+
   # Postgres tuning. CNPG passes these straight through to
   # postgresql.conf. Defaults below match CNPG's own defaults +
   # a couple of sensible knobs for a small instance.
   postgresql:
+    # -- Quorum synchronous replication (spec.postgresql.synchronous), needs
+    # instances >= 2. Empty: asynchronous.
+    synchronous: {}
     parameters:
       max_connections: "100"
       shared_buffers: "128MB"

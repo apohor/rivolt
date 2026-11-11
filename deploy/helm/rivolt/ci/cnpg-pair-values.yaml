@@ -1,0 +1,23 @@
+# CI render: the two-instance pair with required spread, nodeAffinity away from
+# one node and quorum synchronous replication.
+secrets:
+  kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+cnpg:
+  enabled: true
+  instances: 2
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: kubernetes.io/hostname
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values: [nuc]
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: preferred
