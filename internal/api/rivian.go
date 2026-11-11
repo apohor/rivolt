@@ -510,6 +510,12 @@ func finishRivianConnect(
 	if n == 0 {
 		recordFunnel(ctx, m, uid, funnelRivianNoVehicles, "first_connect", firstConnect)
 	}
+	if n <= 0 {
+		// No vehicle yet (or the lookup failed): the owner of the user's group looks them up now, whatever backoff a stored answer carries.
+		if nudge := signInNudgeFrom(ctx); nudge != nil {
+			nudge(ctx, uid)
+		}
+	}
 	if !firstConnect {
 		return n
 	}

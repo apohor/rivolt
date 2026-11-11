@@ -1,0 +1,24 @@
+package api
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/google/uuid"
+)
+
+type signInNudgeKey struct{}
+
+// withSignInNudge puts the sign-in nudge on the request context, where finishRivianConnect (the shared tail of the password and MFA legs) reads it.
+func withSignInNudge(fn func(context.Context, uuid.UUID)) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), signInNudgeKey{}, fn)))
+		})
+	}
+}
+
+func signInNudgeFrom(ctx context.Context) func(context.Context, uuid.UUID) {
+	fn, _ := ctx.Value(signInNudgeKey{}).(func(context.Context, uuid.UUID))
+	return fn
+}

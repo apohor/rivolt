@@ -105,6 +105,9 @@ type Deps struct {
 	// OwnerDiscovery is RIVOLT_OWNER_DISCOVERY (single-owner M4-2b): the owner of a group looks up the vehicles of its linked users that have none yet,
 	// /api/vehicles no longer asks Rivian for them, and /api/vehicles/discovery says whether the lookup is still going.
 	OwnerDiscovery bool
+	// SignInNudge is called after a successful Rivian sign-in (password or MFA leg) of a user with no vehicle yet, so the owner of their group
+	// looks them up now (single-owner M4-2b). It must not block. Nil without owner discovery.
+	SignInNudge func(ctx context.Context, uid uuid.UUID)
 	// ForwardReplayTest is RIVOLT_FORWARD_REPLAY_TEST: also forward the replay client's calls (see stateForward.replayTest).
 	ForwardReplayTest bool
 	// SampleRetentionMonths is RIVOLT_SAMPLE_RETENTION_MONTHS (0 keeps raw
@@ -1226,6 +1229,9 @@ func New(d Deps) http.Handler {
 			// Rivian account management. Only wired when a live client is
 			// present; with the stub/mock these return 404.
 			r.Route("/settings/rivian", func(r chi.Router) {
+				if d.SignInNudge != nil {
+					r.Use(withSignInNudge(d.SignInNudge))
+				}
 				r.Get("/", handleRivianStatus(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger, func() bool {
 					return d.Flags != nil && d.Flags.KillSwitch().Paused
 				}))

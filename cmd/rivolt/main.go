@@ -1834,6 +1834,7 @@ func runServer() {
 	var stateForward api.StateForwarder
 	var ownerDiscoveryUsers func(context.Context) ([]vehiclediscovery.OwnedUser, error) // the users of the groups this pod holds (RIVOLT_OWNER_DISCOVERY)
 	var groupOfVehicle func(string) (string, bool)
+	var signInNudgeFn func(context.Context, uuid.UUID) // owner discovery's sign-in nudge (RIVOLT_OWNER_DISCOVERY)
 
 	// Keep `vehicle_state` monthly partitions rolling. Without
 	// this a pod that runs past the last partition created at
@@ -2272,6 +2273,9 @@ func runServer() {
 		fwdRT := startForwardOwner(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, redisKeyPrefix)
 		if fwdRT.forwarder != nil {
 			stateForward, groupOfVehicle = fwdRT.forwarder, leaseStore.GroupOfVehicle
+		}
+		if os.Getenv("RIVOLT_OWNER_DISCOVERY") == "1" {
+			signInNudgeFn = newSignInNudge(leaseStore, groupHold(&liveFence), fwdRT.forwarder, logger).Nudge
 		}
 		go watchDrain(drainSigs, func() {
 			dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -3238,6 +3242,7 @@ func runServer() {
 		AppBuild:              appBuild,
 		StateForward:          stateForward,
 		OwnerDiscovery:        ownerDiscovery,
+		SignInNudge:           signInNudgeFn,
 		GroupOfVehicle:        groupOfVehicle,
 		ForwardReplayTest:     forwardReplayTestOn,
 		AuditKey:              deriveKey(cookieSecret, "rivolt/audit/v1"),

@@ -56,7 +56,7 @@ func discoveryLookup(accounts rivian.AccountRegistry, store *secrets.Store) vehi
 		}
 		if store != nil && !a.Authenticated() {
 			// Detached from any request, so it carries the user explicitly: the secrets store is user-scoped under row-level security.
-			sess, err := secrets.LoadRivianSession(auth.WithUser(ctx, uid), store, uid)
+			sess, err := secrets.LoadRivianSession(secrets.WithSite(auth.WithUser(ctx, uid), "discovery"), store, uid)
 			if err == nil && sess.UserSessionToken != "" {
 				a.Restore(sess)
 			}

@@ -97,3 +97,8 @@ func (s *Store) UserUngrouped(ctx context.Context, uid string) (bool, error) {
 	}
 	return false, err
 }
+
+// GroupOfUser is the user's group (cached for userGroupTTL); ok is false for a user with no group.
+func (s *Store) GroupOfUser(ctx context.Context, uid string) (string, bool, error) {
+	return s.groupOfUser(ctx, uid)
+}
