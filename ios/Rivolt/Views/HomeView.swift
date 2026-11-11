@@ -15,6 +15,8 @@ struct HomeView: View {
     /// The re-reads after a drive or charge ends (cancelled when another starts).
     @State private var settleTask: Task<Void, Never>?
     @State private var vehicleState: VehicleState?
+    /// The truck `vehicleState` was read for.
+    @State private var stateVehicleID: String?
     @State private var now: NowSnapshot?
     @State private var loadError: String?
     @State private var isLoading = false
@@ -238,6 +240,7 @@ struct HomeView: View {
     private func loadSelected() async {
         guard let id = selected?.id, selected?.proLocked != true else {
             vehicleState = nil
+            stateVehicleID = nil
             now = nil
             session = nil
             liveDrive = nil
@@ -253,7 +256,8 @@ struct HomeView: View {
         async let ch = try? client.recentCharges(vehicleID: id)
         async let dr = try? client.latestDrive(vehicleID: id)
         let (s, n, c, d) = await (st, nw, ch, dr)
-        vehicleState = s
+        vehicleState = NowReads.stateToShow(fresh: s, last: vehicleState, lastID: stateVehicleID, id: id)
+        stateVehicleID = vehicleState == nil ? nil : id
         now = n ?? nil
         if s != nil || n != nil { freshness.fetched(at: .now) }
         publishConnection()
@@ -266,7 +270,7 @@ struct HomeView: View {
             WidgetStore().setSession(vehicleID: id, server: state.serverURL)
             WidgetCenter.shared.reloadAllTimelines()
         }
-        if s == nil && now == nil {
+        if vehicleState == nil && now == nil {
             loadError = "Couldn't load this truck's status."
         }
         if !state.isDemo { await syncLiveActivity() }

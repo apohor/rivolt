@@ -221,7 +221,7 @@ enum ProLimit: Equatable {
     case proRequired
 
     static func of(_ error: Error) -> ProLimit? {
-        guard case APIError.server(let status, let message) = error, status == 402 else { return nil }
+        guard case APIError.server(let status, let message, _) = error, status == 402 else { return nil }
         switch message {
         case "outside_free_window": return .outsideFreeWindow
         case "pro_required": return .proRequired

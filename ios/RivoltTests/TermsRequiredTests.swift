@@ -65,7 +65,7 @@ final class TermsRequiredTests: XCTestCase {
         let s = try await state()
         TermsStub.status = 403
         TermsStub.body = #"{"error":"terms_required","current":"2"}"#
-        do { _ = try await s.client.vehicles(); XCTFail("403 should throw") } catch APIError.server(let status, let message) {
+        do { _ = try await s.client.vehicles(); XCTFail("403 should throw") } catch APIError.server(let status, let message, _) {
             XCTAssertEqual(status, 403)
             XCTAssertEqual(message, "terms_required")
         }

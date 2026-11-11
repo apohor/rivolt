@@ -70,7 +70,7 @@ final class MoneyModel {
     }
 
     private static func isMissing(_ error: Error) -> Bool {
-        if case APIError.server(let status, _) = error { return status == 404 || status == 501 }
+        if case APIError.server(let status, _, _) = error { return status == 404 || status == 501 }
         return false
     }
 

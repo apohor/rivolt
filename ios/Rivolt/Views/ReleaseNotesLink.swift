@@ -41,9 +41,9 @@ struct ReleaseNotesLink: View {
     /// What to tell the user, by how it failed.
     static func message(for error: Error) -> String {
         switch error {
-        case APIError.server(429, _): return "Try again in a few minutes."
-        case APIError.server(401, _), APIError.rivianReauth: return "Reconnect Rivian to open release notes."
-        case APIError.server(404, _): return "No release notes for this version."
+        case APIError.server(429, _, _): return "Try again in a few minutes."
+        case APIError.server(401, _, _), APIError.rivianReauth: return "Reconnect Rivian to open release notes."
+        case APIError.server(404, _, _): return "No release notes for this version."
         default: return "Release notes unavailable right now."
         }
     }

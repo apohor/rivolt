@@ -22,7 +22,7 @@ enum VehicleDiscoveryState: Equatable {
             default: return nil
             }
         }
-        if case APIError.server(503, _)? = error { return .looking }
+        if case APIError.server(503, _, _)? = error { return .looking }
         return nil
     }
 

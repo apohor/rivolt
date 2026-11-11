@@ -89,6 +89,16 @@ final class RadarTests: XCTestCase {
         XCTAssertEqual(src.calls, 4)
     }
 
+    func testAReconnecting503StillTakesTheLayerAwayQuietly() async {
+        let m = RadarModel(), src = Fake()
+        src.answers = [.failure(APIError.server(status: 503, message: "", retryAfter: 5))]
+        await m.probe(source: src)
+        XCTAssertEqual(m.availability, .available)
+        await m.toggle(source: src)
+        XCTAssertEqual(m.availability, .unavailable)
+        XCTAssertNil(m.layer(server: server))
+    }
+
     func testTheFreshnessLineIsInThePhonesZone() {
         // 2026-11-09 00:42 UTC is 6:42 PM the evening before in Chicago.
         let unix = 1_794_271_320

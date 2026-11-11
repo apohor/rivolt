@@ -102,7 +102,7 @@ enum SavedTripLogic {
 
     /// What to tell the person when saving or opening failed. Never the server's own text.
     static func failure(_ error: Error) -> String {
-        if case APIError.server(let status, _) = error {
+        if case APIError.server(let status, _, _) = error {
             switch status {
             case 402: return ProCopy.savedTripsLimit()
             case 409: return "You already have a saved trip with that name. Choose another name, or update that one."

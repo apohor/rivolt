@@ -155,7 +155,7 @@ final class LiveActivityManager {
 
     /// What to say when the test didn't go out.
     static func testMessage(for error: Error) -> String {
-        if case APIError.server(let status, _) = error {
+        if case APIError.server(let status, _, _) = error {
             if status == 404 { return "Live Activities aren't set up on this server, or this activity wasn't registered." }
             if status == 409 { return "The Live Activity switch is off on the server." }
             if status == 429 { return "Too many tests. Wait a minute and try again." }

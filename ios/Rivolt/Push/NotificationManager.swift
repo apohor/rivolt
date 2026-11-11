@@ -235,7 +235,7 @@ final class NotificationManager {
 
     /// What to say when the test didn't go out.
     static func testMessage(for error: Error) -> String {
-        if case APIError.server(let status, _) = error {
+        if case APIError.server(let status, _, _) = error {
             if status == 404 { return "No iPhone to send to, or this server doesn't send notifications to the app." }
             if status == 429 { return "Too many tests. Wait a minute and try again." }
         }
@@ -287,7 +287,7 @@ final class NotificationManager {
         do {
             preferences = try await server.registerApns(token: token, environment: environment, installID: installID())
             registration = .registered
-        } catch APIError.server(status: 409, _) {
+        } catch APIError.server(status: 409, _, _) {
             // The token is registered to another account from another install: not this person's to fix, and nothing to show. The next launch
             // tries again (the token may be theirs by then).
             if !wasRegistered { registration = .idle }

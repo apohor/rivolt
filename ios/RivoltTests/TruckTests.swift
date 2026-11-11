@@ -510,7 +510,7 @@ final class TruckClientTests: XCTestCase {
         do {
             _ = try await client().drain(vehicleID: "v")
             XCTFail("expected the 429")
-        } catch APIError.server(let status, _) {
+        } catch APIError.server(let status, _, _) {
             XCTAssertEqual(status, 429)
         } catch {
             XCTFail("unexpected \(error)")

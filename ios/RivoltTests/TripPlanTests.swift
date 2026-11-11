@@ -4,6 +4,8 @@ import XCTest
 private final class FakeTrips: TripSource, @unchecked Sendable {
     var plan: TripPlan?
     var planError: Error?
+    /// Thrown one per plan, before `planError`.
+    var planErrors: [Error] = []
     var matches: [PlaceMatch] = []
     var position = TruckPosition(latitude: 47.62, longitude: -122.35)
     private(set) var requests: [TripPlanRequest] = []
@@ -16,6 +18,7 @@ private final class FakeTrips: TripSource, @unchecked Sendable {
 
     func planTrip(_ body: TripPlanRequest) async throws -> TripPlan {
         requests.append(body)
+        if !planErrors.isEmpty { throw planErrors.removeFirst() }
         if let planError { throw planError }
         return plan ?? TripPlan.empty
     }
@@ -114,6 +117,8 @@ final class TripPlanLogicTests: XCTestCase {
             (APIError.server(status: 409, message: "no_position"), "The truck hasn't reported where it is. Pick a starting place."),
             (APIError.server(status: 404, message: "not found"), "Trip planning isn't turned on for this server."),
             (APIError.server(status: 403, message: "x"), "This server doesn't allow trip planning from the app."),
+            (APIError.server(status: 503, message: "the vehicle's owner did not answer", retryAfter: 5), "Reconnecting to Rivian. Nothing is wrong with your trip. Try again in a moment."),
+            (APIError.server(status: 503, message: "outage"), "The planner isn't answering right now. Try again in a minute."),
         ]
         for (e, want) in cases { XCTAssertEqual(TripPlanLogic.failure(e), want) }
         let all = cases.map { TripPlanLogic.failure($0.0) }.joined(separator: " ")
@@ -168,6 +173,48 @@ final class TripPlanModelTests: XCTestCase {
         await planned(src, m)
         XCTAssertTrue(src.requests.isEmpty)
         XCTAssertEqual(m.state, .failed("The truck hasn't reported where it is. Pick a starting place."))
+    }
+
+    func testAReconnectingPlanIsAskedOnceMoreThenSaid() async {
+        let reconnecting = APIError.server(status: 503, message: "the vehicle's owner did not answer", retryAfter: 0)
+        let once = FakeTrips()
+        once.planErrors = [reconnecting]
+        let m = TripPlanModel()
+        await planned(once, m)
+        XCTAssertEqual(once.requests.count, 2, "one retry after Retry-After")
+        XCTAssertEqual(m.state, .failed("The planner found no route for that trip."), "the second answer is what shows (the fake's empty plan), not the reconnecting copy")
+        let twice = FakeTrips()
+        twice.planError = reconnecting
+        let m2 = TripPlanModel()
+        await planned(twice, m2)
+        XCTAssertEqual(twice.requests.count, 2, "only one retry: a plan spends the shared quota")
+        XCTAssertEqual(m2.state, .failed("Reconnecting to Rivian. Nothing is wrong with your trip. Try again in a moment."))
+        let outage = FakeTrips()
+        outage.planError = APIError.server(status: 503, message: "outage")
+        await planned(outage, TripPlanModel())
+        XCTAssertEqual(outage.requests.count, 1, "a 503 without Retry-After is not retried")
+    }
+
+    func testTheReconnectRetryWaitsRetryAfterCappedAtTenSeconds() async throws {
+        var waits: [Duration] = []
+        var calls = 0
+        let got = try await TripPlanLogic.retryOnceAfterReconnect(sleep: { waits.append($0) }) { () async throws -> Int in
+            calls += 1
+            if calls == 1 { throw APIError.server(status: 503, message: "", retryAfter: 60) }
+            return 7
+        }
+        XCTAssertEqual(got, 7)
+        XCTAssertEqual(waits, [.seconds(10)])
+        waits = []
+        _ = try await TripPlanLogic.retryOnceAfterReconnect(sleep: { waits.append($0) }) { () async throws -> Int in 1 }
+        XCTAssertEqual(waits, [], "no wait when the first answer is fine")
+        calls = 0
+        _ = try? await TripPlanLogic.retryOnceAfterReconnect(sleep: { waits.append($0) }) { () async throws -> Int in
+            calls += 1
+            throw APIError.server(status: 503, message: "", retryAfter: 3)
+        }
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(waits, [.seconds(3)])
     }
 
     func testARefusedPlanIsSaidAndANoRoutePlanIsSaid() async {

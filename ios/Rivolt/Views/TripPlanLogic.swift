@@ -380,8 +380,22 @@ enum TripPlanLogic {
     /// What to say under the place field when a search failed: the geocoder allows 20 a minute per person, so a 429 is a quiet
     /// "wait a moment" (the type-ahead never retries on its own); anything else is said as a planning failure is.
     static func searchFailure(_ error: Error) -> String {
-        if case APIError.server(429, _) = error { return "Too many searches, wait a moment." }
+        if case APIError.server(429, _, _) = error { return "Too many searches, wait a moment." }
         return failure(error)
+    }
+
+    /// Runs a plan once more after the server's Retry-After (at most 10 s) when it said it is reconnecting.
+    /// Only once: every plan spends the shared planner quota.
+    static func retryOnceAfterReconnect<T>(
+        sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+        _ run: () async throws -> T
+    ) async throws -> T {
+        do {
+            return try await run()
+        } catch APIError.server(503, _, let retryAfter?) {
+            try await sleep(.seconds(min(retryAfter, 10)))
+            return try await run()
+        }
     }
 
     /// What to tell the person when planning failed. Never the server's own text.
@@ -392,9 +406,11 @@ enum TripPlanLogic {
         case APIError.planQuota(let after):
             if let after, after > 0 { return "You've used this hour's planning allowance. Try again in about \(max(1, Int((Double(after) / 60).rounded(.up)))) min." }
             return "You've used this hour's planning allowance. Try again in a while."
-        case APIError.server(let status, let message):
+        case APIError.server(let status, let message, let retryAfter):
             switch status {
             case 402: return ProCopy.plannerLimit
+            // The server that holds this account's Rivian connection did not answer (a 503 that says when to retry): seconds, not an outage.
+            case 503 where retryAfter != nil: return "Reconnecting to Rivian. Nothing is wrong with your trip. Try again in a moment."
             // No truck linked to the account: the server cannot plan with Rivian, whatever starting charge was set.
             case 400 where message.range(of: "vehicle_id required|no vehicle linked", options: [.regularExpression, .caseInsensitive]) != nil:
                 return "Connect your Rivian to plan a trip. Rivolt plans with Rivian's planner, which needs a connected truck. Connect it on the web, then plan again."

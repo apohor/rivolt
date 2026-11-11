@@ -60,6 +60,12 @@ extension NowSummary {
 /// class ("HTTP 503", "timed out", "no network", "unreadable: at") and, for a decoding error, only the field path: never
 /// an error's own description, which can carry the request's URL, the server host or the underlying text.
 enum NowReads {
+    /// The state to show after a read: the fresh one, else the last one only when it was read for this same truck. A failed read
+    /// (the owner server reconnecting, a timeout) keeps the values; another truck never inherits them.
+    static func stateToShow(fresh: VehicleState?, last: VehicleState?, lastID: String?, id: String) -> VehicleState? {
+        fresh ?? (lastID == id ? last : nil)
+    }
+
     private static let log = Logger(subsystem: "dev.rivolt.app", category: "now")
 
     /// `record` gets the read's outcome as a fixed class (see `ConnectionDiagnostics.Outcome`) for the Connection details
@@ -80,7 +86,7 @@ enum NowReads {
     /// An error as one of a few fixed phrases, safe to log in the clear.
     static func describe(_ error: Error) -> String {
         switch error {
-        case APIError.server(let status, _): return "HTTP \(status)"
+        case APIError.server(let status, _, _): return "HTTP \(status)"
         case APIError.decoding(let inner): return describe(inner)
         case APIError.badURL: return "bad URL"
         case APIError.transport: return "no answer"

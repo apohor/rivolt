@@ -83,7 +83,7 @@ final class DemoClientTests: XCTestCase {
         do {
             _ = try await real.drain(vehicleID: "v")
             XCTFail("a 401 should throw for a signed-in client")
-        } catch APIError.server(let status, _) {
+        } catch APIError.server(let status, _, _) {
             XCTAssertEqual(status, 401)
         }
     }
