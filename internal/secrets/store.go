@@ -190,6 +190,25 @@ func (s *Store) Get(ctx context.Context, userID uuid.UUID, name string) ([]byte,
 	return plaintext, nil
 }
 
+// Exists reports whether (userID, name) has a row, without reading or decrypting it. A row that cannot be opened still exists.
+func (s *Store) Exists(ctx context.Context, userID uuid.UUID, name string) (bool, error) {
+	if userID == uuid.Nil {
+		return false, errors.New("secrets: nil userID")
+	}
+	if name == "" {
+		return false, errors.New("secrets: empty name")
+	}
+	var one int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM user_secrets WHERE user_id = $1 AND name = $2`, userID, name).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("secrets: exists: %w", err)
+	}
+	return true, nil
+}
+
 // Delete removes a secret. Idempotent: no error if the row is
 // absent. Used on explicit logout / unlink and by the future
 // GDPR-delete pipeline (though that will usually go through

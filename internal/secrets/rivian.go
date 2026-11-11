@@ -63,6 +63,15 @@ func LoadRivianSession(ctx context.Context, s *Store, userID uuid.UUID) (rivian.
 	return sess, nil
 }
 
+// HasRivianSession reports whether a session row is stored for the user, without decrypting it: a sign-out deletes the row, so the row is the
+// answer. A pod that does not own the account uses this at sign-in rather than LoadRivianSession, so it decrypts nothing.
+func HasRivianSession(ctx context.Context, s *Store, userID uuid.UUID) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	return s.Exists(ctx, userID, rivianSessionName)
+}
+
 // SaveRivianSession persists or clears the session. An empty
 // UserSessionToken is the sentinel for "logged out"; we delete
 // the row rather than store an empty sealed blob, because a
