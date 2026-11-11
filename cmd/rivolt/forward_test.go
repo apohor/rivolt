@@ -40,10 +40,10 @@ func TestForwardRunnerKinds(t *testing.T) {
 }
 
 // With RIVOLT_FORWARD unset (the default) nothing runs: the metrics exist at 0 and the draining hook is a no-op.
-func TestStartForwardOwnerIsOffByDefault(t *testing.T) {
+func TestStartForwardIsOffByDefault(t *testing.T) {
 	t.Setenv("RIVOLT_FORWARD", "")
 	m := metrics.New()
-	rt := startForwardOwner(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), m, nil, nil, nil, nil, nil, "rivolt")
+	rt := startForward(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), m, nil, nil, nil, nil, nil, "rivolt", planFor(roleAll))
 	rt.setDraining() // must not panic
 	if rt.forwarder != nil {
 		t.Error("no requester with the flag off")

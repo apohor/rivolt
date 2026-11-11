@@ -385,6 +385,14 @@ func runServer() {
 	// so RIVOLT_PUBLIC_BASE_URL names the public site there.
 	publicBaseURL := firstNonEmpty(os.Getenv("RIVOLT_PUBLIC_BASE_URL"), os.Getenv("RIVOLT_BASE_URL"))
 
+	// The process role (RIVOLT_ROLE, zero-downtime design §2.6): which subsystems this process starts. all, the default, is every one.
+	role, err := parseRolePlan(os.Getenv)
+	if err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+	logger.Info("process role", "role", string(role.Role))
+
 	addr := flag.String("addr", envOr("ADDR", ":8080"), "HTTP listen address")
 	dataDir := flag.String("data-dir", envOr("DATA_DIR", "./data"), "directory for the SQLite database and caches")
 	vapidSubject := flag.String("vapid-subject", envOr("VAPID_SUBJECT", "mailto:rivolt@invalid"),
@@ -536,6 +544,7 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	registerProcessRole(appMetrics.Registry(), role.Role)
 	secrets.SetSessionDecryptObserver(func(site string) {
 		if !slices.Contains(metrics.SessionDecryptSites, site) {
 			site = "other"
@@ -844,6 +853,9 @@ func runServer() {
 	}
 	if strings.EqualFold(metricsAddr, "off") {
 		metricsAddr = ""
+		if !role.PublicRoutes {
+			logger.Warn("RIVOLT_METRICS_ADDR=off on a role with no public routes: this pod has no other way to be seen", "role", string(role.Role))
+		}
 	}
 	// Resend email client. Both vars must be set for the client to
 	// actually send; otherwise the approve handler still returns the
@@ -2102,6 +2114,7 @@ func runServer() {
 	// pod_id source: RIVOLT_POD_ID env (set via the k8s downward
 	// API in the Helm chart). Falls back to hostname so the
 	// docker-compose path works without extra config.
+	drainWatched := false
 	if monitorRegistry != nil && pgPool != nil {
 		podID := os.Getenv("RIVOLT_POD_ID")
 		if podID == "" {
@@ -2142,92 +2155,6 @@ func runServer() {
 		leaseStore.SetGroupLead(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
 		liveFence.Set(leaseStore)
 		startTokensLoadedUnheld(ctx, accountRegistry, &liveFence, appMetrics.TokensLoadedUnheld, logger)
-		vehicleSource := leases.NewVehicleSource(
-			func() []string {
-				infos := monitorRegistry.AllVehicleInfo()
-				out := make([]string, 0, len(infos))
-				for _, v := range infos {
-					if v.ID != "" {
-						out = append(out, v.ID)
-					}
-				}
-				return out
-			},
-			logger,
-			func(qctx context.Context) ([]string, error) {
-				// Skip the legacy electrafi-<hash> synthetic vehicle
-				// rows left over from earlier importers. They aren't
-				// real Rivian VINs, so leasing them only burns
-				// subscription slots on dead WS streams.
-				return leases.QueryStringColumn(qctx, pgPool,
-					`SELECT DISTINCT rivian_vehicle_id FROM vehicles
-					   WHERE rivian_vehicle_id <> ''
-					     AND rivian_vehicle_id NOT LIKE 'electrafi-%'`)
-			},
-			func(qctx context.Context) ([]string, error) {
-				return leases.QueryStringColumn(qctx, pgPool,
-					`SELECT DISTINCT vehicle_id FROM subscription_leases
-					   WHERE vehicle_id <> ''
-					     AND vehicle_id NOT LIKE 'electrafi-%'`)
-			},
-		)
-		coord := leases.NewCoordinator(
-			leaseStore,
-			vehicleSource,
-			monitorRegistry.EnsureSubscribed,
-			monitorRegistry.Unsubscribe,
-			logger,
-		)
-		// A pod that gives groups up bumps a Redis counter its peers read every second, so they take them now instead of at their next tick (zero-impact deploys, G1a).
-		// The tick stays the fallback; RIVOLT_RELEASE_SIGNAL=0 turns the signal off.
-		if sharedRedis != nil && os.Getenv("RIVOLT_RELEASE_SIGNAL") != "0" {
-			coord.SetReleaseSignal(leases.NewRedisSignal(sharedRedis, redisKeyPrefix))
-		}
-		// Lead mode asked for but the store would not lead: refuse to start rather than run the old mode while believing otherwise.
-		if err := coord.CheckLeadMode(os.Getenv("RIVOLT_GROUP_LEAD") == "1"); err != nil {
-			logger.Error("lease coordinator", "err", err.Error())
-			os.Exit(1)
-		}
-		coord.SetLeadPassObserver(func(d time.Duration) { appMetrics.LeaseLeadPassSeconds.Observe(d.Seconds()) })
-		coord.SetReconcileObserver(func(trigger string) { appMetrics.LeaseReconcileTotal.WithLabelValues(trigger).Inc() })
-		coord.SetCountObserver(func(n int) {
-			appMetrics.SubscriptionLeases.Set(float64(n))
-		})
-		// Heal a lease held without a subscription (an exited run, a
-		// monitor that never started): reconcile re-subscribes it and
-		// counts the episode.
-		coord.SetGroupObserver(
-			func(n int) { appMetrics.LeaseGroupsOwned.Set(float64(n)) },
-			func(source string, n int) {
-				appMetrics.LeaseFenceWouldReject.WithLabelValues(source).Add(float64(n))
-			},
-		)
-		coord.SetStreamingCheck(monitorRegistry.Streaming)
-		// Lead mode: a shed never takes a group with an open drive or charge and prefers a sleeping
-		// one; a vehicle mid-session follows its group when a shared vehicle re-keys it (design 4.7).
-		coord.SetActivityCheck(func(vid string) leases.Activity {
-			switch open, asleep := monitorRegistry.SessionActivity(vid); {
-			case open:
-				return leases.ActivityBusy
-			case asleep:
-				return leases.ActivityIdle
-			}
-			return leases.ActivityAwake
-		}, func(choice string) { appMetrics.LeaseShed.WithLabelValues(choice).Inc() })
-		coord.SetSelfFenceObserver(func() { appMetrics.LeaseSelfFence.Inc() })
-		coord.SetRenewObserver(func(scope, outcome string) { appMetrics.LeaseRenew.WithLabelValues(scope, outcome).Inc() })
-		// Owner-side writes carry the group lease (lead mode only; Off otherwise). A refused write
-		// counts, and asks the coordinator to look at its groups now.
-		if monitorRegistry != nil {
-			monitorRegistry.SetFence(leaseStore, func(kind string) {
-				if site, refused := strings.CutPrefix(kind, rivian.CallRefusedPrefix); refused {
-					appMetrics.RivianCallRefused.WithLabelValues(site).Inc() // a Rivian call not made: its own counter
-				} else {
-					appMetrics.LeaseFenced.WithLabelValues(kind).Inc()
-				}
-				coord.TriggerReconcile()
-			})
-		}
 		monitorRegistry.SetRolloutObserver(func(event, kind, source string) {
 			switch event {
 			case rivian.RolloutRehydrate:
@@ -2237,65 +2164,164 @@ func runServer() {
 			}
 		})
 		monitorRegistry.SetScheduleObserver(func(outcome string) { appMetrics.RivianScheduleReadTotal.WithLabelValues(outcome).Inc() })
-		coord.SetFrameObserver(monitorRegistry.FirstFrameAt, func(seconds float64, active bool) {
-			state := "idle"
-			if active {
-				state = "active"
+		// Owner-side writes carry the group lease (lead mode only; Off otherwise). A refused write
+		// counts, and asks the coordinator (when this role has one) to look at its groups now.
+		var coord *leases.Coordinator
+		fenced := func(kind string) {
+			if site, refused := strings.CutPrefix(kind, rivian.CallRefusedPrefix); refused {
+				appMetrics.RivianCallRefused.WithLabelValues(site).Inc() // a Rivian call not made: its own counter
+			} else {
+				appMetrics.LeaseFenced.WithLabelValues(kind).Inc()
 			}
-			appMetrics.LeaseAcquireToFrame.WithLabelValues(state).Observe(seconds)
-		})
-		coord.SetHandoffObserver(monitorRegistry.SessionKind,
-			func(reason string, wait time.Duration, hasWait bool) {
-				appMetrics.RolloutHandoffsTotal.WithLabelValues(reason).Inc()
-				if hasWait {
-					appMetrics.HandoffWaitSeconds.Observe(wait.Seconds())
-				}
-			},
-			func(seconds float64, state string) {
-				appMetrics.HandoffGapSeconds.WithLabelValues(state).Observe(seconds)
+			if coord != nil {
+				coord.TriggerReconcile()
+			}
+		}
+		if !role.Leases {
+			// A role that holds no leases (api, jobs): no coordinator, so this pod writes no lease row. The store above holds no group,
+			// so with lead mode (required for these roles) the fence reads every group Lost and no monitor here writes or calls Rivian.
+			monitorRegistry.SetFence(leaseStore, fenced)
+			go leaseStore.FollowVehicleGroups(ctx, func(err error) { logger.Warn("group map read failed", "err", err.Error()) })
+		} else {
+			vehicleSource := leases.NewVehicleSource(
+				func() []string {
+					infos := monitorRegistry.AllVehicleInfo()
+					out := make([]string, 0, len(infos))
+					for _, v := range infos {
+						if v.ID != "" {
+							out = append(out, v.ID)
+						}
+					}
+					return out
+				},
+				logger,
+				func(qctx context.Context) ([]string, error) {
+					// Skip the legacy electrafi-<hash> synthetic vehicle
+					// rows left over from earlier importers. They aren't
+					// real Rivian VINs, so leasing them only burns
+					// subscription slots on dead WS streams.
+					return leases.QueryStringColumn(qctx, pgPool,
+						`SELECT DISTINCT rivian_vehicle_id FROM vehicles
+						   WHERE rivian_vehicle_id <> ''
+						     AND rivian_vehicle_id NOT LIKE 'electrafi-%'`)
+				},
+				func(qctx context.Context) ([]string, error) {
+					return leases.QueryStringColumn(qctx, pgPool,
+						`SELECT DISTINCT vehicle_id FROM subscription_leases
+						   WHERE vehicle_id <> ''
+						     AND vehicle_id NOT LIKE 'electrafi-%'`)
+				},
+			)
+			coord = leases.NewCoordinator(
+				leaseStore,
+				vehicleSource,
+				monitorRegistry.EnsureSubscribed,
+				monitorRegistry.Unsubscribe,
+				logger,
+			)
+			// A pod that gives groups up bumps a Redis counter its peers read every second, so they take them now instead of at their next tick (zero-impact deploys, G1a).
+			// The tick stays the fallback; RIVOLT_RELEASE_SIGNAL=0 turns the signal off.
+			if sharedRedis != nil && os.Getenv("RIVOLT_RELEASE_SIGNAL") != "0" {
+				coord.SetReleaseSignal(leases.NewRedisSignal(sharedRedis, redisKeyPrefix))
+			}
+			// Lead mode asked for but the store would not lead: refuse to start rather than run the old mode while believing otherwise.
+			if err := coord.CheckLeadMode(os.Getenv("RIVOLT_GROUP_LEAD") == "1"); err != nil {
+				logger.Error("lease coordinator", "err", err.Error())
+				os.Exit(1)
+			}
+			coord.SetLeadPassObserver(func(d time.Duration) { appMetrics.LeaseLeadPassSeconds.Observe(d.Seconds()) })
+			coord.SetReconcileObserver(func(trigger string) { appMetrics.LeaseReconcileTotal.WithLabelValues(trigger).Inc() })
+			coord.SetCountObserver(func(n int) {
+				appMetrics.SubscriptionLeases.Set(float64(n))
 			})
-		coord.SetStopObserver(appMetrics.HandoffStopSeconds.Observe)
-		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
-		// Authoritative set for lease ownership: vehicles whose owner has
-		// a stored Rivian session. A lease outside this set is reaped and
-		// unsubscribed. This covers both account deletion (vehicles row
-		// gone, and subscription_leases has no FK to cascade it) and
-		// disconnect (logout deletes the session row) - in the latter
-		// case every replica drops the lease within one reconcile instead
-		// of the lease-owning pod streaming on from memory until its next
-		// restart. Gated on the same 'rivian.session' predicate as the
-		// boot hydrate so what gets a monitor and what stays leased agree.
-		coord.SetAuthoritative(func(qctx context.Context) ([]string, error) {
-			return db.ListSubscribableVehicleIDs(qctx, pgPool)
-		})
-		go func() {
-			if err := coord.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-				logger.Warn("lease coordinator exited", "err", err.Error())
+			// Heal a lease held without a subscription (an exited run, a
+			// monitor that never started): reconcile re-subscribes it and
+			// counts the episode.
+			coord.SetGroupObserver(
+				func(n int) { appMetrics.LeaseGroupsOwned.Set(float64(n)) },
+				func(source string, n int) {
+					appMetrics.LeaseFenceWouldReject.WithLabelValues(source).Add(float64(n))
+				},
+			)
+			coord.SetStreamingCheck(monitorRegistry.Streaming)
+			// Lead mode: a shed never takes a group with an open drive or charge and prefers a sleeping
+			// one; a vehicle mid-session follows its group when a shared vehicle re-keys it (design 4.7).
+			coord.SetActivityCheck(func(vid string) leases.Activity {
+				switch open, asleep := monitorRegistry.SessionActivity(vid); {
+				case open:
+					return leases.ActivityBusy
+				case asleep:
+					return leases.ActivityIdle
+				}
+				return leases.ActivityAwake
+			}, func(choice string) { appMetrics.LeaseShed.WithLabelValues(choice).Inc() })
+			coord.SetSelfFenceObserver(func() { appMetrics.LeaseSelfFence.Inc() })
+			coord.SetRenewObserver(func(scope, outcome string) { appMetrics.LeaseRenew.WithLabelValues(scope, outcome).Inc() })
+			if monitorRegistry != nil {
+				monitorRegistry.SetFence(leaseStore, fenced)
 			}
-		}()
-		// The vehicle info no longer comes from a Rivian call on every pod at boot (every pod, for every loaded user, whether or not it
-		// owns any of their vehicles). Each monitor hydrates it from Postgres, and the owner refreshes from Rivian when its subscription
-		// starts and daily after (single-owner M3-6). Here the coordinator is only poked to reconcile.
-		go func() {
-			coord.TriggerReconcile()
-		}()
-		leaseCoordinator = coord
+			coord.SetFrameObserver(monitorRegistry.FirstFrameAt, func(seconds float64, active bool) {
+				state := "idle"
+				if active {
+					state = "active"
+				}
+				appMetrics.LeaseAcquireToFrame.WithLabelValues(state).Observe(seconds)
+			})
+			coord.SetHandoffObserver(monitorRegistry.SessionKind,
+				func(reason string, wait time.Duration, hasWait bool) {
+					appMetrics.RolloutHandoffsTotal.WithLabelValues(reason).Inc()
+					if hasWait {
+						appMetrics.HandoffWaitSeconds.Observe(wait.Seconds())
+					}
+				},
+				func(seconds float64, state string) {
+					appMetrics.HandoffGapSeconds.WithLabelValues(state).Observe(seconds)
+				})
+			coord.SetStopObserver(appMetrics.HandoffStopSeconds.Observe)
+			coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
+			// Authoritative set for lease ownership: vehicles whose owner has
+			// a stored Rivian session. A lease outside this set is reaped and
+			// unsubscribed. This covers both account deletion (vehicles row
+			// gone, and subscription_leases has no FK to cascade it) and
+			// disconnect (logout deletes the session row) - in the latter
+			// case every replica drops the lease within one reconcile instead
+			// of the lease-owning pod streaming on from memory until its next
+			// restart. Gated on the same 'rivian.session' predicate as the
+			// boot hydrate so what gets a monitor and what stays leased agree.
+			coord.SetAuthoritative(func(qctx context.Context) ([]string, error) {
+				return db.ListSubscribableVehicleIDs(qctx, pgPool)
+			})
+			go func() {
+				if err := coord.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+					logger.Warn("lease coordinator exited", "err", err.Error())
+				}
+			}()
+			// The vehicle info no longer comes from a Rivian call on every pod at boot (every pod, for every loaded user, whether or not it
+			// owns any of their vehicles). Each monitor hydrates it from Postgres, and the owner refreshes from Rivian when its subscription
+			// starts and daily after (single-owner M3-6). Here the coordinator is only poked to reconcile.
+			go func() {
+				coord.TriggerReconcile()
+			}()
+			leaseCoordinator = coord
+		}
 		// Single-owner M3: the forwarder's owner loop (RIVOLT_FORWARD=1 only; the metrics exist at 0 either way).
-		fwdRT := startForwardOwner(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, redisKeyPrefix)
+		fwdRT := startForward(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, redisKeyPrefix, role)
 		if fwdRT.forwarder != nil {
 			stateForward, groupOfVehicle = fwdRT.forwarder, leaseStore.GroupOfVehicle
 		}
 		if os.Getenv("RIVOLT_OWNER_DISCOVERY") == "1" {
 			signInNudgeFn = newSignInNudge(leaseStore, groupHold(&liveFence), fwdRT.forwarder, logger).Nudge
 		}
-		go watchDrain(drainSigs, func() {
-			dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer dcancel()
-			api.StartDrain() // /readyz fails from the start of the drain
-			coord.MarkDraining(dctx)
-			fwdRT.setDraining() // requesters stop forwarding here; what is already queued still gets answered
-			logger.Info("draining: no new leases will be taken")
-		})
+		var markDraining func(context.Context)
+		if coord != nil {
+			markDraining = coord.MarkDraining
+		}
+		go watchDrain(drainSigs, drainFunc(api.StartDrain, markDraining, fwdRT.setDraining, logger))
+		drainWatched = true
+	}
+	// A role without leases drains too when the block above did not run (no monitors on this install): /readyz fails on SIGUSR1.
+	if !drainWatched && !role.Leases {
+		go watchDrain(drainSigs, drainFunc(api.StartDrain, nil, func() {}, logger))
 	}
 
 	webFS := web.Assets()
@@ -3281,6 +3307,7 @@ func runServer() {
 		ImpersonationDisabled: impersonationDisabled,
 		AdminDisabled:         adminDisabled,
 		AdminOnly:             adminOnlyMode,
+		ProbesOnly:            !role.PublicRoutes,
 		PlanLegs:              newPlanLegs(sharedRedis, redisKeyPrefix, logger, appMetrics, replicaDivisor),
 		Redis:                 sharedRedis,
 		RedisPrefix:           redisKeyPrefix,

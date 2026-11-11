@@ -33,9 +33,13 @@ type fakeStateForwarder struct {
 	res     forward.Result
 	calls   []forward.Call
 	noGroup []forward.Kind
+	refuse  bool // NoGroup says no (a no-local pod: RIVOLT_ROLE api, jobs)
 }
 
-func (f *fakeStateForwarder) NoGroup(k forward.Kind) { f.noGroup = append(f.noGroup, k) }
+func (f *fakeStateForwarder) NoGroup(k forward.Kind) bool {
+	f.noGroup = append(f.noGroup, k)
+	return !f.refuse
+}
 
 func (f *fakeStateForwarder) Do(ctx context.Context, c forward.Call, local func(context.Context) (forward.Result, error)) (forward.Result, string, error) {
 	f.calls = append(f.calls, c)
@@ -342,4 +346,18 @@ func TestForwardedStateTimeoutServesWhatThePodHas(t *testing.T) {
 			t.Errorf("status %d Retry-After %q, Rivian calls %d; want 503, 5, 0", w.Code, w.Header().Get("Retry-After"), client.count())
 		}
 	})
+}
+
+// On a no-local pod (RIVOLT_ROLE api) a vehicle whose group is unknown is not served with a Rivian call here: 503 with Retry-After 5.
+func TestForwardedStateNoGroupOnANoLocalPodIs503(t *testing.T) {
+	client := &restStateClient{st: rivian.State{VehicleID: fwdVehicle}}
+	fw := &fakeStateForwarder{refuse: true}
+	sf := &stateForward{fw: fw, groupOf: func(string) (string, bool) { return "", false }, forwardClient: anyClient}
+	w := stateGet(handleVehicleStateForwarded(client, rivian.NewStateMonitor(nil, nil), nil, sf))
+	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") != "5" || client.count() != 0 {
+		t.Errorf("status %d Retry-After %q, Rivian calls %d; want 503, 5, 0", w.Code, w.Header().Get("Retry-After"), client.count())
+	}
+	if len(fw.noGroup) != 1 || len(fw.calls) != 0 {
+		t.Errorf("NoGroup asked %d times, forwards %d; want 1 and 0", len(fw.noGroup), len(fw.calls))
+	}
 }

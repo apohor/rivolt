@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -48,6 +50,25 @@ func prestop(pid int, sleep time.Duration, kill func(pid int, sig syscall.Signal
 func watchDrain(sigs <-chan os.Signal, drain func()) {
 	for range sigs {
 		drain()
+	}
+}
+
+// drainFunc is what SIGUSR1 runs, in this order: /readyz fails (startDrain), the lease coordinator takes no new lease (markDraining; nil in a
+// role that holds no leases), then the forward owner stops being asked (setDraining; what is already queued still gets answered).
+func drainFunc(startDrain func(), markDraining func(context.Context), setDraining func(), logger *slog.Logger) func() {
+	return func() {
+		startDrain() // /readyz fails from the start of the drain
+		if markDraining != nil {
+			dctx, dcancel := context.WithTimeout(context.Background(), 2*time.Second)
+			markDraining(dctx)
+			dcancel()
+		}
+		setDraining() // requesters stop forwarding here; what is already queued still gets answered
+		if markDraining != nil {
+			logger.Info("draining: no new leases will be taken")
+		} else {
+			logger.Info("draining: /readyz fails from now on")
+		}
 	}
 }
 

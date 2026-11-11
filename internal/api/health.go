@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/apohor/rivolt/internal/adminonly"
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/flags"
@@ -32,6 +34,18 @@ func handleHealthz() http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	}
+}
+
+// mountRootProbes mounts the kubelet probes at the root (no auth: the kubelet sends none).
+func mountRootProbes(r chi.Router, d Deps) {
+	r.Get("/healthz", handleHealthz())
+	r.Get("/readyz", handleReadyz(d.SystemDB)) // system pool: a pre-auth probe of the owner connection
+}
+
+// mountProbes is the whole router of a role with no public routes: the root probes and /api/health, its stable alias.
+func mountProbes(r chi.Router, d Deps) {
+	mountRootProbes(r, d)
+	r.Get("/api/health", handleHealth(d.Version))
 }
 
 // draining is set when this pod starts to shut down (the chart's preStop hook, or SIGTERM): /readyz fails from then on, so the pod is out

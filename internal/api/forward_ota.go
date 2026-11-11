@@ -58,7 +58,9 @@ func (sf *stateForward) forwardOTANotes(ctx context.Context, src rivian.OTASourc
 	}
 	group, ok := sf.groupOf(vehicleID)
 	if !ok {
-		sf.fw.NoGroup(forward.KindOTANotes)
+		if !sf.fw.NoGroup(forward.KindOTANotes) {
+			return decodeForwardedOTANotes(forward.UnavailableResult())
+		}
 		return local(ctx)
 	}
 	var (

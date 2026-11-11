@@ -141,19 +141,20 @@ func (r *forwardRunner) adopt(ctx context.Context, user string) (forward.Result,
 	return forward.Result{Status: 200, Body: json.RawMessage(`{}`)}, nil
 }
 
-// forwardRuntime is what startForwardOwner hands back: the drain switch, and the requester side for the handlers (nil with the flag off,
+// forwardRuntime is what startForward hands back: the drain switch, and the requester side for the handlers (nil with the flag off,
 // where every handler calls Rivian itself as before).
 type forwardRuntime struct {
 	setDraining func()
 	forwarder   *forward.Forwarder
 }
 
-// startForwardOwner creates the forwarder's metrics (always, so the series exist at 0 on every pod) and, only when RIVOLT_FORWARD=1,
+// startForward creates the forwarder's metrics (always, so the series exist at 0 on every pod) and, only when RIVOLT_FORWARD=1,
 // runs the owner loop on its own Redis client. It returns the drain switch and the requester. With the flag off (the
 // default) nothing runs and no key is read; with the flag on and no valid key the process refuses to start, so a pod never believes
-// it forwards while it does not.
-func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *metrics.Metrics, pool *sql.DB, store *leases.Store,
-	accounts rivian.AccountRegistry, monitors *rivian.MonitorRegistry, secretsStore *secrets.Store, keyPrefix string) forwardRuntime {
+// it forwards while it does not. A role without plan.ForwardOwner (api, jobs) runs no owner loop, and one without plan.LocalFallback has
+// a requester that never serves a call here or acquires (RequesterConfig.NoLocal).
+func startForward(ctx context.Context, logger *slog.Logger, appMetrics *metrics.Metrics, pool *sql.DB, store *leases.Store,
+	accounts rivian.AccountRegistry, monitors *rivian.MonitorRegistry, secretsStore *secrets.Store, keyPrefix string, plan rolePlan) forwardRuntime {
 	fm := forward.NewMetrics(appMetrics.Registry())
 	if os.Getenv("RIVOLT_FORWARD") != "1" {
 		return forwardRuntime{setDraining: func() {}}
@@ -179,22 +180,27 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 	logger.Info("forward: redis client", append([]any{"addr", addr, "pool", ropts.PoolSize}, redisAuthAttrs(ropts)...)...)
 	rc := redis.NewClient(ropts)
 	leaseView := forward.NewPGLeaseView(pool, store)
-	owner, err := forward.NewOwner(forward.OwnerConfig{
-		Pod:     store.PodID(),
-		Keys:    forward.Keys{Prefix: keyPrefix},
-		Signer:  signer,
-		Redis:   rc,
-		Leases:  leaseView,
-		Runner:  &forwardRunner{store: store, secrets: secretsStore, accounts: accounts, monitors: monitors, logger: logger},
-		Metrics: fm,
-		Logger:  logger,
-	})
-	if err != nil {
-		logger.Error("forward: owner", "err", err.Error())
-		os.Exit(1)
+	var owner *forward.Owner
+	if plan.ForwardOwner {
+		owner, err = forward.NewOwner(forward.OwnerConfig{
+			Pod:     store.PodID(),
+			Keys:    forward.Keys{Prefix: keyPrefix},
+			Signer:  signer,
+			Redis:   rc,
+			Leases:  leaseView,
+			Runner:  &forwardRunner{store: store, secrets: secretsStore, accounts: accounts, monitors: monitors, logger: logger},
+			Metrics: fm,
+			Logger:  logger,
+		})
+		if err != nil {
+			logger.Error("forward: owner", "err", err.Error())
+			os.Exit(1)
+		}
 	}
-	acquireOnRequest := os.Getenv("RIVOLT_ACQUIRE_ON_REQUEST") == "1"
-	if acquireOnRequest {
+	acquireOnRequest := os.Getenv("RIVOLT_ACQUIRE_ON_REQUEST") == "1" && plan.LocalFallback
+	if !plan.LocalFallback {
+		logger.Info("forward: no local fallback (process role " + string(plan.Role) + "): a call that cannot be forwarded is a 503, never served here or acquired")
+	} else if acquireOnRequest {
 		logger.Info("forward: acquire-on-request is on: a call whose group has no live owner acquires it; every other fallback is a 503")
 	}
 	fwd, err := forward.NewForwarder(forward.RequesterConfig{
@@ -208,6 +214,7 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 		// M4-2: the only acquire trigger is a lease row absent or expired by the database clock; AcquireGroups takes a free row only (and a
 		// draining pod acquires nothing), so a live lease is never taken.
 		AcquireOnRequest: acquireOnRequest,
+		NoLocal:          !plan.LocalFallback,
 		Acquire:          func(ctx context.Context, group string) (bool, error) { return acquireGroup(ctx, store, group) },
 		Token: func(group string) (fence.Token, bool) {
 			for _, t := range store.GroupTokens() {
@@ -221,6 +228,9 @@ func startForwardOwner(ctx context.Context, logger *slog.Logger, appMetrics *met
 	if err != nil {
 		logger.Error("forward: requester", "err", err.Error())
 		os.Exit(1)
+	}
+	if owner == nil {
+		return forwardRuntime{setDraining: func() {}, forwarder: fwd}
 	}
 	go owner.Run(ctx)
 	logger.Info("forward: owner loop on", "pod", store.PodID())

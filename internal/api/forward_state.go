@@ -16,8 +16,8 @@ import (
 
 // StateForwarder is the forwarder as the vehicle-state handler uses it (*forward.Forwarder satisfies it).
 type StateForwarder interface {
-	// NoGroup counts a call served on this pod because the vehicle's group is unknown.
-	NoGroup(kind forward.Kind)
+	// NoGroup counts a call whose vehicle's group is unknown, and reports whether it may be served on this pod (false: answer 503).
+	NoGroup(kind forward.Kind) bool
 	Do(ctx context.Context, c forward.Call, local func(context.Context) (forward.Result, error)) (forward.Result, string, error)
 }
 
@@ -69,7 +69,9 @@ func (sf *stateForward) fetch(ctx context.Context, c rivian.Client, vehicleID st
 	}
 	group, ok := sf.groupOf(vehicleID)
 	if !ok {
-		sf.fw.NoGroup(forward.KindFreshState)
+		if !sf.fw.NoGroup(forward.KindFreshState) {
+			return decodeForwardedState(forward.UnavailableResult())
+		}
 		return c.State(ctx, vehicleID)
 	}
 	var (
