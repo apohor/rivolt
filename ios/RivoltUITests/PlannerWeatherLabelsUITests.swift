@@ -63,4 +63,65 @@ final class PlannerWeatherLabelsUITests: XCTestCase {
             expectDrawnLabel(map, in: app, chip)
         }
     }
+
+    /// Each day's chip frames that day (two days whose lines are apart: Seattle to Ellensburg, then on to Spokane). Opened as saved, and planned
+    /// from a one-day trip by picking a stay, the way a person gets there: the map then switches from the one route to the days.
+    func testEachDayChipFramesThatDay() throws {
+        let app = launch()
+        let map = open("Two days, apart", in: app)
+        expectEachDayFramed(map, in: app)
+    }
+
+    func testEachDayChipFramesThatDayAfterPickingAStay() throws {
+        let app = launch()
+        let map = open("Long way to Spokane", in: app)
+        expectDrawnLabel(map, in: app, "the one route")
+        let find = app.buttons["Find a place to sleep"].firstMatch
+        XCTAssertTrue(find.waitForExistence(timeout: 10), "the long drive offers a night")
+        reveal(find, in: app)
+        find.tap()
+        let stay = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Example Hotel'")).firstMatch
+        XCTAssertTrue(stay.waitForExistence(timeout: 10), "the stay is listed")
+        reveal(stay, in: app)
+        stay.tap()
+        XCTAssertTrue(app.buttons["Day 1"].firstMatch.waitForExistence(timeout: 20), "the two days are planned")
+        expectEachDayFramed(map, in: app)
+    }
+
+    /// Scrolls the plan's sheet until `element` can be tapped.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<8 where !element.isHittable {
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+                .press(forDuration: 0.05, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+        }
+    }
+
+    /// The labels the map draws, once the camera has settled (they stop changing).
+    private func settledLabels(_ app: XCUIApplication) -> [XCUIElement] {
+        var last: [String] = []
+        for _ in 0..<12 {
+            let now = app.descendants(matching: .any).matching(identifier: "drawn-weather-label").allElementsBoundByIndex
+            let labels = now.map { "\($0.label)@\(Int($0.frame.midX)),\(Int($0.frame.midY))" }
+            if labels == last, !labels.isEmpty { return now }
+            last = labels
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        return app.descendants(matching: .any).matching(identifier: "drawn-weather-label").allElementsBoundByIndex
+    }
+
+    /// On the whole trip the westmost label is Day 1's first leg and the eastmost Day 2's last: Day 1 must not draw the eastmost, Day 2 not the westmost.
+    private func expectEachDayFramed(_ map: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        expectDrawnLabel(map, in: app, "the whole trip", file: file, line: line)
+        let whole = settledLabels(app).sorted { $0.frame.midX < $1.frame.midX }.map(\.label)
+        XCTAssertGreaterThanOrEqual(whole.count, 4, "the whole trip draws a label on each of the four legs: \(whole)", file: file, line: line)
+        guard let west = whole.first, let east = whole.last else { return }
+        for (chip, other) in [("Day 1", east), ("Day 2", west)] {
+            let button = app.buttons[chip].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 10), "\(chip) is there", file: file, line: line)
+            button.tap()
+            expectDrawnLabel(map, in: app, chip, file: file, line: line)
+            let drawn = settledLabels(app).map(\.label)
+            XCTAssertFalse(drawn.contains(other), "\(chip) is framed on its own day: it drew \(drawn), with \(other) from the other day", file: file, line: line)
+        }
+    }
 }

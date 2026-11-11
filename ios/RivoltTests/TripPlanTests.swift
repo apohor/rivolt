@@ -402,14 +402,18 @@ final class TripPlanModelTests: XCTestCase {
         XCTAssertEqual(src.stayRequests.first?.budgetHours, 8)
         XCTAssertTrue(src.dayRequests.isEmpty, "nothing is planned until a stay is picked")
         src.days = try Fixture.decode(TripMultiday.self, "trip_plan_multiday")
+        m.focusedStop = 1
         await m.planNight(source: src, at: stay)
+        XCTAssertNil(m.focusedStop, "a pin picked on the one route is not the same pin on the two days")
         let req = try XCTUnwrap(src.dayRequests.first)
         XCTAssertEqual(req.origin, TripPoint(lat: 47.62, lon: -122.35))
         XCTAssertEqual(req.days.first?.end.label, "Sample Inn")
         guard case .planned(let trip) = m.night else { return XCTFail("\(m.night)") }
         XCTAssertFalse(trip.days.isEmpty)
+        m.focusedStop = 2
         m.clearNight()
         XCTAssertEqual(m.night, .none)
+        XCTAssertNil(m.focusedStop, "nor a pin of the two days on the one route")
     }
 
     func testNoStaysOrAWholeTripInOneDayOrARefusalIsSaidInOurOwnWords() async throws {

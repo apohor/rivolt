@@ -8,6 +8,8 @@ enum UITestLaunch {
     static let variable = "RIVOLT_UITEST_FIXTURES"
     /// An account with no vehicle yet: the vehicles list is empty and the discovery answer is this state (looking, none, reauth), for the connect screen.
     static let noTruckVariable = "RIVOLT_UITEST_NO_TRUCK"
+    /// Every truck's status read fails (a 503, as when Rivian is down), for Home's failed-read screen.
+    static let stateFailsVariable = "RIVOLT_UITEST_STATE_FAILS"
 
     /// The directories to answer from, or nil on a normal launch.
     static var directories: [URL]? {
@@ -54,6 +56,9 @@ final class FixtureURLProtocol: URLProtocol {
         case ("POST", "/api/maps/valhalla/route"): return "valhalla_route"
         default:
             if method == "GET", path.hasPrefix("/api/vehicles/"), path.hasSuffix("/state") { return "state_full" }
+            // The stays near where a day's driving runs out, and the two days with a night at one (not spelled as paths: see startLoading).
+            if method == "POST", path.hasSuffix("/trips/overnight-candidates") { return "trip_overnight_candidates" }
+            if method == "POST", path.hasSuffix("/trips/plan-multiday") { return "trip_plan_multiday_apart" }
             // One charge's row (not the lists under the same path).
             if method == "GET", path.hasPrefix("/api/charges/"), !path.hasSuffix("/to-confirm"), !path.hasSuffix("/clusters") { return "charge_one" }
             return nil
@@ -86,6 +91,7 @@ final class FixtureURLProtocol: URLProtocol {
         guard let url = request.url else { return }
         let method = request.httpMethod ?? "GET"
         var answer: Data?
+        var failed: Int?
         // (Not spelled as a path: the contract test reads path literals in the app's source as calls it must find on the server.)
         if method == "POST", url.lastPathComponent == "corridor-layers" {
             var body = request.httpBody
@@ -98,10 +104,13 @@ final class FixtureURLProtocol: URLProtocol {
             answer = corridorLayers(body: body)
         } else if let state = ProcessInfo.processInfo.environment[UITestLaunch.noTruckVariable], method == "GET", url.path == "/api/vehicles" || url.lastPathComponent == "discovery" {
             answer = Data((url.lastPathComponent == "discovery" ? #"{"state":"\#(state)"}"# : "[]").utf8)
+        } else if ProcessInfo.processInfo.environment[UITestLaunch.stateFailsVariable] != nil, method == "GET", url.path.hasPrefix("/api/vehicles/"), url.path.hasSuffix("/state") {
+            failed = 503
+            answer = Data(#"{"error":"upstream unavailable","class":"transient"}"#.utf8)
         } else if let name = Self.file(method: method, path: url.path) {
             answer = data(named: name)
         }
-        let status = answer == nil ? 404 : 200
+        let status = failed ?? (answer == nil ? 404 : 200)
         // An optional trace (RIVOLT_UITEST_TRACE=<file>): every request and how it was answered, for whoever reads a failure.
         if let path = ProcessInfo.processInfo.environment["RIVOLT_UITEST_TRACE"], let line = "\(status) \(method) \(url.path)\n".data(using: .utf8) {
             let log = URL(fileURLWithPath: path)
