@@ -37,3 +37,27 @@ for (const [name, href] of [
     await ctx.close();
   });
 }
+
+// The Charges and Drives tables at 390 px drop to the phone columns, as on Activity, so SoC is on screen without a sideways scroll (#1848).
+for (const [name, href] of [
+  ["Charges", "/charges"],
+  ["Drives", "/drives"],
+] as const) {
+  test(`${name} table at 390 px: SoC is on screen and the table does not scroll sideways @webkit`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+    const page = await ctx.newPage();
+    await page.addInitScript(() => localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 })));
+    await stubApi(page);
+    await page.goto(href);
+    const soc = page.locator("main table th[data-col='soc']");
+    await expect(soc).toBeVisible();
+    const b = await soc.boundingBox();
+    expect(b!.x + b!.width, "SoC header ends inside the viewport").toBeLessThanOrEqual(390);
+    const scroll = await page.locator("main table").first().evaluate((t) => {
+      const w = t.closest(".overflow-x-auto") as HTMLElement;
+      return w.scrollWidth - w.clientWidth;
+    });
+    expect(scroll, "table scrolls sideways").toBeLessThanOrEqual(1);
+    await ctx.close();
+  });
+}
