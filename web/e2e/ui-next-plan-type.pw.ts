@@ -64,7 +64,7 @@ for (const theme of ["dark", "light"] as const) {
       await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
       // On a phone the itinerary sits in the bottom sheet, inert at its peek: open it first.
       if (v.name === "iphone") {
-        await page.getByRole("button", { name: "Expand Trip details" }).click();
+        await page.getByRole("button", { name: "Trip details: collapsed, expand" }).click();
         await expect(page.locator("[data-plan-sheet]")).toHaveAttribute("data-snap", "half");
       }
       await page.getByRole("button", { name: /Sample Fast Charge, Barstow/ }).click();

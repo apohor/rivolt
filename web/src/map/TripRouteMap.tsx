@@ -2,8 +2,8 @@
 // then Valhalla, else straight legs), markers for the origin (green), each charging stop (amber) and the destination (rose), and a
 // charger overlay along the route with add / preview popups. MapLibre loads as its own chunk when this mounts (loader.ts); without WebGL it
 // says the map is unavailable and the itinerary beside it stands.
-import { fetchRadarFrame, hideRadar, radarAsOf, radarEnabled, RADAR_REFRESH_MS, showRadar as addRadar } from "./radar";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { fetchRadarFrame, hideRadar, radarAsOf, radarEnabled, radarSpoken, RADAR_REFRESH_MS, showRadar as addRadar } from "./radar";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GeoJSONSource, Map as MLMap, Marker, Popup } from "maplibre-gl";
 import { inDemo } from "../lib/demo";
 import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
@@ -115,6 +115,7 @@ export function TripRouteMap({
   originLabel,
   destLabel,
   legWeather,
+  sheetSnap,
 }: {
   route: TripRoute;
   height?: number;
@@ -140,6 +141,8 @@ export function TripRouteMap({
   destLabel?: string;
   // The weather on each leg (leg i runs from waypoint i to i+1; null where there is none): drawn as a badge on the route, with a "Weather" chip.
   legWeather?: (LegWeatherInfo | null)[];
+  // The phone's bottom sheet height (peek, half, full): once it settles, the map's fit and its credits follow the sheet's edge.
+  sheetSnap?: "peek" | "half" | "full";
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -221,6 +224,7 @@ export function TripRouteMap({
   const radarOn = radarEnabled();
   const [showRadar, setShowRadar] = useState(false);
   const [radarLabel, setRadarLabel] = useState("");
+  const [radarSpokenLabel, setRadarSpokenLabel] = useState("");
   const toggleRadar = () => {
     touchedRef.current.radar = true;
     setShowRadar(!showRadar);
@@ -237,15 +241,17 @@ export function TripRouteMap({
       if (!f) { // feed down or stale: show nothing rather than an old picture
         hideRadar(map);
         setRadarLabel("Radar unavailable");
+        setRadarSpokenLabel("Radar unavailable");
         return;
       }
       drawRadar(map, f.frameUnix);
       setRadarLabel(radarAsOf(f.frameUnix));
+      setRadarSpokenLabel(radarSpoken(f.frameUnix));
     };
     const drawRadar = (m: MLMap, t: number) => { if (m.isStyleLoaded()) addRadar(m, t); else m.once("style.load", () => alive && addRadar(m, t)); };
     void refresh();
     const timer = window.setInterval(() => void refresh(), RADAR_REFRESH_MS);
-    return () => { alive = false; ac.abort(); window.clearInterval(timer); hideRadar(map); setRadarLabel(""); };
+    return () => { alive = false; ac.abort(); window.clearInterval(timer); hideRadar(map); setRadarLabel(""); setRadarSpokenLabel(""); };
   }, [mapReady, radarOn, showRadar]);
   // Effect: once the settings are in, they set the starting state of every switch the person has not flipped yet.
   const [started, setStarted] = useState(false);
@@ -262,6 +268,27 @@ export function TripRouteMap({
   // The open leg tooltip belongs to the map, not to one drawing of the badges: the badges are drawn again when the route's path arrives or the map moves,
   // and that must not close it. It closes when the weather goes off, on another tap, and with the map.
   const legPopupRef = useRef<Popup | null>(null);
+  // Effect: the sheet's height changed; once its move is over (0.22 s in CSS), the map follows it. Not while it is still moving: one refit, on settle.
+  const followSheetRef = useRef<((snap: "peek" | "half" | "full") => void) | null>(null);
+  useEffect(() => {
+    if (!sheetSnap) return;
+    const t = window.setTimeout(() => followSheetRef.current?.(sheetSnap), 260);
+    return () => window.clearTimeout(t);
+  }, [sheetSnap]);
+  // The radar strip says light, moderate and heavy on one line; where that does not fit, "moderate" goes (data-short, CSS), never a wrap. Measured
+  // with it in, every time, so a wider window brings it back.
+  const stripRef = useRef<HTMLSpanElement | null>(null);
+  useLayoutEffect(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const check = () => {
+      el.removeAttribute("data-short");
+      if (el.scrollWidth > el.clientWidth + 1) el.setAttribute("data-short", "");
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [radarLabel]);
   useEffect(() => {
     // ...or when the numbers change (a new departure time, other units): the card would show the old ones under new badges.
     legPopupRef.current?.remove(); legPopupRef.current = null;
@@ -506,19 +533,33 @@ export function TripRouteMap({
         // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
         const card = el.querySelector<HTMLElement>(".rivolt-trip-card");
-        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 : 0;
+        // On a phone the card rides above the sheet, and above the radar strip on its edge (reserved whether or not the radar is on, as at the top).
+        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() + (radarEnabled() ? 28 : 0) : 0) : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
         // ...and the radar strip under them (one line, and the label of a pin that sits just under it), when the server has radar: reserved whether or not it is on, so turning it on covers no pin.
-        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom + (radarEnabled() ? 52 : 0)) : 24;
+        // On a phone the strip rides the sheet's edge instead, inside the bottom's room.
+        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom + (radarEnabled() && !sheetEdge() ? 52 : 0)) : 24;
         const base = fill ? (narrow ? 40 : 24) : 24;
-        const bottom = Math.max(base, Math.min(lift, el.clientHeight - top - 60));
+        // The phone's sheet covers the lower part of the map at half: the route clears it and the strip on its edge.
+        const cover = sheetEdge() ? sheetCover() + (radarEnabled() ? 28 : 0) + 12 : 0;
+        const bottom = Math.max(base, Math.min(Math.max(lift, cover), el.clientHeight - top - 60));
         return { top, bottom, left: 24, right: 24 };
       };
+      // How much of the map the phone's sheet covers right now (0 without a sheet): the credits are lifted by as much, so they stay in view.
+      const sheetEdge = () => !!fill && !!document.querySelector("[data-plan-sheet]");
+      const sheetCover = () => {
+        const sheet = document.querySelector("[data-plan-sheet]");
+        if (!sheet) return 0;
+        const r = el.getBoundingClientRect();
+        return Math.round(Math.min(Math.max(0, r.bottom - sheet.getBoundingClientRect().top), Math.max(0, el.clientHeight - 32)));
+      };
+      const liftCredits = () => el.style.setProperty("--plan-map-cover", `${sheetCover()}px`);
       let fitPath: LatLng[] = wpLatLngs;
       let fitted = false;
       const fit = (maxZoom: number) => {
+        liftCredits();
         if (!(el.clientWidth > 0 && el.clientHeight > 0)) { fitted = false; return; }
         map.fitBounds(boundsOfPath(fitPath), { padding: padding(), maxZoom, animate: false });
         fitted = true;
@@ -783,6 +824,14 @@ export function TripRouteMap({
         fit(fitZoom);
       });
       if (chipsEl) roChips.observe(chipsEl);
+      // The sheet settled at another height: lift the credits to its edge and reframe the route above it, unless the person has moved the map (a new
+      // plan starts this effect again, unmoved). Fully open, the map is out of sight: it keeps its frame.
+      followSheetRef.current = (snap) => {
+        if (!alive || mapRef.current !== map) return;
+        liftCredits();
+        if (!touched && snap !== "full") fit(fitZoom);
+      };
+      cleanups.push(() => { followSheetRef.current = null; });
       cleanups.push(() => { ro.disconnect(); roChips.disconnect(); if (roRaf) cancelAnimationFrame(roRaf); });
       // The map's first full load can land after the person (or our own popup nudge) has already moved it: do not reframe it back.
       map.once("load", () => { if (!touched) fit(fitZoom); });
@@ -1078,14 +1127,24 @@ export function TripRouteMap({
         </div>
       )}
       {showRadar && radarLabel && (
-        <span role="status" data-radar-label className={`pointer-events-auto flex w-fit max-w-full items-center gap-1 whitespace-nowrap rounded bg-neutral-950/85 px-1.5 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}>
-          {radarLabel}
-          <span aria-label="Light, moderate, heavy precipitation" className="flex items-center gap-0.5 text-neutral-400">
-            <i style={{ background: "#4ade80" }} className="inline-block h-2 w-2 rounded-sm" />light
-            <i style={{ background: "#facc15" }} className="ml-0.5 inline-block h-2 w-2 rounded-sm" />moderate
-            <i style={{ background: "#ef4444" }} className="ml-0.5 inline-block h-2 w-2 rounded-sm" />heavy
-          </span>
-          <span className="text-neutral-500">NOAA/NWS</span>
+        // One line, as on the iPhone: a short gradient named light, moderate, heavy, then the credit and the picture's time ("NOAA/NWS · 6:42 PM").
+        // NOAA's colours as they are drawn. A feed that is down or stale says "Radar unavailable" and draws nothing, so nothing reads as "no rain".
+        <span
+          ref={stripRef}
+          role="status"
+          aria-label={radarSpokenLabel}
+          data-radar-label
+          className={`pointer-events-auto flex w-fit max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-neutral-950/85 px-2 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}
+        >
+          {radarLabel.startsWith("NOAA") && (
+            <span aria-hidden="true" className="flex items-center gap-1 text-neutral-400">
+              light
+              <i data-strip-bar="low" className="inline-block h-1.5 w-5 rounded-full" />
+              <span data-strip-mid className="flex items-center gap-1">moderate<i data-strip-bar="high" className="inline-block h-1.5 w-5 rounded-full" /></span>
+              heavy
+            </span>
+          )}
+          <span aria-hidden="true">{radarLabel}</span>
         </span>
       )}
       </div>

@@ -168,7 +168,8 @@ describe("TripRouteMap", () => {
       render(<TripRouteMap route={route} />);
       const btn = await screen.findByRole("button", { name: "Radar" });
       await waitFor(() => expect(btn.getAttribute("aria-pressed")).toBe("true"));
-      expect((await screen.findByText(/^Radar \d/)).textContent).toMatch(/^Radar \d/);
+      expect(await screen.findByText(/^NOAA\/NWS · \d/)).toBeInTheDocument();
+      expect(screen.getByRole("status", { name: /^light, moderate, heavy, NOAA\/NWS radar, \d/ })).toBeInTheDocument();
       await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
       cleanup();
       // Settings say off: the button is there and not lit.

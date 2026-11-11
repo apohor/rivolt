@@ -96,7 +96,7 @@ for (const theme of ["dark", "light"] as const) {
           return el === h;
         });
         expect(handleHit).toBe(true);
-        await page.getByRole("button", { name: "Expand Trip details" }).click();
+        await page.getByRole("button", { name: "Trip details: collapsed, expand" }).click();
         await expect(sheet).toHaveAttribute("data-snap", "half");
       }
       const stop = page.getByRole("button", { name: /Sample Fast Charge, Barstow/ });

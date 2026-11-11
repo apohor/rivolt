@@ -1,15 +1,13 @@
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 
-// A bottom sheet for phones (planner): the summary peeks over
-// the map; drag the handle, or use the keyboard, to raise it to half height
-// or full. At 1024px and wider it is not a sheet: the content renders inline
-// and the page's grid lays it out.
+// A bottom sheet for phones (planner), with the iPhone app's three heights: the peek (a title and one summary line over the map), half, and full
+// (the details). A tap on the peek opens the details and the Map button shows the map again; an upright drag anywhere on the sheet moves it until it
+// is fully open, and there the details scroll (a drag down with them at their top closes it again). A sideways drag does nothing, and the buttons in
+// the sheet keep their taps. At 1024px and wider it is not a sheet: the content renders inline and the page's grid lays it out.
 //
-// Accessibility: the sheet is a region; the handle is a real button with
-// aria-expanded and arrow-key control, so drag is never the only way; the
-// part that is off-screen when the sheet is at its peek is inert, so Tab and
-// screen-reader virtual cursors cannot land on something hidden. It is not
-// modal: no focus trap, the map behind stays usable.
+// Accessibility: the sheet is a region; the handle is a real button whose name says how open the sheet is, with arrow-key control, so drag is never
+// the only way; at full the focus moves into the details, and back to the handle at the peek. The part that is off-screen at the peek is inert, so
+// Tab and screen-reader virtual cursors cannot land on something hidden. It is not modal: no focus trap, the map behind stays usable.
 export type Snap = "peek" | "half" | "full";
 
 const ORDER: readonly Snap[] = ["peek", "half", "full"];
@@ -20,40 +18,59 @@ export interface SnapHeights {
   full: number;
 }
 
-// snapHeights are the three sheet heights in px for a viewport height. Half is
-// half the viewport; full leaves a strip of the page above the sheet; peek is
-// fixed. They are kept strictly increasing, even in a very short window.
-export function snapHeights(viewportH: number, peekPx: number): SnapHeights {
-  const full = Math.max(Math.round(viewportH * 0.88), peekPx + 80);
-  const half = Math.min(Math.max(Math.round(viewportH * 0.5), peekPx + 40), full - 40);
-  return { peek: peekPx, half, full };
+// The peek may not take more than this share of the room, whatever its text needs.
+export const PEEK_CAP = 0.35;
+// A drag moves the sheet one step further than the last height it passed once it has gone this share of the way to the next one, or when it is
+// let go at FLICK_SPEED (px/ms) or faster.
+export const STEP_SHARE = 1 / 3;
+export const FLICK_SPEED = 0.5;
+// How far a finger goes before the sheet decides between a drag (upright) and leaving it alone (sideways), and a tap stays a tap.
+export const DRAG_SLOP = 10;
+
+// snapHeights are the three sheet heights in px for the room the sheet has (from above the tab bar to under the top bar, measured, not the
+// viewport): the peek is what its title and summary line need (peekNeed) up to 35 % of the room, half is about half, full is all of it. They are
+// kept strictly increasing, even in a very short window.
+export function snapHeights(room: number, peekNeed: number): SnapHeights {
+  const peek = Math.round(peekNeed > 0 ? Math.min(peekNeed, room * PEEK_CAP) : Math.min(150, room * 0.3));
+  const full = Math.max(Math.round(room), peek + 80);
+  const half = Math.min(Math.max(Math.round(room * 0.46), peek + 40), full - 40);
+  return { peek, half, full };
 }
 
-// nearestSnap picks the snap a released drag settles on. velocity is px/ms,
-// positive when the sheet was moving up. A flick (at least 0.5 px/ms) steps
-// one snap from where the drag began (from) in its direction; a slower
-// release settles on the snap nearest the release height.
-export function nearestSnap(height: number, h: SnapHeights, velocity: number, from?: Snap): Snap {
-  const nearest = (): Snap => {
-    let best: Snap = "peek";
-    let d = Infinity;
-    for (const s of ORDER) {
-      const dist = Math.abs(h[s] - height);
-      if (dist < d) {
-        d = dist;
-        best = s;
-      }
-    }
-    return best;
-  };
-  if (Math.abs(velocity) >= 0.5) return stepSnap(from ?? nearest(), velocity > 0 ? 1 : -1);
-  return nearest();
+// settleSnap picks the snap a released drag settles on. raised is how far the sheet was moved (px, up is positive) from the snap the drag began at,
+// velocity its speed at release (px/ms, up is positive). The sheet goes to the last height the drag passed, and one step further when it went a third
+// of the way to the next or was flicked that way: a medium flick from the peek opens half, not the details.
+export function settleSnap(from: Snap, raised: number, velocity: number, h: SnapHeights): Snap {
+  const flick = Math.abs(velocity) >= FLICK_SPEED;
+  const up = flick ? velocity > 0 : raised >= 0;
+  if (!flick && Math.abs(raised) <= 0.5) return from;
+  const heights = ORDER.map((s) => h[s]);
+  let at = ORDER.indexOf(from);
+  const pos = heights[at] + raised;
+  const step = up ? 1 : -1;
+  // The heights the drag passed, in the direction it was going.
+  while (at + step >= 0 && at + step < ORDER.length && (up ? pos >= heights[at + step] : pos <= heights[at + step])) at += step;
+  if (at + step < 0 || at + step >= ORDER.length) return ORDER[at];
+  const gap = Math.abs(heights[at + step] - heights[at]);
+  const past = up ? pos - heights[at] : heights[at] - pos;
+  const flickedThatWay = flick && velocity > 0 === up;
+  return past >= gap * STEP_SHARE || flickedThatWay ? ORDER[at + step] : ORDER[at];
+}
+
+// dragMovesSheet: below full an upright drag always moves the sheet; at full, where the details scroll, only a drag down with them at their top.
+export function dragMovesSheet(snap: Snap, inBody: boolean, bodyAtTop: boolean, raised: number): boolean {
+  return snap !== "full" || !inBody || (bodyAtTop && raised < 0);
 }
 
 // stepSnap moves one snap up (dir 1) or down (dir -1), stopping at the ends.
 export function stepSnap(s: Snap, dir: 1 | -1): Snap {
   const i = ORDER.indexOf(s) + dir;
   return ORDER[Math.min(ORDER.length - 1, Math.max(0, i))];
+}
+
+// The handle's name says how open the sheet is and what activating it does.
+export function handleLabel(label: string, snap: Snap): string {
+  return snap === "peek" ? `${label}: collapsed, expand` : snap === "half" ? `${label}: half open, expand fully` : `${label}: fully open, collapse`;
 }
 
 function useMediaQuery(query: string): boolean {
@@ -70,18 +87,29 @@ function useMediaQuery(query: string): boolean {
   return match;
 }
 
-function useViewportHeight(): number {
-  const get = () => (typeof window === "undefined" ? 800 : window.innerHeight);
-  const [h, setH] = useState(get);
-  useEffect(() => {
-    const on = () => setH(get());
+// useHeight follows an element's height (0 until it is laid out, and in jsdom).
+function useHeight(el: HTMLElement | null, extra?: () => number): number {
+  const [h, setH] = useState(0);
+  useLayoutEffect(() => {
+    if (!el) return;
+    const on = () => setH(el.offsetHeight + (extra?.() ?? 0));
+    on();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(on) : null;
+    ro?.observe(el);
     window.addEventListener("resize", on);
-    return () => window.removeEventListener("resize", on);
-  }, []);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", on);
+    };
+  }, [el, extra]);
   return h;
 }
 
 export const SHEET_DESKTOP_QUERY = "(min-width: 1024px)";
+
+const INTERACTIVE = "button, a, input, select, textarea, label, summary, [role='button'], [role='tab'], [role='switch'], [role='radio'], [role='slider']";
+
+type Drag = { x: number; y: number; h: number; from: Snap; inBody: boolean; bodyAtTop: boolean; lastY: number; lastT: number; v: number; mode: "pending" | "sheet" | "off" };
 
 export function BottomSheet({
   label,
@@ -90,28 +118,27 @@ export function BottomSheet({
   snap: controlled,
   defaultSnap = "peek",
   onSnapChange,
-  peekPx = 120,
   className,
 }: {
   // Accessible name of the region, e.g. "Trip details".
   label: string;
-  // Always visible, always interactive: what shows when the sheet is at its peek.
+  // The sheet's title and one summary line, always visible and interactive: what shows at the peek. Not rendered at 1024px and up.
   peek?: ReactNode;
-  // The rest; inert while the sheet is at its peek.
+  // The rest; inert while the sheet is at its peek. Rendered inline at 1024px and up.
   children?: ReactNode;
   snap?: Snap;
   defaultSnap?: Snap;
   onSnapChange?: (s: Snap) => void;
-  peekPx?: number;
   className?: string;
 }) {
   const desktop = useMediaQuery(SHEET_DESKTOP_QUERY);
-  const vh = useViewportHeight();
-  const heights = snapHeights(vh, peekPx);
   const [own, setOwn] = useState<Snap>(defaultSnap);
   const snap = controlled ?? own;
+  // A change made from inside the sheet moves the focus with it (into the details at full, to the handle at the peek); one the page makes does not.
+  const focusNext = useRef(false);
   const set = useCallback(
-    (s: Snap) => {
+    (s: Snap, focus = true) => {
+      focusNext.current = focus;
       if (controlled === undefined) setOwn(s);
       onSnapChange?.(s);
     },
@@ -119,49 +146,140 @@ export function BottomSheet({
   );
   const contentId = useId();
 
-  // Drag state: the live height while a pointer is down (null otherwise).
+  // The room is measured from a fixed box with the sheet's own limits (CSS), so the browser's bars and the safe areas are already out of it.
+  const [roomEl, setRoomEl] = useState<HTMLDivElement | null>(null);
+  const [peekEl, setPeekEl] = useState<HTMLDivElement | null>(null);
+  const [handleEl, setHandleEl] = useState<HTMLButtonElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const measuredRoom = useHeight(roomEl);
+  const handleH = useCallback(() => handleEl?.offsetHeight ?? 0, [handleEl]);
+  const peekNeed = useHeight(peekEl, handleH);
+  const room = measuredRoom > 0 ? measuredRoom : Math.round((typeof window === "undefined" ? 800 : window.innerHeight) * 0.88);
+  const heights = snapHeights(room, peekNeed);
+
+  // Drag state: the live height while a drag moves the sheet (null otherwise).
   const [dragH, setDragH] = useState<number | null>(null);
-  const drag = useRef<{ y: number; h: number; from: Snap; lastY: number; lastT: number; v: number } | null>(null);
+  const drag = useRef<Drag | null>(null);
+  const dragged = useRef(false);
+
+  // The moves read the latest heights and snap through refs: the touch listeners are attached once.
+  const live = useRef({ heights, snap, set });
+  live.current = { heights, snap, set };
+
+  const begin = (x: number, y: number, t: number, target: EventTarget | null) => {
+    const body = bodyRef.current;
+    const inBody = !!body && target instanceof Node && body.contains(target);
+    dragged.current = false;
+    drag.current = { x, y, h: live.current.heights[live.current.snap], from: live.current.snap, inBody, bodyAtTop: !body || body.scrollTop <= 0, lastY: y, lastT: t, v: 0, mode: "pending" };
+  };
+  // Returns whether the sheet took this move (the caller then keeps the page and the details from scrolling).
+  const moveTo = (x: number, y: number, t: number): boolean => {
+    const d = drag.current;
+    if (!d || d.mode === "off") return false;
+    const raised = d.y - y;
+    if (d.mode === "pending") {
+      const dx = x - d.x;
+      // Within the slop, keep the details from starting a scroll the sheet may yet take (a drag down with them at their top).
+      if (Math.hypot(dx, raised) < DRAG_SLOP) return dragMovesSheet(d.from, d.inBody, d.bodyAtTop, raised);
+      d.mode = Math.abs(raised) > Math.abs(dx) && dragMovesSheet(d.from, d.inBody, d.bodyAtTop, raised) ? "sheet" : "off";
+      if (d.mode === "off") return false;
+    }
+    const dt = t - d.lastT;
+    if (dt > 0) d.v = (d.lastY - y) / dt;
+    d.lastY = y;
+    d.lastT = t;
+    const h = live.current.heights;
+    setDragH(Math.min(h.full, Math.max(h.peek, d.h + raised)));
+    return true;
+  };
+  const finish = (y: number | null) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d || d.mode === "pending") return;
+    // A move past the slop, either way, is not a tap: the click a mouse ends it with is dropped.
+    dragged.current = true;
+    if (d.mode !== "sheet") return;
+    live.current.set(settleSnap(d.from, d.y - (y ?? d.lastY), d.v, live.current.heights));
+    setDragH(null);
+  };
+
+  // Touch: the browser's own listeners are passive, so these are added by hand (a move the sheet takes must not also scroll the page).
+  const begunRef = useRef(begin);
+  const moveRef = useRef(moveTo);
+  const finishRef = useRef(finish);
+  begunRef.current = begin;
+  moveRef.current = moveTo;
+  finishRef.current = finish;
+  const [sectionEl, setSectionEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = sectionEl;
+    if (!el) return;
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return void (drag.current = null);
+      const p = e.touches[0];
+      begunRef.current(p.clientX, p.clientY, e.timeStamp, e.target);
+    };
+    const move = (e: TouchEvent) => {
+      const p = e.touches[0];
+      if (p && moveRef.current(p.clientX, p.clientY, e.timeStamp) && e.cancelable) e.preventDefault();
+    };
+    const end = (e: TouchEvent) => finishRef.current(e.changedTouches[0]?.clientY ?? null);
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end);
+    el.addEventListener("touchcancel", end);
+    return () => {
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", end);
+      el.removeEventListener("touchcancel", end);
+    };
+  }, [sectionEl]);
+
+  // The focus follows a change made from inside the sheet.
+  const lastSnap = useRef(snap);
+  useEffect(() => {
+    if (lastSnap.current === snap) return;
+    lastSnap.current = snap;
+    if (!focusNext.current) return;
+    focusNext.current = false;
+    if (snap === "full") bodyRef.current?.focus({ preventScroll: true });
+    else if (snap === "peek") handleEl?.focus({ preventScroll: true });
+  }, [snap, handleEl]);
 
   if (desktop) {
-    // Not a sheet on a wide screen: the page's grid places these inline.
+    // Not a sheet on a wide screen: the page's grid places the content inline.
     return (
       <div data-plan-sheet-inline className={className}>
-        {peek}
         {children}
       </div>
     );
   }
 
-  const onDown = (e: PointerEvent<HTMLButtonElement>) => {
-    if (e.button !== 0 && e.pointerType === "mouse") return;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    drag.current = { y: e.clientY, h: heights[snap], from: snap, lastY: e.clientY, lastT: e.timeStamp, v: 0 };
+  // Mouse and pen; touch has its own listeners above (the two would both fire for one finger).
+  const onDown = (e: PointerEvent<HTMLElement>) => {
+    if (e.pointerType === "touch") return;
+    if (e.button !== 0) return;
+    begin(e.clientX, e.clientY, e.timeStamp, e.target);
   };
-  const onMove = (e: PointerEvent<HTMLButtonElement>) => {
-    const d = drag.current;
-    if (!d) return;
-    const dy = d.y - e.clientY; // up is positive
-    if (dragH === null && Math.abs(dy) < 4) return; // a tap, not a drag
-    const dt = e.timeStamp - d.lastT;
-    if (dt > 0) d.v = (d.lastY - e.clientY) / dt;
-    d.lastY = e.clientY;
-    d.lastT = e.timeStamp;
-    setDragH(Math.min(heights.full, Math.max(heights.peek, d.h + dy)));
+  const onMove = (e: PointerEvent<HTMLElement>) => {
+    if (e.pointerType === "touch" || !drag.current) return;
+    const was = drag.current.mode;
+    if (moveTo(e.clientX, e.clientY, e.timeStamp) && was === "pending" && drag.current?.mode === "sheet") e.currentTarget.setPointerCapture?.(e.pointerId);
   };
-  const onUp = () => {
-    const d = drag.current;
-    drag.current = null;
-    if (!d) return;
-    if (dragH !== null) {
-      set(nearestSnap(dragH, heights, d.v, d.from));
-      setDragH(null);
-    }
-    // No drag: the click handler toggles.
+  const onUp = (e: PointerEvent<HTMLElement>) => {
+    if (e.pointerType === "touch") return;
+    finish(e.clientY);
   };
-  const onClick = () => {
-    if (dragH !== null) return;
-    // peek, half, full, then back to peek: a tap alone reaches every height (half shows little of a long list on a small phone).
+  // A drag that moved the sheet ends in a click on whatever it was let go over: that click is not a tap.
+  const onClickCapture = (e: MouseEvent<HTMLElement>) => {
+    if (!dragged.current) return;
+    dragged.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const onHandleClick = () => {
+    // peek, half, full, then back to peek: a tap alone reaches every height.
     set(snap === "peek" ? "half" : snap === "half" ? "full" : "peek");
   };
   const onKey = (e: KeyboardEvent<HTMLElement>) => {
@@ -184,15 +302,13 @@ export function BottomSheet({
         break;
     }
   };
-  // Tapping the peek (the summary) raises the sheet, like tapping the handle,
-  // unless the tap was on something interactive inside it (the route chooser,
-  // a link): those keep their own action. Pointer convenience only; the handle
-  // is the keyboard and screen-reader way.
+  // Tapping the peek (the title and summary) opens the details, unless the tap was on something interactive inside it: those keep their own action.
+  // Pointer convenience only; the handle is the keyboard and screen-reader way.
   const onPeekClick = (e: MouseEvent<HTMLDivElement>) => {
-    if (snap !== "peek") return;
+    if (snap === "full") return;
     const t = e.target as Element | null;
-    if (t?.closest("button, a, input, select, textarea, label, summary, [role='button'], [role='tab'], [role='switch'], [role='radio'], [role='slider']")) return;
-    set("half");
+    if (t?.closest(INTERACTIVE)) return;
+    set("full");
   };
   const onRegionKey = (e: KeyboardEvent<HTMLElement>) => {
     // Escape from anywhere in the sheet folds it back to the peek.
@@ -205,53 +321,73 @@ export function BottomSheet({
   const height = dragH ?? heights[snap];
   const expanded = snap !== "peek";
   return (
-    <SheetClearance height={height}>
-    <section
-      aria-label={label}
-      data-plan-sheet
-      data-snap={snap}
-      data-dragging={dragH !== null ? "true" : undefined}
-      className={className}
-      style={{ height, ["--sheet-h" as string]: `${height}px` }}
-      onKeyDown={onRegionKey}
-    >
-      <button
-        type="button"
-        data-plan-sheet-handle
-        aria-expanded={expanded}
-        aria-controls={contentId}
-        aria-label={snap === "full" ? `Collapse ${label}` : snap === "half" ? `Expand ${label} fully` : `Expand ${label}`}
+    <SheetClearance height={height} peek={heights.peek} dragging={dragH !== null}>
+      {/* The room the sheet has: the same limits as its own fixed box, measured. */}
+      <div ref={setRoomEl} data-plan-sheet-room aria-hidden="true" />
+      <section
+        ref={setSectionEl}
+        aria-label={label}
+        data-plan-sheet
+        data-snap={snap}
+        data-dragging={dragH !== null ? "true" : undefined}
+        className={className}
+        style={{ height, ["--sheet-h" as string]: `${height}px` }}
+        onKeyDown={onRegionKey}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
-        onPointerCancel={onUp}
-        onClick={onClick}
-        onKeyDown={onKey}
-      />
-      {peek != null && (
-        // Pointer-only shortcut: the handle above is the keyboard and screen-reader control.
-        <div data-plan-sheet-peek onClick={onPeekClick}>
-          {peek}
+        onPointerCancel={() => finish(null)}
+        onClickCapture={onClickCapture}
+      >
+        <button
+          ref={setHandleEl}
+          type="button"
+          data-plan-sheet-handle
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          aria-label={handleLabel(label, snap)}
+          onClick={onHandleClick}
+          onKeyDown={onKey}
+        />
+        {expanded && (
+          <button type="button" data-plan-sheet-map onClick={() => set("peek")}>
+            Map
+          </button>
+        )}
+        {peek != null && (
+          // Pointer-only shortcut: the handle above is the keyboard and screen-reader control.
+          <div ref={setPeekEl} data-plan-sheet-peek onClick={onPeekClick}>
+            {peek}
+          </div>
+        )}
+        <div ref={bodyRef} id={contentId} data-plan-sheet-body tabIndex={-1} aria-label={`${label}, details`} role="group" inert={!expanded}>
+          {children}
         </div>
-      )}
-      <div id={contentId} data-plan-sheet-body inert={!expanded}>
-        {children}
-      </div>
-    </section>
+      </section>
     </SheetClearance>
   );
 }
 
-// SheetClearance tells the page how tall the fixed sheet is right now (--plan-sheet-h on the root), so the
-// page can leave that much room under its content: at a raised sheet, the last card must still be
-// scrollable above it. Removed again when the sheet goes away.
-function SheetClearance({ height, children }: { height: number; children: ReactNode }) {
+// SheetClearance tells the page how tall the fixed sheet is right now (--plan-sheet-h on the root) and how tall its peek is (--plan-sheet-peek-h),
+// so the page can leave that much room under its content (at a raised sheet the last card must still be scrollable above it), size the map to end
+// at the peek, and keep what rides the sheet's edge (the radar strip) on it. data-plan-sheet-dragging on the root turns their transitions off while a
+// finger moves the sheet. Removed again when the sheet goes away.
+function SheetClearance({ height, peek, dragging, children }: { height: number; peek: number; dragging: boolean; children: ReactNode }) {
   useEffect(() => {
     document.documentElement.style.setProperty("--plan-sheet-h", `${height}px`);
   }, [height]);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--plan-sheet-peek-h", `${peek}px`);
+  }, [peek]);
+  useEffect(() => {
+    if (dragging) document.documentElement.setAttribute("data-plan-sheet-dragging", "");
+    else document.documentElement.removeAttribute("data-plan-sheet-dragging");
+  }, [dragging]);
   useEffect(
     () => () => {
       document.documentElement.style.removeProperty("--plan-sheet-h");
+      document.documentElement.style.removeProperty("--plan-sheet-peek-h");
+      document.documentElement.removeAttribute("data-plan-sheet-dragging");
     },
     [],
   );
