@@ -49,6 +49,7 @@ export default function DrivesPage() {
     <div className="space-y-4">
       <ConnectRivianPrompt context="Once connected, drives appear here automatically." />
       <PageHeader
+        wrap
         title="Drives"
         subtitle={
           q.data

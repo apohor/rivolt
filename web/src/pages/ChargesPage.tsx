@@ -74,6 +74,7 @@ export default function ChargesPage() {
     <div className="space-y-4">
       <ConnectRivianPrompt context="Once connected, charging sessions appear here automatically." />
       <PageHeader
+        wrap
         title="Charges"
         subtitle={
           q.data
