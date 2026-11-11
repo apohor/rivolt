@@ -74,9 +74,22 @@ type Job struct {
 	// pod for its own users, takes no advisory lock, and keeps what it found in vehicle_discovery (so the API can tell "looking" from "none")
 	// instead of a Redis backoff. Nil: the original single-pod job.
 	Users func(ctx context.Context) ([]OwnedUser, error)
-	// nudge asks the owner job to look one user up now (the sign-in's adopt nudge).
+	// nudge asks the owner job to look one user up now (the sign-in's adopt nudge). Made by OwnerMode, before Run starts and NudgeUser is called.
 	nudge chan uuid.UUID
+	// lastForced is when each user was last looked up by a sign-in nudge (only the Run goroutine touches it).
+	lastForced map[uuid.UUID]time.Time
 }
+
+// OwnerMode switches the job to owner mode with users as the pod's own users and creates the nudge queue. Call it before Run and before the job
+// is shared with NudgeUser; nothing after that writes the queue.
+func (j *Job) OwnerMode(users func(ctx context.Context) ([]OwnedUser, error)) {
+	j.Users, j.Backoff = users, nil
+	j.nudge = make(chan uuid.UUID, 16)
+}
+
+// ForceEvery is the shortest time between two sign-in lookups of the same user: a fresh sign-in looks up again at once whatever the 'none' or
+// 'error' backoff says (the user may have just got the truck), but a user who signs in over and over costs Rivian one call per ForceEvery.
+const ForceEvery = 10 * time.Minute
 
 // OwnedUser is a user this pod owns, with the fence token of their group: the job writes its answer under it, so a pod that has lost the group
 // writes nothing.
@@ -141,9 +154,6 @@ func (j *Job) Tick(ctx context.Context) {
 }
 
 func (j *Job) runOwner(ctx context.Context) {
-	if j.nudge == nil {
-		j.nudge = make(chan uuid.UUID, 16)
-	}
 	t := time.NewTicker(OwnerInterval)
 	defer t.Stop()
 	for {
@@ -155,7 +165,7 @@ func (j *Job) runOwner(ctx context.Context) {
 				j.logger().Warn("vehicle discovery (owner) pass failed", "err", err.Error())
 			}
 		case uid := <-j.nudge:
-			j.nudged(ctx, uid)
+			j.signedIn(ctx, uid)
 		}
 	}
 }
@@ -186,6 +196,35 @@ func (j *Job) ownerPass(ctx context.Context) error {
 	}
 	return nil
 }
+
+// signedIn is a sign-in nudge: if this pod owns the user and at most one such lookup ran in the last ForceEvery, the stored 'none' or 'error'
+// is dropped first so the user is due, then they are looked up. A lease adopt or a roll move never comes here (only the post-login nudge does).
+func (j *Job) signedIn(ctx context.Context, uid uuid.UUID) {
+	if at, ok := j.lastForced[uid]; ok && time.Since(at) < ForceEvery {
+		return
+	}
+	mine, err := j.Users(ctx)
+	if err != nil {
+		return
+	}
+	for _, m := range mine {
+		if m.UID != uid {
+			continue
+		}
+		if j.lastForced == nil {
+			j.lastForced = map[uuid.UUID]time.Time{}
+		}
+		j.lastForced[uid] = time.Now()
+		if err := db.ClearDiscovery(withToken(ctx, m.Token), j.DB, uid); err != nil {
+			j.logger().Warn("vehicle discovery: clearing the stored answer at sign-in failed", "err", err.Error())
+		}
+		j.nudged(ctx, uid)
+		return
+	}
+}
+
+// SignedIn is signedIn for a caller that runs it itself (tests).
+func (j *Job) SignedIn(ctx context.Context, uid uuid.UUID) { j.signedIn(ctx, uid) }
 
 // nudged looks a user up now if this pod owns them and they are due.
 func (j *Job) nudged(ctx context.Context, uid uuid.UUID) {
@@ -289,7 +328,10 @@ func (j *Job) one(ctx context.Context, uid uuid.UUID) string {
 	switch {
 	case stored > 0:
 		if j.Users != nil {
-			_ = db.ClearDiscovery(ctx, j.DB, uid) // found: nothing left to wait for
+			// found: nothing left to wait for. A failed clear leaves a stale row that the API reads below the vehicles, so it is logged, not fatal.
+			if err := db.ClearDiscovery(ctx, j.DB, uid); err != nil {
+				j.logger().Warn("vehicle discovery: clearing the stored answer failed", "err", err.Error())
+			}
 		}
 		return OutcomeStored // the rows now exist: the user leaves the candidate set and the lease coordinator takes the vehicles
 	case len(vs) == 0:

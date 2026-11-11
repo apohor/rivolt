@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 
@@ -29,6 +30,18 @@ func startVehicleDiscovery(ctx context.Context, logger *slog.Logger, appMetrics 
 	job.Observe = func(outcome string) { appMetrics.VehicleDiscoveryTotal.WithLabelValues(outcome).Inc() }
 	job.Logger = logger
 	go job.Run(ctx)
+}
+
+// ownerDiscoveryEnvError is the boot check for RIVOLT_OWNER_DISCOVERY=1: with no group leases nobody owns a group, so no user is ever looked up while
+// /api/vehicles stops asking Rivian, and every vehicle-less user would wait at "looking" forever; without the forwarder the sign-in nudge never
+// reaches the owner. The process refuses to start rather than run that way.
+func ownerDiscoveryEnvError(getenv func(string) string) error {
+	for _, v := range []string{"RIVOLT_GROUP_LEAD", "RIVOLT_FORWARD"} {
+		if getenv(v) != "1" {
+			return fmt.Errorf("RIVOLT_OWNER_DISCOVERY=1 needs %s=1; refusing to start", v)
+		}
+	}
+	return nil
 }
 
 // discoveryLookup is the job's only Rivian call: the user's vehicle list, with the user's own session (restored from the secrets store when this

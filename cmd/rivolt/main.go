@@ -2106,6 +2106,10 @@ func runServer() {
 		// Single-owner M4-2b: a linked account with no vehicle yet is a group of one, so it has an owner and the owner looks its vehicles up.
 		// Before any lease pass runs (the SQL that defines the groups is chosen here).
 		if os.Getenv("RIVOLT_OWNER_DISCOVERY") == "1" {
+			if err := ownerDiscoveryEnvError(os.Getenv); err != nil {
+				logger.Error(err.Error())
+				os.Exit(1)
+			}
 			leases.SetUserLevelGroups(true)
 		}
 		leaseStore, err := leases.NewStore(pgPool, podID)
@@ -3223,7 +3227,7 @@ func runServer() {
 		}
 		if ownerDiscovery {
 			// M4-2b: every pod looks up the vehicles of the linked users in the groups it owns (no advisory lock; the answers are kept in Postgres).
-			job.Users, job.Backoff = ownerDiscoveryUsers, nil
+			job.OwnerMode(ownerDiscoveryUsers)
 			ownerDiscoveryJob.Store(job)
 		}
 		startVehicleDiscovery(ctx, logger, appMetrics, job)

@@ -159,3 +159,33 @@ func TestOwnerDiscoveryAnswersAreFenced(t *testing.T) {
 		t.Errorf("clearing under the live token: %v", err)
 	}
 }
+
+// A fresh sign-in looks the user up again at once, whatever a stored 'none' says, and a second sign-in inside ForceEvery does not.
+func TestSignInLooksUpAgainDespiteNone(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool := open(ctx, t)
+	u := linked(ctx, t, pool, "signin")
+	var calls atomic.Int32
+	job := &vehiclediscovery.Job{DB: pool, Sleep: func(context.Context, time.Duration) {},
+		Lookup: func(context.Context, uuid.UUID) ([]rivian.Vehicle, error) { calls.Add(1); return nil, nil }}
+	job.OwnerMode(func(context.Context) ([]vehiclediscovery.OwnedUser, error) { return owned(u), nil })
+	if err := job.OwnerTick(ctx); err != nil || calls.Load() != 1 {
+		t.Fatalf("first pass: %d lookups, err %v", calls.Load(), err)
+	}
+	if state, ok, _ := db.GetDiscovery(ctx, pool, u); !ok || state != db.DiscoveryNone {
+		t.Fatalf("stored state %q ok=%v, want none", state, ok)
+	}
+	job.LookUpNow(ctx, u)
+	if calls.Load() != 1 {
+		t.Fatal("a plain nudge looked up a user who is not due")
+	}
+	job.SignedIn(ctx, u)
+	if calls.Load() != 2 {
+		t.Fatalf("sign-in made %d lookups in all, want 2", calls.Load())
+	}
+	job.SignedIn(ctx, u)
+	if calls.Load() != 2 {
+		t.Error("a second sign-in inside ForceEvery looked up again")
+	}
+}
