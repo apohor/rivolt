@@ -5,7 +5,8 @@
   },
   "none": {
     "title": "No vehicles on this Rivian account yet",
-    "body": "Your Rivian account is connected, but it lists no vehicle. Rivolt looks again about once a day."
+    "body": "Your Rivian account is connected, but it lists no vehicle. Rivolt looks again about once a day.",
+    "action": "Open Rivian settings"
   },
   "reauth": {
     "title": "Reconnect your Rivian",

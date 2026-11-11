@@ -31,6 +31,7 @@ lines = [
     f"    static let lookingBody = {swift(doc['looking']['body'])}",
     f"    static let noneTitle = {swift(doc['none']['title'])}",
     f"    static let noneBody = {swift(doc['none']['body'])}",
+    f"    static let noneAction = {swift(doc['none']['action'])}",
     f"    static let reauthTitle = {swift(doc['reauth']['title'])}",
     f"    static let reauthBody = {swift(doc['reauth']['body'])}",
     f"    static let reauthAction = {swift(doc['reauth']['action'])}",

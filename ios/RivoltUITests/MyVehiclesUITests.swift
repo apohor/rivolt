@@ -4,12 +4,13 @@ import XCTest
 /// answered from fixtures (Rivolt/App/UITestFixtures.swift, RIVOLT_UITEST_NO_TRUCK): each says its own words, and only the ones with something to do have the
 /// way to do it.
 final class MyVehiclesUITests: XCTestCase {
-    private func launch(_ state: String) -> XCUIApplication {
+    private func launch(_ state: String, refreshUnheld: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = [here.appendingPathComponent("Fixtures").path,
                                                           here.deletingLastPathComponent().appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
         app.launchEnvironment["RIVOLT_UITEST_NO_TRUCK"] = state
+        if refreshUnheld { app.launchEnvironment["RIVOLT_UITEST_REFRESH_UNHELD"] = "1" }
         app.launch()
         return app
     }
@@ -26,12 +27,21 @@ final class MyVehiclesUITests: XCTestCase {
         XCTAssertTrue(app.buttons["See the sample truck"].exists)
     }
 
-    func testNoVehiclesSaysSoAndPointsToTheWeb() {
+    func testNoVehiclesSaysSoAndPointsToRivianSettings() {
         let app = launch("none")
         XCTAssertTrue(text("No vehicles on this Rivian account yet", in: app).waitForExistence(timeout: 20))
         XCTAssertTrue(text("Your Rivian account is connected, but it lists no vehicle. Rivolt looks again about once a day.", in: app).exists)
-        XCTAssertTrue(app.links["Connect on the web"].exists || app.buttons["Connect on the web"].exists, "none: another account is connected on the web")
+        XCTAssertTrue(app.links["Open Rivian settings"].exists || app.buttons["Open Rivian settings"].exists, "none: the account is connected; its settings are on the web")
+        XCTAssertFalse(app.links["Connect on the web"].exists, "none: the account is already connected")
         XCTAssertTrue(app.buttons["Check again"].exists)
+    }
+
+    // Check again on a server that does not hold the account (503 Retry-After, the owner was asked): checking, then looking, never an error.
+    func testCheckAgainOnAServerWithoutTheAccountShowsLooking() {
+        let app = launch("none", refreshUnheld: true)
+        XCTAssertTrue(text("No vehicles on this Rivian account yet", in: app).waitForExistence(timeout: 20))
+        app.buttons["Check again"].tap()
+        XCTAssertTrue(text("Looking for your vehicles", in: app).waitForExistence(timeout: 10))
     }
 
     func testReauthAsksToReconnect() {

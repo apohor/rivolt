@@ -43,4 +43,13 @@ final class VehicleDiscoveryTests: XCTestCase {
         XCTAssertNil(VehicleDiscoveryState.unlinked.view, "the connect screen already says it")
         XCTAssertNil(VehicleDiscoveryState.found.view)
     }
+
+    func testNoneOffersRivianSettings() {
+        XCTAssertEqual(VehicleDiscoveryState.empty.view?.action, "Open Rivian settings")
+    }
+
+    func testRefreshReplyDecodes() throws {
+        let owner = try JSONDecoder().decode(RivianVehicleCount.self, from: Data(#"{"vehicle_count":2}"#.utf8))
+        XCTAssertEqual(owner, RivianVehicleCount(vehicleCount: 2))
+    }
 }
