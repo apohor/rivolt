@@ -86,6 +86,7 @@ struct NotificationSettingsView: View {
                         ThemeSection(title: "Notify me when…") {
                             let kinds = PushKind.allCases.filter {
                                 ($0 != .chargingLive || (manager.liveOffered && prefs.chargingLiveKnown)) && ($0 != .leftOpen || prefs.leftOpenKnown)
+                                    && ($0 != .tireLow || prefs.tireLowKnown)
                             }
                             ForEach(Array(kinds.enumerated()), id: \.element) { index, kind in
                                 if index > 0 { Rectangle().fill(Theme.border).frame(height: 1) }
