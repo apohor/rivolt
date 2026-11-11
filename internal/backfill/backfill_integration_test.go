@@ -266,7 +266,7 @@ func TestFillWritesOnlyEmptyDeclaredColumns(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	fill := &backfill.Fill{Table: "bf_test", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{
+	fill := &backfill.Fill{Table: "bf_test", WriterRelease: "v0.1.0", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{
 		{Name: "v", Expr: "t.id * 2"},
 		{Name: "w", Expr: "t.id + 1", Empty: "t.w = 0"},
 	}}
@@ -417,15 +417,16 @@ func TestFillRefusesAKeyThatRepeats(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = pool.Exec(`DROP TABLE IF EXISTS bf_multi, bf_loose`) })
 	jobs := []backfill.Job{
-		{Name: "composite", Fill: &backfill.Fill{Table: "bf_multi", Key: "at", KeyType: "timestamptz", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
-		{Name: "loose", Fill: &backfill.Fill{Table: "bf_loose", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
-		{Name: "ok", Fill: &backfill.Fill{Table: "bf_test", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
+		{Name: "reversed", Fill: &backfill.Fill{Table: "bf_multi", WriterRelease: "v0.1.0", Key: "at", KeyType: "timestamptz", MoreKeys: []backfill.FillKey{{Name: "a", Type: "integer"}}, Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
+		{Name: "half-key", Fill: &backfill.Fill{Table: "bf_multi", WriterRelease: "v0.1.0", Key: "at", KeyType: "timestamptz", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
+		{Name: "loose", Fill: &backfill.Fill{Table: "bf_loose", WriterRelease: "v0.1.0", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
+		{Name: "ok", Fill: &backfill.Fill{Table: "bf_test", WriterRelease: "v0.1.0", Key: "id", KeyType: "bigint", Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}}}},
 	}
 	r := &backfill.Runner{DB: pool, Jobs: jobs, Pause: time.Millisecond}
 	if _, _, err := r.Pass(ctx); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"composite", "loose"} {
+	for _, name := range []string{"reversed", "half-key", "loose"} {
 		if st, rows := progress(t, pool, name); st != backfill.StateFailed || rows != 0 {
 			t.Errorf("%s: %s %d, want failed 0", name, st, rows)
 		}
@@ -440,5 +441,54 @@ func TestFillRefusesAKeyThatRepeats(t *testing.T) {
 	var batch int
 	if err := pool.QueryRow(`SELECT batch_size FROM backfills WHERE name = 'ok'`).Scan(&batch); err != nil || batch != backfill.DefaultBatch {
 		t.Errorf("batch_size %d (%v), want %d", batch, err, backfill.DefaultBatch)
+	}
+}
+
+// A composite key is walked in full: with few distinct leading values and batches that end inside them, every row is filled exactly once, the
+// cursor survives a stop in the middle, and a job that names only part of the key is refused (TestFillRefusesAKeyThatRepeats).
+func TestCompositeKeyBoundaryInsideEqualLeadingValues(t *testing.T) {
+	pool := setup(t, 1)
+	ctx := context.Background()
+	for _, q := range []string{
+		`DROP TABLE IF EXISTS bf_comp`,
+		`CREATE TABLE bf_comp (vid text NOT NULL, at timestamptz NOT NULL, v int, touched int NOT NULL DEFAULT 0, PRIMARY KEY (vid, at))`,
+		`INSERT INTO bf_comp (vid, at) SELECT 'v' || (g % 3), timestamptz '2026-01-01' + (g / 3) * interval '1 second' FROM generate_series(0, 2999) g`,
+	} {
+		if _, err := pool.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(`DROP TABLE IF EXISTS bf_comp`) })
+	fill := &backfill.Fill{Table: "bf_comp", WriterRelease: "v0.1.0", Key: "vid", KeyType: "text", MoreKeys: []backfill.FillKey{{Name: "at", Type: "timestamptz"}},
+		Columns: []backfill.FillColumn{{Name: "v", Expr: "1"}, {Name: "touched", Expr: "t.touched + 1", Empty: "t.v IS NULL"}}}
+	job := backfill.Job{Name: "comp", Fill: fill, BatchSize: 250}
+	stopCtx, stop := context.WithCancel(ctx)
+	var batches atomic.Int32
+	job.Interval = time.Millisecond
+	r := &backfill.Runner{DB: pool, Jobs: []backfill.Job{job}, Pause: time.Millisecond, Metrics: nil,
+		Sleep: func(c context.Context, d time.Duration) {
+			if batches.Add(1) == 3 {
+				stop() // a drain after three batches
+			}
+		}}
+	_, _, _ = r.Pass(stopCtx)
+	var mid int
+	_ = pool.QueryRow(`SELECT count(*) FROM bf_comp WHERE v IS NOT NULL`).Scan(&mid)
+	if mid == 0 || mid >= 3000 {
+		t.Fatalf("after the drain %d rows filled, want a partial run", mid)
+	}
+	r2 := &backfill.Runner{DB: pool, Jobs: []backfill.Job{job}, Pause: time.Millisecond}
+	if _, working, err := r2.Pass(ctx); err != nil || working {
+		t.Fatalf("resume: working %v err %v", working, err)
+	}
+	var unfilled, repeated int
+	if err := pool.QueryRow(`SELECT count(*) FILTER (WHERE v IS NULL), count(*) FILTER (WHERE touched <> 1) FROM bf_comp`).Scan(&unfilled, &repeated); err != nil {
+		t.Fatal(err)
+	}
+	if unfilled != 0 || repeated != 0 {
+		t.Errorf("unfilled %d, touched-not-once %d, want 0 0", unfilled, repeated)
+	}
+	if st, rows := progress(t, pool, "comp"); st != backfill.StateDone || rows != 3000 {
+		t.Errorf("progress %s %d, want done 3000", st, rows)
 	}
 }

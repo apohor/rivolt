@@ -7,7 +7,7 @@ import (
 
 // The SQL a Fill builds sets only the declared columns, each guarded by its own empty predicate, and locks the rows it reads.
 func TestFillSQLWritesOnlyDeclaredColumnsWhereEmpty(t *testing.T) {
-	f := Fill{Table: "drives", Key: "id", KeyType: "uuid", Columns: []FillColumn{
+	f := Fill{Table: "drives", WriterRelease: "v0.1.0", Key: "id", KeyType: "uuid", Columns: []FillColumn{
 		{Name: "new_a", Expr: "t.old_a * 2"},
 		{Name: "new_b", Expr: "t.old_b + 1", Empty: "t.new_b = 0"},
 	}}
@@ -31,7 +31,7 @@ func TestFillSQLWritesOnlyDeclaredColumnsWhereEmpty(t *testing.T) {
 }
 
 func TestFillValidation(t *testing.T) {
-	ok := Fill{Table: "drives", Key: "id", KeyType: "uuid", Columns: []FillColumn{{Name: "x", Expr: "1"}}}
+	ok := Fill{Table: "drives", WriterRelease: "v0.1.0", Key: "id", KeyType: "uuid", Columns: []FillColumn{{Name: "x", Expr: "1"}}}
 	for name, tc := range map[string]struct {
 		mut  func(f *Fill)
 		want bool
@@ -59,7 +59,7 @@ func TestJobValidateRecorderTables(t *testing.T) {
 	if err := step.Validate(); err == nil {
 		t.Error("a raw Step on drives was accepted")
 	}
-	fill := Job{Name: "j", Fill: &Fill{Table: "charges", Key: "id", KeyType: "uuid", Columns: []FillColumn{{Name: "x", Expr: "1"}}}}
+	fill := Job{Name: "j", Fill: &Fill{Table: "charges", WriterRelease: "v0.1.0", Key: "id", KeyType: "uuid", Columns: []FillColumn{{Name: "x", Expr: "1"}}}}
 	if err := fill.Validate(); err != nil || fill.Step == nil || fill.Table != "charges" {
 		t.Errorf("a Fill on charges: %v", err)
 	}
@@ -72,5 +72,20 @@ func TestJobValidateRecorderTables(t *testing.T) {
 	}
 	if err := (&Job{Name: "j", Step: Fill{}.Step()}).Validate(); err == nil {
 		t.Error("a job without a table was accepted")
+	}
+}
+
+// A Fill names the release whose writers already fill the columns; without a final tag it is refused.
+func TestFillNeedsAWriterRelease(t *testing.T) {
+	f := Fill{Table: "drives", Key: "id", KeyType: "uuid", Columns: []FillColumn{{Name: "x", Expr: "1"}}}
+	for _, bad := range []string{"", "latest", "v0.42", "v0.42.0-rc1"} {
+		f.WriterRelease = bad
+		if err := f.validate(); err == nil {
+			t.Errorf("WriterRelease %q accepted", bad)
+		}
+	}
+	f.WriterRelease = "v0.42.0"
+	if err := f.validate(); err != nil {
+		t.Error(err)
 	}
 }
