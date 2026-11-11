@@ -94,6 +94,9 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     @GestureState private var drag: CGFloat = 0
+    /// True while a finger is down on the sheet. A gesture state, so it falls back to false when the drag ends and also when it is cancelled
+    /// (a call coming in, the app going to the background), which onEnded never hears about: that clears dragMoves.
+    @GestureState private var dragging = false
     /// What the drag under way does, decided once it has gone past the slop: nil before, then whether it moves the sheet.
     @State private var dragMoves: Bool?
     @State private var contentAtTop = true
@@ -117,6 +120,7 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
         }
         .frame(maxWidth: .infinity)
         .frame(maxHeight: .infinity, alignment: .bottom)
+        .onChange(of: dragging) { _, now in if !now { dragMoves = nil } }
     }
 
     private var card: some View {
@@ -130,6 +134,7 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
                 // Under the peek's edge at the peek (the tab bar is see-through): out of sight, and out of reach.
                 header().padding(.horizontal, 4 * Theme.unit).padding(.bottom, 8)
                     .opacity(detent == .peek ? 0 : 1).allowsHitTesting(detent != .peek)
+                    .accessibilityHidden(detent == .peek)
             }
             .background(GeometryReader { g in Color.clear.preference(key: HeaderNeedKey.self, value: g.size.height + 1) })
             .onPreferenceChange(PeekNeedKey.self) { onNeeds($0, headerNeed) }
@@ -143,15 +148,19 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
                 if scrolls {
                     ScrollView {
                         content().padding(.horizontal, 4 * Theme.unit).padding(.vertical, 3 * Theme.unit)
-                            .background(GeometryReader { g in Color.clear.preference(key: ContentTopKey.self, value: g.frame(in: .named(Self.scrollSpace)).minY) })
+                            // Not a preference from a GeometryReader: that one is not sent again as the content scrolls, so the sheet took a
+                            // drag down in the middle of the details as its own.
+                            .onGeometryChange(for: Bool.self) { $0.frame(in: .named(Self.scrollSpace)).minY >= -1 } action: { contentAtTop = $0 }
                     }
                     .coordinateSpace(name: Self.scrollSpace)
-                    .onPreferenceChange(ContentTopKey.self) { contentAtTop = $0 >= -1 }
-                    .scrollDisabled(!contentScrolls)
+                    // Not while the sheet follows the finger: a drag down from the top would also pull the content past its top.
+                    .scrollDisabled(!contentScrolls || dragMoves == true)
                 } else {
                     content().padding(.horizontal, 4 * Theme.unit).padding(.vertical, 3 * Theme.unit)
                 }
             }
+            // Out of sight under the tab bar at the peek, so out of VoiceOver's reach too.
+            .accessibilityHidden(detent == .peek)
             .simultaneousGesture(dragGesture(overContent: true))
         }
         .background(Theme.card, in: UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20, style: .continuous))
@@ -211,6 +220,7 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
                 guard dragMoves == true else { return }
                 state = -v.translation.height
             }
+            .updating($dragging) { _, state, _ in state = true }
             .onChanged { v in
                 guard dragMoves == nil else { return }
                 let raised = -v.translation.height
@@ -234,9 +244,4 @@ private struct PeekNeedKey: PreferenceKey {
 private struct HeaderNeedKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-private struct ContentTopKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }

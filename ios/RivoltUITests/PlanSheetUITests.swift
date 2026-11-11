@@ -83,6 +83,42 @@ final class PlanSheetUITests: XCTestCase {
         expect(grabber, "full", "a drag up past half opens the details")
     }
 
+    func testAtFullADragDownFromTheTopOfScrolledDetailsLeavesFull() throws {
+        let app = launch()
+        let grabber = open("Two days to Spokane", in: app)
+        let window = app.windows.firstMatch
+        for round in 1...2 {
+            if grabber.value as? String != "full" { grabber.tap(); if grabber.value as? String != "full" { grabber.tap() } }
+            expect(grabber, "full", "round \(round): the details are open")
+            // Up and back down by the same slow drag: the details scroll and end at their top, and the sheet stays.
+            let low = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+            let high = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+            low.press(forDuration: 0.1, thenDragTo: high, withVelocity: .slow, thenHoldForDuration: 0.3)
+            expect(grabber, "full", "round \(round): scrolling the details leaves the sheet")
+            high.press(forDuration: 0.1, thenDragTo: low, withVelocity: .slow, thenHoldForDuration: 0.3)
+            expect(grabber, "full", "round \(round): scrolling back to the top leaves the sheet")
+            let mid = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+            mid.press(forDuration: 0.1, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: 320)))
+            let left = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value != %@", "full"), object: grabber)], timeout: 5)
+            XCTAssertEqual(left, .completed, "round \(round): a drag down from the top of the details closes the sheet down")
+        }
+    }
+
+    func testASidewaysSwipeOnTheDayChipsLeavesTheNextDragWorking() throws {
+        let app = launch()
+        let grabber = open("Two days to Spokane", in: app)
+        expect(grabber, "half", "it opens at half")
+        let day2 = app.buttons["Day 2"].firstMatch
+        XCTAssertTrue(day2.waitForExistence(timeout: 10))
+        let chip = day2.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        chip.press(forDuration: 0.05, thenDragTo: chip.withOffset(CGVector(dx: -160, dy: 0)))
+        expect(grabber, "half", "a sideways swipe on the chips leaves the sheet")
+        let title = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "→")).firstMatch
+        title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)))
+        expect(grabber, "full", "and the drag up on the header after it moves the sheet")
+    }
+
     func testTheHeadersButtonsStillTakeTheirTaps() throws {
         let app = launch()
         let grabber = open("Two days to Spokane", in: app)

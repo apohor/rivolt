@@ -93,12 +93,13 @@ final class PlannerLayerPinsUITests: XCTestCase {
         let map = open("Two days to Spokane", in: app)
         expectPins(map, "3 places along the route", "the layers reach the two-day map at the largest text")
         let day2 = app.buttons["Day 2"].firstMatch
-        XCTAssertTrue(day2.waitForExistence(timeout: 10), "Day 2 is in the sheet")
-        // The sheet starts down to its title at this size: its handle opens it.
+        // The sheet starts down to its title at this size, with the day chips under the tab bar and out of VoiceOver's reach: its handle opens it.
         let handle = app.buttons["Itinerary"].firstMatch
         XCTAssertEqual(handle.value as? String, "peek")
+        XCTAssertFalse(day2.exists, "Day 2 is hidden at the peek")
         handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)))
         XCTAssertNotEqual(handle.value as? String, "peek", "the handle opened the sheet")
+        XCTAssertTrue(day2.waitForExistence(timeout: 10), "Day 2 is in the opened sheet")
         let hittable = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: day2)], timeout: 5)
         XCTAssertEqual(hittable, .completed, "after the sheet is opened, Day 2 can be tapped (the sheet is \(handle.value ?? "?"))")
         day2.tap()
