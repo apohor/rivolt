@@ -81,13 +81,16 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  wrap,
 }: {
   title: string;
   subtitle?: string;
   actions?: ReactNode;
+  // wrap lets wide actions move under the title when the row is too narrow (the sticky header otherwise keeps one row).
+  wrap?: boolean;
 }) {
   return (
-    <div data-span="full" data-ui-header className="mb-6 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+    <div data-span="full" data-ui-header data-ui-header-wrap={wrap ? "" : undefined} className="mb-6 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
       <div className="min-w-0">
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-neutral-400">{subtitle}</p>}

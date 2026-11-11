@@ -738,6 +738,11 @@ html[data-theme='light'] {
 :root [data-ui-header]:has([data-period-panel]) {
   flex-wrap: wrap;
 }
+/* A header whose actions are wider than a phone (Table/Map plus the period pills on Charges and Drives) wraps them under the title
+   instead of squeezing the title under them (#1830). */
+:root [data-ui-header][data-ui-header-wrap] {
+  flex-wrap: wrap;
+}
 :root [data-ui-header] .ui-period:has([data-period-panel]) {
   display: contents;
 }
