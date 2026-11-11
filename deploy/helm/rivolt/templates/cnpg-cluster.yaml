@@ -49,12 +49,28 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 
-  {{- with .Values.cnpg.postgresql.parameters }}
+  {{- with .Values.cnpg.affinity }}
+  # Pod placement, passed through as the Cluster's spec.affinity:
+  # enablePodAntiAffinity / podAntiAffinityType / topologyKey (one instance
+  # per node), nodeAffinity, tolerations, and so on.
+  affinity:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+  {{- if or .Values.cnpg.postgresql.parameters .Values.cnpg.postgresql.synchronous }}
   postgresql:
+    {{- with .Values.cnpg.postgresql.parameters }}
     parameters:
       {{- range $k, $v := . }}
       {{ $k }}: {{ $v | quote }}
       {{- end }}
+    {{- end }}
+    {{- with .Values.cnpg.postgresql.synchronous }}
+    # Quorum synchronous replication, e.g. method: any, number: 1,
+    # dataDurability: preferred (a lost standby never blocks writes).
+    synchronous:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
   {{- end }}
 
   {{- with .Values.cnpg.managedRoles }}
