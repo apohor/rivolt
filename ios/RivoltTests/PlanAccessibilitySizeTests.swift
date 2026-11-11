@@ -68,7 +68,7 @@ final class PlanAccessibilitySizeTests: XCTestCase {
             let header = PlanSheetCompactHeader(title: "Current vehicle position → Las Vegas, Nevada").environment(\.dynamicTypeSize, type).padding(.horizontal, 16)
             let need = try await size(of: header, width: 393).height + 28
             for container in [CGFloat(700), 520] {   // a tall phone, and an SE with the bars taken off
-                let sheet = DetentSheet<EmptyView, EmptyView>.height(.peek, in: container, floor: need)
+                let sheet = SheetLayout.height(.peek, in: container, peekNeed: need)
                 XCTAssertGreaterThanOrEqual(container - sheet, container * 0.45, "\(type), \(container) pt: at least 45 % of the map shows over the resting sheet")
             }
         }
@@ -87,12 +87,12 @@ final class PlanAccessibilitySizeTests: XCTestCase {
 
     func testTheSheetNeverRestsShorterThanItsHeader() {
         let h: CGFloat = 700
-        XCTAssertEqual(DetentSheet<EmptyView, EmptyView>.height(.peek, in: h), 150, "normal text: unchanged")
-        XCTAssertEqual(DetentSheet<EmptyView, EmptyView>.height(.half, in: h), 322)
-        for d in [SheetDetent.peek, .half] {
-            XCTAssertGreaterThanOrEqual(DetentSheet<EmptyView, EmptyView>.height(d, in: h, floor: 400), 400, "a large-text header (title, summary, Edit, day chips) fits")
-        }
-        XCTAssertEqual(DetentSheet<EmptyView, EmptyView>.height(.peek, in: h, floor: 900), 455, "capped: the header is not allowed to take the whole map")
-        XCTAssertEqual(DetentSheet<EmptyView, EmptyView>.height(.full, in: h, floor: 400), 692)
+        XCTAssertEqual(SheetLayout.height(.peek, in: h), 150, "not measured yet: the old peek")
+        XCTAssertEqual(SheetLayout.height(.half, in: h), 322)
+        XCTAssertGreaterThanOrEqual(SheetLayout.height(.peek, in: h, peekNeed: 200), 200, "a large-text title fits the peek")
+        XCTAssertGreaterThanOrEqual(SheetLayout.height(.half, in: h, headerNeed: 400), 400, "a large-text header (title, summary, Edit, day chips) fits at half")
+        XCTAssertEqual(SheetLayout.height(.peek, in: h, peekNeed: 900), 245, accuracy: 0.001, "capped: the peek is not allowed to take the map")
+        XCTAssertEqual(SheetLayout.height(.half, in: h, headerNeed: 900), 455, "capped at 65 %")
+        XCTAssertEqual(SheetLayout.height(.full, in: h, headerNeed: 400), 692)
     }
 }

@@ -102,14 +102,27 @@ final class RadarTests: XCTestCase {
     func testTheFreshnessLineIsInThePhonesZone() {
         // 2026-11-09 00:42 UTC is 6:42 PM the evening before in Chicago.
         let unix = 1_794_271_320
+        let now = Date(timeIntervalSince1970: TimeInterval(unix + 5 * 60))
+        let chicago = TimeZone(identifier: "America/Chicago")!, us = Locale(identifier: "en_US")
         // (iOS puts a narrow no-break space before PM.)
-        let line = RadarLogic.asOf(unix: unix, zone: TimeZone(identifier: "America/Chicago")!, locale: Locale(identifier: "en_US")).replacingOccurrences(of: "\u{202F}", with: " ")
-        XCTAssertEqual(line, "NOAA/NWS radar · 6:42 PM")
+        func plain(_ s: String) -> String { s.replacingOccurrences(of: "\u{202F}", with: " ") }
+        XCTAssertEqual(plain(RadarLogic.asOf(unix: unix, now: now, zone: chicago, locale: us)), "NOAA/NWS · 6:42 PM")
+        XCTAssertEqual(plain(RadarLogic.spoken(unix: unix, now: now, zone: chicago, locale: us)), "light, moderate, heavy, NOAA/NWS radar, 6:42 PM. Live radar, not a forecast.")
     }
 
-    func testTheLegendNamesTheEndsAtAccessibilitySizes() {
-        XCTAssertEqual(RadarLogic.legendWords(accessibilitySize: false), ["light", "moderate", "heavy"])
-        XCTAssertEqual(RadarLogic.legendWords(accessibilitySize: true), ["light", "heavy"])
+    func testAnOldFrameKeepsItsTimeAndSaysItIsNotCurrent() {
+        let unix = 1_794_271_320
+        let chicago = TimeZone(identifier: "America/Chicago")!, us = Locale(identifier: "en_US")
+        let later = Date(timeIntervalSince1970: TimeInterval(unix + 31 * 60))
+        XCTAssertFalse(RadarLogic.isStale(unix: unix, now: Date(timeIntervalSince1970: TimeInterval(unix + 29 * 60))))
+        XCTAssertTrue(RadarLogic.isStale(unix: unix, now: later))
+        let line = RadarLogic.asOf(unix: unix, now: later, zone: chicago, locale: us).replacingOccurrences(of: "\u{202F}", with: " ")
+        XCTAssertEqual(line, "NOAA/NWS · 6:42 PM · not current", "the frame's own time, and nothing that reads as no rain")
+        XCTAssertTrue(RadarLogic.spoken(unix: unix, now: later, zone: chicago, locale: us).contains("not current"))
+    }
+
+    func testTheStripDropsModerateFirst() {
+        XCTAssertEqual(RadarLogic.legendWords, [["light", "moderate", "heavy"], ["light", "heavy"]])
     }
 
     func testTheRadarLayerSitsUnderTheRouteAndGoesWhenTurnedOff() async throws {

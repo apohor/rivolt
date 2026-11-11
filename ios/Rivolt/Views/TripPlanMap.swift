@@ -270,6 +270,7 @@ struct PlanMapCanvas: View {
     var topInset: CGFloat = 0
     /// Bump to frame the drawing again.
     var reframe = 0
+    var showsCredit = true
     /// A long press on the map (only on the full-height map).
     var onLongPress: ((RouteSnap.Coord) -> Void)?
     var onCenter: ((RouteSnap.Coord) -> Void)?
@@ -293,7 +294,7 @@ struct PlanMapCanvas: View {
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     // The places drawn along the route (the layer chips' pins), for VoiceOver and for a UI test: nothing is said when there are none.
                     .accessibilityValue(PlanRouteLogic.alongPinsSpoken(drawing.along.count))
-                    .overlay(alignment: .bottomTrailing) { MapAttribution() }
+                    .overlay(alignment: .bottomTrailing) { if showsCredit { MapAttribution() } }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
                     #if DEBUG
                     .overlay(alignment: .topLeading) {
@@ -379,6 +380,8 @@ struct PlanMap: View {
     var topInset: CGFloat = 0
     /// Bump to frame what is on show again (a day chip tapped, even the one already picked, after the person panned away).
     var reframe = 0
+    /// Whether the map draws its own credit in its corner (false: the owner draws it where it stays in view, over its sheet).
+    var showsCredit = true
     /// Edit mode of the one-route map (never on the days map): a long press drops a pin, the middle of the map moves a stop.
     var onLongPress: ((RouteSnap.Coord) -> Void)?
     var onCenter: ((RouteSnap.Coord) -> Void)?
@@ -423,7 +426,7 @@ struct PlanMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, topInset: topInset, reframe: reframe, onLongPress: onLongPress, onCenter: onCenter)
+        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, topInset: topInset, reframe: reframe, showsCredit: showsCredit, onLongPress: onLongPress, onCenter: onCenter)
             .onChange(of: day) { reportLine() }
             .task(id: key) { await load() }
             // A stop just added or removed: our own roads line (Valhalla's route through the places with the new set) at once, while the planner works.
