@@ -70,7 +70,7 @@ export function hideRadar(map: MLMap): void {
   if (map.getSource(SOURCE)) map.removeSource(SOURCE);
 }
 
-// radarAsOf is the "Radar as of 6:42 PM" label in the viewer's local time.
+// radarAsOf is the "Radar 6:42 PM" label (the time of the picture) in the viewer's local time; short, so the strip stays on one line on a phone.
 export function radarAsOf(frameUnix: number): string {
-  return `Radar as of ${new Date(frameUnix * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  return `Radar ${new Date(frameUnix * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
