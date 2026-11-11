@@ -56,6 +56,15 @@ const (
 
 type permitKey struct{}
 
+type permitGateKey struct{}
+
+// WithCallPermitGate is WithCallPermit for a long-lived context (a subscription the client reconnects inside): allowed is asked at every
+// request the context sends, so a pod that lost the group stops being permitted at the next reconnect instead of keeping the permit it
+// was given at the start.
+func WithCallPermitGate(ctx context.Context, holder string, allowed func() bool) context.Context {
+	return context.WithValue(WithCallPermit(ctx, holder), permitGateKey{}, allowed)
+}
+
 // WithCallPermit marks ctx as belonging to one of the Holders.
 func WithCallPermit(ctx context.Context, holder string) context.Context {
 	return context.WithValue(ctx, permitKey{}, holder)
@@ -106,7 +115,10 @@ func checkPermit(ctx context.Context, op string) error {
 		return nil
 	}
 	if _, ok := ctx.Value(permitKey{}).(string); ok {
-		return nil
+		gate, _ := ctx.Value(permitGateKey{}).(func() bool)
+		if gate == nil || gate() {
+			return nil
+		}
 	}
 	if fn := unpermitted.Load(); fn != nil {
 		(*fn)(op)
