@@ -10,6 +10,8 @@ enum UITestLaunch {
     static let noTruckVariable = "RIVOLT_UITEST_NO_TRUCK"
     /// Every truck's status read fails (a 503, as when Rivian is down), for Home's failed-read screen.
     static let stateFailsVariable = "RIVOLT_UITEST_STATE_FAILS"
+    /// With the no-truck fixture: Check again lands on a server that does not hold the account (503, Retry-After 1), for "checking".
+    static let refreshUnheldVariable = "RIVOLT_UITEST_REFRESH_UNHELD"
 
     /// The directories to answer from, or nil on a normal launch.
     static var directories: [URL]? {
@@ -92,6 +94,7 @@ final class FixtureURLProtocol: URLProtocol {
         let method = request.httpMethod ?? "GET"
         var answer: Data?
         var failed: Int?
+        var retryAfter: String?
         // (Not spelled as a path: the contract test reads path literals in the app's source as calls it must find on the server.)
         if method == "POST", url.lastPathComponent == "corridor-layers" {
             var body = request.httpBody
@@ -104,6 +107,10 @@ final class FixtureURLProtocol: URLProtocol {
             answer = corridorLayers(body: body)
         } else if let state = ProcessInfo.processInfo.environment[UITestLaunch.noTruckVariable], method == "GET", url.path == "/api/vehicles" || url.lastPathComponent == "discovery" {
             answer = Data((url.lastPathComponent == "discovery" ? #"{"state":"\#(state)"}"# : "[]").utf8)
+        } else if ProcessInfo.processInfo.environment[UITestLaunch.refreshUnheldVariable] != nil, method == "POST", url.lastPathComponent == "refresh-vehicles" {
+            failed = 503
+            retryAfter = "1"
+            answer = Data(#"{"error":"unavailable"}"#.utf8)
         } else if ProcessInfo.processInfo.environment[UITestLaunch.stateFailsVariable] != nil, method == "GET", url.path.hasPrefix("/api/vehicles/"), url.path.hasSuffix("/state") {
             failed = 503
             answer = Data(#"{"error":"upstream unavailable","class":"transient"}"#.utf8)
@@ -117,7 +124,9 @@ final class FixtureURLProtocol: URLProtocol {
             if let h = try? FileHandle(forWritingTo: log) { h.seekToEndOfFile(); h.write(line); h.closeFile() } else { try? line.write(to: log) }
         }
         let payload = answer ?? Data(#"{"error":"not in the UI test fixtures"}"#.utf8)
-        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+        var headers = ["Content-Type": "application/json"]
+        headers["Retry-After"] = retryAfter
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: payload)
         client?.urlProtocolDidFinishLoading(self)
