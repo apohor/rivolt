@@ -1000,6 +1000,8 @@ func runServer() {
 		}
 		tripSynth = &syntheticplan.Planner{Vehicle: syntheticplan.SampleVehicle(), Now: time.Now}
 		accountRegistry = rivian.NewReplayAccountRegistry(feed, rivian.FirstPlanner{rivian.NewFixturePlanner(fixtures, nil), tripSynth})
+		// Preview is a replay install: it runs the same gate as live so the flag's code paths are exercised there (no real token exists).
+		installNoStandingTokens(ctx, accountRegistry, logger, nil)
 		rivianClient = rivian.NewStub()
 		logger.Info("rivian client: replay (no network)", "source_vehicle", src)
 		// Share live state across replicas as live mode does, so a pod
@@ -1174,19 +1176,8 @@ func runServer() {
 		}
 		buildLive := func(uid uuid.UUID) *rivian.LiveClient { return buildLiveClient(uid, true) }
 		accountRegistry = rivian.NewLiveAccountRegistry(buildLive)
-		if os.Getenv("RIVOLT_NO_STANDING_TOKENS") == "1" {
-			// Single-owner M4-5. Lead mode is required, so Require goes on before the gate: until the lease store is installed in liveFence
-			// the Holder answers Lost, and groupHold counts only Held and Warming, so the boot window holds no token.
-			liveFence.Require(true)
-			// ForLogin's client restores nothing: it is buildLive without the lazy restore.
-			if g, ok := accountRegistry.(interface {
-				SetNoStandingTokens(func(context.Context, uuid.UUID) (bool, bool), func(uuid.UUID) *rivian.LiveClient)
-			}); ok {
-				g.SetNoStandingTokens(groupHold(&liveFence), func(uid uuid.UUID) *rivian.LiveClient { return buildLiveClient(uid, false) })
-				startTokenRelease(ctx, accountRegistry, logger)
-				logger.Info("RIVOLT_NO_STANDING_TOKENS is on: Rivian session tokens are kept only for the groups this pod holds")
-			}
-		}
+		// ForLogin's client restores nothing: it is buildLive without the lazy restore.
+		installNoStandingTokens(ctx, accountRegistry, logger, func(uid uuid.UUID) *rivian.LiveClient { return buildLiveClient(uid, false) })
 		// Keep every pod's copy of each user's Rivian account in line with the database:
 		// a sign-in, sign-out or needs_reauth change made on one pod reaches the others
 		// within seconds (see rivian.AccountSyncer). Without a database or a secrets store

@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/rivian"
 )
@@ -39,6 +42,10 @@ func noStandingTokensError(getenv func(string) string) error {
 		if getenv(k) != "1" {
 			return fmt.Errorf("RIVOLT_NO_STANDING_TOKENS=1 needs %s=1", k)
 		}
+	}
+	// The standalone public demo has no owner pods and no lease groups: nothing there could hold a user's group.
+	if v := getenv("RIVOLT_DEMO_ONLY"); v == "true" || v == "1" {
+		return errors.New("RIVOLT_NO_STANDING_TOKENS=1 cannot run on the standalone demo (RIVOLT_DEMO_ONLY)")
 	}
 	return nil
 }
@@ -84,4 +91,30 @@ func startTokenRelease(ctx context.Context, reg rivian.AccountRegistry, log *slo
 			}
 		}
 	}()
+}
+
+// installNoStandingTokens gates reg when RIVOLT_NO_STANDING_TOKENS is on (the live and the replay registry share it). Lead mode is required, so
+// Require goes on before the gate: until the lease store is installed in liveFence the Holder answers Lost, and groupHold counts only Held
+// and Warming, so the boot window holds no token. bare builds ForLogin's throwaway client (live only).
+func installNoStandingTokens(ctx context.Context, reg rivian.AccountRegistry, log *slog.Logger, bare func(uuid.UUID) *rivian.LiveClient) {
+	if os.Getenv("RIVOLT_NO_STANDING_TOKENS") != "1" {
+		return
+	}
+	liveFence.Require(true)
+	g, ok := reg.(interface {
+		SetNoStandingTokens(func(context.Context, uuid.UUID) (bool, bool), func(uuid.UUID) *rivian.LiveClient)
+	})
+	if !ok {
+		return
+	}
+	hold := groupHold(&liveFence)
+	g.SetNoStandingTokens(func(ctx context.Context, uid uuid.UUID) (bool, bool) {
+		// The sample-corpus demo account (preview, signed-out visitors at /demo) has no vehicle, so no group to hold, and no token.
+		if demo.Enabled() && uid == demo.UserID() {
+			return true, true
+		}
+		return hold(ctx, uid)
+	}, bare)
+	startTokenRelease(ctx, reg, log)
+	log.Info("RIVOLT_NO_STANDING_TOKENS is on: Rivian session tokens are kept only for the groups this pod holds")
 }
