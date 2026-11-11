@@ -119,17 +119,20 @@ struct PlanMapScreen: View {
 
     @ViewBuilder
     private func map(coverHeight: CGFloat) -> some View {
+        // The layer search can miss the line either map reports: the route's road line doesn't search again, and a day line that lands while
+        // a search is loading is dropped (#1824).
         if case .planned(let trip) = model.night {
-            PlanDaysMap(days: trip.days, focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, along: model.markers,
-                        onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } }, radar: radar.layer(server: state.mapServer), weatherOn: model.weatherOn,
-                        onLegTag: { pickLeg($0) }, fills: true, bottomInset: coverHeight, day: day)
+            PlanMap(content: .days(.init(days: trip.days, day: day, weatherOn: model.weatherOn)), focus: model.focusedStop,
+                    onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
+                    onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } },
+                    radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight)
         } else if let route = model.plan?.best {
-            PlanRouteMap(route: route, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, focus: model.focusedStop, along: model.markers,
-                         onLine: { model.roadLine = $0 }, fills: true, bottomInset: coverHeight,
-                         onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
-                         onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) },
-                         vias: model.vias, pendingVias: model.pendingVias, previewLine: model.previewLine,
-                         weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil, radar: radar.layer(server: state.mapServer))
+            PlanMap(content: .route(.init(route: route, weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil, vias: model.vias,
+                                          pendingVias: model.pendingVias, previewLine: model.previewLine)),
+                    focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
+                    onLine: { line, _ in model.roadLine = line }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight,
+                    onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
+                    onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) })
         }
     }
 
