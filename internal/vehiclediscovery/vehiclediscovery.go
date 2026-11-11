@@ -334,6 +334,19 @@ func (j *Job) signedIn(ctx context.Context, uid uuid.UUID) {
 			j.logger().Warn("vehicle discovery: clearing the stored answer at sign-in failed", "err", err.Error())
 		}
 		j.nudged(ctx, uid)
+		// A user who already has a truck asking again (a second truck, an accepted invite) is re-read now, not at the next 24 h refresh.
+		if have, err := db.ListLinkedUsersWithVehiclesAmong(ctx, j.DB, []uuid.UUID{uid}); err == nil && len(have) == 1 {
+			outcome := j.refresh(withToken(ctx, m.Token), uid)
+			next := RefreshEvery + refreshJitter(uid)
+			if outcome != OutcomeRefreshed {
+				next = ErrorBackoff
+			}
+			if j.refreshAt == nil {
+				j.refreshAt = map[uuid.UUID]time.Time{}
+			}
+			j.refreshAt[uid] = j.now().Add(next)
+			j.observe(outcome)
+		}
 		return
 	}
 }

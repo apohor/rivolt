@@ -256,3 +256,35 @@ func TestOwnerRefreshPicksUpASecondTruck(t *testing.T) {
 		t.Fatalf("after a truck left: %d lookups, %d vehicles; want 3 and 2", calls, count())
 	}
 }
+
+// A user who already has a truck taps Check again for a second one: the sign-in nudge re-reads them now instead of waiting for the 24 h refresh, and
+// a second tap inside ForceEvery does not look up again.
+func TestNudgeRefreshesAUserWhoAlreadyHasATruck(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool := open(ctx, t)
+	u := linked(ctx, t, pool, "nudge-owned")
+	first, second := "rv-n1-"+uuid.NewString()[:8], "rv-n2-"+uuid.NewString()[:8]
+	if err := db.UpsertVehicleFromSync(ctx, pool, u, db.VehicleSync{RivianID: first, Model: "R1T", Name: "One"}); err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	job := &vehiclediscovery.Job{DB: pool, Sleep: func(context.Context, time.Duration) {},
+		Lookup: func(context.Context, uuid.UUID) ([]rivian.Vehicle, error) {
+			calls.Add(1)
+			return []rivian.Vehicle{{ID: first, Model: "R1T", Name: "One"}, {ID: second, Model: "R1S", Name: "Two"}}, nil
+		}}
+	job.OwnerMode(func(context.Context) ([]vehiclediscovery.OwnedUser, error) { return owned(u), nil })
+	job.SignedIn(ctx, u)
+	var n int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id IN ($2, $3)`, u, first, second).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 || n != 2 {
+		t.Fatalf("%d lookups, %d vehicles, want 1 and 2", calls.Load(), n)
+	}
+	job.SignedIn(ctx, u)
+	if calls.Load() != 1 {
+		t.Error("a second tap inside ForceEvery looked up again")
+	}
+}
