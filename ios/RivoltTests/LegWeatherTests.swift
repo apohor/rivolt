@@ -30,6 +30,20 @@ final class LegWeatherTests: XCTestCase {
         }
     }
 
+    /// Names come from the data (a night's hotel, a charger): the usual ones draw whole, and one with characters the app has no glyphs for keeps the rest
+    /// rather than drawing nothing.
+    func testANameOnTheMapDrawsWithTheGlyphsTheAppHas() {
+        XCTAssertFalse(MapGlyphs.ranges.isEmpty, "the glyphs are in the app")
+        for name in ["Example Hotel & Suites", "Hôtel du Café", "Joe’s Inn – Downtown", "Example Lodge™", "Ñandú Motel", "Łódź Inn", "Charger #3 (150 kW)"] {
+            let label = PlanRouteLogic.nightLabel(nil, place: nil) + ": " + name
+            XCTAssertEqual(MapGlyphs.drawable(label), label, "\(name) draws as it is")
+        }
+        XCTAssertEqual(MapGlyphs.drawable("Night: Example 東京 Hotel 🏨"), "Night: Example Hotel")
+        for c in MapGlyphs.drawable("Γεια Привет שלום مرحبا 你好 🙂 ok").unicodeScalars {
+            XCTAssertTrue(MapGlyphs.canDraw(c), "U+\(String(c.value, radix: 16, uppercase: true)) is left in but has no glyphs")
+        }
+    }
+
     func testTemperatureAndAHeadwindInTheAccountsUnits() {
         let f = LegWeather.facts(leg(1.1, temp: 5, wind: 40, precip: 2), celsius: false, metric: false)
         XCTAssertEqual(LegWeather.tags(f), ["41 °F", "25 mph headwind", "rain"])

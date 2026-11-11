@@ -542,19 +542,19 @@ struct RouteMapView: UIViewRepresentable {
             let stops: [MLNPointFeature] = d.stops.enumerated().map { i, s in
                 let f = MLNPointFeature()
                 f.coordinate = CLLocationCoordinate2D(latitude: s.coord.lat, longitude: s.coord.lon)
-                f.attributes = ["i": i, "label": s.label]
+                f.attributes = ["i": i, "label": MapGlyphs.drawable(s.label)]
                 return f
             }
             let along: [MLNPointFeature] = d.along.enumerated().map { i, s in
                 let f = MLNPointFeature()
                 f.coordinate = CLLocationCoordinate2D(latitude: s.coord.lat, longitude: s.coord.lon)
-                f.attributes = ["i": i, "label": s.label, "p": s.emphasis ? 1 : 0, "k": s.kind]
+                f.attributes = ["i": i, "label": MapGlyphs.drawable(s.label), "p": s.emphasis ? 1 : 0, "k": s.kind]
                 return f
             }
             let legTags: [MLNPointFeature] = d.legTags.enumerated().map { i, t in
                 let f = MLNPointFeature()
                 f.coordinate = CLLocationCoordinate2D(latitude: t.coord.lat, longitude: t.coord.lon)
-                f.attributes = ["i": i, "t": t.text]
+                f.attributes = ["i": i, "t": MapGlyphs.drawable(t.text)]
                 return f
             }
             // The picked pin again on its own, so it can be drawn over the rest: a stop, or past the stops a charger along the route.

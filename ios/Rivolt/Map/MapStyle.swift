@@ -62,3 +62,21 @@ enum MapStyle {
         return origin(u) == origin(server)
     }
 }
+
+/// The characters the map can draw: the glyph ranges the app ships (Map/glyphs/Noto Sans Medium, 256 characters a file). MapLibre draws no part of a
+/// label with one character outside them, so a name from the data (a hotel's, a charger's) keeps only the characters it can draw.
+enum MapGlyphs {
+    static let ranges: Set<Int> = Set((Bundle.main.urls(forResourcesWithExtension: "pbf", subdirectory: "Map/glyphs/Noto Sans Medium") ?? []).compactMap {
+        $0.deletingPathExtension().lastPathComponent.split(separator: "-").first.flatMap { Int($0) }
+    })
+
+    static func canDraw(_ c: Unicode.Scalar) -> Bool { ranges.contains(Int(c.value) / 256 * 256) }
+
+    /// `text` with what the map can't draw left out (and the spaces that leaves doubled closed up).
+    static func drawable(_ text: String) -> String {
+        guard !text.unicodeScalars.allSatisfy(canDraw) else { return text }
+        var kept = String.UnicodeScalarView()
+        kept.append(contentsOf: text.unicodeScalars.filter(canDraw))
+        return String(kept).split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+    }
+}
