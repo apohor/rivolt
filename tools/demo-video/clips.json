@@ -1,0 +1,43 @@
+{
+  "demo_host": "demo.rivolt.dev",
+  "note": "One entry per clip. status: active (has a script and captions, built by make-demo-videos), blocked (cannot be recorded honestly yet; reason says what unblocks it), retired (kept for history, never built or posted). rerun_when says which screens the clip shows, so a release that touches them re-runs the clip.",
+  "clips": [
+    {
+      "name": "clip-cost",
+      "status": "active",
+      "feature": "Money: month card, where the energy came from, receipts with price sources, off-peak savings",
+      "script": "scripts/clip-cost.json",
+      "viewports": ["desktop", "mobile"],
+      "rerun_when": "web Money page or receipts list changes; monthly (the demo month rolls with the calendar)"
+    },
+    {
+      "name": "clip-share",
+      "status": "active",
+      "feature": "Share a month card (cost off by default, made on device)",
+      "script": "scripts/clip-share.json",
+      "viewports": ["desktop", "mobile"],
+      "rerun_when": "share statement sheet or card changes; monthly"
+    },
+    {
+      "name": "clip-trip-1day",
+      "status": "active",
+      "feature": "Trip planner: a one-way single-day sample plan on the map, itinerary and totals",
+      "script": "scripts/clip-trip-1day.json",
+      "viewports": ["desktop", "mobile"],
+      "rerun_when": "planner map, itinerary or trip summary changes; the sample trip presets change"
+    },
+    {
+      "name": "clip-planner",
+      "status": "blocked",
+      "feature": "Trip planner redesign: drop a pin, what-if preview, add and reorder stops, Preferred only",
+      "blocked_reason": "The demo cannot show it: what-if is skipped in demo mode, Add as a stop would POST /api/trips/plan signed out, the Networks sheet is hidden, and the dropped pin is gone from the demo. Needs a read-only what-if (and stops) on the demo, a backend change.",
+      "viewports": ["desktop", "mobile"]
+    },
+    {
+      "name": "clip-trip",
+      "status": "retired",
+      "feature": "The original two-day sample trip clip",
+      "retired_reason": "Shows features held back from the beta wording (DA, Nov 8). Replaced by clip-trip-1day."
+    }
+  ]
+}

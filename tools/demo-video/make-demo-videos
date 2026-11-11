@@ -1,0 +1,39 @@
+#!/bin/zsh
+# make-demo-videos [clip-name|all] [outdir]: lint, then record each active clip from clips.json in each viewport against demo.rivolt.dev
+# (signed out, GET-only), build the captioned mp4/gif, a contact sheet per clip for review, and out/manifest.json with the sha256 of every file.
+# Needs Playwright (cd web && npm ci) and ffmpeg. Output goes to out/ (git-ignored). Nothing is uploaded or posted.
+# ENDCARD_FILE=<json> swaps the end card lines (the launch wording lives in rivolt-infra, not here).
+here=${0:A:h}; repo=${here:h:h}; want=${1:-all}; out=${2:-$here/out}
+export PW_MODULE=${PW_MODULE:-$repo/web/node_modules/playwright}
+[ -d $PW_MODULE ] || { echo "Playwright not found at $PW_MODULE: run 'cd web && npm ci' or set PW_MODULE" >&2; exit 1 }
+command -v ffmpeg >/dev/null || { echo "ffmpeg not found" >&2; exit 1 }
+node $here/lint.cjs || exit 1
+plan=$(node -e '
+const m=require(process.argv[1]);
+for(const c of m.clips) if(c.status==="active") for(const v of c.viewports) console.log(c.name+" "+v);
+for(const c of m.clips) if(c.status==="blocked") console.error("skipped (blocked): "+c.name+": "+c.blocked_reason);
+' $here/clips.json) || exit 1
+mkdir -p $out/work; first=1; built=()
+for l in ${(f)plan}; do
+  name=${l%% *}; kind=${l##* }
+  [ $want != all ] && [ $want != $name ] && continue
+  [ $first = 0 ] && sleep 70   # the demo rate-limits heavy reads
+  first=0
+  node $here/record-clip.cjs $here/scripts/$name.json $kind $out/work 2>&1 | cut -c1-200 || exit 1
+  grep -q '"blockedNonGet": \[\]' $out/work/$name-$kind.marks.json || { echo "$name-$kind: a non-GET request was blocked while recording; look at blockedNonGet in marks.json" >&2; exit 1 }
+  $here/build-clip.sh $name $kind $out/work $out/$name || exit 1
+  [ $kind = mobile ] && sc=270 || sc=480
+  ffmpeg -v error -y -i $out/$name/$name-$kind-captioned.mp4 -vf "fps=1/4,scale=$sc:-1,tile=4x3" -frames:v 1 $out/$name/contact-$name-$kind.png
+  built+=($name)
+done
+[ ${#built} = 0 ] && { echo "no clip matched '$want'" >&2; exit 1 }
+node -e '
+const fs=require("fs"),path=require("path"),cp=require("child_process"),crypto=require("crypto");
+const out=process.argv[1],files=[];
+for(const d of fs.readdirSync(out)){const p=path.join(out,d);if(d==="work"||!fs.statSync(p).isDirectory())continue;
+ for(const f of fs.readdirSync(p))files.push({file:d+"/"+f,sha256:crypto.createHash("sha256").update(fs.readFileSync(path.join(p,f))).digest("hex").slice(0,16),bytes:fs.statSync(path.join(p,f)).size})}
+const sha=cp.spawnSync("git",["rev-parse","--short","HEAD"],{cwd:process.argv[2]}).stdout.toString().trim();
+fs.writeFileSync(path.join(out,"manifest.json"),JSON.stringify({demoDataAsOf:new Date().toISOString().slice(0,10),toolsCommit:sha,endCardOverride:!!process.env.ENDCARD_FILE,files},null,1));
+console.log("manifest.json: "+files.length+" files");
+' $out $here
+echo "done: $out. DA clears by hash; the owner posts; nothing was uploaded."

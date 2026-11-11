@@ -1,4 +1,4 @@
-.PHONY: help dev dev-api dev-web web build test fmt tidy docker clean
+.PHONY: help dev dev-api dev-web web build test fmt tidy docker clean demo-video-lint demo-videos
 
 BINARY ?= rivolt
 PKG := ./...
@@ -23,6 +23,13 @@ build: web ## Build the Go binary with embedded web assets
 
 test: ## Run Go tests
 	go test $(PKG)
+
+demo-video-lint: ## Lint the demo-video clip scripts, captions and manifest (tools/demo-video)
+	node --test tools/demo-video/lint.test.cjs
+	node tools/demo-video/lint.cjs
+
+demo-videos: ## Re-record the demo videos from demo.rivolt.dev into tools/demo-video/out (CLIP=name for one clip)
+	tools/demo-video/make-demo-videos $(or $(CLIP),all)
 
 fmt: ## Format Go code
 	go fmt $(PKG)

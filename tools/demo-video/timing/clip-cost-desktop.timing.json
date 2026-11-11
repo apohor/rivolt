@@ -1,0 +1,44 @@
+{
+ "name": "clip-cost",
+ "kind": "desktop",
+ "note": "seconds in the encoded mp4/gif (load lead trimmed; first caption at 0.15 s). caption_end_sec is when the NEXT action (scroll or click) begins, minus 0.1 s, not the next mark (DA, Oct 31); a short uncaptioned gap between windows is expected.",
+ "durationSec": 38.0,
+ "captionWindows": [
+  {
+   "label": "s1 Money month card on screen (0 s caption)",
+   "caption_start_sec": 0.15,
+   "caption_end_sec": 3.05
+  },
+  {
+   "label": "s2 month card with the Includes N% estimated note (3 s caption)",
+   "caption_start_sec": 3.15,
+   "caption_end_sec": 8.05
+  },
+  {
+   "label": "s3 Where the energy came from on screen (8 s caption)",
+   "caption_start_sec": 10.05,
+   "caption_end_sec": 14.65
+  },
+  {
+   "label": "s4 receipts list row (Home rate $0.16/kWh) on screen (14 s caption)",
+   "caption_start_sec": 16.65,
+   "caption_end_sec": 22.05
+  },
+  {
+   "label": "s5 Off-peak savings card on screen (20 s caption)",
+   "caption_start_sec": 28.45,
+   "caption_end_sec": 33.85
+  },
+  {
+   "label": "s6 hold last frame, end card (26 s caption)",
+   "caption_start_sec": 33.95,
+   "caption_end_sec": 37.85
+  }
+ ],
+ "notes": [
+  "Marks are placed AFTER the screen state is reached.",
+  "s4: the receipts LIST row with 'Home rate \u00b7 $0.16/kWh' is on screen for the whole 14 s caption (DA); the receipt page opens only after the hold, so the price-source caption is never over the receipt page.",
+  "Figures are the sample truck's, generated data."
+ ],
+ "blockedNonGet": []
+}
