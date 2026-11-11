@@ -20,8 +20,8 @@ affiliated with, endorsed by or sponsored by Rivian.
 - **Every charge and trip priced from what Rivian billed, your rate, or a labelled estimate**, with the source of each
   number shown (billed, home rate, network estimate, or entered by you).
 - **Trip planner** that estimates what a road trip will cost, with weather
-  and efficiency analysis, live weather radar on the map (off by default)
-  and rain or snow forecast on each leg.
+  and efficiency analysis, live weather radar on the map and rain or snow
+  forecast on each leg (both off by default).
 - **Lease miles:** enter your allowance and term and see projected miles
   at lease return and the overage cost.
 - **Efficiency** (mi/kWh) broken down by temperature, speed and drive mode.
@@ -203,9 +203,11 @@ radar button on the map.
 
 - **Live radar.** The button shows live NOAA/NWS radar under the route,
   with the time of the frame in the map's top-left corner.
-- **Rain and snow along the route.** Each leg of a planned trip is
-  tagged with the weather expected when you get there: temperature,
-  wind, and "rain" or "snow expected" where the forecast says so.
+- **Weather on each leg.** Each leg of a planned trip shows the
+  temperature and wind expected when you get there.
+- **Rain and snow tags.** Legs are also tagged "rain" or "snow expected"
+  where the forecast says so. These need the forecast radar service,
+  which the operator turns on separately from live radar.
 - **Planner settings.** Weather on each leg and the radar default are
   switches in the planner's settings page, along with how far from the
   route chargers show and the minimum fast-charger power.
