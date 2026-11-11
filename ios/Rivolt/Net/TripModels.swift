@@ -219,6 +219,8 @@ struct TripMultiday: Decodable, Equatable {
         var costs: [TripCost]?
         /// The IANA zone where this day ends.
         var endTz: String?
+        /// The day's weather: the server puts it beside the day's plan, not in it.
+        var weatherAdjustment: TripWeatherAdjustment?
         var id: Int { index }
     }
 

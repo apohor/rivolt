@@ -301,8 +301,8 @@ extension TripPlanMapTests {
         var days = try Fixture.decode(TripMultiday.self, "trip_plan_multiday").days
         let json = #"{"profile_multiplier":1,"legs":[{"multiplier":1.14,"temp_c":3,"air_temp_c":5,"headwind_kph":40,"precip_mm":2,"climb_m":579,"descent_m":100},{"multiplier":1.0,"temp_c":10}]}"#
         let adj = try JSON.decoder().decode(TripWeatherAdjustment.self, from: Data(json.utf8))
-        days[0].plan.weatherAdjustment = adj
-        if day2 { days[1].plan.weatherAdjustment = adj }
+        days[0].weatherAdjustment = adj
+        if day2 { days[1].weatherAdjustment = adj }
         return days
     }
 
@@ -323,7 +323,7 @@ extension TripPlanMapTests {
     func testALegsDetailIsTheWebsLinesInItsOrder() throws {
         let days = try weatherDays(day2: false)
         let route = try XCTUnwrap(days[0].plan.best)
-        let w = try XCTUnwrap(PlanRouteLogic.Weather(days[0].plan, celsius: false, metric: false))
+        let w = try XCTUnwrap(PlanRouteLogic.Weather(day: days[0], celsius: false, metric: false))
         let tag = try XCTUnwrap(PlanRouteLogic.legTags(route: route, weather: w, line: []).first)
         XCTAssertEqual(tag.lines, ["41 °F · 25 mph headwind · rain", "Feels like 37 °F", "Weather: +14% (estimate)",
                                    "Climb +1,900 ft · descent −328 ft", LegWeather.terrainCredit])
@@ -336,6 +336,21 @@ extension TripPlanMapTests {
         let lines = days.map { _ in [RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)] }
         XCTAssertEqual(PlanRouteLogic.legTags(days: days, lines: lines).count, 2)
         XCTAssertTrue(PlanRouteLogic.legTags(days: days, lines: []).isEmpty, "no line yet: nowhere to put them")
+    }
+
+    func testADaysWeatherIsReadBesideItsPlanWhereTheServerPutsItAndInsideForOlderTrips() throws {
+        var data = try JSONSerialization.jsonObject(with: Fixture.data("trip_plan_multiday")) as! [String: Any]
+        var days = data["days"] as! [[String: Any]]
+        days[0]["weather_adjustment"] = ["legs": [["multiplier": 1.1, "temp_c": 3]]]
+        data["days"] = days
+        let trip = try JSON.decoder().decode(TripMultiday.self, from: JSONSerialization.data(withJSONObject: data))
+        XCTAssertEqual(PlanRouteLogic.Weather(day: trip.days[0])?.legs.count, 1, "the server's shape: beside the plan")
+        XCTAssertNil(PlanRouteLogic.Weather(day: trip.days[1]))
+        XCTAssertTrue(PlanRouteLogic.hasWeather(plan: nil, night: .planned(trip)))
+        var older = try weatherDays(day2: false)
+        older[0].plan.weatherAdjustment = older[0].weatherAdjustment
+        older[0].weatherAdjustment = nil
+        XCTAssertNotNil(PlanRouteLogic.Weather(day: older[0]), "a trip saved with the weather in the plan keeps its labels")
     }
 }
 

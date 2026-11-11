@@ -112,7 +112,16 @@ enum PlanRouteLogic {
         var withSetup: Bool
 
         init?(_ plan: TripPlan?, celsius: Bool = DisplayUnits.celsius, metric: Bool = DisplayUnits.distanceMetric) {
-            guard let adj = plan?.weatherAdjustment, !adj.legs.isEmpty else { return nil }
+            self.init(plan?.weatherAdjustment, celsius: celsius, metric: metric)
+        }
+
+        /// A day of a trip: its weather sits beside its plan (older saved trips may carry it in the plan).
+        init?(day: TripMultiday.Day, celsius: Bool = DisplayUnits.celsius, metric: Bool = DisplayUnits.distanceMetric) {
+            self.init(day.weatherAdjustment ?? day.plan.weatherAdjustment, celsius: celsius, metric: metric)
+        }
+
+        init?(_ adj: TripWeatherAdjustment?, celsius: Bool, metric: Bool) {
+            guard let adj, !adj.legs.isEmpty else { return nil }
             legs = adj.legs
             self.celsius = celsius
             self.metric = metric
@@ -160,7 +169,7 @@ enum PlanRouteLogic {
     /// Whether the plan on show (one route, or the days of a trip) has weather to draw: then the Weather button is there.
     static func hasWeather(plan: TripPlan?, night: TripPlanModel.NightState) -> Bool {
         if Weather(plan) != nil { return true }
-        if case .planned(let trip) = night { return trip.days.contains { Weather($0.plan) != nil } }
+        if case .planned(let trip) = night { return trip.days.contains { Weather(day: $0) != nil } }
         return false
     }
 
@@ -172,7 +181,7 @@ enum PlanRouteLogic {
             guard let route = day.plan.best else { continue }
             defer { k += 1 }
             guard lines.indices.contains(k) else { continue }
-            out += legTags(route: route, weather: Weather(day.plan), line: lines[k])
+            out += legTags(route: route, weather: Weather(day: day), line: lines[k])
         }
         return out
     }
