@@ -265,6 +265,15 @@ readinessProbe:
 
 nodeSelector: {}
 tolerations: []
+# -- Topology spread for the app pods, rendered as spec.topologySpreadConstraints.
+# A constraint without a labelSelector gets this release's selector labels.
+# Use matchLabelKeys [pod-template-hash] for a Deployment and
+# [rollouts-pod-template-hash] for a Rollout (the Rollout's pods do not carry
+# pod-template-hash, and an unknown key is skipped without an error).
+# Empty renders nothing.
+topologySpreadConstraints: []
+# -- PriorityClass for the app pods (the class must already exist). Empty renders nothing.
+priorityClassName: ""
 # Soft anti-affinity on hostname so the scheduler spreads replicas
 # across nodes when there's more than one available, but still
 # lets a single-node install run. Override or set to {} for
@@ -494,6 +503,19 @@ cnpg:
   #         - matchExpressions:
   #             - { key: kubernetes.io/hostname, operator: NotIn, values: [nuc] }
   affinity: {}
+
+  # PriorityClass for the Postgres pods (the class must already exist).
+  # Changing it rolls the instances: the standbys first, then the primary
+  # according to primaryUpdateStrategy and primaryUpdateMethod. Empty renders nothing.
+  priorityClassName: ""
+
+  # How CNPG rolls the primary after a pod-spec change. Empty keeps CNPG's
+  # defaults (unsupervised, restart in place). Set strategy "unsupervised" with
+  # method "switchover" so the primary is switched over to a healthy standby
+  # instead of restarted in place; "supervised" stops and waits for a manual
+  # promotion.
+  primaryUpdateStrategy: ""
+  primaryUpdateMethod: ""
 
   # Postgres tuning. CNPG passes these straight through to
   # postgresql.conf. Defaults below match CNPG's own defaults +

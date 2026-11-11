@@ -21,3 +21,9 @@ deploymentAnnotations:
 metrics:
   podMonitor:
     enabled: true
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    matchLabelKeys: [rollouts-pod-template-hash]
+priorityClassName: rivolt-critical

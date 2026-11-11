@@ -557,6 +557,19 @@ indentation of a "template:" key two spaces in (its content at four), starting o
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- range . }}
+        {{- $c := deepCopy . }}
+        {{- if not (hasKey $c "labelSelector") }}
+        {{- $_ := set $c "labelSelector" (dict "matchLabels" (include "rivolt.selectorLabels" $ | fromYaml)) }}
+        {{- end }}
+        - {{ toYaml $c | nindent 10 | trim }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

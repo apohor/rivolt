@@ -1,10 +1,13 @@
 # CI render: the two-instance pair with required spread, nodeAffinity away from
-# one node and quorum synchronous replication.
+# one node, quorum synchronous replication, a PriorityClass and a switchover primary update.
 secrets:
   kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 cnpg:
   enabled: true
   instances: 2
+  priorityClassName: rivolt-critical
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
   affinity:
     enablePodAntiAffinity: true
     podAntiAffinityType: required
