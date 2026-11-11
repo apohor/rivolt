@@ -488,6 +488,11 @@ func (c *LiveClient) SessionVersionFor(usedToken string) time.Time {
 
 type sessionVersionKey struct{}
 
+// WithSessionVersion is ctx marked with the session version a reauth sink call was made under (what LiveClient does before it calls the sink).
+func WithSessionVersion(ctx context.Context, ver time.Time) context.Context {
+	return context.WithValue(ctx, sessionVersionKey{}, ver)
+}
+
 // SessionVersionFrom is the session version a reauth sink call was made under (see
 // db.RaiseNeedsReauthIfCurrent); zero when unknown.
 func SessionVersionFrom(ctx context.Context) time.Time {
@@ -523,7 +528,7 @@ func (c *LiveClient) markNeedsReauth(ctx context.Context, reason string) {
 		if used, _ := ctx.Value(usedSessKey{}).(string); used != "" {
 			ver = c.SessionVersionFor(used)
 		}
-		c.reauthSink(context.WithValue(ctx, sessionVersionKey{}, ver), reason)
+		c.reauthSink(WithSessionVersion(ctx, ver), reason)
 	}
 }
 

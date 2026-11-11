@@ -56,7 +56,6 @@ import (
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/entitlements"
-	"github.com/apohor/rivolt/internal/fence"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/fleetbucket"
 	"github.com/apohor/rivolt/internal/geocoding"
@@ -1116,47 +1115,13 @@ func runServer() {
 				}
 				return false
 			})
-			lc.WithReauthSink(func(sinkCtx context.Context, reason string) {
-				// Empty reason is the clear signal (successful Login).
-				if reason == "" {
-					if err := db.SetNeedsReauth(sinkCtx, pgPool, boundUID, ""); err != nil {
-						logger.Warn("clear needs_reauth", "user_id", boundUID.String(), "err", err.Error())
-					}
-					return
-				}
-				// Only if the session this client failed with is still the stored one: a
-				// pod that has not yet caught up with a sign-in elsewhere must not flag the
-				// user, nor send the email, right after they signed in.
-				var transitioned bool
-				var err error
-				sinkCtx = reauthOwnerCtx(sinkCtx, &liveFence, boundUID.String()) // M4-3: the raise carries the group's epoch when this pod owns the user
-				if accountSyncer.Load() != nil {
-					loaded := rivian.SessionVersionFrom(sinkCtx)
-					if loaded.IsZero() {
-						// The client does not know which stored session it holds yet; the
-						// next sync records it and the next rejection raises.
-						appMetrics.ReauthRaiseDeferred.Inc()
-						logger.Info("rivian reauth raise deferred: session version unknown", "user_id", boundUID.String())
-						return
-					}
-					appMetrics.ReauthRaiseAttempts.WithLabelValues(reauthCarries(sinkCtx)).Inc()
-					transitioned, err = db.RaiseNeedsReauthIfCurrent(sinkCtx, pgPool, boundUID, reason, loaded)
-				} else {
-					// No account sync (no secrets store): there is no stored session to be
-					// stale against.
-					appMetrics.ReauthRaiseAttempts.WithLabelValues(reauthCarries(sinkCtx)).Inc()
-					transitioned, err = db.RaiseNeedsReauth(sinkCtx, pgPool, boundUID, reason)
-				}
-				if errors.Is(err, db.ErrNotOwner) || errors.Is(err, fence.ErrFenced) {
-					// This pod does not hold the user's group (or has just lost it): its rejection says nothing the owner has not seen. Not a failure.
-					appMetrics.ReauthRaiseRefused.WithLabelValues(reauthRefusedReason(err)).Inc()
-					return
-				}
-				if err != nil {
-					logger.Warn("persist needs_reauth", "user_id", boundUID.String(), "reason", reason, "err", err.Error())
-					return
-				}
-				if transitioned {
+			lc.WithReauthSink(newReauthSink(reauthSinkDeps{
+				pool:    pgPool,
+				fencer:  &liveFence,
+				metrics: appMetrics,
+				logger:  logger,
+				synced:  func() bool { return accountSyncer.Load() != nil },
+				onRaised: func(reason string) {
 					bg.Go(func() {
 						sendReauthEmailAfterGrace(ctx, reauthEmailGrace,
 							func(c context.Context) (time.Time, bool, error) { return db.ReauthRaisedAt(c, pgPool, boundUID) },
@@ -1164,8 +1129,8 @@ func runServer() {
 								sendReauthEmail(c, mailer, pgPool, logger, boundUID, reason, os.Getenv("RIVOLT_BASE_URL"))
 							}, logger, boundUID)
 					})
-				}
-			})
+				},
+			}, boundUID))
 			// Prime the in-memory mirror from Postgres so a crash
 			// loop with stale creds doesn't briefly allow requests
 			// until the first classification lands.
