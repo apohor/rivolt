@@ -19,8 +19,13 @@ struct PlanMapScreen: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     /// At accessibility text sizes the sheet's header would cover the map, so it is only the title; the rest sits at the top of the sheet's own content.
     private var ax: Bool { typeSize.isAccessibilitySize }
-    /// What the sheet's header needs at this text size: the sheet is never shorter (see DetentSheet.height).
+    /// What the sheet's peek and whole header need at this text size (see SheetLayout.height).
+    @State private var peekNeed: CGFloat = 0
     @State private var headerNeed: CGFloat = 0
+    /// What rides on the sheet's edge (the radar strip, the map credit): the route is fitted above it too.
+    @State private var aboveHeight: CGFloat = 0
+    /// Where the sheet was when a stop started to move: it goes back there when the move ends.
+    @State private var detentBeforeMove: PlanSheetDetent?
     /// How far down the map the layer chips reach (with the overlays' padding): the route and its labels are fitted below them.
     @State private var chipsBottom: CGFloat = 0
 
@@ -28,10 +33,17 @@ struct PlanMapScreen: View {
     /// The Radar button's state lives with the session, so the server is asked once what it has.
     private var radar: RadarModel { state.radar }
 
+    private func sheetHeight(_ d: PlanSheetDetent, _ container: CGFloat) -> CGFloat {
+        SheetLayout.height(d, in: container, peekNeed: peekNeed, headerNeed: headerNeed)
+    }
+
     var body: some View {
         GeometryReader { geo in
+            // What covers the map's bottom at rest: the sheet and what rides on its edge. Fully open the map is out of sight, so it keeps the half's.
+            let cover = sheetHeight(min(detent, .half), geo.size.height) + aboveHeight
+            let over = sheetHeight(detent, geo.size.height) + aboveHeight + 10
             ZStack(alignment: .bottom) {
-                map(coverHeight: DetentSheet<EmptyView, EmptyView>.height(PlanSheetDetent.half, in: geo.size.height, floor: headerNeed))
+                map(coverHeight: cover)
                     .overlay(alignment: .topLeading) { overlays }
                 if let v = model.moving {
                     // The stop follows the middle of the map: a crosshair there, and a bar to say what it does and to finish.
@@ -39,7 +51,7 @@ struct PlanMapScreen: View {
                         .frame(maxHeight: .infinity, alignment: .center).allowsHitTesting(false).accessibilityHidden(true)
                     PlanMoveBar(name: v.name, lines: PlanSheetLogic.previewLines(model, metric: metric), previewing: model.preview == .loading,
                                 onCancel: { model.cancelMove() }, onDone: { Task { await model.confirmMove(source: state.client) } })
-                        .padding(.horizontal, 12).padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height, floor: headerNeed) + 10)
+                        .padding(.horizontal, 12).padding(.bottom, over)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
                 if let c = model.pickedCharger {
@@ -47,17 +59,22 @@ struct PlanMapScreen: View {
                                    previewLines: PlanSheetLogic.previewLines(model, metric: metric), previewing: model.preview == .loading,
                                    adding: model.updating, onAdd: { Task { await model.addVia(c, source: state.client) } }, onClose: { model.closeCallout() })
                         .padding(.horizontal, 12)
-                        .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height, floor: headerNeed) + 10)
+                        .padding(.bottom, over)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
                 if let leg = pickedLeg, model.pickedCharger == nil, model.weatherOn {
                     PlanLegCallout(title: leg.title, lines: leg.lines, onClose: { pickedLeg = nil })
                         .padding(.horizontal, 12)
-                        .padding(.bottom, DetentSheet<EmptyView, EmptyView>.height(detent, in: geo.size.height, floor: headerNeed) + 10)
+                        .padding(.bottom, over)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
-                DetentSheet(detent: $detent, container: geo.size.height, floor: headerNeed, scrollsAtEveryDetent: ax, onHeaderNeed: { headerNeed = $0 }) {
-                    header
+                DetentSheet(detent: $detent, container: geo.size.height, peekNeed: peekNeed, headerNeed: headerNeed, bottomSafe: geo.safeAreaInsets.bottom, scrollsAtEveryDetent: ax,
+                            onNeeds: { peekNeed = $0; headerNeed = $1 }, onAboveHeight: { aboveHeight = $0 }) {
+                    peek
+                } header: {
+                    headerExtras
+                } above: {
+                    PlanSheetEdge(frameUnix: radar.isOn ? radar.frame?.frameUnix : nil)
                 } content: {
                     ScrollViewReader { proxy in
                         VStack(alignment: .leading, spacing: 4 * Theme.unit) {
@@ -86,7 +103,16 @@ struct PlanMapScreen: View {
         .task(id: radar.isOn) { if radar.isOn { await radar.keepFresh(source: state.client) } }
         // The Trip planner settings' Radar default, once they are read (the Weather default is applied as they are read).
         .task(id: model.plannerMap) { if let m = model.plannerMap { await radar.applyDefault(on: m.radarOn, source: state.client) } }
-        .onChange(of: model.moving?.id) { _, new in if new != nil { detent = .peek } }
+        // Moving a stop needs the map: the sheet goes down to its peek, and back where it was when the move is done or cancelled.
+        .onChange(of: model.moving?.id) { old, new in
+            if new != nil, old == nil {
+                detentBeforeMove = detent
+                detent = .peek
+            } else if new == nil, let before = detentBeforeMove {
+                detentBeforeMove = nil
+                detent = before
+            }
+        }
         .onChange(of: model.pickedCharger?.id) { _, new in
             if let c = model.pickedCharger, new != nil { model.schedulePreview(for: c, source: state.client) } else { model.clearPreview() }
         }
@@ -101,7 +127,7 @@ struct PlanMapScreen: View {
             PlanLayerChips(model: model)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chipsBottom = $0 > 0 ? 12 + $0 + 8 : 0 }
             WeatherToggle(model: model)
-            // The corner stack under the chips (the Weather button will sit above it): Radar, and its legend when on.
+            // The corner stack under the chips: Weather, then Radar (its legend is the strip on the sheet's edge).
             RadarControls(model: radar) { Task { await radar.toggle(source: state.client) } }
             if model.updating {
                 HStack(spacing: 8) { ProgressView().tint(Theme.textSecondary); Text("Updating route…").themeText(.subline, color: Theme.textPrimary) }
@@ -132,28 +158,37 @@ struct PlanMapScreen: View {
             PlanMap(content: .days(.init(days: trip.days, day: day, weatherOn: model.weatherOn)), focus: model.focusedStop,
                     onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
                     onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } },
-                    radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom, reframe: reframe)
+                    radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom, reframe: reframe, showsCredit: false)
         } else if let route = model.plan?.best {
             PlanMap(content: .route(.init(route: route, weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil, vias: model.vias,
                                           pendingVias: model.pendingVias, previewLine: model.previewLine)),
                     focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
                     onLine: { line, _ in Task { await model.setRoadLine(line, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom,
-                    onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
+                    showsCredit: false, onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
                     onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) })
         }
     }
 
+    /// The peek: the title and the trip's one-line summary, with Edit (at accessibility sizes only the title; the rest is in the content).
     @ViewBuilder
-    private var header: some View {
+    private var peek: some View {
         let title = PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line)
         if ax {
-            // Only the title (two lines at most): the summary, Edit, the day chips and Networks are in the sheet below it.
             PlanSheetCompactHeader(title: title)
         } else {
-            PlanSheetHeader(title: title, summary: model.plan?.best.map { TripPlanLogic.summary($0, metric: metric) }, onEdit: onEdit) {
+            PlanSheetHeader(title: title, summary: model.plan?.best.map { TripPlanLogic.summary($0, metric: metric) }, onEdit: onEdit)
+        }
+    }
+
+    /// Under the peek at half and fully open: the day chips and Networks.
+    @ViewBuilder
+    private var headerExtras: some View {
+        if !ax {
+            VStack(alignment: .leading, spacing: 6) {
                 if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
                 networksButton
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -191,31 +226,27 @@ struct PlanMapScreen: View {
 
 }
 
-/// The sheet's title, the trip's one-line summary, Edit, and what goes under them (the day chips). At accessibility text sizes Edit drops under the
-/// title instead of squeezing it.
-struct PlanSheetHeader<Extra: View>: View {
+/// The sheet's peek: its title, the trip's summary on one line (cut short rather than wrapped, so the peek stays small), and Edit. At accessibility
+/// text sizes Edit drops under the title instead of squeezing it.
+struct PlanSheetHeader: View {
     let title: String
     let summary: String?
     let onEdit: () -> Void
-    @ViewBuilder var extra: () -> Extra
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            let titles = VStack(alignment: .leading, spacing: 2) {
-                Text(title).themeText(.title, color: Theme.textPrimary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                if let summary { Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
-            }
-            let edit = Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityHint("Change the trip or open a saved one")
-            if typeSize.isAccessibilitySize {
-                titles
-                edit
-            } else {
-                HStack(alignment: .firstTextBaseline) { titles; Spacer(minLength: 8); edit }
-            }
-            extra()
+        let titles = VStack(alignment: .leading, spacing: 2) {
+            Text(title).themeText(.title, color: Theme.textPrimary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+            if let summary { Text(summary).themeText(.subline, color: Theme.textSecondary).lineLimit(1).truncationMode(.tail) }
+        }
+        let edit = Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityHint("Change the trip or open a saved one")
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 6) { titles; edit }
+        } else {
+            HStack(alignment: .firstTextBaseline) { titles; Spacer(minLength: 8); edit }
         }
     }
 }
@@ -547,7 +578,7 @@ struct WeatherToggle: View {
     var body: some View {
         if PlanRouteLogic.hasWeather(plan: model.plan, night: model.night) {
             Button { model.weatherOn.toggle() } label: {
-                Image(systemName: "cloud.sun").imageScale(.large)
+                Image(systemName: "cloud.sun").font(.system(size: 19, weight: .regular))
                     .foregroundStyle(model.weatherOn ? Color.white : Theme.textSecondary)
                     .frame(width: 44, height: 44)
                     .background(model.weatherOn ? Theme.accentButton : Theme.card.opacity(0.92), in: Circle())
@@ -560,62 +591,93 @@ struct WeatherToggle: View {
         }
     }
 }
-/// The Radar button, under the layer chips over the map, and beside it (when on) the legend, how fresh the picture is, and the credit. NOAA's colours are drawn as
-/// they are: the legend only says light, moderate, heavy. There is no button where the server has no radar.
+/// The Radar button, under the layer chips over the map. Its legend is the strip on the sheet's edge (`RadarStrip`). There is no button where the
+/// server has no radar.
 struct RadarControls: View {
     let model: RadarModel
     let toggle: () -> Void
 
     var body: some View {
         if model.availability == .available {
-            HStack(alignment: .top, spacing: 8) {
-                Button(action: toggle) {
-                    Image(systemName: "cloud.rain").imageScale(.large)
-                        .foregroundStyle(model.isOn ? Color.white : Theme.textSecondary)
-                        .frame(width: 44, height: 44)
-                        .background(model.isOn ? Theme.accentButton : Theme.card.opacity(0.92), in: Circle())
-                        .overlay(Circle().strokeBorder(Theme.border, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Radar")
-                .accessibilityValue(model.isOn ? "on" : "off")
-                .accessibilityHint("Shows live rain radar from NOAA under the route")
-                if model.isOn, let frame = model.frame {
-                    RadarLegend(asOf: RadarLogic.asOf(unix: frame.frameUnix))
-                }
+            Button(action: toggle) {
+                // A set size: the 44 pt circle does not grow with the text, so neither may its glyph.
+                Image(systemName: "cloud.rain").font(.system(size: 19, weight: .regular))
+                    .foregroundStyle(model.isOn ? Color.white : Theme.textSecondary)
+                    .frame(width: 44, height: 44)
+                    .background(model.isOn ? Theme.accentButton : Theme.card.opacity(0.92), in: Circle())
+                    .overlay(Circle().strokeBorder(Theme.border, lineWidth: 1))
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Radar")
+            .accessibilityValue(model.isOn ? "on" : "off")
+            .accessibilityHint("Shows live rain radar from NOAA under the route")
         }
     }
 }
 
-struct RadarLegend: View {
-    let asOf: String
-    @Environment(\.dynamicTypeSize) private var typeSize
-    private var words: [String] { RadarLogic.legendWords(accessibilitySize: typeSize.isAccessibilitySize) }
+/// The radar's legend in one line on the sheet's top edge, clear of the route: a short gradient named light, moderate, heavy, then the credit and the
+/// frame's time ("NOAA/NWS · 6:42 PM"). NOAA's colours are drawn as they are. A line that does not fit drops "moderate", then the words, and never
+/// wraps. An old frame says so after its time; nothing in it reads as "no rain".
+struct RadarStrip: View {
+    let frameUnix: Int
+    var now = Date()
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 3) {
-            // The words set the width and the bar spans them, so a word never breaks ("moder/ate" in equal columns, ios-v0.2.65). At the
-            // accessibility sizes only the two ends are named.
-            VStack(spacing: 3) {
-                LinearGradient(colors: [Color(red: 0, green: 0.93, blue: 0.93), Color(red: 0, green: 0.78, blue: 0), Color.yellow, Color(red: 1, green: 0.56, blue: 0), Color.red, Color(red: 1, green: 0, blue: 1)],
-                               startPoint: .leading, endPoint: .trailing)
-                    .frame(minWidth: 120, maxWidth: .infinity).frame(height: 7).clipShape(Capsule()).accessibilityHidden(true)
-                HStack(spacing: 10) {
-                    ForEach(words, id: \.self) { word in
-                        if word != words.first { Spacer(minLength: 0) }
-                        Text(word).lineLimit(1).fixedSize()
-                    }
-                }
-                .themeText(.caption, color: Theme.textTertiary).accessibilityHidden(true)
-            }
-            .fixedSize()
-            Text(asOf).themeText(.caption, color: Theme.textSecondary).lineLimit(2).multilineTextAlignment(.trailing)
+        ViewThatFits(in: .horizontal) {
+            line(words: RadarLogic.legendWords[0])
+            line(words: RadarLogic.legendWords[1])
+            line(words: [])
         }
-        .padding(8)
-        .background(Theme.card.opacity(0.92), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+        .mapCaption()
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .padding(.horizontal, 10).frame(minHeight: 28)
+        .background(Theme.card.opacity(0.92), in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Radar legend, light to heavy. \(asOf). \(RadarLogic.kindLine)")
+        .accessibilityIdentifier("radar-strip")
+        .accessibilityLabel(RadarLogic.spoken(unix: frameUnix, now: now))
+    }
+
+    private static let colors = [Color(red: 0, green: 0.93, blue: 0.93), Color(red: 0, green: 0.78, blue: 0), Color.yellow, Color(red: 1, green: 0.56, blue: 0), Color.red, Color(red: 1, green: 0, blue: 1)]
+
+    /// The gradient between the words, cut into as many pieces as there are gaps between them.
+    private func line(words: [String]) -> some View {
+        HStack(spacing: 6) {
+            if words.isEmpty {
+                bar(0, of: 1)
+            } else {
+                ForEach(Array(words.enumerated()), id: \.offset) { i, word in
+                    if i > 0 { bar(i - 1, of: words.count - 1) }
+                    Text(word).foregroundStyle(Theme.textTertiary)
+                }
+            }
+            Text(RadarLogic.asOf(unix: frameUnix, now: now)).foregroundStyle(RadarLogic.isStale(unix: frameUnix, now: now) ? Theme.estimate : Theme.textSecondary)
+                .padding(.leading, 4)
+        }
+        .lineLimit(1)
+        .fixedSize()
+    }
+
+    private func bar(_ i: Int, of n: Int) -> some View {
+        let c = Self.colors, per = Double(c.count - 1) / Double(max(n, 1))
+        let from = Int((Double(i) * per).rounded(.down)), to = Int((Double(i + 1) * per).rounded(.up))
+        return LinearGradient(colors: Array(c[from...min(to, c.count - 1)]), startPoint: .leading, endPoint: .trailing)
+            .frame(width: n > 1 ? 22 : 40, height: 6).clipShape(Capsule())
+    }
+}
+
+/// What rides on the sheet's top edge, over the map: the radar strip (only with radar on and a frame to date it) and the map's credit, side by side,
+/// or the credit above the strip when the two don't fit on one line. They ride the sheet, so neither ever covers the route, and the credit stays in
+/// view at every height but fully open (where the map is out of sight).
+struct PlanSheetEdge: View {
+    var frameUnix: Int?
+
+    var body: some View {
+        let strip = Group { if let frameUnix { RadarStrip(frameUnix: frameUnix) } }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .bottom, spacing: 8) { strip; Spacer(minLength: 0); MapAttribution() }
+            VStack(alignment: .trailing, spacing: 2) { MapAttribution(); strip.frame(maxWidth: .infinity, alignment: .leading) }
+        }
+        .padding(.horizontal, 8).padding(.bottom, 4)
     }
 }

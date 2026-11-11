@@ -93,18 +93,31 @@ final class RadarModel {
 
 enum RadarLogic {
     static let kindLine = "Live radar, not a forecast."
-    /// The words under the legend's bar; at the accessibility text sizes only the ends, so the three never crowd the bar.
-    static func legendWords(accessibilitySize: Bool) -> [String] {
-        accessibilitySize ? ["light", "heavy"] : ["light", "moderate", "heavy"]
-    }
+    /// A frame older than this (the server's own limit) is shown with its time and "not current", never as if it were now.
+    static let staleAfter: TimeInterval = 30 * 60
 
-    /// "NOAA/NWS radar · 6:42 PM", in the zone of the phone (the live picture's time): the freshness and the credit in one line.
-    static func asOf(unix: Int, zone: TimeZone = .current, locale: Locale = .current) -> String {
+    /// The strip's words over the gradient, the longest first: where the line does not fit, "moderate" is the first to go, never a wrap.
+    static let legendWords = [["light", "moderate", "heavy"], ["light", "heavy"]]
+
+    /// The frame's time ("6:42 PM"), in the zone of the phone.
+    static func time(unix: Int, zone: TimeZone = .current, locale: Locale = .current) -> String {
         let f = DateFormatter()
         f.locale = locale
         f.timeZone = zone
         f.dateStyle = .none
         f.timeStyle = .short
-        return "NOAA/NWS radar · \(f.string(from: Date(timeIntervalSince1970: TimeInterval(unix))))"
+        return f.string(from: Date(timeIntervalSince1970: TimeInterval(unix)))
+    }
+
+    static func isStale(unix: Int, now: Date = Date()) -> Bool { now.timeIntervalSince1970 - TimeInterval(unix) > staleAfter }
+
+    /// "NOAA/NWS · 6:42 PM": the credit and the frame's time, at the end of the strip (and "· not current" for an old frame).
+    static func asOf(unix: Int, now: Date = Date(), zone: TimeZone = .current, locale: Locale = .current) -> String {
+        "NOAA/NWS · \(time(unix: unix, zone: zone, locale: locale))" + (isStale(unix: unix, now: now) ? " · not current" : "")
+    }
+
+    /// What VoiceOver reads for the strip: "light, moderate, heavy, NOAA/NWS radar, 6:42 PM".
+    static func spoken(unix: Int, now: Date = Date(), zone: TimeZone = .current, locale: Locale = .current) -> String {
+        "light, moderate, heavy, NOAA/NWS radar, \(time(unix: unix, zone: zone, locale: locale))" + (isStale(unix: unix, now: now) ? ", not current" : "") + ". \(kindLine)"
     }
 }

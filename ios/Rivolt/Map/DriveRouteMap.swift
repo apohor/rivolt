@@ -475,6 +475,8 @@ struct RouteMapView: UIViewRepresentable {
     func makeUIView(context: Context) -> MLNMapView {
         let map = MLNMapView.displayOnly(styleJSON: styleJSON, watch: context.coordinator, interactive: interactive)
         context.coordinator.interactive = interactive
+        // The fit's margins are the map's content inset (`fitCamera`); left to itself MapLibre would reset it from the safe area.
+        map.automaticallyAdjustsContentInset = false
         if interactive { context.coordinator.onCamera = { [weak c = context.coordinator] m in c?.cameraMoved(m) } }
         if onStop != nil || onLegTag != nil {
             map.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
@@ -776,7 +778,7 @@ struct RouteMapView: UIViewRepresentable {
             if runsChanged, let style = map.style { styleLoaded(map, style) }
             // Picking a stop only moves the ring: the camera stays where the person left it, except that on a map that can be panned a stop
             // picked in the list is brought into view when it is not (above whatever covers the map's bottom).
-            if refit { fit(map) } else if interactive, d.focus != nil { easeToFocus(d, on: map) }
+            if refit { panned = false; fit(map) } else if interactive, d.focus != nil { easeToFocus(d, on: map) }
         }
 
         override func resized(_ map: MLNMapView) { fit(map) }
@@ -818,19 +820,25 @@ struct RouteMapView: UIViewRepresentable {
             if !seen.contains(map.convert(c, toPointTo: map)) { map.setCenter(c, animated: true) }
         }
 
+        /// Whether the person panned or zoomed since the route was last framed: a new cover (the planner's sheet settling at another height) then
+        /// leaves the camera where they put it. A new route, or the recenter button, frames it again.
+        private(set) var panned = false
+        override func cameraWillChange(_ map: MLNMapView, byGesture: Bool) { if byGesture { panned = true } }
+
         private var bottomInset: CGFloat = 0
-        /// The legend card was measured (or changed, as its switch row appears): fit the route above it.
+        /// The legend card was measured (or changed, as its switch row appears), or the planner's sheet settled: fit the route above it. Only ever
+        /// at rest (the owner passes the settled height, never one mid-drag).
         func setBottomInset(_ inset: CGFloat, on map: MLNMapView) {
             guard abs(inset - bottomInset) >= 1 else { return }
             bottomInset = inset
-            if map.bounds.height > 0, !sources.isEmpty { fit(map) }
+            if map.bounds.height > 0, !sources.isEmpty, !panned { fit(map) }
         }
 
         private var topInset: CGFloat = 0
         func setTopInset(_ inset: CGFloat, on map: MLNMapView) {
             guard abs(inset - topInset) >= 1 else { return }
             topInset = inset
-            if map.bounds.height > 0, !sources.isEmpty { fit(map) }
+            if map.bounds.height > 0, !sources.isEmpty, !panned { fit(map) }
         }
 
         private var metric = RouteGradient.Metric.speed
@@ -850,6 +858,7 @@ struct RouteMapView: UIViewRepresentable {
         func recenter(_ count: Int, on map: MLNMapView) {
             guard count != recentered else { return }
             recentered = count
+            panned = false
             fitCamera(map, animated: true)
         }
 
@@ -857,7 +866,8 @@ struct RouteMapView: UIViewRepresentable {
         func cameraMoved(_ map: MLNMapView) {
             reportPins(map)
             if let onCenter {
-                let c = map.centerCoordinate
+                // The middle of the view (where the planner's crosshair is), not of the inset frame `centerCoordinate` reports.
+                let c = map.convert(CGPoint(x: map.bounds.midX, y: map.bounds.midY), toCoordinateFrom: map)
                 DispatchQueue.main.async { onCenter(RouteSnap.Coord(lat: c.latitude, lon: c.longitude)) }
             }
         }
@@ -902,7 +912,11 @@ struct RouteMapView: UIViewRepresentable {
                 map.setCenter(coords[0], zoomLevel: 15, animated: animated)
                 return
             }
-            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: max(24, topInset), left: 24, bottom: max(32, bottomInset), right: 24), animated: animated)
+            // The margins go in as the content inset, not as edge padding: MapLibre keeps edge padding only until the view next lays out, so a
+            // fit above a sheet that settled lower would otherwise be undone at once.
+            let inset = UIEdgeInsets(top: max(24, topInset), left: 24, bottom: max(32, bottomInset), right: 24)
+            if map.contentInset != inset { map.setContentInset(inset, animated: false, completionHandler: nil) }
+            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: .zero, animated: animated)
         }
     }
 }
@@ -1065,6 +1079,11 @@ class MapLoadWatch: NSObject, MLNMapViewDelegate {
 
     /// The camera moved (a person panned or zoomed a full-screen map).
     var onCamera: ((MLNMapView) -> Void)?
+    /// The camera is about to move, by the person's hand (a pan, a pinch, a double tap) or by the app.
+    func cameraWillChange(_ map: MLNMapView, byGesture: Bool) {}
+    func mapView(_ map: MLNMapView, regionWillChangeWith reason: MLNCameraChangeReason, animated: Bool) {
+        cameraWillChange(map, byGesture: !reason.isDisjoint(with: [.gesturePan, .gesturePinch, .gestureZoomIn, .gestureZoomOut, .gestureOneFingerZoom, .gestureRotate, .gestureTilt]))
+    }
     func mapViewRegionIsChanging(_ map: MLNMapView) { onCamera?(map) }
     func mapView(_ map: MLNMapView, regionDidChangeAnimated animated: Bool) { onCamera?(map) }
 
