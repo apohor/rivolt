@@ -51,7 +51,7 @@ func TestFenceUserCachesTheUserGroup(t *testing.T) {
 	e.at = time.Now().Add(-2 * userGroupTTL)
 	s.userGroup["u1"] = e
 	s.userGroupMu.Unlock()
-	s.FenceUser(context.Background(), "u1")
+	_, _, _ = s.FenceUser(context.Background(), "u1")
 	if calls != 2 {
 		t.Fatalf("lookups = %d after expiry, want 2", calls)
 	}
