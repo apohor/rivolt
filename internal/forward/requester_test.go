@@ -587,6 +587,25 @@ func TestAcquiredCallCarriesTheNewEpochToken(t *testing.T) {
 	}
 }
 
+// A call served by the pod that already holds the group carries the group's fence token too, so the Rivian permit check passes it.
+func TestHeldCallCarriesTheGroupsToken(t *testing.T) {
+	f := newFleet(t)
+	f.view.HeldAt = map[string]int64{group: 7}
+	want := fence.Token{Group: group, Pod: "pod-a", Epoch: 7}
+	fw := f.requester(func(cfg *forward.RequesterConfig) {
+		cfg.Token = func(g string) (fence.Token, bool) { return want, g == group }
+	})
+	var got fence.Token
+	var has bool
+	_, outcome, _ := fw.Do(context.Background(), callFresh, func(ctx context.Context) (forward.Result, error) {
+		got, has = fence.From(ctx)
+		return forward.Result{Status: 200, Body: json.RawMessage(`{}`)}, nil
+	})
+	if outcome != "held" || !has || got != want {
+		t.Fatalf("outcome=%q token=%+v (has %v), want held with %+v", outcome, got, has, want)
+	}
+}
+
 var callPlan = func(mode string) forward.Call {
 	return forward.Call{Kind: forward.KindPlanLegs, User: user, Group: group, Args: forward.PlanLegsArgs{
 		VehicleID: "v-1", StartingSoC: 80, DriveMode: mode,
