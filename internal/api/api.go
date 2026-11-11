@@ -1237,7 +1237,9 @@ func New(d Deps) http.Handler {
 				}))
 				r.Post("/login", handleRivianLogin(d.Accounts, d.Secrets, d.Monitors, d.Email, d.DB, d.Metrics, d.Logger))
 				r.Post("/mfa", handleRivianMFA(d.Accounts, d.Secrets, d.Monitors, d.Email, d.DB, d.Metrics, d.Logger))
-				r.Post("/refresh-vehicles", handleRivianRefreshVehicles(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger))
+				// Each tap asks Rivian for the account's vehicles: 6 a minute per user, for the web and the phone alike (the app may call it,
+				// app_write_allowlist.go).
+				r.With(ls.user("rivian-refresh-vehicles", 6).Middleware).Post("/refresh-vehicles", handleRivianRefreshVehicles(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger))
 				r.Post("/logout", handleRivianLogout(d.Accounts, d.Secrets, d.Monitors))
 			})
 

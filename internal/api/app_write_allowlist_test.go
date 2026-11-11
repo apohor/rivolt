@@ -280,6 +280,7 @@ func TestAppWriteAllowlistCoversTheAppsCalls(t *testing.T) {
 		"POST /api/push/apns/activity", "POST /api/push/apns/activity/end", "POST /api/push/apns/activity/test",
 		"POST /api/milestones/dismiss",
 		"POST /api/maps/valhalla/route", "POST /api/maps/valhalla/trace_route",
+		"POST /api/settings/rivian/refresh-vehicles",
 	} {
 		if !appWrites[call] {
 			t.Errorf("%s is something the app does and is not on the list", call)
@@ -392,5 +393,35 @@ func TestGeocodeIsLimitedPerUser(t *testing.T) {
 	// The bucket allows its ceiling plus at most a couple of calls of burst; what matters is that it closes well before 2x.
 	if answered < geocodePerMin || answered > geocodePerMin+2 || limited == 0 {
 		t.Errorf("%d answered and %d limited of %d, want about %d answered then limited", answered, limited, 2*geocodePerMin, geocodePerMin)
+	}
+}
+
+// The phone's "Check again" on "No vehicles on this Rivian account yet" may ask Rivian for the account's vehicles (it passes
+// the app list and reaches the handler, which answers 404 here: no Rivian accounts in this router), and only 6 times a minute.
+func TestAppMayRefreshRivianVehiclesWithinTheLimit(t *testing.T) {
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := asSession(New(Deps{Auth: svc}), sessions.KindApp) // one user for every call
+	answered, limited := 0, 0
+	for i := 0; i < 12; i++ {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "https://rivolt.dev/api/settings/rivian/refresh-vehicles", nil)
+		req.RemoteAddr = "203.0.113.9:4000"
+		h.ServeHTTP(rec, req)
+		switch {
+		case denied(rec):
+			t.Fatalf("an app session is refused: %s", rec.Body.String())
+		case rec.Code == http.StatusNotFound:
+			answered++
+		case rec.Code == http.StatusTooManyRequests:
+			limited++
+		default:
+			t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+		}
+	}
+	if answered < 6 || answered > 8 || limited == 0 {
+		t.Errorf("%d answered and %d limited of 12, want about 6 answered then limited", answered, limited)
 	}
 }
