@@ -286,6 +286,10 @@ type vehiclesFromDB struct {
 	account func(context.Context) (linked, needsReauth, ok bool)
 	// gate bounds the "linked, nothing stored" Rivian lookup; nil leaves it unbounded (tests).
 	gate *vehicleFallbackGate
+	// ownerDiscovery (RIVOLT_OWNER_DISCOVERY): the owner of the user's group looks the vehicles up, so this handler never asks Rivian: a linked
+	// account with nothing stored gets an empty list (the discovery endpoint says whether the lookup is still going), and stored but not yet
+	// synced rows are served as they are.
+	ownerDiscovery bool
 }
 
 func (f *vehiclesFromDB) observe(outcome string) {
@@ -311,8 +315,12 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				writeUpstreamError(w, rivian.ErrNeedsReauth)
 				return
 			}
-			answered, unsynced := handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, false)
+			answered, unsynced := handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, fromDB.ownerDiscovery)
 			if answered {
+				return
+			}
+			if fromDB.ownerDiscovery {
+				writeJSON(w, http.StatusOK, []rivian.Vehicle{}) // nothing stored yet: the owner is looking; no Rivian call from here
 				return
 			}
 			if unsynced {

@@ -174,7 +174,20 @@ func (s *Store) Acquire(ctx context.Context, vehicleID string) (bool, error) {
 // groups: if only one did, one would refuse what the other keeps and the pods
 // would flap. (Without the linking, user A {X, Y} and user B {Y, Z} with pod 1 on
 // X and pod 2 on Z leave Y refused on both pods and unrecorded.)
-const userGroups = `
+var userGroups = userGroupsSQL(false)
+
+// userGroupsSQL builds the CTE. With userLevel (RIVOLT_OWNER_DISCOVERY, single-owner M4-2b) a user with no vehicle row at all is a group of one
+// (gid = their own id), so a linked account with no vehicle yet has an owner too: the owner's discovery looks the vehicles up (a vehicle-less
+// user used to have no group, so no lease and nobody to look them up). Users with vehicles are grouped exactly as before.
+func userGroupsSQL(userLevel bool) string {
+	extra := ""
+	if userLevel {
+		extra = `
+	    UNION ALL
+	    SELECT u.id AS user_id, u.id::text AS gid FROM users u
+	     WHERE NOT EXISTS (SELECT 1 FROM vehicles v WHERE v.user_id = u.id)`
+	}
+	return `
 	WITH RECURSIVE edges AS (
 	    SELECT DISTINCT v1.user_id AS a, v2.user_id AS b
 	      FROM vehicles v1 JOIN vehicles v2 ON v2.rivian_vehicle_id = v1.rivian_vehicle_id
@@ -183,8 +196,13 @@ const userGroups = `
 	    UNION
 	    SELECT r.a, e.b FROM reach r JOIN edges e ON e.a = r.b
 	), grp AS (
-	    SELECT a AS user_id, min(b::text) AS gid FROM reach GROUP BY a
+	    SELECT a AS user_id, min(b::text) AS gid FROM reach GROUP BY a` + extra + `
 	)`
+}
+
+// SetUserLevelGroups turns on user-level groups for vehicle-less users. Call it once at boot, before any Store runs a pass; it is not safe to
+// flip while passes are running.
+func SetUserLevelGroups(on bool) { userGroups = userGroupsSQL(on) }
 
 // vehicleUsers returns every user in the group of the users that have a vehicles
 // row for this Rivian id, sorted (the lock order). None for a vehicle with no row.

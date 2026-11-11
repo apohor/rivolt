@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 
@@ -13,6 +15,10 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 	"github.com/apohor/rivolt/internal/vehiclediscovery"
 )
+
+// ownerDiscoveryJob is this pod's owner-mode discovery job (RIVOLT_OWNER_DISCOVERY), set before it starts; the forward runner's adopt nudges it so
+// a user who has just signed in is looked up at once rather than at the next tick.
+var ownerDiscoveryJob atomic.Pointer[vehiclediscovery.Job]
 
 // startVehicleDiscovery runs the vehicle discovery job (internal/vehiclediscovery) on this pod; the job takes a Postgres advisory lock, so
 // only one pod's pass does anything. It finds the linked users nobody records (a stored Rivian session, no vehicle row, so no group, no lease
@@ -24,6 +30,18 @@ func startVehicleDiscovery(ctx context.Context, logger *slog.Logger, appMetrics 
 	job.Observe = func(outcome string) { appMetrics.VehicleDiscoveryTotal.WithLabelValues(outcome).Inc() }
 	job.Logger = logger
 	go job.Run(ctx)
+}
+
+// ownerDiscoveryEnvError is the boot check for RIVOLT_OWNER_DISCOVERY=1: with no group leases nobody owns a group, so no user is ever looked up while
+// /api/vehicles stops asking Rivian, and every vehicle-less user would wait at "looking" forever; without the forwarder the sign-in nudge never
+// reaches the owner. The process refuses to start rather than run that way.
+func ownerDiscoveryEnvError(getenv func(string) string) error {
+	for _, v := range []string{"RIVOLT_GROUP_LEAD", "RIVOLT_FORWARD"} {
+		if getenv(v) != "1" {
+			return fmt.Errorf("RIVOLT_OWNER_DISCOVERY=1 needs %s=1; refusing to start", v)
+		}
+	}
+	return nil
 }
 
 // discoveryLookup is the job's only Rivian call: the user's vehicle list, with the user's own session (restored from the secrets store when this
