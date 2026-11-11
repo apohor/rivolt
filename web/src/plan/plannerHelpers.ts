@@ -1,4 +1,4 @@
-import { ApiError, type SavedTripInputs, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
+import { ApiError, isReconnecting, type SavedTripInputs, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
 import { routePrefsWire, type RoutePrefs } from "./routePrefs";
 
 // Selection is what the form actually plans against. lat/lon are
@@ -147,6 +147,10 @@ export function normalizeDriveMode(v: unknown): DriveMode {
 // planErrorCopy turns a failed plan request into one sentence of cause and one
 // of what to do, in plain words.
 export function planErrorCopy(err: unknown): { title: string; detail: string } {
+  // The server that holds this truck's Rivian connection did not answer (a 503 that says when to retry): a few seconds, not Rivian.
+  if (isReconnecting(err)) {
+    return { title: "Reconnecting to your vehicle.", detail: "Nothing is wrong with your trip. Try again in a moment." };
+  }
   if (err instanceof ApiError) {
     // The truck has not reported lately: the server's own sentence says what to do.
     if (err.status === 409 && (err.body as { class?: string } | null)?.class === "no_position") {

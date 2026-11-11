@@ -34,6 +34,8 @@ export type AuthSession = {
 export class ApiError extends Error {
   status: number;
   body: unknown;
+  // retryAfter is the answer's Retry-After in seconds, when it sent one (a 503 with it is "the vehicle's owner is reconnecting").
+  retryAfter: number | null = null;
   constructor(status: number, body: unknown, msg?: string) {
     let message = msg;
     if (!message && body && typeof body === "object" && "error" in body) {
@@ -153,10 +155,27 @@ async function request<T>(
         window.location.assign(`/login${next}`);
       }
     }
-    throw new ApiError(res.status, parsed);
+    const err = new ApiError(res.status, parsed);
+    err.retryAfter = retryAfterSeconds(res.headers.get("Retry-After"));
+    throw err;
   }
   return parsed as T;
 }
+
+// retryAfterSeconds reads a Retry-After in seconds; null when absent or not a number (an HTTP date is not used by this server).
+export function retryAfterSeconds(h: string | null): number | null {
+  if (h == null || !/^\s*\d+\s*$/.test(h)) return null;
+  return Number(h);
+}
+
+// isReconnecting is a 503 that says when to try again: the vehicle's owner server did not answer and the call can be repeated in a
+// moment (single-owner; the server sends Retry-After: 5).
+export function isReconnecting(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 503 && err.retryAfter != null;
+}
+
+// reconnectingCopy is what a screen says for isReconnecting.
+export const reconnectingCopy = "Reconnecting to your vehicle. Try again in a moment.";
 
 // inDemo is true on the public sample-truck route, where there is no
 // session and the Rivian-account endpoints are skipped entirely.

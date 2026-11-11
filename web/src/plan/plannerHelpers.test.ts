@@ -29,6 +29,17 @@ describe("planErrorCopy", () => {
   it("falls back to the planner being unavailable", () => {
     expect(planErrorCopy(new ApiError(502, "bad gateway")).title).toBe("Rivian's planner isn't answering right now.");
   });
+  it("says reconnecting, not Rivian, on a 503 that says when to retry (the vehicle's owner did not answer)", () => {
+    const e = new ApiError(503, { error: "the vehicle's owner did not answer", class: "outage" });
+    e.retryAfter = 5;
+    const c = planErrorCopy(e);
+    expect(c.title).toBe("Reconnecting to your vehicle.");
+    expect(c.detail).toContain("Try again in a moment");
+    expect(c.detail).not.toMatch(/Rivian|minutes/);
+  });
+  it("keeps the planner copy for a 503 without Retry-After (a Rivian outage or a pause)", () => {
+    expect(planErrorCopy(new ApiError(503, { error: "outage", class: "outage" })).title).toBe("Rivian's planner isn't answering right now.");
+  });
 });
 
 describe("saved multi-day plans", () => {

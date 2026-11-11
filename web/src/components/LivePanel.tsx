@@ -3,7 +3,7 @@ import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE, isEnergyEstimated } from "../l
 import { detailPath } from "../lib/demo";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ApiError, backend, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
+import { ApiError, backend, isReconnecting, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
 import { formatTemperature, usePreferences } from "../lib/preferences";
@@ -132,6 +132,9 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
 
   const name = vehicle.name || vehicle.model || vehicle.id;
   const s = state.data;
+  // The vehicle's owner server did not answer (a 503 with Retry-After): a calm line, the last values stay, and the poll carries on.
+  const reconnecting = state.isError && isReconnecting(state.error);
+  const failed = state.isError && !reconnecting;
 
   // Pick the configurator image that matches the current vehicle
   // state — charging shows side-charging, driving shows in-use,
@@ -177,7 +180,12 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
           <div className="md:col-span-1" />
         )}
         <div className="flex flex-col justify-center md:col-span-2">
-          {state.isError ? (
+          {reconnecting && (
+            <p role="status" className="mb-2 text-xs text-neutral-400">
+              {s ? "Reconnecting to your vehicle. These are the last known values." : "Reconnecting to your vehicle. This updates on its own in a moment."}
+            </p>
+          )}
+          {failed ? (
             <p className="text-xs text-red-400">{String(state.error)}</p>
           ) : s ? (
             isCharging(s) ? (
@@ -187,12 +195,12 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
             ) : (
               <ParkedSummary vehicle={vehicle} state={s} />
             )
-          ) : (
+          ) : reconnecting ? null : (
             <div className="text-[11px] text-neutral-500">loading…</div>
           )}
         </div>
       </div>
-      {state.isError ? null : s ? (
+      {failed ? null : s ? (
         <div className="mt-4 space-y-4">
           <Section title="Energy">
             <Field label="Battery" value={pct(s.battery_level_pct, 0)} />

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { api, ApiError } from "./api";
+import { api, ApiError, isReconnecting, retryAfterSeconds } from "./api";
 
 // The global 401 handler must distinguish a Rivolt-session failure
 // (bounce to /login) from a Rivian-upstream needs_reauth 401 (carries
@@ -207,3 +207,47 @@ describe("api in the demo", () => {
   });
 });
 
+
+describe("Retry-After on an error answer", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "location", { value: { pathname: "/", search: "", assign: vi.fn() }, writable: true });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function mockFetch(status: number, headers: Record<string, string>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status,
+        headers: { get: (k: string) => headers[k] ?? null },
+        text: async () => JSON.stringify({ error: "the vehicle's owner did not answer; try again", class: "unavailable" }),
+      }),
+    );
+  }
+
+  it("keeps the seconds, and a 503 with it is reconnecting", async () => {
+    mockFetch(503, { "Retry-After": "5" });
+    const err = await api.get("/api/state/v1").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.retryAfter).toBe(5);
+    expect(isReconnecting(err)).toBe(true);
+  });
+
+  it("is null without the header, and a bare 503 is not reconnecting", async () => {
+    mockFetch(503, {});
+    const err = await api.get("/api/state/v1").catch((e) => e);
+    expect(err.retryAfter).toBeNull();
+    expect(isReconnecting(err)).toBe(false);
+  });
+
+  it("is not reconnecting for a 429 with Retry-After", async () => {
+    mockFetch(429, { "Retry-After": "60" });
+    expect(isReconnecting(await api.get("/api/state/v1").catch((e) => e))).toBe(false);
+  });
+
+  it("ignores a Retry-After that is not whole seconds", () => {
+    expect(retryAfterSeconds("Wed, 21 Oct 2026 07:28:00 GMT")).toBeNull();
+    expect(retryAfterSeconds(" 5 ")).toBe(5);
+  });
+});
