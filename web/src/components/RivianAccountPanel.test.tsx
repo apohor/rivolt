@@ -104,6 +104,30 @@ describe("connect step: driver account first", () => {
     expect(screen.getByText(/Connected your main account instead\?/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
   });
+
+  it("Check again answered 503 Retry-After by a server that asked the owner says Rivolt is checking, not an error", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/settings/rivian/refresh-vehicles": { status: 503, body: { error: "unavailable" }, headers: { "Retry-After": "5" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Rivolt is checking your Rivian account.");
+    expect(screen.queryByText(/unavailable/)).toBeNull();
+  });
+
+  it("a 503 without Retry-After is still an error", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/settings/rivian/refresh-vehicles": { status: 503, body: { error: "unavailable" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText(/unavailable/)).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
 });
 
 describe("a status refetch does not take the form away", () => {

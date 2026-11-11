@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { backend, type OwnedVehicle } from "../lib/api";
+import { ApiError, backend, type OwnedVehicle } from "../lib/api";
 import { ErrorBox, Spinner, Toggle } from "./ui";
 import { track } from "../lib/track";
 import { expiryDate } from "../lib/rivianExpiry";
 import { connectFailure, type ConnectFailure } from "../lib/connectErrors";
+import { discoveryView } from "../lib/vehicleDiscovery";
 
 // RivianAccountPanel drives the POST /api/settings/rivian/{login,mfa,
 // logout} flow. Three UI states derived from the status endpoint:
@@ -115,14 +116,32 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
   const authenticated = !!status.data?.authenticated;
   // DB-backed list, filled by the server during sign-in, so it's
   // current as soon as the login mutation invalidates it.
+  // Check again on a server that does not hold the account: it asks the one that does (which looks at most once per user per 10 min) and
+  // answers 503 with Retry-After. That is "checking", not an error.
+  const recheck = useMutation({
+    mutationFn: async () => {
+      try {
+        await backend.rivianRefreshVehicles();
+        return { looking: false, after: 0 };
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 503 && e.retryAfter !== null) return { looking: true, after: e.retryAfter };
+        throw e;
+      }
+    },
+    onSuccess: invalidate,
+  });
+  const lookingAfterRecheck = !!recheck.data?.looking;
+  // While looking, the list (a database read, no Rivian call) is read again after the Retry-After for the first minute, then every 30 s,
+  // until a vehicle shows up.
   const owned = useQuery({
     queryKey: ["vehicles", "owned"],
     queryFn: () => backend.listOwnedVehicles(),
     enabled: authenticated,
-  });
-  const recheck = useMutation({
-    mutationFn: () => backend.rivianRefreshVehicles(),
-    onSuccess: invalidate,
+    refetchInterval: (q) => {
+      if (!lookingAfterRecheck || (q.state.data?.vehicles?.length ?? 0) > 0) return false;
+      const early = Date.now() - recheck.submittedAt < 60_000;
+      return early ? Math.max(recheck.data?.after ?? 0, 5) * 1000 : 30_000;
+    },
   });
 
   if (status.isLoading) return <Spinner />;
@@ -220,6 +239,7 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
           vehicles={owned.data?.vehicles}
           loading={owned.isLoading}
           rechecking={recheck.isPending}
+          looking={lookingAfterRecheck}
           onRecheck={() => recheck.mutate()}
           recheckError={recheck.isError ? String(recheck.error) : null}
         />
@@ -443,12 +463,14 @@ function ConnectedVehicles({
   vehicles,
   loading,
   rechecking,
+  looking,
   onRecheck,
   recheckError,
 }: {
   vehicles: OwnedVehicle[] | undefined;
   loading: boolean;
   rechecking: boolean;
+  looking: boolean;
   onRecheck: () => void;
   recheckError: string | null;
 }) {
@@ -485,6 +507,9 @@ function ConnectedVehicles({
       >
         {rechecking ? "Checking…" : "Check again"}
       </button>
+      {looking && !rechecking && !recheckError && (
+        <p className="mt-2 text-xs text-amber-100/80" role="status">{discoveryView("looking")!.body}</p>
+      )}
       {recheckError && (
         <p className="mt-2 text-xs text-rose-300">{recheckError}</p>
       )}
