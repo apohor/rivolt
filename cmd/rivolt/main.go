@@ -2127,7 +2127,9 @@ func runServer() {
 			os.Exit(1)
 		}
 		ownerDiscoveryUsers = func(ctx context.Context) ([]vehiclediscovery.OwnedUser, error) {
+			start := time.Now()
 			hs, err := leaseStore.HeldGroupUsers(ctx)
+			appMetrics.HeldGroupUsersSeconds.Observe(time.Since(start).Seconds())
 			out := make([]vehiclediscovery.OwnedUser, len(hs))
 			for i, h := range hs {
 				out[i] = vehiclediscovery.OwnedUser{UID: h.User, Token: h.Token}
@@ -2186,6 +2188,7 @@ func runServer() {
 			logger.Error("lease coordinator", "err", err.Error())
 			os.Exit(1)
 		}
+		coord.SetLeadPassObserver(func(d time.Duration) { appMetrics.LeaseLeadPassSeconds.Observe(d.Seconds()) })
 		coord.SetReconcileObserver(func(trigger string) { appMetrics.LeaseReconcileTotal.WithLabelValues(trigger).Inc() })
 		coord.SetCountObserver(func(n int) {
 			appMetrics.SubscriptionLeases.Set(float64(n))

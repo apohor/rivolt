@@ -201,6 +201,10 @@ type Metrics struct {
 	// groups and said so, G1a) or other (a fenced write, a refused call or the first request asking for a pass). Created at 0. The share of
 	// signal against tick is how much of the hand-off wait the signal removed.
 	LeaseReconcileTotal *prometheus.CounterVec
+	// LeaseLeadPassSeconds is the database time of each lead-mode group pass (renew, acquire, vehicle-group read); HeldGroupUsersSeconds is the
+	// owner's read of the users in the groups it holds (every discovery pass and nudge). Neither carries a user or group label.
+	LeaseLeadPassSeconds  prometheus.Histogram
+	HeldGroupUsersSeconds prometheus.Histogram
 	// ReauthRaiseDeferred counts rejections whose needs_reauth raise was held back because
 	// the client did not yet know which stored session it was using (the next sync decides).
 	ReauthRaiseDeferred prometheus.Counter
@@ -494,6 +498,16 @@ func New() *Metrics {
 			Name: "rivolt_lease_reconcile_total",
 			Help: "Lease reconcile passes by trigger: start, tick, signal (a peer released groups) or other.",
 		}, []string{"trigger"}),
+		LeaseLeadPassSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "rivolt_lease_lead_pass_seconds",
+			Help:    "Database time of one lead-mode group lease pass, 5 ms to 10 s.",
+			Buckets: prometheus.DefBuckets,
+		}),
+		HeldGroupUsersSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "rivolt_held_group_users_seconds",
+			Help:    "Time of the owner's read of the users in the groups this pod holds, 5 ms to 10 s.",
+			Buckets: prometheus.DefBuckets,
+		}),
 		LeaseSelfFence: prometheus.NewCounter(
 			prometheus.CounterOpts{
 				Name: "rivolt_lease_self_fence_total",
@@ -1019,6 +1033,8 @@ func New() *Metrics {
 		m.SessionDecrypts,
 		m.TokensLoadedUnheld,
 		m.LeaseReconcileTotal,
+		m.LeaseLeadPassSeconds,
+		m.HeldGroupUsersSeconds,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
 		m.RivianCallRefused,

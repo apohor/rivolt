@@ -112,3 +112,24 @@ func TestRenewOutcomesAreCountedByScope(t *testing.T) {
 		t.Errorf("group renews = %v, want %v (all: %v)", groups, want, got)
 	}
 }
+
+// Every lead pass reports its database time, whether it worked or failed.
+func TestLeadPassDurationIsObserved(t *testing.T) {
+	ls := &leaderStore{fakeStore: newFakeStore(), vg: map[string]string{"v1": "g1"}, res: GroupLead{Held: map[string]int64{"g1": 1}}}
+	lc := newLeadCoord(ls, []string{"v1"})
+	n := 0
+	lc.SetLeadPassObserver(func(d time.Duration) {
+		if d < 0 {
+			t.Errorf("duration %v", d)
+		}
+		n++
+	})
+	lc.reconcile(context.Background())
+	ls.lmu.Lock()
+	ls.leadErr = errors.New("boom")
+	ls.lmu.Unlock()
+	lc.reconcile(context.Background())
+	if n != 2 {
+		t.Fatalf("observed %d passes, want 2 (one ok, one failed)", n)
+	}
+}
