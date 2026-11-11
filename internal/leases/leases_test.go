@@ -402,6 +402,7 @@ func TestCoordinatorHealsALeaseHeldWithoutASubscription(t *testing.T) {
 		acquires  = map[string]int{}
 		episodes  []string
 		streaming = map[string]bool{}
+		gauge     = -1
 	)
 	c := newCoordinator(fs,
 		func(context.Context) ([]string, error) { return []string{"v1", "v2"}, nil },
@@ -409,6 +410,7 @@ func TestCoordinatorHealsALeaseHeldWithoutASubscription(t *testing.T) {
 		func(string) {}, nil, time.Hour)
 	c.SetStreamingCheck(func(v string) bool { mu.Lock(); defer mu.Unlock(); return streaming[v] })
 	c.SetUnstreamedObserver(func(v string) { mu.Lock(); episodes = append(episodes, v); mu.Unlock() })
+	c.SetUnstreamedGauge(func(n int) { mu.Lock(); gauge = n; mu.Unlock() })
 	now := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 	c.now = func() time.Time { return now }
 	ctx := context.Background()
@@ -436,6 +438,9 @@ func TestCoordinatorHealsALeaseHeldWithoutASubscription(t *testing.T) {
 	if acquires["v1"] != 1 || acquires["v2"] != 0 || len(episodes) != 1 || episodes[0] != "v1" {
 		t.Fatalf("first tick: acquires %v episodes %v, want v1 re-subscribed once and one episode", acquires, episodes)
 	}
+	if gauge != 1 {
+		t.Errorf("gauge %d in the episode, want 1", gauge)
+	}
 	mu.Unlock()
 
 	// Still unstreamed: no retry before unstreamedRetry, no new episode.
@@ -452,12 +457,18 @@ func TestCoordinatorHealsALeaseHeldWithoutASubscription(t *testing.T) {
 	if acquires["v1"] != 2 || len(episodes) != 1 {
 		t.Fatalf("after the retry window: acquires %v episodes %v, want a retry, same episode", acquires, episodes)
 	}
+	if gauge != 1 {
+		t.Errorf("gauge %d still in the episode, want 1", gauge)
+	}
 	mu.Unlock()
 
 	// Streams again: the episode ends; a later drop is a new episode.
 	c.SetStreamingCheck(func(v string) bool { mu.Lock(); defer mu.Unlock(); return streaming[v] })
 	c.reconcile(ctx)
 	mu.Lock()
+	if gauge != 0 {
+		t.Errorf("gauge %d after the episode ended, want 0", gauge)
+	}
 	streaming["v1"] = false
 	mu.Unlock()
 	now = now.Add(30 * time.Second)

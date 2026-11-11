@@ -2256,6 +2256,7 @@ func runServer() {
 			})
 		coord.SetStopObserver(appMetrics.HandoffStopSeconds.Observe)
 		coord.SetUnstreamedObserver(func(string) { appMetrics.LeaseUnstreamed.Inc() })
+		coord.SetUnstreamedGauge(func(n int) { appMetrics.LeaseUnstreamedVehicles.Set(float64(n)) })
 		// Authoritative set for lease ownership: vehicles whose owner has
 		// a stored Rivian session. A lease outside this set is reaped and
 		// unsubscribed. This covers both account deletion (vehicles row
