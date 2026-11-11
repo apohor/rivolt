@@ -1909,6 +1909,22 @@ func (c *LiveClient) Restore(s Session) {
 	}
 }
 
+// Zero wipes every credential the client holds (session, csrf and app-session tokens, a pending OTP challenge) and its auth-ready
+// signal. Logout does not touch csrf and app-session; Zero is for a pod that gives up an account it no longer owns (single-owner M4-5),
+// where nothing may be left behind. It stores nothing and raises no needs_reauth.
+func (c *LiveClient) Zero() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.csrfToken = ""
+	c.appSessionToken = ""
+	c.userSessionToken = ""
+	c.email = ""
+	c.pendingOTPToken = ""
+	c.pendingOTPEmail = ""
+	c.authenticatedAt = time.Time{}
+	c.resetAuthReadyLocked()
+}
+
 // PendingMFA is the in-flight OTP challenge, captured so a different
 // pod than the one that ran the password leg can finish the second
 // leg. The OTP submission replays the same csrf/appSession tokens and

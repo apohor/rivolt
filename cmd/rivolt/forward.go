@@ -118,6 +118,11 @@ func (r *forwardRunner) adopt(ctx context.Context, user string) (forward.Result,
 	if err != nil || r.secrets == nil || r.accounts == nil || r.monitors == nil {
 		return forward.Result{Status: 400, Class: "bad_request"}, nil
 	}
+	// With RIVOLT_NO_STANDING_TOKENS a pod that does not hold the user's group has no client for them: answer before reading the session.
+	acct := r.accounts.For(uid)
+	if acct == nil {
+		return forward.Result{Status: 503, Class: "not_owner", Body: json.RawMessage(`{}`)}, nil
+	}
 	// The login nudge (design §3): the pod that took the login holds the session; the owner loads it from user_secrets and starts the
 	// user's monitor, exactly as the boot hydrate does for a stored session. Idempotent; a user with no stored session is a no-op.
 	sess, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "forward_adopt"), r.secrets, uid)
@@ -127,7 +132,7 @@ func (r *forwardRunner) adopt(ctx context.Context, user string) (forward.Result,
 	if sess.UserSessionToken == "" {
 		return forward.Result{Status: 404, Class: "not_connected", Body: json.RawMessage(`{}`)}, nil
 	}
-	r.accounts.For(uid).Restore(sess)
+	acct.Restore(sess)
 	r.monitors.Start(ctx, uid)
 	r.logger.Info("forward: adopted a user's monitor on request", "user_id", uid.String())
 	return forward.Result{Status: 200, Body: json.RawMessage(`{}`)}, nil

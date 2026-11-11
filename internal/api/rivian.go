@@ -204,6 +204,26 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 			return
 		}
 		lc := reg.For(uid)
+		if lc == nil && rivian.NoStandingTokens(reg) {
+			// This pod does not hold the account's tokens (single-owner M4-5): answer from the stored state, which holds none.
+			st, ok := freshAccountState(r.Context(), reg, uid)
+			if !ok {
+				writeUnheld(w)
+				return
+			}
+			dto := rivianStatusDTO{
+				Enabled:           true,
+				Authenticated:     !st.SessionVersion.IsZero(),
+				NeedsReauth:       st.NeedsReauth,
+				NeedsReauthReason: st.Reason,
+			}
+			if !dto.Authenticated && store != nil {
+				// The password leg may have run on a pod that kept nothing; the OTP challenge it stored is not a session token.
+				_, dto.MFAPending = secrets.LoadPendingMFA(r.Context(), store, uid)
+			}
+			writeJSON(w, http.StatusOK, withPause(dto))
+			return
+		}
 		if lc == nil {
 			writeJSON(w, http.StatusOK, withPause(rivianStatusDTO{Enabled: false}))
 			return
@@ -289,6 +309,12 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 	}
 }
 
+// writeUnheld answers a request that needs the account's tokens on a pod that does not hold them (single-owner M4-5): 503, retry-able.
+func writeUnheld(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", strconv.Itoa(forward.RetryAfterSeconds))
+	writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "unavailable"})
+}
+
 // freshAccountState reads uid's stored Rivian account state through the registry's syncer
 // (which also reconciles this pod's copy); ok is false when the registry has none or the
 // database could not be read.
@@ -327,7 +353,8 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
-		lc := reg.For(uid)
+		lc, done := rivian.ForLogin(reg, uid)
+		defer done()
 		if lc == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
@@ -600,7 +627,8 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
-		lc := reg.For(uid)
+		lc, done := rivian.ForLogin(reg, uid)
+		defer done()
 		if lc == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
@@ -712,11 +740,14 @@ func handleRivianLogout(reg rivian.AccountRegistry, store *secrets.Store, monito
 			return
 		}
 		lc := reg.For(uid)
-		if lc == nil {
+		if lc == nil && !rivian.NoStandingTokens(reg) {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return
 		}
-		lc.Logout()
+		// A pod that does not hold the account has nothing in memory to wipe: the stored session is what goes, and the owner follows it.
+		if lc != nil {
+			lc.Logout()
+		}
 		if monitors != nil {
 			monitors.Stop(uid)
 		}
@@ -748,6 +779,10 @@ func handleRivianRefreshVehicles(reg rivian.AccountRegistry, store *secrets.Stor
 			return
 		}
 		lc := reg.For(uid)
+		if lc == nil && rivian.NoStandingTokens(reg) {
+			writeUnheld(w)
+			return
+		}
 		if lc == nil {
 			http.Error(w, "live rivian client not configured", http.StatusNotFound)
 			return

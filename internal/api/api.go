@@ -1968,6 +1968,9 @@ func clientFor(d Deps, uid uuid.UUID) rivian.Client {
 			}
 		}
 	}
+	if rivian.NoStandingTokens(d.Accounts) {
+		return rivian.NewUnheldClient() // single-owner M4-5: this pod does not hold the account; the caller answers 503
+	}
 	return d.Rivian
 }
 
