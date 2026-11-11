@@ -4,14 +4,15 @@
 // charging) kept ahead of idle ones. A wait is bounded, so pacing never becomes an outage: after maxWait the call goes ahead and is counted as
 // starved. A Redis that cannot answer means only the local bucket applies.
 //
-// The fleet budget is a counter, not pub/sub: the app's Valkey user has no channel rights, and INCR plus EXPIRE is allowed.
+// The fleet budget is a counter, not pub/sub: the app's Valkey user has no channel rights, and scripts plus TIME are allowed. Its seconds are
+// Redis's (TIME, read inside the admission script), not any pod's: pods whose clocks disagree still count each call in the same second, and no
+// pod's clock names a key.
 package fleetbucket
 
 import (
 	"context"
 	"fmt"
 	"math/rand/v2"
-	"strconv"
 	"sync"
 	"time"
 
@@ -22,9 +23,8 @@ import (
 // Config sizes a Bucket. Zero values fall back to the defaults below.
 type Config struct {
 	// LocalRPS and FleetRPS are the calls per second one process and the whole fleet may start. Defaults 10 and 20 (no Rivian 429 data yet: raise
-	// them only from observed 429s and the takeover p95). FleetRPS is the budget for ACTIVE calls: idle calls have their own counter, at most
-	// FleetRPS/2, and an active call does not read it, so the two together can reach 1.5 x FleetRPS in one second (20 active + 10 idle at the
-	// default). Do not size FleetRPS from Rivian 429 data as if it were the total.
+	// them only from observed 429s and the takeover p95). FleetRPS is the TOTAL for active and idle calls together; idle calls may use at most
+	// half of it, so active ones always find the other half.
 	LocalRPS int
 	FleetRPS int
 	// ActiveMaxWait and IdleMaxWait bound one Wait. Active vehicles must not wait long; idle ones may queue.
@@ -39,7 +39,8 @@ type Config struct {
 	Redis  *redis.Client
 	Prefix string
 	// Now is the clock and Sleep the wait for the next second of the fleet budget (tests drive both, so nothing depends on how loaded the
-	// machine is). Sleep returns when d has passed or ctx is done.
+	// machine is). Sleep returns when d has passed or ctx is done. Now paces the local bucket, the share window and the Redis backoff; the fleet
+	// budget's seconds are Redis's own.
 	Now   func() time.Time
 	Sleep func(ctx context.Context, d time.Duration)
 	// Observe hears the outcome of every Wait (class and priority as the caller gave them): how long it waited, and whether it was shared,
@@ -55,7 +56,7 @@ const (
 	defaultShareTTL   = 30 * time.Second
 	defaultBackoff    = 10 * time.Second
 	redisOp           = 300 * time.Millisecond
-	counterTTLSeconds = 5
+	windowTTL         = 5 * time.Second
 	idleShareDivisor  = 2 // idle vehicles may use at most this fraction of the fleet budget (1/2), so active ones always find room
 )
 
@@ -65,6 +66,8 @@ type Result struct {
 	Starved bool // the bound passed and the call went ahead without a slot
 	Shared  bool // a call with the same share key was granted recently: no slot used
 	Local   bool // Redis did not answer: the fleet budget was skipped
+	// FleetSecond is the Unix second, by Redis's clock, whose fleet budget granted the call (0: no fleet slot was granted).
+	FleetSecond int64
 }
 
 // Bucket is safe for concurrent use.
@@ -173,8 +176,9 @@ func (b *Bucket) wait(ctx context.Context, shareKey string, active bool) Result 
 		if b.redisDown() {
 			res.Local = true // a recent Redis error: only the local bucket applies for the backoff
 		} else {
-			ok, local := b.fleetSlot(wctx, active)
+			ok, local, sec := b.fleetSlot(wctx, active)
 			res.Local = local
+			res.FleetSecond = sec
 			res.Starved = !ok && ctx.Err() == nil
 		}
 	}
@@ -217,50 +221,43 @@ func (b *Bucket) markShared(key string, now time.Time) {
 	}
 }
 
-func (b *Bucket) key(kind string, sec int64) string {
-	return fmt.Sprintf("%s:rivian:takeover:%s:%d", b.cfg.Prefix, kind, sec)
+// key names the fleet budget's window: one hash holding Redis's current second and the calls granted in it. One key is one Redis Cluster slot
+// whatever the second; the {rivian:takeover} hash tag keeps it in the same slot as any takeover key added later. The tag comes after the prefix
+// so the app user's ACL key pattern (~<prefix>:*) still matches.
+func (b *Bucket) key() string {
+	return b.cfg.Prefix + ":{rivian:takeover}"
 }
 
-// fleetSlot takes a slot from this second's fleet budget, trying the next second until it gets one or wctx ends. ok is false when the bound
-// passed; local is true when Redis could not answer (the slot is then granted: fail open).
+// fleetSlot takes a slot from the fleet budget of Redis's current second, trying the next second until it gets one or wctx ends. ok is false when
+// the bound passed; local is true when Redis could not answer (the slot is then granted: fail open); sec is the Redis second that granted it.
 //
-// Active calls count in the "a" counter and may use the whole budget. Idle calls count in their own "i" counter and are admitted only while it is
-// within half the budget and the two together are within the budget, so excess idle attempts never use up the active ones' room.
-func (b *Bucket) fleetSlot(wctx context.Context, active bool) (ok, local bool) {
+// Active and idle calls count their GRANTED calls in one window and are admitted by one atomic script (admitScript): together they never pass the
+// budget, and idle calls never pass half of it, so an active call always finds room.
+func (b *Bucket) fleetSlot(wctx context.Context, active bool) (ok, local bool, sec int64) {
+	kind := "i"
+	if active {
+		kind = "a"
+	}
 	for {
-		sec := b.cfg.Now().Unix()
-		kind := "i"
-		if active {
-			kind = "a"
-		}
-		n, other, err := b.take(wctx, sec, kind, !active)
+		granted, rsec, rusec, err := b.admit(wctx, kind)
 		if err != nil {
 			if wctx.Err() != nil {
 				// The caller's own bound ran out before or during the call (a long local wait left it little time): Redis did not fail, so do not
 				// send the whole pod to local-only pacing for the backoff, and do not claim a slot that was never taken.
-				return false, false
+				return false, false, 0
 			}
 			b.markRedisDown()
-			return true, true
+			return true, true, 0
 		}
-		limit := int64(b.cfg.FleetRPS)
-		if !active {
-			limit = int64(b.cfg.FleetRPS / idleShareDivisor)
-			if limit < 1 {
-				limit = 1
-			}
+		if granted {
+			return true, false, rsec
 		}
-		if n <= limit && (active || n+other <= int64(b.cfg.FleetRPS)) {
-			return true, false
-		}
-		// Over this second's budget: wait for the next second, with a little jitter so waiters do not all come back on the tick.
-		next := time.Unix(sec+1, 0).Sub(b.cfg.Now()) + time.Duration(rand.Int64N(int64(250*time.Millisecond)))
-		if next < 0 {
-			next = 0
-		}
+		// Over this second's budget: wait for Redis's next second (by the microseconds Redis returned, not this pod's clock), with a little jitter
+		// so waiters do not all come back on the tick.
+		next := time.Second - time.Duration(rusec)*time.Microsecond + time.Duration(rand.Int64N(int64(250*time.Millisecond)))
 		b.cfg.Sleep(wctx, next)
 		if wctx.Err() != nil {
-			return false, false
+			return false, false, 0
 		}
 	}
 }
@@ -275,25 +272,45 @@ func realSleep(ctx context.Context, d time.Duration) {
 	}
 }
 
-// take bumps the counter for (kind, second) and, for an idle call, reads the active counter too.
-func (b *Bucket) take(ctx context.Context, sec int64, kind string, readOther bool) (n, other int64, err error) {
+// admitScript grants one call out of the budget of Redis's current second, atomically (one round trip, so concurrent pods cannot both take the
+// last slot, and the window's reset cannot race). KEYS[1] is the window, a hash: sec (the Redis second it counts), a and i (the active and idle
+// calls GRANTED in it). A window for an older second is reset first. ARGV[1] is "a" or "i", ARGV[2] the whole budget, ARGV[3] the idle share,
+// ARGV[4] the window's lifetime in milliseconds. An active call is granted while a + i < budget; an idle call while i < its share AND a + i <
+// budget. So the two together never pass the budget, idle never passes its share (an active call always finds at least the other half), and a
+// denied attempt leaves no trace. Returns {granted (1 or 0), second, microseconds}, the last two Redis's TIME.
+var admitScript = redis.NewScript(`
+pcall(redis.replicate_commands)
+local t = redis.call('TIME')
+local now = tonumber(t[1])
+local usec = tonumber(t[2])
+local w = redis.call('HMGET', KEYS[1], 'sec', 'a', 'i')
+local a, i = 0, 0
+if tonumber(w[1]) == now then
+  a = tonumber(w[2]) or 0
+  i = tonumber(w[3]) or 0
+else
+  redis.call('HSET', KEYS[1], 'sec', now, 'a', 0, 'i', 0)
+end
+if a + i >= tonumber(ARGV[2]) then return {0, now, usec} end
+if ARGV[1] == 'i' and i >= tonumber(ARGV[3]) then return {0, now, usec} end
+redis.call('HINCRBY', KEYS[1], ARGV[1], 1)
+redis.call('PEXPIRE', KEYS[1], ARGV[4])
+return {1, now, usec}`)
+
+// admit asks Redis for a slot of the given kind ("a" or "i") in its current second.
+func (b *Bucket) admit(ctx context.Context, kind string) (granted bool, sec, usec int64, err error) {
 	c, cancel := context.WithTimeout(ctx, redisOp)
 	defer cancel()
-	k := b.key(kind, sec)
-	p := b.cfg.Redis.Pipeline()
-	incr := p.Incr(c, k)
-	p.Expire(c, k, counterTTLSeconds*time.Second)
-	var get *redis.StringCmd
-	if readOther {
-		get = p.Get(c, b.key("a", sec))
+	idleShare := b.cfg.FleetRPS / idleShareDivisor
+	if idleShare < 1 {
+		idleShare = 1
 	}
-	if _, err := p.Exec(c); err != nil && err != redis.Nil {
-		return 0, 0, err
+	v, err := admitScript.Run(c, b.cfg.Redis, []string{b.key()}, kind, b.cfg.FleetRPS, idleShare, windowTTL.Milliseconds()).Int64Slice()
+	if err != nil {
+		return false, 0, 0, err
 	}
-	if get != nil {
-		if v, e := get.Result(); e == nil {
-			other, _ = strconv.ParseInt(v, 10, 64)
-		}
+	if len(v) != 3 {
+		return false, 0, 0, fmt.Errorf("fleetbucket: admit script returned %d values", len(v))
 	}
-	return incr.Val(), other, nil
+	return v[0] == 1, v[1], v[2], nil
 }
