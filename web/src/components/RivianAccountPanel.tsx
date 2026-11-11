@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { ApiError, backend, type OwnedVehicle } from "../lib/api";
 import { ErrorBox, Spinner, Toggle } from "./ui";
@@ -128,21 +128,53 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
         throw e;
       }
     },
-    onSuccess: invalidate,
+    onSuccess: (r) => {
+      invalidate();
+      // A "none" read during an earlier watch must not end this one before it is read again.
+      qc.removeQueries({ queryKey: ["vehicles", "discovery", "recheck"] });
+      setWatch(r.looking ? { count: owned.data?.vehicles?.length ?? 0, after: Math.max(r.after, 5) } : null);
+    },
   });
-  const lookingAfterRecheck = !!recheck.data?.looking;
-  // While looking, the list (a database read, no Rivian call) is read again after the Retry-After for the first minute, then every 30 s,
-  // until a vehicle shows up.
+  // While the owner looks, the list and the discovery answer (both database reads, no Rivian call) are read again: after the Retry-After,
+  // then every 30 s. It ends when the list grows, when discovery says none (after the first wait, so a "none" from before the owner's look
+  // does not end it), or after RECHECK_WATCH_MS, the owner's own limit between two lookups.
+  const [watch, setWatch] = useState<{ count: number; after: number } | null>(null);
+  const [waited, setWaited] = useState(false);
+  const [watchOver, setWatchOver] = useState(false);
+  useEffect(() => {
+    setWaited(false);
+    setWatchOver(false);
+    if (!watch) return;
+    const first = setTimeout(() => setWaited(true), watch.after * 1000);
+    const cap = setTimeout(() => setWatchOver(true), RECHECK_WATCH_MS);
+    return () => {
+      clearTimeout(first);
+      clearTimeout(cap);
+    };
+  }, [watch]);
+  const live = !!watch && !watchOver;
+  const recheckDiscovery = useQuery({
+    queryKey: ["vehicles", "discovery", "recheck"],
+    queryFn: () => backend.vehicleDiscovery(),
+    enabled: live && waited,
+    retry: false,
+    refetchInterval: (q) => (q.state.data?.state === "none" ? false : 30_000),
+  });
+  const ownerSaidNone = !!watch && waited && recheckDiscovery.data?.state === "none";
   const owned = useQuery({
     queryKey: ["vehicles", "owned"],
     queryFn: () => backend.listOwnedVehicles(),
     enabled: authenticated,
     refetchInterval: (q) => {
-      if (!lookingAfterRecheck || (q.state.data?.vehicles?.length ?? 0) > 0) return false;
-      const early = Date.now() - recheck.submittedAt < 60_000;
-      return early ? Math.max(recheck.data?.after ?? 0, 5) * 1000 : 30_000;
+      if (!watch || !live || ownerSaidNone || (q.state.data?.vehicles?.length ?? 0) !== watch.count) return false;
+      return waited ? 30_000 : watch.after * 1000;
     },
   });
+  const grown = !!watch && (owned.data?.vehicles?.length ?? 0) !== watch.count;
+  useEffect(() => {
+    if (grown) setWatch(null);
+  }, [grown]);
+  const watching = live && !grown && !ownerSaidNone;
 
   if (status.isLoading) return <Spinner />;
   // A refetch that fails while the panel already has an answer keeps showing that answer (the banner polls this same status every 15 s, and
@@ -239,7 +271,8 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
           vehicles={owned.data?.vehicles}
           loading={owned.isLoading}
           rechecking={recheck.isPending}
-          looking={lookingAfterRecheck}
+          looking={watching}
+          ownerSaidNone={ownerSaidNone && !grown}
           onRecheck={() => recheck.mutate()}
           recheckError={recheck.isError ? String(recheck.error) : null}
         />
@@ -464,6 +497,7 @@ function ConnectedVehicles({
   loading,
   rechecking,
   looking,
+  ownerSaidNone,
   onRecheck,
   recheckError,
 }: {
@@ -471,6 +505,7 @@ function ConnectedVehicles({
   loading: boolean;
   rechecking: boolean;
   looking: boolean;
+  ownerSaidNone: boolean;
   onRecheck: () => void;
   recheckError: string | null;
 }) {
@@ -486,6 +521,20 @@ function ConnectedVehicles({
             <span>{vehicleLabel(v)}</span>
           </li>
         ))}
+        <li>
+          <button
+            type="button"
+            onClick={onRecheck}
+            disabled={rechecking}
+            className="mt-1 text-xs text-neutral-400 underline hover:text-neutral-200 disabled:opacity-50"
+          >
+            {rechecking ? "Checking…" : "Added a vehicle? Check again"}
+          </button>
+          {looking && !rechecking && !recheckError && (
+            <p className="mt-1 text-xs text-neutral-400" role="status">{discoveryView("looking")!.body}</p>
+          )}
+          {recheckError && <p className="mt-1 text-xs text-rose-300">{recheckError}</p>}
+        </li>
       </ul>
     );
   }
@@ -510,12 +559,18 @@ function ConnectedVehicles({
       {looking && !rechecking && !recheckError && (
         <p className="mt-2 text-xs text-amber-100/80" role="status">{discoveryView("looking")!.body}</p>
       )}
+      {ownerSaidNone && !looking && !rechecking && !recheckError && (
+        <p className="mt-2 text-xs text-amber-100/80" role="status">{discoveryView("none")!.body}</p>
+      )}
       {recheckError && (
         <p className="mt-2 text-xs text-rose-300">{recheckError}</p>
       )}
     </div>
   );
 }
+
+// RECHECK_WATCH_MS bounds the re-reads after a Check again the owner took: vehiclediscovery.ForceEvery, the owner's limit between two lookups.
+const RECHECK_WATCH_MS = 10 * 60_000;
 
 function vehicleLabel(v: OwnedVehicle): string {
   const model = [v.model_year, v.model].filter(Boolean).join(" ");
