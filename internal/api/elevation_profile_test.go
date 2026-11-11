@@ -147,3 +147,32 @@ func TestDownsampleProfileEdgeCases(t *testing.T) {
 		t.Errorf("zero-span series gave %d points", len(got))
 	}
 }
+
+// A cliff inside one bin holds both the global highest and lowest samples: both survive, in distance order, within the cap.
+func TestDownsampleProfileKeepsBothExtremesOfOneBin(t *testing.T) {
+	n := 1000
+	d, h := make([]float64, n), make([]float64, n)
+	for i := range d {
+		d[i], h[i] = float64(i)*250, 100
+	}
+	h[500], h[501] = 900, -40 // adjacent samples: same bin
+	got := downsampleProfile(d, h, 200)
+	if len(got) > 200 {
+		t.Fatalf("%d points", len(got))
+	}
+	hiAt, loAt := -1, -1
+	for i, p := range got {
+		if i > 0 && p[0] < got[i-1][0] {
+			t.Fatalf("distance goes back at %d", i)
+		}
+		if p[1] == 900 {
+			hiAt = i
+		}
+		if p[1] == -40 {
+			loAt = i
+		}
+	}
+	if hiAt < 0 || loAt < 0 || hiAt > loAt {
+		t.Errorf("max at %d, min at %d, want both kept and the max first", hiAt, loAt)
+	}
+}
