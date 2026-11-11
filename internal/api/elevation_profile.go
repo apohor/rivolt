@@ -43,9 +43,10 @@ func (rc routeClimbResult) profile() *elevationProfileDTO {
 	return &elevationProfileDTO{Points: pts, WaypointAtM: at}
 }
 
-// downsampleProfile reduces the series to at most max points. The first and last samples are kept exactly. Each of the max-2 distance bins
+// downsampleProfile reduces the series to at most max points. The first and last samples are kept exactly. Each of the max-3 distance bins
 // between keeps ONE real sample: the global highest and lowest samples where they fall, else the one furthest from the chord of its bin, so a
-// summit or a valley is never averaged away and the chart's extremes are the series' extremes.
+// summit or a valley is never averaged away and the chart's extremes are the series' extremes. When both fall in one bin, both are kept (in
+// distance order); the bin count leaves room for that one extra point.
 func downsampleProfile(d, h []float64, max int) [][2]int {
 	n := len(d)
 	if n == 0 || n != len(h) {
@@ -68,7 +69,7 @@ func downsampleProfile(d, h []float64, max int) [][2]int {
 			lo = i
 		}
 	}
-	bins := max - 2
+	bins := max - 3
 	span := d[n-1] - d[0]
 	binOf := func(i int) int {
 		if span <= 0 {
@@ -92,11 +93,13 @@ func downsampleProfile(d, h []float64, max int) [][2]int {
 		// Samples i..j-1 are this bin.
 		pick := -1
 		switch {
-		case i <= hi && hi < j && i <= lo && lo < j:
-			pick = hi
-			if h[lo] < h[hi] && math.Abs(h[lo]-chord(d, h, i, j-1, lo)) > math.Abs(h[hi]-chord(d, h, i, j-1, hi)) {
-				pick = lo
+		case i <= hi && hi < j && i <= lo && lo < j && hi != lo:
+			a, b := hi, lo
+			if a > b {
+				a, b = b, a
 			}
+			out = append(out, pt(a))
+			pick = b
 		case i <= hi && hi < j:
 			pick = hi
 		case i <= lo && lo < j:

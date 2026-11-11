@@ -42,7 +42,7 @@ func withClimbBudget(ctx context.Context) (context.Context, context.CancelFunc) 
 // nothing without an adjustment, a DEM on the request, or a road line, and never fails the plan. It has no deadline of its own: the caller
 // puts ONE on ctx for the whole response (withClimbBudget), so a multi-day plan shares a single budget across its days.
 //
-// It returns the elevation profile built from the same smoothed heights, or nil when any leg could not be read (the chart is never drawn from
+// It returns the elevation profile built from the same DEM reads (the raw heights, not the smoothed copy the figures are summed from), or nil when any leg could not be read (the chart is never drawn from
 // a partial series). It runs only when the climb pass runs, so a plan without an adjustment (weather off) reads no DEM and has no profile.
 func addLegClimb(ctx context.Context, adj *tripWeatherAdjustmentDTO, plan *rivian.TripPlan) *elevationProfileDTO {
 	el, _ := ctx.Value(planElevationKey{}).(ElevationBlocking)
