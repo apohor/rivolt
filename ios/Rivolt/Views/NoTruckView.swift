@@ -61,11 +61,18 @@ struct SignedInGate: View {
 
     /// askRivian: the "Check again" tap on "none". The server only looks again about once a day, so the tap asks Rivian now (as the web's Settings
     /// does) before reading the list; a failure there still re-reads. A server that does not hold the account asks the one that does and answers
-    /// "looking": the screen shows that (and its half-minute re-read) until the owner's answer lands. The automatic checks never ask Rivian.
+    /// 503 with Retry-After: that is "checking", so the tap waits the Retry-After, reads, and shows "looking" (with its half-minute re-read) until
+    /// the owner's answer lands. The automatic checks never ask Rivian.
     private func check(askRivian: Bool = false) async {
         await state.recheckTerms()
         if state.termsRequired { return }
-        let asked = askRivian ? try? await state.client.refreshRivianVehicles() : nil
+        var ownerAsked = false
+        if askRivian {
+            do { _ = try await state.client.refreshRivianVehicles() } catch APIError.server(status: 503, _, let after?) {
+                ownerAsked = true
+                try? await Task.sleep(for: .seconds(min(max(after, 1), 15)))
+            } catch {}
+        }
         let list = try? await state.client.vehicles()
         gate = Onboarding.gate(vehicles: list)
         guard gate == .noTruck else { discovery = nil; return }
@@ -75,7 +82,7 @@ struct SignedInGate: View {
         let found = VehicleDiscoveryState.from(answer, error: failure)
         // A vehicle turned up since the list was read: look at the list again.
         if found == .found, let again = try? await state.client.vehicles() { gate = Onboarding.gate(vehicles: again) }
-        discovery = (found == .empty && asked?.looking == true ? VehicleDiscoveryState.looking : found)?.view
+        discovery = (found == .empty && ownerAsked ? VehicleDiscoveryState.looking : found)?.view
     }
 
     /// While the server is still looking, the screen asks again every half minute.

@@ -48,10 +48,8 @@ final class VehicleDiscoveryTests: XCTestCase {
         XCTAssertEqual(VehicleDiscoveryState.empty.view?.action, "Open Rivian settings")
     }
 
-    func testRefreshReplyReadsBothShapes() throws {
-        let owner = try JSONDecoder().decode(RivianVehicleCount.self, from: Data(#"{"vehicle_count":0}"#.utf8))
-        XCTAssertEqual(owner, RivianVehicleCount(vehicleCount: 0, looking: nil))
-        let peer = try JSONDecoder().decode(RivianVehicleCount.self, from: Data(#"{"looking":true}"#.utf8))
-        XCTAssertEqual(peer.looking, true, "a server that asked the owner")
+    func testRefreshReplyDecodes() throws {
+        let owner = try JSONDecoder().decode(RivianVehicleCount.self, from: Data(#"{"vehicle_count":2}"#.utf8))
+        XCTAssertEqual(owner, RivianVehicleCount(vehicleCount: 2))
     }
 }
