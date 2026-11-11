@@ -55,7 +55,7 @@ func groupHold(f userFencer) func(context.Context, uuid.UUID) (held, known bool)
 		if err != nil {
 			return false, false
 		}
-		return st == fence.Off || st == fence.Held || st == fence.Warming, true
+		return st == fence.Held || st == fence.Warming, true
 	}
 }
 

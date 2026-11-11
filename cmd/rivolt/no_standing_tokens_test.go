@@ -66,7 +66,7 @@ func TestGroupHold(t *testing.T) {
 	}{
 		{"held", fence.Held, nil, true, true},
 		{"warming", fence.Warming, nil, true, true},
-		{"lead mode off", fence.Off, nil, true, true},
+		{"lead mode off (boot window)", fence.Off, nil, false, true},
 		{"lost", fence.Lost, nil, false, true},
 		{"unreadable", fence.Held, errors.New("db"), false, false},
 	}
@@ -74,6 +74,19 @@ func TestGroupHold(t *testing.T) {
 		held, known := groupHold(fakeUserFencer{st: c.st, err: c.err})(context.Background(), uuid.New())
 		if held != c.held || known != c.known {
 			t.Errorf("%s: held=%v known=%v, want %v %v", c.name, held, known, c.held, c.known)
+		}
+	}
+}
+
+// The boot window: the gate is installed before the lease store is. With lead mode required and no source installed the Holder answers Lost, so
+// no user is held; a Holder that was not yet told to require it answers Off, which is not held either.
+func TestGroupHoldBootWindowHoldsNothing(t *testing.T) {
+	for _, require := range []bool{true, false} {
+		var h fence.Holder
+		h.Require(require)
+		held, known := groupHold(&h)(context.Background(), uuid.New())
+		if held || !known {
+			t.Errorf("require=%v: held=%v known=%v, want not held", require, held, known)
 		}
 	}
 }
