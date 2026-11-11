@@ -9,7 +9,17 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/secrets"
 )
+
+// hasAccountSyncer reports whether reg reconciles accounts with the database (the live registry); replay, mock and stub registries do not.
+func hasAccountSyncer(reg rivian.AccountRegistry) bool {
+	_, ok := reg.(interface {
+		Fresh(context.Context, uuid.UUID) (rivian.AccountDBState, bool)
+	})
+	return ok
+}
 
 // Discovery states the endpoint reports. reauth comes first: a user who must sign in again sees the sign-in prompt, never "looking".
 const (
@@ -24,7 +34,17 @@ const (
 // needsReauth when it is flagged for sign-in again, ok false when it cannot be read here.
 func (d Deps) vehiclesAccountState(uid uuid.UUID) func(context.Context) (linked, needsReauth, ok bool) {
 	return func(ctx context.Context) (linked, needsReauth, ok bool) {
-		st, ok := freshAccountState(auth.WithUser(ctx, uid), d.Accounts, uid)
+		ctx = auth.WithUser(ctx, uid)
+		st, ok := freshAccountState(ctx, d.Accounts, uid)
+		if !ok && !hasAccountSyncer(d.Accounts) && d.DB != nil {
+			// A replay, mock or stub registry has no syncer (nothing to reconcile), but the users row is the same: read it directly, so a
+			// user there is "unlinked", "reauth" or linked instead of a 503 for ever.
+			states, err := secrets.NewRivianAccountSource(d.DB, d.Secrets).States(ctx, []uuid.UUID{uid})
+			if err != nil {
+				return false, false, false
+			}
+			st, ok = states[uid]
+		}
 		if !ok {
 			return false, false, false
 		}
