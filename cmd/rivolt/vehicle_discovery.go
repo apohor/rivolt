@@ -23,13 +23,13 @@ var ownerDiscoveryJob atomic.Pointer[vehiclediscovery.Job]
 // startVehicleDiscovery runs the vehicle discovery job (internal/vehiclediscovery) on this pod; the job takes a Postgres advisory lock, so
 // only one pod's pass does anything. It finds the linked users nobody records (a stored Rivian session, no vehicle row, so no group, no lease
 // and no owner) and primes their vehicles with one lookup each. Single-owner M3-6.
-func startVehicleDiscovery(ctx context.Context, logger *slog.Logger, appMetrics *metrics.Metrics, job *vehiclediscovery.Job) {
+func startVehicleDiscovery(ctx context.Context, role rolePlan, logger *slog.Logger, appMetrics *metrics.Metrics, job *vehiclediscovery.Job) {
 	for _, o := range []string{vehiclediscovery.OutcomeStored, vehiclediscovery.OutcomeEmpty, vehiclediscovery.OutcomeError, vehiclediscovery.OutcomeSkipped, vehiclediscovery.OutcomeNeedsReauth, vehiclediscovery.OutcomeRefreshed, vehiclediscovery.OutcomeRefreshError} {
 		appMetrics.VehicleDiscoveryTotal.WithLabelValues(o).Add(0)
 	}
 	job.Observe = func(outcome string) { appMetrics.VehicleDiscoveryTotal.WithLabelValues(outcome).Inc() }
 	job.Logger = logger
-	go job.Run(ctx)
+	role.start("vehicle_discovery", func() { job.Run(ctx) })
 }
 
 // ownerDiscoveryEnvError is the boot check for RIVOLT_OWNER_DISCOVERY=1: with no group leases nobody owns a group, so no user is ever looked up while

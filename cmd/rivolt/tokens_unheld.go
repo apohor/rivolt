@@ -44,11 +44,11 @@ func tokensLoadedUnheld(ctx context.Context, reg rivian.AccountRegistry, f userF
 }
 
 // startTokensLoadedUnheld recomputes the gauge every tokensUnheldEvery until ctx ends.
-func startTokensLoadedUnheld(ctx context.Context, reg rivian.AccountRegistry, f userFencer, g prometheus.Gauge, log *slog.Logger) {
+func startTokensLoadedUnheld(ctx context.Context, role rolePlan, reg rivian.AccountRegistry, f userFencer, g prometheus.Gauge, log *slog.Logger) {
 	if _, ok := reg.(unheldCounter); !ok {
 		return
 	}
-	go func() {
+	role.start("tokens_unheld_gauge", func() {
 		t := time.NewTicker(tokensUnheldEvery)
 		defer t.Stop()
 		for {
@@ -59,6 +59,6 @@ func startTokensLoadedUnheld(ctx context.Context, reg rivian.AccountRegistry, f 
 				tokensLoadedUnheld(ctx, reg, f, g)
 			}
 		}
-	}()
+	})
 	log.Info("tokens-loaded-unheld gauge started", "every", tokensUnheldEvery.String())
 }

@@ -14,8 +14,8 @@ type processRole string
 
 const (
 	roleAll    processRole = "all"
-	roleIngest processRole = "ingest" // Rivian sessions, leases, the recorder; no public routes
-	roleAPI    processRole = "api"    // public routes; holds no leases, so it never runs a Rivian subscription
+	roleIngest processRole = "ingest" // Rivian sessions, leases, the recorder; no public routes and no jobs
+	roleAPI    processRole = "api"    // public routes; holds no leases, so it never runs a Rivian subscription, and runs no jobs
 	roleJobs   processRole = "jobs"   // background work; holds no leases and serves no public routes
 )
 
@@ -45,15 +45,17 @@ type rolePlan struct {
 	LocalFallback bool
 	// PublicRoutes: the full router. Off, the router has the probes only (/healthz, /readyz, /api/health).
 	PublicRoutes bool
+	// Jobs: the sweeps, retriers and singletons on our own database (starters.go startJobs). Off on ingest and api.
+	Jobs bool
 }
 
 func planFor(r processRole) rolePlan {
-	p := rolePlan{Role: r, Leases: true, ForwardOwner: true, LocalFallback: true, PublicRoutes: true}
+	p := rolePlan{Role: r, Leases: true, ForwardOwner: true, LocalFallback: true, PublicRoutes: true, Jobs: true}
 	switch r {
 	case roleIngest:
-		p.PublicRoutes = false
+		p.PublicRoutes, p.Jobs = false, false
 	case roleAPI:
-		p.Leases, p.ForwardOwner, p.LocalFallback = false, false, false
+		p.Leases, p.ForwardOwner, p.LocalFallback, p.Jobs = false, false, false, false
 	case roleJobs:
 		p.Leases, p.ForwardOwner, p.LocalFallback, p.PublicRoutes = false, false, false, false
 	}

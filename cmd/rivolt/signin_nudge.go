@@ -20,6 +20,7 @@ import (
 //
 // Best effort and detached from the request.
 type signInNudge struct {
+	role    rolePlan // starts run (startAlways)
 	groupOf func(ctx context.Context, uid string) (string, bool, error)
 	held    func(ctx context.Context, uid uuid.UUID) (held, known bool)
 	local   func(uuid.UUID)
@@ -38,8 +39,8 @@ const (
 
 // newSignInNudge wires the nudge to the lease store, the hold predicate, this pod's discovery job and the forwarder (nil without RIVOLT_FORWARD:
 // then only the local path works).
-func newSignInNudge(groups *leases.Store, held func(context.Context, uuid.UUID) (bool, bool), fw *forward.Forwarder, log *slog.Logger) *signInNudge {
-	n := &signInNudge{groupOf: groups.GroupOfUser, held: held, log: log,
+func newSignInNudge(role rolePlan, groups *leases.Store, held func(context.Context, uuid.UUID) (bool, bool), fw *forward.Forwarder, log *slog.Logger) *signInNudge {
+	n := &signInNudge{role: role, groupOf: groups.GroupOfUser, held: held, log: log,
 		local: func(uid uuid.UUID) { ownerDiscoveryJob.Load().NudgeUser(uid) },
 		peer:  func(context.Context, string, string) bool { return false }}
 	if fw != nil {
@@ -49,7 +50,7 @@ func newSignInNudge(groups *leases.Store, held func(context.Context, uuid.UUID) 
 }
 
 func (n *signInNudge) Nudge(_ context.Context, uid uuid.UUID) {
-	go n.run(uid)
+	n.role.start("signin_nudge", func() { n.run(uid) })
 }
 
 func (n *signInNudge) run(uid uuid.UUID) {

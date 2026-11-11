@@ -489,13 +489,13 @@ func runServer() {
 		// Re-applied like the reporting role's, since CNPG creates it on its own
 		// schedule and a later migration's table needs the narrowing. See
 		// internal/db/app_role.go.
-		if role := os.Getenv("RIVOLT_APP_ROLE"); role != "" && !adminOnlyMode {
-			go func() {
+		if appRole := os.Getenv("RIVOLT_APP_ROLE"); appRole != "" && !adminOnlyMode {
+			role.start("db_app_grants", func() {
 				t := time.NewTicker(6 * time.Hour)
 				defer t.Stop()
 				for {
 					gctx, gcancel := context.WithTimeout(ctx, 30*time.Second)
-					db.EnsureAppGrants(gctx, pgPool, role, logger)
+					db.EnsureAppGrants(gctx, pgPool, appRole, logger)
 					gcancel()
 					select {
 					case <-ctx.Done():
@@ -503,12 +503,12 @@ func runServer() {
 					case <-t.C:
 					}
 				}
-			}()
+			})
 		}
 		// The repair role (M4-4): the repair CLIs' audited operator path. The server applies its grants like the others', when the role is
 		// there; off unless RIVOLT_REPAIR_ROLE=1 (the role is created by the infra repo, not on every install).
 		if os.Getenv("RIVOLT_REPAIR_ROLE") == "1" && !adminOnlyMode {
-			go func() {
+			role.start("db_repair_grants", func() {
 				t := time.NewTicker(6 * time.Hour)
 				defer t.Stop()
 				for {
@@ -521,15 +521,15 @@ func runServer() {
 					case <-t.C:
 					}
 				}
-			}()
+			})
 		}
-		if role := os.Getenv("RIVOLT_READONLY_ROLE"); role != "" && !adminOnlyMode {
-			go func() {
+		if readonlyRole := os.Getenv("RIVOLT_READONLY_ROLE"); readonlyRole != "" && !adminOnlyMode {
+			role.start("db_readonly_grants", func() {
 				t := time.NewTicker(6 * time.Hour)
 				defer t.Stop()
 				for {
 					gctx, gcancel := context.WithTimeout(ctx, 30*time.Second)
-					db.EnsureReadonlyGrants(gctx, pgPool, role, logger)
+					db.EnsureReadonlyGrants(gctx, pgPool, readonlyRole, logger)
 					gcancel()
 					select {
 					case <-ctx.Done():
@@ -537,7 +537,7 @@ func runServer() {
 					case <-t.C:
 					}
 				}
-			}()
+			})
 		}
 	}
 
@@ -590,7 +590,7 @@ func runServer() {
 			appMetrics.StripeCancelPending.Set(float64(pending))
 			appMetrics.StripeCancelOldestSeconds.Set(oldest.Seconds())
 		}}
-		go stripeClosure.RunRetrier(ctx, 5*time.Minute)
+		role.start("stripe_cancel_retrier", func() { stripeClosure.RunRetrier(ctx, 5*time.Minute) })
 	}
 	// The fallback outcomes of /api/vehicles exist at 0 from boot, so the first one is an increase.
 	for _, outcome := range []string{"stored", "empty", "error", "skipped", "unsynced"} {
@@ -605,16 +605,18 @@ func runServer() {
 		appMetrics.OpenChargesOldestSeconds.WithLabelValues("charging").Set(0)
 		appMetrics.OpenChargesOldestSeconds.WithLabelValues("not_charging").Set(0)
 		appMetrics.OpenChargesOldestSeconds.WithLabelValues("no_frame").Set(0)
-		go chargewatch.Run(ctx, pgPool, 5*time.Minute, time.Now, func(s chargewatch.Summary) {
-			appMetrics.ChargewatchLastSuccess.Set(float64(time.Now().Unix()))
-			appMetrics.OpenCharges.WithLabelValues("charging").Set(float64(s.Charging))
-			appMetrics.OpenCharges.WithLabelValues("not_charging").Set(float64(s.NotCharging))
-			appMetrics.OpenCharges.WithLabelValues("no_frame").Set(float64(s.NoFrame))
-			appMetrics.OpenChargesOldestSeconds.WithLabelValues("charging").Set(s.OldestChargingSec)
-			appMetrics.OpenChargesOldestSeconds.WithLabelValues("not_charging").Set(s.OldestNotChargingSec)
-			appMetrics.OpenChargesOldestSeconds.WithLabelValues("no_frame").Set(s.OldestNoFrameSec)
-		}, func(err error) {
-			logger.Warn("open-charge watch: measuring failed; the rivolt_open_charges gauges keep their last values", "err", err.Error())
+		role.start("chargewatch", func() {
+			chargewatch.Run(ctx, pgPool, 5*time.Minute, time.Now, func(s chargewatch.Summary) {
+				appMetrics.ChargewatchLastSuccess.Set(float64(time.Now().Unix()))
+				appMetrics.OpenCharges.WithLabelValues("charging").Set(float64(s.Charging))
+				appMetrics.OpenCharges.WithLabelValues("not_charging").Set(float64(s.NotCharging))
+				appMetrics.OpenCharges.WithLabelValues("no_frame").Set(float64(s.NoFrame))
+				appMetrics.OpenChargesOldestSeconds.WithLabelValues("charging").Set(s.OldestChargingSec)
+				appMetrics.OpenChargesOldestSeconds.WithLabelValues("not_charging").Set(s.OldestNotChargingSec)
+				appMetrics.OpenChargesOldestSeconds.WithLabelValues("no_frame").Set(s.OldestNoFrameSec)
+			}, func(err error) {
+				logger.Warn("open-charge watch: measuring failed; the rivolt_open_charges gauges keep their last values", "err", err.Error())
+			})
 		})
 	}
 	// The launch dashboard's counts (entitlement rows by source and status, accounts), no user labels, refreshed every five minutes.
@@ -622,12 +624,14 @@ func runServer() {
 		appMetrics.BillingEnabled.Set(1)
 	}
 	if pgPool != nil {
-		go entitlements.RunStats(ctx, pgPool, demo.UserID(), 5*time.Minute, func(st entitlements.Stats) {
-			appMetrics.Entitlements.Reset()
-			for k, n := range st.ByKind {
-				appMetrics.Entitlements.WithLabelValues(k[0], k[1]).Set(float64(n))
-			}
-			appMetrics.Accounts.Set(float64(st.Accounts))
+		role.start("entitlement_stats", func() {
+			entitlements.RunStats(ctx, pgPool, demo.UserID(), 5*time.Minute, func(st entitlements.Stats) {
+				appMetrics.Entitlements.Reset()
+				for k, n := range st.ByKind {
+					appMetrics.Entitlements.WithLabelValues(k[0], k[1]).Set(float64(n))
+				}
+				appMetrics.Accounts.Set(float64(st.Accounts))
+			})
 		})
 	}
 	if secret := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_WEBHOOK_SECRET")); secret != "" && pgPool != nil {
@@ -782,7 +786,7 @@ func runServer() {
 				}
 			}
 			// Notification text is kept 24 hours for the app to fetch; sweep it hourly.
-			go func() {
+			role.start("push_notifications_sweep", func() {
 				t := time.NewTicker(time.Hour)
 				defer t.Stop()
 				for {
@@ -804,7 +808,7 @@ func runServer() {
 						pcancel()
 					}
 				}
-			}()
+			})
 		}
 	}
 
@@ -1021,7 +1025,7 @@ func runServer() {
 		tripSynth = &syntheticplan.Planner{Vehicle: syntheticplan.SampleVehicle(), Now: time.Now}
 		accountRegistry = rivian.NewReplayAccountRegistry(feed, rivian.FirstPlanner{rivian.NewFixturePlanner(fixtures, nil), tripSynth})
 		// Preview is a replay install: it runs the same gate as live so the flag's code paths are exercised there (no real token exists).
-		installNoStandingTokens(ctx, accountRegistry, logger, nil)
+		installNoStandingTokens(ctx, role, accountRegistry, logger, nil)
 		rivianClient = rivian.NewStub()
 		logger.Info("rivian client: replay (no network)", "source_vehicle", src)
 		// Share live state across replicas as live mode does, so a pod
@@ -1197,7 +1201,7 @@ func runServer() {
 		buildLive := func(uid uuid.UUID) *rivian.LiveClient { return buildLiveClient(uid, true) }
 		accountRegistry = rivian.NewLiveAccountRegistry(buildLive)
 		// ForLogin's client restores nothing: it is buildLive without the lazy restore.
-		installNoStandingTokens(ctx, accountRegistry, logger, func(uid uuid.UUID) *rivian.LiveClient { return buildLiveClient(uid, false) })
+		installNoStandingTokens(ctx, role, accountRegistry, logger, func(uid uuid.UUID) *rivian.LiveClient { return buildLiveClient(uid, false) })
 		// Keep every pod's copy of each user's Rivian account in line with the database:
 		// a sign-in, sign-out or needs_reauth change made on one pod reaches the others
 		// within seconds (see rivian.AccountSyncer). Without a database or a secrets store
@@ -1254,7 +1258,7 @@ func runServer() {
 		chargersArchive = chargers.New(url)
 		// Warm at startup, best-effort. A failed warm doesn't block
 		// boot — the endpoint will retry on demand.
-		go func() {
+		role.start("chargers_warm", func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
 			if err := chargersArchive.Reload(ctx); err != nil {
@@ -1262,11 +1266,11 @@ func runServer() {
 				return
 			}
 			logger.Info("chargers archive loaded", "url", url, "loaded_at", chargersArchive.LoadedAt())
-		}()
+		})
 		// The archive is rebuilt out of band (a monthly job rewrites the file on
 		// the tiles volume), so look for a new one every few hours: a conditional
 		// GET, which costs nothing while the file is unchanged.
-		go func() {
+		role.start("chargers_reload", func() {
 			t := time.NewTicker(6 * time.Hour)
 			defer t.Stop()
 			for range t.C {
@@ -1280,7 +1284,7 @@ func runServer() {
 					logger.Info("chargers archive refreshed", "url", url, "loaded_at", chargersArchive.LoadedAt())
 				}
 			}
-		}()
+		})
 	}
 	// The replay planner's route and charger sources. A long multi-stop route
 	// takes Valhalla longer than the recorder's gap-fill budget, hence its own
@@ -1520,7 +1524,7 @@ func runServer() {
 				mins, _ := rivian.ChargeETAFromState(st)
 				return st.BatteryLevelPct, st.ChargerPowerKW, mins, true
 			})
-			go pushSvc.RunLive(ctx, pgPool, pushFactory, liveSrc, push.LiveInterval)
+			role.start("push_live", func() { pushSvc.RunLive(ctx, pgPool, pushFactory, liveSrc, push.LiveInterval) })
 			monitorRegistry.AddChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
 				return func(hctx context.Context, c charges.Charge) {
 					ectx, cancel := context.WithTimeout(context.WithoutCancel(hctx), 30*time.Second)
@@ -1572,7 +1576,7 @@ func runServer() {
 				})
 			}
 			otaSyncer.SetFence(&liveFence) // before Run and before the first OnConnect; it reads the lease store once installed
-			go otaSyncer.Run(ctx)
+			role.start("ota_sync", func() { otaSyncer.Run(ctx) })
 			// What every monitor starts from: the vehicle info stored in Postgres (columns and vehicle_info), read without a Rivian call.
 			// The owner's pack size for its first frame comes from here, and so does the cache of a pod that only reads (single-owner M3-6).
 			monitorRegistry.SetVehicleInfoLoaderFactory(func(uid uuid.UUID) func(context.Context) ([]rivian.Vehicle, error) {
@@ -1632,7 +1636,7 @@ func runServer() {
 				return func(_ context.Context, _ charges.Charge) { receiptSyncer.OnChargeClose(uid) }
 			})
 			receiptSyncer.SetFence(&liveFence) // before Run and before the first charge close; it reads the lease store once installed
-			go receiptSyncer.Run(ctx)
+			role.start("receipt_sync", func() { receiptSyncer.Run(ctx) })
 			logger.Info("rivian receipts sync enabled (per-user flag rivian_receipts)")
 		}
 		// Milestones (internal/milestones): after a drive or charge closes, notice a
@@ -1692,7 +1696,7 @@ func runServer() {
 					checker.Check(ctx, uid, c.VehicleID, "")
 				}
 			})
-			go checker.Run(ctx)
+			role.start("milestones", func() { checker.Run(ctx) })
 			// Trip recap (internal/api/trip_recap.go): after a drive closes, a push to the user who
 			// turned "Trip recap" on, when the drive finished a saved trip. Off by default, through engage.
 			if pushSvc != nil && pushFactory != nil {
@@ -1783,12 +1787,18 @@ func runServer() {
 		}
 		// The replay backfill records sessions after boot, so the
 		// hand-priced hotel L2 gets its user price on a timer.
-		go demo.RunPricing(ctx, pgPool, chargesFactory.For(demo.UserID()), 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
+		role.start("demo_pricing", func() {
+			demo.RunPricing(ctx, pgPool, chargesFactory.For(demo.UserID()), 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
+		})
 		// Sample weather for the demo drives, so cold-range has stored temperatures.
-		go demo.RunWeather(ctx, pgPool, 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
+		role.start("demo_weather", func() {
+			demo.RunWeather(ctx, pgPool, 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
+		})
 		// The sample owner's saved Las Vegas plans follow the replay onto
 		// each loop's trip, for the demo's Plan vs Actual.
-		go demo.RunPlans(ctx, pgPool, settingsFactory, 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
+		role.start("demo_plans", func() {
+			demo.RunPlans(ctx, pgPool, settingsFactory, 15*time.Minute, func(msg string, args ...any) { logger.Info(msg, args...) })
+		})
 	}
 
 	// Boot-time multi-user hydrate sweep (live mode only). Every
@@ -1864,7 +1874,7 @@ func runServer() {
 	// SIGTERM.
 	if pgPool != nil && !adminOnlyMode {
 		partitionJanitor := samples.NewPartitionJanitor(pgPool)
-		go partitionJanitor.Run(ctx)
+		role.start("partition_janitor", func() { partitionJanitor.Run(ctx) })
 	}
 
 	// Fleet parked-drain gauges (D1): computed from vehicle_state on a
@@ -1879,7 +1889,7 @@ func runServer() {
 		if on {
 			dc := drain.NewCollector()
 			appMetrics.Registry().MustRegister(dc)
-			go dc.Run(ctx, pgPool, iv, logger)
+			role.start("drain_metrics", func() { dc.Run(ctx, pgPool, iv, logger) })
 			logger.Info("drain metrics enabled", "interval", iv.String())
 		}
 	}
@@ -1891,7 +1901,7 @@ func runServer() {
 	// charges. Skips entirely when no DB is wired (dev mode).
 	if pgPool != nil && !adminOnlyMode {
 		ph := packhealth.NewStore(pgPool)
-		go func() {
+		role.start("packhealth_backfill", func() {
 			run := func() {
 				bctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 				defer cancel()
@@ -1915,7 +1925,7 @@ func runServer() {
 					run()
 				}
 			}
-		}()
+		})
 	}
 
 	// Engagement email sweep. Two re-engagement loops that would
@@ -1943,7 +1953,7 @@ func runServer() {
 	if pgPool != nil && mailer != nil && !adminOnlyMode && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
 		nudgeBaseURL := os.Getenv("RIVOLT_BASE_URL")
 		const reauthNudgeCooldown = 7 * 24 * time.Hour
-		go func() {
+		role.start("reauth_nudge", func() {
 			runReauth := func(sctx context.Context) {
 				due, err := db.ListUsersDueForReauthNudge(sctx, pgPool, reauthNudgeCooldown)
 				if err != nil {
@@ -2007,7 +2017,7 @@ func runServer() {
 					run()
 				}
 			}
-		}()
+		})
 	}
 
 	// Rivian session expiry (internal/rivianexpiry): Rivian ends a session 180 days after
@@ -2154,7 +2164,7 @@ func runServer() {
 		// prestop hook and 45 s grace period are live: without draining a rollout moves groups twice.
 		leaseStore.SetGroupLead(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
 		liveFence.Set(leaseStore)
-		startTokensLoadedUnheld(ctx, accountRegistry, &liveFence, appMetrics.TokensLoadedUnheld, logger)
+		startTokensLoadedUnheld(ctx, role, accountRegistry, &liveFence, appMetrics.TokensLoadedUnheld, logger)
 		monitorRegistry.SetRolloutObserver(func(event, kind, source string) {
 			switch event {
 			case rivian.RolloutRehydrate:
@@ -2181,7 +2191,9 @@ func runServer() {
 			// A role that holds no leases (api, jobs): no coordinator, so this pod writes no lease row. The store above holds no group,
 			// so with lead mode (required for these roles) the fence reads every group Lost and no monitor here writes or calls Rivian.
 			monitorRegistry.SetFence(leaseStore, fenced)
-			go leaseStore.FollowVehicleGroups(ctx, func(err error) { logger.Warn("group map read failed", "err", err.Error()) })
+			role.start("group_map_follow", func() {
+				leaseStore.FollowVehicleGroups(ctx, func(err error) { logger.Warn("group map read failed", "err", err.Error()) })
+			})
 		} else {
 			vehicleSource := leases.NewVehicleSource(
 				func() []string {
@@ -2292,17 +2304,17 @@ func runServer() {
 			coord.SetAuthoritative(func(qctx context.Context) ([]string, error) {
 				return db.ListSubscribableVehicleIDs(qctx, pgPool)
 			})
-			go func() {
+			role.start("lease_coordinator", func() {
 				if err := coord.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 					logger.Warn("lease coordinator exited", "err", err.Error())
 				}
-			}()
+			})
 			// The vehicle info no longer comes from a Rivian call on every pod at boot (every pod, for every loaded user, whether or not it
 			// owns any of their vehicles). Each monitor hydrates it from Postgres, and the owner refreshes from Rivian when its subscription
 			// starts and daily after (single-owner M3-6). Here the coordinator is only poked to reconcile.
-			go func() {
+			role.start("lease_reconcile_trigger", func() {
 				coord.TriggerReconcile()
-			}()
+			})
 			leaseCoordinator = coord
 		}
 		// Single-owner M3: the forwarder's owner loop (RIVOLT_FORWARD=1 only; the metrics exist at 0 either way).
@@ -2311,18 +2323,18 @@ func runServer() {
 			stateForward, groupOfVehicle = fwdRT.forwarder, leaseStore.GroupOfVehicle
 		}
 		if os.Getenv("RIVOLT_OWNER_DISCOVERY") == "1" {
-			signInNudgeFn = newSignInNudge(leaseStore, groupHold(&liveFence), fwdRT.forwarder, logger).Nudge
+			signInNudgeFn = newSignInNudge(role, leaseStore, groupHold(&liveFence), fwdRT.forwarder, logger).Nudge
 		}
 		var markDraining func(context.Context)
 		if coord != nil {
 			markDraining = coord.MarkDraining
 		}
-		go watchDrain(drainSigs, drainFunc(api.StartDrain, markDraining, fwdRT.setDraining, logger))
+		role.start("drain_watch", func() { watchDrain(drainSigs, drainFunc(api.StartDrain, markDraining, fwdRT.setDraining, logger)) })
 		drainWatched = true
 	}
 	// A role without leases drains too when the block above did not run (no monitors on this install): /readyz fails on SIGUSR1.
 	if !drainWatched && !role.Leases {
-		go watchDrain(drainSigs, drainFunc(api.StartDrain, nil, func() {}, logger))
+		role.start("drain_watch_leaseless", func() { watchDrain(drainSigs, drainFunc(api.StartDrain, nil, func() {}, logger)) })
 	}
 
 	webFS := web.Assets()
@@ -2923,7 +2935,7 @@ func runServer() {
 
 	// Retry identity-provider deletions that failed during account
 	// deletion (recorded in idp_delete_failures), with per-row backoff.
-	go api.RunIdPDeleteRetrier(ctx, pgPool, userProvider, logger, 5*time.Minute)
+	role.start("idp_delete_retrier", func() { api.RunIdPDeleteRetrier(ctx, pgPool, userProvider, logger, 5*time.Minute) })
 
 	// Sign in with Apple: every account deletion revokes the account's Apple
 	// token first, or queues the revoke (sealed) for this retrier.
@@ -2938,7 +2950,7 @@ func runServer() {
 		if oidcSvc != nil {
 			appleRevocation.Revoke = oidcSvc.AppleRevoke
 		}
-		go api.RunAppleRevokeRetrier(ctx, appleRevocation, 5*time.Minute)
+		role.start("apple_revoke_retrier", func() { api.RunAppleRevokeRetrier(ctx, appleRevocation, 5*time.Minute) })
 	}
 
 	// Inactive-account purge: accounts that never connected a vehicle are
@@ -2949,7 +2961,7 @@ func runServer() {
 	if pgPool != nil && flagsStore != nil && !adminOnlyMode && os.Getenv("RIVOLT_ENGAGEMENT_EMAILS") != "false" {
 		purge := api.NewInactivePurge(pgPool, flagsStore.InactiveAccountPurge, mailer, userProvider, os.Getenv("RIVOLT_BASE_URL"), logger).
 			WithAppleRevocation(appleRevocation).WithStripeClosure(stripeClosure)
-		go purge.Run(ctx)
+		role.start("inactive_purge", func() { purge.Run(ctx) })
 	}
 
 	// Sample thinning: RIVOLT_SAMPLE_THIN_AFTER_DAYS (0 or unset: never;
@@ -3063,7 +3075,7 @@ func runServer() {
 				}
 			}
 			appMetrics.ArchiveDeletionsLastRun.SetToCurrentTime()
-			go archive.Every(ctx, time.Hour, "archive_deletions", logger, del.Run)
+			role.start("archive_deletions", func() { archive.Every(ctx, time.Hour, "archive_deletions", logger, del.Run) })
 		}
 		// vehicle_state past the retention period: whole monthly partitions are
 		// dropped ("deleted" counts partitions). Drives, charges and their totals
@@ -3095,7 +3107,7 @@ func runServer() {
 			}
 			jobs = append(jobs, retention.Job{Name: "vehicle_state_thinning", Run: thinner.Run})
 		}
-		go retention.Run(ctx, logger, jobs)
+		role.start("retention", func() { retention.Run(ctx, logger, jobs) })
 	}
 	// Background backfills (zero-impact deploys, G6b): data that moves after a schema change, in short batches on one pod at a time, resumable.
 	// On by default, with an empty registry today. RIVOLT_BACKFILL=0 stops them all; one job is paused by its flags row backfill.<job>.paused
@@ -3105,7 +3117,7 @@ func runServer() {
 		for _, c := range bm.Collectors() {
 			appMetrics.Registry().MustRegister(c)
 		}
-		go (&backfill.Runner{DB: pgPool, Jobs: backfillJobs, Log: logger, Metrics: bm}).Run(ctx)
+		role.start("backfill", func() { (&backfill.Runner{DB: pgPool, Jobs: backfillJobs, Log: logger, Metrics: bm}).Run(ctx) })
 		logger.Info("backfills on", "jobs", len(backfillJobs))
 	}
 
@@ -3141,7 +3153,7 @@ func runServer() {
 				return err
 			},
 		}
-		go reminder.Run(ctx)
+		role.start("plug_reminder", func() { reminder.Run(ctx) })
 	}
 
 	// The left-open alert (internal/leftopen): an opt-in push when a door, the frunk, the liftgate, the tailgate or
@@ -3165,7 +3177,7 @@ func runServer() {
 			Fence:  liveFence.Fence,
 			Logger: logger,
 		}
-		go leftOpen.Run(ctx)
+		role.start("left_open", func() { leftOpen.Run(ctx) })
 	}
 
 	// The tire-low alert (internal/tirelow): an opt-in push when the truck itself reports a tire low, in P, for 30
@@ -3192,7 +3204,7 @@ func runServer() {
 		for _, w := range rivian.TireLowWords() {
 			appMetrics.TireLowWouldSendTotal.WithLabelValues(w).Add(0) // from boot at 0, so the first would-be push is an increase
 		}
-		go tireLow.Run(ctx)
+		role.start("tire_low", func() { tireLow.Run(ctx) })
 	}
 
 	// Signs the monthly statement email's one-click unsubscribe links.
@@ -3272,7 +3284,7 @@ func runServer() {
 			job.OwnerMode(ownerDiscoveryUsers)
 			ownerDiscoveryJob.Store(job)
 		}
-		startVehicleDiscovery(ctx, logger, appMetrics, job)
+		startVehicleDiscovery(ctx, role, logger, appMetrics, job)
 	}
 	appBuild := api.NewAppBuildCounter()
 	appMetrics.Registry().MustRegister(appBuild.Collector())
@@ -3417,20 +3429,20 @@ func runServer() {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", appMetrics.Handler())
 		msrv := &http.Server{Addr: metricsAddr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-		go func() {
+		role.start("metrics_server", func() {
 			logger.Info("metrics listening", "addr", metricsAddr)
 			if err := msrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				logger.Error("metrics server error", "err", err.Error())
 			}
-		}()
+		})
 		defer func() { _ = msrv.Close() }()
 	}
 
 	errCh := make(chan error, 1)
-	go func() {
+	role.start("http_server", func() {
 		logger.Info("http listening", "addr", *addr)
 		errCh <- srv.ListenAndServe()
-	}()
+	})
 
 	select {
 	case <-ctx.Done():
@@ -3447,7 +3459,7 @@ func runServer() {
 	stop()
 	second := make(chan os.Signal, 1)
 	signal.Notify(second, syscall.SIGINT, syscall.SIGTERM)
-	go exitOnSecondSignal(second, os.Exit, logger)
+	role.start("second_signal", func() { exitOnSecondSignal(second, os.Exit, logger) })
 
 	api.StartDrain() // /readyz fails from here (the preStop hook did it already when it ran)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), httpDrainTimeout)
@@ -3457,7 +3469,7 @@ func runServer() {
 	// ReleaseAll uses a short bounded context;
 	// a Postgres blip just delays acquisition until the TTL.
 	httpDone := make(chan error, 1)
-	go func() { httpDone <- srv.Shutdown(shutdownCtx) }()
+	role.start("http_shutdown", func() { httpDone <- srv.Shutdown(shutdownCtx) })
 	// Write the drives and charges the 10 s throttle left behind first, so the
 	// peer that takes the vehicles over finds current rows.
 	if monitorRegistry != nil {
