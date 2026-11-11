@@ -235,8 +235,8 @@ func TestOwnerRefreshPicksUpASecondTruck(t *testing.T) {
 	now = now.Add(time.Hour + vehiclediscovery.RefreshEvery/8 + time.Minute) // past the longest jitter
 	lookupErr = errors.New("rivian down")
 	tick()
-	if calls != 1 || count() != 1 || seen.get() != "error" {
-		t.Fatalf("failed refresh: %d lookups, %d vehicles, outcomes %q; want 1, 1, error", calls, count(), seen.get())
+	if calls != 1 || count() != 1 || seen.get() != "refresh_error" {
+		t.Fatalf("failed refresh: %d lookups, %d vehicles, outcomes %q; want 1, 1, refresh_error", calls, count(), seen.get())
 	}
 	tick() // retried only after ErrorBackoff
 	if calls != 1 {
@@ -245,8 +245,8 @@ func TestOwnerRefreshPicksUpASecondTruck(t *testing.T) {
 	now = now.Add(vehiclediscovery.ErrorBackoff + time.Minute)
 	lookupErr = nil
 	tick()
-	if calls != 2 || count() != 2 || seen.get() != "error,refreshed" {
-		t.Fatalf("refresh: %d lookups, %d vehicles, outcomes %q; want 2, 2, error,refreshed", calls, count(), seen.get())
+	if calls != 2 || count() != 2 || seen.get() != "refresh_error,refreshed" {
+		t.Fatalf("refresh: %d lookups, %d vehicles, outcomes %q; want 2, 2, refresh_error,refreshed", calls, count(), seen.get())
 	}
 	// The first truck leaves the account: its row stays, nothing is deleted.
 	account = account[1:]

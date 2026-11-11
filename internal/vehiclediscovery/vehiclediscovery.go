@@ -51,6 +51,8 @@ const (
 	OutcomeSkipped     = "skipped"
 	OutcomeNeedsReauth = "needs_reauth"
 	OutcomeRefreshed   = "refreshed" // a user with vehicles: the owner's slow re-read of the account's vehicle list
+	// OutcomeRefreshError is a failed owner re-read (lookup or upsert), kept apart from OutcomeError so discovery failures read on their own.
+	OutcomeRefreshError = "refresh_error"
 )
 
 // Lookup asks Rivian for the user's vehicles with the user's own session (the caller restores it from the secrets store if this pod's client has
@@ -273,7 +275,7 @@ func refreshJitter(uid uuid.UUID) time.Duration {
 	return time.Duration(uint64(uid[0])<<8|uint64(uid[1])) * (RefreshEvery / 8) / 65536
 }
 
-// refresh looks one user's account up and upserts every vehicle it lists. It returns OutcomeRefreshed, OutcomeNeedsReauth or OutcomeError.
+// refresh looks one user's account up and upserts every vehicle it lists. It returns OutcomeRefreshed, OutcomeNeedsReauth or OutcomeRefreshError.
 func (j *Job) refresh(ctx context.Context, uid uuid.UUID) string {
 	lctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	vs, err := j.Lookup(lctx, uid)
@@ -283,7 +285,7 @@ func (j *Job) refresh(ctx context.Context, uid uuid.UUID) string {
 		return OutcomeNeedsReauth // the client flagged the account through its reauth sink
 	case err != nil:
 		j.logger().Warn("vehicle refresh lookup failed", "err", rivian.Describe(err))
-		return OutcomeError
+		return OutcomeRefreshError
 	}
 	failed := false
 	for _, v := range vs {
@@ -299,7 +301,7 @@ func (j *Job) refresh(ctx context.Context, uid uuid.UUID) string {
 		}
 	}
 	if failed {
-		return OutcomeError
+		return OutcomeRefreshError
 	}
 	return OutcomeRefreshed
 }
