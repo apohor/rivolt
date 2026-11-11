@@ -13,6 +13,8 @@ struct PlanMapScreen: View {
     @State private var pickedLeg: RouteSnap.Drawing.LegTag?
     @State private var detent = PlanSheetDetent.half
     @State private var day: Int?
+    /// Bumped by every day chip tap: the map frames that day again, even when it is the day already picked.
+    @State private var reframe = 0
     @State private var showingNetworks = false
     @Environment(\.dynamicTypeSize) private var typeSize
     /// At accessibility text sizes the sheet's header would cover the map, so it is only the title; the rest sits at the top of the sheet's own content.
@@ -76,6 +78,8 @@ struct PlanMapScreen: View {
         // Large text: the map first, the sheet down to its title; the person opens it for the rest.
         .onAppear { if ax { detent = .peek } }
         .onChange(of: day) { pickedLeg = nil }
+        // Another trip's days: it opens on the whole trip, not on the day picked on the last one.
+        .onChange(of: plannedDays) { day = nil }
         .onChange(of: model.plan) { pickedLeg = nil }
         .onChange(of: ax) { _, large in detent = large ? .peek : .half }
         .task { await radar.probe(source: state.client) }
@@ -120,13 +124,15 @@ struct PlanMapScreen: View {
         if leg != nil { model.closeCallout() }
     }
 
+    private var plannedDays: [TripMultiday.Day]? { if case .planned(let trip) = model.night { trip.days } else { nil } }
+
     @ViewBuilder
     private func map(coverHeight: CGFloat) -> some View {
         if case .planned(let trip) = model.night {
             PlanMap(content: .days(.init(days: trip.days, day: day, weatherOn: model.weatherOn)), focus: model.focusedStop,
                     onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
                     onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } },
-                    radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom)
+                    radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom, reframe: reframe)
         } else if let route = model.plan?.best {
             PlanMap(content: .route(.init(route: route, weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil, vias: model.vias,
                                           pendingVias: model.pendingVias, previewLine: model.previewLine)),
@@ -180,7 +186,7 @@ struct PlanMapScreen: View {
     }
 
     private func dayChips(_ trip: TripMultiday) -> some View {
-        PlanDayChips(days: trip.days.map(\.index), day: $day)
+        PlanDayChips(days: trip.days.map(\.index), day: $day) { reframe += 1 }
     }
 
 }
@@ -510,11 +516,13 @@ struct PlanSheetCompactHeader: View {
 struct PlanDayChips: View {
     let days: [Int]
     @Binding var day: Int?
+    /// Any chip tapped, the one already picked too.
+    var onPick: () -> Void = {}
 
     var body: some View {
         FlowLayout(spacing: 8) {
-            chip("Whole trip", on: day == nil) { day = nil }
-            ForEach(days, id: \.self) { d in chip("Day \(d)", on: day == d) { day = d } }
+            chip("Whole trip", on: day == nil) { day = nil; onPick() }
+            ForEach(days, id: \.self) { d in chip("Day \(d)", on: day == d) { day = d; onPick() } }
         }
     }
 
