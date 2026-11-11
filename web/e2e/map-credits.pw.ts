@@ -30,6 +30,8 @@ async function open(page: Page, theme: "dark" | "light") {
 for (const theme of ["dark", "light"] as const) {
   test(`map credits and popup keep their look after the CSS prune @webkit · ${theme}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: theme });
+    // macOS WebKit Tabs only between fields, as Safari does with "Press Tab to highlight each item" off; Alt+Tab reaches buttons (#1839).
+    const tab = process.platform === "darwin" && browser.browserType().name() === "webkit" ? "Alt+Tab" : "Tab";
     const page = await ctx.newPage();
     const map = await open(page, theme);
 
@@ -74,7 +76,7 @@ for (const theme of ["dark", "light"] as const) {
     // Keyboard focus rings the (i)'s box and the zoom buttons in the accent colour, never the browser default.
     await page.mouse.move(box.x + 2, box.y + 2);
     for (let i = 0; i < 40; i++) {
-      await page.keyboard.press("Tab");
+      await page.keyboard.press(tab);
       if (await button.evaluate((el) => el === document.activeElement)) break;
     }
     await expect(button).toBeFocused();
@@ -88,11 +90,11 @@ for (const theme of ["dark", "light"] as const) {
     expect(await button.evaluate((el) => getComputedStyle(el).boxShadow)).toBe("none");
     await map.screenshot({ path: path.join(SHOTS, `map-focus-ring-${theme}.png`) });
     const zoomIn = map.locator(".maplibregl-ctrl-zoom-in");
-    await page.keyboard.press("Shift+Tab");
-    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press(`Shift+${tab}`);
+    await page.keyboard.press(`Shift+${tab}`);
     await zoomIn.focus();
-    await page.keyboard.press("Shift+Tab");
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(`Shift+${tab}`);
+    await page.keyboard.press(tab);
     await expect(zoomIn).toBeFocused();
     // The ring is a 2 px box inside the button (its ::after), drawn above the icon and the neighbouring button.
     expect(await zoomIn.evaluate((el) => { const c = getComputedStyle(el, "::after"); return `${c.borderBottomStyle} ${c.borderBottomWidth}`; })).toBe("solid 2px");
@@ -100,8 +102,8 @@ for (const theme of ["dark", "light"] as const) {
     // the focused button itself, not the next one).
     for (const zoom of [zoomIn, map.locator(".maplibregl-ctrl-zoom-out")]) {
       await zoom.focus();
-      await page.keyboard.press("Shift+Tab");
-      await page.keyboard.press("Tab");
+      await page.keyboard.press(`Shift+${tab}`);
+      await page.keyboard.press(tab);
       await expect(zoom).toBeFocused();
       const hit = await zoom.evaluate((el) => {
         const r = el.getBoundingClientRect();
@@ -113,8 +115,13 @@ for (const theme of ["dark", "light"] as const) {
       expect(await zoom.evaluate((el) => getComputedStyle(el).zIndex)).toBe("1");
       // What is on screen, not only what is hit: the row of pixels just inside the bottom edge (and the top one) is the accent colour across the
       // button's width (the corners are rounded, so the outer 4 px are left out).
-      const accent = await zoom.evaluate((el) => getComputedStyle(el, "::after").borderBottomColor);
-      const m = accent.match(/\d+/g)!.map(Number);
+      // As sRGB bytes, painted on a canvas: macOS WebKit reports the light accent as color(display-p3 …), not rgb(…) (#1839).
+      const m = await zoom.evaluate((el) => {
+        const ctx = document.createElement("canvas").getContext("2d")!;
+        ctx.fillStyle = getComputedStyle(el, "::after").borderBottomColor;
+        ctx.fillRect(0, 0, 1, 1);
+        return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3));
+      });
       const box = (await zoom.boundingBox())!;
       // The second pixel row of the 2 px band on each side (a button on a half pixel blurs the outermost row).
       for (const [edge, y] of [["bottom", box.y + box.height - 2], ["top", box.y + 1]] as const) {
