@@ -959,11 +959,16 @@ func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID, site string) (c
 
 // permitCtx gates a long-lived subscription or a start-up call like rivianCtx, then marks the context with the monitor's permit without the lease
 // deadline: the client reconnects inside it, and a renewed lease must not be cut off by the deadline read now. Not held (or past the deadline) is
-// refused and counted; the caller decides whether to wait (permitCtxWait) or skip.
-func (m *StateMonitor) permitCtx(ctx context.Context, vehicleID, site string) (context.Context, bool) {
-	_, cancel, ok := m.rivianCtx(ctx, vehicleID, site)
-	cancel()
-	if !ok {
+// refused; the caller decides whether to wait (permitCtxWait) or skip. count says whether the refusal is counted: callers that ask again while the
+// group is not ours count the first refusal of the episode only, so the counter counts episodes, not ticks.
+func (m *StateMonitor) permitCtx(ctx context.Context, vehicleID, site string, count bool) (context.Context, bool) {
+	if count {
+		_, cancel, ok := m.rivianCtx(ctx, vehicleID, site)
+		cancel()
+		if !ok {
+			return ctx, false
+		}
+	} else if !m.callAllowed(vehicleID) {
 		return ctx, false
 	}
 	return WithCallPermitGate(ctx, HolderMonitor, func() bool { return m.callAllowed(vehicleID) }), true
@@ -988,12 +993,15 @@ func (m *StateMonitor) callAllowed(vehicleID string) bool {
 	return true
 }
 
-// permitCtxWait is permitCtx that waits a second at a time until the group is ours again, and gives up (false) when ctx ends.
+// permitCtxWait is permitCtx that waits a second at a time until the group is ours again, and gives up (false) when ctx ends. The refusal is
+// counted once, on the first try.
 func (m *StateMonitor) permitCtxWait(ctx context.Context, vehicleID, site string) (context.Context, bool) {
+	count := true
 	for ctx.Err() == nil {
-		if pctx, ok := m.permitCtx(ctx, vehicleID, site); ok {
+		if pctx, ok := m.permitCtx(ctx, vehicleID, site, count); ok {
 			return pctx, true
 		}
+		count = false
 		select {
 		case <-ctx.Done():
 		case <-time.After(time.Second):
@@ -2373,16 +2381,21 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 		return isChargingCS(st.ChargerState)
 	}
 
+	subRefused := false
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
 			want := isCharging()
+			if !want {
+				subRefused = false
+			}
 			if want && !subActive {
-				pctx, ok := m.permitCtx(ctx, vehicleID, CallSiteSubscription)
+				pctx, ok := m.permitCtx(ctx, vehicleID, CallSiteSubscription, !subRefused)
+				subRefused = !ok
 				if !ok {
-					continue // not ours right now: the next tick asks again
+					continue // not ours right now: the next tick asks again (counted on the first refusal only)
 				}
 				subCtx, cancel := context.WithCancel(pctx)
 				subCancel = cancel
