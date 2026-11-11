@@ -5,6 +5,10 @@ import XCTest
 final class ChargeInsightsTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
 
+    // Miles, whatever the simulator holds: the UI tests sign in with an account in km, and the App Group keeps it (#1825).
+    override func setUp() { DisplayUnits.apply(distance: "mi", temperature: nil) }
+    override func tearDown() { DisplayUnits.reset() }
+
     private func charge(maxKw: Double = 142, energy: Double = 20, soc: (Double, Double) = (41, 80), cost: Double = 0, currency: String = "USD",
                         source: String? = nil, derived: Bool? = nil, estimated: Double? = nil, kind: String? = "dcfc", place: String? = nil,
                         network: String? = nil, minutes: Double = 40) throws -> ActivityCharge {
