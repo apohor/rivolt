@@ -66,5 +66,5 @@ func (s *RivianAccountSource) States(ctx context.Context, uids []uuid.UUID) (map
 
 // Session implements rivian.AccountStateSource.
 func (s *RivianAccountSource) Session(ctx context.Context, uid uuid.UUID) (rivian.Session, error) {
-	return LoadRivianSession(ctx, s.store, uid)
+	return LoadRivianSession(WithSite(ctx, "sync"), s.store, uid)
 }

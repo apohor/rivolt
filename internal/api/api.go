@@ -1959,7 +1959,7 @@ func clientFor(d Deps, uid uuid.UUID) rivian.Client {
 					// Detached from the request, so it carries the user explicitly: Secrets is request-side under row-level
 					// security, and a context with no user reads no rows (the self-heal would silently never run).
 					ctx, cancel := context.WithTimeout(auth.WithUser(context.Background(), uid), 3*time.Second)
-					if sess, err := secrets.LoadRivianSession(ctx, d.Secrets, uid); err == nil && sess.UserSessionToken != "" {
+					if sess, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "request_hydrate"), d.Secrets, uid); err == nil && sess.UserSessionToken != "" {
 						a.Restore(sess)
 					}
 					cancel()

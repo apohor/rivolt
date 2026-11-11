@@ -126,6 +126,24 @@ func (r *liveAccountRegistry) lookup(uid uuid.UUID) Account {
 	return c
 }
 
+// UnheldTokens counts the clients that hold a session token for a user whose group held says this pod does not hold (single-owner M4-5). held
+// runs outside the registry lock: it may query the database.
+func (r *liveAccountRegistry) UnheldTokens(held func(uuid.UUID) bool) int {
+	r.mu.RLock()
+	with := make(map[uuid.UUID]*LiveClient, len(r.users))
+	for uid, c := range r.users {
+		with[uid] = c
+	}
+	r.mu.RUnlock()
+	n := 0
+	for uid, c := range with {
+		if c.Authenticated() && !held(uid) {
+			n++
+		}
+	}
+	return n
+}
+
 func (r *liveAccountRegistry) Loaded() []uuid.UUID {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

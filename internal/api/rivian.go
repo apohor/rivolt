@@ -220,7 +220,7 @@ func handleRivianStatus(reg rivian.AccountRegistry, store *secrets.Store, sqlDB 
 		// stored challenge refreshes a local one that a peer's second
 		// password leg may have superseded.
 		if store != nil && !lc.Authenticated() {
-			if sess, err := secrets.LoadRivianSession(r.Context(), store, uid); err == nil && sess.UserSessionToken != "" {
+			if sess, err := secrets.LoadRivianSession(secrets.WithSite(r.Context(), "settings"), store, uid); err == nil && sess.UserSessionToken != "" {
 				lc.Restore(sess)
 			} else if pc, ok := lc.(pendingMFAClient); ok {
 				if p, found := secrets.LoadPendingMFA(r.Context(), store, uid); found {
@@ -423,7 +423,7 @@ func handleRivianLogin(reg rivian.AccountRegistry, store *secrets.Store, monitor
 // Rivian session persisted - i.e. whether a successful sign-in is a
 // re-login rather than their first connect.
 func hasStoredRivianSession(ctx context.Context, store *secrets.Store, uid uuid.UUID) bool {
-	existing, err := secrets.LoadRivianSession(ctx, store, uid)
+	existing, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "settings"), store, uid)
 	return err == nil && existing.UserSessionToken != ""
 }
 
@@ -612,7 +612,7 @@ func handleRivianMFA(reg rivian.AccountRegistry, store *secrets.Store, monitors 
 		// which Rivian's gateway answers with a 500. A stored session
 		// wins even over a locally pending challenge.
 		if store != nil && !lc.Authenticated() {
-			if sess, err := secrets.LoadRivianSession(r.Context(), store, uid); err == nil && sess.UserSessionToken != "" {
+			if sess, err := secrets.LoadRivianSession(secrets.WithSite(r.Context(), "settings"), store, uid); err == nil && sess.UserSessionToken != "" {
 				lc.Restore(sess)
 			}
 		}
@@ -755,7 +755,7 @@ func handleRivianRefreshVehicles(reg rivian.AccountRegistry, store *secrets.Stor
 		// Same cross-pod rehydrate as the status handler: the session
 		// may have been minted on a peer pod.
 		if store != nil && !lc.Authenticated() {
-			if sess, err := secrets.LoadRivianSession(r.Context(), store, uid); err == nil && sess.UserSessionToken != "" {
+			if sess, err := secrets.LoadRivianSession(secrets.WithSite(r.Context(), "settings"), store, uid); err == nil && sess.UserSessionToken != "" {
 				lc.Restore(sess)
 			}
 		}
