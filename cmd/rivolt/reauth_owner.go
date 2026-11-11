@@ -2,11 +2,18 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"log/slog"
 	"os"
 	"strconv"
 
+	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/fence"
+	"github.com/apohor/rivolt/internal/metrics"
+	"github.com/apohor/rivolt/internal/rivian"
 )
 
 // userFencer answers for a user's group (fence.Holder satisfies it).
@@ -71,4 +78,64 @@ func envInt(name string, def int) int {
 		return n
 	}
 	return def
+}
+
+// reauthSinkDeps is what a per-user client's re-auth sink needs. main.go builds every sink from it, and the integration test builds the same one
+// over real Postgres and lease stores, so the test exercises the wiring and not a hand-made context.
+type reauthSinkDeps struct {
+	pool     *sql.DB
+	fencer   userFencer
+	metrics  *metrics.Metrics
+	logger   *slog.Logger
+	synced   func() bool         // an account syncer is installed: the raise is checked against the stored session version
+	onRaised func(reason string) // the raise was a new transition (the one-shot email)
+}
+
+// newReauthSink is the sink for one user's client: the empty reason clears the flag; any other raises it, as the group's owner only once
+// RIVOLT_SINGLE_OWNER is on. A refused raise (this pod does not hold the group) is counted and is not an error.
+func newReauthSink(d reauthSinkDeps, uid uuid.UUID) func(ctx context.Context, reason string) {
+	return func(sinkCtx context.Context, reason string) {
+		// Empty reason is the clear signal (successful Login).
+		if reason == "" {
+			if err := db.SetNeedsReauth(sinkCtx, d.pool, uid, ""); err != nil {
+				d.logger.Warn("clear needs_reauth", "user_id", uid.String(), "err", err.Error())
+			}
+			return
+		}
+		// Only if the session this client failed with is still the stored one: a
+		// pod that has not yet caught up with a sign-in elsewhere must not flag the
+		// user, nor send the email, right after they signed in.
+		var transitioned bool
+		var err error
+		sinkCtx = reauthOwnerCtx(sinkCtx, d.fencer, uid.String()) // M4-3: the raise carries the group's epoch when this pod owns the user
+		if d.synced() {
+			loaded := rivian.SessionVersionFrom(sinkCtx)
+			if loaded.IsZero() {
+				// The client does not know which stored session it holds yet; the
+				// next sync records it and the next rejection raises.
+				d.metrics.ReauthRaiseDeferred.Inc()
+				d.logger.Info("rivian reauth raise deferred: session version unknown", "user_id", uid.String())
+				return
+			}
+			d.metrics.ReauthRaiseAttempts.WithLabelValues(reauthCarries(sinkCtx)).Inc()
+			transitioned, err = db.RaiseNeedsReauthIfCurrent(sinkCtx, d.pool, uid, reason, loaded)
+		} else {
+			// No account sync (no secrets store): there is no stored session to be
+			// stale against.
+			d.metrics.ReauthRaiseAttempts.WithLabelValues(reauthCarries(sinkCtx)).Inc()
+			transitioned, err = db.RaiseNeedsReauth(sinkCtx, d.pool, uid, reason)
+		}
+		if errors.Is(err, db.ErrNotOwner) || errors.Is(err, fence.ErrFenced) {
+			// This pod does not hold the user's group (or has just lost it): its rejection says nothing the owner has not seen. Not a failure.
+			d.metrics.ReauthRaiseRefused.WithLabelValues(reauthRefusedReason(err)).Inc()
+			return
+		}
+		if err != nil {
+			d.logger.Warn("persist needs_reauth", "user_id", uid.String(), "reason", reason, "err", err.Error())
+			return
+		}
+		if transitioned && d.onRaised != nil {
+			d.onRaised(reason)
+		}
+	}
 }
