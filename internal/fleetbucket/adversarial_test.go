@@ -3,6 +3,8 @@ package fleetbucket
 import (
 	"context"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -92,46 +94,112 @@ func TestARedisThatIsDownFailsOpenAtOnce(t *testing.T) {
 	}
 }
 
-// Three pods surge at once with a shared Redis: the fleet starts no more than FleetRPS active calls in any wall-clock second, however the pods' own
-// buckets would let them burst (3 x LocalRPS). Real clock (the budget's seconds are Unix seconds), so it takes about six seconds.
+// Three pods surge at once with a shared Redis: the fleet grants no more than FleetRPS calls (active and idle together, idle at most half) in any
+// second, however the pods' own buckets would let them burst (3 x LocalRPS), and however far apart the pods' clocks are: the budget's seconds are
+// Redis's, so the pods here run 700 ms behind, on time and 700 ms ahead. Real clock, so it takes about eight seconds.
+//
+// Each grant is bucketed twice, both times by the limiter's own clock: by the Redis second the call says granted it (Result.FleetSecond), and by
+// the fleet's per-second grant counters (miniredis keeps the keys: nothing advances its TTLs). Neither is the test's clock, so a goroutine
+// descheduled on a loaded runner cannot look like an over-grant.
 func TestAThreePodSurgeStaysWithinTheFleetBudgetEachSecond(t *testing.T) {
 	if testing.Short() {
-		t.Skip("takes about six seconds of real time")
+		t.Skip("takes about eight seconds of real time")
 	}
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
-	var mu sync.Mutex
-	grants := map[int64]int{}
 	var pods []*Bucket
-	for i := 0; i < 3; i++ {
-		pods = append(pods, New(Config{LocalRPS: 100, FleetRPS: 20, Redis: rdb, Prefix: "t", ActiveMaxWait: time.Minute}))
+	for _, skew := range []time.Duration{-700 * time.Millisecond, 0, 700 * time.Millisecond} {
+		now := func() time.Time { return time.Now().Add(skew) }
+		pods = append(pods, New(Config{LocalRPS: 100, FleetRPS: 20, Redis: rdb, Prefix: "t", Now: now, ActiveMaxWait: time.Minute, IdleMaxWait: time.Minute}))
 	}
+	type count struct{ a, i int }
+	var mu sync.Mutex
+	bySecond := map[int64]count{}
 	var wg sync.WaitGroup
 	for _, b := range pods {
-		for v := 0; v < 40; v++ {
+		for v := 0; v < 50; v++ {
+			active := v < 40 // 40 active and 10 idle per pod
 			wg.Add(1)
 			go func(b *Bucket) {
 				defer wg.Done()
-				r := b.Wait(context.Background(), "dial", "", true)
-				if r.Starved || r.Local {
+				r := b.Wait(context.Background(), "dial", "", active)
+				if r.Starved || r.Local || r.FleetSecond == 0 {
 					t.Errorf("unexpected result %+v", r)
+					return
 				}
 				mu.Lock()
-				grants[time.Now().Unix()]++
+				c := bySecond[r.FleetSecond]
+				if active {
+					c.a++
+				} else {
+					c.i++
+				}
+				bySecond[r.FleetSecond] = c
 				mu.Unlock()
 			}(b)
 		}
 	}
 	wg.Wait()
+	counters := map[int64]count{}
+	for _, k := range mr.Keys() {
+		idx := strings.Index(k, ":{rivian:takeover}:")
+		if idx < 0 {
+			continue
+		}
+		parts := strings.Split(k[idx+len(":{rivian:takeover}:"):], ":")
+		sec, _ := strconv.ParseInt(parts[1], 10, 64)
+		v, _ := mr.Get(k)
+		n, _ := strconv.Atoi(v)
+		c := counters[sec]
+		if parts[0] == "a" {
+			c.a = n
+		} else {
+			c.i = n
+		}
+		counters[sec] = c
+	}
 	total := 0
-	for sec, n := range grants {
-		total += n
-		if n > 20+4 { // a few milliseconds of slack at a second boundary: a grant is recorded just after it is made
-			t.Errorf("second %d: %d active calls started, budget 20", sec, n)
+	for sec, c := range bySecond {
+		total += c.a + c.i
+		if c.a+c.i > 20 || c.i > 10 {
+			t.Errorf("second %d: %d active + %d idle calls granted, budget 20 (idle at most 10)", sec, c.a, c.i)
+		}
+		if counters[sec] != c {
+			t.Errorf("second %d: the calls say %+v were granted, the fleet's counters say %+v", sec, c, counters[sec])
 		}
 	}
-	if total != 120 {
-		t.Errorf("%d calls granted, want 120", total)
+	if len(counters) != len(bySecond) {
+		t.Errorf("the counters cover %d seconds, the calls %d", len(counters), len(bySecond))
+	}
+	if total != 150 {
+		t.Errorf("%d calls granted, want 150", total)
+	}
+}
+
+// A pod whose clock is a second off names the wrong second on its first ask: Redis counts nothing for it and answers with its own time, and the
+// pod asks again for Redis's second at once. The call is granted in Redis's second, not waited a second for, and later calls guess right.
+func TestASkewedPodIsGrantedInRedisSecondAtOnce(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := client(t, mr)
+	clk := newFakeClock(mr)
+	behind := func() time.Time { return clk.Now().Add(-1500 * time.Millisecond) }
+	b := New(Config{LocalRPS: 1000, FleetRPS: 4, Redis: rdb, Prefix: "rivolt", Now: behind, Sleep: clk.Sleep})
+	for i := 0; i < 4; i++ {
+		r := b.Wait(context.Background(), "dial", "", true)
+		if r.Starved || r.Local || r.FleetSecond != clk.Now().Unix() {
+			t.Fatalf("call %d: %+v, want granted in Redis's second %d", i, r, clk.Now().Unix())
+		}
+	}
+	if clk.slept() != 0 {
+		t.Errorf("the skewed pod waited %d times for a second it had room in", clk.slept())
+	}
+	if v, _ := mr.Get(clk.key("a")); v != "4" {
+		t.Errorf("Redis's second counted %q active calls, want 4", v)
+	}
+	for _, k := range mr.Keys() {
+		if k != clk.key("a") {
+			t.Errorf("a counter for another second was written: %s", k)
+		}
 	}
 }
 
@@ -140,7 +208,7 @@ func TestARedisErrorStopsTheNextCallsFromAskingForTheBackoff(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
 	mr.Close()
-	clk := newFakeClock()
+	clk := newFakeClock(mr)
 	b := New(Config{Redis: rdb, Prefix: "t", Now: clk.Now, Sleep: clk.Sleep, RedisBackoff: 10 * time.Second})
 	if r := b.Wait(context.Background(), "x", "", true); !r.Local {
 		t.Fatalf("first call: %+v, want Local", r)
@@ -159,25 +227,27 @@ func TestARedisErrorStopsTheNextCallsFromAskingForTheBackoff(t *testing.T) {
 	}
 }
 
-// Idle calls never take the active calls' room, but active and idle together can exceed FleetRPS: an active call does not read the idle counter.
-// This pins the arithmetic so a change is deliberate: with the budget 20, at most 20 active and 10 idle start in one second (30), not 20.
-func TestActiveAndIdleTogetherCanReachOneAndAHalfTimesTheBudget(t *testing.T) {
+// Active and idle together never pass FleetRPS (G7): with the budget 20, after 10 idle calls (their half) only 10 active ones fit in that second;
+// the next one waits for the following second.
+func TestActiveAndIdleTogetherStayWithinTheBudget(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
-	clk := newFakeClock()
+	clk := newFakeClock(mr)
 	b := New(Config{LocalRPS: 1000, FleetRPS: 20, Redis: rdb, Prefix: "t", Now: clk.Now, Sleep: clk.Sleep, ActiveMaxWait: time.Hour, IdleMaxWait: time.Hour})
-	// Idle first: they fill their half (10) and see 0 active.
 	for i := 0; i < 10; i++ {
 		b.Wait(context.Background(), "dial", "", false)
 	}
 	at := clk.Now().Unix()
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 10; i++ {
 		b.Wait(context.Background(), "dial", "", true)
 	}
 	if clk.Now().Unix() != at {
-		t.Fatalf("the 20 active calls spilled into the next second after 10 idle ones; they should have the whole budget")
+		t.Fatalf("10 active calls after 10 idle ones should still fit in the same second of a budget of 20")
 	}
-	// 30 calls started in one fleet second against a budget of 20.
+	b.Wait(context.Background(), "dial", "", true)
+	if clk.Now().Unix() == at {
+		t.Fatalf("the 21st call in one fleet second started inside it")
+	}
 }
 
 // A caller whose own bound has run out (a long local wait used it up) reaches the Redis call with no time left and gets DeadlineExceeded. That is
@@ -188,7 +258,7 @@ func TestACallersOwnBoundRunningOutDoesNotMarkRedisDown(t *testing.T) {
 	wctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
 	time.Sleep(5 * time.Millisecond)
-	if ok, _ := b.fleetSlot(wctx, true); ok {
+	if ok, _, _ := b.fleetSlot(wctx, true); ok {
 		t.Error("a slot was reported taken with the bound already past")
 	}
 	if b.redisDown() {

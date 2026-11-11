@@ -18,16 +18,19 @@ func client(t *testing.T, mr *miniredis.Miniredis) *redis.Client {
 	return rdb
 }
 
-// fakeClock is the time the budget's seconds are counted in. Sleep does not wait: it moves the clock, so what the bucket does at each second
-// is decided by the test and not by how busy the machine is.
+// fakeClock is the time the budget's seconds are counted in: the pod's clock and, through miniredis's TIME, Redis's. Sleep does not wait: it
+// moves both, so what the bucket does at each second is decided by the test and not by how busy the machine is.
 type fakeClock struct {
 	mu     sync.Mutex
 	t      time.Time
+	mr     *miniredis.Miniredis
 	sleeps []time.Duration
 }
 
-func newFakeClock() *fakeClock {
-	return &fakeClock{t: time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)}
+func newFakeClock(mr *miniredis.Miniredis) *fakeClock {
+	c := &fakeClock{t: time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC), mr: mr}
+	mr.SetTime(c.t)
+	return c
 }
 
 func (c *fakeClock) Now() time.Time {
@@ -42,6 +45,7 @@ func (c *fakeClock) Sleep(ctx context.Context, d time.Duration) {
 	}
 	c.mu.Lock()
 	c.t = c.t.Add(d)
+	c.mr.SetTime(c.t)
 	c.sleeps = append(c.sleeps, d)
 	c.mu.Unlock()
 }
@@ -53,7 +57,7 @@ func (c *fakeClock) slept() int {
 }
 
 func (c *fakeClock) key(kind string) string {
-	return fmt.Sprintf("rivolt:rivian:takeover:%s:%d", kind, c.Now().Unix())
+	return fmt.Sprintf("rivolt:{rivian:takeover}:%s:%d", kind, c.Now().Unix())
 }
 
 // The per-process bucket: after its burst a call waits for a token (a lower bound only: how long a call took is not asserted, a loaded machine
@@ -75,7 +79,7 @@ func TestLocalBucketPacesABurst(t *testing.T) {
 func TestFleetBudgetIsSharedBetweenPods(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
-	clk := newFakeClock()
+	clk := newFakeClock(mr)
 	mk := func() *Bucket {
 		return New(Config{LocalRPS: 1000, FleetRPS: 4, Redis: rdb, Prefix: "rivolt", Now: clk.Now, Sleep: clk.Sleep})
 	}
@@ -98,14 +102,14 @@ func TestFleetBudgetIsSharedBetweenPods(t *testing.T) {
 	}
 }
 
-// Idle calls cannot use up the room active ones need. With the idle counter of this second far over its share, an active call goes through
-// without waiting, and an idle call has to wait for the next second.
+// Idle calls cannot use up the room active ones need. With the idle counter of this second at its share (half the budget), an active call goes
+// through without waiting, and an idle call has to wait for the next second.
 func TestActiveVehiclesAreNotBehindIdleOnes(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
-	clk := newFakeClock()
+	clk := newFakeClock(mr)
 	b := New(Config{LocalRPS: 1000, FleetRPS: 4, Redis: rdb, Prefix: "rivolt", Now: clk.Now, Sleep: clk.Sleep})
-	if err := mr.Set(clk.key("i"), "30"); err != nil { // thirty idle attempts this second
+	if err := mr.Set(clk.key("i"), "2"); err != nil { // two idle calls granted this second: the idle share of a budget of 4
 		t.Fatal(err)
 	}
 	if r := b.Wait(context.Background(), "seed", "", true); r.Starved || clk.slept() != 0 {
@@ -132,7 +136,7 @@ func TestRedisDownFailsOpen(t *testing.T) {
 func TestWaitIsBoundedAndSaysStarved(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
-	clk := newFakeClock()
+	clk := newFakeClock(mr)
 	b := New(Config{LocalRPS: 1000, FleetRPS: 1, Redis: rdb, Prefix: "rivolt", Now: clk.Now,
 		Sleep: func(ctx context.Context, _ time.Duration) { <-ctx.Done() }, ActiveMaxWait: 30 * time.Millisecond})
 	if err := mr.Set(clk.key("a"), "5"); err != nil {
@@ -147,7 +151,7 @@ func TestWaitIsBoundedAndSaysStarved(t *testing.T) {
 func TestSharedKeyCountsOnce(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
-	clk := newFakeClock()
+	clk := newFakeClock(mr)
 	b := New(Config{LocalRPS: 1000, FleetRPS: 1, Redis: rdb, Prefix: "rivolt", Now: clk.Now, Sleep: clk.Sleep})
 	if r := b.Wait(context.Background(), "dial", "sess-1", true); r.Shared {
 		t.Fatal("the first call was shared")
@@ -172,7 +176,7 @@ func TestSharedKeyCountsOnce(t *testing.T) {
 func TestObserveHearsEveryWait(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := client(t, mr)
-	clk := newFakeClock()
+	clk := newFakeClock(mr)
 	type seen struct {
 		class  string
 		active bool
