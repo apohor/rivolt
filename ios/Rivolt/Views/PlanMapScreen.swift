@@ -591,21 +591,31 @@ struct RadarControls: View {
 struct RadarLegend: View {
     let asOf: String
     @Environment(\.dynamicTypeSize) private var typeSize
+    private var words: [String] { RadarLogic.legendWords(accessibilitySize: typeSize.isAccessibilitySize) }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 3) {
-            LinearGradient(colors: [Color(red: 0, green: 0.93, blue: 0.93), Color(red: 0, green: 0.78, blue: 0), Color.yellow, Color(red: 1, green: 0.56, blue: 0), Color.red, Color(red: 1, green: 0, blue: 1)],
-                           startPoint: .leading, endPoint: .trailing)
-                .frame(width: 120, height: 7).clipShape(Capsule()).accessibilityHidden(true)
-            HStack { ForEach(RadarLogic.legendWords, id: \.self) { Text($0); if $0 != "heavy" { Spacer(minLength: 4) } } }
-                .themeText(.caption, color: Theme.textTertiary).frame(width: 120).accessibilityHidden(true)
+            // The words set the width and the bar spans them, so a word never breaks ("moder/ate" in equal columns, ios-v0.2.65). At the
+            // accessibility sizes only the two ends are named.
+            VStack(spacing: 3) {
+                LinearGradient(colors: [Color(red: 0, green: 0.93, blue: 0.93), Color(red: 0, green: 0.78, blue: 0), Color.yellow, Color(red: 1, green: 0.56, blue: 0), Color.red, Color(red: 1, green: 0, blue: 1)],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(minWidth: 120, maxWidth: .infinity).frame(height: 7).clipShape(Capsule()).accessibilityHidden(true)
+                HStack(spacing: 10) {
+                    ForEach(words, id: \.self) { word in
+                        if word != words.first { Spacer(minLength: 0) }
+                        Text(word).lineLimit(1).fixedSize()
+                    }
+                }
+                .themeText(.caption, color: Theme.textTertiary).accessibilityHidden(true)
+            }
+            .fixedSize()
             Text(asOf).themeText(.caption, color: Theme.textSecondary).lineLimit(2).multilineTextAlignment(.trailing)
-            Text(RadarLogic.credit).themeText(.caption, color: Theme.textTertiary)
         }
         .padding(8)
         .background(Theme.card.opacity(0.92), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Radar legend, light to heavy. \(asOf). \(RadarLogic.credit). \(RadarLogic.kindLine)")
+        .accessibilityLabel("Radar legend, light to heavy. \(asOf). \(RadarLogic.kindLine)")
     }
 }

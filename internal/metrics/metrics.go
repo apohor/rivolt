@@ -116,6 +116,9 @@ type Metrics struct {
 	// a subscription behind it (the coordinator re-subscribes; alert on
 	// any increase).
 	LeaseUnstreamed prometheus.Counter
+	// LeaseUnstreamedVehicles is how many vehicles this pod holds a lease for with no subscription running, as of the coordinator's
+	// last check. The alert waits on it staying above 0 for minutes; the counter above marks each episode's start.
+	LeaseUnstreamedVehicles prometheus.Gauge
 	// LeaseSelfFence counts times this pod stopped every subscription because its group lease
 	// renewals failed past the local deadline (a slow or unreachable database).
 	LeaseSelfFence prometheus.Counter
@@ -675,6 +678,12 @@ func New() *Metrics {
 				Help: "Episodes of a Rivian subscription lease held by this pod with no subscription running (re-subscribed by the lease coordinator).",
 			},
 		),
+		LeaseUnstreamedVehicles: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "rivolt_lease_unstreamed_vehicles",
+				Help: "Vehicles this pod holds a subscription lease for with no subscription running, as of the lease coordinator's last check.",
+			},
+		),
 		RivianAccountMismatch: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "rivolt_rivian_account_mismatch",
 			Help: "Loaded Rivian accounts that still disagree with the database after a sync round, by field.",
@@ -1046,6 +1055,7 @@ func New() *Metrics {
 		m.RivianScheduleReadTotal,
 		m.LeaseShed,
 		m.LeaseUnstreamed,
+		m.LeaseUnstreamedVehicles,
 		m.ReauthRaiseDeferred,
 		m.RivianAccountMismatch,
 		m.RivianAccountSyncErrorsTotal,

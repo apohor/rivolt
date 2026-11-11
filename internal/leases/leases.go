@@ -410,6 +410,9 @@ type Coordinator struct {
 	// the check.
 	streaming    func(vehicleID string) bool
 	onUnstreamed func(vehicleID string)
+	// unstreamedGauge, when set, gets the number of vehicles in an episode after every check: the alert waits on it staying above 0,
+	// so a subscription that restarts within a minute (a roll, a restart) does not page.
+	unstreamedGauge func(n int)
 
 	// activity, when set (lead mode), says what a vehicle this pod runs is doing, so a shed never
 	// takes a group with an open drive or charge and prefers a sleeping one, and a vehicle whose
@@ -599,6 +602,11 @@ func (c *Coordinator) SetUnstreamedObserver(fn func(vehicleID string)) {
 	c.onUnstreamed = fn
 }
 
+// SetUnstreamedGauge reports how many vehicles this pod holds without a subscription, after every check. Set before Run.
+func (c *Coordinator) SetUnstreamedGauge(fn func(n int)) {
+	c.unstreamedGauge = fn
+}
+
 // healUnstreamed re-fires onAcquire for every owned vehicle this pod
 // isn't subscribed to (see streaming). Runs after renew/reap, before
 // acquisition, so a vehicle acquired this tick isn't judged before its
@@ -649,7 +657,11 @@ func (c *Coordinator) healUnstreamed() {
 			delete(c.unstreamed, vid)
 		}
 	}
+	n := len(c.unstreamed)
 	c.mu.Unlock()
+	if c.unstreamedGauge != nil {
+		c.unstreamedGauge(n)
+	}
 }
 
 // SetAuthoritative wires the existence source used to reap orphan

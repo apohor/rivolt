@@ -104,8 +104,12 @@ final class RadarTests: XCTestCase {
         let unix = 1_794_271_320
         // (iOS puts a narrow no-break space before PM.)
         let line = RadarLogic.asOf(unix: unix, zone: TimeZone(identifier: "America/Chicago")!, locale: Locale(identifier: "en_US")).replacingOccurrences(of: "\u{202F}", with: " ")
-        XCTAssertEqual(line, "Radar · 6:42 PM")
-        XCTAssertEqual(RadarLogic.credit, "Radar: NOAA/NWS")
+        XCTAssertEqual(line, "NOAA/NWS radar · 6:42 PM")
+    }
+
+    func testTheLegendNamesTheEndsAtAccessibilitySizes() {
+        XCTAssertEqual(RadarLogic.legendWords(accessibilitySize: false), ["light", "moderate", "heavy"])
+        XCTAssertEqual(RadarLogic.legendWords(accessibilitySize: true), ["light", "heavy"])
     }
 
     func testTheRadarLayerSitsUnderTheRouteAndGoesWhenTurnedOff() async throws {
