@@ -50,6 +50,7 @@ const (
 	OutcomeError       = "error"
 	OutcomeSkipped     = "skipped"
 	OutcomeNeedsReauth = "needs_reauth"
+	OutcomeRefreshed   = "refreshed" // a user with vehicles: the owner's slow re-read of the account's vehicle list
 )
 
 // Lookup asks Rivian for the user's vehicles with the user's own session (the caller restores it from the secrets store if this pod's client has
@@ -78,6 +79,17 @@ type Job struct {
 	nudge chan uuid.UUID
 	// lastForced is when each user was last looked up by a sign-in nudge (only the Run goroutine touches it).
 	lastForced map[uuid.UUID]time.Time
+	// refreshAt is when each owned user with vehicles is next re-read (only the Run goroutine, or a test's OwnerTick, touches it).
+	refreshAt map[uuid.UUID]time.Time
+	// Now is the clock of the refresh schedule (tests); nil is time.Now.
+	Now func() time.Time
+}
+
+func (j *Job) now() time.Time {
+	if j.Now != nil {
+		return j.Now()
+	}
+	return time.Now()
 }
 
 // OwnerMode switches the job to owner mode with users as the pod's own users and creates the nudge queue. Call it before Run and before the job
@@ -97,6 +109,13 @@ type OwnedUser struct {
 	UID   uuid.UUID
 	Token fence.Token
 }
+
+// RefreshEvery is how often the owner re-reads the vehicle list of a user who already has vehicles, so a second truck added to the Rivian account
+// (or a changed name or trim) reaches the rows without /api/vehicles asking Rivian. The first look is RefreshEvery (plus up to an eighth of it, per user)
+// after this pod first owns the user: a pod that has just taken a group has just started its subscriptions, and the monitor's own refresh at
+// subscription start covers that moment. A failed refresh is tried again after ErrorBackoff. A truck that left the account keeps its row, as it did
+// when /api/vehicles upserted the list on each call.
+const RefreshEvery = 24 * time.Hour
 
 // OwnerInterval is how often the owner job looks for users that are due; each user's own next_check_at decides whether they are looked up.
 const OwnerInterval = 5 * time.Minute
@@ -194,7 +213,95 @@ func (j *Job) ownerPass(ctx context.Context) error {
 		}
 		j.observe(j.one(withToken(ctx, tok[uid]), uid))
 	}
+	return j.refreshPass(ctx, ids, tok)
+}
+
+// refreshPass re-reads the vehicle list of the owned users who have vehicles and are due, at most perTick a pass. Nothing is recorded in
+// vehicle_discovery: a user with vehicles is not "looking".
+func (j *Job) refreshPass(ctx context.Context, ids []uuid.UUID, tok map[uuid.UUID]fence.Token) error {
+	have, err := db.ListLinkedUsersWithVehiclesAmong(ctx, j.DB, ids)
+	if err != nil {
+		return err
+	}
+	now := j.now()
+	if j.refreshAt == nil {
+		j.refreshAt = map[uuid.UUID]time.Time{}
+	}
+	keep := make(map[uuid.UUID]bool, len(have))
+	var due []uuid.UUID
+	for _, uid := range have {
+		keep[uid] = true
+		at, ok := j.refreshAt[uid]
+		if !ok {
+			j.refreshAt[uid] = now.Add(RefreshEvery + refreshJitter(uid))
+			continue
+		}
+		if !at.After(now) && len(due) < perTick {
+			due = append(due, uid)
+		}
+	}
+	for uid := range j.refreshAt { // a user this pod no longer owns starts the wait again if it takes them back
+		if !keep[uid] {
+			delete(j.refreshAt, uid)
+		}
+	}
+	for uid, at := range j.lastForced { // the sign-in limit only matters for ForceEvery
+		if time.Since(at) >= ForceEvery {
+			delete(j.lastForced, uid)
+		}
+	}
+	for i, uid := range due {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if i > 0 {
+			j.sleep(ctx, Pace)
+		}
+		outcome := j.refresh(withToken(ctx, tok[uid]), uid)
+		next := RefreshEvery + refreshJitter(uid)
+		if outcome != OutcomeRefreshed {
+			next = ErrorBackoff
+		}
+		j.refreshAt[uid] = j.now().Add(next)
+		j.observe(outcome)
+	}
 	return nil
+}
+
+// refreshJitter spreads the users over the first eighth of RefreshEvery, the same for a user each time.
+func refreshJitter(uid uuid.UUID) time.Duration {
+	return time.Duration(uint64(uid[0])<<8|uint64(uid[1])) * (RefreshEvery / 8) / 65536
+}
+
+// refresh looks one user's account up and upserts every vehicle it lists. It returns OutcomeRefreshed, OutcomeNeedsReauth or OutcomeError.
+func (j *Job) refresh(ctx context.Context, uid uuid.UUID) string {
+	lctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	vs, err := j.Lookup(lctx, uid)
+	cancel()
+	switch {
+	case errors.Is(err, rivian.ErrNeedsReauth), rivian.IsUpstream(err, rivian.ClassUserAction):
+		return OutcomeNeedsReauth // the client flagged the account through its reauth sink
+	case err != nil:
+		j.logger().Warn("vehicle refresh lookup failed", "err", rivian.Describe(err))
+		return OutcomeError
+	}
+	failed := false
+	for _, v := range vs {
+		if v.ID == "" {
+			continue
+		}
+		if uerr := db.UpsertVehicleFromSync(ctx, j.DB, uid, db.VehicleSync{
+			RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear,
+			Trim: v.TrimID, PackKWh: v.PackKWh, ImageURL: v.ImageURL, Info: v.StoredInfo(),
+		}); uerr != nil {
+			j.logger().Warn("vehicle refresh upsert failed", "err", uerr.Error())
+			failed = true
+		}
+	}
+	if failed {
+		return OutcomeError
+	}
+	return OutcomeRefreshed
 }
 
 // signedIn is a sign-in nudge: if this pod owns the user and at most one such lookup ran in the last ForceEvery, the stored 'none' or 'error'

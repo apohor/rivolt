@@ -107,3 +107,37 @@ func ListLinkedUsersWithoutVehiclesAmong(ctx context.Context, d *sql.DB, among [
 	}
 	return out, rows.Err()
 }
+
+// ListLinkedUsersWithVehiclesAmong returns, of among (the users of the groups this pod owns), the ones with a stored Rivian session, not flagged for
+// sign-in again, and at least one real vehicle row: the users whose account the owner refreshes on a slow cadence, so a second truck added to the
+// Rivian account is picked up without a request-path Rivian call.
+func ListLinkedUsersWithVehiclesAmong(ctx context.Context, d *sql.DB, among []uuid.UUID) ([]uuid.UUID, error) {
+	if d == nil || len(among) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, len(among))
+	for i, u := range among {
+		ids[i] = u.String()
+	}
+	rows, err := d.QueryContext(ctx, `
+		SELECT u.id FROM users u
+		 WHERE u.id = ANY($1::uuid[])
+		   AND EXISTS (SELECT 1 FROM user_secrets s WHERE s.user_id = u.id AND s.name = 'rivian.session')
+		   AND NOT u.needs_reauth
+		   AND EXISTS (SELECT 1 FROM vehicles v
+		                WHERE v.user_id = u.id AND v.rivian_vehicle_id <> '' AND v.rivian_vehicle_id NOT LIKE 'electrafi-%')
+		 ORDER BY u.created_at, u.id`, "{"+strings.Join(ids, ",")+"}")
+	if err != nil {
+		return nil, fmt.Errorf("list linked users with vehicles among: %w", err)
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}

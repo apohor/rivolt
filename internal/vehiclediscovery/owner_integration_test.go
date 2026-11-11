@@ -189,3 +189,70 @@ func TestSignInLooksUpAgainDespiteNone(t *testing.T) {
 		t.Error("a second sign-in inside ForceEvery looked up again")
 	}
 }
+
+// A user with one synced vehicle gains a second on the Rivian account: the owner's slow refresh stores it (no request-path Rivian call), only after
+// RefreshEvery, a failed refresh is retried after ErrorBackoff, and a truck that left the account keeps its row, as it did on /api/vehicles.
+func TestOwnerRefreshPicksUpASecondTruck(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool := open(ctx, t)
+	u := linked(ctx, t, pool, "own-refresh")
+	first, second := "rv-r1-"+uuid.NewString()[:8], "rv-r2-"+uuid.NewString()[:8]
+	if err := db.UpsertVehicleFromSync(ctx, pool, u, db.VehicleSync{RivianID: first, Model: "R1T", Name: "One"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	account := []rivian.Vehicle{{ID: first, Model: "R1T", Name: "One"}}
+	var calls int
+	var lookupErr error
+	var seen outcomes
+	job := &vehiclediscovery.Job{DB: pool, Observe: seen.add, Sleep: func(context.Context, time.Duration) {}, Now: func() time.Time { return now },
+		Users: func(context.Context) ([]vehiclediscovery.OwnedUser, error) { return owned(u), nil },
+		Lookup: func(context.Context, uuid.UUID) ([]rivian.Vehicle, error) {
+			calls++
+			return account, lookupErr
+		}}
+	count := func() (n int) {
+		if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id IN ($2, $3)`, u, first, second).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	tick := func() {
+		t.Helper()
+		if err := job.OwnerTick(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	account = append(account, rivian.Vehicle{ID: second, Model: "R1S", Name: "Two"})
+	tick() // first sight of the user: the wait starts, nothing is asked
+	now = now.Add(vehiclediscovery.RefreshEvery - time.Hour)
+	tick()
+	if calls != 0 || count() != 1 {
+		t.Fatalf("before RefreshEvery: %d lookups, %d vehicles; want 0 and 1", calls, count())
+	}
+	now = now.Add(time.Hour + vehiclediscovery.RefreshEvery/8 + time.Minute) // past the longest jitter
+	lookupErr = errors.New("rivian down")
+	tick()
+	if calls != 1 || count() != 1 || seen.get() != "error" {
+		t.Fatalf("failed refresh: %d lookups, %d vehicles, outcomes %q; want 1, 1, error", calls, count(), seen.get())
+	}
+	tick() // retried only after ErrorBackoff
+	if calls != 1 {
+		t.Fatalf("a failed refresh was retried at once (%d lookups)", calls)
+	}
+	now = now.Add(vehiclediscovery.ErrorBackoff + time.Minute)
+	lookupErr = nil
+	tick()
+	if calls != 2 || count() != 2 || seen.get() != "error,refreshed" {
+		t.Fatalf("refresh: %d lookups, %d vehicles, outcomes %q; want 2, 2, error,refreshed", calls, count(), seen.get())
+	}
+	// The first truck leaves the account: its row stays, nothing is deleted.
+	account = account[1:]
+	now = now.Add(vehiclediscovery.RefreshEvery + vehiclediscovery.RefreshEvery/8 + time.Minute)
+	tick()
+	if calls != 3 || count() != 2 {
+		t.Fatalf("after a truck left: %d lookups, %d vehicles; want 3 and 2", calls, count())
+	}
+}

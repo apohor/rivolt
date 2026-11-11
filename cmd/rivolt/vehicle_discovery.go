@@ -24,7 +24,7 @@ var ownerDiscoveryJob atomic.Pointer[vehiclediscovery.Job]
 // only one pod's pass does anything. It finds the linked users nobody records (a stored Rivian session, no vehicle row, so no group, no lease
 // and no owner) and primes their vehicles with one lookup each. Single-owner M3-6.
 func startVehicleDiscovery(ctx context.Context, logger *slog.Logger, appMetrics *metrics.Metrics, job *vehiclediscovery.Job) {
-	for _, o := range []string{vehiclediscovery.OutcomeStored, vehiclediscovery.OutcomeEmpty, vehiclediscovery.OutcomeError, vehiclediscovery.OutcomeSkipped, vehiclediscovery.OutcomeNeedsReauth} {
+	for _, o := range []string{vehiclediscovery.OutcomeStored, vehiclediscovery.OutcomeEmpty, vehiclediscovery.OutcomeError, vehiclediscovery.OutcomeSkipped, vehiclediscovery.OutcomeNeedsReauth, vehiclediscovery.OutcomeRefreshed} {
 		appMetrics.VehicleDiscoveryTotal.WithLabelValues(o).Add(0)
 	}
 	job.Observe = func(outcome string) { appMetrics.VehicleDiscoveryTotal.WithLabelValues(outcome).Inc() }
@@ -40,6 +40,15 @@ func ownerDiscoveryEnvError(getenv func(string) string) error {
 		if getenv(v) != "1" {
 			return fmt.Errorf("RIVOLT_OWNER_DISCOVERY=1 needs %s=1; refusing to start", v)
 		}
+	}
+	return nil
+}
+
+// permitEnforceEnvError is the boot check for RIVOLT_RIVIAN_PERMIT=enforce: /api/vehicles asks Rivian itself (getUserInfo) unless the owner's discovery
+// and refresh do, so with enforce and no RIVOLT_OWNER_DISCOVERY=1 the app's first call would be refused and no truck would be found or refreshed.
+func permitEnforceEnvError(getenv func(string) string) error {
+	if rivian.ParsePermitMode(getenv("RIVOLT_RIVIAN_PERMIT")) == rivian.PermitEnforce && getenv("RIVOLT_OWNER_DISCOVERY") != "1" {
+		return errors.New("RIVOLT_RIVIAN_PERMIT=enforce needs RIVOLT_OWNER_DISCOVERY=1; refusing to start")
 	}
 	return nil
 }
