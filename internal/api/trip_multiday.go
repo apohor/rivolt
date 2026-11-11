@@ -188,7 +188,9 @@ type tripPlanMultidayDay struct {
 	// EndTZ is the IANA zone where this day ends (an overnight can be in another zone than the start), for the day's arrival time.
 	EndTZ             string                    `json:"end_tz,omitempty"`
 	WeatherAdjustment *tripWeatherAdjustmentDTO `json:"weather_adjustment,omitempty"`
-	Costs             []tripadvice.CostEstimate `json:"costs,omitempty"`
+	// ElevationProfile is that day's own terrain profile, same rules as on the single-day response.
+	ElevationProfile *elevationProfileDTO      `json:"elevation_profile,omitempty"`
+	Costs            []tripadvice.CostEstimate `json:"costs,omitempty"`
 }
 
 // handleTripPlanMultiday wraps the tripmultiday orchestrator.
@@ -395,7 +397,7 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 				vias = append(vias, rivian.ViaPoint{Lat: v.Latitude, Lon: v.Longitude, EntityID: v.EntityID})
 			}
 			day.Day.Plan = withGeometry(r.Context(), rivian.LabelStops(d.Plan, vias, d.Overnight != nil), routeOptsOf(req.RoutePreferences.toRivian()))
-			addLegClimb(climbCtx, day.WeatherAdjustment, day.Day.Plan)
+			day.ElevationProfile = addLegClimb(climbCtx, day.WeatherAdjustment, day.Day.Plan)
 			if !farFuture {
 				addLegRadar(radarCtx, day.WeatherAdjustment, day.Day.Plan)
 			}
