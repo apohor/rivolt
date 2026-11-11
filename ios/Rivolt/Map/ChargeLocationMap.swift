@@ -237,7 +237,7 @@ struct ChargeMapView: UIViewRepresentable {
             func point(_ c: CLLocationCoordinate2D, _ role: String, _ label: String? = nil) -> MLNPointFeature {
                 let f = MLNPointFeature()
                 f.coordinate = c
-                f.attributes = label.map { ["role": role, "label": $0] } ?? ["role": role]
+                f.attributes = label.map { ["role": role, "label": MapGlyphs.drawable($0)] } ?? ["role": role]
                 return f
             }
             switch pin {
