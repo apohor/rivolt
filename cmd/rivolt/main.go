@@ -893,6 +893,12 @@ func runServer() {
 			os.Exit(1)
 		}
 	}
+	// Single-owner M4-5: with RIVOLT_NO_STANDING_TOKENS=1 a pod keeps Rivian session tokens only for the groups it holds. It depends on the rest of the
+	// single-owner settings, and a pod without them would lose service quietly, so it does not start.
+	if err := noStandingTokensError(os.Getenv); err != nil {
+		logger.Error(err.Error() + "; refusing to start")
+		os.Exit(1)
+	}
 	// Single-owner M4-1b: the call permit. off (default) checks nothing; observe counts requests to Rivian that carry neither a fence token nor
 	// a holder marker (rivolt_rivian_unpermitted_total); enforce also refuses them.
 	// Single-owner M4-3: a needs_reauth raise is the group owner's alone. Off by default; on, a raise from a pod that does not hold the user's group is refused
@@ -1084,7 +1090,7 @@ func runServer() {
 			logger.Error("rivian endpoint override", "err", gwErr.Error())
 			os.Exit(1)
 		}
-		buildLive := func(uid uuid.UUID) *rivian.LiveClient {
+		buildLiveClient := func(uid uuid.UUID, restore bool) *rivian.LiveClient {
 			lc := rivian.NewLive().WithRivoltVersion(version)
 			if rivianOverride != nil {
 				lc = rivianOverride(lc)
@@ -1156,7 +1162,7 @@ func runServer() {
 			// otherwise start unauthenticated. Both code paths now
 			// converge on the same Restore() so /api/settings/rivian
 			// answers identically from any replica.
-			if secretsStore != nil {
+			if secretsStore != nil && restore {
 				if sess, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "lazy_restore"), secretsStore, boundUID); err != nil {
 					logger.Warn("rivian session load (lazy)",
 						"user_id", boundUID.String(), "err", err.Error())
@@ -1166,7 +1172,21 @@ func runServer() {
 			}
 			return lc
 		}
+		buildLive := func(uid uuid.UUID) *rivian.LiveClient { return buildLiveClient(uid, true) }
 		accountRegistry = rivian.NewLiveAccountRegistry(buildLive)
+		if os.Getenv("RIVOLT_NO_STANDING_TOKENS") == "1" {
+			// Single-owner M4-5. Lead mode is required, so Require goes on before the gate: until the lease store is installed in liveFence
+			// the Holder answers Lost, and groupHold counts only Held and Warming, so the boot window holds no token.
+			liveFence.Require(true)
+			// ForLogin's client restores nothing: it is buildLive without the lazy restore.
+			if g, ok := accountRegistry.(interface {
+				SetNoStandingTokens(func(context.Context, uuid.UUID) (bool, bool), func(uuid.UUID) *rivian.LiveClient)
+			}); ok {
+				g.SetNoStandingTokens(groupHold(&liveFence), func(uid uuid.UUID) *rivian.LiveClient { return buildLiveClient(uid, false) })
+				startTokenRelease(ctx, accountRegistry, logger)
+				logger.Info("RIVOLT_NO_STANDING_TOKENS is on: Rivian session tokens are kept only for the groups this pod holds")
+			}
+		}
 		// Keep every pod's copy of each user's Rivian account in line with the database:
 		// a sign-in, sign-out or needs_reauth change made on one pod reaches the others
 		// within seconds (see rivian.AccountSyncer). Without a database or a secrets store
@@ -1777,6 +1797,10 @@ func runServer() {
 	if os.Getenv("RIVIAN_CLIENT") != "stub" && os.Getenv("RIVIAN_CLIENT") != "mock" {
 		if secretsStore == nil {
 			logger.Info("rivian client: live (no secrets store; login state will not persist)")
+		} else if os.Getenv("RIVOLT_NO_STANDING_TOKENS") == "1" {
+			// Single-owner M4-5: no pod loads every user's session at boot. A group's owner loads its users' sessions when it acquires the
+			// group (the monitor start and the session rehydrator).
+			logger.Info("rivian boot hydrate skipped: RIVOLT_NO_STANDING_TOKENS is on")
 		} else {
 			uids, err := db.ListUsersWithRivianSession(ctx, pgPool)
 			if err != nil {

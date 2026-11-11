@@ -13,6 +13,7 @@ import (
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/rivian"
+	"github.com/apohor/rivolt/internal/secrets"
 )
 
 // Every allowlisted kind has a runner; a kind with none answers 501, and a request that cannot be served answers 400, never an error that would
@@ -202,5 +203,20 @@ func TestForwardRunnerOTANotesGroupGuard(t *testing.T) {
 		if err != nil || res.Status != tc.status {
 			t.Errorf("%s in %s: %d %v, want %d", tc.vehicle, tc.group, res.Status, err, tc.status)
 		}
+	}
+}
+
+type nilAcctRegistry struct{}
+
+func (nilAcctRegistry) For(uuid.UUID) rivian.Account { return nil }
+func (nilAcctRegistry) Loaded() []uuid.UUID          { return nil }
+
+// With RIVOLT_NO_STANDING_TOKENS a pod that does not hold the user's group has no client: an adopt nudge that reaches it is 503 not_owner,
+// answered before the stored session is read.
+func TestForwardRunnerAdoptOnAnUnheldPod(t *testing.T) {
+	r := &forwardRunner{secrets: &secrets.Store{}, accounts: nilAcctRegistry{}, monitors: &rivian.MonitorRegistry{}, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	res, err := r.adopt(context.Background(), uuid.NewString())
+	if err != nil || res.Status != 503 || res.Class != "not_owner" {
+		t.Fatalf("adopt = %+v, %v; want 503 not_owner", res, err)
 	}
 }

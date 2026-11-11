@@ -431,6 +431,10 @@ func handleAdminUserSyncRivian(reg rivian.AccountRegistry, d *sql.DB, log *slog.
 			return
 		}
 		lc := reg.For(target)
+		if lc == nil && rivian.NoStandingTokens(reg) {
+			writeUnheld(w)
+			return
+		}
 		if lc == nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "no rivian client for user"})
 			return
@@ -475,6 +479,10 @@ func handleAdminUserRefreshRivianSession(reg rivian.AccountRegistry, store *secr
 			return
 		}
 		lc := reg.For(target)
+		if lc == nil && rivian.NoStandingTokens(reg) {
+			writeUnheld(w)
+			return
+		}
 		if lc == nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "no rivian client for user"})
 			return
