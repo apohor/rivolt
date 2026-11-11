@@ -341,6 +341,11 @@ func (m *StateMonitor) readChargingSchedules(ctx context.Context, vehicleID stri
 		haversineM(lat, lon, last.lat, last.lon) <= scheduleRadiusM {
 		return scheduleNotRead
 	}
+	ctx, cancel, ok := m.rivianCtx(ctx, vehicleID, CallSiteSchedule)
+	if !ok {
+		return scheduleNotRead
+	}
+	defer cancel()
 	list, err := fetch(ctx, vehicleID)
 	tries := 1
 	// The shared budget is empty for a few seconds after a handover (every vehicle seeds and subscribes

@@ -202,3 +202,51 @@ func TestMonitorCallOutsideTheOwnerGuardIsCountedUnpermitted(t *testing.T) {
 		t.Errorf("a call under the guard's context was counted (%d new)", n.Load()-before)
 	}
 }
+
+// The sleep-gate subtree's calls (the extra subscriptions, the schedule read, the start-up reads) are gated and marked at their own call
+// sites (M4-1c): a held group gives a marked context with no lease deadline (the client reconnects inside it), a lost one gives nothing.
+func TestPermitCtxGatesAndMarksLongLivedCalls(t *testing.T) {
+	marked := func(ctx context.Context) bool { _, ok := ctx.Value(permitKey{}).(string); return ok }
+	m := NewStateMonitor(nil, nil)
+	m.SetFence(deadlineFence{fakeFence{tok: fence.Token{Group: "g", Pod: "p", Epoch: 1}, st: fence.Held}, time.Now().Add(time.Minute), true}, func(string) {})
+	ctx, ok := m.permitCtx(context.Background(), "veh", CallSiteSubscription)
+	if _, has := ctx.Deadline(); !ok || !marked(ctx) || has {
+		t.Errorf("held: ok=%v marked=%v deadline=%v, want an allowed, marked context with no deadline", ok, marked(ctx), has)
+	}
+	m.SetFence(deadlineFence{fakeFence{st: fence.Lost}, time.Now().Add(time.Minute), true}, func(string) {})
+	if ctx, ok := m.permitCtx(context.Background(), "veh", CallSiteSubscription); ok || marked(ctx) {
+		t.Errorf("lost: ok=%v marked=%v, want refused and unmarked", ok, marked(ctx))
+	}
+	wctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, ok := m.permitCtxWait(wctx, "veh", CallSiteSubscription); ok {
+		t.Error("permitCtxWait returned ok for a group that is not ours")
+	}
+}
+
+// The charging-schedule read goes out under the guard's permit: in observe mode it is not counted, and when the group is not ours it is not sent.
+func TestScheduleReadCarriesThePermit(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{}}`)
+	}))
+	defer server.Close()
+	n := withMode(t, PermitObserve)
+	c := NewLive()
+	c.endpoint = server.URL + "/gateway"
+	c.Restore(Session{CSRFToken: "fake-csrf", AppSessionToken: "fake-app", UserSessionToken: "fake-user", AuthenticatedAt: time.Now()})
+	m := NewStateMonitor(c, nil)
+	m.SetFence(deadlineFence{fakeFence{tok: fence.Token{Group: "g", Pod: "p", Epoch: 1}, st: fence.Held}, time.Now().Add(time.Minute), true}, func(string) {})
+	m.readChargingSchedules(context.Background(), "veh", 0)
+	if hits.Load() == 0 || n.Load() != 0 {
+		t.Fatalf("held: sent=%d unpermitted=%d, want the read sent and not counted", hits.Load(), n.Load())
+	}
+	sent := hits.Load()
+	m.SetFence(deadlineFence{fakeFence{st: fence.Lost}, time.Now().Add(time.Minute), true}, func(string) {})
+	m.readChargingSchedules(context.Background(), "veh", 0)
+	if hits.Load() != sent {
+		t.Error("the schedule was read for a group this pod does not hold")
+	}
+}

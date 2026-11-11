@@ -877,10 +877,13 @@ const (
 	CallSiteWakeSafety     = "wake_safety"     // the wake-safety hold check
 	CallSiteWSDial         = "ws_dial"         // the vehicleState subscription's dial and reconnect
 	CallSiteLiveSession    = "live_session"    // the charging-session read
+	CallSiteSubscription   = "subscription"    // the extra WebSocket subscriptions (charging, battery, GNSS, drive dynamics) and their dials
+	CallSiteSchedule       = "schedule"        // the charging-schedule read
+	CallSiteStart          = "start"           // the calls a subscription start makes (supported features, vehicle info)
 )
 
 // CallSites is every site, for the counter's zero-fill.
-var CallSites = []string{CallSiteSeed, CallSiteRefreshOnce, CallSiteJanitorConfirm, CallSiteWakeSafety, CallSiteWSDial, CallSiteLiveSession}
+var CallSites = []string{CallSiteSeed, CallSiteRefreshOnce, CallSiteJanitorConfirm, CallSiteWakeSafety, CallSiteWSDial, CallSiteLiveSession, CallSiteSubscription, CallSiteSchedule, CallSiteStart}
 
 // CallRefusedPrefix marks a Rivian call refused at a site in the onFenced callback's kind ("call:<site>"), so the one callback the
 // registry already carries reports both the fenced-write classes and the refused calls without a second hook.
@@ -952,6 +955,32 @@ func (m *StateMonitor) rivianCtx(ctx context.Context, vehicleID, site string) (c
 		}
 	}
 	return WithCallPermit(ctx, HolderMonitor), noop, true
+}
+
+// permitCtx gates a long-lived subscription or a start-up call like rivianCtx, then marks the context with the monitor's permit without the lease
+// deadline: the client reconnects inside it, and a renewed lease must not be cut off by the deadline read now. Not held (or past the deadline) is
+// refused and counted; the caller decides whether to wait (permitCtxWait) or skip.
+func (m *StateMonitor) permitCtx(ctx context.Context, vehicleID, site string) (context.Context, bool) {
+	_, cancel, ok := m.rivianCtx(ctx, vehicleID, site)
+	cancel()
+	if !ok {
+		return ctx, false
+	}
+	return WithCallPermit(ctx, HolderMonitor), true
+}
+
+// permitCtxWait is permitCtx that waits a second at a time until the group is ours again, and gives up (false) when ctx ends.
+func (m *StateMonitor) permitCtxWait(ctx context.Context, vehicleID, site string) (context.Context, bool) {
+	for ctx.Err() == nil {
+		if pctx, ok := m.permitCtx(ctx, vehicleID, site); ok {
+			return pctx, true
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
+	}
+	return ctx, false
 }
 
 // redisCtx is the context for a live-state write to Redis: with the fence token when this pod holds
@@ -1598,7 +1627,12 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 
 	m.logger.Info("rivian ws subscribe", "vehicle", vehicleID)
 	active := m.takeoverLimiter != nil && m.takeoverActive(ctx, vehicleID)
-	m.refreshVehicleInfoIfStale(ctx)
+	// The calls this start makes (vehicle info, supported features) carry the monitor's permit, set here and only for them.
+	startCtx, ok := m.permitCtxWait(ctx, vehicleID, CallSiteStart)
+	if !ok {
+		return
+	}
+	m.refreshVehicleInfoIfStale(startCtx)
 
 	// Decide whether to run the Parallax GPS subscriber for this
 	// vehicle. Two-layer gate mirroring the app: the RIVOLT_PARALLAX_GPS
@@ -1613,7 +1647,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	eligibleParallaxGPS := false
 	pxStatus := "master_off"
 	if m.parallaxGPS {
-		feats, err := m.supportedFeaturesFor(ctx, vehicleID, active)
+		feats, err := m.supportedFeaturesFor(startCtx, vehicleID, active)
 		if err != nil {
 			pxStatus = "probe_error"
 			if ctx.Err() == nil {
@@ -1773,8 +1807,8 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 		// killed the WS" (= the symptom we want to escalate on) from
 		// "TCP RST / network error" (= retry quietly), since both
 		// surface as `err = context canceled` once cancelSub fires.
-		// The gate just allowed this dial, so this subscription (and only it) carries the monitor's permit. The monitor's other calls (the
-		// extra subscriptions, RefreshVehicleInfo, the schedule read) are not marked, so observe mode counts them (DA, M4-1b).
+		// The gate just allowed this dial, so this subscription carries the monitor's permit. The other calls (the extra subscriptions, the
+		// start-up reads, the schedule read) are gated and marked at their own call sites (CallSiteSubscription, CallSiteStart, CallSiteSchedule).
 		subCtx, cancelSub := context.WithCancelCause(WithCallPermit(ctx, HolderMonitor))
 		// Publish the cancel handle so periodicRefresh can poke us
 		// when REST detects the car just woke up (otherwise we'd
@@ -2327,7 +2361,11 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 		case <-t.C:
 			want := isCharging()
 			if want && !subActive {
-				subCtx, cancel := context.WithCancel(ctx)
+				pctx, ok := m.permitCtx(ctx, vehicleID, CallSiteSubscription)
+				if !ok {
+					continue // not ours right now: the next tick asks again
+				}
+				subCtx, cancel := context.WithCancel(pctx)
 				subCancel = cancel
 				subActive = true
 				m.mu.RLock()
@@ -2407,6 +2445,10 @@ func (m *StateMonitor) chargingSessionSubscriber(ctx context.Context, vehicleID 
 // just while charging — pack temperature is worth recording whenever the
 // vehicle is awake. SubscribeBatteryState handles reconnect/backoff.
 func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID string) {
+	ctx, ok := m.permitCtxWait(ctx, vehicleID, CallSiteSubscription)
+	if !ok {
+		return
+	}
 	err := m.client.SubscribeBatteryState(ctx, vehicleID, func(bt *BatteryTemp) {
 		// bt.Timestamp is a string of uncertain format; skip freshness
 		// (tsMs 0) — a real wake surfaces via gnss / drive-dynamics.
@@ -2485,6 +2527,10 @@ func (m *StateMonitor) batteryStateSubscriber(ctx context.Context, vehicleID str
 // advance m.stamp: that cursor gates the vehicleState WS watchdog, and
 // Parallax keeping it warm would mask a dead vehicleState feed.
 func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID string) {
+	ctx, ok := m.permitCtxWait(ctx, vehicleID, CallSiteSubscription)
+	if !ok {
+		return
+	}
 	err := m.client.SubscribeDynamicsGNSS(ctx, vehicleID, func(g *DynamicsGNSS) {
 		var gnssTs int64
 		if g != nil {
@@ -2557,6 +2603,10 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 // drive-close authority are untouched. Gated on
 // RIVOLT_PARALLAX_DRIVE_DYNAMICS + Parallax connectivity.
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
+	ctx, ok := m.permitCtxWait(ctx, vehicleID, CallSiteSubscription)
+	if !ok {
+		return
+	}
 	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, m.captureTopics(vehicleID), func(f DriveDynamicsFrame) {
 		m.onDriveDynamicsFrame(ctx, vehicleID, f)
 	})
