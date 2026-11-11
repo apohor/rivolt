@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { BottomSheet, dragMovesSheet, settleSnap, snapHeights, stepSnap, type Snap } from "./BottomSheet";
+import { BottomSheet, dragMovesSheet, releaseVelocity, settleSnap, snapHeights, stepSnap, type Snap } from "./BottomSheet";
 
 // jsdom has no PointerEvent: a MouseEvent carries clientX/Y, which the sheet reads. Touch has its own listeners, so these are a mouse.
 class FakePointerEvent extends MouseEvent {
@@ -69,6 +69,19 @@ describe("snap maths", () => {
     expect(dragMovesSheet("full", false, false, 20)).toBe(true); // on the handle or the title
     expect(dragMovesSheet("half", true, false, 20)).toBe(true);
     expect(dragMovesSheet("peek", true, true, -20)).toBe(true);
+  });
+
+  it("the release speed is over the last 80 ms, and nothing after a hold", () => {
+    const fast = [{ y: 700, t: 0 }, { y: 650, t: 16 }, { y: 600, t: 32 }, { y: 550, t: 48 }];
+    expect(releaseVelocity(fast, 50)).toBeCloseTo(150 / 48);
+    // Drag up fast, hold still 300 ms, lift: no flick, so it settles by distance.
+    expect(releaseVelocity(fast, 350)).toBe(0);
+    expect(settleSnap("peek", 150, releaseVelocity(fast, 350), h)).toBe("half");
+    expect(settleSnap("peek", 40, releaseVelocity(fast, 350), h)).toBe("peek");
+    // Only the moves in the window count: a slow start does not water down a fast end.
+    const late = [{ y: 700, t: 0 }, { y: 690, t: 200 }, { y: 640, t: 220 }, { y: 590, t: 240 }];
+    expect(releaseVelocity(late, 245)).toBeCloseTo(100 / 40);
+    expect(releaseVelocity([], 10)).toBe(0);
   });
 
   it("stepSnap stops at the ends", () => {
@@ -197,6 +210,62 @@ describe("BottomSheet", () => {
     fireEvent.pointerUp(handle, { clientX: 100, clientY: 694 });
     expect(region).not.toHaveAttribute("data-dragging");
     expect(region).toHaveAttribute("data-snap", "peek");
+  });
+
+  // jsdom's TouchEvent will not take plain touch points: an Event with them attached is what the sheet's listeners read.
+  const touch = (el: Element, type: string, pts: { x: number; y: number }[], changed = pts) => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    const list = (p: { x: number; y: number }[]) => p.map(({ x, y }) => ({ clientX: x, clientY: y }));
+    Object.defineProperty(e, "touches", { value: type === "touchend" || type === "touchcancel" ? list(pts.slice(0, -1)) : list(pts) });
+    Object.defineProperty(e, "changedTouches", { value: list(changed) });
+    act(() => void el.dispatchEvent(e));
+    return e;
+  };
+
+  it("a finger drag is taken from the page; a second finger settles it, and the handle works again", () => {
+    mockViewport(false);
+    vi.stubGlobal("innerHeight", 844);
+    render(<BottomSheet label="Trip details" peek={<p>Summary</p>}>{body}</BottomSheet>);
+    const region = screen.getByRole("region", { name: "Trip details" });
+    const title = screen.getByText("Summary");
+    touch(title, "touchstart", [{ x: 100, y: 700 }]);
+    expect(touch(title, "touchmove", [{ x: 100, y: 640 }]).defaultPrevented).toBe(true);
+    expect(region).toHaveAttribute("data-dragging", "true");
+    touch(title, "touchstart", [{ x: 100, y: 640 }, { x: 200, y: 500 }]);
+    expect(region).not.toHaveAttribute("data-dragging");
+    expect(region.style.height).not.toBe("210px"); // not stranded at the finger's height
+    fireEvent.click(screen.getByRole("button", { name: /Trip details/ }));
+    expect(region).toHaveAttribute("data-snap", "half");
+  });
+
+  it("a finger in the route chips keeps their sideways swipe: the sheet takes no move inside the slop, nor a sideways one", () => {
+    mockViewport(false);
+    render(
+      <BottomSheet label="Trip details" defaultSnap="half">
+        <div data-sheet-pan-x><button>Route 3</button></div>
+      </BottomSheet>,
+    );
+    const chip = screen.getByRole("button", { name: "Route 3" });
+    touch(chip, "touchstart", [{ x: 200, y: 600 }]);
+    expect(touch(chip, "touchmove", [{ x: 195, y: 602 }]).defaultPrevented).toBe(false);
+    expect(touch(chip, "touchmove", [{ x: 150, y: 604 }]).defaultPrevented).toBe(false);
+    touch(chip, "touchend", [{ x: 150, y: 604 }]);
+    expect(screen.getByRole("region", { name: "Trip details" })).toHaveAttribute("data-snap", "half");
+  });
+
+  it("a keyboard click after a finger drag is not dropped", () => {
+    mockViewport(false);
+    render(<BottomSheet label="Trip details" peek={<p>Summary</p>}>{body}</BottomSheet>);
+    const region = screen.getByRole("region", { name: "Trip details" });
+    const title = screen.getByText("Summary");
+    touch(title, "touchstart", [{ x: 100, y: 700 }]);
+    touch(title, "touchmove", [{ x: 100, y: 500 }]);
+    touch(title, "touchend", [{ x: 100, y: 500 }]);
+    const snap = region.getAttribute("data-snap");
+    expect(snap).not.toBe("peek");
+    // No click follows a moved finger; a keyboard activation (detail 0) next must still work.
+    fireEvent.click(screen.getByRole("button", { name: /Trip details/ }), { detail: 0 });
+    expect(region.getAttribute("data-snap")).not.toBe(snap);
   });
 
   it("a resize keeps the height it is at", () => {

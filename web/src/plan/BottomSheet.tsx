@@ -62,6 +62,18 @@ export function dragMovesSheet(snap: Snap, inBody: boolean, bodyAtTop: boolean, 
   return snap !== "full" || !inBody || (bodyAtTop && raised < 0);
 }
 
+// releaseVelocity is a drag's speed when it is let go (px/ms, up is positive), from its moves in the last VELOCITY_WINDOW ms (single samples are
+// noisy when the browser coalesces moves). A finger that held still before lifting has no speed: a drag, a hold and a release is not a flick.
+export const VELOCITY_WINDOW = 80;
+export const HOLD_MS = 100;
+export function releaseVelocity(samples: readonly { y: number; t: number }[], releaseT: number): number {
+  const last = samples[samples.length - 1];
+  if (!last || releaseT - last.t > HOLD_MS) return 0;
+  const first = samples.find((p) => p.t >= last.t - VELOCITY_WINDOW) ?? last;
+  const dt = last.t - first.t;
+  return dt > 0 ? (first.y - last.y) / dt : 0;
+}
+
 // stepSnap moves one snap up (dir 1) or down (dir -1), stopping at the ends.
 export function stepSnap(s: Snap, dir: 1 | -1): Snap {
   const i = ORDER.indexOf(s) + dir;
@@ -109,7 +121,10 @@ export const SHEET_DESKTOP_QUERY = "(min-width: 1024px)";
 
 const INTERACTIVE = "button, a, input, select, textarea, label, summary, [role='button'], [role='tab'], [role='switch'], [role='radio'], [role='slider']";
 
-type Drag = { x: number; y: number; h: number; from: Snap; inBody: boolean; bodyAtTop: boolean; lastY: number; lastT: number; v: number; mode: "pending" | "sheet" | "off" };
+// A drag that begins in one of these scrolls it sideways when it goes sideways: the sheet does not claim its first moves.
+const PAN_X = "[data-sheet-pan-x]";
+
+type Drag = { x: number; y: number; h: number; from: Snap; inBody: boolean; bodyAtTop: boolean; panX: boolean; samples: { y: number; t: number }[]; mode: "pending" | "sheet" | "off" };
 
 export function BottomSheet({
   label,
@@ -170,7 +185,8 @@ export function BottomSheet({
     const body = bodyRef.current;
     const inBody = !!body && target instanceof Node && body.contains(target);
     dragged.current = false;
-    drag.current = { x, y, h: live.current.heights[live.current.snap], from: live.current.snap, inBody, bodyAtTop: !body || body.scrollTop <= 0, lastY: y, lastT: t, v: 0, mode: "pending" };
+    const panX = target instanceof Element && !!target.closest(PAN_X);
+    drag.current = { x, y, h: live.current.heights[live.current.snap], from: live.current.snap, inBody, bodyAtTop: !body || body.scrollTop <= 0, panX, samples: [{ y, t }], mode: "pending" };
   };
   // Returns whether the sheet took this move (the caller then keeps the page and the details from scrolling).
   const moveTo = (x: number, y: number, t: number): boolean => {
@@ -179,28 +195,29 @@ export function BottomSheet({
     const raised = d.y - y;
     if (d.mode === "pending") {
       const dx = x - d.x;
-      // Within the slop, keep the details from starting a scroll the sheet may yet take (a drag down with them at their top).
-      if (Math.hypot(dx, raised) < DRAG_SLOP) return dragMovesSheet(d.from, d.inBody, d.bodyAtTop, raised);
+      // Within the slop, keep the details from starting a scroll the sheet may yet take (a drag down with them at their top), but not in a sideways
+      // scroller: cancelling its first move would cost it the whole swipe.
+      if (Math.hypot(dx, raised) < DRAG_SLOP) return !d.panX && dragMovesSheet(d.from, d.inBody, d.bodyAtTop, raised);
       d.mode = Math.abs(raised) > Math.abs(dx) && dragMovesSheet(d.from, d.inBody, d.bodyAtTop, raised) ? "sheet" : "off";
       if (d.mode === "off") return false;
     }
-    const dt = t - d.lastT;
-    if (dt > 0) d.v = (d.lastY - y) / dt;
-    d.lastY = y;
-    d.lastT = t;
+    d.samples.push({ y, t });
+    if (d.samples.length > 12) d.samples.shift();
     const h = live.current.heights;
     setDragH(Math.min(h.full, Math.max(h.peek, d.h + raised)));
     return true;
   };
-  const finish = (y: number | null) => {
+  // Ends a drag at y (null: where it last was) at time t (null: no speed, e.g. a second finger landed).
+  const finish = (y: number | null, t: number | null) => {
     const d = drag.current;
     drag.current = null;
+    setDragH(null);
     if (!d || d.mode === "pending") return;
     // A move past the slop, either way, is not a tap: the click a mouse ends it with is dropped.
     dragged.current = true;
     if (d.mode !== "sheet") return;
-    live.current.set(settleSnap(d.from, d.y - (y ?? d.lastY), d.v, live.current.heights));
-    setDragH(null);
+    const last = d.samples[d.samples.length - 1];
+    live.current.set(settleSnap(d.from, d.y - (y ?? last.y), t === null ? 0 : releaseVelocity(d.samples, t), live.current.heights));
   };
 
   // Touch: the browser's own listeners are passive, so these are added by hand (a move the sheet takes must not also scroll the page).
@@ -215,7 +232,8 @@ export function BottomSheet({
     const el = sectionEl;
     if (!el) return;
     const start = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return void (drag.current = null);
+      // A second finger ends the drag where it is (settled, never stranded between heights); a pinch is the browser's.
+      if (e.touches.length !== 1) return finishRef.current(null, null);
       const p = e.touches[0];
       begunRef.current(p.clientX, p.clientY, e.timeStamp, e.target);
     };
@@ -223,16 +241,21 @@ export function BottomSheet({
       const p = e.touches[0];
       if (p && moveRef.current(p.clientX, p.clientY, e.timeStamp) && e.cancelable) e.preventDefault();
     };
-    const end = (e: TouchEvent) => finishRef.current(e.changedTouches[0]?.clientY ?? null);
+    const end = (e: TouchEvent) => {
+      // Lifting one of two fingers is not the end of a drag (there is none by then).
+      if (e.touches.length > 0) return;
+      finishRef.current(e.changedTouches[0]?.clientY ?? null, e.timeStamp);
+    };
     el.addEventListener("touchstart", start, { passive: true });
     el.addEventListener("touchmove", move, { passive: false });
     el.addEventListener("touchend", end);
-    el.addEventListener("touchcancel", end);
+    const cancel = () => finishRef.current(null, null);
+    el.addEventListener("touchcancel", cancel);
     return () => {
       el.removeEventListener("touchstart", start);
       el.removeEventListener("touchmove", move);
       el.removeEventListener("touchend", end);
-      el.removeEventListener("touchcancel", end);
+      el.removeEventListener("touchcancel", cancel);
     };
   }, [sectionEl]);
 
@@ -269,11 +292,12 @@ export function BottomSheet({
   };
   const onUp = (e: PointerEvent<HTMLElement>) => {
     if (e.pointerType === "touch") return;
-    finish(e.clientY);
+    finish(e.clientY, e.timeStamp);
   };
   // A drag that moved the sheet ends in a click on whatever it was let go over: that click is not a tap.
+  // A click with no pointer behind it (detail 0: the keyboard, Switch Control) is never a drag's end.
   const onClickCapture = (e: MouseEvent<HTMLElement>) => {
-    if (!dragged.current) return;
+    if (!dragged.current || e.detail === 0) return;
     dragged.current = false;
     e.preventDefault();
     e.stopPropagation();
@@ -336,7 +360,7 @@ export function BottomSheet({
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
-        onPointerCancel={() => finish(null)}
+        onPointerCancel={() => finish(null, null)}
         onClickCapture={onClickCapture}
       >
         <button
