@@ -28,7 +28,8 @@ func TestMainDrainsHTTPAlongsideTheLeaseRelease(t *testing.T) {
 	if i := idx("api.StartDrain()"); i < 0 {
 		t.Error("api.StartDrain is not called")
 	}
-	if strings.Count(src, "api.StartDrain()") < 2 {
-		t.Error("api.StartDrain must be called both from the preStop drain hook and at SIGTERM")
+	// The preStop hook's drain (drainFunc, wired for every role) and SIGTERM both start it.
+	if strings.Count(src, "drainFunc(api.StartDrain,") < 2 || !strings.Contains(src, "api.StartDrain()") {
+		t.Error("api.StartDrain must be called both from the preStop drain hook (with and without a coordinator) and at SIGTERM")
 	}
 }

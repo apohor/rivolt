@@ -22,6 +22,8 @@ import (
 //   - FORWARD: a request on a pod that does not hold the group is answered by the one that does.
 //   - OWNER_DISCOVERY: vehicle discovery runs on the owner, as a non-owner has no client to run it with.
 //   - ACQUIRE_ON_REQUEST: without it the forwarder falls back to running the request on the pod itself (cmd/rivolt/forward.go), where there is no token.
+//     A pod whose role holds no leases (RIVOLT_ROLE api, jobs) never acquires and never falls back locally (rolePlan.LocalFallback), so there the
+//     ingest pods meet this requirement and it is not checked.
 //
 // Permit enforcement is not required.
 var noStandingTokensRequires = []string{
@@ -38,7 +40,11 @@ func noStandingTokensError(getenv func(string) string) error {
 	if getenv("RIVOLT_NO_STANDING_TOKENS") != "1" {
 		return nil
 	}
+	leaseless := roleLeaseless(getenv)
 	for _, k := range noStandingTokensRequires {
+		if k == "RIVOLT_ACQUIRE_ON_REQUEST" && leaseless {
+			continue
+		}
 		if getenv(k) != "1" {
 			return fmt.Errorf("RIVOLT_NO_STANDING_TOKENS=1 needs %s=1", k)
 		}

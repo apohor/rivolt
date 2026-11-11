@@ -191,6 +191,9 @@ type Deps struct {
 	// must carry a valid Cloudflare Access JWT (Access; nil denies all),
 	// and only the admin surface exists under /api.
 	AdminOnly bool
+	// ProbesOnly is a process role that serves no public routes (RIVOLT_ROLE ingest or jobs): the router has /healthz, /readyz and
+	// /api/health only, and everything else is a bare 404. /metrics is on its own listener in every role.
+	ProbesOnly bool
 	// AdminHealth feeds GET /api/admin/health-summary (nil: every section reads unavailable).
 	AdminHealth *adminhealth.Service
 	// PlanLegs caches live planner calls and caps them per user (nil: neither).
@@ -594,6 +597,12 @@ func New(d Deps) http.Handler {
 	}
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
+	// A process role with no public routes (RIVOLT_ROLE ingest, jobs): the probes and nothing else, not even the web bundle.
+	if d.ProbesOnly {
+		mountProbes(r, d)
+		r.NotFound(http.NotFound)
+		return r
+	}
 	if d.AdminDisabled {
 		r.Use(adminDisabledMW)
 	}
@@ -700,8 +709,7 @@ func New(d Deps) http.Handler {
 	// only fails if the HTTP handler can't run. /readyz pings Postgres
 	// with a tight timeout so a DB outage drops the pod from Service
 	// endpoints without restart-looping the binary.
-	r.Get("/healthz", handleHealthz())
-	r.Get("/readyz", handleReadyz(d.SystemDB)) // system pool: a pre-auth probe of the owner connection
+	mountRootProbes(r, d)
 
 	// Release notes are public and cheap (a cached copy), but limited per IP
 	// like the other unauthenticated reads.

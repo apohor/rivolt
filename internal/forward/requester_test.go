@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -635,5 +636,98 @@ func TestRequesterRefusesBadArgsBeforeSending(t *testing.T) {
 		if _, outcome, err := f.requester(nil).Do(context.Background(), callPlan(mode), l.fn); err != nil || outcome != "ok" || l.n.Load() != 0 {
 			t.Errorf("drive mode %q: outcome=%q local=%d err=%v, want it forwarded and served by the owner", mode, outcome, l.n.Load(), err)
 		}
+	}
+}
+
+// RIVOLT_ROLE api/jobs (NoLocal): every case that falls soft on an all pod is a 503 here, counted no_local. The call never runs on this pod
+// and the acquire is never asked, even with acquire-on-request set.
+func TestRequesterNoLocalNeverRunsHere(t *testing.T) {
+	for name, c := range map[string]struct {
+		setup func(f *fleet)
+		call  forward.Call
+	}{
+		"no owner":               {func(f *fleet) { f.view.SetOwner(group, forward.LeaseOwner{}) }, callFresh},
+		"ready marker missing":   {func(f *fleet) { /* the lease row names pod-a, which runs no loop */ }, callFresh},
+		"redis down":             {func(f *fleet) { f.owner("pod-a", 7, true, nil); f.mr.Close() }, callFresh},
+		"lease read fails":       {func(f *fleet) { f.view.OwnerErr = errors.New("db down") }, callFresh},
+		"the row names this pod": {func(f *fleet) { f.view.SetOwner(group, forward.LeaseOwner{Found: true, Pod: "pod-c", Epoch: 7}) }, callFresh},
+		"moved, no new owner":    {func(f *fleet) { f.owner("pod-a", 7, false, nil) }, callFresh},
+		"moved, row gone":        {func(f *fleet) { f.owner("pod-a", 7, false, nil); f.view.DeleteOwner(group) }, callFresh},
+		"bad args":               {func(f *fleet) { f.owner("pod-a", 7, true, nil) }, callPlan("NOT_A_MODE")},
+	} {
+		for _, acquire := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/acquire=%v", name, acquire), func(t *testing.T) {
+				f := newFleet(t)
+				c.setup(f)
+				var local localCounter
+				fw := f.requester(func(cfg *forward.RequesterConfig) {
+					cfg.NoLocal = true
+					cfg.AcquireOnRequest = acquire
+					cfg.Acquire = func(context.Context, string) (bool, error) {
+						t.Error("acquire asked on a no-local pod")
+						return true, nil
+					}
+				})
+				res, outcome, err := fw.Do(context.Background(), c.call, local.fn)
+				if err != nil || outcome != "no_local" || res.Status != forward.StatusUnavailable || local.n.Load() != 0 {
+					t.Fatalf("outcome=%q res=%+v local=%d err=%v, want no_local, 503, no local run", outcome, res, local.n.Load(), err)
+				}
+				if f.out(c.call.Kind, "no_local") != 1 || f.out(c.call.Kind, "local") != 0 || f.out(c.call.Kind, "acquired") != 0 {
+					t.Errorf("no_local=%v local=%v acquired=%v, want 1, 0, 0", f.out(c.call.Kind, "no_local"), f.out(c.call.Kind, "local"), f.out(c.call.Kind, "acquired"))
+				}
+			})
+		}
+	}
+}
+
+// Busy twice on a no-local pod is a 503 counted no_local, never local_busy.
+func TestRequesterNoLocalBusyIs503(t *testing.T) {
+	f := newFleet(t)
+	f.owner("pod-a", 7, true, nil)
+	release := make(chan struct{})
+	f.runners["pod-a"].Gate = release
+	fw := f.requester(func(cfg *forward.RequesterConfig) { cfg.NoLocal = true })
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); _, _, _ = fw.Do(context.Background(), callFresh, (&localCounter{}).fn) }()
+	}
+	for dl := time.Now().Add(3 * time.Second); len(f.runners["pod-a"].Calls()) < 2 && time.Now().Before(dl); {
+		time.Sleep(5 * time.Millisecond)
+	}
+	var local localCounter
+	res, outcome, _ := fw.Do(context.Background(), callFresh, local.fn)
+	close(release)
+	wg.Wait()
+	if outcome != "no_local" || res.Status != forward.StatusUnavailable || local.n.Load() != 0 {
+		t.Fatalf("outcome=%q res=%+v local=%d, want no_local, 503, no local run", outcome, res, local.n.Load())
+	}
+	if f.out(forward.KindFreshState, "local_busy") != 0 {
+		t.Error("local_busy counted on a no-local pod")
+	}
+}
+
+// A forwardable call on a no-local pod still goes to the owner as usual.
+func TestRequesterNoLocalStillForwards(t *testing.T) {
+	f := newFleet(t)
+	f.owner("pod-a", 7, true, nil)
+	var local localCounter
+	res, outcome, err := f.requester(func(cfg *forward.RequesterConfig) { cfg.NoLocal = true }).Do(context.Background(), callFresh, local.fn)
+	if err != nil || outcome != "ok" || string(res.Body) != `{"served_by":"pod-a"}` || local.n.Load() != 0 {
+		t.Fatalf("outcome=%q res=%+v local=%d err=%v", outcome, res, local.n.Load(), err)
+	}
+}
+
+// NoGroup on a no-local pod tells the handler not to serve the call here and counts no_local.
+func TestNoGroupOnANoLocalPod(t *testing.T) {
+	f := newFleet(t)
+	if f.requester(func(cfg *forward.RequesterConfig) { cfg.NoLocal = true }).NoGroup(forward.KindFreshState) {
+		t.Error("NoGroup let a no-local pod serve the call")
+	}
+	if f.out(forward.KindFreshState, "no_local") != 1 || f.out(forward.KindFreshState, "no_group") != 0 {
+		t.Errorf("no_local=%v no_group=%v, want 1 and 0", f.out(forward.KindFreshState, "no_local"), f.out(forward.KindFreshState, "no_group"))
+	}
+	if !f.requester(nil).NoGroup(forward.KindFreshState) {
+		t.Error("NoGroup refused on an all pod")
 	}
 }

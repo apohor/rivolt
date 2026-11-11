@@ -36,9 +36,13 @@ type planForwarder struct {
 	res     forward.Result
 	calls   int
 	noGroup []forward.Kind
+	refuse  bool // NoGroup says no (a no-local pod: RIVOLT_ROLE api, jobs)
 }
 
-func (f *planForwarder) NoGroup(k forward.Kind) { f.noGroup = append(f.noGroup, k) }
+func (f *planForwarder) NoGroup(k forward.Kind) bool {
+	f.noGroup = append(f.noGroup, k)
+	return !f.refuse
+}
 
 func (f *planForwarder) Do(_ context.Context, _ forward.Call, _ func(context.Context) (forward.Result, error)) (forward.Result, string, error) {
 	f.mu.Lock()
@@ -540,4 +544,24 @@ func startingSoCOf(in []rivian.PlanTripInput) any {
 		return nil
 	}
 	return in[0].StartingSoC
+}
+
+// On a no-local pod (RIVOLT_ROLE api) a plan for a vehicle whose group is unknown is not planned here: 503 with Retry-After 5.
+func TestPlanNoGroupOnANoLocalPodIs503(t *testing.T) {
+	local := 0
+	inner := planFuncAPI(func(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error) {
+		local++
+		return samplePlan(), nil
+	})
+	fw := &planForwarder{refuse: true}
+	sf := &stateForward{fw: fw, user: uuid.New(), groupOf: func(string) (string, bool) { return "", false }}
+	c := plannerClient{Client: rivian.NewStub(), TripPlanner: &forwardPlanner{inner: inner, sf: sf}}
+	rec := httptest.NewRecorder()
+	handleTripPlan(c, nil, nil, uuid.New(), nil, nil, nil, nil)(rec, httptest.NewRequest(http.MethodPost, "/api/trips/plan", bytes.NewBufferString(planBody)))
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "5" {
+		t.Fatalf("status %d Retry-After %q: %s", rec.Code, rec.Header().Get("Retry-After"), rec.Body)
+	}
+	if local != 0 || fw.count() != 0 || len(fw.noGroup) != 1 {
+		t.Errorf("local plans %d, forwards %d, NoGroup %d; want 0, 0, 1", local, fw.count(), len(fw.noGroup))
+	}
 }

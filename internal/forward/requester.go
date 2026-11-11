@@ -44,6 +44,10 @@ type RequesterConfig struct {
 	// AcquireOnRequest (RIVOLT_ACQUIRE_ON_REQUEST) replaces the fail-soft "run it here" with acquire-or-503: the only trigger for an
 	// acquire is a lease row absent or expired; a live lease (owner not ready, Redis down, busy, moved to someone) is a 503, never an acquire.
 	AcquireOnRequest bool
+	// NoLocal (a pod whose role holds no leases: RIVOLT_ROLE api, jobs) never runs a call on this pod and never acquires: every fall-soft
+	// case, and an acquire, is a 503 Retry-After counted `no_local`. Such a pod holds no group, so a call it ran itself would be a
+	// non-owner Rivian call.
+	NoLocal bool
 	// Token returns this pod's fence token for the group, after an acquire (the lease store's view). The call that runs as the new owner carries
 	// it in its context, so the owner guard and the permit see the new epoch. Nil: the context is unchanged.
 	Token func(group string) (fence.Token, bool)
@@ -69,6 +73,9 @@ func NewForwarder(cfg RequesterConfig) (*Forwarder, error) {
 	return &Forwarder{cfg: cfg}, nil
 }
 
+// UnavailableResult is the 503 a handler answers with Retry-After RetryAfterSeconds: the reply of a call nobody could serve.
+func UnavailableResult() Result { return Result{Status: StatusUnavailable, Class: ClassUnavailable} }
+
 // Call is one operation that needs Rivian: the kind, the user and the group it is for, and the kind's args (a value that marshals to
 // the kind's schema).
 type Call struct {
@@ -84,8 +91,16 @@ func (f *Forwarder) count(kind Kind, outcome string) {
 	}
 }
 
-// NoGroup counts a call the handler served on this pod because it could not tell which group the vehicle belongs to (it never reaches Do).
-func (f *Forwarder) NoGroup(kind Kind) { f.count(kind, "no_group") }
+// NoGroup is for a call whose vehicle's group the handler cannot tell (it never reaches Do). It reports whether the handler may serve the
+// call on this pod (counted `no_group`); with NoLocal it may not, and answers 503 Retry-After (counted `no_local`).
+func (f *Forwarder) NoGroup(kind Kind) bool {
+	if f.cfg.NoLocal {
+		f.count(kind, "no_local")
+		return false
+	}
+	f.count(kind, "no_group")
+	return true
+}
 
 func (f *Forwarder) wait(k Kind) time.Duration {
 	if d := f.cfg.Timeouts[k]; d > 0 {
@@ -189,6 +204,10 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 // acquire-on-request (M4-2): acquire the group when its lease is absent or expired (mayAcquire), then run it as the owner (`acquired`);
 // otherwise answer 503 (`unavailable`). A live lease is never taken.
 func (f *Forwarder) fallback(ctx context.Context, c Call, softOutcome string, mayAcquire bool, local func(context.Context) (Result, error)) (Result, string, error) {
+	if f.cfg.NoLocal {
+		f.count(c.Kind, "no_local")
+		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "no_local", nil
+	}
 	if !f.cfg.AcquireOnRequest || f.cfg.Acquire == nil {
 		return f.soft(ctx, c, softOutcome, local)
 	}

@@ -463,6 +463,29 @@ func (s *Store) SetVehicleGroups(vg map[string]string) {
 	s.groupMu.Unlock()
 }
 
+// FollowVehicleGroups keeps the vehicle -> group map current on a pod that leads nothing (a process role that holds no leases, RIVOLT_ROLE
+// api or jobs): the map read of the lead pass, every tick, and no lease row written or renewed. GroupOfVehicle (the forwarder's group lookup)
+// answers from it; Fence still reads Lost for every vehicle, because this store holds no group. A failed read keeps the last map. Runs until
+// ctx ends.
+func (s *Store) FollowVehicleGroups(ctx context.Context, onErr func(error)) {
+	every := s.tickInterval()
+	for {
+		rctx, cancel := context.WithTimeout(ctx, groupRenewTimeout)
+		vg, err := s.GroupVehicles(rctx)
+		cancel()
+		if err == nil {
+			s.SetVehicleGroups(vg)
+		} else if ctx.Err() == nil && onErr != nil {
+			onErr(err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(every):
+		}
+	}
+}
+
 // GroupOfVehicle is the id of the group a vehicle belongs to, as of the last lead pass (the map SetVehicleGroups recorded). A read-only
 // accessor for the forwarder, which needs the group of a vehicle this pod may not hold; ok is false for a vehicle the last pass did not see.
 func (s *Store) GroupOfVehicle(vehicleID string) (string, bool) {
