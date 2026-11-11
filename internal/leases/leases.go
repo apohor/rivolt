@@ -425,6 +425,8 @@ type Coordinator struct {
 	onSelfFence func()
 	// onRenew is told the outcome of every renew attempt (scope "vehicle" or "group"; outcome ok, lost, timeout, error).
 	onRenew func(scope, outcome string)
+	// onLeadPass is told how long each lead-mode pass took in the database (LeadGroups and GroupVehicles), however it ended.
+	onLeadPass func(time.Duration)
 	// fencedThisPass makes one self-fence event count once, whichever path finds it first (reconcile's own deadline check or the
 	// group pass). Reset at the start of each reconcile.
 	fencedThisPass bool
@@ -766,6 +768,12 @@ func renewOutcome(err error, lost bool) string {
 func (c *Coordinator) noteRenew(scope string, err error, lost bool) {
 	if c.onRenew != nil {
 		c.onRenew(scope, renewOutcome(err, lost))
+	}
+}
+
+func (c *Coordinator) noteLeadPass(start time.Time) {
+	if c.onLeadPass != nil {
+		c.onLeadPass(time.Since(start))
 	}
 }
 
@@ -1120,9 +1128,11 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 	}
 	dbctx, dbcancel := context.WithTimeout(ctx, groupRenewTimeout)
 	defer dbcancel()
+	passStart := time.Now()
 	res, err := gl.LeadGroups(dbctx)
 	c.noteRenew("group", err, err == nil && len(res.Lost) > 0)
 	if err != nil {
+		c.noteLeadPass(passStart)
 		c.log.Warn("group lead pass failed", "err", err.Error())
 		if lp, ok := c.store.(interface{ PastLocalDeadline() bool }); ok && lp.PastLocalDeadline() {
 			// The renews have failed for longer than the local deadline: the DB row may expire
@@ -1140,6 +1150,7 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 		return &leadView{vehicleGroup: map[string]string{}, held: map[string]int64{}}
 	}
 	vg, err := gl.GroupVehicles(dbctx)
+	c.noteLeadPass(passStart)
 	if err != nil {
 		c.log.Warn("group vehicles failed", "err", err.Error())
 		return &leadView{vehicleGroup: map[string]string{}, held: res.Held}
@@ -1317,6 +1328,9 @@ func (c *Coordinator) SetSelfFenceObserver(fn func()) { c.onSelfFence = fn }
 // SetRenewObserver wires the callback told every renew attempt's outcome (scope "vehicle" or "group"; ok, lost, timeout, error).
 // Call before Run.
 func (c *Coordinator) SetRenewObserver(fn func(scope, outcome string)) { c.onRenew = fn }
+
+// SetLeadPassObserver wires the callback told the duration of every lead-mode pass's database work (the renew, acquire and vehicle-group reads).
+func (c *Coordinator) SetLeadPassObserver(fn func(time.Duration)) { c.onLeadPass = fn }
 
 // SetGroupObserver wires the metrics for the group leases: held is told the number
 // of groups this pod holds after every pass, dryRun the number of tokens that
