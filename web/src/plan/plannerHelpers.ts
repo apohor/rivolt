@@ -1,4 +1,4 @@
-import { ApiError, type SavedTripInputs, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
+import { ApiError, isReconnecting, type SavedTripInputs, type TripPlanMultidayDay, type TripPlanMultidayResponse } from "../lib/api";
 import { routePrefsWire, type RoutePrefs } from "./routePrefs";
 
 // Selection is what the form actually plans against. lat/lon are
@@ -144,9 +144,28 @@ export function normalizeDriveMode(v: unknown): DriveMode {
   return v === "DISTANCE" ? "DISTANCE" : "EVERYDAY";
 }
 
+// retryOnceAfterReconnect runs a plan once more after the server's Retry-After (at most 10 s) when it said
+// it is reconnecting. Only once: every plan spends the shared planner quota.
+export async function retryOnceAfterReconnect<T>(
+  run: () => Promise<T>,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (!isReconnecting(err)) throw err;
+    await wait(Math.min((err as ApiError).retryAfter ?? 0, 10) * 1000);
+    return run();
+  }
+}
+
 // planErrorCopy turns a failed plan request into one sentence of cause and one
 // of what to do, in plain words.
 export function planErrorCopy(err: unknown): { title: string; detail: string } {
+  // The server that holds this account's Rivian connection did not answer (a 503 that says when to retry): a few seconds, not an outage.
+  if (isReconnecting(err)) {
+    return { title: "Reconnecting to Rivian.", detail: "Nothing is wrong with your trip. Try again in a moment." };
+  }
   if (err instanceof ApiError) {
     // The truck has not reported lately: the server's own sentence says what to do.
     if (err.status === 409 && (err.body as { class?: string } | null)?.class === "no_position") {

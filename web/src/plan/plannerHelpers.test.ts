@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../lib/api";
-import { collectInputs, planErrorCopy } from "./plannerHelpers";
+import { collectInputs, planErrorCopy, retryOnceAfterReconnect } from "./plannerHelpers";
 
 describe("planErrorCopy", () => {
   it("names the wait on a quota error", () => {
@@ -28,6 +28,41 @@ describe("planErrorCopy", () => {
   });
   it("falls back to the planner being unavailable", () => {
     expect(planErrorCopy(new ApiError(502, "bad gateway")).title).toBe("Rivian's planner isn't answering right now.");
+  });
+  it("says reconnecting, not an outage, on a 503 that says when to retry (the vehicle's owner did not answer)", () => {
+    const e = new ApiError(503, { error: "the vehicle's owner did not answer", class: "outage" });
+    e.retryAfter = 5;
+    const c = planErrorCopy(e);
+    expect(c.title).toBe("Reconnecting to Rivian.");
+    expect(c.detail).toContain("Try again in a moment");
+    expect(c.detail).not.toMatch(/Rivian|minutes/);
+  });
+  it("keeps the planner copy for a 503 without Retry-After (a Rivian outage or a pause)", () => {
+    expect(planErrorCopy(new ApiError(503, { error: "outage", class: "outage" })).title).toBe("Rivian's planner isn't answering right now.");
+  });
+});
+
+describe("retryOnceAfterReconnect", () => {
+  const reconnecting = (ra: number) => Object.assign(new ApiError(503, { error: "the vehicle's owner did not answer", class: "outage" }), { retryAfter: ra });
+  it("plans once more after Retry-After and returns that answer", async () => {
+    const waits: number[] = [];
+    let n = 0;
+    const got = await retryOnceAfterReconnect(async () => (n++ === 0 ? Promise.reject(reconnecting(5)) : "plan"), async (ms) => void waits.push(ms));
+    expect(got).toBe("plan");
+    expect(n).toBe(2);
+    expect(waits).toEqual([5_000]);
+  });
+  it("retries only once (a plan spends the shared quota) and caps the wait at 10 s", async () => {
+    const waits: number[] = [];
+    let n = 0;
+    await expect(retryOnceAfterReconnect(async () => { n++; throw reconnecting(60); }, async (ms) => void waits.push(ms))).rejects.toMatchObject({ status: 503 });
+    expect(n).toBe(2);
+    expect(waits).toEqual([10_000]);
+  });
+  it("does not retry other errors", async () => {
+    let n = 0;
+    await expect(retryOnceAfterReconnect(async () => { n++; throw new ApiError(503, "outage"); }, async () => {})).rejects.toBeInstanceOf(ApiError);
+    expect(n).toBe(1);
   });
 });
 
