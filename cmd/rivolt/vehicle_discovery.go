@@ -24,7 +24,7 @@ var ownerDiscoveryJob atomic.Pointer[vehiclediscovery.Job]
 // only one pod's pass does anything. It finds the linked users nobody records (a stored Rivian session, no vehicle row, so no group, no lease
 // and no owner) and primes their vehicles with one lookup each. Single-owner M3-6.
 func startVehicleDiscovery(ctx context.Context, logger *slog.Logger, appMetrics *metrics.Metrics, job *vehiclediscovery.Job) {
-	for _, o := range []string{vehiclediscovery.OutcomeStored, vehiclediscovery.OutcomeEmpty, vehiclediscovery.OutcomeError, vehiclediscovery.OutcomeSkipped, vehiclediscovery.OutcomeNeedsReauth, vehiclediscovery.OutcomeRefreshed} {
+	for _, o := range []string{vehiclediscovery.OutcomeStored, vehiclediscovery.OutcomeEmpty, vehiclediscovery.OutcomeError, vehiclediscovery.OutcomeSkipped, vehiclediscovery.OutcomeNeedsReauth, vehiclediscovery.OutcomeRefreshed, vehiclediscovery.OutcomeRefreshError} {
 		appMetrics.VehicleDiscoveryTotal.WithLabelValues(o).Add(0)
 	}
 	job.Observe = func(outcome string) { appMetrics.VehicleDiscoveryTotal.WithLabelValues(outcome).Inc() }

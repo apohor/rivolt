@@ -828,6 +828,10 @@ func runServer() {
 	// writes to the leases gauge) can both wire in at construction.
 	db.ServerEventObserver = func(event, outcome string) { appMetrics.ServerEventsTotal.WithLabelValues(event, outcome).Inc() }
 	rivian.RecorderWriteFailureObserver = func(kind string) { appMetrics.RecorderWriteFailuresTotal.WithLabelValues(kind).Inc() }
+	// Every kind the recorder reports starts at 0, so a missing series means a broken scrape, not "no failures".
+	for _, kind := range []string{"drive_upsert", "charge_upsert", "stale_drive", "stale_charge"} {
+		appMetrics.RecorderWriteFailuresTotal.WithLabelValues(kind)
+	}
 	rivian.WSFrameDropObserver = appMetrics.WSFramesDroppedTotal.Inc
 	// /metrics is served only on its own listener, never on the public
 	// router: the Ingress routes every path to the main port, so a
