@@ -118,7 +118,23 @@
       }
      ]
     }
-   ]
+   ],
+   "weather_adjustment": {
+    "legs": [
+     {
+      "multiplier": 1.12,
+      "temp_c": 3,
+      "air_temp_c": 3,
+      "headwind_kph": 24
+     },
+     {
+      "multiplier": 1.05,
+      "temp_c": -4,
+      "air_temp_c": -4,
+      "headwind_kph": -16
+     }
+    ]
+   }
   },
   "created_at": "2027-01-12T12:00:00Z",
   "updated_at": "2027-01-12T12:05:00Z"
@@ -220,7 +236,23 @@
          }
         ]
        }
-      ]
+      ],
+      "weather_adjustment": {
+       "legs": [
+        {
+         "multiplier": 1.12,
+         "temp_c": 3,
+         "air_temp_c": 3,
+         "headwind_kph": 24
+        },
+        {
+         "multiplier": 1.05,
+         "temp_c": -4,
+         "air_temp_c": -4,
+         "headwind_kph": -16
+        }
+       ]
+      }
      },
      "depart_at": "2027-01-12T16:00:00Z",
      "arrive_at": "2027-01-12T21:00:00Z",
@@ -351,7 +383,23 @@
          }
         ]
        }
-      ]
+      ],
+      "weather_adjustment": {
+       "legs": [
+        {
+         "multiplier": 1.12,
+         "temp_c": 3,
+         "air_temp_c": 3,
+         "headwind_kph": 24
+        },
+        {
+         "multiplier": 1.05,
+         "temp_c": -4,
+         "air_temp_c": -4,
+         "headwind_kph": -16
+        }
+       ]
+      }
      },
      "depart_at": "2027-01-13T16:00:00Z",
      "arrive_at": "2027-01-13T21:00:00Z",

@@ -257,6 +257,8 @@ struct PlanMapCanvas: View {
     /// fitted above `bottomInset` points that something else (the itinerary sheet) covers.
     var fills = false
     var bottomInset: CGFloat = 0
+    /// What the layer chips over the map's top take: the camera fits below it.
+    var topInset: CGFloat = 0
     /// A long press on the map (only on the full-height map).
     var onLongPress: ((RouteSnap.Coord) -> Void)?
     var onCenter: ((RouteSnap.Coord) -> Void)?
@@ -264,19 +266,35 @@ struct PlanMapCanvas: View {
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
     @State private var health = MapHealth.ok
+    #if DEBUG
+    /// The weather labels the map drew, as elements where they are, on a UI-test launch only (the accessibility tree has the labels' text whether drawn or not).
+    @State private var drawnLegTags: [RouteMapView.DrawnLabel] = []
+    private var reportsDrawnLegTags: Bool { UITestLaunch.directories != nil }
+    #endif
 
     var body: some View {
         ZStack {
             if health == .failed {
                 MapMessage(text: "Map unavailable.")
             } else if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, radar: radar, bottomInset: bottomInset, onStop: onStop, onLegTag: onLegTag.map { cb in { i in if drawing.legTags.indices.contains(i) { cb(drawing.legTags[i]) } } }, onLongPress: onLongPress, onCenter: onCenter)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, radar: radar, bottomInset: bottomInset, topInset: topInset, onStop: onStop, onLegTag: onLegTag.map { cb in { i in if drawing.legTags.indices.contains(i) { cb(drawing.legTags[i]) } } }, onLongPress: onLongPress, onCenter: onCenter, onDrawnLegTags: drawnLegTagsReport)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     // The places drawn along the route (the layer chips' pins), for VoiceOver and for a UI test: nothing is said when there are none.
                     .accessibilityValue(PlanRouteLogic.alongPinsSpoken(drawing.along.count))
                     .overlay(alignment: .bottomTrailing) { MapAttribution() }
                     .overlay { if health == .noTiles { MapUnavailableOverlay() } }
+                    #if DEBUG
+                    .overlay(alignment: .topLeading) {
+                        ForEach(Array(drawnLegTags.enumerated()), id: \.offset) { _, t in
+                            Color.clear.frame(width: 4, height: 4)
+                                .accessibilityElement()
+                                .accessibilityIdentifier("drawn-weather-label")
+                                .accessibilityLabel(t.text)
+                                .offset(x: t.point.x - 2, y: t.point.y - 2)
+                        }
+                    }
+                    #endif
             } else {
                 ProgressView()
             }
@@ -286,6 +304,13 @@ struct PlanMapCanvas: View {
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: fills ? 0 : Theme.radiusCard, style: .continuous))
         .overlay { if !fills { RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1) } }
+    }
+
+    private var drawnLegTagsReport: (([RouteMapView.DrawnLabel]) -> Void)? {
+        #if DEBUG
+        if reportsDrawnLegTags { return { drawnLegTags = $0 } }
+        #endif
+        return nil
     }
 }
 
@@ -340,6 +365,7 @@ struct PlanMap: View {
     var radar: RadarLayer?
     var fills = false
     var bottomInset: CGFloat = 0
+    var topInset: CGFloat = 0
     /// Edit mode of the one-route map (never on the days map): a long press drops a pin, the middle of the map moves a stop.
     var onLongPress: ((RouteSnap.Coord) -> Void)?
     var onCenter: ((RouteSnap.Coord) -> Void)?
@@ -384,7 +410,7 @@ struct PlanMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, onLongPress: onLongPress, onCenter: onCenter)
+        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, topInset: topInset, onLongPress: onLongPress, onCenter: onCenter)
             .onChange(of: day) { reportLine() }
             .task(id: key) { await load() }
             // A stop just added or removed: our own roads line (Valhalla's route through the places with the new set) at once, while the planner works.

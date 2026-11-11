@@ -431,6 +431,8 @@ struct RouteMapView: UIViewRepresentable {
     /// Space at the bottom the camera keeps clear for what is drawn over the map there (the legend card and the credit), from their measured
     /// frames: the route and its pins fit above them, never under.
     var bottomInset: CGFloat = 0
+    /// The same at the top (the planner's layer chips): the route, its pins and its labels fit below it.
+    var topInset: CGFloat = 0
 
     /// The bottom inset for `obstacles` (frames in the map's space) on a map `mapHeight` tall: the tallest of those in the lower half, plus air.
     static func bottomInset(obstacles: [CGRect]?, mapHeight: CGFloat) -> CGFloat {
@@ -446,6 +448,13 @@ struct RouteMapView: UIViewRepresentable {
     var onLongPress: ((RouteSnap.Coord) -> Void)?
     /// The middle of the map each time it moves (the planner's "move a stop" mode, where the stop follows the crosshair).
     var onCenter: ((RouteSnap.Coord) -> Void)?
+    /// The weather labels the map actually drew (not those it left out, or could not draw), each time it comes to rest: for the UI tests.
+    var onDrawnLegTags: (([DrawnLabel]) -> Void)?
+
+    struct DrawnLabel: Equatable {
+        var point: CGPoint
+        var text: String
+    }
 
     static let sourceID = "rivolt-route"
 
@@ -483,9 +492,11 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.onLegTag = onLegTag
         context.coordinator.onLongPress = onLongPress
         context.coordinator.onCenter = onCenter
+        context.coordinator.onDrawnLegTags = onDrawnLegTags
         context.coordinator.setStyle(styleJSON, on: map)
         context.coordinator.setCursor(cursor)
         context.coordinator.setBottomInset(bottomInset, on: map)
+        context.coordinator.setTopInset(topInset, on: map)
         context.coordinator.setMetric(metric, on: map)
         context.coordinator.update(drawing, on: map)
         context.coordinator.setRadar(radar, on: map)
@@ -502,6 +513,7 @@ struct RouteMapView: UIViewRepresentable {
         var onLegTag: ((Int) -> Void)?
         var onLongPress: ((RouteSnap.Coord) -> Void)?
         var onCenter: ((RouteSnap.Coord) -> Void)?
+        var onDrawnLegTags: (([DrawnLabel]) -> Void)?
 
         init(drawing: RouteSnap.Drawing, onHealth: @escaping (MapHealth) -> Void, onDrawn: @escaping () -> Void = {}, onPins: ((Pins) -> Void)? = nil) {
             self.drawing = drawing
@@ -769,6 +781,18 @@ struct RouteMapView: UIViewRepresentable {
 
         override func resized(_ map: MLNMapView) { fit(map) }
 
+        private var drawnLegTags: [DrawnLabel]?
+        override func rendered(_ map: MLNMapView) {
+            guard let onDrawnLegTags else { return }
+            let drawn = map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-legtags"]).compactMap { f -> DrawnLabel? in
+                guard let text = f.attribute(forKey: "t") as? String else { return nil }
+                return DrawnLabel(point: map.convert(f.coordinate, toPointTo: map), text: text)
+            }
+            guard drawn != drawnLegTags else { return }
+            drawnLegTags = drawn
+            DispatchQueue.main.async { onDrawnLegTags(drawn) }
+        }
+
         private var cursorSource: MLNShapeSource?
         private var cursorAt: RouteSnap.Coord?
 
@@ -790,7 +814,7 @@ struct RouteMapView: UIViewRepresentable {
             let all = d.stops + d.along
             guard all.indices.contains(i) else { return }
             let c = CLLocationCoordinate2D(latitude: all[i].coord.lat, longitude: all[i].coord.lon)
-            let seen = map.bounds.inset(by: UIEdgeInsets(top: 60, left: 40, bottom: max(60, bottomInset + 20), right: 40))
+            let seen = map.bounds.inset(by: UIEdgeInsets(top: max(60, topInset + 20), left: 40, bottom: max(60, bottomInset + 20), right: 40))
             if !seen.contains(map.convert(c, toPointTo: map)) { map.setCenter(c, animated: true) }
         }
 
@@ -799,6 +823,13 @@ struct RouteMapView: UIViewRepresentable {
         func setBottomInset(_ inset: CGFloat, on map: MLNMapView) {
             guard abs(inset - bottomInset) >= 1 else { return }
             bottomInset = inset
+            if map.bounds.height > 0, !sources.isEmpty { fit(map) }
+        }
+
+        private var topInset: CGFloat = 0
+        func setTopInset(_ inset: CGFloat, on map: MLNMapView) {
+            guard abs(inset - topInset) >= 1 else { return }
+            topInset = inset
             if map.bounds.height > 0, !sources.isEmpty { fit(map) }
         }
 
@@ -871,7 +902,7 @@ struct RouteMapView: UIViewRepresentable {
                 map.setCenter(coords[0], zoomLevel: 15, animated: animated)
                 return
             }
-            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: 24, left: 24, bottom: max(32, bottomInset), right: 24), animated: animated)
+            map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: UIEdgeInsets(top: max(24, topInset), left: 24, bottom: max(32, bottomInset), right: 24), animated: animated)
         }
     }
 }
@@ -1051,6 +1082,10 @@ class MapLoadWatch: NSObject, MLNMapViewDelegate {
     }
 
     func mapViewDidBecomeIdle(_ map: MLNMapView) { report(state.idle()) }
+
+    /// A frame was drawn (on the fixtures' launch, whose tiles never arrive, the map never comes to rest: this still comes).
+    func mapViewDidFinishRenderingFrame(_ map: MLNMapView, fullyRendered: Bool) { rendered(map) }
+    func rendered(_ map: MLNMapView) {}
 
     private func report(_ h: MapHealth?) {
         guard let h else { return }

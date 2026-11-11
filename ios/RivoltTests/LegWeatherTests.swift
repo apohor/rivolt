@@ -9,6 +9,27 @@ final class LegWeatherTests: XCTestCase {
         TripWeatherLeg(multiplier: multiplier, tempC: temp, airTempC: air, headwindKph: wind, precipMm: precip, snow: snow, climbM: climb, descentM: descent)
     }
 
+    /// The map draws its labels from the glyphs the app ships (asset://Map/glyphs, 256 characters a file): a label with one character from a range that
+    /// is not there is not drawn at all, and none of the weather labels was (the wind arrows are U+2197/U+2199, the minus sign U+2212).
+    func testEveryCharacterOfAMapLabelHasItsGlyphsInTheApp() throws {
+        let legs = [leg(temp: -4, wind: 30), leg(temp: 12, wind: -30, precip: 2), leg(temp: -20, snow: true), leg(temp: 30)]
+        var labels: [String] = [PlanRouteLogic.nightLabel(nil, place: nil)]
+        for l in legs {
+            for (celsius, metric) in [(false, false), (true, true)] {
+                labels += [LegWeather.mapLabel(LegWeather.facts(l, celsius: celsius, metric: metric))].compactMap { $0 }
+            }
+        }
+        XCTAssertTrue(labels.contains { $0.contains("↙") } && labels.contains { $0.contains("↗") } && labels.contains { $0.contains("−") }, "\(labels)")
+        for label in labels {
+            for c in label.unicodeScalars {
+                let start = Int(c.value) / 256 * 256
+                let file = "\(start)-\(start + 255)"
+                XCTAssertNotNil(Bundle.main.url(forResource: file, withExtension: "pbf", subdirectory: "Map/glyphs/Noto Sans Medium"),
+                                "\(label): \(c) (U+\(String(c.value, radix: 16, uppercase: true))) needs Map/glyphs/Noto Sans Medium/\(file).pbf")
+            }
+        }
+    }
+
     func testTemperatureAndAHeadwindInTheAccountsUnits() {
         let f = LegWeather.facts(leg(1.1, temp: 5, wind: 40, precip: 2), celsius: false, metric: false)
         XCTAssertEqual(LegWeather.tags(f), ["41 °F", "25 mph headwind", "rain"])

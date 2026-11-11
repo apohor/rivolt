@@ -19,6 +19,8 @@ struct PlanMapScreen: View {
     private var ax: Bool { typeSize.isAccessibilitySize }
     /// What the sheet's header needs at this text size: the sheet is never shorter (see DetentSheet.height).
     @State private var headerNeed: CGFloat = 0
+    /// How far down the map the layer chips reach (with the overlays' padding): the route and its labels are fitted below them.
+    @State private var chipsBottom: CGFloat = 0
 
     private var metric: Bool { NowFormat.usesMetric }
     /// The Radar button's state lives with the session, so the server is asked once what it has.
@@ -93,6 +95,7 @@ struct PlanMapScreen: View {
     private var overlays: some View {
         VStack(alignment: .leading, spacing: 8) {
             PlanLayerChips(model: model)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chipsBottom = $0 > 0 ? 12 + $0 + 8 : 0 }
             WeatherToggle(model: model)
             // The corner stack under the chips (the Weather button will sit above it): Radar, and its legend when on.
             RadarControls(model: radar) { Task { await radar.toggle(source: state.client) } }
@@ -123,12 +126,12 @@ struct PlanMapScreen: View {
             PlanMap(content: .days(.init(days: trip.days, day: day, weatherOn: model.weatherOn)), focus: model.focusedStop,
                     onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
                     onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } },
-                    radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight)
+                    radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom)
         } else if let route = model.plan?.best {
             PlanMap(content: .route(.init(route: route, weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil, vias: model.vias,
                                           pendingVias: model.pendingVias, previewLine: model.previewLine)),
                     focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
-                    onLine: { line, _ in Task { await model.setRoadLine(line, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight,
+                    onLine: { line, _ in Task { await model.setRoadLine(line, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom,
                     onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
                     onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) })
         }
