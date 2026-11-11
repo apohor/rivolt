@@ -579,7 +579,7 @@ final class MoneyClientTests: XCTestCase {
         do {
             _ = try await client().chargesToConfirm()
             XCTFail("expected the 404")
-        } catch APIError.server(let status, _) {
+        } catch APIError.server(let status, _, _) {
             XCTAssertEqual(status, 404)
         } catch {
             XCTFail("unexpected \(error)")
@@ -599,7 +599,7 @@ final class MoneyClientTests: XCTestCase {
         do {
             _ = try await client().chargesToConfirm()
             XCTFail("expected the 429")
-        } catch APIError.server(let status, _) {
+        } catch APIError.server(let status, _, _) {
             XCTAssertEqual(status, 429)
         } catch {
             XCTFail("unexpected \(error)")

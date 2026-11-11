@@ -147,7 +147,7 @@ final class TripPlanModel {
             along = .shown(try await source.chargersAlong(TripPlanLogic.alongRequest(route, roadLine: roadLine)).chargers)
         } catch {
             if Task.isCancelled { along = .off; return }
-            if case APIError.server(404, _) = error { along = .unavailable } else { along = .failed(TripPlanLogic.failure(error)) }
+            if case APIError.server(404, _, _) = error { along = .unavailable } else { along = .failed(TripPlanLogic.failure(error)) }
         }
     }
 
@@ -190,7 +190,7 @@ final class TripPlanModel {
             vehicleID: vehicleID, origin: start, destination: (destination.latitude, destination.longitude),
             startingSoc: useTruckCharge ? nil : startingSoc, departAt: lastLeave > Date() ? lastLeave : nil, packKwh: packKwh, target: plannedTarget, vias: ordered)
         do {
-            let answer = try await source.planTrip(body)
+            let answer = try await TripPlanLogic.retryOnceAfterReconnect { try await source.planTrip(body) }
             guard answer.best != nil else { updateProblem = "The planner found no route with that stop. The route is unchanged."; return }
             vias = ordered
             if keepOrder { customOrder = true }
@@ -235,8 +235,8 @@ final class TripPlanModel {
                 self?.previewLine = r.geometry.map { DriveRoute.decode($0, precision: 6) } ?? []
             } catch {
                 guard !Task.isCancelled else { return }
-                if case APIError.server(404, _) = error { self?.preview = .unavailable }
-                else if case APIError.server(429, _) = error { self?.preview = .limited }
+                if case APIError.server(404, _, _) = error { self?.preview = .unavailable }
+                else if case APIError.server(429, _, _) = error { self?.preview = .limited }
                 else { self?.preview = .failed }
             }
         }
@@ -372,7 +372,7 @@ final class TripPlanModel {
         } catch {
             guard search == layerSearch else { return }
             if Task.isCancelled { layerState = .idle; return }
-            if case APIError.server(404, _) = error { layerState = .unavailable } else { layerState = .failed(TripPlanLogic.failure(error)) }
+            if case APIError.server(404, _, _) = error { layerState = .unavailable } else { layerState = .failed(TripPlanLogic.failure(error)) }
         }
     }
 
@@ -546,7 +546,7 @@ final class TripPlanModel {
             vehicleID: vehicleID, origin: start, destination: (destination.latitude, destination.longitude),
             startingSoc: useTruckCharge ? nil : startingSoc, departAt: leaveNow ? nil : departAt, packKwh: packKwh, target: plannedTarget)
         do {
-            let plan = try await source.planTrip(body)
+            let plan = try await TripPlanLogic.retryOnceAfterReconnect { try await source.planTrip(body) }
             state = plan.best == nil ? .failed("The planner found no route for that trip.") : .planned(plan)
         } catch {
             if Task.isCancelled { state = .idle; return }
@@ -592,7 +592,7 @@ final class TripPlanModel {
             origin: start, destination: (destination.latitude, destination.longitude), stay: stay, morningCharger: morning,
             target: plannedTarget)
         do {
-            let result = try await source.planMultiday(body)
+            let result = try await TripPlanLogic.retryOnceAfterReconnect { try await source.planMultiday(body) }
             night = result.days.isEmpty ? .failed("The planner found no route for that trip.") : .planned(result)
         } catch {
             if Task.isCancelled { night = .none; return }

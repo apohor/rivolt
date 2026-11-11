@@ -17,7 +17,7 @@ extension APIClient: EssentialSettingsSource {}
 enum EssentialSettingsWords {
     /// What to tell the person when one of these calls failed; never the server's own text.
     static func failure(_ error: Error, restoring: Bool = false) -> String {
-        if case APIError.server(let status, _) = error {
+        if case APIError.server(let status, _, _) = error {
             switch status {
             case 429: return "That's a lot of changes in a minute. Wait a little, then try again."
             case 404: return restoring ? "There's no earlier home to go back to." : "This server can't do that."

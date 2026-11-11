@@ -28,7 +28,7 @@ final class PasskeysModel {
             phase = .loaded(try await source.passkeys())
         } catch {
             if Task.isCancelled { return }
-            if case APIError.server(let status, _) = error, [401, 403, 404].contains(status) {
+            if case APIError.server(let status, _, _) = error, [401, 403, 404].contains(status) {
                 phase = .off
             } else if case .loaded = phase {
                 return // a failed refresh keeps the list shown

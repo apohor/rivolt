@@ -118,7 +118,7 @@ struct SignInFlow {
         let token: AppToken
         do {
             token = try await client.appToken(code: code, verifier: pkce.verifier, deviceName: deviceName)
-        } catch APIError.server(400, _) {
+        } catch APIError.server(400, _, _) {
             // invalid_grant: expired, already used, or not this app's verifier.
             throw SignInError.expired
         }

@@ -48,7 +48,7 @@ final class AppState {
                 }
             case .failure(let error):
                 switch error {
-                case APIError.server(404, _): return .unavailable(.notOnThisServer)
+                case APIError.server(404, _, _): return .unavailable(.notOnThisServer)
                 case APIError.decoding: return .unavailable(.notRivolt)
                 default: return .unknown
                 }
@@ -269,7 +269,7 @@ final class AppState {
         let verdict: AppConfig.Verdict
         do {
             verdict = try await probe.appConfig().verdict(appBuild: Self.appBuild)
-        } catch APIError.server(404, _) {
+        } catch APIError.server(404, _, _) {
             verdict = .noAppSignIn
         } catch APIError.decoding {
             verdict = .notRivolt
@@ -300,7 +300,7 @@ final class AppState {
         let config: AppConfig
         do {
             config = try await client.appConfig()
-        } catch APIError.server(404, _) {
+        } catch APIError.server(404, _, _) {
             throw SignInError.notOnThisServer
         }
         switch config.verdict(appBuild: Self.appBuild) {
@@ -346,7 +346,7 @@ final class AppState {
         guard awaitingDeletion, case .loggedIn = phase else { return }
         do {
             _ = try await client.me()
-        } catch APIError.server(let status, _) where status == 401 {
+        } catch APIError.server(let status, _, _) where status == 401 {
             awaitingDeletion = false
             await forgetSession(notice: "Signed out. If you deleted your account, it is gone.")
         } catch {

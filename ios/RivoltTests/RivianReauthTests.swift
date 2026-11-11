@@ -47,7 +47,7 @@ final class RivianReauthTests: XCTestCase {
         for body in ["unauthorized", #"{"error":"unauthorized"}"#] {
             let failure = await call(401, body)
             let e = try XCTUnwrap(failure)
-            guard case APIError.server(let status, _) = e else { return XCTFail("\(e)") }
+            guard case APIError.server(let status, _, _) = e else { return XCTFail("\(e)") }
             XCTAssertEqual(status, 401)
             XCTAssertEqual(UserFacingError.words(e), "Your sign-in has ended. Sign in again.")
         }
@@ -62,7 +62,7 @@ final class RivianReauthTests: XCTestCase {
     func testOtherClassedAnswersKeepTheirStatus() async throws {
         let failure = await call(429, #"{"error":"slow","class":"rate_limited"}"#)
         let e = try XCTUnwrap(failure)
-        guard case APIError.server(let status, _) = e else { return XCTFail("\(e)") }
+        guard case APIError.server(let status, _, _) = e else { return XCTFail("\(e)") }
         XCTAssertEqual(status, 429)
     }
 }

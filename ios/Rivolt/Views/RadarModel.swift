@@ -40,7 +40,7 @@ final class RadarModel {
         do {
             frame = try await source.radarFrame()
             isOn = true
-        } catch APIError.server(let status, _) where status == 404 || status == 503 {
+        } catch APIError.server(let status, _, _) where status == 404 || status == 503 {
             availability = .unavailable
         } catch {
             // A blip: nothing turned on; the button is still there to tap again.
@@ -74,7 +74,7 @@ final class RadarModel {
             if Task.isCancelled || !isOn { return }
             do {
                 frame = try await source.radarFrame()
-            } catch APIError.server(let status, _) where status == 404 || status == 503 {
+            } catch APIError.server(let status, _, _) where status == 404 || status == 503 {
                 isOn = false
                 availability = .unavailable
                 return

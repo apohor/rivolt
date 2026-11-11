@@ -24,7 +24,7 @@ final class ConnectionDiagnostics {
 
         init(_ error: Error) {
             switch error {
-            case APIError.server(let status, _): self = .http(status)
+            case APIError.server(let status, _, _): self = .http(status)
             case APIError.decoding, is DecodingError: self = .unreadable
             case APIError.badURL, APIError.transport: self = .unreachable
             case let url as URLError:

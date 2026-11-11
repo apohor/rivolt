@@ -29,7 +29,7 @@ final class ActivityModel {
         switch error {
         case APIError.decoding:
             return "Rivolt couldn't read this answer. Updating the app may help."
-        case APIError.server(let status, _) where (500...599).contains(status):
+        case APIError.server(let status, _, _) where (500...599).contains(status):
             return "Rivolt isn't answering right now. Pull to try again."
         case is URLError, APIError.transport:
             return "Couldn't reach Rivolt. Check the connection, then pull to try again."
@@ -43,13 +43,13 @@ final class ActivityModel {
         switch error {
         case let e as URLError: return e.code != .cancelled
         case APIError.transport: return true
-        case APIError.server(let status, _): return (500...599).contains(status) || status == 429
+        case APIError.server(let status, _, _): return (500...599).contains(status) || status == 429
         default: return false
         }
     }
 
     private static func isBusy(_ error: Error) -> Bool {
-        if case APIError.server(let status, _) = error { return status == 429 }
+        if case APIError.server(let status, _, _) = error { return status == 429 }
         return false
     }
 
@@ -107,7 +107,7 @@ final class ActivityModel {
             // Keep what is shown for the same truck and month; anything else would be another month's rows.
             response = cache[key]?.response
             failed = true
-            if case APIError.server(let status, _) = error, status == 429 { limited = true; problem = nil } else { limited = false; problem = Self.problem(for: error) }
+            if case APIError.server(let status, _, _) = error, status == 429 { limited = true; problem = nil } else { limited = false; problem = Self.problem(for: error) }
         }
     }
 }

@@ -246,7 +246,7 @@ actor APIClient {
         do {
             let _: AnyBody = try await request("GET", "/api/vehicles/\(pathID(vehicleID))/lease")
             return true
-        } catch APIError.server(let status, _) where status == 404 || status == 501 {
+        } catch APIError.server(let status, _, _) where status == 404 || status == 501 {
             return false
         }
     }
@@ -275,7 +275,7 @@ actor APIClient {
 
     /// The charge in progress; nil when the server has none (404) or doesn't know the endpoint.
     func liveSession(id: String) async throws -> LiveSession? {
-        do { return try await request("GET", "/api/live-session/\(pathID(id))") } catch APIError.server(404, _) { return nil }
+        do { return try await request("GET", "/api/live-session/\(pathID(id))") } catch APIError.server(404, _, _) { return nil }
     }
 
     /// The drive in progress; 204 (or 404 from an older server) means none is open yet.
@@ -284,7 +284,7 @@ actor APIClient {
             let (data, http) = try await send("GET", "/api/live-drive/\(pathID(id))")
             if http.statusCode == 204 || data.isEmpty { return nil }
             do { return try decoder.decode(LiveDrive.self, from: data) } catch { throw APIError.decoding(error) }
-        } catch APIError.server(404, _) { return nil }
+        } catch APIError.server(404, _, _) { return nil }
     }
 
     /// The newest charge (for its place and cost).
@@ -362,7 +362,7 @@ actor APIClient {
         do {
             let insights: EfficiencyInsights = try await request("GET", "/api/insights/efficiency?vehicle=\(queryValue(vehicleID))&units=\(queryValue(units))&since=\(queryValue(rfc3339(since)))&until=\(queryValue(rfc3339(until)))")
             return insights
-        } catch APIError.server(let status, _) where status == 404 {
+        } catch APIError.server(let status, _, _) where status == 404 {
             return nil
         }
     }
@@ -396,7 +396,7 @@ actor APIClient {
 
     /// Nil when the server has no such endpoint (404/501): the card is left out, as on the web.
     private func optional<T: Decodable>(_ path: String) async throws -> T? {
-        do { return try await request("GET", path) } catch APIError.server(let status, _) where status == 404 || status == 501 { return nil }
+        do { return try await request("GET", path) } catch APIError.server(let status, _, _) where status == 404 || status == 501 { return nil }
     }
 
     /// Battery lost while parked, over 7 and 30 days and per day. Like the web, no zone is sent: the server's days are
@@ -706,7 +706,7 @@ actor APIClient {
         let escaped = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         do {
             return try await request("GET", "/api/vehicles/\(escaped)/now")
-        } catch APIError.server(404, _), APIError.server(501, _) {
+        } catch APIError.server(404, _, _), APIError.server(501, _, _) {
             return nil
         }
     }
@@ -794,7 +794,7 @@ actor APIClient {
                 message = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
             }
             if http.statusCode == 403, message == APIError.termsRequiredMessage { onTermsRequired?() }
-            throw APIError.server(status: http.statusCode, message: message)
+            throw APIError.server(status: http.statusCode, message: message, retryAfter: APIError.retryAfterSeconds(http.value(forHTTPHeaderField: "Retry-After")))
         }
         if VehicleScope.isScoped(path) {
             let header = http.value(forHTTPHeaderField: "X-Rivolt-Vehicle-Scope")
@@ -807,7 +807,9 @@ actor APIClient {
 enum APIError: LocalizedError {
     case badURL
     case transport(String)
-    case server(status: Int, message: String)
+    /// `retryAfter` is the answer's Retry-After in whole seconds, when it sent one. A 503 with it is single ownership's
+    /// "the server that holds this truck's Rivian connection did not answer": a few seconds, not an outage.
+    case server(status: Int, message: String, retryAfter: Int? = nil)
     /// A 401 whose body names an upstream `class`: Rivian needs reconnecting. Not a dead Rivolt session.
     case rivianReauth
     /// 429 with the class `plan_quota`: this account has used the planner's allowance for the hour.
@@ -817,11 +819,17 @@ enum APIError: LocalizedError {
     /// The `error` the server sends with a 403 while the person must accept updated Terms.
     static let termsRequiredMessage = "terms_required"
 
+    /// Retry-After in whole seconds; nil when absent or not a number (this server never sends an HTTP date).
+    static func retryAfterSeconds(_ header: String?) -> Int? {
+        guard let h = header?.trimmingCharacters(in: .whitespaces), let n = Int(h), n >= 0 else { return nil }
+        return n
+    }
+
     var errorDescription: String? {
         switch self {
         case .badURL: return "Invalid server URL."
         case .transport(let m): return m
-        case .server(_, let m): return m
+        case .server(_, let m, _): return m
         case .rivianReauth: return "Rivian needs to be reconnected."
         case .planQuota: return "The planner's hourly allowance is used."
         case .decoding(let e): return "Could not parse response: \(e.localizedDescription)"

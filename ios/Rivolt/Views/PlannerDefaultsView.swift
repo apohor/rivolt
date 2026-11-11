@@ -46,7 +46,7 @@ struct PlannerDefaultsView: View {
         await model.load {
             do {
                 return try await state.client.plannerDefaults()
-            } catch APIError.server(404, _) {
+            } catch APIError.server(404, _, _) {
                 plannerOff = true
                 throw APIError.server(status: 404, message: "")
             }
