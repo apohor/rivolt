@@ -650,7 +650,12 @@ func (c *Coordinator) healUnstreamed() {
 			c.onAcquire(vid)
 		}
 	}
-	// Episodes end with the lease too.
+	c.pruneUnstreamed()
+}
+
+// pruneUnstreamed ends the episodes of vehicles no longer owned (an
+// episode ends with the lease too) and reports the count.
+func (c *Coordinator) pruneUnstreamed() {
 	c.mu.Lock()
 	for vid := range c.unstreamed {
 		if _, ok := c.owned[vid]; !ok {
@@ -815,6 +820,9 @@ func (c *Coordinator) fenceAll() int {
 		c.log.Warn("lease fenced: renewals have failed for a whole TTL", "vehicle", vid)
 		c.onRelease(vid)
 	}
+	// healUnstreamed doesn't run while renewals fail, so end the episodes here:
+	// a fenced pod holds nothing, and its gauge must not keep a stale count.
+	c.pruneUnstreamed()
 	return len(lost)
 }
 

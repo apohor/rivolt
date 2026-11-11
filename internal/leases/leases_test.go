@@ -558,6 +558,54 @@ func TestRenewFailureKeepsLeasesUntilTheyCouldHaveExpired(t *testing.T) {
 	}
 }
 
+// A fenced pod holds nothing: the fence ends its unstreamed episodes and the
+// gauge drops to 0, though healUnstreamed doesn't run while renewals fail.
+func TestFenceEndsUnstreamedEpisodes(t *testing.T) {
+	t.Parallel()
+	fs := newFakeStore()
+	var (
+		mu    sync.Mutex
+		gauge = -1
+	)
+	const interval = 30 * time.Second // TTL 2 min
+	c := newCoordinator(fs, func(context.Context) ([]string, error) { return []string{"v1"}, nil },
+		func(string) {}, func(string) {}, nil, interval)
+	c.SetStreamingCheck(func(string) bool { return false })
+	c.SetUnstreamedGauge(func(n int) { mu.Lock(); gauge = n; mu.Unlock() })
+	clock := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	c.now = func() time.Time { return clock }
+	c.lastRenew = clock
+
+	c.reconcile(context.Background()) // acquired; never streams
+	clock = clock.Add(interval)
+	c.reconcile(context.Background())
+	mu.Lock()
+	if gauge != 1 {
+		t.Fatalf("gauge %d in the episode, want 1", gauge)
+	}
+	mu.Unlock()
+	fs.mu.Lock()
+	fs.renewErr = errors.New("connection reset")
+	fs.mu.Unlock()
+	for i := 0; i < 3; i++ { // the third failing tick is past the fence
+		clock = clock.Add(interval)
+		c.reconcile(context.Background())
+	}
+	if len(heldBy(c)) != 0 {
+		t.Fatalf("still owned: %v", heldBy(c))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if gauge != 0 {
+		t.Errorf("gauge %d after the fence, want 0", gauge)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.unstreamed) != 0 {
+		t.Errorf("episodes left after the fence: %v", c.unstreamed)
+	}
+}
+
 func heldBy(c *Coordinator) []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
