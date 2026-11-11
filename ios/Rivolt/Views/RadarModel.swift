@@ -92,17 +92,19 @@ final class RadarModel {
 }
 
 enum RadarLogic {
-    static let credit = "Radar: NOAA/NWS"
     static let kindLine = "Live radar, not a forecast."
-    static let legendWords = ["light", "moderate", "heavy"]
+    /// The words under the legend's bar; at the accessibility text sizes only the ends, so the three never crowd the bar.
+    static func legendWords(accessibilitySize: Bool) -> [String] {
+        accessibilitySize ? ["light", "heavy"] : ["light", "moderate", "heavy"]
+    }
 
-    /// "Radar · 6:42 PM", in the zone of the phone (the live picture's time; the web's label).
+    /// "NOAA/NWS radar · 6:42 PM", in the zone of the phone (the live picture's time): the freshness and the credit in one line.
     static func asOf(unix: Int, zone: TimeZone = .current, locale: Locale = .current) -> String {
         let f = DateFormatter()
         f.locale = locale
         f.timeZone = zone
         f.dateStyle = .none
         f.timeStyle = .short
-        return "Radar · \(f.string(from: Date(timeIntervalSince1970: TimeInterval(unix))))"
+        return "NOAA/NWS radar · \(f.string(from: Date(timeIntervalSince1970: TimeInterval(unix))))"
     }
 }
