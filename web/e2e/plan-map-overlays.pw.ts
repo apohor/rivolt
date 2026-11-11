@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { DEMO_PLAN, stubApi } from "./stub";
 
-// What lies over the planner's map on a phone, with the weather and the radar on: the radar strip docks at the map's edge instead of floating over the
+// What lies over the planner's map on a phone, with the weather and the radar on: the radar strip rides the sheet's top edge instead of floating over the
 // route, the leg badges stay inside the map and off each other, and the weather credit sits with the itinerary in the sheet, not under it.
 const pt = (label: string, lat: number, lon: number) => ({ lat, lon, label });
 const INPUTS = { origin: pt("Los Angeles", 34.05, -118.24), destination: pt("Las Vegas", 36.17, -115.14), extra_stops: [], overnight_flags: [] };
@@ -56,12 +56,14 @@ test("@webkit phone: radar strip, leg badges and the weather credit stay clear o
 
   const map = await box(page.locator("[data-plan-area='map']"));
   const s = await box(strip);
-  // One line, under the charger chips at the map's top left, inside the map, and over no pin or badge (every marker on the map).
+  // One line, riding just above the sheet's top edge at the map's left, inside the screen, and over no pin or badge (every marker on the map).
   expect(s.y1 - s.y0).toBeLessThan(26);
-  const chips = await box(page.locator("[data-plan-chips]"));
-  expect(s.y0).toBeGreaterThanOrEqual(chips.y1);
+  const sheet = await box(page.locator("[data-plan-sheet]"));
+  expect(s.y1).toBeLessThanOrEqual(sheet.y0);
+  expect(sheet.y0 - s.y1).toBeLessThan(10);
   expect(s.x0).toBeGreaterThanOrEqual(map.x0);
-  expect(s.x1).toBeLessThanOrEqual(map.x1 - 8);
+  expect(s.x1).toBeLessThanOrEqual(390 - 8);
+  await expect(strip).toHaveAccessibleName(/^light, moderate, heavy, NOAA\/NWS radar, \d/);
   const markers = page.locator("[data-trip-map] .maplibregl-marker");
   for (let i = 0; i < (await markers.count()); i++) {
     const m = await box(markers.nth(i));

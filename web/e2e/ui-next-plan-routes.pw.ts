@@ -37,6 +37,8 @@ for (const theme of ["dark", "light"] as const) {
       await page.route(/\/api\/demo\/trips\/la-vegas\/plan$/, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(plan) }));
       await page.goto("/demo/trips/plan");
       await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+      // On a phone the chooser is in the sheet's details, under its peek (title and summary line): open it to half.
+      if (v.name === "iphone") await page.getByRole("button", { name: "Trip details: collapsed, expand" }).click();
       const group = page.getByRole("radiogroup", { name: "Route options" });
       await expect(group).toBeVisible();
       await expect(group.getByRole("radio", { name: /Recommended/ })).toHaveAttribute("aria-checked", "true");

@@ -3,7 +3,7 @@ import { StopCard } from "./StopCard";
 import { SummaryStrip } from "./SummaryStrip";
 import { formatDuration, formatWaypointTime } from "./format";
 import { CostEstimateNote } from "./CostEstimateNote";
-import { BottomSheet } from "./BottomSheet";
+import { BottomSheet, type Snap } from "./BottomSheet";
 import { useSelectedStop } from "./selection";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { wholeDistance } from "./units";
@@ -84,6 +84,8 @@ export function RouteCard({
   // Map-first layout is for the primary route; alternatives and stacked days keep the in-flow card.
   const next = !stacked && (index === 0 || forceNext);
   const [expanded, setExpanded] = useState(!defaultCollapsed);
+  // The phone sheet's height, kept across re-renders and new plans (a re-plan does not drop the sheet back); the map follows it once it settles.
+  const [sheetSnap, setSheetSnap] = useState<Snap>("peek");
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
   // table renders correctly regardless of casing.
@@ -271,17 +273,37 @@ export function RouteCard({
       {dest && row(destIdx, "end", destLabel || dest.Name || "Destination")}
     </ol>
   );
+  // The phone sheet's peek, as on the iPhone: "Seattle → Spokane" and the trip on one line, cut short rather than wrapped so the peek stays small.
+  const shortName = (s: string | undefined) => (s ?? "").split(",")[0].trim();
+  const fromName = shortName(originLabel || origin?.Name);
+  const toName = shortName(destLabel || dest?.Name) || "Your trip";
+  const sheetTitle = fromName ? `${fromName} → ${toName}` : `To ${toName}`;
+  const sheetLine = [
+    route.TotalDriveDistanceMeters > 0 ? formatDistance(route.TotalDriveDistanceMeters / 1000, distanceUnit) : null,
+    route.TotalDriveDurationSec > 0 ? `${formatDuration(route.TotalDriveDurationSec)} driving` : null,
+    route.TotalChargingDurationSec > 0 ? `${formatDuration(route.TotalChargingDurationSec)} charging` : null,
+  ].filter((p): p is string => !!p).join(" · ");
   if (next) {
     // Map-first: summary strip and itinerary in the left panel, the map beside it.
     return (
       <>
-        {/* On a phone the summary peeks over the map and the itinerary opens
-            with it; from 1024px up BottomSheet renders the two inline, as grid
-            items beside the map. */}
+        {/* On a phone the title and a summary line peek over the map, and the
+            summary and the itinerary open with the sheet; from 1024px up
+            BottomSheet renders the two inline, as grid items beside the map. */}
         <BottomSheet
           label="Trip details"
-          peekPx={240}
+          snap={sheetSnap}
+          onSnapChange={setSheetSnap}
           peek={
+            <div data-plan-sheet-title>
+              <h2 className="truncate text-base font-semibold text-neutral-100">{sheetTitle}</h2>
+              <p className="truncate text-sm text-neutral-400">
+                {sheetLine}
+                {!route.DestinationReached && <span className="text-amber-400">{sheetLine ? " · " : ""}destination unreachable</span>}
+              </p>
+            </div>
+          }
+        >
             <section data-plan-area="summary" aria-label="Trip summary">
               {chooser}
               {!route.DestinationReached && (
@@ -292,8 +314,6 @@ export function RouteCard({
               )}
               {hero}
             </section>
-          }
-        >
           <section data-plan-area="itinerary" aria-label="Itinerary">
             <h2 className="ui-label mb-1">Itinerary</h2>
             {timeline}
@@ -316,6 +336,7 @@ export function RouteCard({
               originLabel={originLabel}
               destLabel={destLabel}
               legWeather={legWeather}
+              sheetSnap={sheetSnap}
             />
           </Suspense>
         </div>

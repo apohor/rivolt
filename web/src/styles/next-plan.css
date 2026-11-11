@@ -233,11 +233,16 @@
 
 /* Bottom sheet (plumbing defaults; the look is ux's). Phone only: at 1024px and
    wider BottomSheet renders inline and none of this applies. */
-:root [data-plan-sheet] {
+/* --plan-sheet-bottom lives on the root: what rides the sheet's edge (the radar strip) and the map's height read it too. */
+:root {
   --plan-sheet-bottom: 0px;
+}
+:root [data-plan-sheet] {
   position: fixed;
   inset-inline: 0;
   bottom: var(--plan-sheet-bottom);
+  /* A parent's spacing rule (space-y) must not lift a fixed box off the tab bar. */
+  margin: 0;
   z-index: 1050;
   display: flex;
   flex-direction: column;
@@ -253,9 +258,20 @@
 }
 @media (max-width: 767.98px) {
   /* Above the bottom tab bar. */
-  :root [data-plan-sheet] {
+  :root {
     --plan-sheet-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
   }
+}
+/* The room the sheet has, with the same limits as the sheet's own box: BottomSheet measures it for its heights (not the viewport, whose height on
+   an iPhone includes the browser's bars). */
+:root [data-plan-sheet-room] {
+  position: fixed;
+  inset-inline: 0;
+  top: calc(3.5rem + env(safe-area-inset-top, 0px) + 0.5rem);
+  bottom: var(--plan-sheet-bottom);
+  margin: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 :root[data-theme='light'] [data-plan-sheet] {
   background: oklch(99% 0 0);
@@ -264,25 +280,65 @@
 :root [data-plan-sheet][data-dragging='true'] {
   transition: none;
 }
+/* Below full a finger on any part of the sheet moves it (the browser must not scroll under it); at full the details scroll (pan-y), and a drag down
+   with them at their top closes the sheet (BottomSheet's touch listener takes that one). Pinch-zoom stays everywhere (low vision; iOS honours
+   touch-action, not user-scalable), and a sideways scroller in the sheet (the route chips) keeps its swipe. The chips also allow pan-y: a vertical
+   pan is checked against every element from the finger up to the scroller, so pan-x alone would stop a drag that starts on them from scrolling the
+   details at full (below full the sheet's own pinch-zoom still blocks it). */
+:root [data-plan-sheet] {
+  touch-action: pinch-zoom;
+}
+:root [data-plan-sheet][data-snap='full'] [data-plan-sheet-body] {
+  touch-action: pan-y pinch-zoom;
+}
+:root [data-plan-sheet] [data-sheet-pan-x] {
+  touch-action: pan-x pan-y pinch-zoom;
+}
 :root [data-plan-sheet-handle] {
   flex: none;
   position: relative;
   z-index: 2; /* always above the peek and the body: it must be hittable */
   width: 100%;
-  height: 28px;
-  touch-action: none;
+  height: 32px;
+  touch-action: pinch-zoom;
   cursor: grab;
 }
+/* The grabber: large, so it reads as something to take hold of. */
 :root [data-plan-sheet-handle]::after {
   content: '';
   position: absolute;
-  top: 10px;
+  top: 11px;
   left: 50%;
-  width: 40px;
-  height: 4px;
-  margin-left: -20px;
-  border-radius: 2px;
-  background: oklch(50% 0.01 262 / 0.7);
+  width: 56px;
+  height: 6px;
+  margin-left: -28px;
+  border-radius: 3px;
+  background: oklch(55% 0.01 262 / 0.8);
+}
+:root [data-plan-sheet-handle]:focus-visible {
+  outline: 2px solid oklch(78% 0.15 168);
+  outline-offset: -4px;
+  border-radius: 1rem 1rem 0 0;
+}
+/* Map, at half and full: back to the peek. */
+:root [data-plan-sheet-map] {
+  position: absolute;
+  top: 4px;
+  right: 0.75rem;
+  z-index: 3;
+  min-height: 28px;
+  padding: 0 0.75rem;
+  border-radius: 9999px;
+  border: 1px solid oklch(34% 0.01 262);
+  background: oklch(20% 0.01 262);
+  color: oklch(90% 0 0);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+:root[data-theme='light'] [data-plan-sheet-map] {
+  border-color: oklch(84% 0.005 262);
+  background: oklch(96% 0.003 262);
+  color: oklch(25% 0 0);
 }
 :root [data-plan-sheet-peek] {
   flex: none;
@@ -290,7 +346,7 @@
   z-index: 0;
   padding: 0 1rem 0.75rem;
 }
-:root [data-plan-sheet][data-snap='peek'] [data-plan-sheet-peek] {
+:root [data-plan-sheet]:not([data-snap='full']) [data-plan-sheet-peek] {
   cursor: pointer;
 }
 :root [data-plan-sheet-body] {
@@ -299,6 +355,9 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 1rem 1rem;
+}
+:root [data-plan-sheet-body]:focus {
+  outline: none;
 }
 :root [data-plan-sheet][data-snap='peek'] [data-plan-sheet-body] {
   overflow: hidden;
@@ -684,11 +743,43 @@
   background: oklch(78% 0.15 168);
 }
 
-/* Phone: the map fills the space between the top bar and the sheet's peek (the top
-   bar ~48px, the tab bar ~72px, the 240px peek, a little air). */
+/* Phone: the map fills the space between the top bar and the sheet's peek (BottomSheet sets --plan-sheet-peek-h to the peek it measured). At half
+   the sheet covers its lower part, and the map's fit, its credits and the radar strip follow the sheet's edge. */
 @media (max-width: 1023.98px) {
   :root [data-plan-area='map'] {
-    height: max(260px, calc(100dvh - 376px));
+    height: max(260px, calc(100dvh - 3.5rem - env(safe-area-inset-top, 0px) - var(--plan-sheet-bottom) - var(--plan-sheet-peek-h, 240px)));
+  }
+  /* The map's credits stay in view above the sheet (TripRouteMap sets --plan-map-cover to how much of the map the sheet covers once it settles). */
+  :root [data-plan-area='map'] .maplibregl-ctrl-bottom-right,
+  :root [data-plan-area='map'] .maplibregl-ctrl-bottom-left {
+    bottom: var(--plan-map-cover, 0px);
+    transition: bottom 0.22s ease;
+  }
+  /* The radar strip rides the sheet's top edge, clear of the route, at every height (at full it is under the top bar with the map). */
+  :root:has([data-plan-sheet]) [data-radar-label] {
+    position: fixed;
+    left: 1.25rem;
+    bottom: calc(var(--plan-sheet-bottom) + var(--plan-sheet-h, 240px) + 4px);
+    max-width: calc(100vw - 4.5rem);
+    transition: bottom 0.22s ease;
+  }
+  :root[data-plan-sheet-dragging] [data-radar-label] {
+    transition: none;
+  }
+  /* The trip card in the map's bottom left sits above the strip, not under it. */
+  :root:has([data-plan-sheet]):has([data-radar-label]) [data-plan-area='map'] .maplibregl-ctrl-bottom-left {
+    bottom: calc(var(--plan-map-cover, 0px) + 28px);
+  }
+  /* Fully open, the map is out of sight under the sheet, and so is its strip. */
+  :root:has([data-plan-sheet][data-snap='full']:not([data-dragging])) [data-radar-label] {
+    visibility: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root [data-plan-area='map'] .maplibregl-ctrl-bottom-right,
+  :root [data-plan-area='map'] .maplibregl-ctrl-bottom-left,
+  :root [data-radar-label] {
+    transition: none;
   }
 }
 
@@ -698,4 +789,20 @@
 }
 :root [data-plan-field] {
   min-width: 0;
+}
+
+/* The radar strip's gradient, NOAA's colours as they are drawn: light to moderate, moderate to heavy; without "moderate" (data-short, a narrow
+   strip) one bar runs the whole way. */
+:root [data-radar-label] [data-strip-bar='low'] {
+  background: linear-gradient(90deg, #00eded, #00c800, #ffff00);
+}
+:root [data-radar-label] [data-strip-bar='high'] {
+  background: linear-gradient(90deg, #ffff00, #ff8f00, #ff0000, #ff00ff);
+}
+:root [data-radar-label][data-short] [data-strip-mid] {
+  display: none;
+}
+:root [data-radar-label][data-short] [data-strip-bar='low'] {
+  width: 2.5rem;
+  background: linear-gradient(90deg, #00eded, #00c800, #ffff00, #ff8f00, #ff0000, #ff00ff);
 }

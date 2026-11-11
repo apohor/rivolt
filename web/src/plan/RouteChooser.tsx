@@ -41,7 +41,7 @@ export function RouteChooser({
     return v.kind === "range" ? `${fmtRange(v.low, v.high, (x) => fmt(x, c?.currency))} · ` : "";
   };
   return (
-    <div role="radiogroup" aria-label="Route options" data-plan-routes className="mb-3 flex gap-2 overflow-x-auto pb-1">
+    <div role="radiogroup" aria-label="Route options" data-plan-routes data-sheet-pan-x className="mb-3 flex gap-2 overflow-x-auto pb-1">
       {routes.map((r, i) => {
         const c = costs?.[i];
         const diff = i === active || i === 0 ? [] : routeDiff(r, c, routes[0], costs?.[0]);

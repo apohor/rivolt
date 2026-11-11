@@ -70,7 +70,18 @@ export function hideRadar(map: MLMap): void {
   if (map.getSource(SOURCE)) map.removeSource(SOURCE);
 }
 
-// radarAsOf is the "Radar 6:42 PM" label (the time of the picture) in the viewer's local time; short, so the strip stays on one line on a phone.
+// radarTime is the time of the picture ("6:42 PM") in the viewer's local time.
+export function radarTime(frameUnix: number): string {
+  return new Date(frameUnix * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+// radarAsOf is the end of the radar strip, the credit and the time of the picture ("NOAA/NWS · 6:42 PM"), as on the iPhone; short, so the strip stays
+// on one line on a phone.
 export function radarAsOf(frameUnix: number): string {
-  return `Radar ${new Date(frameUnix * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  return `NOAA/NWS · ${radarTime(frameUnix)}`;
+}
+
+// radarSpoken is what a screen reader says for the strip: "light, moderate, heavy, NOAA/NWS radar, 6:42 PM".
+export function radarSpoken(frameUnix: number): string {
+  return `light, moderate, heavy, NOAA/NWS radar, ${radarTime(frameUnix)}`;
 }
