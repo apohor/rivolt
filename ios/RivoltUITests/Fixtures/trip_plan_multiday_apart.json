@@ -80,23 +80,7 @@
       "Geometry": "gxoyyAfnrjhF~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~dKy|u@~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB~vo@{~wB",
       "GeometryPrecision": 6
      }
-    ],
-    "weather_adjustment": {
-     "legs": [
-      {
-       "multiplier": 1.12,
-       "temp_c": 10,
-       "air_temp_c": 10,
-       "headwind_kph": 24
-      },
-      {
-       "multiplier": 1.05,
-       "temp_c": 11,
-       "air_temp_c": 11,
-       "headwind_kph": -16
-      }
-     ]
-    }
+    ]
    },
    "depart_at": "2027-01-12T16:00:00Z",
    "arrive_at": "2027-01-12T21:00:00Z",
@@ -148,7 +132,23 @@
       }
      ]
     }
-   ]
+   ],
+   "weather_adjustment": {
+    "legs": [
+     {
+      "multiplier": 1.12,
+      "temp_c": 10,
+      "air_temp_c": 10,
+      "headwind_kph": 24
+     },
+     {
+      "multiplier": 1.05,
+      "temp_c": 11,
+      "air_temp_c": 11,
+      "headwind_kph": -16
+     }
+    ]
+   }
   },
   {
    "index": 2,
@@ -229,23 +229,7 @@
       "Geometry": "g`msxAn|s|dFo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBo`Ly~zBesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsDesr@yzsD",
       "GeometryPrecision": 6
      }
-    ],
-    "weather_adjustment": {
-     "legs": [
-      {
-       "multiplier": 1.12,
-       "temp_c": -4,
-       "air_temp_c": -4,
-       "headwind_kph": 24
-      },
-      {
-       "multiplier": 1.05,
-       "temp_c": -6,
-       "air_temp_c": -6,
-       "headwind_kph": -16
-      }
-     ]
-    }
+    ]
    },
    "depart_at": "2027-01-13T16:00:00Z",
    "arrive_at": "2027-01-13T21:00:00Z",
@@ -289,7 +273,23 @@
       }
      ]
     }
-   ]
+   ],
+   "weather_adjustment": {
+    "legs": [
+     {
+      "multiplier": 1.12,
+      "temp_c": -4,
+      "air_temp_c": -4,
+      "headwind_kph": 24
+     },
+     {
+      "multiplier": 1.05,
+      "temp_c": -6,
+      "air_temp_c": -6,
+      "headwind_kph": -16
+     }
+    ]
+   }
   }
  ]
 }
