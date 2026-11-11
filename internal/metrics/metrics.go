@@ -1203,7 +1203,7 @@ var RivianCallSites = []string{"seed", "refresh_once", "janitor_confirm", "wake_
 
 // SessionDecryptSites are the label values of rivolt_rivian_session_decrypts_total: the places that decrypt a stored Rivian session. Fixed, so
 // the label never carries a user. A decrypt from anywhere else counts as "other".
-var SessionDecryptSites = []string{"boot_sweep", "lazy_restore", "rehydrate", "forward_adopt", "sync", "settings", "request_hydrate", "expiry", "other"}
+var SessionDecryptSites = []string{"boot_sweep", "lazy_restore", "rehydrate", "forward_adopt", "discovery", "sync", "settings", "request_hydrate", "expiry", "other"}
 
 // TakeoverClasses are the label values of the takeover pacing metrics; the call sites in rivian.StateMonitor use the same names.
 var TakeoverClasses = []string{"dial", "seed", "features"}
