@@ -13,6 +13,56 @@ final class PlannerApplyTests: XCTestCase {
         func corridorLayers(_ body: CorridorLayersRequest) async throws -> CorridorLayers { requests.append(body); return CorridorLayers() }
     }
 
+    /// Holds its first search until `release()`; every later one answers at once. The answers go out in the order asked.
+    private final class Slow: CorridorLayersSource, @unchecked Sendable {
+        var answers: [CorridorLayers] = []
+        private(set) var requests: [CorridorLayersRequest] = []
+        private var held: CheckedContinuation<Void, Never>?
+        var holding: Bool { held != nil }
+        func corridorLayers(_ body: CorridorLayersRequest) async throws -> CorridorLayers {
+            let n = requests.count
+            requests.append(body)
+            if n == 0 { await withCheckedContinuation { held = $0 } }
+            return answers[min(n, answers.count - 1)]
+        }
+        func release() { held?.resume(); held = nil }
+    }
+
+    private func pois(_ name: String) -> CorridorLayers {
+        CorridorLayers(pois: [CorridorPOI(lat: 40, lon: -100, name: name, isDCFC: true, maxPowerKW: 150, evNetwork: nil, networkSlug: nil, networkName: nil,
+                                          alongKm: 10, offKm: 1, kinds: ["dcfc"])], total: 1, asof: "2026-10-20")
+    }
+
+    /// A first search still out when the map's line arrives: the line is searched at once, and when the slow first answer lands it is not shown.
+    /// (`alongTheLine`: the search's path is the line, as on the one-route map; the days map's line is searched along only once a trip is planned over
+    /// nights, which this model has not.)
+    private func expectTheLineWins(alongTheLine: Bool, _ arrive: (TripPlanModel, [RouteSnap.Coord], Slow) async -> Void) async throws {
+        let m = try plannedModel(), src = Slow()
+        src.answers = [pois("Along the stops"), pois("Along the road")]
+        let first = Task { await m.reloadLayers(source: src) }
+        for _ in 0..<1000 where !src.holding { await Task.yield() }
+        XCTAssertTrue(src.holding, "the first search is out")
+        let line = (0..<20).map { RouteSnap.Coord(lat: 45 + Double($0) * 0.1, lon: -122) }
+        await arrive(m, line, src)
+        XCTAssertEqual(src.requests.count, 2, "the line is searched while the first is still out")
+        if alongTheLine { XCTAssertEqual(src.requests.last?.path.count, 20, "along the line") }
+        XCTAssertEqual(m.layerPOIs.map(\.name), ["Along the road"])
+        src.release()
+        await first.value
+        XCTAssertEqual(m.layerPOIs.map(\.name), ["Along the road"], "the older answer, landing last, is not shown")
+        XCTAssertEqual(m.layerState, .shown)
+        await arrive(m, line, src)
+        XCTAssertEqual(src.requests.count, 2, "the same line again asks nothing")
+    }
+
+    func testTheRouteMapsRoadLineIsSearchedAndASlowerOlderSearchDoesNotWin() async throws {
+        try await expectTheLineWins(alongTheLine: true) { m, line, src in await m.setRoadLine(line, source: src) }
+    }
+
+    func testTheDaysMapsLineIsSearchedEvenWhileASearchIsOut() async throws {
+        try await expectTheLineWins(alongTheLine: false) { m, line, src in await m.setDayLines(line, source: src) }
+    }
+
     private func prefs(corridor: String = "normal", start: Int = 0, kw: Int = 0, layers: [String] = ["dcfc"], preferred: Bool = false) -> PlannerPrefs {
         PlannerPrefs(driveMode: "EVERYDAY", hasAdapter: true, corridor: corridor, startExcludeMi: start, minFastKw: kw, layersOn: layers, preferredOnly: preferred, weatherOn: true, radarOn: false)
     }

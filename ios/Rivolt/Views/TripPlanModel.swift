@@ -350,20 +350,27 @@ final class TripPlanModel {
         await refreshLayers(source: source)
     }
 
+    /// Counts the layer searches: only the latest one's answer is shown, so a slow search along an older line can't land over a newer one.
+    private var layerSearch = 0
+
     private func refreshLayers(source: some CorridorLayersSource) async {
         if let f = focusedStop, f >= pinCount { focusedStop = nil; dropped = nil }
+        layerSearch += 1
+        let search = layerSearch
         guard !layers.isEmpty else { layerPOIs = []; layerState = .idle; return }
-        guard let route = plan?.best, layerState != .loading else { return }
+        guard let route = plan?.best else { return }
         layerState = .loading
         let line = TripPlanLogic.thin(corridorLine, to: 1500).map { [$0.lat, $0.lon] }
         let body = LayerSearch.request(path: line.count >= 2 ? line : TripPlanLogic.path(route), kinds: layers.map(\.kind).sorted(), settings: plannerMap, startsAtOrigin: lineFromOrigin)
         do {
             let answer = try await source.corridorLayers(body)
+            guard search == layerSearch else { return }
             layerPOIs = answer.pois
             layerTotal = answer.total
             layerAsOf = answer.asof ?? ""
             layerState = .shown
         } catch {
+            guard search == layerSearch else { return }
             if Task.isCancelled { layerState = .idle; return }
             if case APIError.server(404, _) = error { layerState = .unavailable } else { layerState = .failed(TripPlanLogic.failure(error)) }
         }
@@ -400,6 +407,14 @@ final class TripPlanModel {
             return trip.days.compactMap(\.plan.best).flatMap { PlanRouteLogic.places($0) }
         }
         return roadLine
+    }
+
+    /// The one-route map found its road line: kept for the overnight search and the callouts, and the layers (when on) are searched again along it.
+    /// The same line again asks nothing.
+    func setRoadLine(_ line: [RouteSnap.Coord], source: some CorridorLayersSource) async {
+        guard line != roadLine else { return }
+        roadLine = line
+        if !layers.isEmpty { await refreshLayers(source: source) }
     }
 
     /// The days map found its road lines: the layers (when on) are searched again along the whole trip.

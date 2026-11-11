@@ -370,6 +370,16 @@ extension TripPlanMapTests {
         XCTAssertNil(PlanRouteLogic.roadLine(try JSONDecoder().decode(ValhallaRouteResponse.self, from: Data(#"{"trip":{"legs":[]}}"#.utf8))))
     }
 
+    /// The UI tests' road line (valhalla_route.json) reads at Valhalla's precision: from the trip's start, through the point only the roads reach, to its end
+    /// (a precision slip would put it ten times off).
+    func testTheUITestRoadLineIsPolyline6ThroughTheRoadOnlyPoint() throws {
+        let line = try XCTUnwrap(PlanRouteLogic.roadLine(try Fixture.decode(ValhallaRouteResponse.self, "valhalla_route")))
+        XCTAssertEqual(line.count, 4)
+        XCTAssertEqual(line[0].lat, 47.6205, accuracy: 1e-6); XCTAssertEqual(line[0].lon, -122.3493, accuracy: 1e-6)
+        XCTAssertEqual(line[1].lat, FixtureURLProtocol.roadOnlyPoint.lat, accuracy: 1e-6); XCTAssertEqual(line[1].lon, FixtureURLProtocol.roadOnlyPoint.lon, accuracy: 1e-6)
+        XCTAssertEqual(line[3].lat, 47.6588, accuracy: 1e-6); XCTAssertEqual(line[3].lon, -117.426, accuracy: 1e-6)
+    }
+
     func testBothMapsLayTheSameThingsOverTheDrawing() {
         let line = [RouteSnap.Coord(lat: 45.5, lon: -122.6), RouteSnap.Coord(lat: 45.9, lon: -121.0)]
         let base = RouteSnap.Drawing(pieces: [RouteSnap.Piece(coords: line, speed: nil)], routedGaps: [], gaps: [], start: line.first, end: line.last, hasSpeed: false)
