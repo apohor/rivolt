@@ -63,6 +63,24 @@ final class PlannerApplyTests: XCTestCase {
         try await expectTheLineWins(alongTheLine: false) { m, line, src in await m.setDayLines(line, source: src) }
     }
 
+    func testASearchOutWhenThePlanGoesAwayEndsWithNoPinsAndNoSpinner() async throws {
+        let m = try plannedModel(), src = Slow()
+        src.answers = [pois("For the old plan")]
+        let first = Task { await m.reloadLayers(source: src) }
+        for _ in 0..<1000 where !src.holding { await Task.yield() }
+        XCTAssertEqual(m.layerState, .loading)
+        var none = try Fixture.decode(TripPlan.self, "trip_plan_rivian_shape")
+        none.routes = []
+        let from = PlaceMatch(name: "Example Origin", latitude: 45.52, longitude: -122.68, admin1: nil, country: nil)
+        m.open(SavedTripLogic.Restored(origin: from, destination: from, plan: none, multiday: nil, stay: nil))
+        await m.reloadLayers(source: src)
+        src.release()
+        await first.value
+        XCTAssertEqual(m.layerState, .idle, "not left loading")
+        XCTAssertTrue(m.layerPOIs.isEmpty, "and the old plan's answer is not shown")
+        XCTAssertEqual(src.requests.count, 1, "no plan: nothing asked")
+    }
+
     private func prefs(corridor: String = "normal", start: Int = 0, kw: Int = 0, layers: [String] = ["dcfc"], preferred: Bool = false) -> PlannerPrefs {
         PlannerPrefs(driveMode: "EVERYDAY", hasAdapter: true, corridor: corridor, startExcludeMi: start, minFastKw: kw, layersOn: layers, preferredOnly: preferred, weatherOn: true, radarOn: false)
     }

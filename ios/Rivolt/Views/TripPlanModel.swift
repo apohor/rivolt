@@ -358,7 +358,7 @@ final class TripPlanModel {
         layerSearch += 1
         let search = layerSearch
         guard !layers.isEmpty else { layerPOIs = []; layerState = .idle; return }
-        guard let route = plan?.best else { return }
+        guard let route = plan?.best else { layerPOIs = []; layerState = .idle; return }
         layerState = .loading
         let line = TripPlanLogic.thin(corridorLine, to: 1500).map { [$0.lat, $0.lon] }
         let body = LayerSearch.request(path: line.count >= 2 ? line : TripPlanLogic.path(route), kinds: layers.map(\.kind).sorted(), settings: plannerMap, startsAtOrigin: lineFromOrigin)
