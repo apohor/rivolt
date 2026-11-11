@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -248,5 +249,67 @@ func TestScheduleReadCarriesThePermit(t *testing.T) {
 	m.readChargingSchedules(context.Background(), "veh", 0)
 	if hits.Load() != sent {
 		t.Error("the schedule was read for a group this pod does not hold")
+	}
+}
+
+// flipFence is a fence whose state a test changes under a running subscription.
+type flipFence struct{ st atomic.Int32 }
+
+func (f *flipFence) Fence(string) (fence.Token, fence.State) {
+	return fence.Token{Group: "g", Pod: "p", Epoch: 1}, fence.State(f.st.Load())
+}
+
+// A long-lived context re-reads the lease at every request (M4-1c, DA a): a pod that lost the group is unpermitted at the next reconnect,
+// not permitted by what it was given when the subscription started.
+func TestReconnectAfterLosingTheGroupIsRefused(t *testing.T) {
+	n := withMode(t, PermitEnforce)
+	f := &flipFence{}
+	f.st.Store(int32(fence.Held))
+	m := NewStateMonitor(nil, nil)
+	m.SetFence(f, func(string) {})
+	ctx, ok := m.permitCtx(context.Background(), "veh", CallSiteSubscription)
+	if !ok {
+		t.Fatal("refused a held group")
+	}
+	if err := checkPermit(ctx, "ws_dial"); err != nil {
+		t.Fatalf("held: %v", err)
+	}
+	f.st.Store(int32(fence.Lost))
+	if err := checkPermit(ctx, "ws_dial"); !errors.Is(err, ErrNoPermit) || n.Load() != 1 {
+		t.Errorf("lost: err=%v unpermitted=%d, want ErrNoPermit and one count", err, n.Load())
+	}
+}
+
+// Whatever the monitor starts under the sleep gate must be permitted: run a vehicle's whole subtree (Parallax GPS and drive dynamics on) against
+// a stub gateway in observe mode and fail on any request that carries no permit, so a goroutine added later and not marked is caught
+// without a list of call sites (M4-1c, DA b).
+func TestEveryCallOfAStartedVehicleIsPermitted(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":{"currentUser":{"vehicles":[{"id":"veh","vehicle":{"vehicleState":{"supportedFeatures":[{"name":"VEHICLE_CONNECTIVITY_PARALLAX","status":"AVAILABLE"}]}}}]}}}`)
+	}))
+	defer server.Close()
+	var mu sync.Mutex
+	var ops []string
+	SetPermitMode(PermitObserve)
+	SetUnpermittedObserver(func(op string) { mu.Lock(); ops = append(ops, op); mu.Unlock() })
+	t.Cleanup(func() { SetPermitMode(PermitOff); SetUnpermittedObserver(nil) })
+	c := NewLive()
+	c.endpoint = server.URL + "/gateway"
+	c.wsEndpointOverride = "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	c.Restore(Session{CSRFToken: "fake-csrf", AppSessionToken: "fake-app", UserSessionToken: "fake-user", AuthenticatedAt: time.Now()})
+	m := NewStateMonitor(c, nil)
+	m.parallaxGPS, m.parallaxDriveDynamics = true, true
+	m.SetFence(deadlineFence{fakeFence{tok: fence.Token{Group: "g", Pod: "p", Epoch: 1}, st: fence.Held}, time.Now().Add(time.Hour), true}, func(string) {})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { m.run(ctx, "veh"); close(done) }()
+	time.Sleep(3 * time.Second)
+	cancel()
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	if len(ops) != 0 {
+		t.Fatalf("requests without a permit: %v", ops)
 	}
 }

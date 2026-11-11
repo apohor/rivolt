@@ -966,7 +966,26 @@ func (m *StateMonitor) permitCtx(ctx context.Context, vehicleID, site string) (c
 	if !ok {
 		return ctx, false
 	}
-	return WithCallPermit(ctx, HolderMonitor), true
+	return WithCallPermitGate(ctx, HolderMonitor, func() bool { return m.callAllowed(vehicleID) }), true
+}
+
+// callAllowed is rivianCtx's decision without its side effects: the group is held (or lead mode is off) and the local lease deadline is ahead.
+// It is read at every request of a long-lived context, so the lease as it is now decides, not the one the subscription started under.
+func (m *StateMonitor) callAllowed(vehicleID string) bool {
+	if m.fenceSrc == nil {
+		return true
+	}
+	if _, st := m.fenceSrc.Fence(vehicleID); st == fence.Off {
+		return true
+	} else if st == fence.Lost {
+		return false
+	}
+	if d, ok := m.fenceSrc.(fence.Deadliner); ok {
+		if at, has := d.Deadline(vehicleID); has {
+			return time.Now().Before(at)
+		}
+	}
+	return true
 }
 
 // permitCtxWait is permitCtx that waits a second at a time until the group is ours again, and gives up (false) when ctx ends.
