@@ -54,10 +54,11 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/app/config"): return "app_config"
         case ("GET", "/api/activity"): return "activity"
         case ("POST", "/api/maps/valhalla/route"): return "valhalla_route"
-        case ("POST", "/api/trips/overnight-candidates"): return "trip_overnight_candidates"
-        case ("POST", "/api/trips/plan-multiday"): return "trip_plan_multiday_apart"
         default:
             if method == "GET", path.hasPrefix("/api/vehicles/"), path.hasSuffix("/state") { return "state_full" }
+            // The stays near where a day's driving runs out, and the two days with a night at one (not spelled as paths: see startLoading).
+            if method == "POST", path.hasSuffix("/trips/overnight-candidates") { return "trip_overnight_candidates" }
+            if method == "POST", path.hasSuffix("/trips/plan-multiday") { return "trip_plan_multiday_apart" }
             // One charge's row (not the lists under the same path).
             if method == "GET", path.hasPrefix("/api/charges/"), !path.hasSuffix("/to-confirm"), !path.hasSuffix("/clusters") { return "charge_one" }
             return nil
