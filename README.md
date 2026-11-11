@@ -20,7 +20,8 @@ affiliated with, endorsed by or sponsored by Rivian.
 - **Every charge and trip priced from what Rivian billed, your rate, or a labelled estimate**, with the source of each
   number shown (billed, home rate, network estimate, or entered by you).
 - **Trip planner** that estimates what a road trip will cost, with weather
-  and efficiency analysis, and live and forecast weather radar on the map.
+  and efficiency analysis, live weather radar on the map (off by default)
+  and rain or snow forecast on each leg.
 - **Lease miles:** enter your allowance and term and see projected miles
   at lease return and the overage cost.
 - **Efficiency** (mi/kWh) broken down by temperature, speed and drive mode.
@@ -197,12 +198,11 @@ phone the map is on top and the trip sits in a sheet you drag up.
 
 #### Weather radar
 
-Where the server has radar turned on (US only), the map has a radar
-button and a time strip along its bottom edge.
+Radar is off by default. A deployment that turns it on (US only) gets a
+radar button on the map.
 
-- **Live, then forecast.** The strip starts at live NOAA/NWS radar.
-  Drag it right to see the forecast up to 18 hours ahead, with a marker
-  showing where you'll be on the route at that time.
+- **Live radar.** The button shows live NOAA/NWS radar under the route,
+  with the time of the frame in the map's top-left corner.
 - **Rain and snow along the route.** Each leg of a planned trip is
   tagged with the weather expected when you get there: temperature,
   wind, and "rain" or "snow expected" where the forecast says so.
@@ -210,12 +210,9 @@ button and a time strip along its bottom edge.
   switches in the planner's settings page, along with how far from the
   route chargers show and the minimum fast-charger power.
 
-Radar comes from NOAA and is for general awareness: forecasts can miss
-storms, so don't use it for safety-critical decisions. Rivolt's own
-server fetches it, so your phone or browser never contacts NOAA. It is
-not on the signed-out demo.
-
-<img src="docs/screenshots/plan-radar.png" alt="The planner on the sample truck's Los Angeles to Las Vegas trip with the forecast radar strip under the map, a storm over the route and a snow-expected tag on the last leg">
+Radar comes from NOAA and is for general awareness, not for
+safety-critical decisions. Rivolt's own server fetches it, so your phone
+or browser never contacts NOAA. It is not on the signed-out demo.
 
 #### Multi-day trips
 
