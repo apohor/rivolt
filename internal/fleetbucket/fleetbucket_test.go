@@ -65,9 +65,9 @@ func (c *fakeClock) setWindow(a, i int) {
 
 // window reads the fleet budget's window: the Redis second it counts and the active and idle calls granted in it.
 func window(mr *miniredis.Miniredis, key string) (sec int64, a, i int) {
-	fmt.Sscan(mr.HGet(key, "sec"), &sec)
-	fmt.Sscan(mr.HGet(key, "a"), &a)
-	fmt.Sscan(mr.HGet(key, "i"), &i)
+	_, _ = fmt.Sscan(mr.HGet(key, "sec"), &sec)
+	_, _ = fmt.Sscan(mr.HGet(key, "a"), &a)
+	_, _ = fmt.Sscan(mr.HGet(key, "i"), &i)
 	return sec, a, i
 }
 
