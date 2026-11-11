@@ -259,6 +259,8 @@ struct PlanMapCanvas: View {
     var bottomInset: CGFloat = 0
     /// What the layer chips over the map's top take: the camera fits below it.
     var topInset: CGFloat = 0
+    /// Bump to frame the drawing again.
+    var reframe = 0
     /// A long press on the map (only on the full-height map).
     var onLongPress: ((RouteSnap.Coord) -> Void)?
     var onCenter: ((RouteSnap.Coord) -> Void)?
@@ -277,7 +279,7 @@ struct PlanMapCanvas: View {
             if health == .failed {
                 MapMessage(text: "Map unavailable.")
             } else if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, radar: radar, bottomInset: bottomInset, topInset: topInset, onStop: onStop, onLegTag: onLegTag.map { cb in { i in if drawing.legTags.indices.contains(i) { cb(drawing.legTags[i]) } } }, onLongPress: onLongPress, onCenter: onCenter, onDrawnLegTags: drawnLegTagsReport)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, recenter: reframe, radar: radar, bottomInset: bottomInset, topInset: topInset, onStop: onStop, onLegTag: onLegTag.map { cb in { i in if drawing.legTags.indices.contains(i) { cb(drawing.legTags[i]) } } }, onLongPress: onLongPress, onCenter: onCenter, onDrawnLegTags: drawnLegTagsReport)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     // The places drawn along the route (the layer chips' pins), for VoiceOver and for a UI test: nothing is said when there are none.
@@ -366,6 +368,8 @@ struct PlanMap: View {
     var fills = false
     var bottomInset: CGFloat = 0
     var topInset: CGFloat = 0
+    /// Bump to frame what is on show again (a day chip tapped, even the one already picked, after the person panned away).
+    var reframe = 0
     /// Edit mode of the one-route map (never on the days map): a long press drops a pin, the middle of the map moves a stop.
     var onLongPress: ((RouteSnap.Coord) -> Void)?
     var onCenter: ((RouteSnap.Coord) -> Void)?
@@ -410,7 +414,7 @@ struct PlanMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, topInset: topInset, onLongPress: onLongPress, onCenter: onCenter)
+        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, topInset: topInset, reframe: reframe, onLongPress: onLongPress, onCenter: onCenter)
             .onChange(of: day) { reportLine() }
             .task(id: key) { await load() }
             // A stop just added or removed: our own roads line (Valhalla's route through the places with the new set) at once, while the planner works.

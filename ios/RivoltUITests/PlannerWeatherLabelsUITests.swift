@@ -88,6 +88,55 @@ final class PlannerWeatherLabelsUITests: XCTestCase {
         expectEachDayFramed(map, in: app)
     }
 
+    /// A day's chip frames its day again when tapped once more after the person panned away (qa: Day 1 showed empty BC and Alberta).
+    func testTheDayChipFramesItsDayAgainAfterAPan() throws {
+        let app = launch()
+        let map = open("Two days, apart", in: app)
+        expectDrawnLabel(map, in: app, "the whole trip")
+        let day1 = app.buttons["Day 1"].firstMatch
+        XCTAssertTrue(day1.waitForExistence(timeout: 10))
+        day1.tap()
+        expectDrawnLabel(map, in: app, "Day 1")
+        let drawn = app.descendants(matching: .any).matching(identifier: "drawn-weather-label")
+        // Drag the map down, north, until the day is out of view.
+        for _ in 0..<6 where drawn.count > 0 {
+            map.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+                .press(forDuration: 0.05, thenDragTo: map.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)), withVelocity: .fast, thenHoldForDuration: 0)
+            _ = settledLabels(app)
+        }
+        XCTAssertEqual(drawn.count, 0, "panned away from Day 1")
+        day1.tap()
+        expectDrawnLabel(map, in: app, "Day 1 tapped again")
+    }
+
+    /// Planning the days again (back to one day, then another stay) opens on the whole trip, not on the day picked before.
+    func testNewDaysOpenOnTheWholeTrip() throws {
+        let app = launch()
+        let map = open("Long way to Spokane", in: app)
+        expectDrawnLabel(map, in: app, "the one route")
+        func planTwoDays() {
+            let find = app.buttons["Find a place to sleep"].firstMatch
+            XCTAssertTrue(find.waitForExistence(timeout: 10), "the long drive offers a night")
+            reveal(find, in: app)
+            find.tap()
+            let stay = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Example Hotel'")).firstMatch
+            XCTAssertTrue(stay.waitForExistence(timeout: 10), "the stay is listed")
+            reveal(stay, in: app)
+            stay.tap()
+            XCTAssertTrue(app.buttons["Day 2"].firstMatch.waitForExistence(timeout: 20), "the two days are planned")
+        }
+        planTwoDays()
+        app.buttons["Day 2"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Day 2"].firstMatch.isSelected)
+        let back = app.buttons["Back to one day"].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10))
+        reveal(back, in: app)
+        back.tap()
+        planTwoDays()
+        XCTAssertTrue(app.buttons["Whole trip"].firstMatch.isSelected, "the new days open on the whole trip")
+        XCTAssertFalse(app.buttons["Day 2"].firstMatch.isSelected)
+    }
+
     /// Scrolls the plan's sheet until `element` can be tapped.
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
         for _ in 0..<8 where !element.isHittable {
