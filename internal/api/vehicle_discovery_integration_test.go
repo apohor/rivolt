@@ -145,3 +145,32 @@ func TestVehiclesWithOwnerDiscoveryNeverAsksRivian(t *testing.T) {
 		t.Errorf("stored, unsynced: %d %q (%v), %d Rivian calls; want the one vehicle and no call", code, body, err, c.calls.Load())
 	}
 }
+
+type noSyncerRegistry struct{ rivian.AccountRegistry }
+
+// A registry without a syncer (replay, mock, stub) still has a users row: a user with no stored session is "unlinked" and a flagged one needs
+// sign-in, never an account state that "could not be read" for ever.
+func TestVehiclesAccountStateWithoutAnAccountSyncer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	uid, err := db.EnsureUser(ctx, pool, "disc-nosync-"+uuid.NewString()[:8])
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := Deps{DB: pool, Accounts: noSyncerRegistry{}}
+	linked, reauth, ok := d.vehiclesAccountState(uid)(ctx)
+	if !ok || linked || reauth {
+		t.Fatalf("no session: linked=%v reauth=%v ok=%v, want unlinked and readable", linked, reauth, ok)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET needs_reauth = true WHERE id = $1`, uid); err != nil {
+		t.Fatal(err)
+	}
+	if _, reauth, ok = d.vehiclesAccountState(uid)(ctx); !ok || !reauth {
+		t.Fatalf("flagged: reauth=%v ok=%v, want reauth and readable", reauth, ok)
+	}
+}
