@@ -43,4 +43,15 @@ final class VehicleDiscoveryTests: XCTestCase {
         XCTAssertNil(VehicleDiscoveryState.unlinked.view, "the connect screen already says it")
         XCTAssertNil(VehicleDiscoveryState.found.view)
     }
+
+    func testNoneOffersRivianSettings() {
+        XCTAssertEqual(VehicleDiscoveryState.empty.view?.action, "Open Rivian settings")
+    }
+
+    func testRefreshReplyReadsBothShapes() throws {
+        let owner = try JSONDecoder().decode(RivianVehicleCount.self, from: Data(#"{"vehicle_count":0}"#.utf8))
+        XCTAssertEqual(owner, RivianVehicleCount(vehicleCount: 0, looking: nil))
+        let peer = try JSONDecoder().decode(RivianVehicleCount.self, from: Data(#"{"looking":true}"#.utf8))
+        XCTAssertEqual(peer.looking, true, "a server that asked the owner")
+    }
 }

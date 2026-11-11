@@ -60,11 +60,12 @@ struct SignedInGate: View {
     }
 
     /// askRivian: the "Check again" tap on "none". The server only looks again about once a day, so the tap asks Rivian now (as the web's Settings
-    /// does) before reading the list; a failure there still re-reads. The automatic checks never ask Rivian.
+    /// does) before reading the list; a failure there still re-reads. A server that does not hold the account asks the one that does and answers
+    /// "looking": the screen shows that (and its half-minute re-read) until the owner's answer lands. The automatic checks never ask Rivian.
     private func check(askRivian: Bool = false) async {
         await state.recheckTerms()
         if state.termsRequired { return }
-        if askRivian { _ = try? await state.client.refreshRivianVehicles() }
+        let asked = askRivian ? try? await state.client.refreshRivianVehicles() : nil
         let list = try? await state.client.vehicles()
         gate = Onboarding.gate(vehicles: list)
         guard gate == .noTruck else { discovery = nil; return }
@@ -74,7 +75,7 @@ struct SignedInGate: View {
         let found = VehicleDiscoveryState.from(answer, error: failure)
         // A vehicle turned up since the list was read: look at the list again.
         if found == .found, let again = try? await state.client.vehicles() { gate = Onboarding.gate(vehicles: again) }
-        discovery = found?.view
+        discovery = (found == .empty && asked?.looking == true ? VehicleDiscoveryState.looking : found)?.view
     }
 
     /// While the server is still looking, the screen asks again every half minute.

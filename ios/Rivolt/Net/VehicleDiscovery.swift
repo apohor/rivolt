@@ -6,10 +6,12 @@ struct VehicleDiscovery: Decodable, Equatable {
     var state: String
 }
 
-/// `POST /api/settings/rivian/refresh-vehicles`: how many vehicles the account lists now.
+/// `POST /api/settings/rivian/refresh-vehicles`: how many vehicles the account lists now, or (from a server that does not hold the account and
+/// asked the one that does) that Rivolt is looking.
 struct RivianVehicleCount: Decodable, Equatable {
-    var vehicleCount: Int
-    enum CodingKeys: String, CodingKey { case vehicleCount = "vehicle_count" }
+    var vehicleCount: Int?
+    var looking: Bool?
+    enum CodingKeys: String, CodingKey { case vehicleCount = "vehicle_count", looking }
 }
 
 enum VehicleDiscoveryState: Equatable {
