@@ -290,7 +290,7 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 		enr.load(r.Context())
 		resp.WeatherAdjustment, resp.Costs = enr.enrich(r.Context(), plan, in.StartingSoC, in.TargetArrivalSocPercent)
 		cctx, cancelClimb := withClimbBudget(r.Context())
-		addLegClimb(cctx, resp.WeatherAdjustment, resp.TripPlan)
+		resp.ElevationProfile = addLegClimb(cctx, resp.WeatherAdjustment, resp.TripPlan)
 		cancelClimb()
 		if !farFuture {
 			rctx, cancelRadar := withRadarBudget(r.Context())
@@ -310,6 +310,10 @@ type tripPlanResponse struct {
 	// FromPosition is set when the plan started from the truck's position.
 	FromPosition      *fromPosition             `json:"from_position,omitempty"`
 	WeatherAdjustment *tripWeatherAdjustmentDTO `json:"weather_adjustment,omitempty"`
+	// ElevationProfile is the terrain height along the first route for the elevation chart. A sibling of weather_adjustment, not part of it:
+	// elevation is not weather. It exists only when the climb pass ran and read every leg, so it is absent when there is no adjustment (weather
+	// off), no DEM or no road line, and is never partial.
+	ElevationProfile *elevationProfileDTO `json:"elevation_profile,omitempty"`
 	// FarFuture is true for a departure more than 30 days out: the stops,
 	// chargers and times come from today's network and conditions, and no
 	// weather forecast was used. The UI says so and suggests re-planning

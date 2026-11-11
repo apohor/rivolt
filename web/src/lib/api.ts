@@ -2663,6 +2663,13 @@ export type TripPlanInputWaypoint = {
 // TripPlan mirrors internal/rivian.TripPlan (Go side). The gateway
 // returns one or more candidate routes; the first is typically the
 // recommended one.
+// points are [distance_m, elevation_m] along Routes[0], at most 200, the first at 0 and the last at the end of the line, with the
+// series' own highest and lowest samples kept. waypoint_at_m has one entry per Routes[0].Waypoints (null: the stop could not be placed).
+export type ElevationProfile = {
+  points: [number, number][];
+  waypoint_at_m: (number | null)[];
+};
+
 export type TripPlan = {
   Status: string;
   ChargeStationsAvailable: boolean;
@@ -2675,6 +2682,9 @@ export type TripPlan = {
   // than the user's floor. Server-omitted (and thus undefined here)
   // when the weather toggle is off or every leg's fetch failed.
   weather_adjustment?: TripWeatherAdjustment;
+  // Terrain height along Routes[0] for the elevation chart (metres, SI whatever the account's units). Absent with the weather
+  // adjustment (toggle off), without a DEM, or when any leg could not be read: never partial.
+  elevation_profile?: ElevationProfile;
   // true when the trip leaves more than 30 days from now: planned from today's network and
   // conditions, with no weather forecast (the server plans such a trip at today's date).
   far_future?: boolean;
@@ -3034,6 +3044,7 @@ export type TripPlanMultidayDay = {
   soc_below_limit: boolean;
   overnight?: TripPlanOvernightResult;
   weather_adjustment?: TripWeatherAdjustment;
+  elevation_profile?: ElevationProfile;
   costs?: TripCostEstimate[];
 };
 
