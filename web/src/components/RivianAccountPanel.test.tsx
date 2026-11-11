@@ -104,6 +104,97 @@ describe("connect step: driver account first", () => {
     expect(screen.getByText(/Connected your main account instead\?/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
   });
+
+  it("Check again answered 503 Retry-After by a server that asked the owner says Rivolt is checking, not an error", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/settings/rivian/refresh-vehicles": { status: 503, body: { error: "unavailable" }, headers: { "Retry-After": "5" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Rivolt is checking your Rivian account.");
+    expect(screen.queryByText(/unavailable/)).toBeNull();
+  });
+
+  describe("after a Check again the owner took", () => {
+    afterEach(() => vi.useRealTimers());
+    const connected = { "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } } };
+    const unheld = { "/api/settings/rivian/refresh-vehicles": { status: 503, body: { error: "unavailable" }, headers: { "Retry-After": "5" } } };
+    const truck = { id: "v-test-1", vin: "TESTVIN0000000001", model: "R1T", model_year: 2024, display_name: "One" };
+    const ownedCalls = (fn: ReturnType<typeof stubFetchRoutes>) =>
+      fn.mock.calls.filter(([u]) => String(u).split("?")[0] === "/api/vehicles/owned").length;
+    const wait = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+
+    it("stops re-reading and says so when the owner found no vehicle", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      stubFetchRoutes({ ...connected, ...unheld, "/api/vehicles/owned": { body: { vehicles: [] } } });
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+      expect(await screen.findByRole("status")).toHaveTextContent("Rivolt is checking your Rivian account.");
+      const fn = stubFetchRoutes({
+        ...connected,
+        ...unheld,
+        "/api/vehicles/owned": { body: { vehicles: [] } },
+        "/api/vehicles/discovery": { body: { state: "none" } },
+      });
+      await wait(6_000);
+      await vi.waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("it lists no vehicle"));
+      const before = ownedCalls(fn);
+      await wait(120_000);
+      expect(ownedCalls(fn)).toBe(before);
+    });
+
+    it("stops after ten minutes while the owner is still looking", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      stubFetchRoutes({ ...connected, ...unheld, "/api/vehicles/owned": { body: { vehicles: [] } } });
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+      await screen.findByRole("status");
+      const fn = stubFetchRoutes({
+        ...connected,
+        ...unheld,
+        "/api/vehicles/owned": { body: { vehicles: [] } },
+        "/api/vehicles/discovery": { body: { state: "looking" } },
+      });
+      await wait(60_000);
+      expect(ownedCalls(fn)).toBeGreaterThan(0);
+      await wait(10 * 60_000);
+      expect(screen.queryByRole("status")).toBeNull();
+      const before = ownedCalls(fn);
+      await wait(120_000);
+      expect(ownedCalls(fn)).toBe(before);
+    });
+
+    it("shows a second truck once it lands and clears the line", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      stubFetchRoutes({ ...connected, ...unheld, "/api/vehicles/owned": { body: { vehicles: [truck] } } });
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: "Added a vehicle? Check again" }));
+      expect(await screen.findByRole("status")).toHaveTextContent("Rivolt is checking your Rivian account.");
+      stubFetchRoutes({
+        ...connected,
+        ...unheld,
+        "/api/vehicles/owned": { body: { vehicles: [truck, { ...truck, id: "v-test-2", vin: "TESTVIN0000000002", display_name: "Two" }] } },
+        "/api/vehicles/discovery": { body: { state: "found" } },
+      });
+      await wait(6_000);
+      expect(await screen.findByText(/“Two”/)).toBeInTheDocument();
+      expect(screen.queryByRole("status")).toBeNull();
+    });
+  });
+
+  it("a 503 without Retry-After is still an error", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/settings/rivian/refresh-vehicles": { status: 503, body: { error: "unavailable" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText(/unavailable/)).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
 });
 
 describe("a status refetch does not take the form away", () => {

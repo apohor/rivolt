@@ -2,8 +2,8 @@ import { vi } from "vitest";
 
 // stubFetchRoutes installs a fetch mock that answers by URL path
 // prefix. Unmatched paths 404, which is what most of the SPA treats
-// as "feature off / not there".
-export function stubFetchRoutes(routes: Record<string, { status?: number; body: unknown }>) {
+// as "feature off / not there". headers answers named response headers (anything else reads "application/json").
+export function stubFetchRoutes(routes: Record<string, { status?: number; body: unknown; headers?: Record<string, string> }>) {
   const fn = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
     const path = url.split("?")[0];
@@ -15,7 +15,7 @@ export function stubFetchRoutes(routes: Record<string, { status?: number; body: 
     return {
       ok: status >= 200 && status < 300,
       status,
-      headers: { get: () => "application/json" },
+      headers: { get: (name: string) => hit?.[1].headers?.[name] ?? "application/json" },
       text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
       json: async () => body,
     } as unknown as Response;
