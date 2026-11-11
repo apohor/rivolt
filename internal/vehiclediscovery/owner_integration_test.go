@@ -103,7 +103,7 @@ func TestOwnerDiscoverySkipsAFlaggedUser(t *testing.T) {
 	defer cancel()
 	pool := open(ctx, t)
 	u := linked(ctx, t, pool, "own-flagged")
-	if err := db.SetNeedsReauth(ctx, pool, u, "rejected"); err != nil {
+	if _, err := db.RaiseNeedsReauth(ctx, pool, u, "rejected"); err != nil {
 		t.Fatal(err)
 	}
 	var calls atomic.Int32
