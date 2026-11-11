@@ -20,8 +20,7 @@ affiliated with, endorsed by or sponsored by Rivian.
 - **Every charge and trip priced from what Rivian billed, your rate, or a labelled estimate**, with the source of each
   number shown (billed, home rate, network estimate, or entered by you).
 - **Trip planner** that estimates what a road trip will cost, with weather
-  and efficiency analysis, live weather radar on the map and rain or snow
-  forecast on each leg (both off by default).
+  and efficiency analysis, and live weather radar on the map.
 - **Lease miles:** enter your allowance and term and see projected miles
   at lease return and the overage cost.
 - **Efficiency** (mi/kWh) broken down by temperature, speed and drive mode.
@@ -196,18 +195,15 @@ phone the map is on top and the trip sits in a sheet you drag up.
   to every day and is saved with the trip. Avoiding highways usually adds
   time and can add a charging stop.
 
-#### Weather radar
+#### Weather on the map and on each leg
 
-Radar is off by default. A deployment that turns it on (US only) gets a
-radar button on the map.
-
-- **Live radar.** The button shows live NOAA/NWS radar under the route,
-  with the time of the frame in the map's top-left corner.
+- **Live radar.** On rivolt.dev the map has a radar button (US only)
+  that shows live NOAA/NWS radar under the route, with the time of the
+  frame in the map's top-left corner. Radar is off by default on a
+  self-hosted install; the operator turns it on.
 - **Weather on each leg.** Each leg of a planned trip shows the
-  temperature and wind expected when you get there.
-- **Rain and snow tags.** Legs are also tagged "rain" or "snow expected"
-  where the forecast says so. These need the forecast radar service,
-  which the operator turns on separately from live radar.
+  temperature and wind expected when you get there, and "rain" or "snow
+  expected" where the weather forecast says so.
 - **Planner settings.** Weather on each leg and the radar default are
   switches in the planner's settings page, along with how far from the
   route chargers show and the minimum fast-charger power.
