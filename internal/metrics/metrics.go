@@ -1180,7 +1180,7 @@ var LeaseShedChoices = []string{"idle", "awake", "deferred"}
 
 // LeaseFencedKinds are the write classes rivolt_lease_fenced_total counts.
 // RivianCallSites are the label values of rivolt_rivian_call_refused_total; rivian.CallSites must list the same (a test in cmd/rivolt).
-var RivianCallSites = []string{"seed", "refresh_once", "janitor_confirm", "wake_safety", "ws_dial", "live_session"}
+var RivianCallSites = []string{"seed", "refresh_once", "janitor_confirm", "wake_safety", "ws_dial", "live_session", "subscription", "schedule", "start"}
 
 // TakeoverClasses are the label values of the takeover pacing metrics; the call sites in rivian.StateMonitor use the same names.
 var TakeoverClasses = []string{"dial", "seed", "features"}
