@@ -1,0 +1,15 @@
+# CI render: the Deployment with a PDB, a soft hostname spread keyed on pod-template-hash, and a PriorityClass.
+secrets:
+  kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+externalDatabase:
+  host: postgres.example.invalid
+replicaCount: 2
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    matchLabelKeys: [pod-template-hash]
+priorityClassName: rivolt-critical

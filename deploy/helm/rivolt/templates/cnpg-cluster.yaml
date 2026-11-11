@@ -49,6 +49,16 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 
+  {{- with .Values.cnpg.priorityClassName }}
+  priorityClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.cnpg.primaryUpdateStrategy }}
+  primaryUpdateStrategy: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.cnpg.primaryUpdateMethod }}
+  primaryUpdateMethod: {{ . | quote }}
+  {{- end }}
+
   {{- with .Values.cnpg.affinity }}
   # Pod placement, passed through as the Cluster's spec.affinity:
   # enablePodAntiAffinity / podAntiAffinityType / topologyKey (one instance
