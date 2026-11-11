@@ -908,6 +908,10 @@ func runServer() {
 		logger.Info("RIVOLT_SINGLE_OWNER is on: needs_reauth is raised by the group's owner only")
 	}
 	rivian.SetWSReconnectObserver(func(reason string) { appMetrics.RivianWSReconnects.WithLabelValues(reason).Inc() })
+	if err := permitEnforceEnvError(os.Getenv); err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
 	if mode := rivian.ParsePermitMode(os.Getenv("RIVOLT_RIVIAN_PERMIT")); mode != rivian.PermitOff {
 		rivian.SetPermitMode(mode)
 		rivian.SetUnpermittedObserver(func(op string) { appMetrics.RivianUnpermitted.WithLabelValues(rivian.PermitOp(op)).Inc() })
