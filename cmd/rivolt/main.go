@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -536,6 +537,12 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	secrets.SetSessionDecryptObserver(func(site string) {
+		if !slices.Contains(metrics.SessionDecryptSites, site) {
+			site = "other"
+		}
+		appMetrics.SessionDecrypts.WithLabelValues(site).Inc()
+	})
 	registerMigrateMetrics(appMetrics)
 	var planElevation api.ElevationBlocking // the recorder's DEM resolver when ELEVATION_ENABLED=1: the plan reads the climb along each leg from it
 	planRadar, rerr := newPlanRadar(os.Getenv, appMetrics)
@@ -1185,7 +1192,7 @@ func runServer() {
 			// converge on the same Restore() so /api/settings/rivian
 			// answers identically from any replica.
 			if secretsStore != nil {
-				if sess, err := secrets.LoadRivianSession(ctx, secretsStore, boundUID); err != nil {
+				if sess, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "lazy_restore"), secretsStore, boundUID); err != nil {
 					logger.Warn("rivian session load (lazy)",
 						"user_id", boundUID.String(), "err", err.Error())
 				} else if sess.UserSessionToken != "" {
@@ -1402,7 +1409,7 @@ func runServer() {
 		// pod restart.
 		if secretsStore != nil && accountRegistry != nil {
 			monitorRegistry.SetSessionRehydrator(func(ctx context.Context, uid uuid.UUID) bool {
-				sess, err := secrets.LoadRivianSession(ctx, secretsStore, uid)
+				sess, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "rehydrate"), secretsStore, uid)
 				if err != nil || sess.UserSessionToken == "" {
 					return false
 				}
@@ -1812,7 +1819,7 @@ func runServer() {
 			}
 			restored := 0
 			for _, uid := range uids {
-				sess, err := secrets.LoadRivianSession(ctx, secretsStore, uid)
+				sess, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "boot_sweep"), secretsStore, uid)
 				if err != nil {
 					logger.Warn("rivian boot hydrate failed",
 						"user_id", uid.String(), "err", err.Error())
@@ -2125,6 +2132,7 @@ func runServer() {
 		// prestop hook and 45 s grace period are live: without draining a rollout moves groups twice.
 		leaseStore.SetGroupLead(os.Getenv("RIVOLT_GROUP_LEAD") == "1")
 		liveFence.Set(leaseStore)
+		startTokensLoadedUnheld(ctx, accountRegistry, &liveFence, appMetrics.TokensLoadedUnheld, logger)
 		vehicleSource := leases.NewVehicleSource(
 			func() []string {
 				infos := monitorRegistry.AllVehicleInfo()

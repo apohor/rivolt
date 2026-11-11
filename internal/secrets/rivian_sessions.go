@@ -83,7 +83,7 @@ func (l *RivianSessionLister) List(ctx context.Context) ([]rivianexpiry.Entry, e
 // meanwhile (a sign-in writes the column itself). It returns the time, zero when unknown or when
 // the session cannot be read (then nothing is written and a later pass tries again).
 func (l *RivianSessionLister) backfill(ctx context.Context, uid uuid.UUID) time.Time {
-	sess, err := LoadRivianSession(ctx, l.store, uid)
+	sess, err := LoadRivianSession(WithSite(ctx, "expiry"), l.store, uid)
 	if err != nil || sess.UserSessionToken == "" {
 		return time.Time{}
 	}

@@ -44,6 +44,9 @@ func LoadRivianSession(ctx context.Context, s *Store, userID uuid.UUID) (rivian.
 	if errors.Is(err, ErrNotFound) {
 		return rivian.Session{}, nil
 	}
+	if err == nil {
+		observeSessionDecrypt(ctx)
+	}
 	if err != nil {
 		// Sealer failure is treated like a missing row so a
 		// single-user crypto problem doesn't cascade into a

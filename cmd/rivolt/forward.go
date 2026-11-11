@@ -102,7 +102,7 @@ func (r *forwardRunner) freshState(ctx context.Context, user, group string, args
 	var hasSession func(context.Context) (bool, error)
 	if r.secrets != nil {
 		hasSession = func(ctx context.Context) (bool, error) {
-			sess, err := secrets.LoadRivianSession(ctx, r.secrets, uid)
+			sess, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "forward_adopt"), r.secrets, uid)
 			return sess.UserSessionToken != "", err
 		}
 	}
@@ -120,7 +120,7 @@ func (r *forwardRunner) adopt(ctx context.Context, user string) (forward.Result,
 	}
 	// The login nudge (design §3): the pod that took the login holds the session; the owner loads it from user_secrets and starts the
 	// user's monitor, exactly as the boot hydrate does for a stored session. Idempotent; a user with no stored session is a no-op.
-	sess, err := secrets.LoadRivianSession(ctx, r.secrets, uid)
+	sess, err := secrets.LoadRivianSession(secrets.WithSite(ctx, "forward_adopt"), r.secrets, uid)
 	if err != nil {
 		return forward.Result{}, err
 	}

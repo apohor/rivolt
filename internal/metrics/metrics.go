@@ -192,6 +192,11 @@ type Metrics struct {
 	TakeoverWaitSeconds    *prometheus.HistogramVec
 	TakeoverStarvedTotal   *prometheus.CounterVec
 	TakeoverLocalOnlyTotal *prometheus.CounterVec
+	// SessionDecrypts counts decrypts of a stored Rivian session by call site (SessionDecryptSites; any other label is "other"); no user id.
+	// TokensLoadedUnheld is how many clients in this pod's account registry hold a session token for a user whose group this pod does not
+	// hold (single-owner M4-5 baseline: flag-off prod shows what the flag would remove; 0 with lead mode off, where the notion does not apply).
+	SessionDecrypts    *prometheus.CounterVec
+	TokensLoadedUnheld prometheus.Gauge
 	// LeaseReconcileTotal counts the coordinator's reconcile passes by what started them: start (boot), tick (the timer), signal (a peer released
 	// groups and said so, G1a) or other (a fenced write, a refused call or the first request asking for a pass). Created at 0. The share of
 	// signal against tick is how much of the hand-off wait the signal removed.
@@ -477,6 +482,14 @@ func New() *Metrics {
 			Name: "rivolt_rivian_takeover_local_only_total",
 			Help: "Takeover calls paced by the process's own bucket alone because the fleet budget in Redis did not answer.",
 		}, []string{"class"}),
+		SessionDecrypts: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_rivian_session_decrypts_total",
+			Help: "Decrypts of a stored Rivian session by call site (boot_sweep, lazy_restore, rehydrate, forward_adopt, sync, settings, request_hydrate, expiry, other).",
+		}, []string{"site"}),
+		TokensLoadedUnheld: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_tokens_loaded_unheld",
+			Help: "Rivian session tokens held in this pod's memory for users whose group another pod holds (0 with lead mode off).",
+		}),
 		LeaseReconcileTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_lease_reconcile_total",
 			Help: "Lease reconcile passes by trigger: start, tick, signal (a peer released groups) or other.",
@@ -1003,6 +1016,8 @@ func New() *Metrics {
 		m.TakeoverWaitSeconds,
 		m.TakeoverStarvedTotal,
 		m.TakeoverLocalOnlyTotal,
+		m.SessionDecrypts,
+		m.TokensLoadedUnheld,
 		m.LeaseReconcileTotal,
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
@@ -1109,6 +1124,10 @@ func New() *Metrics {
 	for _, kind := range LeaseFencedKinds {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
 	}
+	for _, site := range SessionDecryptSites {
+		m.SessionDecrypts.WithLabelValues(site).Add(0)
+	}
+	m.TokensLoadedUnheld.Set(0)
 	for _, class := range TakeoverClasses {
 		m.TakeoverLocalOnlyTotal.WithLabelValues(class)
 		for _, prio := range []string{"active", "idle"} {
@@ -1181,6 +1200,10 @@ var LeaseShedChoices = []string{"idle", "awake", "deferred"}
 // LeaseFencedKinds are the write classes rivolt_lease_fenced_total counts.
 // RivianCallSites are the label values of rivolt_rivian_call_refused_total; rivian.CallSites must list the same (a test in cmd/rivolt).
 var RivianCallSites = []string{"seed", "refresh_once", "janitor_confirm", "wake_safety", "ws_dial", "live_session", "subscription", "schedule", "start"}
+
+// SessionDecryptSites are the label values of rivolt_rivian_session_decrypts_total: the places that decrypt a stored Rivian session. Fixed, so
+// the label never carries a user. A decrypt from anywhere else counts as "other".
+var SessionDecryptSites = []string{"boot_sweep", "lazy_restore", "rehydrate", "forward_adopt", "sync", "settings", "request_hydrate", "expiry", "other"}
 
 // TakeoverClasses are the label values of the takeover pacing metrics; the call sites in rivian.StateMonitor use the same names.
 var TakeoverClasses = []string{"dial", "seed", "features"}

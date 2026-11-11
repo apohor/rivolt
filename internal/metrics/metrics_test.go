@@ -255,3 +255,20 @@ func TestStripeCancelGaugesExistAtZeroFromBoot(t *testing.T) {
 		}
 	}
 }
+
+// The session-decrypt counter and the unheld-token gauge exist from boot: the M4-5 baseline needs a 0 to compare against, and increase()
+// needs the series to be there before its first increment.
+func TestSessionDecryptSeriesExistFromBoot(t *testing.T) {
+	m := New()
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+	for _, site := range SessionDecryptSites {
+		if !strings.Contains(body, `rivolt_rivian_session_decrypts_total{site="`+site+`"} 0`) {
+			t.Errorf("rivolt_rivian_session_decrypts_total{site=%q} is not exported at 0 from boot", site)
+		}
+	}
+	if !strings.Contains(body, "rivolt_tokens_loaded_unheld 0") {
+		t.Error("rivolt_tokens_loaded_unheld is not exported at 0 from boot")
+	}
+}
