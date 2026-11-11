@@ -994,6 +994,12 @@ jobs:
       - name: Pull kratos image
         run: docker pull oryd/kratos:v26.2.0@sha256:2a13bb8d362c7a7ae33bd7c0f5168aee46921f15c916a06346db91c06dc76643
 
+      # cmd/rivolt has an integration test now; its package embeds the web build (`//go:embed all:dist`), as in the go job.
+      - name: Stub web assets for embed
+        run: |
+          mkdir -p internal/web/dist
+          touch internal/web/dist/.keep
+
       - name: go test (integration)
         # Every package with an integration-tagged test runs, found from
         # the build tag rather than a hand-kept list: the list missed
