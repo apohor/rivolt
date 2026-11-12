@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"github.com/apohor/rivolt/internal/metrics"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -486,6 +487,9 @@ func demoOnlyPublic(method, path, vehicleID string) bool {
 		"/api/app/config":
 		return true
 	}
+	if p == "/api/demo/radar/frame" || strings.HasPrefix(p, "/api/demo/radar/") && strings.HasSuffix(p, ".png") {
+		return true
+	}
 	if rest, ok := strings.CutPrefix(p, "/api/demo/trips/"); ok && strings.HasSuffix(rest, "/plan") {
 		id := strings.TrimSuffix(rest, "/plan")
 		return id != "" && !strings.Contains(id, "/")
@@ -698,4 +702,35 @@ func newDemoGlobalLimiter(ls *limiterSet, name string) *ipLimiter {
 	l.key = func(*http.Request) string { return "global" }
 	l.onDeny = demoDenied("general", "global")
 	return l
+}
+
+// The signed-out demo radar's budgets: a map pans and zooms through a few dozen tiles at a time, so a client gets more than the general demo
+// budget, and the install as a whole a fixed amount. Past either, 429 and the page shows no radar.
+const (
+	demoRadarPerClientPerMin = 240
+	demoRadarGlobalPerMin    = 3000
+)
+
+func newDemoRadarLimiter(ls *limiterSet, name string, m *metrics.Metrics) *ipLimiter {
+	l := ls.ip(name, demoRadarPerClientPerMin, time.Minute, time.Hour)
+	l.key = demoClientKey
+	l.onDeny = demoRadarDenied("client", m)
+	return l
+}
+
+func newDemoRadarGlobalLimiter(ls *limiterSet, name string, m *metrics.Metrics) *ipLimiter {
+	l := ls.ip(name, demoRadarGlobalPerMin, time.Minute, time.Hour)
+	l.key = func(*http.Request) string { return "global" }
+	l.onDeny = demoRadarDenied("global", m)
+	return l
+}
+
+func demoRadarDenied(scope string, m *metrics.Metrics) func() {
+	general := demoDenied("tiles", scope)
+	return func() {
+		general()
+		if m != nil {
+			m.DemoRadarTotal.WithLabelValues("limited").Inc()
+		}
+	}
 }

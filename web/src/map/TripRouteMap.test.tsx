@@ -195,20 +195,27 @@ describe("TripRouteMap", () => {
     }
   });
 
-  it("shows no radar button or unavailable text in the signed-out demo, nor when the server refuses the frame (401/403)", async () => {
+  it("shows the radar in the signed-out demo from the demo routes, and nothing when a limit is hit (429); nothing is said when the server refuses the frame (401/403)", async () => {
     radarCfg.url = "/api/maps/radar/{z}/{x}/{y}.png";
     radarCfg.frameUrl = "/api/maps/radar/frame";
     plannerState.prefs = { ...plannerState.prefs, radar_on: true };
     try {
-      // The demo: no button at all, and the frame is never asked for.
-      const demoFetch = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }) as unknown as Response);
+      // The demo: the server advertises the demo's own routes (the mocked config stands for them), so the radar draws like any other.
+      const demoFetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ frame_unix: 1_700_000_000 }) }) as unknown as Response);
       vi.stubGlobal("fetch", demoFetch);
       window.history.pushState({}, "", "/demo/trips/plan");
       render(<TripRouteMap route={route} />);
-      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
-      expect(screen.queryByRole("button", { name: "Radar" })).toBeNull();
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-radar-layer")).toBe(true));
+      expect(screen.getByRole("button", { name: "Radar" })).toBeInTheDocument();
       expect(screen.queryByText(/Radar unavailable/)).toBeNull();
-      expect(demoFetch.mock.calls.some((c) => String(c[0]).includes("/radar/frame"))).toBe(false);
+      cleanup();
+      // Past a limit (429) in the demo: no button, no text, no layer.
+      vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 429, json: async () => ({}) }) as unknown as Response));
+      render(<TripRouteMap route={route} />);
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Radar" })).toBeNull());
+      expect(screen.queryByText(/Radar unavailable/)).toBeNull();
+      expect(FakeMap.last?.layers.has("rivolt-radar-layer")).toBe(false);
       cleanup();
       window.history.pushState({}, "", "/");
       // Signed in but refused: the button goes and nothing says "unavailable".

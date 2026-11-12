@@ -375,6 +375,9 @@ type Metrics struct {
 	// addresses are recorded.
 	DemoRateLimitedTotal *prometheus.CounterVec
 
+	// Signed-out demo radar requests by result: hit (a warmed tile), miss (an empty tile, the warm loop has not stored it) or limited (429).
+	DemoRadarTotal *prometheus.CounterVec
+
 	// Failed live recorder writes by kind (drive_upsert, charge_upsert,
 	// stale_charge). Nonzero means drives or charges are being lost or left
 	// stale, typically a database outage.
@@ -827,6 +830,13 @@ func New() *Metrics {
 			},
 			[]string{"route_class", "scope"},
 		),
+		DemoRadarTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_demo_radar_total",
+				Help: "Signed-out demo radar requests by result: hit, miss (empty tile, not warmed yet) or limited (429).",
+			},
+			[]string{"result"},
+		),
 		RecorderWriteFailuresTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_recorder_write_failures_total",
@@ -1141,6 +1151,7 @@ func New() *Metrics {
 		m.EmailSendTotal,
 		m.DemoClientKeyTotal,
 		m.DemoRateLimitedTotal,
+		m.DemoRadarTotal,
 		m.LoginLockoutsTotal,
 		m.FailLimiterFallbackTotal,
 		m.RateLimiterFallbackTotal,
