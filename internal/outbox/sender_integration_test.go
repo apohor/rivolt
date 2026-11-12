@@ -115,19 +115,25 @@ func TestJanitorPurgesInBatchesAndExpiresPending(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.insert(t, e.ctx, "jn-young")
+	// close_hook MaxAge 24 h + 1 d grace: 30 h old survives, 50 h old expires.
+	e.insert(t, e.ctx, "jn-30h")
+	e.insert(t, e.ctx, "jn-50h")
+	if _, err := e.pool.ExecContext(e.ctx, `UPDATE outbox SET created_at = now() - CASE key WHEN 'jn-30h' THEN interval '30 hours' ELSE interval '50 hours' END WHERE key IN ('jn-30h','jn-50h')`); err != nil {
+		t.Fatal(err)
+	}
 	j := NewJanitor(e.pool, e.s, nil)
 	j.BatchSize, j.MaxBatch, j.Pause = 1000, 2, time.Millisecond
 	if err := j.Once(e.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if left := e.count(t, `key LIKE 'jn-%'`); left != 2501-2000 {
-		t.Fatalf("after 2 batches of 1000: %d left, want %d (the run is capped, the next continues)", left, 501)
+	if left := e.count(t, `key LIKE 'jn-%'`); left != 2503-2000 {
+		t.Fatalf("after 2 batches of 1000: %d left, want %d (the run is capped, the next continues)", left, 503)
 	}
 	if err := j.Once(e.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if e.count(t, `key = 'jn-young'`) != 1 || e.count(t, `key LIKE 'jn-%'`) != 1 {
-		t.Fatal("only the young pending row should remain")
+	if e.count(t, `key IN ('jn-young','jn-30h')`) != 2 || e.count(t, `key LIKE 'jn-%'`) != 2 {
+		t.Fatal("only the two pending rows inside MaxAge + 1 d should remain")
 	}
 }
 

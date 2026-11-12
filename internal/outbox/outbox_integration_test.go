@@ -235,7 +235,7 @@ func TestPurgeAndCascade(t *testing.T) {
 	pending := mk("pp-", `created_at = now() - interval '40 days'`)
 	young := mk("pn-", `created_at = now() - interval '1 day'`)
 	now := time.Now()
-	n, err := e.s.PurgeBatch(e.ctx, now.Add(-SentTTL), now.Add(-FailedTTL), now.Add(-PendingTTL), 1000)
+	n, err := e.s.PurgeBatch(e.ctx, now.Add(-SentTTL), now.Add(-FailedTTL), 1000)
 	if err != nil || n.Sent < 1 || n.Failed < 1 || n.Expired < 1 {
 		t.Fatalf("purge = %+v, %v", n, err)
 	}

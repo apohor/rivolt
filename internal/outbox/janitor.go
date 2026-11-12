@@ -11,12 +11,11 @@ import (
 	"github.com/apohor/rivolt/internal/singleton"
 )
 
-// Retention, as the design fixes it: sent rows 7 days, failed rows 30 days. A pending row that nothing consumed in PendingTTL is expired, so
+// Retention, as the design fixes it: sent rows 7 days, failed rows 30 days. A pending row that nothing consumed within its kind's MaxAge plus PendingGrace is expired, so
 // shadow rows written before any handler exists do not stay forever.
 const (
-	SentTTL    = 7 * 24 * time.Hour
-	FailedTTL  = 30 * 24 * time.Hour
-	PendingTTL = 7 * 24 * time.Hour
+	SentTTL   = 7 * 24 * time.Hour
+	FailedTTL = 30 * 24 * time.Hour
 )
 
 // Janitor purges the outbox on a schedule, in limited batches, under a singleton lock.
@@ -102,7 +101,7 @@ func (j *Janitor) observe(ctx context.Context) error {
 func (j *Janitor) purge(ctx context.Context) error {
 	for i := 0; i < j.MaxBatch; i++ {
 		now := time.Now()
-		p, err := j.store.PurgeBatch(ctx, now.Add(-SentTTL), now.Add(-FailedTTL), now.Add(-PendingTTL), j.BatchSize)
+		p, err := j.store.PurgeBatch(ctx, now.Add(-SentTTL), now.Add(-FailedTTL), j.BatchSize)
 		if err != nil {
 			return err
 		}

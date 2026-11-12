@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,9 @@ var MaxAge = map[string]time.Duration{
 	KindEmail:        24 * time.Hour,
 	KindMilestone:    24 * time.Hour,
 }
+
+// PendingGrace is how long past its kind's MaxAge a never-consumed pending row stays before Purge expires it.
+const PendingGrace = 24 * time.Hour
 
 const (
 	// MaxAttempts is how many times a row is claimed before it is set aside as failed.
@@ -262,10 +266,15 @@ type Purged struct{ Sent, Failed, Expired int64 }
 func (p Purged) Total() int64 { return p.Sent + p.Failed + p.Expired }
 
 // PurgeBatch deletes at most limit rows, oldest id first: sent before sentBefore, failed before failedBefore, and pending rows (never sent, never
-// failed) created before pendingBefore, which nothing consumed (a shadow row with no handler, or an intent past any use). A short batch
+// failed) older than their kind's MaxAge plus PendingGrace, which nothing consumed (a shadow row with no handler, or an intent past any use). A short batch
 // (Total < limit) means the table is clear of them; the caller loops with pauses so no statement runs long.
-func (s *Store) PurgeBatch(ctx context.Context, sentBefore, failedBefore, pendingBefore time.Time, limit int) (Purged, error) {
+func (s *Store) PurgeBatch(ctx context.Context, sentBefore, failedBefore time.Time, limit int) (Purged, error) {
 	var p Purged
+	var ks, ss []string
+	for k, d := range MaxAge {
+		ks = append(ks, k)
+		ss = append(ss, strconv.FormatFloat((d+PendingGrace).Seconds(), 'f', 0, 64))
+	}
 	if limit <= 0 {
 		return p, errors.New("outbox: purge needs a positive limit")
 	}
@@ -275,13 +284,14 @@ func (s *Store) PurgeBatch(ctx context.Context, sentBefore, failedBefore, pendin
 				SELECT id FROM outbox
 				 WHERE (sent_at IS NOT NULL AND sent_at < $1)
 				    OR (failed_at IS NOT NULL AND failed_at < $2)
-				    OR (sent_at IS NULL AND failed_at IS NULL AND created_at < $3)
-				 ORDER BY id LIMIT $4)
+				    OR (sent_at IS NULL AND failed_at IS NULL AND created_at < now() - make_interval(secs => (
+					      SELECT s FROM unnest(string_to_array($4, ',')::text[], string_to_array($5, ',')::float8[]) AS m(k, s) WHERE m.k = kind)))
+				 ORDER BY id LIMIT $3)
 			RETURNING sent_at, failed_at)
 		SELECT count(*) FILTER (WHERE sent_at IS NOT NULL),
 		       count(*) FILTER (WHERE failed_at IS NOT NULL),
 		       count(*) FILTER (WHERE sent_at IS NULL AND failed_at IS NULL)
-		  FROM gone`, sentBefore.UTC(), failedBefore.UTC(), pendingBefore.UTC(), limit).Scan(&p.Sent, &p.Failed, &p.Expired)
+		  FROM gone`, sentBefore.UTC(), failedBefore.UTC(), limit, strings.Join(ks, ","), strings.Join(ss, ",")).Scan(&p.Sent, &p.Failed, &p.Expired)
 	return p, err
 }
 
