@@ -630,6 +630,7 @@ func (s *Store) LiveCoversBatch(ctx context.Context, rivianVehicleID string, sta
 		 WHERE EXISTS (
 		  SELECT 1 FROM drives
 		   WHERE user_id = $1 AND vehicle_id = $2 AND source = 'live'
+		     AND started_at <= GREATEST(n.e, n.s) AND started_at >= n.s - interval '7 days'
 		     AND tstzrange(started_at, GREATEST(ended_at, started_at)) && tstzrange(n.s, GREATEST(n.e, n.s)))`,
 		s.userID, vid, db.TimeList(starts), db.TimeList(ends))
 	if err != nil {
