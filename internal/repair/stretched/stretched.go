@@ -252,7 +252,7 @@ func Select(ctx context.Context, q Queryer, forUpdate, frames bool) ([]Row, erro
 		         EXISTS (SELECT 1 FROM rivian_receipts rr WHERE rr.charge_id = c.id) AS receipt,
 		         (c.place_override IS NOT NULL OR c.location_override IS NOT NULL OR COALESCE(c.notes,'') <> '' OR cardinality(c.tags) > 0) AS edited
 		    FROM charges c
-		   WHERE c.source = 'live'
+		   WHERE c.source = 'live' AND COALESCE(c.metadata->>'energy_source','') <> 'rivian_receipt'
 		   ORDER BY c.vehicle_id, c.started_at, c.id`+lock+`
 		)
 		SELECT cand.id, cand.user_id, cand.vehicle_id, cand.started_at, cand.ended_at, cand.updated_at,

@@ -144,6 +144,8 @@ func Classify(r Row, est PerPct) Verdict {
 		return skip("carries a user correction (place or location)")
 	case strings.Contains(string(r.Metadata), "energy_estimated"):
 		return skip("already estimated")
+	case strings.Contains(string(r.Metadata), "rivian_receipt"):
+		return skip("energy taken from Rivian's receipt")
 	case !socKnown(r):
 		return skip("SoC range unknown or implausible")
 	case d < MinSoC:

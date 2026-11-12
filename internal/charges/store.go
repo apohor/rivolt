@@ -319,17 +319,22 @@ const chargeOnConflict = `
 			start_soc_pct    = EXCLUDED.start_soc_pct,
 			end_soc_pct      = EXCLUDED.end_soc_pct,
 			-- Energy the receipts sync took from Rivian's receipt survives a re-save of the session.
-			energy_added_kwh = CASE WHEN charges.metadata->>'energy_source' = 'rivian_receipt' THEN charges.energy_added_kwh ELSE EXCLUDED.energy_added_kwh END,
+			energy_added_kwh = CASE WHEN charges.metadata->>'energy_source' = 'rivian_receipt' AND EXCLUDED.final_state IS DISTINCT FROM 'charging_active' THEN charges.energy_added_kwh ELSE EXCLUDED.energy_added_kwh END,
 			miles_added      = EXCLUDED.miles_added,
 			max_power_kw     = EXCLUDED.max_power_kw,
-			avg_power_kw     = CASE WHEN charges.metadata->>'energy_source' = 'rivian_receipt' THEN charges.avg_power_kw ELSE EXCLUDED.avg_power_kw END,
+			avg_power_kw     = CASE WHEN charges.metadata->>'energy_source' = 'rivian_receipt' AND EXCLUDED.final_state IS DISTINCT FROM 'charging_active' THEN charges.avg_power_kw ELSE EXCLUDED.avg_power_kw END,
 			final_state      = EXCLUDED.final_state,
 			lat              = EXCLUDED.lat,
 			lon              = EXCLUDED.lon,
 			source           = EXCLUDED.source,
 			-- A price the user entered survives the recorder re-saving
 			-- the session (lifecycle upserts keep firing until close).
-			cost             = CASE WHEN charges.metadata->>'cost_recorded' IS NOT NULL THEN charges.cost WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.cost ELSE EXCLUDED.cost END,
+			-- A price-based cost the receipts sync moved with the energy follows the new price on the kept energy.
+			cost             = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.cost
+			                        WHEN charges.metadata->>'cost_applied' IS NOT NULL AND charges.metadata->>'energy_source' = 'rivian_receipt' AND EXCLUDED.final_state IS DISTINCT FROM 'charging_active'
+			                             AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian' AND COALESCE(EXCLUDED.price_per_kwh, 0) > 0
+			                             THEN round((EXCLUDED.price_per_kwh * charges.energy_added_kwh)::numeric, 4)
+			                        ELSE EXCLUDED.cost END,
 			currency         = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.currency ELSE EXCLUDED.currency END,
 			price_per_kwh    = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.price_per_kwh ELSE EXCLUDED.price_per_kwh END,
 			-- Only overwrite thermal_kwh when the new row actually

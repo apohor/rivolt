@@ -133,6 +133,7 @@ func EvaluateEnergy(c EnergyCand) (outcome string, deltaPct float64, up *EnergyU
 	if c.Cost != nil && *c.Cost > 0 && c.PricePerKWh > 0 && c.CostSource != "user" && c.CostSource != "rivian" {
 		nc := round4(c.PricePerKWh * re)
 		up.Cost = &nc
+		up.Meta["cost_applied"] = nc
 		if c.CostRecorded == nil {
 			up.Meta["cost_recorded"] = round4(*c.Cost)
 		}
@@ -207,8 +208,10 @@ const restoreEnergySQL = `
 	UPDATE charges
 	   SET energy_added_kwh = COALESCE((metadata->>'energy_recorded_kwh')::float8, energy_added_kwh),
 	       avg_power_kw = COALESCE((metadata->>'avg_power_recorded_kw')::float8, avg_power_kw),
-	       cost = COALESCE((metadata->>'cost_recorded')::float8, cost),
-	       metadata = metadata - 'energy_source' - 'energy_recorded_kwh' - 'avg_power_recorded_kw' - 'cost_recorded'
+	       cost = CASE WHEN cost_source IS DISTINCT FROM 'user' AND cost_source IS DISTINCT FROM 'rivian'
+	                    AND round(cost::numeric, 4) = round((metadata->>'cost_applied')::numeric, 4)
+	                   THEN COALESCE((metadata->>'cost_recorded')::float8, cost) ELSE cost END,
+	       metadata = metadata - 'energy_source' - 'energy_recorded_kwh' - 'avg_power_recorded_kw' - 'cost_recorded' - 'cost_applied'
 	                           - 'receipt_started_at' - 'receipt_ended_at',
 	       updated_at = NOW()
 	 WHERE metadata->>'energy_source' = 'rivian_receipt' AND `
@@ -251,8 +254,12 @@ func (s *Syncer) applyEnergy(ctx context.Context, uid uuid.UUID) error {
 			}
 			outcome = OutcomeApplied
 		}
-		if s.energySeen(c, outcome) && s.energyObserve != nil {
-			s.energyObserve(outcome, pct)
+		if s.energySeen(c, outcome) {
+			// One line per receipt and outcome, no user data: the apply gate counts distinct receipts from it.
+			s.logger.Info("receipt energy", "receipt_id", c.ReceiptID.String(), "outcome", outcome, "delta_pct", math.Round(pct*100)/100, "mode", s.energyMode)
+			if s.energyObserve != nil {
+				s.energyObserve(outcome, pct)
+			}
 		}
 	}
 	return nil

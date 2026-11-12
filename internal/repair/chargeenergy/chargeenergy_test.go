@@ -51,6 +51,7 @@ func TestClassify(t *testing.T) {
 		{"a confirmed network", func(r *Row) { r.NetworkState = "confirmed" }, false},
 		{"a place the user set", func(r *Row) { r.PlaceOverride = "home" }, false},
 		{"a location the user set", func(r *Row) { r.LocationOverride = "recorded" }, false},
+		{"energy from a receipt", func(r *Row) { r.Metadata = []byte(`{"energy_source": "rivian_receipt"}`) }, false},
 		{"already estimated", func(r *Row) { r.Metadata = []byte(`{"energy_estimated": true}`) }, false},
 		{"a small SoC gain", func(r *Row) { r.EndSoC = 24 }, false},
 		{"a start SoC of 0 (unknown) is not a 50 % gain", func(r *Row) { r.StartSoC = 0 }, false},

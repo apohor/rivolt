@@ -58,9 +58,6 @@ func TestReceiptEnergySurvivesResaveAndPurgeRestores(t *testing.T) {
 	cost := 11.0
 	sums := []rivian.SessionSummary{{TransactionID: "tx-dc", StartedAt: end.Add(-17 * time.Minute), EndedAt: end.Add(41 * time.Second),
 		TotalCost: &cost, Currency: "USD", EnergyKWh: &kwh}}
-	if err := st.UpsertReceipts(ctx, uid, sums); err != nil {
-		t.Fatal(err)
-	}
 	var chargeID, otherID string
 	if err := pool.QueryRowContext(ctx, `SELECT id::text FROM charges WHERE user_id=$1 AND external_id='re-dc'`, uid).Scan(&chargeID); err != nil {
 		t.Fatal(err)
@@ -68,30 +65,41 @@ func TestReceiptEnergySurvivesResaveAndPurgeRestores(t *testing.T) {
 	if err := pool.QueryRowContext(ctx, `SELECT id::text FROM charges WHERE user_id=$1 AND external_id='re-user'`, uid).Scan(&otherID); err != nil {
 		t.Fatal(err)
 	}
-	rs, err := st.Unmatched(ctx, uid)
-	if err != nil || len(rs) != 1 {
-		t.Fatalf("unmatched %v %v", rs, err)
-	}
-	if err := st.Apply(ctx, uid, []receipts.Pair{{ReceiptID: rs[0].ID, ChargeID: uuidOf(t, chargeID)}}); err != nil {
-		t.Fatal(err)
-	}
-	home := false
-	if err := st.SaveDetail(ctx, uid, "tx-dc", &rivian.SessionCharger{Name: "Rivian Adventure Network", IsHome: &home}); err != nil {
-		t.Fatal(err)
-	}
+	var cands []receipts.EnergyCand
+	var up *receipts.EnergyUpdate
+	link := func() {
+		t.Helper()
+		if err := st.UpsertReceipts(ctx, uid, sums); err != nil {
+			t.Fatal(err)
+		}
+		rs, err := st.Unmatched(ctx, uid)
+		if err != nil || len(rs) != 1 {
+			t.Fatalf("unmatched %v %v", rs, err)
+		}
+		if err := st.Apply(ctx, uid, []receipts.Pair{{ReceiptID: rs[0].ID, ChargeID: uuidOf(t, chargeID)}}); err != nil {
+			t.Fatal(err)
+		}
+		home := false
+		if err := st.SaveDetail(ctx, uid, "tx-dc", &rivian.SessionCharger{Name: "Rivian Adventure Network", IsHome: &home}); err != nil {
+			t.Fatal(err)
+		}
 
-	cands, err := st.EnergyCandidates(ctx, uid, time.Now().Add(-time.Hour))
-	if err != nil || len(cands) != 1 {
-		t.Fatalf("candidates %v %v", cands, err)
+		cands, err = st.EnergyCandidates(ctx, uid, time.Now().Add(-time.Hour))
+		if err != nil || len(cands) != 1 {
+			t.Fatalf("candidates %v %v", cands, err)
+		}
+		var outcome string
+		outcome, _, up = receipts.EvaluateEnergy(cands[0])
+		if outcome != receipts.OutcomeWouldApply || up == nil {
+			t.Fatalf("evaluate: %q %v", outcome, up)
+		}
+		ok, aerr := st.ApplyEnergy(ctx, uid, cands[0], *up)
+		if aerr != nil || !ok {
+			t.Fatalf("apply: %v %v", ok, aerr)
+		}
+
 	}
-	outcome, _, up := receipts.EvaluateEnergy(cands[0])
-	if outcome != receipts.OutcomeWouldApply || up == nil {
-		t.Fatalf("evaluate: %q %v", outcome, up)
-	}
-	ok, err := st.ApplyEnergy(ctx, uid, cands[0], *up)
-	if err != nil || !ok {
-		t.Fatalf("apply: %v %v", ok, err)
-	}
+	link()
 	// A second apply with the stale expectation changes nothing.
 	if ok, _ := st.ApplyEnergy(ctx, uid, cands[0], *up); ok {
 		t.Error("stale apply wrote again")
@@ -133,6 +141,27 @@ func TestReceiptEnergySurvivesResaveAndPurgeRestores(t *testing.T) {
 		t.Errorf("cost after re-save %v, want %v", got.Cost, want)
 	}
 
+	// A re-save with a new estimate (other price) keeps the receipt energy and prices it.
+	c2 := mk("re-dc", "charging_complete", 12.5, "observed_estimate")
+	c2.PricePerKWh = 0.50
+	if err := cs.Upsert(ctx, c2); err != nil {
+		t.Fatal(err)
+	}
+	if got = get("re-dc"); got.EnergyAddedKWh != 27.42 || got.Cost < 0.50*27.42-0.001 || got.Cost > 0.50*27.42+0.001 || got.PricePerKWh != 0.50 {
+		t.Errorf("new estimate: kwh %v cost %v ppk %v, want 27.42 and 0.50 x 27.42", got.EnergyAddedKWh, got.Cost, got.PricePerKWh)
+	}
+	// The row open again (the recorder reopening it) takes the recorder's figures.
+	c3 := mk("re-dc", "charging_active", 10.72, "observed_estimate")
+	if err := cs.Upsert(ctx, c3); err != nil {
+		t.Fatal(err)
+	}
+	if got = get("re-dc"); got.EnergyAddedKWh != 26.80 {
+		t.Errorf("reopened row kept receipt energy %v", got.EnergyAddedKWh)
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE charges SET final_state='charging_complete', energy_added_kwh=27.42, cost=10.968, price_per_kwh=0.40 WHERE id=$1`, uuidOf(t, chargeID)); err != nil {
+		t.Fatal(err)
+	}
+
 	// An open charge is refused by the write itself, even when a stale candidate says otherwise.
 	if _, err := pool.ExecContext(ctx, `UPDATE charges SET final_state='charging_active', energy_added_kwh=26.80, receipt_txn_id='tx-dc' WHERE id=$1`, uuidOf(t, otherID)); err != nil {
 		t.Fatal(err)
@@ -153,6 +182,18 @@ func TestReceiptEnergySurvivesResaveAndPurgeRestores(t *testing.T) {
 	}
 	if got.Cost < 10.71 || got.Cost > 10.73 {
 		t.Errorf("cost after purge %v, want 10.72", got.Cost)
+	}
+
+	// The user prices the charge after the receipt's energy went in: a purge must not put our cost back over it.
+	link()
+	if _, err := pool.ExecContext(ctx, `UPDATE charges SET cost=5, cost_source='user' WHERE id=$1`, uuidOf(t, chargeID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Purge(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if got = get("re-dc"); got.Cost != 5 || got.CostSource != "user" || got.EnergyAddedKWh != 26.80 {
+		t.Errorf("user price after purge: cost %v source %q kwh %v, want 5, user, 26.80", got.Cost, got.CostSource, got.EnergyAddedKWh)
 	}
 }
 
