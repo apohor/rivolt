@@ -58,3 +58,34 @@ for (const [zoom, width, height] of [[200, 195, 422], [300, 130, 281]] as const)
     await ctx.close();
   });
 }
+
+// The narrow-layout breakpoints meet the wide ones with no width left between them: 1 px under 360 the peek lines clamp to two (360 and up
+// truncate), 1 px under 200 the stop rows wrap and the trip cost shrinks together.
+for (const width of [359, 199]) {
+  test(`@webkit phone ${width} px wide: the narrow plan layout applies`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width, height: 422 }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await stubApi(page);
+    await page.route("**/api/trips/saved", (r) => r.fulfill(j([{ id: "st-a", name: "Old trip", inputs: INPUTS, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])));
+    await page.route("**/api/trips/plan", (r) => r.fulfill(j(DEMO_PLAN)));
+    await page.goto("/trips/plan");
+    await page.getByRole("tab", { name: "Saved" }).click();
+    await page.getByRole("button", { name: /Old trip/ }).click();
+    await page.getByRole("tab", { name: "Planner" }).click();
+    await page.getByRole("button", { name: "Plan trip" }).click();
+    await expect(page.locator("[data-plan-sheet]")).toBeVisible();
+    const got = await page.evaluate(() => {
+      const h2 = getComputedStyle(document.querySelector("[data-plan-sheet-title] h2")!);
+      const row = document.querySelector("[data-charger-type]")!.closest("button")!.firstElementChild!;
+      return {
+        clamp: h2.getPropertyValue("-webkit-line-clamp"),
+        wrap: getComputedStyle(row).flexWrap,
+        hero: getComputedStyle(document.querySelector("[data-plan-next]")!).getPropertyValue("--pt-hero").trim(),
+      };
+    });
+    expect(got.clamp).toBe("2");
+    if (width === 199) expect([got.wrap, got.hero]).toEqual(["wrap", "1.625rem"]);
+    await ctx.close();
+  });
+}
+
