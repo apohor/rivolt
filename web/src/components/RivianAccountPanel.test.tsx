@@ -118,6 +118,29 @@ describe("connect step: driver account first", () => {
     expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
   });
 
+  it("keeps the older wording, and asks once, where the server has no discovery (404, as on prod with it off)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fn = stubFetchRoutes({
+        "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+        "/api/vehicles/owned": { body: { vehicles: [] } },
+        "/api/vehicles/discovery": { status: 404, body: { error: "not found" } },
+      });
+      const discoveryCalls = () => fn.mock.calls.filter(([u]) => String(u).split("?")[0] === "/api/vehicles/discovery").length;
+      renderPanel();
+      expect(await screen.findByText("No vehicles on this Rivian account")).toBeInTheDocument();
+      expect(screen.getByText(/Sign-in worked, but no vehicle is on this account yet/)).toBeInTheDocument();
+      await vi.waitFor(() => expect(discoveryCalls()).toBe(1));
+      await act(() => vi.advanceTimersByTimeAsync(90_000));
+      expect(discoveryCalls()).toBe(1);
+      expect(screen.queryByText(/Looking for your vehicles|checking your Rivian account/)).toBeNull();
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(screen.getByText("No vehicles on this Rivian account")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says no vehicle once the server found none", async () => {
     stubFetchRoutes({
       "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
