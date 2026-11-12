@@ -96,17 +96,18 @@ type routeParams struct {
 	effort    anthropic.BetaOutputConfigEffort
 	maxTokens int64
 	// total bounds the whole call including SDK retries; attempt bounds one try.
+	// total stays under Cloudflare's 100 s edge timeout.
 	total, attempt time.Duration
 }
 
 // Opus 5.5 thinks by default and thinking tokens count toward max_tokens, so
 // these leave room for it. Effort is the only depth control.
 var routeTable = map[Route]routeParams{
-	RouteRecap:      {anthropic.BetaOutputConfigEffortLow, 4096, 150 * time.Second, 60 * time.Second},
-	RouteEfficiency: {anthropic.BetaOutputConfigEffortMedium, 6000, 150 * time.Second, 60 * time.Second},
-	RouteAdvice:     {anthropic.BetaOutputConfigEffortMedium, 6000, 150 * time.Second, 60 * time.Second},
+	RouteRecap:      {anthropic.BetaOutputConfigEffortLow, 4096, 90 * time.Second, 45 * time.Second},
+	RouteEfficiency: {anthropic.BetaOutputConfigEffortMedium, 6000, 90 * time.Second, 45 * time.Second},
+	RouteAdvice:     {anthropic.BetaOutputConfigEffortMedium, 6000, 90 * time.Second, 45 * time.Second},
 	RoutePing:       {anthropic.BetaOutputConfigEffortLow, 2048, 20 * time.Second, 10 * time.Second},
-	RouteOther:      {anthropic.BetaOutputConfigEffortMedium, 4096, 150 * time.Second, 60 * time.Second},
+	RouteOther:      {anthropic.BetaOutputConfigEffortMedium, 4096, 90 * time.Second, 45 * time.Second},
 }
 
 // modelFeatures is the allowlist of models that take output_config.effort and
@@ -288,6 +289,12 @@ func (p *AnthropicProvider) account(ctx context.Context, route Route, msg *anthr
 	}
 	if p.operator {
 		slog.DebugContext(ctx, "anthropic usage", "route", string(route), "hops", len(hops),
+			"cost_usd", func() (c float64) {
+				for _, h := range hops {
+					c += OperatorCostUSD(h)
+				}
+				return
+			}(),
 			"cache_read_input_tokens", msg.Usage.CacheReadInputTokens,
 			"cache_creation_input_tokens", msg.Usage.CacheCreationInputTokens)
 	}
@@ -306,4 +313,11 @@ func describeAPIError(err error) error {
 		return fmt.Errorf("anthropic: %w", uerr.Err) // the typed URL stays out
 	}
 	return errors.New("anthropic: request failed")
+}
+
+// OperatorCostUSD prices one model hop at the model that served it: cache
+// reads at 0.1x and cache writes at 1.25x of that model's input rate.
+func OperatorCostUSD(u OperatorUsage) float64 {
+	in, out := priceFor("anthropic", u.Model)
+	return (float64(u.Input)*in + float64(u.CacheRead)*in*0.1 + float64(u.CacheWrite)*in*1.25 + float64(u.Output)*out) / 1_000_000.0
 }

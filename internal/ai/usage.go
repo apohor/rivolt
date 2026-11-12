@@ -296,15 +296,21 @@ func ComputeCost(provider, model string, inTokens, outTokens int64) float64 {
 	if inTokens <= 0 && outTokens <= 0 {
 		return 0
 	}
-	key := provider + ":" + stripDate(model)
-	prices, ok := pricePer1MTokens[key]
+	in, out := priceFor(provider, model)
+	return (float64(inTokens)*in + float64(outTokens)*out) / 1_000_000.0
+}
+
+// priceFor returns the per-1M-token input and output price, with the same
+// conservative fallback for unknown models.
+func priceFor(provider, model string) (in, out float64) {
+	prices, ok := pricePer1MTokens[provider+":"+stripDate(model)]
 	if !ok {
 		prices, ok = pricePer1MTokens[provider+":"+model]
 	}
 	if !ok {
-		prices = struct{ In, Out float64 }{1.0, 4.0}
+		return 1.0, 4.0
 	}
-	return (float64(inTokens)*prices.In + float64(outTokens)*prices.Out) / 1_000_000.0
+	return prices.In, prices.Out
 }
 
 // stripDate removes trailing date suffixes like "-20251001" so the same
