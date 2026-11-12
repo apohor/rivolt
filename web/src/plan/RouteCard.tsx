@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useLayoutEffect, useState } from "react";
 import { StopCard } from "./StopCard";
 import { SummaryStrip } from "./SummaryStrip";
 import { formatDuration, formatWaypointTime } from "./format";
@@ -156,8 +156,10 @@ export function RouteCard({
   const toggleStop = stopSel.toggle;
   // The route chooser swaps which route this card shows; the shared selection
   // belongs to one route's stops, so a different route starts with none.
+  // A layout effect, so the clear lands before the card is painted: as a passive effect it could run
+  // after a first tap on a stop and wipe that selection (rivolt#1960).
   const clearStop = stopSel.clear;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (next) clearStop();
   }, [route, next, clearStop]);
   // Distance helpers. cumulative is route.Waypoints[i].DistanceFromOriginMeters;
