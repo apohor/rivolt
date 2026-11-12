@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/archive"
+	"github.com/apohor/rivolt/internal/db"
 )
 
 // MinThinAfterDays is the youngest data thinning may touch: recent detail is
@@ -138,11 +139,14 @@ func (t *Thinner) Run(ctx context.Context) (int64, error) {
 	if t == nil {
 		return 0, nil
 	}
-	conn, err := t.db.Conn(ctx)
+	conn, done, err := db.Pin(ctx, t.db, "samples_thin", 1)
+	if errors.Is(err, db.ErrPinGateFull) {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close()
+	defer done()
 	var locked bool
 	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, sampleMaintenanceLockID).Scan(&locked); err != nil {
 		return 0, err

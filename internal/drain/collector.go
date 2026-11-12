@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -134,7 +136,10 @@ type session interface {
 }
 
 // dbSession is the session on a *sql.Conn.
-type dbSession struct{ conn *sql.Conn }
+type dbSession struct {
+	conn *sql.Conn
+	done func() // returns conn to the pool and frees its db.Pin slot
+}
 
 func (s *dbSession) compute(ctx context.Context, now time.Time) ([]Stat, error) {
 	var stats []Stat
@@ -188,26 +193,29 @@ func (s *dbSession) release(discard bool) {
 		// makes the pool close the session, which frees the lock.
 		_ = s.conn.Raw(func(any) error { return driver.ErrBadConn })
 	}
-	_ = s.conn.Close()
+	s.done()
 }
 
-func dbElect(db *sql.DB) func(ctx context.Context) (session, error) {
+func dbElect(d *sql.DB) func(ctx context.Context) (session, error) {
 	return func(ctx context.Context) (session, error) {
-		conn, err := db.Conn(ctx)
+		conn, done, err := db.Pin(ctx, d, "drain_leader", 1)
+		if errors.Is(err, db.ErrPinGateFull) {
+			return nil, nil // the pool has no connection to spare for the leader lock; the next election tries again
+		}
 		if err != nil {
 			return nil, err
 		}
 		var got bool
 		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, leaderLockKey).Scan(&got); err != nil {
 			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
-			_ = conn.Close()
+			done()
 			return nil, err
 		}
 		if !got {
-			_ = conn.Close() // no lock taken: back to the pool
+			done() // no lock taken: back to the pool
 			return nil, nil
 		}
-		return &dbSession{conn: conn}, nil
+		return &dbSession{conn: conn, done: done}, nil
 	}
 }
 

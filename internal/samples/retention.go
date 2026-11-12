@@ -8,6 +8,7 @@ package samples
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/archive"
+	"github.com/apohor/rivolt/internal/db"
 )
 
 // MinRetentionMonths is the shortest retention accepted: anything shorter is
@@ -89,11 +91,14 @@ func (r *Retention) Run(ctx context.Context) (int64, error) {
 	if r == nil {
 		return 0, nil
 	}
-	conn, err := r.db.Conn(ctx)
+	conn, done, err := db.Pin(ctx, r.db, "samples_retention", 1)
+	if errors.Is(err, db.ErrPinGateFull) {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
-	defer conn.Close()
+	defer done()
 	var locked bool
 	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, retentionLockID).Scan(&locked); err != nil {
 		return 0, err

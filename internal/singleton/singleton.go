@@ -7,8 +7,11 @@ package singleton
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"sync/atomic"
+
+	"github.com/apohor/rivolt/internal/db"
 )
 
 // Outcomes, as the metric labels them.
@@ -43,7 +46,11 @@ func Acquire(ctx context.Context, d *sql.DB, job string, key Key) (release func(
 	if d == nil {
 		return nil, false, nil
 	}
-	conn, err := d.Conn(ctx)
+	conn, done, err := db.Pin(ctx, d, job, 2) // the lock connection, plus the pool query its job runs meanwhile
+	if errors.Is(err, db.ErrPinGateFull) {
+		observe(job, Skipped)
+		return nil, false, nil
+	}
 	if err != nil {
 		observe(job, Errored)
 		return nil, false, err
@@ -56,12 +63,12 @@ func Acquire(ctx context.Context, d *sql.DB, job string, key Key) (release func(
 	}
 	var locked bool
 	if err := conn.QueryRowContext(ctx, try, arg).Scan(&locked); err != nil {
-		_ = conn.Close()
+		done()
 		observe(job, Errored)
 		return nil, false, err
 	}
 	if !locked {
-		_ = conn.Close()
+		done()
 		observe(job, Skipped)
 		slog.DebugContext(ctx, "singleton job skipped: another replica is running it", "job", job)
 		return nil, false, nil
@@ -69,7 +76,7 @@ func Acquire(ctx context.Context, d *sql.DB, job string, key Key) (release func(
 	observe(job, Ran)
 	return func() {
 		_, _ = conn.ExecContext(context.WithoutCancel(ctx), unlock, arg)
-		_ = conn.Close()
+		done()
 	}, true, nil
 }
 
