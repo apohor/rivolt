@@ -270,6 +270,9 @@ var pricePer1MTokens = map[string]struct{ In, Out float64 }{
 	"anthropic:claude-sonnet-4-5":          {3.0, 15.0},
 	"anthropic:claude-sonnet-4-5-20250929": {3.0, 15.0},
 	"anthropic:claude-opus-4-1":            {15.0, 75.0},
+	"anthropic:claude-opus-5-5":            {4.0, 20.0},
+	"anthropic:claude-opus-5":              {5.0, 25.0},
+	"anthropic:claude-opus-4-8":            {5.0, 25.0},
 	// OpenAI
 	"openai:gpt-4o-mini":  {0.15, 0.60},
 	"openai:gpt-4o":       {2.50, 10.0},

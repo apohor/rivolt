@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/apohor/rivolt/internal/ai"
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/flags"
@@ -14,9 +15,11 @@ import (
 // requireAIBudgetMW charges one unit of the per-user daily AI-call
 // budget before the wrapped LLM endpoint runs, and 429s when the user
 // is over the operator-set cap (flags.AICallCapName). It is a cost
-// backstop, so it fails OPEN: a non-positive cap, a missing user on
-// the context, or a counter-store error all let the request through —
-// breaking the feature to protect the budget would be the wrong trade.
+// backstop for users' own keys, so it fails OPEN: a non-positive cap, a
+// missing user on the context, or a counter-store error all let the
+// request through. Only a request that consumed a unit carries the
+// ai.WithReservation mark, so the operator's key (which needs the mark)
+// fails CLOSED in those same cases.
 func requireAIBudgetMW(fl *flags.Store, budget *aibudget.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +52,9 @@ func requireAIBudgetMW(fl *flags.Store, budget *aibudget.Store) func(http.Handle
 				})
 				return
 			}
-			next.ServeHTTP(w, r)
+			// The unit is spent before the call; the operator key refuses any
+			// call whose context does not carry this mark.
+			next.ServeHTTP(w, r.WithContext(ai.WithReservation(r.Context())))
 		})
 	}
 }
