@@ -70,6 +70,9 @@ export function layerFiltersOf(p: Pick<PlannerPrefs, "corridor" | "start_exclude
 export function useSavePlannerPrefs() {
   const qc = useQueryClient();
   return useMutation({
+    // One save at a time, in the order they were made: two quick chip taps must not race, or the older set could land last (in the cache and
+    // on the server) and the next map would open with it.
+    scope: { id: "planner-prefs" },
     mutationFn: (patch: Partial<PlannerPrefs>) => {
       const cur = qc.getQueryData<PlannerPrefs>(PLANNER_PREFS_KEY);
       return backend.plannerPrefsPut({ ...plannerWithDefaults(cur), ...patch });
