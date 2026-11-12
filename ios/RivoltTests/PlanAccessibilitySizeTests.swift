@@ -96,18 +96,20 @@ final class PlanAccessibilitySizeTests: XCTestCase {
         XCTAssertEqual(SheetLayout.height(.full, in: h, headerNeed: 400), 692)
     }
 
-    /// #1886: at AX3 half showed only the top edge of the day chips above the tab bar. Half holds the header and the content's top (the day chips,
-    /// first at accessibility sizes) with the tab bar under them, and it still leaves a third of the map. 637 pt is the map under the Plan title on a
-    /// 6.1" phone, where qa saw the summary and Edit push the chips under the tab bar (half is capped at 65 %).
+    /// #1886: at AX3 half showed only the top edge of the day chips above the tab bar. Half holds the header and the content's top (the summary, Edit,
+    /// the day chips) with the tab bar under them, and it still leaves a third of the map. 566 pt is the map under the Plan title on a 6.3" phone.
     func testHalfShowsTheDayChipsWholeAboveTheTabBarAtAX3() async throws {
         let type = DynamicTypeSize.accessibility3
         let title = try await size(of: PlanSheetCompactHeader(title: "Current vehicle position → Las Vegas, Nevada").environment(\.dynamicTypeSize, type).padding(.horizontal, 16), width: 393).height
-        let lead = try await size(of: PlanDayChips(days: [1, 2], day: .constant(nil)).environment(\.dynamicTypeSize, type).padding(.horizontal, 16), width: 393).height
-        let tabBar: CGFloat = 83
-        let header = 44 + title + 8 + 1 + tabBar   // the grabber row, the title and its padding, and what DetentSheet adds for the tab bar
-        for container in [CGFloat(700), 637] {
-            let half = SheetLayout.height(.half, in: container, peekNeed: 44 + title + 8 + tabBar, headerNeed: header, contentLead: SheetLayout.lead(lead))
-            XCTAssertGreaterThanOrEqual(half, header + SheetLayout.lead(lead) - 0.5, "\(container) pt: the chips' last row clears the tab bar (header \(header), lead \(lead))")
+        let lead = try await size(of: VStack(alignment: .leading, spacing: 8) {
+            Text("270 mi · 1 charging stop · 4h 5m").themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Button("Edit") {}.frame(minWidth: 44, minHeight: 44, alignment: .leading)
+            PlanDayChips(days: [1, 2], day: .constant(nil))
+        }.environment(\.dynamicTypeSize, type).padding(.horizontal, 16), width: 393).height
+        let header = 44 + title + 8 + 1   // the grabber row, the title and its padding
+        for container in [CGFloat(700), 566] {
+            let half = SheetLayout.height(.half, in: container, peekNeed: 44 + title + 8, headerNeed: header, contentLead: SheetLayout.lead(lead))
+            XCTAssertGreaterThanOrEqual(half, header + SheetLayout.lead(lead) - 0.5, "\(container) pt: the chips' last row shows (header \(header), lead \(lead))")
             XCTAssertLessThanOrEqual(half, container * 0.65, "\(container) pt: and the map keeps a third")
         }
         XCTAssertGreaterThan(title, 60, "the two-line title is not cut to one")

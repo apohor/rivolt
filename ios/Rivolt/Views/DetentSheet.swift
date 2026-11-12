@@ -89,7 +89,10 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
     var bottomSafe: CGFloat = 0
     /// Large text: the header is only a title and the rest is in the content, so the content scrolls at every height, not only fully open.
     var scrollsAtEveryDetent = false
-    var onNeeds: (_ peek: CGFloat, _ header: CGFloat) -> Void = { _, _ in }
+    /// One callback each: a pair passed the other's value from this view's props, which is stale when both change in one update, and at large text
+    /// (no header extras) that put headerNeed back to 0, so half fell to its floor under the tab bar (#1886).
+    var onPeekNeed: (CGFloat) -> Void = { _ in }
+    var onHeaderNeed: (CGFloat) -> Void = { _ in }
     /// What rides on the sheet's top edge, over the map (the radar strip, the map credit): measured and told to the owner; hidden fully open.
     var onAboveHeight: (CGFloat) -> Void = { _ in }
     /// The sheet's title and one-line summary (with Edit beside them): all the peek shows.
@@ -146,8 +149,8 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
             }
             // Plus what covers the sheet's bottom, as for the peek: at half the tab bar sat over the header's last row (#1886).
             .background(GeometryReader { g in Color.clear.preference(key: HeaderNeedKey.self, value: g.size.height + 1 + max(bottomSafe, 12)) })
-            .onPreferenceChange(PeekNeedKey.self) { onNeeds($0, headerNeed) }
-            .onPreferenceChange(HeaderNeedKey.self) { onNeeds(peekNeed, $0) }
+            .onPreferenceChange(PeekNeedKey.self) { onPeekNeed($0) }
+            .onPreferenceChange(HeaderNeedKey.self) { onHeaderNeed($0) }
             .contentShape(Rectangle())
             // A tap on the peek (its title or summary, not Edit or a chip, which are buttons of their own) opens the details.
             .onTapGesture { if detent != .full { move(.full) } }

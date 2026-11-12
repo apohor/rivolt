@@ -134,19 +134,20 @@ final class PlanSheetUITests: XCTestCase {
         XCTAssertEqual(gone, .completed, "Edit took the tap and left the map for the trip's form")
     }
 
-    /// #1886: at AX3 half the day chips sat under the tab bar (the summary and Edit above them took the room half is allowed).
-    func testAtAX3HalfTheDayChipsSitWholeAboveTheTabBar() throws {
+    /// #1886: at AX3 half Edit and the day chips sat under the tab bar: the header's height never reached the screen (it was sent back as 0), so half
+    /// fell to its floor. This drives the real screen, so it covers the wiring as well as SheetLayout's sums.
+    func testAtAX3HalfEditAndTheDayChipsSitWholeAboveTheTabBar() throws {
         let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
         let grabber = open("Two days to Spokane", in: app)
         expect(grabber, "peek", "at accessibility sizes it opens at the peek")
         grabber.tap()
         expect(grabber, "half", "the grabber raises it to half")
         let tabTop = app.buttons["Activity"].firstMatch.frame.minY   // the custom tab bar (ThemeTabBar): its buttons fill it
-        for name in ["Whole trip", "Day 1", "Day 2"] {
-            let chip = app.buttons[name].firstMatch
-            XCTAssertTrue(chip.waitForExistence(timeout: 10), "\(name) is there")
-            XCTAssertLessThanOrEqual(chip.frame.maxY, tabTop + 0.5, "\(name) ends above the tab bar (\(chip.frame), tab bar at \(tabTop))")
-            XCTAssertTrue(chip.isHittable, "\(name) takes a tap")
+        for name in ["Edit", "Whole trip", "Day 1", "Day 2"] {
+            let button = app.buttons[name].firstMatch
+            XCTAssertTrue(button.waitForExistence(timeout: 10), "\(name) is there")
+            XCTAssertLessThanOrEqual(button.frame.maxY, tabTop + 0.5, "\(name) ends above the tab bar (\(button.frame), tab bar at \(tabTop))")
+            XCTAssertTrue(button.isHittable, "\(name) takes a tap")
         }
     }
 }

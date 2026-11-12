@@ -71,7 +71,7 @@ struct PlanMapScreen: View {
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
                 DetentSheet(detent: $detent, container: geo.size.height, peekNeed: peekNeed, headerNeed: headerNeed, contentLead: ax ? axLead : 0, bottomSafe: geo.safeAreaInsets.bottom, scrollsAtEveryDetent: ax,
-                            onNeeds: { peekNeed = $0; headerNeed = $1 }, onAboveHeight: { aboveHeight = $0 }) {
+                            onPeekNeed: { peekNeed = $0 }, onHeaderNeed: { headerNeed = $0 }, onAboveHeight: { aboveHeight = $0 }) {
                     peek
                 } header: {
                     headerExtras
@@ -194,19 +194,19 @@ struct PlanMapScreen: View {
         }
     }
 
-    /// The day chips, the trip's summary, Edit and Networks, at the top of the sheet's content at accessibility sizes. The chips come first: half
-    /// is capped (SheetLayout.height), and at AX3 the summary and Edit would push them under the tab bar (#1886).
+    /// The trip's summary, Edit, the day chips and Networks, at the top of the sheet's content at accessibility sizes.
     private var axControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if case .planned(let trip) = model.night, trip.days.count > 1 {
-                dayChips(trip).onGeometryChange(for: CGFloat.self) { $0.size.height } action: { axLead = $0 }.onDisappear { axLead = 0 }
+            VStack(alignment: .leading, spacing: 8) {
+                if let summary = model.plan?.best.map({ TripPlanLogic.summary($0, metric: metric) }) {
+                    Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
+                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                    .accessibilityHint("Change the trip or open a saved one")
+                if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
             }
-            if let summary = model.plan?.best.map({ TripPlanLogic.summary($0, metric: metric) }) {
-                Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-            }
-            Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
-                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                .accessibilityHint("Change the trip or open a saved one")
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { axLead = $0 }
             networksButton
         }
     }
