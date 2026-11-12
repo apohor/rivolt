@@ -48,7 +48,7 @@ test("@webkit phone: radar strip, leg badges and the weather credit stay clear o
   await page.getByRole("tab", { name: "Planner" }).click();
   await page.getByRole("button", { name: "Plan trip" }).click();
   await expect(page.locator("[data-leg-badge]").first()).toBeVisible();
-  await page.getByRole("button", { name: "Radar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Radar", exact: true })).toHaveAttribute("aria-pressed", "true"); // on by default
   const strip = page.locator("[data-radar-label]");
   await expect(strip).toBeVisible();
   await page.screenshot({ path: info.outputPath("plan-map-overlays.png") });

@@ -11,7 +11,7 @@ final class PlannerSettingsTests: XCTestCase {
 
     func testTheServersFullAnswerDecodesToTheDefaults() throws {
         // The shape backend-2's contract gives (a fixture of it comes with the server's change).
-        let json = #"{"drive_mode":"EVERYDAY","has_adapter":true,"corridor":"normal","start_exclude_mi":0,"min_fast_kw":0,"layers_on":["dcfc"],"preferred_only":false,"weather_on":true,"radar_on":false}"#
+        let json = #"{"drive_mode":"EVERYDAY","has_adapter":true,"corridor":"normal","start_exclude_mi":0,"min_fast_kw":0,"layers_on":["dcfc"],"preferred_only":false,"weather_on":true,"radar_on":true}"#
         let p = try JSON.decoder().decode(PlannerPrefs.self, from: Data(json.utf8))
         let m = try XCTUnwrap(PlannerMapSettings(p))
         XCTAssertEqual(m.corridor, "normal")
@@ -20,7 +20,7 @@ final class PlannerSettingsTests: XCTestCase {
         XCTAssertEqual(m.layersOn, ["dcfc"], "Fast is on to begin with")
         XCTAssertFalse(m.preferredOnly)
         XCTAssertTrue(m.weatherOn)
-        XCTAssertFalse(m.radarOn)
+        XCTAssertTrue(m.radarOn, "Radar is on to begin with")
     }
 
     func testAnOlderServerHasNoMapSettingsAndTheGroupsAreNotShown() throws {
@@ -52,10 +52,10 @@ final class PlannerSettingsTests: XCTestCase {
         XCTAssertEqual(p.layersOn, ["dcfc", "hotels"], "in the server's layer order, whatever order they were switched on")
         XCTAssertEqual(p.preferredOnly, false)
         XCTAssertEqual(p.weatherOn, true)
-        XCTAssertEqual(p.radarOn, false, "kept as it is while the radar row is not shown")
+        XCTAssertEqual(p.radarOn, true, "kept as it is while the radar row is not shown")
         let enc = JSONEncoder(); enc.keyEncodingStrategy = .convertToSnakeCase; enc.outputFormatting = [.sortedKeys]
         XCTAssertEqual(String(data: try enc.encode(p), encoding: .utf8),
-                       #"{"corridor":"normal","drive_mode":"EVERYDAY","has_adapter":true,"layers_on":["dcfc","hotels"],"min_fast_kw":0,"preferred_only":false,"radar_on":false,"start_exclude_mi":25,"weather_on":true}"#)
+                       #"{"corridor":"normal","drive_mode":"EVERYDAY","has_adapter":true,"layers_on":["dcfc","hotels"],"min_fast_kw":0,"preferred_only":false,"radar_on":true,"start_exclude_mi":25,"weather_on":true}"#)
     }
 
     func testTheRadarDefaultRowIsThereOnlyWhereTheServerHasRadar() {

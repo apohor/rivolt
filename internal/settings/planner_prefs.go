@@ -43,7 +43,7 @@ const (
 	DefaultMinFastKW      = 0
 	DefaultPreferredOnly  = false
 	DefaultWeatherOn      = true
-	DefaultRadarOn        = false
+	DefaultRadarOn        = true
 )
 
 // DefaultLayersOn is the layers that start on for a user who never chose.

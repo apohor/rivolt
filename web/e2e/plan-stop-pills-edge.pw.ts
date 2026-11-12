@@ -55,7 +55,7 @@ test("@webkit phone: stop pills stay inside the map after a pan · El Paso to Bi
   await page.getByRole("tab", { name: "Planner" }).click();
   await page.getByRole("button", { name: "Plan trip" }).click();
   await page.locator("[data-leg-badge]").first().waitFor();
-  await page.getByRole("button", { name: "Radar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Radar", exact: true })).toHaveAttribute("aria-pressed", "true"); // on by default
   const m = await page.locator("[data-plan-area='map']").boundingBox();
   if (!m) throw new Error("no map");
   // Pan the map left so stops sit at its left edge.
