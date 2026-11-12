@@ -134,3 +134,6 @@ func haversineMi(lat1, lon1, lat2, lon2 float64) float64 {
 	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*p)*math.Cos(lat2*p)*math.Sin(dLon/2)*math.Sin(dLon/2)
 	return 2 * r * math.Asin(math.Min(1, math.Sqrt(a)))
 }
+
+// minSessionStart: no Rivian drove before 2021, so an earlier date is a bad row (a 1970 epoch from an empty cell, say).
+var minSessionStart = time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC)

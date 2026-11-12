@@ -17,6 +17,7 @@ import (
 type xlsxTable struct {
 	rc     io.Closer
 	dec    *xml.Decoder
+	depth  xmlDepth
 	shared []string
 	header []string
 	rows   int
@@ -28,9 +29,12 @@ func OpenXLSX(src io.ReaderAt, size int64) (Table, error) {
 	if size > MaxXLSXZipBytes {
 		return nil, ErrTooBig
 	}
+	if err := checkZipDirectory(src, size); err != nil {
+		return nil, err
+	}
 	zr, err := zip.NewReader(src, size)
 	if err != nil {
-		return nil, fmt.Errorf("histimport: not a readable .xlsx file")
+		return nil, errNotXLSX
 	}
 	var declared uint64
 	files := map[string]*zip.File{}
@@ -38,7 +42,7 @@ func OpenXLSX(src io.ReaderAt, size int64) (Table, error) {
 		declared += f.UncompressedSize64
 		files[f.Name] = f
 	}
-	if declared > MaxXLSXUnzipped || len(zr.File) > 2000 {
+	if declared > MaxXLSXUnzipped || len(zr.File) > maxZipEntries {
 		return nil, ErrTooBig
 	}
 	budget := &capReader{left: MaxXLSXUnzipped}
@@ -54,11 +58,11 @@ func OpenXLSX(src io.ReaderAt, size int64) (Table, error) {
 	}
 	rc, err := sheet.Open()
 	if err != nil {
-		return nil, fmt.Errorf("histimport: not a readable .xlsx file")
+		return nil, errNotXLSX
 	}
 	t.rc = rc
 	budget.r = rc
-	t.dec = xml.NewDecoder(budget)
+	t.dec = xml.NewDecoder(&xmlRunGuard{r: budget})
 	h, err := t.row()
 	if err != nil {
 		rc.Close()
@@ -73,6 +77,8 @@ func OpenXLSX(src io.ReaderAt, size int64) (Table, error) {
 	}
 	return t, nil
 }
+
+var errNotXLSX = errors.New("histimport: not a readable .xlsx file")
 
 // firstSheet is the worksheet with the lowest number: the sheet the app wrote first.
 func firstSheet(files map[string]*zip.File) *zip.File {
@@ -106,12 +112,14 @@ func sheetNo(n string) int {
 func readSharedStrings(f *zip.File, budget *capReader) ([]string, error) {
 	rc, err := f.Open()
 	if err != nil {
-		return nil, fmt.Errorf("histimport: not a readable .xlsx file")
+		return nil, errNotXLSX
 	}
 	defer rc.Close()
 	budget.r = rc
-	dec := xml.NewDecoder(budget)
+	dec := xml.NewDecoder(&xmlRunGuard{r: budget})
 	var out []string
+	var depth xmlDepth
+	held := 0
 	var cur strings.Builder
 	inSI, inT := false, false
 	for {
@@ -121,6 +129,9 @@ func readSharedStrings(f *zip.File, budget *capReader) ([]string, error) {
 		}
 		if err != nil {
 			return nil, xmlErr(err)
+		}
+		if err := depth.see(tok); err != nil {
+			return nil, err
 		}
 		switch e := tok.(type) {
 		case xml.StartElement:
@@ -133,6 +144,9 @@ func readSharedStrings(f *zip.File, budget *capReader) ([]string, error) {
 			}
 		case xml.CharData:
 			if inT {
+				if cur.Len()+len(e) > maxXMLCell*16 {
+					return nil, ErrTooBig
+				}
 				cur.Write(e)
 			}
 		case xml.EndElement:
@@ -141,10 +155,10 @@ func readSharedStrings(f *zip.File, budget *capReader) ([]string, error) {
 				inT = false
 			case "si":
 				inSI = false
-				out = append(out, cur.String())
-				if len(out) > 4*MaxRows {
+				if held += cur.Len() + 16; held > maxSharedBytes {
 					return nil, ErrTooBig
 				}
+				out = append(out, cur.String())
 			}
 		}
 	}
@@ -154,7 +168,7 @@ func xmlErr(err error) error {
 	if errors.Is(err, ErrTooBig) {
 		return ErrTooBig
 	}
-	return fmt.Errorf("histimport: not a readable .xlsx file")
+	return errNotXLSX
 }
 
 func (t *xlsxTable) Header() []string { return t.header }
@@ -192,6 +206,9 @@ func (t *xlsxTable) row() ([]string, error) {
 			}
 			return nil, xmlErr(err)
 		}
+		if err := t.depth.see(tok); err != nil {
+			return nil, err
+		}
 		switch e := tok.(type) {
 		case xml.StartElement:
 			switch e.Name.Local {
@@ -223,6 +240,9 @@ func (t *xlsxTable) row() ([]string, error) {
 			}
 		case xml.CharData:
 			if inV || inT {
+				if val.Len()+len(e) > maxXMLCell {
+					return nil, ErrTooBig
+				}
 				val.Write(e)
 			}
 		case xml.EndElement:

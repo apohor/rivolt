@@ -20,6 +20,7 @@ const (
 	ReasonMissing      = "missing_value"
 	ReasonEndBeforeBeg = "ended_before_started"
 	ReasonFuture       = "ended_in_future"
+	ReasonTooOld       = "before_2021"
 	ReasonTooLong      = "too_long"
 	ReasonSoCRange     = "soc_out_of_range"
 	ReasonDistance     = "bad_distance"
@@ -54,6 +55,8 @@ type Report struct {
 	Skipped   map[string]int // sessions or rows left out, by reason (a points file counts points for parse failures and sessions for the rest)
 	BadRows   int            // rows behind failing sessions: what MaxBadRowFraction is measured on
 	Ambiguous int            // local times inside a DST fall-back hour, kept as the first instant
+	// DroppedCoords counts session positions that were off the globe (or 0,0) and were left out; the session itself is kept.
+	DroppedCoords int
 	// Assumptions the numbers rest on, shown in the preview.
 	SoCScale     string // "percent" or "fraction" (file said, or every value was ≤ 1)
 	DistanceUnit string
@@ -183,6 +186,16 @@ func (p *parser) val(row []string, name string) string {
 	return strings.TrimSpace(row[c.idx])
 }
 
+// label reads a short text field (a vehicle name, a currency) as a copy cut to maxLabel bytes: a kept string would otherwise pin the whole CSV
+// record it was sliced from, and a hostile row can make that a quarter of a megabyte.
+func (p *parser) label(row []string, name string) string {
+	v := p.val(row, name)
+	if len(v) > maxLabel {
+		v = v[:maxLabel]
+	}
+	return strings.Clone(v)
+}
+
 func (p *parser) has(name string) bool { _, ok := p.cols[name]; return ok }
 
 // number reads a field as a float. ok is false for an empty cell; err for text that is not a number.
@@ -282,9 +295,10 @@ func (p *parser) noteVehicle(row []string) (skip bool) {
 	if !p.has(FVehicle) {
 		return false
 	}
-	v := p.val(row, FVehicle)
+	v := p.label(row, FVehicle)
 	if v == "" {
-		return false
+		// A blank label in a file that names vehicles belongs to none of them once the user has picked one.
+		return p.o.Vehicle != ""
 	}
 	if len(p.vehicles) < 20 {
 		p.vehicles[v] = true

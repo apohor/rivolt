@@ -36,7 +36,7 @@ func (p *parser) sessions(t Table) error {
 }
 
 func (p *parser) driveRow(row []string) error {
-	d := Drive{Source: p.f.Source, VehicleLabel: p.val(row, FVehicle)}
+	d := Drive{Source: p.f.Source, VehicleLabel: p.label(row, FVehicle)}
 	var err error
 	if d.StartedAt, err = p.when(row, FStart); err != nil {
 		return p.timeErr(err)
@@ -81,7 +81,7 @@ func (p *parser) driveRow(row []string) error {
 }
 
 func (p *parser) chargeRow(row []string) error {
-	c := Charge{Source: p.f.Source, EnergyBasis: p.f.EnergyBasis, VehicleLabel: p.val(row, FVehicle), Currency: p.val(row, FCurrency)}
+	c := Charge{Source: p.f.Source, EnergyBasis: p.f.EnergyBasis, VehicleLabel: p.label(row, FVehicle), Currency: p.label(row, FCurrency)}
 	if c.EnergyBasis == "" {
 		c.EnergyBasis = "unknown"
 	}
@@ -177,6 +177,8 @@ func (p *parser) checkAll() {
 	out := p.drives[:0]
 	for _, d := range p.drives {
 		p.deriveDrive(&d)
+		p.cleanCoords(&d.StartLat, &d.StartLon)
+		p.cleanCoords(&d.EndLat, &d.EndLon)
 		if r := checkDrive(&d, p.o.Now); r != "" {
 			p.reject(r, 1)
 			continue
@@ -187,6 +189,7 @@ func (p *parser) checkAll() {
 	outc := p.charges[:0]
 	for _, c := range p.charges {
 		p.deriveCharge(&c)
+		p.cleanCoords(&c.Lat, &c.Lon)
 		if r := checkCharge(&c, p.o.Now); r != "" {
 			p.reject(r, 1)
 			continue
@@ -194,6 +197,17 @@ func (p *parser) checkAll() {
 		outc = append(outc, c)
 	}
 	p.charges = outc
+}
+
+// cleanCoords clears a position that is off the globe or exactly 0,0 (the recorder refuses those too) and counts it; an absent pair stays absent.
+func (p *parser) cleanCoords(lat, lon *float64) {
+	if *lat == 0 && *lon == 0 {
+		return
+	}
+	if !finite(*lat) || !finite(*lon) || *lat < -90 || *lat > 90 || *lon < -180 || *lon > 180 {
+		*lat, *lon = 0, 0
+		p.rep.DroppedCoords++
+	}
 }
 
 func (p *parser) deriveDrive(d *Drive) {
@@ -237,6 +251,8 @@ func checkDrive(d *Drive, now time.Time) string {
 		return ReasonEndBeforeBeg
 	case d.EndedAt.After(now):
 		return ReasonFuture
+	case d.StartedAt.Before(minSessionStart):
+		return ReasonTooOld
 	case dur > maxDriveDur:
 		return ReasonTooLong
 	case badSoC(d.StartSoCPct) || badSoC(d.EndSoCPct):
@@ -260,6 +276,8 @@ func checkCharge(c *Charge, now time.Time) string {
 		return ReasonEndBeforeBeg
 	case c.EndedAt.After(now):
 		return ReasonFuture
+	case c.StartedAt.Before(minSessionStart):
+		return ReasonTooOld
 	case dur > maxChargeDur:
 		return ReasonTooLong
 	case badSoC(c.StartSoCPct) || badSoC(c.EndSoCPct):

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -83,7 +84,9 @@ func (p *parser) points(t Table) error {
 			p.reject(ReasonRunTooLong, 1)
 			continue
 		}
-		runID = id
+		if id != runID {
+			runID = strings.Clone(id) // a copy, so the run does not pin the CSV record it was cut from
+		}
 		run = append(run, *pt)
 	}
 	flush()

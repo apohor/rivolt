@@ -38,7 +38,8 @@ type csvTable struct {
 
 // OpenCSV reads a CSV with a header row. It skips a UTF-8 byte order mark and picks the delimiter (comma, semicolon or tab) from the header line.
 func OpenCSV(src io.Reader) (Table, error) {
-	br := bufio.NewReaderSize(&capReader{r: src, left: MaxCSVBytes}, 64<<10)
+	guard := &csvGuard{r: &capReader{r: src, left: MaxCSVBytes}}
+	br := bufio.NewReaderSize(guard, 64<<10)
 	if b, err := br.Peek(3); err == nil && bytes.Equal(b, []byte{0xEF, 0xBB, 0xBF}) {
 		_, _ = br.Discard(3)
 	}
@@ -52,6 +53,7 @@ func OpenCSV(src io.Reader) (Table, error) {
 	}
 	r := csv.NewReader(br)
 	r.Comma = sniffDelimiter(line)
+	guard.delim = byte(r.Comma)
 	r.FieldsPerRecord = -1
 	r.LazyQuotes = true
 	r.ReuseRecord = true
