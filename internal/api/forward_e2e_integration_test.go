@@ -126,6 +126,8 @@ type e2eRunner struct{ p *e2ePod }
 
 // Run is the owner side of fresh_state and plan_legs, as cmd/rivolt's forwardRunner does it.
 func (r e2eRunner) Run(ctx context.Context, kind forward.Kind, user, group string, args any) (forward.Result, error) {
+	// As cmd/rivolt's forwardRunner.Run does: the owner's runner was admitted on a held lease and its Rivian calls carry the forward-run permit.
+	ctx = rivian.WithCallPermit(ctx, rivian.HolderForwardRun)
 	r.p.entered.Add(1)
 	if r.p.stall != nil {
 		<-r.p.stall
@@ -417,4 +419,35 @@ func (a e2eReceiptAccount) CompletedSessionSummaries(context.Context) ([]rivian.
 
 func (a e2eReceiptAccount) SessionCharger(context.Context, string) (*rivian.SessionCharger, error) {
 	return nil, nil
+}
+
+// A3: a pod that holds no lease (the api role) with the permit on enforce is never refused. Its state read goes to the owner, which makes the
+// one Rivian call under its forward-run permit; the api pod sends none and takes no lease.
+func TestForwardE2EAPIRoleUnderPermitEnforce(t *testing.T) {
+	env := newE2EEnv(t)
+	var mu sync.Mutex
+	var refused []string
+	rivian.SetPermitMode(rivian.PermitEnforce)
+	rivian.SetUnpermittedObserver(func(op string) { mu.Lock(); refused = append(refused, op); mu.Unlock() })
+	t.Cleanup(func() { rivian.SetPermitMode(rivian.PermitOff); rivian.SetUnpermittedObserver(nil) })
+
+	w := env.b.getState(t)
+	if w.Code != 200 {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if got := env.b.gw.count("GetVehicleState"); got != 0 {
+		t.Errorf("the api pod called Rivian %d times, want 0", got)
+	}
+	if got := env.a.gw.count("GetVehicleState"); got != 1 {
+		t.Errorf("the owner called Rivian %d times, want 1", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(refused) != 0 {
+		t.Errorf("%d calls refused for want of a permit: %v", len(refused), refused)
+	}
+	var n int
+	if err := env.pool.QueryRowContext(context.Background(), `SELECT count(*) FROM account_leases WHERE pod_id = 'pod-b'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("the api pod holds %d leases (%v), want 0", n, err)
+	}
 }
