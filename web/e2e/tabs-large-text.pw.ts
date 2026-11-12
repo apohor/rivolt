@@ -3,7 +3,7 @@ import { stubApi } from "./stub";
 
 // Safari's aA text size zooms the page: at 200% a 390 px iPhone lays out 195 CSS px wide (300%: 130). The tabs other than Plan must not scroll
 // sideways there either: whatever does not fit wraps, shrinks or goes, and only a row made to scroll sideways (overflow-x auto) may be wider.
-const PAGES = ["/", "/activity", "/money", "/truck"];
+const PAGES = ["/", "/activity", "/money", "/truck", "/settings"];
 
 for (const [zoom, width, height] of [[200, 195, 422], [300, 130, 281]] as const) {
   for (const path of PAGES) {
@@ -53,5 +53,28 @@ test("@webkit phone at aA 300%: the departure calendar keeps its weeks", async (
   const days = page.locator("[data-keep-grid]");
   await expect(days).toBeVisible();
   expect(await days.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(7);
+  await ctx.close();
+});
+
+// The battery gauge scales down with its column; its percentage must shrink with it and stay inside the ring.
+test("@webkit phone at aA 300%: the gauge label stays inside the ring", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 130, height: 281 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  await page.goto("/");
+  const gauge = page.locator(".ui-gauge").first();
+  await expect(gauge).toBeVisible();
+  await page.waitForTimeout(300);
+  const { ring, label } = await gauge.evaluate((el) => {
+    const s = el.querySelector("svg")!.getBoundingClientRect();
+    const t = (el.lastElementChild!.firstElementChild ?? el.lastElementChild!).getBoundingClientRect();
+    return { ring: { l: s.left, r: s.right, w: s.width }, label: { l: t.left, r: t.right } };
+  });
+  expect(ring.w).toBeLessThan(132);
+  // The arc's stroke centre is at 52/120 of the width from the middle, 3.5/120 thick: the label stays inside the stroke.
+  const inner = ring.w * ((52 - 3.5) / 120);
+  const mid = (ring.l + ring.r) / 2;
+  expect(label.l).toBeGreaterThanOrEqual(mid - inner);
+  expect(label.r).toBeLessThanOrEqual(mid + inner);
   await ctx.close();
 });
