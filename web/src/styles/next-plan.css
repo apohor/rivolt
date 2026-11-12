@@ -812,6 +812,13 @@
   :root:has([data-plan-sheet]):has([data-radar-label]) [data-plan-area='map'] .maplibregl-ctrl-bottom-left {
     bottom: calc(var(--plan-map-cover, 0px) + 28px);
   }
+  /* A strip of map too short for its controls (Safari's 300% text: some 60 px above the peek): the route alone, framed in it (TripRouteMap,
+     data-map-tight). The credits stay. */
+  :root [data-trip-map][data-map-tight] > :not([data-map-canvas]),
+  :root [data-trip-map][data-map-tight] .maplibregl-ctrl-top-left,
+  :root [data-trip-map][data-map-tight] .rivolt-trip-card {
+    display: none;
+  }
   /* Fully open, the map is out of sight under the sheet, and so is its strip. */
   :root:has([data-plan-sheet][data-snap='full']:not([data-dragging])) [data-radar-label] {
     visibility: hidden;
