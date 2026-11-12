@@ -329,9 +329,9 @@ const chargeOnConflict = `
 			source           = EXCLUDED.source,
 			-- A price the user entered survives the recorder re-saving
 			-- the session (lifecycle upserts keep firing until close).
-			-- A price-based cost the receipts sync moved with the energy follows the new price on the kept energy.
+			-- Energy kept from a receipt: a re-save with a price prices the kept energy.
 			cost             = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.cost
-			                        WHEN charges.metadata->>'cost_applied' IS NOT NULL AND charges.metadata->>'energy_source' = 'rivian_receipt' AND EXCLUDED.final_state IS DISTINCT FROM 'charging_active'
+			                        WHEN charges.metadata->>'energy_source' = 'rivian_receipt' AND EXCLUDED.final_state IS DISTINCT FROM 'charging_active'
 			                             AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian' AND COALESCE(EXCLUDED.price_per_kwh, 0) > 0
 			                             THEN round((EXCLUDED.price_per_kwh * charges.energy_added_kwh)::numeric, 4)
 			                        ELSE EXCLUDED.cost END,

@@ -195,6 +195,41 @@ func TestReceiptEnergySurvivesResaveAndPurgeRestores(t *testing.T) {
 	if got = get("re-dc"); got.Cost != 5 || got.CostSource != "user" || got.EnergyAddedKWh != 26.80 {
 		t.Errorf("user price after purge: cost %v source %q kwh %v, want 5, user, 26.80", got.Cost, got.CostSource, got.EnergyAddedKWh)
 	}
+
+	// Apply, re-save at a new price, purge: the current price is repriced on the restored energy.
+	reset := func() {
+		if _, err := pool.ExecContext(ctx, `UPDATE charges SET cost=10.72, cost_source='observed_estimate', price_per_kwh=0.40, energy_added_kwh=26.80 WHERE id=$1`, uuidOf(t, chargeID)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reset()
+	link()
+	c4 := mk("re-dc", "charging_complete", 12.5, "observed_estimate")
+	c4.PricePerKWh = 0.50
+	if err := cs.Upsert(ctx, c4); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Purge(ctx, uid); err != nil {
+		t.Fatal(err)
+	}
+	if got = get("re-dc"); got.EnergyAddedKWh != 26.80 || got.Cost < 0.50*26.80-0.001 || got.Cost > 0.50*26.80+0.001 {
+		t.Errorf("re-save at a new price, then purge: kwh %v cost %v, want 26.80 and 0.50 x 26.80", got.EnergyAddedKWh, got.Cost)
+	}
+
+	// The first price arrives on a row with no cost_applied: it prices the kept receipt energy.
+	reset()
+	link()
+	if _, err := pool.ExecContext(ctx, `UPDATE charges SET metadata = metadata - 'cost_applied' - 'cost_recorded' WHERE id=$1`, uuidOf(t, chargeID)); err != nil {
+		t.Fatal(err)
+	}
+	c5 := mk("re-dc", "charging_complete", 16, "observed_estimate")
+	c5.PricePerKWh = 0.60
+	if err := cs.Upsert(ctx, c5); err != nil {
+		t.Fatal(err)
+	}
+	if got = get("re-dc"); got.EnergyAddedKWh != 27.42 || got.Cost < 0.60*27.42-0.001 || got.Cost > 0.60*27.42+0.001 {
+		t.Errorf("first price on a kept receipt energy: kwh %v cost %v, want 27.42 and 0.60 x 27.42", got.EnergyAddedKWh, got.Cost)
+	}
 }
 
 func uuidOf(t *testing.T, s string) uuid.UUID {

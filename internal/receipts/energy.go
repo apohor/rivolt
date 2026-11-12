@@ -208,9 +208,13 @@ const restoreEnergySQL = `
 	UPDATE charges
 	   SET energy_added_kwh = COALESCE((metadata->>'energy_recorded_kwh')::float8, energy_added_kwh),
 	       avg_power_kw = COALESCE((metadata->>'avg_power_recorded_kw')::float8, avg_power_kw),
-	       cost = CASE WHEN cost_source IS DISTINCT FROM 'user' AND cost_source IS DISTINCT FROM 'rivian'
-	                    AND round(cost::numeric, 4) = round((metadata->>'cost_applied')::numeric, 4)
-	                   THEN COALESCE((metadata->>'cost_recorded')::float8, cost) ELSE cost END,
+	       cost = CASE WHEN cost_source = 'user' OR cost_source = 'rivian' THEN cost
+	                   WHEN round(cost::numeric, 4) = round((metadata->>'cost_applied')::numeric, 4)
+	                   THEN COALESCE((metadata->>'cost_recorded')::float8, cost)
+	                   WHEN COALESCE(price_per_kwh, 0) > 0
+	                    AND round(cost::numeric, 4) = round((price_per_kwh * energy_added_kwh)::numeric, 4)
+	                   THEN round((price_per_kwh * COALESCE((metadata->>'energy_recorded_kwh')::float8, energy_added_kwh))::numeric, 4)
+	                   ELSE cost END,
 	       metadata = metadata - 'energy_source' - 'energy_recorded_kwh' - 'avg_power_recorded_kw' - 'cost_recorded' - 'cost_applied'
 	                           - 'receipt_started_at' - 'receipt_ended_at',
 	       updated_at = NOW()
