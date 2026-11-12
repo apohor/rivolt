@@ -279,9 +279,15 @@ indentation of a "template:" key two spaces in (its content at four), starting o
   template:{{ include "rivolt.podTemplate" . }}
 */}}
 {{- define "rivolt.podTemplate" }}
+{{- /* With roles.enabled, templates/roles.yaml renders this once per role with "role" set; otherwise it is empty. */}}
+{{- $role := .role | default "" }}
+{{- $matrix := .Values.roles.secrets | default dict }}
     metadata:
       labels:
         {{- include "rivolt.selectorLabels" . | nindent 8 }}
+        {{- with $role }}
+        rivolt.dev/role: {{ . }}
+        {{- end }}
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -334,12 +340,25 @@ indentation of a "template:" key two spaces in (its content at four), starting o
           envFrom:
             - configMapRef:
                 name: {{ include "rivolt.fullname" . }}-config
+            {{- if not $role }}
             - secretRef:
                 name: {{ include "rivolt.appSecretName" . }}
             {{- with .Values.extraEnvFrom }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+            {{- else }}
+            {{- /* A role mounts the secrets its row of roles.secrets.secretRefs names, and every non-secret entry. */}}
+            {{- range .Values.extraEnvFrom }}
+            {{- if or (not .secretRef) (include "rivolt.roleMounts" (dict "rows" $matrix.secretRefs "name" .secretRef.name "role" $role)) }}
+            - {{ toYaml . | nindent 14 | trim }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
           env:
+            {{- with $role }}
+            - name: RIVOLT_ROLE
+              value: {{ . | quote }}
+            {{- end }}
             {{- if not .Values.adminOnly }}
             # Pod identity for the subscription-lease coordinator
             # (internal/leases). Must be unique per pod across the
@@ -480,6 +499,20 @@ indentation of a "template:" key two spaces in (its content at four), starting o
             # user-supplied one, or the chart's): rivolt.dbCredentialsEnv,
             # shared with the migrate Job.
             {{- include "rivolt.dbCredentialsEnv" . | trim | nindent 12 }}
+            {{- if $role }}
+            # The app Secret's keys in this role's row of roles.secrets.appSecretKeys, one by one (no envFrom: that would mount them all).
+            {{- $appSecret := include "rivolt.appSecretName" . }}
+            {{- range $k := keys ($matrix.appSecretKeys | default dict) | sortAlpha }}
+            {{- if include "rivolt.roleMounts" (dict "rows" $matrix.appSecretKeys "name" $k "role" $role) }}
+            - name: {{ $k }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $appSecret }}
+                  key: {{ $k }}
+                  optional: true
+            {{- end }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.migrate.job.enabled }}
             # The migrate Job (templates/migrate-job.yaml) changes the
             # schema before this Deployment rolls; the server only checks
@@ -487,8 +520,16 @@ indentation of a "template:" key two spaces in (its content at four), starting o
             - name: RIVOLT_MIGRATE_ON_START
               value: "false"
             {{- end }}
+            {{- if not $role }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- else }}
+            {{- range .Values.extraEnv }}
+            {{- if or (not (dig "valueFrom" "secretKeyRef" "" .)) (include "rivolt.roleMounts" (dict "rows" $matrix.env "name" .name "role" $role)) }}
+            - {{ toYaml . | nindent 14 | trim }}
+            {{- end }}
+            {{- end }}
             {{- end }}
           {{- with .Values.startupProbe }}
           startupProbe:
@@ -562,7 +603,9 @@ indentation of a "template:" key two spaces in (its content at four), starting o
         {{- range . }}
         {{- $c := deepCopy . }}
         {{- if not (hasKey $c "labelSelector") }}
-        {{- $_ := set $c "labelSelector" (dict "matchLabels" (include "rivolt.selectorLabels" $ | fromYaml)) }}
+        {{- $sel := include "rivolt.selectorLabels" $ | fromYaml }}
+        {{- with $role }}{{ $_ := set $sel "rivolt.dev/role" . }}{{ end }}
+        {{- $_ := set $c "labelSelector" (dict "matchLabels" $sel) }}
         {{- end }}
         - {{ toYaml $c | nindent 10 | trim }}
         {{- end }}
@@ -574,4 +617,56 @@ indentation of a "template:" key two spaces in (its content at four), starting o
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}
+
+{{/*
+Per-role Deployments (roles.enabled; zero-downtime design §2.6, S19 9f). The roles are fixed: the binary knows these three (RIVOLT_ROLE).
+*/}}
+{{- define "rivolt.roleNames" -}}ingest api jobs{{- end }}
+
+{{/*
+rivolt.roleMounts: "true" when the role in .role mounts the secret .name of the matrix row set .rows (roles.secrets.appSecretKeys,
+secretRefs or env).
+*/}}
+{{- define "rivolt.roleMounts" -}}
+{{- if has .role (index (.rows | default dict) .name | default list) }}true{{ end }}
+{{- end }}
+
+{{/*
+rivolt.rolesCheck fails the render on what roles.enabled cannot run with yet (the cutover, S19 9h, brings the api Rollout, surge and the
+per-role pool shares), on a matrix entry naming an unknown role, and on a secret no matrix entry assigns.
+*/}}
+{{- define "rivolt.rolesCheck" -}}
+{{- $v := .Values }}
+{{- $m := $v.roles.secrets | default dict }}
+{{- if $v.rollout.enabled }}{{ fail "roles.enabled: the api Rollout comes with the cutover (S19 9h); turn rollout.enabled off" }}{{ end }}
+{{- if $v.autoscaling.enabled }}{{ fail "roles.enabled: set roles.<role>.replicaCount; autoscaling does not apply per role yet" }}{{ end }}
+{{- if $v.persistence.enabled }}{{ fail "roles.enabled: three Deployments cannot share the /data claim; turn persistence.enabled off" }}{{ end }}
+{{- if $v.adminOnly }}{{ fail "roles.enabled: the admin release runs no roles" }}{{ end }}
+{{- if $v.metrics.serviceMonitor.enabled }}{{ fail "roles.enabled: the Service selects the api pods only; scrape with metrics.podMonitor instead of metrics.serviceMonitor" }}{{ end }}
+{{- if not $v.dbConnections.systemMaxConns }}{{ fail "roles.enabled: set dbConnections.systemMaxConns (and requestMaxConns) for the pods of all three roles plus surge; per-role shares come with S19 9h" }}{{ end }}
+{{- if not $v.config.replicaDivisor }}{{ fail "roles.enabled: set config.replicaDivisor to the pods of all three roles that may run at once" }}{{ end }}
+{{- $names := splitList " " (include "rivolt.roleNames" .) }}
+{{- range $kind := list "appSecretKeys" "secretRefs" "env" }}
+{{- range $name, $roles := index $m $kind | default dict }}
+{{- range $roles }}
+{{- if not (has . $names) }}{{ fail (printf "roles.secrets.%s.%s: unknown role %q (want ingest, api or jobs)" $kind $name .) }}{{ end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $v.extraEnvFrom }}
+{{- with .secretRef }}
+{{- if not (hasKey ($m.secretRefs | default dict) .name) }}{{ fail (printf "roles.enabled: extraEnvFrom secret %q has no roles.secrets.secretRefs entry: name the roles that mount it" .name) }}{{ end }}
+{{- end }}
+{{- end }}
+{{- range $v.extraEnv }}
+{{- if and (dig "valueFrom" "secretKeyRef" "" .) (not (hasKey ($m.env | default dict) .name)) }}{{ fail (printf "roles.enabled: extraEnv %s comes from a Secret and has no roles.secrets.env entry: name the roles that mount it" .name) }}{{ end }}
+{{- end }}
+{{- if not $v.secrets.existingSecret }}
+{{- $s := $v.secrets }}
+{{- $held := dict "RIVOLT_KEK" (or $s.kek $s.autoGenerateKek) "RIVOLT_KEK_ROTATION" $s.kekRotation "RIVOLT_COOKIE_SECRET" $s.cookieSecret "OPENAI_API_KEY" $s.openAIApiKey "ANTHROPIC_API_KEY" $s.anthropicApiKey "GEMINI_API_KEY" $s.geminiApiKey "VAPID_SUBJECT" $s.vapidSubject "VAPID_PUBLIC_KEY" $s.vapidPublicKey "VAPID_PRIVATE_KEY" $s.vapidPrivateKey }}
+{{- range $k, $set := $held }}
+{{- if and $set (not (hasKey ($m.appSecretKeys | default dict) $k)) }}{{ fail (printf "roles.enabled: the chart's Secret holds %s and roles.secrets.appSecretKeys does not assign it" $k) }}{{ end }}
+{{- end }}
+{{- end }}
 {{- end }}

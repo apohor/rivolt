@@ -1,0 +1,59 @@
+# CI render: one Deployment per role (roles.enabled, S19 9f) in the shape of a production install (placeholders, not real names): an
+# existingSecret, Secrets from extraEnvFrom and extraEnv, the PodMonitor, a PDB and a default hostname spread. The chart job checks that
+# each role mounts exactly its row of roles.secrets.
+secrets:
+  existingSecret: rivolt-app
+  autoGenerateKek: false
+cnpg:
+  enabled: true
+  instances: 1
+  storage:
+    size: 8Gi
+roles:
+  enabled: true
+  ingest:
+    replicaCount: 2
+  api:
+    replicaCount: 2
+  jobs:
+    replicaCount: 1
+  secrets:
+    secretRefs:
+      archive-credentials: [api, jobs]
+      mail-credentials: [ingest, api, jobs]
+      forward-key: [ingest, api, jobs]
+    env:
+      RIVOLT_OIDC_EXAMPLE_CLIENT_SECRET: [api]
+dbConnections:
+  systemMaxConns: 6
+config:
+  replicaDivisor: "8"
+extraEnvFrom:
+  - secretRef:
+      name: archive-credentials
+  - secretRef:
+      name: mail-credentials
+      optional: true
+  - secretRef:
+      name: forward-key
+      optional: true
+  - configMapRef:
+      name: extra-settings
+extraEnv:
+  - name: RIVOLT_OIDC_EXAMPLE_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: oidc-example
+        key: CLIENT_SECRET
+  - name: RIVOLT_EXAMPLE_PLAIN
+    value: "1"
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+metrics:
+  podMonitor:
+    enabled: true

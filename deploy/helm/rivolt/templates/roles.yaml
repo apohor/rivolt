@@ -1,0 +1,54 @@
+{{- if .Values.roles.enabled }}
+{{- include "rivolt.rolesCheck" . }}
+{{- /* One Deployment per role (values.yaml roles; zero-downtime design §2.6, S19 9f): the shared pod template, RIVOLT_ROLE set, the role
+       label in the selector, and only the secrets the role's row of roles.secrets names. With podDisruptionBudget.enabled, a PDB per
+       role that has more pods than minAvailable (a one-pod role with minAvailable 1 would block every drain). */}}
+{{- range $name := splitList " " (include "rivolt.roleNames" $) }}
+{{- $spec := index $.Values.roles $name | default dict }}
+{{- $ctx := dict "Values" $.Values "Release" $.Release "Chart" $.Chart "Template" $.Template "Capabilities" $.Capabilities "Files" $.Files "role" $name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rivolt.fullname" $ }}-{{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" $ | nindent 4 }}
+    rivolt.dev/role: {{ $name }}
+  {{- if or $.Values.migrate.job.enabled $.Values.deploymentAnnotations }}
+  annotations:
+    {{- if $.Values.migrate.job.enabled }}
+    argocd.argoproj.io/sync-wave: "1"
+    {{- end }}
+    {{- with $.Values.deploymentAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+spec:
+  replicas: {{ $spec.replicaCount | default 1 }}
+  strategy:
+    {{- toYaml $.Values.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "rivolt.selectorLabels" $ | nindent 6 }}
+      rivolt.dev/role: {{ $name }}
+  template:{{ include "rivolt.podTemplate" $ctx }}
+{{- if and $.Values.podDisruptionBudget.enabled (gt (int ($spec.replicaCount | default 1)) (int $.Values.podDisruptionBudget.minAvailable)) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "rivolt.fullname" $ }}-{{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" $ | nindent 4 }}
+    rivolt.dev/role: {{ $name }}
+spec:
+  minAvailable: {{ $.Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "rivolt.selectorLabels" $ | nindent 6 }}
+      rivolt.dev/role: {{ $name }}
+{{- end }}
+{{- end }}
+{{- end }}

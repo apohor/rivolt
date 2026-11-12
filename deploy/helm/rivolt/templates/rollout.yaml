@@ -1,4 +1,4 @@
-{{- if .Values.rollout.enabled }}
+{{- if and .Values.rollout.enabled (not .Values.roles.enabled) }}
 # Argo Rollouts' Rollout in place of the Deployment (rollout.enabled): the same pod template (rivolt.podTemplate), the same selector, the same
 # replica count, plus the strategy from rollout.strategy. The migrate Job at wave 0 still runs first: this is applied at wave 1 like the Deployment.
 apiVersion: argoproj.io/v1alpha1
