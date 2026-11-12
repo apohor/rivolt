@@ -184,6 +184,9 @@ type Metrics struct {
 	SessionRehydrateTotal *prometheus.CounterVec
 	// SessionSplitTotal counts drives and charges split in two by a takeover that lost the open session (SessionRehydrateTotal source fresh).
 	SessionSplitTotal *prometheus.CounterVec
+	// CloseHooksFiredTotal counts drive and charge close hooks that fired (past the once-per-session and replay gates), by type (drive, charge):
+	// the denominator for outbox shadow parity (rivolt_outbox_inserted_total{kind="close_hook"}).
+	CloseHooksFiredTotal *prometheus.CounterVec
 	// LeaseRenew counts lease renew attempts by scope (vehicle: the per-vehicle renew; group: the lead-mode group pass) and
 	// outcome: ok, lost (the renew worked and something we held was gone), timeout, error. A pod whose renews stop working shows
 	// here before it self-fences.
@@ -599,6 +602,10 @@ func New() *Metrics {
 			Name: "rivolt_session_split_total",
 			Help: "Drives and charges split in two because a takeover lost the open session, by kind (drive, charge).",
 		}, []string{"kind"}),
+		CloseHooksFiredTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_close_hooks_fired_total",
+			Help: "Drive and charge close hooks that fired, by type (drive, charge). Counted at fire time, after the once-per-session and replay gates.",
+		}, []string{"type"}),
 		WeatherRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_weather_requests_total",
 			Help: "Open-Meteo requests by endpoint (forecast, archive) and outcome (ok, error, skipped_old).",
@@ -1065,6 +1072,7 @@ func New() *Metrics {
 		m.RolloutHandoffsTotal,
 		m.SessionRehydrateTotal,
 		m.SessionSplitTotal,
+		m.CloseHooksFiredTotal,
 		m.Accounts,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
@@ -1233,6 +1241,7 @@ func New() *Metrics {
 	}
 	for _, kind := range []string{"drive", "charge"} {
 		m.SessionSplitTotal.WithLabelValues(kind).Add(0)
+		m.CloseHooksFiredTotal.WithLabelValues(kind).Add(0)
 		for _, source := range []string{"snapshot", "db", "fresh"} {
 			m.SessionRehydrateTotal.WithLabelValues(kind, source).Add(0)
 		}
