@@ -73,6 +73,35 @@ func GetDiscovery(ctx context.Context, d *sql.DB, uid uuid.UUID) (state string, 
 	return state, err == nil, err
 }
 
+// ListUnlinkedWithDiscoveryAmong returns, of among (the users of the groups this pod owns), the ones that still have a discovery row but no stored
+// Rivian session: they signed out, so the row's answer ("none", say) belongs to an account they no longer use.
+func ListUnlinkedWithDiscoveryAmong(ctx context.Context, d *sql.DB, among []uuid.UUID) ([]uuid.UUID, error) {
+	if d == nil || len(among) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, len(among))
+	for i, u := range among {
+		ids[i] = u.String()
+	}
+	rows, err := d.QueryContext(ctx, `
+		SELECT vd.user_id FROM vehicle_discovery vd
+		 WHERE vd.user_id = ANY($1::uuid[])
+		   AND NOT EXISTS (SELECT 1 FROM user_secrets s WHERE s.user_id = vd.user_id AND s.name = 'rivian.session')`, "{"+strings.Join(ids, ",")+"}")
+	if err != nil {
+		return nil, fmt.Errorf("list unlinked users with a discovery row: %w", err)
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // ListLinkedUsersWithoutVehiclesAmong is ListLinkedUsersWithoutVehicles restricted to among (the users of the groups this pod owns) and to the
 // ones due: no stored discovery row, or one whose next_check_at has passed. Oldest first; at most limit.
 func ListLinkedUsersWithoutVehiclesAmong(ctx context.Context, d *sql.DB, among []uuid.UUID, limit int) ([]uuid.UUID, error) {

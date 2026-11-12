@@ -115,6 +115,49 @@ func TestOwnerDiscoverySkipsAFlaggedUser(t *testing.T) {
 	}
 }
 
+// A user who signs out loses the stored answer on the owner's next pass, so linking again starts at "looking"; a user still linked keeps theirs.
+func TestOwnerDiscoveryDropsTheAnswerOfASignedOutUser(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool := open(ctx, t)
+	out := linked(ctx, t, pool, "own-signedout")
+	stay := linked(ctx, t, pool, "own-stays")
+	notMine := linked(ctx, t, pool, "own-elsewhere")
+	for _, u := range []uuid.UUID{out, stay, notMine} {
+		if err := db.RecordDiscovery(ctx, pool, u, db.DiscoveryNone, time.Now().Add(24*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, u := range []uuid.UUID{out, notMine} {
+		if _, err := pool.ExecContext(ctx, `DELETE FROM user_secrets WHERE user_id = $1 AND name = 'rivian.session'`, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	asked := map[uuid.UUID]int{}
+	job := &vehiclediscovery.Job{DB: pool, Sleep: func(context.Context, time.Duration) {},
+		Users:  func(context.Context) ([]vehiclediscovery.OwnedUser, error) { return owned(out, stay), nil },
+		Lookup: func(_ context.Context, uid uuid.UUID) ([]rivian.Vehicle, error) { asked[uid]++; return nil, nil }}
+	if err := job.OwnerTick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := db.GetDiscovery(ctx, pool, out); ok {
+		t.Error("a signed-out user kept the stored answer")
+	}
+	// They link again (another Rivian account, say): looked up on the next pass, not held back by the old "none".
+	if _, err := pool.ExecContext(ctx, `INSERT INTO user_secrets (user_id, name, ciphertext, kek_id) VALUES ($1, 'rivian.session', '\x00', 'k')`, out); err != nil {
+		t.Fatal(err)
+	}
+	if err := job.OwnerTick(ctx); err != nil || asked[out] != 1 {
+		t.Errorf("relinked user: %d lookups (err %v), want 1", asked[out], err)
+	}
+	if _, ok, _ := db.GetDiscovery(ctx, pool, stay); !ok {
+		t.Error("a user who is still linked lost the stored answer")
+	}
+	if _, ok, _ := db.GetDiscovery(ctx, pool, notMine); !ok {
+		t.Error("a signed-out user outside the pod's groups was cleared by this pod")
+	}
+}
+
 // owned makes the job's view of the users a pod owns, with no fence token (an unguarded write, as when lead mode is off).
 func owned(us ...uuid.UUID) []vehiclediscovery.OwnedUser {
 	out := make([]vehiclediscovery.OwnedUser, len(us))
