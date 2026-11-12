@@ -15,6 +15,9 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "rivolt.labels" . | nindent 4 }}
+  annotations:
+    # Argo prune and app deletion must never remove the database or its data (helm keep is ignored by Argo).
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   schedule: {{ .Values.cnpg.backup.scheduled.schedule | quote }}
   immediate: {{ .Values.cnpg.backup.scheduled.immediate }}

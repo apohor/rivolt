@@ -10,6 +10,8 @@ metadata:
   # the auto-generated cookie secret + VAPID keypair living in /data.
   annotations:
     helm.sh/resource-policy: keep
+    # Argo prune and app deletion must never remove the database or its data (helm keep is ignored by Argo).
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
 spec:
   accessModes:
     {{- toYaml .Values.persistence.accessModes | nindent 4 }}
