@@ -1083,6 +1083,29 @@ export function TripRouteMap({
     );
   }
 
+  // The radar legend: on the map it rides next to the Radar chip (not under the Chargers box, where it crowded the chip row and hid a map label); in the
+  // flow layout it sits above the map.
+  const radarStrip = showRadar && radarLabel ? (
+        // One line, as on the iPhone: a short gradient named light, moderate, heavy, then the credit and the picture's time ("NOAA/NWS · 6:42 PM").
+        // NOAA's colours as they are drawn. A feed that is down or stale says "Radar unavailable" and draws nothing, so nothing reads as "no rain".
+        <span
+          ref={stripRef}
+          role="status"
+          aria-label={radarSpokenLabel}
+          data-radar-label
+          className={`pointer-events-auto flex w-fit ${fill ? "max-w-[min(20rem,calc(100vw-6rem))]" : "max-w-full"} items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-neutral-950/85 px-2 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}
+        >
+          {radarLabel.startsWith("NOAA") && (
+            <span aria-hidden="true" className="flex items-center gap-1 text-neutral-400">
+              light
+              <i data-strip-bar="low" className="inline-block h-1.5 w-5 rounded-full" />
+              <span data-strip-mid className="flex items-center gap-1">moderate<i data-strip-bar="high" className="inline-block h-1.5 w-5 rounded-full" /></span>
+              heavy
+            </span>
+          )}
+          <span aria-hidden="true">{radarLabel}</span>
+        </span>
+  ) : null;
   return (
     <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
       {/* The chips and, under them, the radar strip: one column at the map's top left, so the strip never lands on the route. */}
@@ -1143,28 +1166,8 @@ export function TripRouteMap({
           </>}
         </div>
       )}
-      {showRadar && radarLabel && (
-        // One line, as on the iPhone: a short gradient named light, moderate, heavy, then the credit and the picture's time ("NOAA/NWS · 6:42 PM").
-        // NOAA's colours as they are drawn. A feed that is down or stale says "Radar unavailable" and draws nothing, so nothing reads as "no rain".
-        <span
-          ref={stripRef}
-          role="status"
-          aria-label={radarSpokenLabel}
-          data-radar-label
-          className={`pointer-events-auto flex w-fit max-w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-neutral-950/85 px-2 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}
-        >
-          {radarLabel.startsWith("NOAA") && (
-            <span aria-hidden="true" className="flex items-center gap-1 text-neutral-400">
-              light
-              <i data-strip-bar="low" className="inline-block h-1.5 w-5 rounded-full" />
-              <span data-strip-mid className="flex items-center gap-1">moderate<i data-strip-bar="high" className="inline-block h-1.5 w-5 rounded-full" /></span>
-              heavy
-            </span>
-          )}
-          <span aria-hidden="true">{radarLabel}</span>
-        </span>
-      )}
       </div>
+      {!fill && radarStrip}
       {(hasWeather || radarOn) && (
         // Map layers other than chargers sit under the zoom buttons, as the map apps do: the charger row stays one line.
         <div className={fill ? "absolute left-[11px] top-[78px] z-[500] flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
@@ -1195,6 +1198,7 @@ export function TripRouteMap({
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12l6-6" /></svg>
           </button>
+          {fill && radarStrip}
         </div>
       )}
       <div
