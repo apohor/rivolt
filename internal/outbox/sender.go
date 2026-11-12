@@ -13,6 +13,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// leaseMargin is how much earlier than the lease a handler's context ends, so MarkSent lands inside the claim.
+const leaseMargin = 15 * time.Second
+
 // ErrMoot is a Handler's answer when the intent no longer applies (the session is gone, the effect already happened): the row is set aside as
 // failed without another try.
 var ErrMoot = errors.New("outbox: intent is moot")
@@ -101,7 +104,10 @@ func (s *Sender) handle(ctx context.Context, r Row, h Handler) {
 		s.finish(ctx, r, "dropped", s.store.Drop(ctx, r.ID, s.owner))
 		return
 	}
-	err := h(ctx, r)
+	// The handler must finish before its lease can expire, or a second sender reclaims the row and sends it again.
+	hctx, cancel := context.WithTimeout(ctx, s.Lease-leaseMargin)
+	err := h(hctx, r)
+	cancel()
 	switch {
 	case err == nil:
 		s.finish(ctx, r, "sent", s.store.MarkSent(ctx, r.ID, s.owner))

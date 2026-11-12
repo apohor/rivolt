@@ -115,10 +115,19 @@ func TestJanitorPurgesInBatchesAndExpiresPending(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.insert(t, e.ctx, "jn-young")
-	// close_hook MaxAge 24 h + 1 d grace: 30 h old survives, 50 h old expires.
+	// close_hook MaxAge 24 h + 1 d grace: 30 h old survives, 50 h old expires. live_activity (5 min + 1 d) expires at 30 h, so the cutoff is per kind.
 	e.insert(t, e.ctx, "jn-30h")
 	e.insert(t, e.ctx, "jn-50h")
-	if _, err := e.pool.ExecContext(e.ctx, `UPDATE outbox SET created_at = now() - CASE key WHEN 'jn-30h' THEN interval '30 hours' ELSE interval '50 hours' END WHERE key IN ('jn-30h','jn-50h')`); err != nil {
+	e.insert(t, e.ctx, "jn-la-30h")
+	if _, err := e.pool.ExecContext(e.ctx, `UPDATE outbox SET kind = 'live_activity' WHERE key = 'jn-la-30h'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.ExecContext(e.ctx, `UPDATE outbox SET created_at = now() - CASE key WHEN 'jn-50h' THEN interval '50 hours' ELSE interval '30 hours' END WHERE key IN ('jn-30h','jn-50h','jn-la-30h')`); err != nil {
+		t.Fatal(err)
+	}
+	// A pending row past its cutoff but under a live lease is left alone.
+	e.insert(t, e.ctx, "jn-leased")
+	if _, err := e.pool.ExecContext(e.ctx, `UPDATE outbox SET created_at = now() - interval '50 hours', claimed_by = 'x', claimed_until = now() + interval '1 minute' WHERE key = 'jn-leased'`); err != nil {
 		t.Fatal(err)
 	}
 	j := NewJanitor(e.pool, e.s, nil)
@@ -126,14 +135,14 @@ func TestJanitorPurgesInBatchesAndExpiresPending(t *testing.T) {
 	if err := j.Once(e.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if left := e.count(t, `key LIKE 'jn-%'`); left != 2503-2000 {
-		t.Fatalf("after 2 batches of 1000: %d left, want %d (the run is capped, the next continues)", left, 503)
+	if left := e.count(t, `key LIKE 'jn-%'`); left != 2505-2000 {
+		t.Fatalf("after 2 batches of 1000: %d left, want %d (the run is capped, the next continues)", left, 505)
 	}
 	if err := j.Once(e.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if e.count(t, `key IN ('jn-young','jn-30h')`) != 2 || e.count(t, `key LIKE 'jn-%'`) != 2 {
-		t.Fatal("only the two pending rows inside MaxAge + 1 d should remain")
+	if e.count(t, `key IN ('jn-young','jn-30h','jn-leased')`) != 3 || e.count(t, `key LIKE 'jn-%'`) != 3 {
+		t.Fatal("only the pending rows inside MaxAge + 1 d (and the leased one) should remain")
 	}
 }
 
@@ -158,5 +167,27 @@ func TestJanitorSingletonSkipsSecondRunner(t *testing.T) {
 	}
 	if e.count(t, `key = $1`, k) != 1 {
 		t.Fatal("a second runner purged while the lock was held")
+	}
+}
+
+func TestHandlerDeadlineEndsBeforeLease(t *testing.T) {
+	e := setup(t)
+	e.insert(t, e.ctx, "dl-"+uuid.NewString())
+	snd := NewSender(e.s, nil)
+	snd.Lease = 20 * time.Second
+	var left time.Duration
+	snd.Register(KindCloseHook, func(ctx context.Context, _ Row) error {
+		d, ok := ctx.Deadline()
+		if !ok {
+			t.Error("handler context has no deadline")
+		}
+		left = time.Until(d)
+		return nil
+	})
+	if _, err := snd.Once(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if left <= 0 || left > snd.Lease-leaseMargin {
+		t.Fatalf("handler had %v, want within (0, %v]", left, snd.Lease-leaseMargin)
 	}
 }

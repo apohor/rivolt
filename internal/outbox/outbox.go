@@ -284,7 +284,7 @@ func (s *Store) PurgeBatch(ctx context.Context, sentBefore, failedBefore time.Ti
 				SELECT id FROM outbox
 				 WHERE (sent_at IS NOT NULL AND sent_at < $1)
 				    OR (failed_at IS NOT NULL AND failed_at < $2)
-				    OR (sent_at IS NULL AND failed_at IS NULL AND created_at < now() - make_interval(secs => (
+				    OR (sent_at IS NULL AND failed_at IS NULL AND (claimed_until IS NULL OR claimed_until <= now()) AND created_at < now() - make_interval(secs => (
 					      SELECT s FROM unnest(string_to_array($4, ',')::text[], string_to_array($5, ',')::float8[]) AS m(k, s) WHERE m.k = kind)))
 				 ORDER BY id LIMIT $3)
 			RETURNING sent_at, failed_at)
