@@ -403,6 +403,11 @@ jobs:
           done
           echo "migrate Job name: $a (stable, per spec, valid; long tags capped: ${#long} chars)"
 
+      # roles.enabled: one Deployment per role, each mounting exactly its row of the role × secret matrix (S19 9f), and the renders the
+      # chart must refuse (a Secret no row assigns, an unknown role, what the cutover brings).
+      - name: Each role mounts exactly its row of the secret matrix
+        run: .github/scripts/chart-role-secrets.sh "$CHART"
+
       - name: No KEK, no render
         run: |
           if out=$(helm template rivolt "$CHART" --set externalDatabase.host=db.invalid 2>&1); then

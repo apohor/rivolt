@@ -415,6 +415,60 @@ extraEnvFrom: []
 # - secretRef:
 #     name: rivolt-oidc-bundle
 
+# -- One Deployment per role (zero-downtime design §2.6, P2; S19 9f). Off (the default): one Deployment (or Rollout) runs every role and
+# mounts every secret, as before. On: a Deployment per role below, named <fullname>-<role>, with RIVOLT_ROLE set, the role label in its
+# selector, and only the secrets its row of `secrets` names. The Service selects the api pods. Not for prod before the cutover (S19 9h):
+# the api Rollout, surge and the per-role pool shares come there, so this refuses rollout.enabled, autoscaling and persistence, and needs
+# explicit dbConnections.systemMaxConns and config.replicaDivisor.
+roles:
+  enabled: false
+  ingest:
+    replicaCount: 2
+  api:
+    replicaCount: 2
+  jobs:
+    replicaCount: 1
+  # The role × secret matrix: for each secret, the roles that mount it. Nothing outside a role's row reaches that role's pods.
+  # Rendering fails for an extraEnvFrom secretRef or an extraEnv secretKeyRef with no entry here, and for a key the chart's own
+  # Secret holds with no entry in appSecretKeys, so a new secret is assigned roles in the same change.
+  #
+  # The residual (design §2.6): api still holds the KEK, because it seals a fresh sign-in's Rivian tokens, and jobs holds it for the
+  # telemetry archive. "Only ingest decrypts Rivian sessions" is logical custody, not cryptographic.
+  secrets:
+    # Keys of the app Secret (secrets.existingSecret or the chart's), each mounted as one secretKeyRef (optional: a key the Secret
+    # does not hold is skipped). A key of an existingSecret that is not listed reaches no role: list every key before enabling roles.
+    appSecretKeys:
+      # Every role: the sealer (sessions on ingest, a fresh sign-in on api, the archive on jobs) and its retired keys.
+      RIVOLT_KEK: [ingest, api, jobs]
+      RIVOLT_KEK_ROTATION: [ingest, api, jobs]
+      # Every role: besides the session cookies (api), it keys the audit hash, the discovery fail limiter (ingest) and the signed
+      # links in emails (jobs). Shared Redis, the same on every pod.
+      RIVOLT_COOKIE_SECRET: [ingest, api, jobs]
+      RIVOLT_REDIS_PASSWORD: [ingest, api, jobs]
+      # Push: live charging (ingest), the sweeps and reminders (jobs), test pushes (api). One keypair, or each role would mint its own.
+      VAPID_SUBJECT: [ingest, api, jobs]
+      VAPID_PUBLIC_KEY: [ingest, api, jobs]
+      VAPID_PRIVATE_KEY: [ingest, api, jobs]
+      # AI: requests (api) and the drive-close hooks (ingest).
+      OPENAI_API_KEY: [ingest, api]
+      ANTHROPIC_API_KEY: [ingest, api]
+      GEMINI_API_KEY: [ingest, api]
+      GOOGLE_API_KEY: [ingest, api]
+      # Email: sign-up and account mail (api), the re-auth email from the monitor (ingest), the nudges (jobs).
+      RIVOLT_RESEND_API_KEY: [ingest, api, jobs]
+      # Stripe: Checkout, the portal and the webhook (api); the subscription-cancel retrier (jobs). Never ingest.
+      RIVOLT_STRIPE_SECRET_KEY: [api, jobs]
+      RIVOLT_STRIPE_WEBHOOK_SECRET: [api]
+      # Cloudflare Access service tokens: request auth only.
+      RIVOLT_ACCESS_SERVICE_TOKENS: [api]
+    # extraEnvFrom secretRef names -> roles, for example:
+    #   rivolt-archive: [api, jobs]   # the archive reader (api), the archiver and deletions (jobs)
+    #   rivolt-forward: [ingest, api, jobs]
+    secretRefs: {}
+    # extraEnv names whose value is a secretKeyRef -> roles, for example:
+    #   RIVOLT_OIDC_GOOGLE_CLIENT_SECRET: [api]
+    env: {}
+
 # ---------------------------------------------------------------------------
 # CloudNativePG Cluster
 # ---------------------------------------------------------------------------

@@ -24,3 +24,7 @@ spec:
     {{- end }}
   selector:
     {{- include "rivolt.selectorLabels" . | nindent 4 }}
+    {{- if .Values.roles.enabled }}
+    # Per-role Deployments: only api serves the public routes (ingest and jobs answer the probes only).
+    rivolt.dev/role: api
+    {{- end }}
