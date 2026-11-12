@@ -305,6 +305,8 @@ type Metrics struct {
 	// APNs device registrations refused because the token is registered to another account whose session is live and the
 	// caller was not the same install, by reason (install_mismatch or install_missing). No token, user or hash: /metrics is public.
 	APNsRegisterRefusedTotal *prometheus.CounterVec
+	// Push sends by channel (web, apns), push service class (apple, fcm, mozilla, windows, other) and outcome (ok, gone, rejected, error).
+	PushSendsTotal *prometheus.CounterVec
 
 	// Passkey registrations and sign-ins refused, by a fixed reason (ceremony, unknown_credential, assertion,
 	// no_user_verification, sign_count, registration). No credential, user or address: /metrics is public.
@@ -939,6 +941,13 @@ func New() *Metrics {
 			},
 			[]string{"reason"},
 		),
+		PushSendsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_push_sends_total",
+				Help: "Push sends by channel, push service and outcome (ok, gone, rejected, error).",
+			},
+			[]string{"channel", "service", "outcome"},
+		),
 		APNsRegisterRefusedTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_apns_register_refused_total",
@@ -1100,6 +1109,7 @@ func New() *Metrics {
 		m.ChargeEnergyFloorTotal,
 		m.DrivesLocationUnavailableTotal,
 		m.APNsRegisterRefusedTotal,
+		m.PushSendsTotal,
 		m.PasskeyRefusedTotal,
 		m.LogoutForgetAttemptsTotal,
 		m.LogoutForgetFailuresTotal,
