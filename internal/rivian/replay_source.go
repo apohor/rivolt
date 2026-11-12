@@ -145,6 +145,8 @@ type ReplayFeed struct {
 	// The corpus is a real vehicle's location history; an install with
 	// shared sign-in (preview) must not show it to arbitrary accounts.
 	allow func(uid uuid.UUID) bool
+	// empty names the users whose replay sign-in works but whose account has no vehicle (preview's way to show the no-vehicle states).
+	empty func(uid uuid.UUID) bool
 	// lastRecorded returns the newest persisted sample for a demo
 	// vehicle (zero time when none), which is where Stream resumes.
 	lastRecorded func(ctx context.Context, vehicleID string) (time.Time, error)
@@ -413,6 +415,9 @@ func NewDBReplayFeed(ctx context.Context, pool *sql.DB, sourceVehicleID string, 
 // (the default) allows everyone.
 func (f *ReplayFeed) SetAllowedUsers(allow func(uid uuid.UUID) bool) { f.allow = allow }
 
+// SetEmptyUsers names the users whose sign-in succeeds with no vehicle on the account. nil (the default) names nobody.
+func (f *ReplayFeed) SetEmptyUsers(empty func(uid uuid.UUID) bool) { f.empty = empty }
+
 // ErrReplayNotAllowed is returned by ReplayClient.Login for a user the
 // install hasn't allowed to connect a demo vehicle.
 var ErrReplayNotAllowed = errors.New("replay: demo vehicle not enabled for this account")
@@ -433,6 +438,8 @@ type ReplayClient struct {
 	feed    *ReplayFeed
 	vehicle Vehicle
 	allowed bool
+	// noVehicle: the sign-in works and the account lists no vehicle.
+	noVehicle bool
 	// planner answers trip plans (fixtures, then the synthetic planner);
 	// nil means this install plans nothing.
 	planner TripPlanner
@@ -462,6 +469,7 @@ func NewReplayClient(feed *ReplayFeed, uid uuid.UUID) *ReplayClient {
 			PackKWh:   feed.source.PackKWh,
 		},
 		allowed:   feed.allow == nil || feed.allow(uid),
+		noVehicle: feed.empty != nil && feed.empty(uid),
 		authReady: make(chan struct{}),
 	}
 }
@@ -550,6 +558,9 @@ func (c *ReplayClient) Vehicles(context.Context) ([]Vehicle, error) {
 	if !c.Authenticated() {
 		return nil, ErrNotAuthenticated
 	}
+	if c.noVehicle {
+		return []Vehicle{}, nil
+	}
 	return []Vehicle{c.vehicle}, nil
 }
 
@@ -599,8 +610,30 @@ type replayAccountRegistry struct {
 	// hold has no client here. Replay holds no real token; this is so a replay install (preview) runs the same gating code paths.
 	gate atomic.Pointer[tokenGate]
 
+	// states answers Fresh from the users row, as the live registry's syncer does; nil: Fresh has no answer.
+	states AccountStateSource
+
 	mu    sync.RWMutex
 	users map[uuid.UUID]*ReplayClient
+}
+
+// SetStateSource gives the registry the stored account state, so the sign-in-again flag a status read reports is the users row's, not the
+// replay client's (which never raises it). Without it a replay install can never show the re-authentication state.
+func (r *replayAccountRegistry) SetStateSource(src AccountStateSource) { r.states = src }
+
+// Fresh returns uid's stored account state (see AccountSyncer.Fresh); ok is false without a source or when it cannot be read.
+func (r *replayAccountRegistry) Fresh(ctx context.Context, uid uuid.UUID) (AccountDBState, bool) {
+	if r.states == nil {
+		return AccountDBState{}, false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	m, err := r.states.States(ctx, []uuid.UUID{uid})
+	if err != nil {
+		return AccountDBState{}, false
+	}
+	st, ok := m[uid]
+	return st, ok
 }
 
 // NewReplayAccountRegistry returns a registry handing each user a

@@ -196,6 +196,54 @@ func TestReplayClient_AllowedUsers(t *testing.T) {
 	}
 }
 
+// A user named in SetEmptyUsers signs in and sees no vehicle; everyone else still gets the demo one.
+func TestReplayClient_EmptyUsersListNoVehicle(t *testing.T) {
+	f, _ := testFeed(replayEpoch, time.Hour)
+	none, other := uuid.New(), uuid.New()
+	f.SetEmptyUsers(func(uid uuid.UUID) bool { return uid == none })
+	ctx := context.Background()
+
+	c := NewReplayClient(f, none)
+	if err := c.Login(ctx, Credentials{Email: "x@y", Password: "p"}); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if vs, err := c.Vehicles(ctx); err != nil || len(vs) != 0 {
+		t.Fatalf("empty user vehicles = %v, %v; want none", vs, err)
+	}
+	o := NewReplayClient(f, other)
+	if err := o.Login(ctx, Credentials{Email: "x@y", Password: "p"}); err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if vs, err := o.Vehicles(ctx); err != nil || len(vs) != 1 {
+		t.Fatalf("other user vehicles = %v, %v; want the demo vehicle", vs, err)
+	}
+}
+
+type fixedStates map[uuid.UUID]AccountDBState
+
+func (f fixedStates) States(context.Context, []uuid.UUID) (map[uuid.UUID]AccountDBState, error) {
+	return f, nil
+}
+func (f fixedStates) Session(context.Context, uuid.UUID) (Session, error) { return Session{}, nil }
+
+// The replay registry answers Fresh from the stored state, so the status read can report the sign-in-again flag; without a source it has no answer.
+func TestReplayRegistry_FreshReadsStoredState(t *testing.T) {
+	f, _ := testFeed(replayEpoch, time.Hour)
+	reg := NewReplayAccountRegistry(f, nil).(*replayAccountRegistry)
+	uid := uuid.New()
+	if _, ok := reg.Fresh(context.Background(), uid); ok {
+		t.Fatal("Fresh answered with no source")
+	}
+	reg.SetStateSource(fixedStates{uid: {NeedsReauth: true, Reason: "qa seed"}})
+	st, ok := reg.Fresh(context.Background(), uid)
+	if !ok || !st.NeedsReauth || st.Reason != "qa seed" {
+		t.Fatalf("Fresh = %+v, %v; want needs_reauth with its reason", st, ok)
+	}
+	if _, ok := reg.Fresh(context.Background(), uuid.New()); ok {
+		t.Fatal("Fresh answered for a user with no row")
+	}
+}
+
 // A scheduled pause (charging_ready) between charging frames keeps the
 // cable plugged; driving or charger_disconnected clears it.
 func TestPlugTrackerStickyThroughChargingReady(t *testing.T) {
