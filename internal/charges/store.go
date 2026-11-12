@@ -404,26 +404,7 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 	if err != nil {
 		return err
 	}
-	month, url := CleanEstimate(c.EstimateMonth, c.EstimateURL)
-	args := []any{
-		s.userID, vid, c.ID,
-		c.StartedAt.UTC(), c.EndedAt.UTC(),
-		nullIfZero(c.StartSoCPct), nullIfZero(c.EndSoCPct),
-		nullIfZero(c.EnergyAddedKWh), nullIfZero(c.MilesAdded),
-		nullIfZero(c.MaxPowerKW), nullIfZero(c.AvgPowerKW),
-		c.FinalState,
-		nullIfZero(c.Lat), nullIfZero(c.Lon),
-		c.Source,
-		storedCost(c), nullIfEmpty(c.Currency), storedPricePerKWh(c),
-		nullableFloatPtr(c.ThermalKWh),
-		nullIfZero(c.ActiveSeconds),
-		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(storedPlace(c)),
-		nullIfEmpty(c.NetworkState), nullableFloatPtr(c.NetworkConfidence), nullIfEmptyJSON(c.NetworkEvidence),
-		nullableBool(c.RivianCharger),
-		nullIfEmpty(month), nullIfEmpty(url),
-		nullableFloatPtr(c.ChargeLimitPct),
-		placeOverrideArg(c.PlaceOverride), locationOverrideArg(c.LocationOverride),
-	}
+	args := s.chargeArgs(vid, c)
 	if tok, ok := fence.From(ctx); ok {
 		doc, err := fence.RowJSON(chargeColumns, args)
 		if err != nil {
@@ -445,6 +426,30 @@ func (s *Store) Upsert(ctx context.Context, c Charge) error {
 	}
 	_, err = s.db.ExecContext(ctx, plainChargeUpsert, append(args, chargeMetaDoc(c))...)
 	return err
+}
+
+// chargeArgs is the value of each chargeColumns entry, in order, for c on vehicle vid.
+func (s *Store) chargeArgs(vid uuid.UUID, c Charge) []any {
+	month, url := CleanEstimate(c.EstimateMonth, c.EstimateURL)
+	return []any{
+		s.userID, vid, c.ID,
+		c.StartedAt.UTC(), c.EndedAt.UTC(),
+		nullIfZero(c.StartSoCPct), nullIfZero(c.EndSoCPct),
+		nullIfZero(c.EnergyAddedKWh), nullIfZero(c.MilesAdded),
+		nullIfZero(c.MaxPowerKW), nullIfZero(c.AvgPowerKW),
+		c.FinalState,
+		nullIfZero(c.Lat), nullIfZero(c.Lon),
+		c.Source,
+		storedCost(c), nullIfEmpty(c.Currency), storedPricePerKWh(c),
+		nullableFloatPtr(c.ThermalKWh),
+		nullIfZero(c.ActiveSeconds),
+		nullIfEmpty(c.CostSource), nullIfEmpty(c.Network), nullIfEmpty(storedPlace(c)),
+		nullIfEmpty(c.NetworkState), nullableFloatPtr(c.NetworkConfidence), nullIfEmptyJSON(c.NetworkEvidence),
+		nullableBool(c.RivianCharger),
+		nullIfEmpty(month), nullIfEmpty(url),
+		nullableFloatPtr(c.ChargeLimitPct),
+		placeOverrideArg(c.PlaceOverride), locationOverrideArg(c.LocationOverride),
+	}
 }
 
 // storedPlace is the user's own place when the row carries one (a restore), else the recorded one.
