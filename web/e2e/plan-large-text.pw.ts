@@ -37,6 +37,8 @@ for (const [zoom, width, height] of [[200, 195, 422], [300, 130, 281]] as const)
         const out: string[] = [];
         const W = document.documentElement.clientWidth;
         for (const el of Array.from(document.querySelectorAll<HTMLElement>(scope))) {
+          // The map clips its own markers and pointer tooltips; the scroll width check below still covers them.
+          if (el.closest(".maplibregl-map")) continue;
           const r = el.getBoundingClientRect();
           if (r.width > 0 && (r.right > W + 0.5 || r.left < -0.5)) out.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 60)} ${Math.round(r.left)}..${Math.round(r.right)} "${(el.textContent ?? "").slice(0, 30)}"`);
         }
