@@ -22,6 +22,8 @@ struct PlanMapScreen: View {
     /// What the sheet's peek and whole header need at this text size (see SheetLayout.height).
     @State private var peekNeed: CGFloat = 0
     @State private var headerNeed: CGFloat = 0
+    /// At large text: the summary, Edit and the day chips at the top of the content, which half shows whole.
+    @State private var axLead: CGFloat = 0
     /// What rides on the sheet's edge (the radar strip, the map credit): the route is fitted above it too.
     @State private var aboveHeight: CGFloat = 0
     /// Where the sheet was when a stop started to move: it goes back there when the move ends.
@@ -34,7 +36,7 @@ struct PlanMapScreen: View {
     private var radar: RadarModel { state.radar }
 
     private func sheetHeight(_ d: PlanSheetDetent, _ container: CGFloat) -> CGFloat {
-        SheetLayout.height(d, in: container, peekNeed: peekNeed, headerNeed: headerNeed)
+        SheetLayout.height(d, in: container, peekNeed: peekNeed, headerNeed: headerNeed, contentLead: SheetLayout.lead(ax ? axLead : 0))
     }
 
     var body: some View {
@@ -68,8 +70,8 @@ struct PlanMapScreen: View {
                         .padding(.bottom, over)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
-                DetentSheet(detent: $detent, container: geo.size.height, peekNeed: peekNeed, headerNeed: headerNeed, bottomSafe: geo.safeAreaInsets.bottom, scrollsAtEveryDetent: ax,
-                            onNeeds: { peekNeed = $0; headerNeed = $1 }, onAboveHeight: { aboveHeight = $0 }) {
+                DetentSheet(detent: $detent, container: geo.size.height, peekNeed: peekNeed, headerNeed: headerNeed, contentLead: ax ? axLead : 0, bottomSafe: geo.safeAreaInsets.bottom, scrollsAtEveryDetent: ax,
+                            onPeekNeed: { peekNeed = $0 }, onHeaderNeed: { headerNeed = $0 }, onAboveHeight: { aboveHeight = $0 }) {
                     peek
                 } header: {
                     headerExtras
@@ -195,13 +197,16 @@ struct PlanMapScreen: View {
     /// The trip's summary, Edit, the day chips and Networks, at the top of the sheet's content at accessibility sizes.
     private var axControls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let summary = model.plan?.best.map({ TripPlanLogic.summary($0, metric: metric) }) {
-                Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 8) {
+                if let summary = model.plan?.best.map({ TripPlanLogic.summary($0, metric: metric) }) {
+                    Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
+                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                    .accessibilityHint("Change the trip or open a saved one")
+                if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
             }
-            Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
-                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                .accessibilityHint("Change the trip or open a saved one")
-            if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { axLead = $0 }
             networksButton
         }
     }
@@ -538,7 +543,8 @@ struct PlanSheetCompactHeader: View {
     let title: String
 
     var body: some View {
-        Text(title).themeText(.title, color: Theme.textPrimary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+        Text(title).themeText(.title, color: Theme.textPrimary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
     }
 }
