@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -120,6 +121,12 @@ func (a *historyImportAPI) release() { <-a.sem }
 // begin admits one request: a user has one import in flight per pod (a slow upload cannot hold both slots), then a parse slot. It returns
 // the function that gives both back.
 func (a *historyImportAPI) begin(w http.ResponseWriter, r *http.Request) (func(), bool) {
+	// A multipart POST is a simple cross-origin request and the session cookie is SameSite=Lax on the whole site, so a page on another
+	// subdomain could post here. Browsers say where a request comes from; anything but our own origin (or no page at all) is refused.
+	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "" && sfs != "same-origin" && sfs != "none" {
+		importError(w, http.StatusForbidden, "cross_site_request", "This request did not come from rivolt.dev.")
+		return nil, false
+	}
 	uid, _ := auth.UserFromContext(r.Context())
 	if uid != uuid.Nil {
 		a.mu.Lock()
@@ -358,7 +365,7 @@ func (req *importRequest) parse(now time.Time) (*parsed, *parseFailure) {
 		if res == nil {
 			pf := &parseFailure{status: http.StatusUnprocessableEntity, code: "unknown_columns", msg: "This file does not look like an export we know."}
 			if missing != nil {
-				pf.header = missing.Header
+				pf.header = nameLikeCells(missing.Header)
 				pf.missing = missing.Missing
 			}
 			return nil, pf
@@ -434,6 +441,44 @@ func failureOf(err error) *parseFailure {
 		return &parseFailure{status: http.StatusRequestEntityTooLarge, code: "too_big", msg: "That file is larger than we can read. Export a shorter range."}
 	}
 	return &parseFailure{status: http.StatusUnprocessableEntity, code: "bad_file", msg: "That file could not be read as a CSV or Excel export."}
+}
+
+// nameLikeCells keeps what looks like a column name from a file's first line. A file with no header row has a data row there, and the
+// cells of a data row (times, coordinates, readings) must not travel back to the client: no cell that parses as a number or a date, or
+// that is mostly digits, at most 40 characters each and 60 cells.
+func nameLikeCells(cells []string) []string {
+	out := []string{}
+	for _, c := range cells {
+		c = strings.TrimSpace(c)
+		if c == "" || len(c) > 40 || !utf8.ValidString(c) || looksLikeData(c) {
+			continue
+		}
+		if out = append(out, c); len(out) == 60 {
+			break
+		}
+	}
+	return out
+}
+
+var dataLayouts = []string{time.RFC3339, time.RFC3339Nano, "2006-01-02", "2006-01-02 15:04:05", "2006-01-02T15:04:05", "1/2/2006", "1/2/2006 15:04", "1/2/2006 15:04:05",
+	"1/2/2006 3:04:05 PM", "1/2/2006 3:04 PM", "02.01.2006", "02.01.2006 15:04", "2006/01/02", "2006/01/02 15:04:05", "15:04:05", "15:04", "Jan 2, 2006", "2 Jan 2006"}
+
+func looksLikeData(c string) bool {
+	if _, err := strconv.ParseFloat(strings.ReplaceAll(c, ",", "."), 64); err == nil {
+		return true
+	}
+	for _, l := range dataLayouts {
+		if _, err := time.Parse(l, c); err == nil {
+			return true
+		}
+	}
+	digits := 0
+	for _, r := range c {
+		if r >= '0' && r <= '9' {
+			digits++
+		}
+	}
+	return digits*2 > len(c)
 }
 
 func (p *parseFailure) write(w http.ResponseWriter) {

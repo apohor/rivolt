@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
@@ -188,6 +189,60 @@ func TestHistoryImportRefusesUnknownAndManyFields(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "bad_upload") {
 			t.Errorf("%s: %d %s", name, rec.Code, rec.Body)
+		}
+	}
+}
+
+// A file with no header row has a data row in the first line: none of it comes back in the refusal.
+func TestHistoryImportRefusalCarriesNoDataRow(t *testing.T) {
+	req := &importRequest{
+		formats: importSources["tezlab"],
+		files:   []importFile{{name: "x.csv", data: []byte("2026-03-01T08:00:00Z,34.0522,-118.2437,12.5,80,Home,7,1/2/2026,a-very-long-cell-that-goes-past-the-forty-character-limit-for-names\n2026-03-02T08:00:00Z,35.1,-119.1,13,70,Home,7,1/3/2026,x\n")}},
+	}
+	_, pf := req.parse(time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC))
+	if pf == nil || pf.code != "unknown_columns" {
+		t.Fatalf("parse = %+v", pf)
+	}
+	for _, c := range pf.header {
+		if c != "Home" {
+			t.Errorf("header carries %q", c)
+		}
+	}
+	rec := httptest.NewRecorder()
+	pf.write(rec)
+	for _, banned := range []string{"34.05", "118.24", "2026", "very-long"} {
+		if strings.Contains(rec.Body.String(), banned) {
+			t.Errorf("response carries %q: %s", banned, rec.Body)
+		}
+	}
+	got := nameLikeCells([]string{"Start Time", " Distance (mi) ", "12.5", "7,5", "2026-03-01", "x"})
+	if strings.Join(got, "|") != "Start Time|Distance (mi)|x" {
+		t.Errorf("nameLikeCells = %q", got)
+	}
+	many := make([]string, 100)
+	for i := range many {
+		many[i] = "col" + strings.Repeat("a", i%3)
+	}
+	if n := len(nameLikeCells(many)); n != 60 {
+		t.Errorf("%d cells kept, want 60", n)
+	}
+}
+
+// Preview and commit refuse a browser request from another site or another subdomain; same-origin, no page and non-browser callers pass.
+func TestHistoryImportSecFetchSite(t *testing.T) {
+	a := newHistoryImportAPI(Deps{})
+	for sfs, want := range map[string]bool{"": true, "same-origin": true, "none": true, "same-site": false, "cross-site": false} {
+		r := httptest.NewRequest(http.MethodPost, "https://rivolt.dev/api/import/preview", nil).WithContext(auth.WithUser(context.Background(), uuid.New()))
+		if sfs != "" {
+			r.Header.Set("Sec-Fetch-Site", sfs)
+		}
+		rec := httptest.NewRecorder()
+		end, ok := a.begin(rec, r)
+		if ok != want || (!ok && rec.Code != http.StatusForbidden) {
+			t.Errorf("Sec-Fetch-Site %q: admitted %v (%d), want %v", sfs, ok, rec.Code, want)
+		}
+		if ok {
+			end()
 		}
 	}
 }
