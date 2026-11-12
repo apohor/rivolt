@@ -391,6 +391,7 @@ func runServer() {
 		logger.Error(err.Error())
 		os.Exit(1)
 	}
+	role.AdminOnly, role.DemoOnly, role.Demo = adminOnlyMode, demo.OnlyEnabled(), demo.Enabled()
 	logger.Info("process role", "role", string(role.Role))
 
 	addr := flag.String("addr", envOr("ADDR", ":8080"), "HTTP listen address")
@@ -747,7 +748,7 @@ func runServer() {
 		logger.Warn("flags store unavailable", "err", err.Error())
 	}
 	if flagsStore != nil {
-		flagsStore.Start(ctx)
+		role.start("flags_poll", func() { flagsStore.Start(ctx) })
 	}
 
 	// VAPID is server-wide (push_vapid is a single-row table).
@@ -1174,6 +1175,7 @@ func runServer() {
 				logger:  logger,
 				synced:  func() bool { return accountSyncer.Load() != nil },
 				onRaised: func(reason string) {
+					//rivolt:transient one re-auth email per raise, after its grace; the raise is the owner's
 					bg.Go(func() {
 						sendReauthEmailAfterGrace(ctx, reauthEmailGrace,
 							func(c context.Context) (time.Time, bool, error) { return db.ReauthRaisedAt(c, pgPool, boundUID) },
@@ -1232,6 +1234,7 @@ func runServer() {
 				if mr != nil && mr.For(uid) != nil {
 					mr.Stop(uid)
 					if change == rivian.SyncSessionReplaced {
+						//rivolt:transient a per-user monitor; it streams only for groups this pod holds (the fence, RequireFence)
 						mr.Start(ctx, uid)
 					}
 				}
@@ -1250,7 +1253,7 @@ func runServer() {
 				appMetrics.RivianAccountMismatch.WithLabelValues("flag").Set(float64(r.FlagMismatch))
 			})
 			att.AttachSyncer(syncer)
-			bg.Go(func() { syncer.Run(ctx, 5*time.Second, accountRegistry.Loaded) })
+			role.start("account_sync", func() { syncer.Run(ctx, 5*time.Second, accountRegistry.Loaded) })
 			logger.Info("rivian account sync: enabled")
 		}
 		// Stub fallback for the unauthenticated stub-of-last-resort
@@ -1556,6 +1559,7 @@ func runServer() {
 		if pgPool != nil {
 			monitorRegistry.SetBatteryCapacityHookFactory(func(uid uuid.UUID) func(context.Context, string, float64) {
 				return func(hctx context.Context, vehicleID string, kwh float64) {
+					//rivolt:transient one write per monitor report, under the monitor's fence token
 					bg.Go(func() {
 						// WithoutCancel keeps the fence token the monitor put in hctx.
 						ctx, cancel := context.WithTimeout(context.WithoutCancel(hctx), 5*time.Second)
@@ -1610,6 +1614,7 @@ func runServer() {
 			})
 			monitorRegistry.SetVehicleInfoHookFactory(func(uid uuid.UUID) func(context.Context, []rivian.Vehicle) {
 				return func(hctx context.Context, vs []rivian.Vehicle) {
+					//rivolt:transient one write per monitor report, under the monitor's fence token
 					bg.Go(func() {
 						// WithoutCancel keeps the fence token the monitor put in hctx.
 						ctx, cancel := context.WithTimeout(context.WithoutCancel(hctx), 10*time.Second)
@@ -1878,6 +1883,7 @@ func runServer() {
 					continue
 				}
 				if monitorRegistry != nil {
+					//rivolt:transient a per-user monitor; it streams only for groups this pod holds (the fence, RequireFence)
 					monitorRegistry.Start(ctx, uid)
 				}
 				restored++
@@ -2087,7 +2093,7 @@ func runServer() {
 		}
 		rivianExpiryEmails = expiry.Mail != nil
 		logger.Info("rivian expiry emails", "enabled", rivianExpiryEmails)
-		bg.Go(func() {
+		role.start("rivian_expiry", func() {
 			select {
 			case <-ctx.Done():
 				return
@@ -2124,7 +2130,7 @@ func runServer() {
 			Log:       logger,
 			OnOutcome: func(o string) { appMetrics.EngagementSendsTotal.WithLabelValues(r2arrival.Kind, o).Inc() },
 		}
-		bg.Go(func() {
+		role.start("r2_arrival", func() {
 			select {
 			case <-ctx.Done():
 				return
@@ -2838,7 +2844,7 @@ func runServer() {
 		// Follow settings changed on another replica (recap weather, AI keys, GPS
 		// thresholds), so an operator's change reaches every pod within seconds, not
 		// at each pod's next restart.
-		bg.Go(func() { mgr.Sync(ctx, 5*time.Second) })
+		role.start("settings_sync", func() { mgr.Sync(ctx, 5*time.Second) })
 	}
 
 	// Identity provider — provisioning of users on
@@ -3016,8 +3022,8 @@ func runServer() {
 		os.Exit(1)
 	}
 	// Telemetry archive (N19): on only when RIVOLT_ARCHIVE_ENV is set; then a
-	// bad config or a missing KEK stops startup rather than skipping it.
-	archiveCfg, archiveOn, err := archive.ConfigFromEnv(os.Getenv)
+	// bad config or a missing KEK stops startup rather than skipping it. Read only on the roles that use it (archiveConfig).
+	archiveCfg, archiveOn, err := archiveConfig(role, os.Getenv)
 	if err != nil {
 		logger.Error("telemetry archive", "err", err.Error())
 		os.Exit(1)
@@ -3475,6 +3481,7 @@ func runServer() {
 		logger.Info("http listening", "addr", *addr)
 		errCh <- srv.ListenAndServe()
 	})
+	logStarters(logger, role, &bootStarts) // every boot-time start site is behind us
 
 	select {
 	case <-ctx.Done():

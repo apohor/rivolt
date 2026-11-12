@@ -44,5 +44,6 @@ func runEntitlementsFounding(args []string) int {
 		fmt.Fprintln(os.Stderr, "entitlements-founding:", err)
 		return 1
 	}
+	//rivolt:transient a subcommand: runs once, in the foreground, and exits
 	return entitlements.RunFounding(ctx, pool, os.Stdout, os.Stderr, demo.UserID(), launch, *apply, *expectCount, *expectSHA)
 }

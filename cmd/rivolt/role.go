@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/apohor/rivolt/internal/archive"
 )
 
 // processRole is RIVOLT_ROLE: which part of the work this process does (zero-downtime design §2.6, P2). One binary and one image; the
@@ -47,6 +49,9 @@ type rolePlan struct {
 	PublicRoutes bool
 	// Jobs: the sweeps, retriers and singletons on our own database (starters.go startJobs). Off on ingest and api.
 	Jobs bool
+	// The install, not the role (main.go sets them after parseRolePlan): the admin deployment (RIVOLT_ADMIN_ONLY), a demo-only install
+	// (RIVOLT_DEMO_ONLY) and a seeded demo account (RIVOLT_DEMO). rolePlan.start reads them with each starter's onAdmin, offDemoOnly and demo.
+	AdminOnly, DemoOnly, Demo bool
 }
 
 func planFor(r processRole) rolePlan {
@@ -115,4 +120,15 @@ func registerProcessRole(reg prometheus.Registerer, r processRole) {
 		}
 		g.WithLabelValues(string(k)).Set(v)
 	}
+}
+
+// archiveConfig reads the telemetry archive's settings on the roles that use them: the archiver and the deletions run with the jobs, the
+// backup reader and the restorer with the public routes. A role with neither (ingest) leaves the archive off without reading it, so it boots
+// without the archive keys: the chart mounts them on api and jobs only (#1873), and RIVOLT_ARCHIVE_ENV in the shared config would otherwise
+// stop its boot.
+func archiveConfig(p rolePlan, getenv func(string) string) (archive.Config, bool, error) {
+	if !p.Jobs && !p.PublicRoutes {
+		return archive.Config{}, false, nil
+	}
+	return archive.ConfigFromEnv(getenv)
 }

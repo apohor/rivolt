@@ -131,3 +131,26 @@ func TestDrainFuncWithoutACoordinator(t *testing.T) {
 		t.Errorf("order %s", got)
 	}
 }
+
+// The archive settings are read where the archive is used. With RIVOLT_ARCHIVE_ENV set and no keys (what the chart gives ingest), ingest
+// boots with the archive off, and every role that uses the archive still refuses the half-configured install.
+func TestArchiveConfigPerRole(t *testing.T) {
+	getenv := func(k string) string {
+		if k == "RIVOLT_ARCHIVE_ENV" {
+			return "prod"
+		}
+		return ""
+	}
+	for _, r := range processRoles {
+		_, on, err := archiveConfig(planFor(r), getenv)
+		if r == roleIngest {
+			if on || err != nil {
+				t.Errorf("ingest: archive on=%v err=%v, want off and no error", on, err)
+			}
+			continue
+		}
+		if err == nil {
+			t.Errorf("%s: a half-configured archive did not stop the boot", r)
+		}
+	}
+}
