@@ -22,6 +22,8 @@ func TestForwardKindTimeoutsFitTheirRoutes(t *testing.T) {
 		{forward.KindOTANotes, map[string]time.Duration{"GET /vehicles/{id}/ota/notes": routeDeadline}},
 		// adopt follows a login in the background: no route waits for it, but it must not outlast the main group's deadline either.
 		{forward.KindAdopt, map[string]time.Duration{"after POST /settings/rivian login (best effort)": routeDeadline}},
+		// receipts_sync follows a receipts opt-in in the background: no route waits for it.
+		{forward.KindReceiptsSync, map[string]time.Duration{"after PUT /settings/rivian_receipts (best effort)": routeDeadline}},
 	}
 	covered := map[forward.Kind]bool{}
 	for _, row := range table {

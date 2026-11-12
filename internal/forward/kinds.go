@@ -17,10 +17,11 @@ import (
 type Kind string
 
 const (
-	KindPlanLegs   Kind = "plan_legs"   // one planTrip call (the requester keeps the cache and the quota)
-	KindFreshState Kind = "fresh_state" // one vehicle-state fetch
-	KindAdopt      Kind = "adopt"       // best-effort nudge after a login: user and group only, never credentials
-	KindOTANotes   Kind = "ota_notes"   // one OTA release-notes URL lookup (not stored, not cached by the requester)
+	KindPlanLegs     Kind = "plan_legs"     // one planTrip call (the requester keeps the cache and the quota)
+	KindFreshState   Kind = "fresh_state"   // one vehicle-state fetch
+	KindAdopt        Kind = "adopt"         // best-effort nudge after a login: user and group only, never credentials
+	KindReceiptsSync Kind = "receipts_sync" // one receipts summaries pass after a user opts in: user and group only, no reply (owner runs Sync, the 30 min claim caps it)
+	KindOTANotes     Kind = "ota_notes"     // one OTA release-notes URL lookup (not stored, not cached by the requester)
 )
 
 // Spec is what the allowlist holds for a kind.
@@ -34,14 +35,17 @@ type Spec struct {
 	// Validate strictly decodes the args (unknown fields rejected) and checks types, lengths and ranges. It returns the decoded
 	// value on success.
 	Validate func(args json.RawMessage) (any, error)
+	// NoReply says no requester waits for an answer, so the owner writes none (adopt, receipts_sync).
+	NoReply bool
 }
 
 // Kinds is the allowlist.
 var Kinds = map[Kind]Spec{
-	KindPlanLegs:   {Timeout: 28 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[PlanLegsArgs](a) }},
-	KindFreshState: {Timeout: 10 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[FreshStateArgs](a) }},
-	KindAdopt:      {Timeout: 5 * time.Second, Retry: false, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[AdoptArgs](a) }},
-	KindOTANotes:   {Timeout: 15 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[OTANotesArgs](a) }},
+	KindPlanLegs:     {Timeout: 28 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[PlanLegsArgs](a) }},
+	KindFreshState:   {Timeout: 10 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[FreshStateArgs](a) }},
+	KindAdopt:        {Timeout: 5 * time.Second, Retry: false, NoReply: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[AdoptArgs](a) }},
+	KindReceiptsSync: {Timeout: 25 * time.Second, Retry: false, NoReply: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[ReceiptsSyncArgs](a) }},
+	KindOTANotes:     {Timeout: 15 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[OTANotesArgs](a) }},
 }
 
 // ErrBadArgs: args that fail the kind's schema.
@@ -197,6 +201,11 @@ func (a *FreshStateArgs) validate() error {
 type AdoptArgs struct{}
 
 func (a *AdoptArgs) validate() error { return nil }
+
+// ReceiptsSyncArgs: nothing. The message's user and group are the whole content; no credential ever rides it.
+type ReceiptsSyncArgs struct{}
+
+func (a *ReceiptsSyncArgs) validate() error { return nil }
 
 // OTANotesArgs: one release-notes URL lookup.
 type OTANotesArgs struct {

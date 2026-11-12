@@ -81,10 +81,54 @@ type Syncer struct {
 	// fence, when set, says whether this pod owns the user's group (single-owner, lead mode).
 	fence atomic.Pointer[userFencer]
 
+	// observe counts one summaries pass by trigger and outcome (nil: not counted).
+	observe func(trigger, outcome string)
+
 	// receipt energy (energy.go)
 	energyMode    string
 	energyObserve func(outcome string, deltaPct float64)
 	energyDone    map[energyKey]struct{} // guarded by mu
+}
+
+// Triggers and outcomes of a summaries pass, for rivolt_receipts_sync_total. Outcomes: ok (the pass ran), skipped (opted out, no
+// receipt source, or the 30 min claim is held by an earlier pass on any pod), not_owner (another pod owns the user's group), error.
+const (
+	TriggerForward = "forward"
+	TriggerSweep   = "sweep"
+	TriggerClose   = "close"
+)
+
+var (
+	Triggers = []string{TriggerForward, TriggerSweep, TriggerClose}
+	Outcomes = []string{"ok", "skipped", "not_owner", "error"}
+)
+
+// SetObserve installs the counter hook for summaries passes (before Run and before the first charge close).
+func (s *Syncer) SetObserve(f func(trigger, outcome string)) { s.observe = f }
+
+// syncAs is Sync for a summaries pass that is counted under trigger.
+func (s *Syncer) syncAs(ctx context.Context, trigger string, uid uuid.UUID, minInterval time.Duration, summariesOnly bool) (Result, error) {
+	res, err := s.sync(ctx, uid, minInterval, false, summariesOnly)
+	if s.observe != nil {
+		outcome := "ok"
+		switch {
+		case err != nil:
+			outcome = "error"
+		case res.NotOwner:
+			outcome = "not_owner"
+		case res.Skipped:
+			outcome = "skipped"
+		}
+		s.observe(trigger, outcome)
+	}
+	return res, err
+}
+
+// SyncOnRequest is the owner's side of a forwarded receipts_sync: one summaries-and-match pass (no detail calls, so it fits the kind timeout) with the close-time claim window, so the
+// cross-pod claim lets at most one summaries call per user through every 30 min however often it is asked for. The fence check
+// inside Sync comes before the claim.
+func (s *Syncer) SyncOnRequest(ctx context.Context, uid uuid.UUID) (Result, error) {
+	return s.syncAs(ctx, TriggerForward, uid, closeMinInterval, true)
 }
 
 // UserFencer resolves a user to the fence state of their group: the lease store implements it.
@@ -128,6 +172,12 @@ func newSyncer(st store, accounts rivian.AccountRegistry, enabled func(uuid.UUID
 // store them and match them to charges; then fetch up to maxDetailPerRun
 // charger details for matched receipts. minInterval is the claim window.
 func (s *Syncer) Sync(ctx context.Context, uid uuid.UUID, minInterval time.Duration, detailsOnly bool) (Result, error) {
+	return s.sync(ctx, uid, minInterval, detailsOnly, false)
+}
+
+// sync is Sync; summariesOnly stops after the summaries are stored and matched, leaving the detail calls (paced, up to 27 s) to the
+// sweep's details-only tail.
+func (s *Syncer) sync(ctx context.Context, uid uuid.UUID, minInterval time.Duration, detailsOnly, summariesOnly bool) (Result, error) {
 	var res Result
 	if s.enabled != nil && !s.enabled(uid) {
 		res.Skipped = true
@@ -170,12 +220,15 @@ func (s *Syncer) Sync(ctx context.Context, uid uuid.UUID, minInterval time.Durat
 		res.Skipped = true
 		return res, nil
 	}
-	runErr := s.run(ctx, uid, src, detailsOnly, &res)
+	runErr := s.run(ctx, uid, src, detailsOnly, summariesOnly, &res)
 	var recorded error
 	if runErr != nil {
 		recorded = errors.New(describe(runErr))
 	}
-	if merr := s.st.MarkResult(ctx, uid, recorded); merr != nil {
+	// The result is recorded even when the pass ran out of time: the claim is already held, and a lost result would hide the failure.
+	mctx, mcancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer mcancel()
+	if merr := s.st.MarkResult(mctx, uid, recorded); merr != nil {
 		s.logger.Warn("receipts: mark result failed", "user_id", uid.String(), "err", merr.Error())
 	}
 	return res, runErr
@@ -186,7 +239,7 @@ func (s *Syncer) Sync(ctx context.Context, uid uuid.UUID, minInterval time.Durat
 // receipts) while a pass is running does not get rows saved after the purge.
 func (s *Syncer) still(uid uuid.UUID) bool { return s.enabled == nil || s.enabled(uid) }
 
-func (s *Syncer) run(ctx context.Context, uid uuid.UUID, src rivian.ReceiptSource, detailsOnly bool, res *Result) error {
+func (s *Syncer) run(ctx context.Context, uid uuid.UUID, src rivian.ReceiptSource, detailsOnly, summariesOnly bool, res *Result) error {
 	ctx = rivian.WithBackground(ctx) // timer-driven: it may not spend the last of the shared budget's main bucket
 	if !detailsOnly {
 		sums, err := src.CompletedSessionSummaries(ctx)
@@ -208,6 +261,10 @@ func (s *Syncer) run(ctx context.Context, uid uuid.UUID, src rivian.ReceiptSourc
 		if err := s.st.RefreshMatched(ctx, uid); err != nil {
 			return err
 		}
+	}
+	if summariesOnly {
+		res.DetailsLeft = true // the sweep's details-only pass takes them, and runs the energy check after them
+		return nil
 	}
 	// After the details: the check needs to know whether the receipt is a home charger's.
 	defer func() {
@@ -290,7 +347,7 @@ func (s *Syncer) OnChargeClose(uid uuid.UUID) {
 		s.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if _, err := s.Sync(ctx, uid, closeMinInterval, false); err != nil {
+		if _, err := s.syncAs(ctx, TriggerClose, uid, closeMinInterval, false); err != nil {
 			s.logger.Warn("receipts: sync after charge close failed", "user_id", uid.String(), "err", describe(err))
 		}
 	})
@@ -325,7 +382,7 @@ func (s *Syncer) sweep(ctx context.Context) {
 		if s.enabled != nil && !s.enabled(uid) {
 			continue
 		}
-		res, err := s.Sync(ctx, uid, dailyInterval, false)
+		res, err := s.syncAs(ctx, TriggerSweep, uid, dailyInterval, false)
 		if err == nil && res.Skipped {
 			// Not due for summaries: finish a backfill tail if one is waiting.
 			res, err = s.Sync(ctx, uid, detailMinInterval, true)

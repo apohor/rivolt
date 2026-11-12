@@ -325,6 +325,29 @@ func TestOwnerAdoptRunsWithoutAReply(t *testing.T) {
 	}
 }
 
+// receipts_sync runs on the owner without a reply, like adopt. A kind this receiver does not know is dropped and counted rejected{unknown}:
+// an old pod meeting a newer sender says so in the counter instead of staying silent.
+func TestOwnerReceiptsSyncRunsWithoutAReplyAndUnknownKindsAreRejected(t *testing.T) {
+	r := newRig(t, nil)
+	r.start()
+	req := r.push(forward.KindReceiptsSync, `{}`, nil)
+	r.waitQueueEmpty()
+	if c := r.runner.Calls(); len(c) != 1 || c[0].Kind != forward.KindReceiptsSync || c[0].User != user {
+		t.Fatalf("calls = %+v", c)
+	}
+	if r.reply(req) != nil {
+		t.Error("receipts_sync writes no reply")
+	}
+	if count(r, forward.KindReceiptsSync, "ok") != 1 {
+		t.Errorf("ok = %v, want 1", count(r, forward.KindReceiptsSync, "ok"))
+	}
+	r.push(forward.Kind("receipts_sync_v2"), `{}`, nil)
+	r.waitQueueEmpty()
+	if len(r.runner.Calls()) != 1 || count(r, forward.Kind(forward.KindUnknown), "rejected") != 1 {
+		t.Errorf("runs %d, rejected{unknown} %v; want 1 and 1", len(r.runner.Calls()), count(r, forward.Kind(forward.KindUnknown), "rejected"))
+	}
+}
+
 // The per-user cap: a user's third concurrent kind is answered busy while the first two run.
 func TestOwnerCapsKindsPerUser(t *testing.T) {
 	release := make(chan struct{})

@@ -1678,6 +1678,12 @@ func runServer() {
 				}
 			})
 			logger.Info("rivian receipt energy", "mode", energyMode)
+			for _, tr := range receipts.Triggers {
+				for _, o := range receipts.Outcomes {
+					appMetrics.ReceiptsSyncTotal.WithLabelValues(tr, o)
+				}
+			}
+			receiptSyncer.SetObserve(func(trigger, outcome string) { appMetrics.ReceiptsSyncTotal.WithLabelValues(trigger, outcome).Inc() })
 			receiptSyncer.SetFence(&liveFence) // before Run and before the first charge close; it reads the lease store once installed
 			role.start("receipt_sync", func() { receiptSyncer.Run(ctx) })
 			logger.Info("rivian receipts sync enabled (per-user flag rivian_receipts)")
@@ -2371,7 +2377,7 @@ func runServer() {
 			leaseCoordinator = coord
 		}
 		// Single-owner M3: the forwarder's owner loop (RIVOLT_FORWARD=1 only; the metrics exist at 0 either way).
-		fwdRT := startForward(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, redisKeyPrefix, role)
+		fwdRT := startForward(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, receiptSyncer, redisKeyPrefix, role)
 		if fwdRT.forwarder != nil {
 			stateForward, groupOfVehicle = fwdRT.forwarder, leaseStore.GroupOfVehicle
 		}

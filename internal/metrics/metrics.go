@@ -206,6 +206,8 @@ type Metrics struct {
 	// mode, or why not: home, no_detail, no_energy, open, below_recorded, above_tail_limit), once per receipt and outcome.
 	// ReceiptEnergyDeltaPct is the receipt's energy minus what we recorded, as a percentage of ours, for the receipts the check could compare.
 	ReceiptEnergyTotal    *prometheus.CounterVec
+	// ReceiptsSyncTotal counts receipts summaries passes by trigger (forward, sweep, close) and outcome (ok, skipped, not_owner, error). Created at 0.
+	ReceiptsSyncTotal *prometheus.CounterVec
 	ReceiptEnergyDeltaPct prometheus.Histogram
 	// SessionDecrypts counts decrypts of a stored Rivian session by call site (SessionDecryptSites; any other label is "other"); no user id.
 	// TokensLoadedUnheld is how many clients in this pod's account registry hold a session token for a user whose group this pod does not
@@ -503,6 +505,10 @@ func New() *Metrics {
 			Name: "rivolt_receipt_energy_total",
 			Help: "Matched Rivian receipts the receipt-energy check looked at, by outcome (applied, would_apply in observe mode, home, no_detail, no_energy, open, below_recorded, above_tail_limit).",
 		}, []string{"outcome"}),
+		ReceiptsSyncTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_receipts_sync_total",
+			Help: "Rivian receipts summaries passes by trigger (forward, sweep, close) and outcome (ok, skipped, not_owner, error).",
+		}, []string{"trigger", "outcome"}),
 		ReceiptEnergyDeltaPct: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "rivolt_receipt_energy_delta_pct",
 			Help:    "Receipt energy minus the energy we recorded, as a percentage of ours, for matched non-home receipts the check could compare.",
@@ -1080,6 +1086,7 @@ func New() *Metrics {
 		m.TakeoverStarvedTotal,
 		m.TakeoverLocalOnlyTotal,
 		m.ReceiptEnergyTotal,
+		m.ReceiptsSyncTotal,
 		m.ReceiptEnergyDeltaPct,
 		m.SessionDecrypts,
 		m.TokensLoadedUnheld,

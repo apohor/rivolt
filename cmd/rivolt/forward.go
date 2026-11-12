@@ -18,6 +18,7 @@ import (
 	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/metrics"
+	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/secrets"
 )
@@ -29,7 +30,13 @@ type forwardRunner struct {
 	secrets  *secrets.Store
 	accounts rivian.AccountRegistry
 	monitors *rivian.MonitorRegistry
+	receipts receiptsSyncer // nil when receipts are not wired on this pod
 	logger   *slog.Logger
+}
+
+// receiptsSyncer is the part of receipts.Syncer the receipts_sync kind runs.
+type receiptsSyncer interface {
+	SyncOnRequest(ctx context.Context, uid uuid.UUID) (receipts.Result, error)
 }
 
 func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group string, args any) (forward.Result, error) {
@@ -44,8 +51,29 @@ func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group 
 		return r.planLegs(ctx, user, group, args)
 	case forward.KindOTANotes:
 		return r.otaNotes(ctx, user, group, args)
+	case forward.KindReceiptsSync:
+		return r.receiptsSync(ctx, user)
 	}
 	return forward.Result{Status: 501, Class: "not_implemented"}, nil
+}
+
+// receiptsSync runs one receipts summaries pass for a user whose receipts were just switched on (design first-screen §4). It is not owner
+// discovery and starts no monitor. Sync checks the fence before it takes the claim, so a pod that does not own the user does nothing, and
+// the cross-pod claim lets one summaries call per user through every 30 min. No answer is awaited (the kind has no reply).
+func (r *forwardRunner) receiptsSync(ctx context.Context, user string) (forward.Result, error) {
+	uid, err := uuid.Parse(user)
+	if err != nil || r.receipts == nil {
+		return forward.Result{Status: 400, Class: "bad_request"}, nil
+	}
+	//rivolt:transient one pass for the user the owner was asked about, bounded by the kind timeout; Sync fences and claims it
+	res, err := r.receipts.SyncOnRequest(ctx, uid)
+	if err != nil {
+		return forward.Result{}, err
+	}
+	if res.NotOwner {
+		return forward.Result{Status: 503, Class: "not_owner", Body: json.RawMessage(`{}`)}, nil
+	}
+	return forward.Result{Status: 200, Body: json.RawMessage(`{}`)}, nil
 }
 
 // otaNotes serves one release-notes read for a requester that does not hold the group. The vehicle must belong to the named group.
@@ -155,7 +183,7 @@ type forwardRuntime struct {
 // it forwards while it does not. A role without plan.ForwardOwner (api, jobs) runs no owner loop, and one without plan.LocalFallback has
 // a requester that never serves a call here or acquires (RequesterConfig.NoLocal).
 func startForward(ctx context.Context, logger *slog.Logger, appMetrics *metrics.Metrics, pool *sql.DB, store *leases.Store,
-	accounts rivian.AccountRegistry, monitors *rivian.MonitorRegistry, secretsStore *secrets.Store, keyPrefix string, plan rolePlan) forwardRuntime {
+	accounts rivian.AccountRegistry, monitors *rivian.MonitorRegistry, secretsStore *secrets.Store, receiptSyncer *receipts.Syncer, keyPrefix string, plan rolePlan) forwardRuntime {
 	fm := forward.NewMetrics(appMetrics.Registry())
 	if os.Getenv("RIVOLT_FORWARD") != "1" {
 		return forwardRuntime{setDraining: func() {}}
@@ -189,7 +217,7 @@ func startForward(ctx context.Context, logger *slog.Logger, appMetrics *metrics.
 			Signer:  signer,
 			Redis:   rc,
 			Leases:  leaseView,
-			Runner:  &forwardRunner{store: store, secrets: secretsStore, accounts: accounts, monitors: monitors, logger: logger},
+			Runner:  &forwardRunner{store: store, secrets: secretsStore, accounts: accounts, monitors: monitors, receipts: syncerOrNil(receiptSyncer), logger: logger},
 			Metrics: fm,
 			Logger:  logger,
 		})
@@ -265,4 +293,12 @@ func acquireGroup(ctx context.Context, store interface {
 	}
 	_, ok := got[group]
 	return ok, nil
+}
+
+// syncerOrNil keeps a nil *receipts.Syncer from becoming a non-nil interface.
+func syncerOrNil(s *receipts.Syncer) receiptsSyncer {
+	if s == nil {
+		return nil
+	}
+	return s
 }
