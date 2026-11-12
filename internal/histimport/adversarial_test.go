@@ -260,3 +260,45 @@ func TestBlankVehicleLabelIsAnotherVehicleOnceOneIsChosen(t *testing.T) {
 		t.Fatalf("%v %+v", err, r)
 	}
 }
+
+func TestCSVGuardStrayQuoteInUnquotedFieldDoesNotStopRecords(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("Start Time,End Time,Distance (mi),Vehicle\n")
+	b.WriteString("2026-03-01T08:00:00Z,2026-03-01T08:30:00Z,20,5\" tall\n") // a literal quote mid-field
+	for i := 0; i < 20000; i++ {                                             // well over maxCSVRecord bytes in total
+		fmt.Fprintf(&b, "2026-03-02T08:%02d:00Z,2026-03-02T09:%02d:00Z,20,Truck\n", i%60, i%60)
+	}
+	if b.Len() < 2*maxCSVRecord {
+		t.Fatal("test file too small")
+	}
+	r, err := Parse(csvT(t, b.String()), TezLabDrives, Options{Now: now, Vehicle: "Truck"})
+	if err != nil || r.Report.Rows != 20001 {
+		t.Fatalf("%v %+v", err, r)
+	}
+}
+
+func TestCSVGuardQuotedFieldsWithNewlinesAndEscapedQuotes(t *testing.T) {
+	in := "a,b\n\"line one\nline \"\"two\"\"\nline three\",x\n\"y\",\"z\"\n"
+	tb, err := OpenCSV(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := 0
+	for {
+		rec, err := tb.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows++
+		if rows == 1 && rec[0] != "line one\nline \"two\"\nline three" {
+			t.Fatalf("%q", rec)
+		}
+	}
+	if rows != 2 {
+		t.Fatalf("rows %d", rows)
+	}
+	// A real unclosed quote still ends in ErrTooBig (TestAdversarialCSVHugeQuotedRecord).
+}
