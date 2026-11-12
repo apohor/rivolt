@@ -287,6 +287,9 @@ Environment:
                                  to the replay client. Refused unless
                                  RIVOLT_RIVIAN_LIVE_FORBIDDEN=true and
                                  RIVIAN_CLIENT=replay.
+  RIVOLT_OUTBOX_SHADOW=1         Also record each drive and charge close as an
+                                 outbox row (nothing reads it yet; the direct
+                                 hooks are unchanged). Default: off.
   RIVOLT_DEMO_TILES_PER_CLIENT_PER_MIN / _GLOBAL_PER_MIN
                                  demo: anonymous map-tile budgets per
                                  client and per install, requests/min
@@ -393,6 +396,7 @@ func runServer() {
 		os.Exit(1)
 	}
 	role.AdminOnly, role.DemoOnly, role.Demo = adminOnlyMode, demo.OnlyEnabled(), demo.Enabled()
+	var outboxStore *outbox.Store // built once, where the close hooks are wired or where the sender is
 	logger.Info("process role", "role", string(role.Role))
 
 	addr := flag.String("addr", envOr("ADDR", ":8080"), "HTTP listen address")
@@ -1754,6 +1758,15 @@ func runServer() {
 						recap.OnDriveClose(ctx, uid)
 					}
 				})
+			}
+		}
+		// Outbox shadow writes (S19 8 slice 2), registered after every direct close hook: off unless RIVOLT_OUTBOX_SHADOW=1. The store is shared
+		// with the sender and janitor below (one set of metrics).
+		if pgPool != nil && !adminOnlyMode {
+			outboxStore = outbox.NewStore(pgPool, appMetrics.Registry())
+			if outboxShadowOn() && !role.DemoOnly {
+				newOutboxShadow(pgPool, outboxStore, resolverFactory, logger, appMetrics.Registry()).register(monitorRegistry)
+				logger.Info("outbox shadow writes on")
 			}
 		}
 		// Elevation lookup is opt-in: a self-hosted instance never
@@ -3151,7 +3164,9 @@ func runServer() {
 	// Transactional outbox (S19 8, slices 2-3): the sender claims intents and runs the handler for their kind; today no handler is registered, so it
 	// claims nothing. The janitor purges sent, failed and never-consumed rows in limited batches under a singleton lock.
 	if pgPool != nil && !adminOnlyMode {
-		outboxStore := outbox.NewStore(pgPool, appMetrics.Registry())
+		if outboxStore == nil {
+			outboxStore = outbox.NewStore(pgPool, appMetrics.Registry())
+		}
 		outboxSender := outbox.NewSender(outboxStore, appMetrics.Registry())
 		outboxJanitor := outbox.NewJanitor(pgPool, outboxStore, appMetrics.Registry())
 		role.start("outbox_sender", func() { outboxSender.Run(ctx) })
