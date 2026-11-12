@@ -29,23 +29,27 @@ enum SheetLayout {
     static let stepShare: CGFloat = 1.0 / 3.0
     static let flickSpeed: CGFloat = 500
 
+    /// What half needs for `measured` points of the content's top: with the divider and the content's top padding above it, 0 for none.
+    static func lead(_ measured: CGFloat) -> CGFloat { measured > 0 ? measured + 1 + 3 * Theme.unit : 0 }
+
     /// `peekNeed` is what the peek (grabber, title, one summary line) measured, `headerNeed` the whole header (with Edit, the day chips, Networks): the
     /// peek is its own height up to 35 % of the container, half is never shorter than the header (up to 65 %), and full leaves only a sliver of map.
+    /// `contentLead` is what of the content's top half must show too (at large text the summary, Edit and the day chips are there, not in the header).
     /// The detent stays the same when the container changes (rotation, a resize); only its height follows.
-    static func height(_ d: SheetDetent, in container: CGFloat, peekNeed: CGFloat = 0, headerNeed: CGFloat = 0) -> CGFloat {
+    static func height(_ d: SheetDetent, in container: CGFloat, peekNeed: CGFloat = 0, headerNeed: CGFloat = 0, contentLead: CGFloat = 0) -> CGFloat {
         let peek = peekNeed > 0 ? min(peekNeed, container * peekCap) : min(150, container * 0.3)
         switch d {
         case .peek: return peek
-        case .half: return max(container * 0.46, min(headerNeed, container * 0.65), peek + 1)
+        case .half: return max(container * 0.46, min(headerNeed + contentLead, container * 0.65), peek + 1)
         case .full: return container - 8
         }
     }
 
     /// The detent a released drag settles on. The sheet goes to the last height the drag passed, and one step further when it went a third of the way
     /// to the next or was flicked that way: a medium flick from the peek opens half, not the details.
-    static func settle(from: SheetDetent, raised: CGFloat, velocity: CGFloat, container: CGFloat, peekNeed: CGFloat = 0, headerNeed: CGFloat = 0) -> SheetDetent {
+    static func settle(from: SheetDetent, raised: CGFloat, velocity: CGFloat, container: CGFloat, peekNeed: CGFloat = 0, headerNeed: CGFloat = 0, contentLead: CGFloat = 0) -> SheetDetent {
         let all = SheetDetent.allCases
-        let heights = all.map { height($0, in: container, peekNeed: peekNeed, headerNeed: headerNeed) }
+        let heights = all.map { height($0, in: container, peekNeed: peekNeed, headerNeed: headerNeed, contentLead: contentLead) }
         let flick = abs(velocity) >= flickSpeed
         let up = flick ? velocity > 0 : raised >= 0
         guard flick || abs(raised) > 0.5, var at = all.firstIndex(of: from) else { return from }
@@ -79,6 +83,8 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
     /// What the peek and the whole header need (see `SheetLayout.height`), measured here and told to the owner, which passes them back.
     var peekNeed: CGFloat = 0
     var headerNeed: CGFloat = 0
+    /// What of the content's top half must show (see `SheetLayout.height`): its height as the owner measured it, 0 for none.
+    var contentLead: CGFloat = 0
     /// What covers the bottom of the sheet (the tab bar, the home indicator): the peek's summary sits above it.
     var bottomSafe: CGFloat = 0
     /// Large text: the header is only a title and the rest is in the content, so the content scrolls at every height, not only fully open.
@@ -103,7 +109,9 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var contentScrolls: Bool { detent == .full || scrollsAtEveryDetent }
-    private func height(_ d: SheetDetent) -> CGFloat { SheetLayout.height(d, in: container, peekNeed: peekNeed, headerNeed: headerNeed) }
+    private func height(_ d: SheetDetent) -> CGFloat {
+        SheetLayout.height(d, in: container, peekNeed: peekNeed, headerNeed: headerNeed, contentLead: SheetLayout.lead(contentLead))
+    }
 
     private func move(_ d: SheetDetent) {
         if reduceMotion { detent = d } else { withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) { detent = d } }
@@ -136,7 +144,8 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
                     .opacity(detent == .peek ? 0 : 1).allowsHitTesting(detent != .peek)
                     .accessibilityHidden(detent == .peek)
             }
-            .background(GeometryReader { g in Color.clear.preference(key: HeaderNeedKey.self, value: g.size.height + 1) })
+            // Plus what covers the sheet's bottom, as for the peek: at half the tab bar sat over the header's last row (#1886).
+            .background(GeometryReader { g in Color.clear.preference(key: HeaderNeedKey.self, value: g.size.height + 1 + max(bottomSafe, 12)) })
             .onPreferenceChange(PeekNeedKey.self) { onNeeds($0, headerNeed) }
             .onPreferenceChange(HeaderNeedKey.self) { onNeeds(peekNeed, $0) }
             .contentShape(Rectangle())
@@ -231,7 +240,8 @@ struct DetentSheet<Peek: View, Header: View, Above: View, Content: View>: View {
                 defer { dragMoves = nil }
                 guard dragMoves == true else { return }
                 move(SheetLayout.settle(from: detent, raised: -v.translation.height, velocity: -v.velocity.height,
-                                        container: container, peekNeed: peekNeed, headerNeed: headerNeed))
+                                        container: container, peekNeed: peekNeed, headerNeed: headerNeed,
+                                        contentLead: SheetLayout.lead(contentLead)))
             }
     }
 }
