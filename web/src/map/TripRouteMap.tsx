@@ -396,11 +396,13 @@ export function TripRouteMap({
     livePopupsRef.current = [p];
   };
   // The layer chips sit over the top of the map and paint over a popup that reaches them, so a point in the upper part opens its popup below it.
-  // Where the usable map ends at the bottom: its own edge, or the top of the phone's bottom sheet when that covers the lower part of it.
+  // Where the usable map ends at the bottom: its own edge, or the top of the phone's bottom sheet when that covers the lower part of it, less the
+  // radar strip that rides the sheet's edge (reserved whether or not it is drawn yet, as the route's fit does: it can land after a popup opens).
   const mapRoomBottom = (map: MLMap) => {
     const top = map.getContainer().getBoundingClientRect?.().top ?? 0;
     const sheet = document.querySelector("[data-plan-sheet]")?.getBoundingClientRect().top;
-    return sheet != null && sheet > top ? Math.min(map.getContainer().clientHeight, sheet - top) : map.getContainer().clientHeight;
+    const strip = radarOnRef.current ? 28 : 0;
+    return sheet != null && sheet > top ? Math.min(map.getContainer().clientHeight, sheet - top - strip) : map.getContainer().clientHeight;
   };
   // A pinned vertical side (top = below the point, bottom = above it) must still lean left or right near the map's edges, as MapLibre's own pick would,
   // or the popup runs past the edge: a point in the left or right half-width of the popup anchors it by that corner.
