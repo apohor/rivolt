@@ -22,7 +22,7 @@ RUN mkdir -p /internal/web && npm run build
 # the `toolchain` line does not pull a newer Go here, and a Dockerfile left
 # behind builds with an older standard library. .github/workflows/
 # dockerfile-sync.yml fails when the two differ, and Renovate groups them.
-FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
 # VERSION is stamped into main.version via -ldflags -X. The workflow
