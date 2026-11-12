@@ -41,6 +41,13 @@ export function addedSummary(drives: number, charges: number): string {
   return `Added ${drivesText(drives)}, ${chargesText(charges)}.`;
 }
 
+// The line under the wizard once an import has finished. The import can be undone from the Imports list while the wizard still shows it, so the
+// banner follows the record: "Added" until the record says undone, then "Removed".
+export function doneBanner(result: { drives: number; charges: number }, undoneAt?: string): { text: string; undone: boolean } {
+  if (undoneAt) return { text: `Removed ${drivesText(result.drives)}, ${chargesText(result.charges)}.`, undone: true };
+  return { text: addedSummary(result.drives, result.charges), undone: false };
+}
+
 export function undoWarning(drives: number, charges: number): string {
   return `This removes ${drivesText(drives)} and ${chargesText(charges)}. Notes or tags you added to them go too.`;
 }

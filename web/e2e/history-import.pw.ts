@@ -38,7 +38,8 @@ async function setup(page: Page) {
   await page.route("**/api/imports", (r) => r.fulfill({ json: { imports: state.imports } }));
   await page.route("**/api/imports/imp-1/undo", (r) => {
     state.undone = true;
-    state.imports = [];
+    // The server keeps the record and stamps undone_at.
+    state.imports = state.imports.map((i) => ({ ...i, undone_at: "2025-07-01T12:30:00Z" }));
     return r.fulfill({ json: { drives: 12, charges: 4 } });
   });
   return state;
@@ -73,8 +74,12 @@ for (const w of [390, 1280] as const) {
     await expect(list.getByText("This removes 12 drives and 4 charges. Notes or tags you added to them go too.")).toBeVisible();
     await page.screenshot({ path: path.join(SHOTS, `import-undo-${w}.png`), fullPage: true });
     await list.getByRole("button", { name: "Remove them" }).click();
-    await expect(list.getByText("Nothing imported yet.")).toBeVisible();
+    await expect(list.getByText(/^Undone /)).toBeVisible();
     expect(state.undone).toBe(true);
+    // The wizard's banner follows the record: no stale "Added" after the undo.
+    await expect(card.getByText("Removed 12 drives, 4 charges.")).toBeVisible();
+    await expect(card.getByText("Added 12 drives, 4 charges.")).toHaveCount(0);
+    await expect(card.getByRole("link", { name: "See drives" })).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
     const ax = await new AxeBuilder({ page }).include("#import-history").include("#imports").withTags(["wcag2a", "wcag2aa"]).analyze();
     const sum = ax.violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(" ")).join(" | ")}`);
