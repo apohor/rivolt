@@ -359,6 +359,27 @@ indentation of a "template:" key two spaces in (its content at four), starting o
             - name: RIVOLT_ROLE
               value: {{ . | quote }}
             {{- end }}
+            {{- /* Per-role pool shares and pins (roles.<role>.*): a container env entry wins over the shared ConfigMap, so one role can
+                   have its own pool and divisor, and ingest can pin its lease flags whatever the shared config says. */}}
+            {{- if $role }}
+            {{- $rs := index .Values.roles $role | default dict }}
+            {{- with $rs.dbMaxConns }}
+            - name: RIVOLT_DB_MAX_CONNS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $rs.requestMaxConns }}
+            - name: RIVOLT_REQUEST_DB_MAX_CONNS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $rs.replicaDivisor }}
+            - name: RIVOLT_REPLICA_DIVISOR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- range $k, $v := $rs.env | default dict }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
             {{- if not .Values.adminOnly }}
             # Pod identity for the subscription-lease coordinator
             # (internal/leases). Must be unique per pod across the
@@ -639,13 +660,15 @@ per-role pool shares), on a matrix entry naming an unknown role, and on a secret
 {{- define "rivolt.rolesCheck" -}}
 {{- $v := .Values }}
 {{- $m := $v.roles.secrets | default dict }}
-{{- if $v.rollout.enabled }}{{ fail "roles.enabled: the api Rollout comes with the cutover (S19 9h); turn rollout.enabled off" }}{{ end }}
 {{- if $v.autoscaling.enabled }}{{ fail "roles.enabled: set roles.<role>.replicaCount; autoscaling does not apply per role yet" }}{{ end }}
 {{- if $v.persistence.enabled }}{{ fail "roles.enabled: three Deployments cannot share the /data claim; turn persistence.enabled off" }}{{ end }}
 {{- if $v.adminOnly }}{{ fail "roles.enabled: the admin release runs no roles" }}{{ end }}
 {{- if $v.metrics.serviceMonitor.enabled }}{{ fail "roles.enabled: the Service selects the api pods only; scrape with metrics.podMonitor instead of metrics.serviceMonitor" }}{{ end }}
-{{- if not $v.dbConnections.systemMaxConns }}{{ fail "roles.enabled: set dbConnections.systemMaxConns (and requestMaxConns) for the pods of all three roles plus surge; per-role shares come with S19 9h" }}{{ end }}
-{{- if not $v.config.replicaDivisor }}{{ fail "roles.enabled: set config.replicaDivisor to the pods of all three roles that may run at once" }}{{ end }}
+{{- range $r := splitList " " (include "rivolt.roleNames" .) }}
+{{- $rs := index $v.roles $r | default dict }}
+{{- if not (or $rs.dbMaxConns $v.dbConnections.systemMaxConns) }}{{ fail (printf "roles.enabled: set roles.%s.dbMaxConns (or dbConnections.systemMaxConns for every role) to the pool of one %s pod" $r $r) }}{{ end }}
+{{- if not (or $rs.replicaDivisor $v.config.replicaDivisor) }}{{ fail (printf "roles.enabled: set roles.%s.replicaDivisor (or config.replicaDivisor for every role) to the pods of the roles that may run at once" $r) }}{{ end }}
+{{- end }}
 {{- $names := splitList " " (include "rivolt.roleNames" .) }}
 {{- range $kind := list "appSecretKeys" "secretRefs" "env" }}
 {{- range $name, $roles := index $m $kind | default dict }}

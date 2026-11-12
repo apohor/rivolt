@@ -1,0 +1,45 @@
+# CI render: roles with the api role as an Argo Rollout, per-role pool shares and divisors, and ingest's lease flags pinned.
+secrets:
+  existingSecret: rivolt-app
+  autoGenerateKek: false
+cnpg:
+  enabled: true
+  instances: 1
+  storage:
+    size: 8Gi
+rollout:
+  enabled: true
+  strategy:
+    canary:
+      stableService: rivolt-stable
+      canaryService: rivolt-canary
+      dynamicStableScale: true
+      trafficRouting:
+        traefik:
+          weightedTraefikServiceName: rivolt-weighted
+      steps:
+        - setWeight: 25
+        - pause: {duration: 120s}
+deploymentAnnotations:
+  argocd.argoproj.io/sync-options: PruneLast=true
+roles:
+  enabled: true
+  ingest:
+    replicaCount: 2
+    dbMaxConns: 6
+    replicaDivisor: "3"
+    env:
+      RIVOLT_GROUP_LEAD: "1"
+      RIVOLT_SINGLE_OWNER: "1"
+      RIVOLT_FORWARD: "1"
+  api:
+    replicaCount: 2
+    dbMaxConns: 5
+    requestMaxConns: 3
+    replicaDivisor: "4"
+  jobs:
+    replicaCount: 1
+    dbMaxConns: 4
+    replicaDivisor: "2"
+  secrets:
+    appSecretKeys: {}
