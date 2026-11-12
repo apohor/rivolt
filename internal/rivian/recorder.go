@@ -834,12 +834,24 @@ func (m *StateMonitor) hookOnce(kind, id string) bool {
 	return true
 }
 
+var hookFiredObserver atomic.Pointer[func(typ string)]
+
+// SetCloseHookObserver tells f each close hook that fires ("drive" or "charge"), after the once-per-session and replay gates. Set once at boot.
+func SetCloseHookObserver(f func(typ string)) { hookFiredObserver.Store(&f) }
+
+func noteHookFired(typ string) {
+	if f := hookFiredObserver.Load(); f != nil {
+		(*f)(typ)
+	}
+}
+
 // fireChargeCloseHook runs the charge close hook for row, once per
 // session, unless hooks are off (none set, or replay catch-up).
 func (m *StateMonitor) fireChargeCloseHook(row charges.Charge) {
 	if m.chargeCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("c", row.ID) {
 		return
 	}
+	noteHookFired("charge")
 	bg.Go(func() { m.runChargeCloseHook(row) })
 }
 
@@ -848,6 +860,7 @@ func (m *StateMonitor) fireDriveCloseHook(row drives.Drive) {
 	if m.driveCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("d", row.ID) {
 		return
 	}
+	noteHookFired("drive")
 	bg.Go(func() { m.runDriveCloseHook(row) })
 }
 
