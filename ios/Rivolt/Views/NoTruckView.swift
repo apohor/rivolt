@@ -29,6 +29,8 @@ struct SignedInGate: View {
     @State private var gate = Onboarding.Gate.loading
     /// Why there is no truck yet, when the server says (nil: it does not, and the older screen stands).
     @State private var discovery: DiscoveryView?
+    /// Plain words under the card after a tap the server refused; replaced by the next tap.
+    @State private var notice: String?
 
     var body: some View {
         Group {
@@ -39,7 +41,7 @@ struct SignedInGate: View {
             case .loading:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
             case .noTruck:
-                NoTruckView(discovery: discovery, onCheck: { await check(askRivian: discovery?.kind == .noVehicles) })
+                NoTruckView(discovery: discovery, notice: notice, onCheck: { await check(askRivian: discovery?.kind == .noVehicles || discovery?.kind == .looking, tapped: true) })
             case .hasTruck:
                 AppShell()
             }
@@ -63,16 +65,18 @@ struct SignedInGate: View {
     /// does) before reading the list; a failure there still re-reads. A server that does not hold the account asks the one that does and answers
     /// 503 with Retry-After: that is "checking", so the tap waits the Retry-After, reads, and shows "looking" (with its half-minute re-read) until
     /// the owner's answer lands. The automatic checks never ask Rivian.
-    private func check(askRivian: Bool = false) async {
+    private func check(askRivian: Bool = false, tapped: Bool = false) async {
         await state.recheckTerms()
         if state.termsRequired { return }
         var ownerAsked = false
+        var refused: String?
         if askRivian {
             do { _ = try await state.client.refreshRivianVehicles() } catch APIError.server(status: 503, _, let after?) {
                 ownerAsked = true
                 try? await Task.sleep(for: .seconds(min(max(after, 1), 15)))
-            } catch {}
+            } catch { refused = VehicleDiscoveryState.notice(forRefresh: error) }
         }
+        if tapped { notice = refused }
         let list = try? await state.client.vehicles()
         gate = Onboarding.gate(vehicles: list)
         guard gate == .noTruck else { discovery = nil; return }
@@ -92,12 +96,13 @@ struct SignedInGate: View {
 struct NoTruckView: View {
     @Environment(AppState.self) private var state
     var discovery: DiscoveryView?
+    var notice: String?
     var onCheck: () async -> Void
     @State private var checking = false
 
     var body: some View {
         ScrollView {
-            NoTruckContent(connect: Onboarding.connectURL(server: state.serverURL), discovery: discovery, checking: checking,
+            NoTruckContent(connect: Onboarding.connectURL(server: state.serverURL), discovery: discovery, notice: notice, checking: checking,
                            onCheck: { Task { checking = true; await onCheck(); checking = false } },
                            onSample: { state.enterDemoFromAccount() })
         }
@@ -110,6 +115,7 @@ struct NoTruckContent: View {
     var connect: URL?
     /// What the server says about finding the vehicles (looking, none, reauth); nil shows the older "Connect your Rivian" screen.
     var discovery: DiscoveryView?
+    var notice: String?
     var checking = false
     var onCheck: () -> Void
     var onSample: () -> Void
@@ -119,13 +125,14 @@ struct NoTruckContent: View {
             Text(discovery?.title ?? Onboarding.title).font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             Text(discovery?.body ?? Onboarding.explanation).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
-            // Looking: nothing to do but wait (and ask again). None: the Rivian settings on the web. Reconnect: that page too.
+            // Looking: wait (Check again asks Rivian now, as in none). None: the Rivian settings on the web. Reconnect: that page too.
             if let connect, discovery?.kind != .looking {
                 Link(destination: connect) {
                     Text(discovery?.action ?? "Connect on the web").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(ThemeButtonStyle())
             }
+            if let notice { Text(notice).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
             Button(action: onCheck) {
                 Text(checking ? "Checking…" : (discovery == nil ? "I've connected it, check again" : VehicleDiscoveryCopy.check)).frame(maxWidth: .infinity)
             }

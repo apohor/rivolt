@@ -32,6 +32,13 @@ enum VehicleDiscoveryState: Equatable {
         return nil
     }
 
+    /// What the screen says when the server refuses the forced lookup (429: it looks at most once per 10 minutes per user); nil for any other outcome.
+    static let limitedNotice = "Checked a moment ago. We'll keep looking."
+    static func notice(forRefresh error: Error?) -> String? {
+        if case APIError.server(429, _, _)? = error { return limitedNotice }
+        return nil
+    }
+
     /// What the connect screen says for this state; nil where the older screen is right (not linked, found, no word).
     var view: DiscoveryView? {
         switch self {
