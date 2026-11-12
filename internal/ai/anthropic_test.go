@@ -262,3 +262,17 @@ func TestOperatorPrices(t *testing.T) {
 		t.Errorf("opus-4-8 cost = %v, want 30", got)
 	}
 }
+
+func TestOperatorCostPricesEachHopAtItsServingModel(t *testing.T) {
+	// 1M uncached in + 1M out on opus-5-5 (4/20) = 24; the same on opus-4-8 (5/25) = 30.
+	if got := OperatorCostUSD(OperatorUsage{Model: "claude-opus-5-5", Input: 1e6, Output: 1e6}); got != 24 {
+		t.Errorf("opus-5-5 = %v, want 24", got)
+	}
+	if got := OperatorCostUSD(OperatorUsage{Model: "claude-opus-4-8", Input: 1e6, Output: 1e6}); got != 30 {
+		t.Errorf("opus-4-8 = %v, want 30", got)
+	}
+	// Cache read 0.1x and write 1.25x of the 4/M input rate.
+	if got := OperatorCostUSD(OperatorUsage{Model: "claude-opus-5-5", CacheRead: 1e6, CacheWrite: 1e6}); got != 0.4+5 {
+		t.Errorf("cache = %v, want 5.4", got)
+	}
+}
