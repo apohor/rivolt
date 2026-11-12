@@ -319,5 +319,19 @@ func describeAPIError(err error) error {
 // reads at 0.1x and cache writes at 1.25x of that model's input rate.
 func OperatorCostUSD(u OperatorUsage) float64 {
 	in, out := priceFor("anthropic", u.Model)
+	if _, known := pricePer1MTokens["anthropic:"+u.Model]; !known {
+		// An unknown (or "other"-labelled) model is priced at the highest
+		// Anthropic rate, so operator spend is never underestimated.
+		in, out = maxAnthropicPrice()
+	}
 	return (float64(u.Input)*in + float64(u.CacheRead)*in*0.1 + float64(u.CacheWrite)*in*1.25 + float64(u.Output)*out) / 1_000_000.0
+}
+
+func maxAnthropicPrice() (in, out float64) {
+	for k, p := range pricePer1MTokens {
+		if strings.HasPrefix(k, "anthropic:") {
+			in, out = max(in, p.In), max(out, p.Out)
+		}
+	}
+	return
 }
