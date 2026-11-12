@@ -1,6 +1,6 @@
 import { ApiError, type ImportPreview, type ImportSource } from "./api";
 
-export type SourceInfo = { id: ImportSource; label: string; how: string[]; files: string; multi: boolean; help: string };
+export type SourceInfo = { id: ImportSource; label: string; how: string[]; files: string; help: string };
 
 // What each source needs, in plain words. The export steps are the source app's own; the help link is its page.
 export const SOURCES: SourceInfo[] = [
@@ -8,29 +8,20 @@ export const SOURCES: SourceInfo[] = [
     id: "tezlab",
     label: "TezLab",
     how: ["In TezLab, open Settings and choose Export data.", "Download the drives file and the charges file.", "Add both files here."],
-    files: "Drives and charges CSV files",
-    multi: true,
+    files: "Drives and charges files",
     help: "https://help.tezlabapp.com",
   },
   {
     id: "abrp",
     label: "A Better Routeplanner",
     how: ["In ABRP, open your account and choose Export data.", "Download the trips file.", "Add it here."],
-    files: "One CSV file",
-    multi: false,
+    files: "One file",
     help: "https://abetterrouteplanner.com/help",
-  },
-  {
-    id: "electrafi",
-    label: "ElectraFi",
-    how: ["In ElectraFi, export your history as CSV.", "Add every file you get here."],
-    files: "One or more CSV files",
-    multi: true,
-    help: "/moving-from-electrafi",
   },
 ];
 
 export const MAX_IMPORT_MB = 50;
+export const MAX_IMPORT_FILES = 4;
 
 export function browserTZ(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -40,12 +31,6 @@ export function fmtDay(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
-
-export function fmtMonth(ym: string): string {
-  const d = new Date(`${ym}-01T12:00:00Z`);
-  if (Number.isNaN(d.getTime())) return ym;
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "long", timeZone: "UTC" });
 }
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
@@ -61,40 +46,62 @@ export function undoWarning(drives: number, charges: number): string {
 }
 
 const SKIP_REASONS: Record<string, string> = {
-  duplicate: "already in Rivolt",
-  covered: "already recorded by your vehicle",
-  too_short: "too short to count",
-  invalid: "could not be read",
+  overlaps_live: "already recorded by your vehicle",
+  overlaps_existing: "already in Rivolt",
 };
 export function skipLabel(reason: string): string {
   return SKIP_REASONS[reason] ?? reason.replace(/_/g, " ");
 }
 
-export function previewEmpty(p: ImportPreview): boolean {
-  return p.new.drives + p.new.charges === 0;
+const WARNINGS: Record<string, string> = {
+  brings_back_deleted_history: "This brings back history you deleted earlier.",
+  ambiguous_local_times: "Some times fall where the clocks change and could be read two ways.",
+  positions_left_out: "Positions in this file are left out.",
+};
+export function warningText(code: string): string {
+  return WARNINGS[code] ?? "";
 }
 
-// importErrorText turns a preview or commit failure into one plain sentence. Header names are the only file content ever shown.
-export function importErrorText(err: unknown): { text: string; headers?: string[] } {
+export function previewEmpty(p: ImportPreview): boolean {
+  return p.new_drives + p.new_charges === 0;
+}
+
+export type ImportFailure = {
+  text: string;
+  // header: the file's first line, names only (never a row value).
+  header?: string[];
+  // need: what the file does not say and the person must choose: distance_unit, energy_unit, timezone, vehicle.
+  need?: string[];
+  vehicles?: string[];
+};
+
+// importFailure turns a preview or commit failure into one plain sentence, keyed on the server's code.
+export function importFailure(err: unknown): ImportFailure {
   if (!(err instanceof ApiError)) return { text: "Something went wrong. Try again." };
-  const b = (err.body && typeof err.body === "object" ? err.body : {}) as { error?: string; headers?: string[] };
-  switch (err.status) {
-    case 404:
-      return { text: "Importing history is not available here." };
-    case 409:
-      return b.error === "hash_changed"
-        ? { text: "The file changed since the preview. Start again." }
-        : { text: "This import is already done." };
-    case 413:
-      return { text: `That file is over ${MAX_IMPORT_MB} MB. Split it and try again.` };
-    case 422:
-      if (b.error === "unrecognized_headers") return { text: "We don't recognize this file's columns.", headers: b.headers };
+  const b = (err.body && typeof err.body === "object" ? err.body : {}) as { code?: string; header?: string[]; need?: string[]; vehicles?: string[] };
+  switch (b.code) {
+    case "need_choice":
+      return { text: "The file does not say everything we need. Choose below.", need: b.need ?? [], vehicles: b.vehicles };
+    case "unknown_columns":
+    case "bad_file":
+      return { text: "We don't recognize this file's columns.", header: b.header };
+    case "too_many_bad_rows":
       return { text: "Too many rows in this file could not be read, so nothing was imported." };
-    case 429:
+    case "too_big":
+      return { text: `That file is too big. Export a shorter range.` };
+    case "preview_stale":
+      return { text: "The file changed since the preview. Start again." };
+    case "already_imported":
+      return { text: "These files were already imported. Undo that import first to import them again." };
+    case "rate_limited":
       return { text: "Too many imports just now. Try again in a few minutes." };
-    case 503:
+    case "busy":
       return { text: err.retryAfter ? `Busy right now. Try again in ${err.retryAfter} seconds.` : "Busy right now. Try again soon." };
-    default:
-      return { text: "Something went wrong. Try again." };
+    case "stopped":
+      return { text: "The import stopped part way. Undo it in Imports and try again." };
+    case "vehicle_not_found":
+      return { text: "That vehicle was not found. Pick it again." };
   }
+  if (err.status === 404) return { text: "Importing history is not available here." };
+  return { text: "Something went wrong. Try again." };
 }

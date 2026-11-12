@@ -327,16 +327,15 @@ function SettingsPageInner() {
       {tab === "data" && (
         <>
           <ExportCard />
-          {historyImport ? (
+          {historyImport && (
             <>
               <HistoryImportCard />
               <ImportsListCard />
             </>
-          ) : (
-            <Card title="Import ElectraFi CSV" id="import">
-              <ImportPanel />
-            </Card>
           )}
+          <Card title="Import ElectraFi CSV" id="import">
+            <ImportPanel />
+          </Card>
           <DeleteHistoryCard />
           <Card title="Danger zone" id="danger">
             <DangerZonePanel />

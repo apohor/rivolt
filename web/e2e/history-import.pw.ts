@@ -12,15 +12,15 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 const PREVIEW = {
   sha256: "ab".repeat(32),
   source: "tezlab",
-  range: { from: "2024-03-02T00:00:00Z", to: "2025-06-20T00:00:00Z" },
-  new: { drives: 12, charges: 4 },
-  skipped: [{ reason: "covered", count: 3 }],
-  assumptions: { tz: "America/Los_Angeles", distance_unit: "mi" },
-  ask: [],
-  warnings: [],
-  sample: [{ start: "2024-03-02 08:10", miles: 14.2, kwh: 5.1 }],
-  already_imported: null,
-  floor_note: null,
+  first: "2024-03-02T08:00:00Z",
+  last: "2025-06-20T08:00:00Z",
+  rows: 40,
+  new_drives: 12,
+  new_charges: 4,
+  skipped: { overlaps_live: 3 },
+  assumptions: { soc_scale: "percent", distance_unit: "mi", energy_unit: "kwh", tz: "America/Los_Angeles" },
+  warnings: ["ambiguous_local_times"],
+  sample: [{ kind: "drive", started_at: "2024-03-02T08:10:00Z", ended_at: "2024-03-02T08:40:00Z", distance_mi: 14.2, energy_kwh: 5.1, start_soc_pct: 80, end_soc_pct: 74 }],
 };
 
 async function setup(page: Page) {
@@ -31,11 +31,11 @@ async function setup(page: Page) {
   await page.route("**/api/import/commit", (r) => {
     const body = r.request().postData() ?? "";
     state.posts.push(body.includes(PREVIEW.sha256) ? "sha" : "nosha");
-    state.imports = [{ id: "imp-1", source: "tezlab", created_at: "2025-07-01T12:00:00Z", range: PREVIEW.range, drives: 12, charges: 4, undone_at: null }];
-    const nd = [{ event: "start" }, { event: "progress", rows: 900 }, { event: "done", import_id: "imp-1", drives: 12, charges: 4 }].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    state.imports = [{ id: "imp-1", source: "tezlab", started_at: "2025-07-01T12:00:00Z", rows: 40, drives: 12, charges: 4, first: PREVIEW.first, last: PREVIEW.last }];
+    const nd = [{ type: "start", id: "imp-1", total: 16 }, { type: "progress", done: 8, total: 16 }, { type: "done", id: "imp-1", drives: 12, charges: 4, skipped: {} }].map((e) => JSON.stringify(e)).join("\n") + "\n";
     return r.fulfill({ status: 200, contentType: "application/x-ndjson", body: nd });
   });
-  await page.route("**/api/imports", (r) => r.fulfill({ json: state.imports }));
+  await page.route("**/api/imports", (r) => r.fulfill({ json: { imports: state.imports } }));
   await page.route("**/api/imports/imp-1/undo", (r) => {
     state.undone = true;
     state.imports = [];
@@ -62,6 +62,7 @@ for (const w of [390, 1280] as const) {
     await card.getByRole("button", { name: "Check file" }).click();
     await expect(card.getByText("12 drives and 4 charges will be added")).toBeVisible();
     await expect(card.getByText("3 skipped: already recorded by your vehicle")).toBeVisible();
+    await expect(card.getByText(/clocks change/)).toBeVisible();
     await page.screenshot({ path: path.join(SHOTS, `import-preview-${w}.png`), fullPage: true });
     await card.getByRole("button", { name: "Import", exact: true }).click();
     await expect(card.getByText("Added 12 drives, 4 charges.")).toBeVisible();
@@ -84,7 +85,7 @@ for (const w of [390, 1280] as const) {
 
 test("unrecognized columns show header names and a mail link", async ({ page }) => {
   await setup(page);
-  await page.route("**/api/import/preview", (r) => r.fulfill({ status: 422, json: { error: "unrecognized_headers", headers: ["foo", "bar"] } }));
+  await page.route("**/api/import/preview", (r) => r.fulfill({ status: 422, json: { error: "no", code: "unknown_columns", header: ["foo", "bar"] } }));
   await page.goto("/settings?tab=data#import-history");
   const card = page.locator("[data-history-import]");
   await card.getByRole("button", { name: "Continue" }).click();
@@ -95,9 +96,29 @@ test("unrecognized columns show header names and a mail link", async ({ page }) 
   await expect(card.getByRole("link", { name: "Send us this header line" })).toBeVisible();
 });
 
-test("flag off keeps the ElectraFi card", async ({ page }) => {
+test("flag off hides the wizard and keeps the ElectraFi card", async ({ page }) => {
   await stubApi(page);
   await page.goto("/settings?tab=data");
   await expect(page.getByText("Import ElectraFi CSV")).toBeVisible();
   await expect(page.locator("[data-history-import]")).toHaveCount(0);
+});
+
+test("a file that needs a choice asks for it, then previews", async ({ page }) => {
+  await setup(page);
+  let n = 0;
+  await page.route("**/api/import/preview", (r) => {
+    n++;
+    const sent = r.request().postData() ?? "";
+    if (!sent.includes('name="distance_unit"')) return r.fulfill({ status: 422, json: { error: "no", code: "need_choice", need: ["distance_unit"] } });
+    return r.fulfill({ json: PREVIEW });
+  });
+  await page.goto("/settings?tab=data#import-history");
+  const card = page.locator("[data-history-import]");
+  await card.getByRole("button", { name: "Continue" }).click();
+  await card.locator('input[type="file"]').setInputFiles({ name: "x.csv", mimeType: "text/csv", buffer: Buffer.from("a\n") });
+  await card.getByRole("button", { name: "Check file" }).click();
+  await card.getByLabel("Distances in").selectOption("mi");
+  await card.getByRole("button", { name: "Check file" }).click();
+  await expect(card.getByText("12 drives and 4 charges will be added")).toBeVisible();
+  expect(n).toBe(2);
 });

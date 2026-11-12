@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { backend, type ImportEvent, type ImportPreview, type ImportRecord } from "../lib/api";
+import { backend, type ImportEvent, type ImportPreview, type ImportRecord, type ImportSampleRow } from "../lib/api";
 import {
+  MAX_IMPORT_FILES,
   MAX_IMPORT_MB,
   SOURCES,
   addedSummary,
@@ -10,11 +11,11 @@ import {
   chargesText,
   drivesText,
   fmtDay,
-  fmtMonth,
-  importErrorText,
+  importFailure,
   previewEmpty,
   skipLabel,
   undoWarning,
+  warningText,
 } from "../lib/historyImport";
 import { Card, ErrorBox, Spinner } from "./ui";
 
@@ -29,15 +30,15 @@ function invalidateData(qc: ReturnType<typeof useQueryClient>) {
 }
 
 function ImportError({ err }: { err: unknown }) {
-  const { text, headers } = importErrorText(err);
+  const f = importFailure(err);
   return (
     <div role="alert" className="space-y-1 text-sm text-rose-300">
-      <p>{text}</p>
-      {headers && headers.length > 0 && (
+      <p>{f.text}</p>
+      {f.header && f.header.length > 0 && (
         <>
           <p className="text-neutral-400">The first line of the file reads:</p>
-          <code className="block break-words rounded-md bg-neutral-900 p-2 text-xs text-neutral-300">{headers.join(", ")}</code>
-          <a className="underline underline-offset-2" href={`mailto:support@rivolt.dev?subject=${encodeURIComponent("Import file header")}&body=${encodeURIComponent(headers.join(","))}`}>
+          <code className="block break-words rounded-md bg-neutral-900 p-2 text-xs text-neutral-300">{f.header.join(", ")}</code>
+          <a className="underline underline-offset-2" href={`mailto:support@rivolt.dev?subject=${encodeURIComponent("Import file header")}&body=${encodeURIComponent(f.header.join(","))}`}>
             Send us this header line
           </a>
         </>
@@ -55,6 +56,8 @@ export function HistoryImportCard() {
   const [files, setFiles] = useState<File[]>([]);
   const [tz, setTZ] = useState(browserTZ());
   const [unit, setUnit] = useState("");
+  const [energyUnit, setEnergyUnit] = useState("");
+  const [fileVehicle, setFileVehicle] = useState("");
   const [vehicleID, setVehicleID] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [event, setEvent] = useState<ImportEvent | null>(null);
@@ -68,7 +71,16 @@ export function HistoryImportCard() {
     if (!vehicleID && vehicles.length > 0) setVehicleID(vehicles[0].rivian_vehicle_id);
   }, [vehicles, vehicleID]);
 
-  const choices = { source: sourceID, vehicleID, tz, distanceUnit: unit || undefined };
+  const picked = vehicles.find((v) => v.rivian_vehicle_id === vehicleID);
+  const choices = {
+    source: sourceID,
+    vehicleID,
+    tz,
+    distanceUnit: unit || undefined,
+    energyUnit: energyUnit || undefined,
+    packKWh: picked?.pack_kwh && picked.pack_kwh > 0 ? picked.pack_kwh : undefined,
+    vehicle: fileVehicle || undefined,
+  };
   const previewM = useMutation({
     mutationFn: () => backend.importPreview(files, choices),
     onSuccess: (p) => {
@@ -91,6 +103,7 @@ export function HistoryImportCard() {
     onSuccess: () => {
       invalidateData(qc);
       setPreview(null);
+      previewM.reset();
       setStep("files");
     },
   });
@@ -102,12 +115,15 @@ export function HistoryImportCard() {
     setResult(null);
     setEvent(null);
     setUnit("");
+    setEnergyUnit("");
+    setFileVehicle("");
     previewM.reset();
     commitM.reset();
   };
   const tooBig = files.some((f) => f.size > MAX_IMPORT_MB * 1024 * 1024);
-  const asks = preview?.ask ?? [];
-  const needsFiles = files.length === 0 || !vehicleID || tooBig;
+  const need = importFailure(previewM.error).need ?? [];
+  const needVehicles = importFailure(previewM.error).vehicles ?? [];
+  const needsFiles = files.length === 0 || !vehicleID || tooBig || files.length > MAX_IMPORT_FILES;
 
   return (
     <Card title="Import history" id="import-history">
@@ -161,12 +177,12 @@ export function HistoryImportCard() {
               <input
                 ref={inputRef}
                 type="file"
-                accept=".csv,text/csv"
-                multiple={source.multi}
+                accept=".csv,.xlsx,text/csv"
+                multiple
                 aria-label={`${source.label} files`}
                 className="hidden"
                 onChange={(e) => {
-                  setFiles(Array.from(e.target.files ?? []).filter((f) => /\.csv$/i.test(f.name)));
+                  setFiles(Array.from(e.target.files ?? []).filter((f) => /\.(csv|xlsx)$/i.test(f.name)));
                   e.target.value = "";
                   previewM.reset();
                 }}
@@ -177,8 +193,39 @@ export function HistoryImportCard() {
               <span className="ml-2 text-xs text-neutral-500">{source.files}</span>
               {files.length > 0 && <ul className="mt-2 space-y-0.5 text-neutral-300">{files.map((f) => <li key={f.name} className="truncate">{f.name}</li>)}</ul>}
               {tooBig && <p role="alert" className="mt-1 text-rose-300">A file is over {MAX_IMPORT_MB} MB.</p>}
+              {files.length > MAX_IMPORT_FILES && <p role="alert" className="mt-1 text-rose-300">Add at most {MAX_IMPORT_FILES} files.</p>}
             </div>
             {previewM.isError && <ImportError err={previewM.error} />}
+            {need.includes("timezone") && <p className="text-xs text-neutral-400">Set the time zone above, then check again.</p>}
+            {need.includes("distance_unit") && (
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="import-unit" className="text-neutral-300">Distances in</label>
+                <select id="import-unit" value={unit} onChange={(e) => setUnit(e.target.value)} className={field}>
+                  <option value="">Choose</option>
+                  <option value="km">Kilometres</option>
+                  <option value="mi">Miles</option>
+                </select>
+              </div>
+            )}
+            {need.includes("energy_unit") && (
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="import-energy" className="text-neutral-300">Energy in</label>
+                <select id="import-energy" value={energyUnit} onChange={(e) => setEnergyUnit(e.target.value)} className={field}>
+                  <option value="">Choose</option>
+                  <option value="kwh">kWh</option>
+                  <option value="wh">Wh</option>
+                </select>
+              </div>
+            )}
+            {need.includes("vehicle") && (
+              <div className="flex flex-wrap items-center gap-2">
+                <label htmlFor="import-file-vehicle" className="text-neutral-300">Which vehicle in the file</label>
+                <select id="import-file-vehicle" value={fileVehicle} onChange={(e) => setFileVehicle(e.target.value)} className={field}>
+                  <option value="">Choose</option>
+                  {needVehicles.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <button type="button" className={btn} onClick={reset}>Back</button>
               <button type="button" className={btnMain} disabled={needsFiles || previewM.isPending} onClick={() => previewM.mutate()}>
@@ -193,7 +240,7 @@ export function HistoryImportCard() {
             {preview.already_imported && (
               <div className="rounded-md border border-amber-800 p-3 text-amber-200">
                 <p>You already imported this file on {fmtDay(preview.already_imported.at)}.</p>
-                <button type="button" className={`${btn} mt-2`} disabled={undoM.isPending} onClick={() => undoM.mutate(preview.already_imported!.import_id)}>
+                <button type="button" className={`${btn} mt-2`} disabled={undoM.isPending} onClick={() => undoM.mutate(preview.already_imported!.id)}>
                   Undo that import
                 </button>
               </div>
@@ -201,41 +248,25 @@ export function HistoryImportCard() {
             <p className="text-neutral-200">
               {previewEmpty(preview)
                 ? "Nothing new in this file."
-                : `${drivesText(preview.new.drives)} and ${chargesText(preview.new.charges)} will be added, from ${fmtDay(preview.range.from)} to ${fmtDay(preview.range.to)}.`}
+                : `${drivesText(preview.new_drives)} and ${chargesText(preview.new_charges)} will be added, from ${fmtDay(preview.first)} to ${fmtDay(preview.last)}.`}
             </p>
-            {preview.floor_note && <p className="text-neutral-400">This brings back history you deleted before {fmtMonth(preview.floor_note.before)}.</p>}
-            {preview.skipped.length > 0 && (
+            {Object.entries(preview.skipped).filter(([, n]) => n > 0).length > 0 && (
               <ul className="text-neutral-400">
-                {preview.skipped.map((s) => <li key={s.reason}>{s.count.toLocaleString()} skipped: {skipLabel(s.reason)}</li>)}
+                {Object.entries(preview.skipped).filter(([, n]) => n > 0).map(([reason, n]) => <li key={reason}>{n.toLocaleString()} skipped: {skipLabel(reason)}</li>)}
               </ul>
             )}
-            <p className="text-xs text-neutral-500">Times read as {preview.assumptions.tz}{preview.assumptions.distance_unit ? `, distances in ${preview.assumptions.distance_unit}` : ""}.</p>
-            {asks.includes("tz") && (
-              <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor="import-tz2" className="text-neutral-300">Time zone</label>
-                <input id="import-tz2" value={tz} onChange={(e) => setTZ(e.target.value)} className={field} />
-              </div>
-            )}
-            {asks.includes("distance_unit") && (
-              <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor="import-unit" className="text-neutral-300">Distances in</label>
-                <select id="import-unit" value={unit} onChange={(e) => setUnit(e.target.value)} className={field}>
-                  <option value="">Choose</option>
-                  <option value="km">Kilometres</option>
-                  <option value="mi">Miles</option>
-                </select>
-              </div>
-            )}
-            {(preview.warnings ?? []).map((w) => <p key={w} className="text-amber-300">{w}</p>)}
-            {preview.sample && preview.sample.length > 0 && <SampleTable rows={preview.sample} />}
+            <p className="text-xs text-neutral-500">
+              Times read as {preview.assumptions.tz}
+              {preview.assumptions.distance_unit ? `, distances in ${preview.assumptions.distance_unit}` : ""}
+              {preview.assumptions.energy_unit ? `, energy in ${preview.assumptions.energy_unit}` : ""}.
+            </p>
+            {preview.warnings.map((w) => (warningText(w) ? <p key={w} className="text-amber-300">{warningText(w)}</p> : null))}
+            {preview.sample.length > 0 && <SampleTable rows={preview.sample} />}
             {commitM.isError && <ImportError err={commitM.error} />}
             {undoM.isError && <ImportError err={undoM.error} />}
             <div className="flex flex-wrap gap-2">
               <button type="button" className={btn} onClick={() => setStep("files")}>Back</button>
-              {asks.length > 0 && (
-                <button type="button" className={btn} disabled={previewM.isPending || (asks.includes("distance_unit") && !unit)} onClick={() => previewM.mutate()}>Update preview</button>
-              )}
-              <button type="button" className={btnMain} disabled={previewEmpty(preview) || commitM.isPending || (asks.includes("distance_unit") && !unit)} onClick={() => commitM.mutate()}>
+              <button type="button" className={btnMain} disabled={previewEmpty(preview) || commitM.isPending} onClick={() => commitM.mutate()}>
                 Import
               </button>
             </div>
@@ -244,7 +275,7 @@ export function HistoryImportCard() {
 
         {step === "importing" && (
           <p role="status" className="inline-flex items-center gap-2 text-neutral-300">
-            <Spinner /> Importing{event?.rows ? `, ${event.rows.toLocaleString()} rows read` : ""}
+            <Spinner /> Importing{event?.total ? `, ${(event.done ?? 0).toLocaleString()} of ${event.total.toLocaleString()}` : ""}
           </p>
         )}
 
@@ -262,17 +293,28 @@ export function HistoryImportCard() {
   );
 }
 
-function SampleTable({ rows }: { rows: Record<string, string | number>[] }) {
-  const cols = Object.keys(rows[0] ?? {});
+function SampleTable({ rows }: { rows: ImportSampleRow[] }) {
   return (
     <div className="overflow-x-auto rounded-md border border-neutral-800">
       <table className="w-full text-xs">
         <thead className="bg-neutral-900 text-neutral-400">
-          <tr>{cols.map((c) => <th key={c} className="px-2 py-1 text-left font-medium">{c}</th>)}</tr>
+          <tr>
+            <th className="px-2 py-1 text-left font-medium">Start</th>
+            <th className="px-2 py-1 text-left font-medium">Type</th>
+            <th className="px-2 py-1 text-right font-medium">Miles</th>
+            <th className="px-2 py-1 text-right font-medium">kWh</th>
+            <th className="px-2 py-1 text-right font-medium">Battery</th>
+          </tr>
         </thead>
         <tbody className="divide-y divide-neutral-800">
           {rows.map((r, i) => (
-            <tr key={i}>{cols.map((c) => <td key={c} className="whitespace-nowrap px-2 py-1 text-neutral-300">{String(r[c] ?? "")}</td>)}</tr>
+            <tr key={i} className="text-neutral-300">
+              <td className="whitespace-nowrap px-2 py-1">{fmtDay(r.started_at)}</td>
+              <td className="px-2 py-1">{r.kind === "charge" ? "Charge" : "Drive"}</td>
+              <td className="px-2 py-1 text-right tabular-nums">{r.distance_mi != null ? r.distance_mi.toFixed(1) : ""}</td>
+              <td className="px-2 py-1 text-right tabular-nums">{r.energy_kwh != null ? r.energy_kwh.toFixed(1) : ""}</td>
+              <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums">{Math.round(r.start_soc_pct)}% to {Math.round(r.end_soc_pct)}%</td>
+            </tr>
           ))}
         </tbody>
       </table>
@@ -307,13 +349,13 @@ export function ImportsListCard() {
                 <li key={r.id} className="space-y-2 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <p className="text-neutral-200">{label} · {fmtDay(r.created_at)}</p>
+                      <p className="text-neutral-200">{label} · {fmtDay(r.started_at)}</p>
                       <p className="text-xs text-neutral-400">{drivesText(r.drives)}, {chargesText(r.charges)}</p>
                     </div>
                     {r.undone_at ? (
                       <span className="text-xs text-neutral-500">Undone {fmtDay(r.undone_at)}</span>
                     ) : (
-                      <button type="button" className={btn} onClick={() => setAsking(r.id)} aria-label={`Undo ${label} import from ${fmtDay(r.created_at)}`}>Undo</button>
+                      <button type="button" className={btn} onClick={() => setAsking(r.id)} aria-label={`Undo ${label} import from ${fmtDay(r.started_at)}`}>Undo</button>
                     )}
                   </div>
                   {asking === r.id && (
@@ -325,7 +367,7 @@ export function ImportsListCard() {
                           Remove them
                         </button>
                       </div>
-                      {undo.isError && <p role="alert" className="mt-2 text-rose-300">{importErrorText(undo.error).text}</p>}
+                      {undo.isError && <p role="alert" className="mt-2 text-rose-300">{importFailure(undo.error).text}</p>}
                     </div>
                   )}
                 </li>

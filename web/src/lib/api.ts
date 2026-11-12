@@ -37,6 +37,9 @@ function importForm(files: File[], c: ImportChoices): FormData {
   fd.append("vehicle_id", c.vehicleID);
   fd.append("tz", c.tz);
   if (c.distanceUnit) fd.append("distance_unit", c.distanceUnit);
+  if (c.energyUnit) fd.append("energy_unit", c.energyUnit);
+  if (c.packKWh && c.packKWh > 0) fd.append("pack_kwh", String(c.packKWh));
+  if (c.vehicle) fd.append("vehicle", c.vehicle);
   for (const f of files) fd.append("file", f, f.name);
   return fd;
 }
@@ -1876,7 +1879,7 @@ export const backend = {
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
-    let done: { import_id: string; drives: number; charges: number } | null = null;
+    let done: { id: string; drives: number; charges: number } | null = null;
     let err: string | null = null;
     const line = (l: string) => {
       if (!l.trim()) return;
@@ -1886,8 +1889,8 @@ export const backend = {
       } catch {
         return;
       }
-      if (ev.event === "done") done = ev as unknown as { import_id: string; drives: number; charges: number };
-      else if (ev.event === "error") err = String(ev.message ?? ev.error ?? "import failed");
+      if (ev.type === "done") done = ev as unknown as { id: string; drives: number; charges: number };
+      else if (ev.type === "error") err = String(ev.error ?? "import failed");
       else onEvent?.(ev as unknown as ImportEvent);
     };
     for (;;) {
@@ -1903,11 +1906,11 @@ export const backend = {
       if (eof) break;
     }
     line(buf);
-    if (err) throw new ApiError(500, { error: err });
-    if (!done) throw new ApiError(500, { error: "The import stopped before it finished." });
-    return done as { import_id: string; drives: number; charges: number };
+    if (err) throw new ApiError(500, { error: err, code: "stopped" });
+    if (!done) throw new ApiError(500, { error: "The import stopped before it finished.", code: "stopped" });
+    return done as { id: string; drives: number; charges: number };
   },
-  listImports: () => api.get<ImportRecord[]>("/api/imports"),
+  listImports: async () => (await api.get<{ imports: ImportRecord[] }>("/api/imports")).imports ?? [],
   undoImport: (id: string) => api.post<{ drives: number; charges: number }>(`/api/imports/${encodeURIComponent(id)}/undo`, {}),
   deleteHistoryBefore: (before: string) => api.post<{ drives: number; charges: number; samples: number }>("/api/data/delete-range", { before, confirm: true }),
   // The vehicle a free account shows (the others are Pro). Free on every plan: it is a setting.
@@ -2361,33 +2364,57 @@ export type ImportResult = {
 };
 
 
-// History import (TezLab, ABRP, ElectraFi): preview writes nothing; commit writes after the user confirms; undo removes one import's rows.
-export type ImportSource = "tezlab" | "abrp" | "electrafi";
+// History import (TezLab, ABRP): preview writes nothing; commit writes after the user confirms; undo removes one import's rows.
+// ElectraFi keeps its own endpoint (importElectrafi) for now.
+export type ImportSource = "tezlab" | "abrp";
+export type ImportSampleRow = {
+  kind: string;
+  started_at: string;
+  ended_at: string;
+  distance_mi?: number;
+  energy_kwh?: number;
+  start_soc_pct: number;
+  end_soc_pct: number;
+};
 export type ImportPreview = {
   sha256: string;
   source: ImportSource;
-  range: { from: string; to: string };
-  new: { drives: number; charges: number };
-  skipped: { reason: string; count: number }[];
-  assumptions: { tz: string; distance_unit?: string; soc_scale?: string };
-  // ask: assumptions the file does not settle, so the wizard asks ("tz", "distance_unit").
-  ask?: string[];
-  warnings?: string[];
-  sample?: Record<string, string | number>[];
-  already_imported: { import_id: string; at: string } | null;
-  floor_note: { before: string } | null;
+  first: string;
+  last: string;
+  rows: number;
+  new_drives: number;
+  new_charges: number;
+  // skipped: rows left out, by reason (overlaps_live, overlaps_existing, parser reasons).
+  skipped: Record<string, number>;
+  assumptions: { soc_scale?: string; distance_unit?: string; energy_unit?: string; tz: string };
+  vehicles?: string[];
+  // warnings: codes (brings_back_deleted_history, ambiguous_local_times, positions_left_out).
+  warnings: string[];
+  sample: ImportSampleRow[];
+  already_imported?: { id: string; at: string };
 };
 export type ImportRecord = {
   id: string;
   source: ImportSource;
-  created_at: string;
-  range: { from: string; to: string };
+  started_at: string;
+  finished_at?: string;
+  undone_at?: string;
+  rows: number;
   drives: number;
   charges: number;
-  undone_at: string | null;
+  first: string;
+  last: string;
 };
-export type ImportChoices = { source: ImportSource; vehicleID: string; tz: string; distanceUnit?: string };
-export type ImportEvent = { event: string; phase?: string; rows?: number; file?: string };
+export type ImportChoices = {
+  source: ImportSource;
+  vehicleID: string;
+  tz: string;
+  distanceUnit?: string;
+  energyUnit?: string;
+  packKWh?: number;
+  vehicle?: string;
+};
+export type ImportEvent = { type: string; done?: number; total?: number };
 
 // ImportProgress is a single server-emitted NDJSON event for the
 // streaming /api/import/electrafi endpoint. The final {event:"done"}
