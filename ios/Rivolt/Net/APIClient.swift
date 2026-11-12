@@ -13,6 +13,12 @@ actor APIClient {
     private var baseURL: URL
     private let tokens: TokenStore
     private let session: URLSession
+    /// For the trip planner calls only: a long multi-day plan takes 10-16 s on the server (Rivian's planner, day by day, then the road line),
+    /// past the 15 s the rest of the surface gets. Tests that inject a session use it for both.
+    private let longSession: URLSession
+    static let requestTimeout: TimeInterval = 15
+    static let longRequestTimeout: TimeInterval = 60
+    static let longResourceTimeout: TimeInterval = 90
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     /// The demo truck's client (see `DemoMode`): reads only, and a 401 or 403 means "not part of the demo".
@@ -36,9 +42,17 @@ actor APIClient {
         // Timeouts matter on cellular: the default (60s) leaves a
         // frozen-looking UI for a full minute when a self-hosted server is
         // unreachable. 15s is plenty for the JSON surface.
-        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForRequest = Self.requestTimeout
         config.timeoutIntervalForResource = 30
         self.session = session ?? URLSession(configuration: config)
+        if let session {
+            self.longSession = session
+        } else {
+            let long = config.copy() as! URLSessionConfiguration // swiftlint:disable:this force_cast
+            long.timeoutIntervalForRequest = Self.longRequestTimeout
+            long.timeoutIntervalForResource = Self.longResourceTimeout
+            self.longSession = URLSession(configuration: long)
+        }
 
         self.decoder = JSON.decoder()
 
@@ -548,7 +562,7 @@ actor APIClient {
     /// A plan for one outing. The server passes Rivian's planner through, so this can answer 401 with a `class` (Rivian needs
     /// reconnecting: `APIError.rivianReauth`), 429 (its hourly planning quota, or the server's) or a 502 on a long day.
     func planTrip(_ body: TripPlanRequest) async throws -> TripPlan {
-        try await request("POST", "/api/trips/plan", body: body)
+        try await request("POST", "/api/trips/plan", body: body, long: true)
     }
 
     /// The sample trips the demo offers (static, read only).
@@ -586,7 +600,7 @@ actor APIClient {
 
     /// The trip as days with a night between: each day planned from where the last ended.
     func planMultiday(_ body: TripMultidayRequest) async throws -> TripMultiday {
-        try await request("POST", "/api/trips/plan-multiday", body: body)
+        try await request("POST", "/api/trips/plan-multiday", body: body, long: true)
     }
 
     /// Hotels and campgrounds with a listed charger near where a day's driving budget runs out.
@@ -724,9 +738,10 @@ actor APIClient {
         _ method: String,
         _ path: String,
         body: (any Encodable)? = nil,
-        authenticated: Bool = true
+        authenticated: Bool = true,
+        long: Bool = false
     ) async throws -> Response {
-        let (data, _) = try await send(method, path, body: body, authenticated: authenticated)
+        let (data, _) = try await send(method, path, body: body, authenticated: authenticated, long: long)
         if Response.self == Empty.self {
             // swiftlint:disable:next force_cast
             return Empty() as! Response
@@ -743,7 +758,8 @@ actor APIClient {
         _ method: String,
         _ path: String,
         body: (any Encodable)? = nil,
-        authenticated: Bool = true
+        authenticated: Bool = true,
+        long: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
         if demo, method != "GET", method != "HEAD" {
             throw APIError.transport("The demo truck is read-only.")
@@ -753,6 +769,8 @@ actor APIClient {
         }
         var req = URLRequest(url: url)
         req.httpMethod = method
+        // Explicit on both, so the limit a call gets is on the request itself (and testable), whatever session carried it.
+        req.timeoutInterval = long ? Self.longRequestTimeout : Self.requestTimeout
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         // Which build of the app this is (the number only, nothing about the device or the person): the server counts requests by build, so it can tell
         // which builds are still in use before it changes what an old one depends on.
@@ -768,7 +786,7 @@ actor APIClient {
                 req.httpBody = try encoder.encode(AnyEncodable(body))
             }
         }
-        let (data, resp) = try await session.data(for: req)
+        let (data, resp) = try await (long ? longSession : session).data(for: req)
         guard let http = resp as? HTTPURLResponse else {
             throw APIError.transport("not an HTTP response")
         }
