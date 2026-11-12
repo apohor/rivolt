@@ -35,3 +35,36 @@ for (const c of CASES) {
     });
   }
 }
+
+// The Rivian card in Settings (and the onboarding inline prompt) follows the same answer: while the server looks it says so, and "no vehicle" shows
+// only once it found none. Before, every new link read "No vehicles on this Rivian account" for the minutes the lookup takes, trucks or not.
+for (const w of [390, 1280] as const) {
+  test(`@webkit Settings Rivian card: looking, then none · ${w}px`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await stubApi(page, { rivian: "ok" });
+    let state = "looking";
+    await page.route("**/api/vehicles/owned", (r) => r.fulfill(j(200, { vehicles: [] })));
+    await page.route("**/api/vehicles/discovery", (r) => r.fulfill(j(200, { state })));
+    await page.goto("/settings?tab=account");
+    const card = page.locator("#rivian [data-discovery]");
+    await expect(card).toHaveAttribute("data-discovery", "looking");
+    await expect(card).toContainText("Looking for your vehicles");
+    await expect(card).toContainText("checking your Rivian account");
+    await expect(page.getByText(/No vehicles on this Rivian account/)).toHaveCount(0);
+    await expect(page.getByText(/Usual cause/)).toHaveCount(0);
+    await expect(card.getByRole("button", { name: "Check again" })).toBeVisible();
+
+    state = "none";
+    await page.reload();
+    await expect(card).toHaveAttribute("data-discovery", "none");
+    await expect(card).toContainText("No vehicles on this Rivian account yet");
+    await expect(card).toContainText("looks again about once a day");
+    await expect(card).toContainText("Usual cause");
+    await expect(card.getByRole("button", { name: "Check again" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const ax = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).include("[data-discovery]").analyze();
+    expect(ax.violations.map((x) => x.id)).toEqual([]);
+    await ctx.close();
+  });
+}
