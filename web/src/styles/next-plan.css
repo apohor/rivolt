@@ -857,6 +857,22 @@
 :root [data-plan-field] {
   min-width: 0;
 }
+/* Under 200 px (a phone at Safari's aA 300 %: 131 px) the swap button's 44 px gutter left the rows some 29 px, the place inputs 0 px: they could
+   not be typed into (#1991). There the swap button sits between the rows, on the right, and the rows take the card's whole width. */
+@media (max-width: 199.98px) {
+  :root [data-plan-endpoints] {
+    padding-right: 0;
+  }
+  :root [data-plan-endpoints] [data-plan-swap] {
+    position: static;
+    transform: none;
+    justify-self: end;
+  }
+  :root [data-plan-field] {
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+}
 
 /* The radar strip's gradient, NOAA's colours as they are drawn: light to moderate, moderate to heavy; without "moderate" (data-short, a narrow
    strip) one bar runs the whole way. */

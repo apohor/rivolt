@@ -42,22 +42,23 @@ for (const theme of ["dark", "light"] as const) {
 
 // #1984: the page above the map can change height while the smooth scroll to the map runs (here the heading goes, 120 ms in). The scroll was aimed
 // once, so the map ended under the top bar by that much (at Safari's 300% text its Layers button was hidden there). Now the page is put right once
-// the scroll comes to rest.
-test("@webkit phone: the map ends just under the top bar when the page above it changes during the scroll", async ({ browser }) => {
+// the scroll comes to rest. On a busy phone (CI) the smooth scroll can also stop short of its aim; the second case cuts it short 200 ms in.
+for (const cut of [false, true]) test(`@webkit phone: the map ends just under the top bar when the page above it changes during the scroll${cut ? ", and the scroll stops short" : ""}`, async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", reducedMotion: "no-preference" });
   const page = await ctx.newPage();
   await stubApi(page, { demo: true, signedIn: false });
   await page.goto("/demo/trips/plan");
   await expect(page.locator("main h1")).toBeVisible();
-  await page.evaluate(() => {
+  await page.evaluate((cut) => {
     const h = document.querySelector("main h1") as HTMLElement;
     h.style.minHeight = "60px";
     new MutationObserver((_, mo) => {
       if (!document.querySelector("[data-plan-area='map']:not([data-empty])")) return;
       mo.disconnect();
       window.setTimeout(() => { h.style.display = "none"; }, 120);
+      if (cut) window.setTimeout(() => window.scrollTo({ top: window.scrollY, behavior: "instant" }), 200);
     }).observe(document.body, { childList: true, subtree: true });
-  });
+  }, cut);
   await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
   await expect(page.locator("main h1")).toBeHidden();
   await settled(page, ["[data-plan-area='map']", "[data-plan-sheet]"]);

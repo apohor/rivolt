@@ -61,15 +61,19 @@ export default function TripPlanPage() {
     let idle = 0;
     let deadline = 0;
     let aim = 0;
+    let from = 0;
     let ro: ResizeObserver | null = null;
     const reaim = () => {
       window.clearTimeout(idle);
       idle = window.setTimeout(() => {
-        // Moved away from the aim: the person scrolled; leave the page to them.
-        if (Math.abs(window.scrollY - aim) > 2) return stop();
+        const y = window.scrollY;
+        // Outside the way from where the scroll started to its aim: the page was scrolled elsewhere; leave it be.
+        if (y < Math.min(from, aim) - 2 || y > Math.max(from, aim) + 2) return stop();
         const top = target();
-        if (top === null || Math.abs(top - aim) <= 1) return;
-        aim = top;
+        if (top === null) return;
+        // Still on the way (the smooth scroll stalled 150 ms on a busy phone, or was cut short), or the map moved.
+        if (Math.abs(y - aim) <= 2 && Math.abs(top - aim) <= 1) return;
+        from = aim = top;
         window.scrollTo({ top, behavior: "auto" });
       }, 150);
     };
@@ -78,16 +82,21 @@ export default function TripPlanPage() {
       window.clearTimeout(deadline);
       ro?.disconnect();
       window.removeEventListener("scroll", reaim);
+      for (const t of inputs) window.removeEventListener(t, stop);
     };
+    // A touch, wheel or key is the person taking over.
+    const inputs = ["touchstart", "wheel", "keydown"] as const;
     const r1 = requestAnimationFrame(() => {
       r2 = requestAnimationFrame(() => {
         const el = document.querySelector("[data-plan-area='map']:not([data-empty]), [data-plan-wide]");
         if (!el) return;
         if (wide && el.getBoundingClientRect().top < window.innerHeight * 0.7) return;
         const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        from = window.scrollY;
         aim = target() ?? 0;
         window.scrollTo({ top: aim, behavior: reduce ? "auto" : "smooth" });
         window.addEventListener("scroll", reaim, { passive: true });
+        for (const t of inputs) window.addEventListener(t, stop, { passive: true });
         if (typeof ResizeObserver !== "undefined") {
           ro = new ResizeObserver(reaim);
           ro.observe(document.body);
@@ -1330,7 +1339,7 @@ function LocationField({
         {value ? (
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
             <span className="pt-value min-w-0 max-w-full truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
-            <span className="flex shrink-0 items-center gap-3 text-xs">
+            <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
               {onSaveAsFavorite && value.label !== "Home" && (
                 <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset" aria-label={`Save place: ${value.label}, as a favorite`}>
                   ☆ save place
