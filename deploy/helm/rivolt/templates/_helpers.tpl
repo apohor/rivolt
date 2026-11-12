@@ -396,10 +396,13 @@ indentation of a "template:" key two spaces in (its content at four), starting o
             # ReplicaSet's pod-template-hash, so a new image and a rollout
             # restart both make a new generation (design 4.5). Read by
             # internal/leases (generation()); inert until M2's preference lands.
+            # A Rollout's pods carry rollouts-pod-template-hash instead (the
+            # label name is chosen with the workload: the Rollout when
+            # rollout.enabled and the role is the api or there are no roles).
             - name: RIVOLT_POD_GENERATION
               valueFrom:
                 fieldRef:
-                  fieldPath: metadata.labels['pod-template-hash']
+                  fieldPath: metadata.labels['{{ if and .Values.rollout.enabled (or (not $role) (eq $role "api")) }}rollouts-pod-template-hash{{ else }}pod-template-hash{{ end }}']
             {{- end }}
             # The container's memory limit, in bytes: the binary sets the Go
             # runtime's soft limit (GOMEMLIMIT) to 90% of it, so the GC works

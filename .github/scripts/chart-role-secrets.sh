@@ -99,4 +99,10 @@ for r in ingest api jobs; do
   else [ -z "$l" ] || { echo "::error::rivolt-$r carries rivolt.dev/public"; fail=1; }; fi
 done
 [ "$(echo "$rr2" | yq 'select(.kind == "Rollout") | .metadata.annotations."argocd.argoproj.io/sync-options"' | grep -v -e '^---$' -e '^$')" = PruneLast=true ] || { echo "::error::rollout.annotations did not reach the api Rollout"; fail=1; }
+# RIVOLT_POD_GENERATION reads the pod-template-hash label; a Rollout's pods carry rollouts-pod-template-hash instead, so the label name follows the workload.
+for r in ingest api jobs; do
+  want=pod-template-hash; [ "$r" = api ] && want=rollouts-pod-template-hash
+  got=$(echo "$rr2" | yq 'select(.metadata.name == "rivolt-'$r'") | .spec.template.spec.containers[0].env[] | select(.name == "RIVOLT_POD_GENERATION") | .valueFrom.fieldRef.fieldPath' | grep -v -e '^---$' -e '^$')
+  [ "$got" = "metadata.labels['$want']" ] || { echo "::error::rivolt-$r RIVOLT_POD_GENERATION reads $got, want $want"; fail=1; }
+done
 exit $fail
