@@ -365,6 +365,17 @@
 :root [data-plan-sheet][data-snap='peek'] [data-plan-sheet-body] {
   overflow: hidden;
 }
+/* On a very short screen (a phone at Safari's aA 300 %) the open sheet keeps the title to one line and drops the summary line, whose figures are in
+   the details: two lines each left the details a sliver to scroll in. */
+@media (max-height: 299.98px) {
+  :root [data-plan-sheet][data-snap='full'] [data-plan-sheet-title] > h2 {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+  :root [data-plan-sheet][data-snap='full'] [data-plan-sheet-title] > p {
+    display: none;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   :root [data-plan-sheet] {
     transition: none;

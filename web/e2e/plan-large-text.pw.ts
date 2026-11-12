@@ -46,6 +46,14 @@ for (const [zoom, width, height] of [[200, 195, 422], [300, 130, 281]] as const)
       }, zoom === 200 ? "body *" : "[data-plan-sheet] *");
       expect(wide.out, `${snap}: sticks out of ${wide.W}px`).toEqual([]);
       if (zoom === 200) expect(wide.sw).toBeLessThanOrEqual(wide.W);
+      if (snap === "full") {
+        // The open sheet leaves the details most of its height to scroll in; the title over them must not take the room.
+        const [body, sheet] = await page.evaluate(() => [
+          document.querySelector("[data-plan-sheet-body]")!.clientHeight,
+          document.querySelector("[data-plan-sheet]")!.clientHeight,
+        ]);
+        expect(body, `details ${body}px of a ${sheet}px sheet`).toBeGreaterThanOrEqual(sheet / 2);
+      }
     }
     await ctx.close();
   });
