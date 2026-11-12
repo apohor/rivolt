@@ -21,6 +21,9 @@ const REPO = "https://github.com/apohor/rivolt";
 // instance the page links there; a self-host has no such host and shows
 // its in-app /demo only when its operator enabled it.
 const DEMO_URL = "https://demo.rivolt.dev";
+// The hero's sample trip (Las Vegas weekend, internal/demo/trips): the CTA
+// opens that same plan, cost included, in the demo planner.
+const SAMPLE_TRIP = "/demo/trips/plan?preset=7041ba4f-947f-50d3-882d-e5f5f9d08b82";
 
 function Arrow() {
   return (
@@ -90,7 +93,7 @@ export default function LandingPage() {
   const ctas = (where: "hero" | "footer") => (
     <div className="cta">
       {demo && (
-        <DemoLink path="/demo/trips/plan" where={where} className="btn go">
+        <DemoLink path={SAMPLE_TRIP} where={where} className="btn go">
           Plan a sample trip
           <Arrow />
         </DemoLink>

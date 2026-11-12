@@ -24,9 +24,9 @@ const CHAPTERS = [
   {
     num: "Money",
     title: "What charging actually cost.",
-    body: "A receipt for every session and a real cost per mile.",
+    body: "Receipts for your charges and a real cost per mile.",
     shot: moneyShot,
-    alt: "Rivolt Money screen for the demo truck with the month's charging cost",
+    alt: "Rivolt Money screen for the demo truck: October's charging cost, split into home, away and fast charging",
     halo: "rgba(245,158,11,.24)",
   },
 ];

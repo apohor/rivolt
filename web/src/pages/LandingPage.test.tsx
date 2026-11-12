@@ -44,7 +44,7 @@ describe("LandingPage", () => {
     cfg.features.demoEnabled = true;
     try {
       renderPage();
-      for (const a of screen.getAllByRole("link", { name: "Plan a sample trip" })) expect(a).toHaveAttribute("href", "/demo/trips/plan");
+      for (const a of screen.getAllByRole("link", { name: "Plan a sample trip" })) expect(a).toHaveAttribute("href", "/demo/trips/plan?preset=7041ba4f-947f-50d3-882d-e5f5f9d08b82");
       expect(screen.getByRole("link", { name: "Try the demo" })).toHaveAttribute("href", "/demo");
     } finally {
       cfg.features.demoEnabled = false;
@@ -54,7 +54,7 @@ describe("LandingPage", () => {
   it("links the public demo host on rivolt.dev", () => {
     onHost("rivolt.dev", () => {
       renderPage();
-      expect(screen.getAllByRole("link", { name: "Plan a sample trip" })[0]).toHaveAttribute("href", "https://demo.rivolt.dev/demo/trips/plan");
+      expect(screen.getAllByRole("link", { name: "Plan a sample trip" })[0]).toHaveAttribute("href", "https://demo.rivolt.dev/demo/trips/plan?preset=7041ba4f-947f-50d3-882d-e5f5f9d08b82");
       expect(screen.getByRole("link", { name: "Try the demo" })).toHaveAttribute("href", "https://demo.rivolt.dev/demo");
       expect(screen.getByText(/ZeroDowntime LLC/)).toBeTruthy();
     });
