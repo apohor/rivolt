@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -248,30 +249,46 @@ func TestUndoRacingInsertsLeavesNothingBehind(t *testing.T) {
 		t.Fatal(err)
 	}
 	t0 := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC)
+	started := make(chan struct{})
+	var closed, written int
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 300; i++ {
+		for i := 0; i < 2000; i++ {
+			if i == 20 {
+				close(started) // Undo starts while the loop is still going
+			}
 			at := t0.Add(time.Duration(i) * time.Hour)
-			if _, err := e.ds.InsertImported(ctx, id, drive("race-d"+strings.Repeat("x", i%3)+time.Duration(i).String(), at, 20*time.Minute), nil); err != nil && !errors.Is(err, drives.ErrImportClosed) {
+			ok, err := e.ds.InsertImported(ctx, id, drive("race-d"+strconv.Itoa(i), at, 20*time.Minute), nil)
+			if errors.Is(err, drives.ErrImportClosed) {
+				closed++
+				return
+			} else if err != nil {
 				t.Error(err)
 				return
 			}
-			if _, err := e.cs.InsertImported(ctx, id, charge("race-c"+time.Duration(i).String(), at, 20*time.Minute), nil); err != nil && !errors.Is(err, charges.ErrImportClosed) {
+			if ok {
+				written++
+			}
+			if _, err := e.cs.InsertImported(ctx, id, charge("race-c"+strconv.Itoa(i), at, 20*time.Minute), nil); err != nil && !errors.Is(err, charges.ErrImportClosed) {
 				t.Error(err)
 				return
 			}
 		}
 	}()
-	time.Sleep(150 * time.Millisecond)
-	if _, err := e.is.Undo(ctx, id); err != nil {
+	<-started
+	u, err := e.is.Undo(ctx, id)
+	if err != nil {
 		t.Fatal(err)
 	}
 	<-done
+	if closed == 0 || written == 0 {
+		t.Fatalf("no real race: %d inserts before the close, %d closed", written, closed)
+	}
+	if u.Drives == 0 {
+		t.Fatal("Undo removed nothing")
+	}
 	if n := e.count(t, `SELECT (SELECT count(*) FROM drives WHERE import_id = $1) + (SELECT count(*) FROM charges WHERE import_id = $1)`, id); n != 0 {
 		t.Fatalf("%d rows carry the undone import id", n)
-	}
-	if _, err := e.ds.InsertImported(ctx, id, drive("late", t0, time.Hour), nil); !errors.Is(err, drives.ErrImportClosed) {
-		t.Fatalf("insert after undo = %v, want ErrImportClosed", err)
 	}
 }
