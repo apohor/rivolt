@@ -1127,7 +1127,7 @@ function DatePopover({
               className="rounded-sm px-2 py-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
             >›</button>
           </div>
-          <div className="grid grid-cols-7 gap-0.5 text-center text-xs">
+          <div className="grid grid-cols-7 gap-0.5 text-center text-xs" data-keep-grid>
             {DOW_LABELS.map((d) => (
               <div key={d} className="py-1 text-neutral-500">{d}</div>
             ))}

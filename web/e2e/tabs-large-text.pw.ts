@@ -42,3 +42,16 @@ for (const [zoom, width, height] of [[200, 195, 422], [300, 130, 281]] as const)
     });
   }
 }
+
+// The narrow-width rules put the tabs' grids in one column; a calendar keeps its seven days a row (data-keep-grid).
+test("@webkit phone at aA 300%: the departure calendar keeps its weeks", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 130, height: 281 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  await page.goto("/trips/plan");
+  await page.getByRole("button", { name: /Select date/ }).click();
+  const days = page.locator("[data-keep-grid]");
+  await expect(days).toBeVisible();
+  expect(await days.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length)).toBe(7);
+  await ctx.close();
+});
