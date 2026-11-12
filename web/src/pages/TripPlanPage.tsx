@@ -45,25 +45,60 @@ export default function TripPlanPage() {
   // it fills the space above the sheet's peek. Wide screens: only when the result starts well below the fold
   // (a multi-day trip under a tall form); a map or a result beside the form is already in sight. Smooth unless
   // the user prefers reduced motion; focus is not moved (the results announcement keeps it).
+  // The page above the result can still change height while the smooth scroll runs (#1984: the map ended 34 px under the top bar, its Layers button
+  // hidden at Safari's 300% text). The scroll goes to where it was aimed, so while the page is still there (the person has not scrolled it), it is
+  // aimed again, without animation, when the scroll comes to rest and when the layout moves in the next 3 s.
   useEffect(() => {
     if (!resultKey || planTab !== "planner") return;
     const wide = window.innerWidth >= 1024;
+    const target = () => {
+      const el = document.querySelector("[data-plan-area='map']:not([data-empty]), [data-plan-wide]");
+      if (!el) return null;
+      const bar = document.querySelector("header.sticky")?.getBoundingClientRect().height ?? 48;
+      return Math.max(0, Math.round(el.getBoundingClientRect().top + window.scrollY - bar - 8));
+    };
     let r2 = 0;
+    let idle = 0;
+    let deadline = 0;
+    let aim = 0;
+    let ro: ResizeObserver | null = null;
+    const reaim = () => {
+      window.clearTimeout(idle);
+      idle = window.setTimeout(() => {
+        // Moved away from the aim: the person scrolled; leave the page to them.
+        if (Math.abs(window.scrollY - aim) > 2) return stop();
+        const top = target();
+        if (top === null || Math.abs(top - aim) <= 1) return;
+        aim = top;
+        window.scrollTo({ top, behavior: "auto" });
+      }, 150);
+    };
+    const stop = () => {
+      window.clearTimeout(idle);
+      window.clearTimeout(deadline);
+      ro?.disconnect();
+      window.removeEventListener("scroll", reaim);
+    };
     const r1 = requestAnimationFrame(() => {
       r2 = requestAnimationFrame(() => {
         const el = document.querySelector("[data-plan-area='map']:not([data-empty]), [data-plan-wide]");
         if (!el) return;
-        const rect = el.getBoundingClientRect();
-        if (wide && rect.top < window.innerHeight * 0.7) return;
-        const bar = document.querySelector("header.sticky")?.getBoundingClientRect().height ?? 48;
-        const top = rect.top + window.scrollY - bar - 8;
+        if (wide && el.getBoundingClientRect().top < window.innerHeight * 0.7) return;
         const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        window.scrollTo({ top: Math.max(0, top), behavior: reduce ? "auto" : "smooth" });
+        aim = target() ?? 0;
+        window.scrollTo({ top: aim, behavior: reduce ? "auto" : "smooth" });
+        window.addEventListener("scroll", reaim, { passive: true });
+        if (typeof ResizeObserver !== "undefined") {
+          ro = new ResizeObserver(reaim);
+          ro.observe(document.body);
+        }
+        deadline = window.setTimeout(stop, 3000);
       });
     });
     return () => {
       cancelAnimationFrame(r1);
       cancelAnimationFrame(r2);
+      stop();
     };
   }, [resultKey, planTab]);
   // The form's pieces, laid out by the map-first route bar (RouteBar).

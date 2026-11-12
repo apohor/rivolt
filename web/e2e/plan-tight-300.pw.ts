@@ -50,6 +50,9 @@ test("@webkit phone at aA 300%: tight map hides the badges, its layers open in a
   // Drawn once the map is up: the weather chip is on (the trip planner settings' default) and the plan has leg weather.
   await expect(page.locator("[data-map-drawn]:not([data-map-drawn='0'])")).toBeAttached();
   await page.waitForTimeout(1500);
+  // The page brought the map up just under the top bar, not under it with the Layers button hidden there (#1984).
+  const gap = () => page.evaluate(() => Math.round(document.querySelector("[data-plan-area='map']")!.getBoundingClientRect().top - document.querySelector("header.sticky")!.getBoundingClientRect().bottom));
+  await expect.poll(gap).toBeGreaterThanOrEqual(6);
   const shot = async (name: string) => {
     const p = info.outputPath(`${name}.png`);
     await page.screenshot({ path: p });
