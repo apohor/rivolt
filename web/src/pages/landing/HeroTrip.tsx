@@ -117,36 +117,40 @@ export default function HeroTrip() {
           <pattern id="lp-dots" width="20" height="20" patternUnits="userSpaceOnUse">
             <circle cx="1" cy="1" r="1" fill="#161a20" />
           </pattern>
-          <filter id="lp-wx" x="-30%" y="-30%" width="160%" height="160%">
-            <feTurbulence type="fractalNoise" baseFrequency=".035" numOctaves={2} seed={7} result="n" />
-            <feDisplacementMap in="SourceGraphic" in2="n" scale={26} />
-            <feGaussianBlur stdDeviation={5} />
-          </filter>
-          <filter id="lp-soft" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation={5} />
-          </filter>
+          {/* Soft-edged rain cells without SVG filters: a filter on a moving
+              group is re-rasterised every frame, which cost iPhone Safari a
+              quarter of its frame rate. */}
+          {[
+            ["g", "#22c55e"],
+            ["y", "#eab308"],
+            ["o", "#f97316"],
+          ].map(([id, c]) => (
+            <radialGradient key={id} id={`lp-wx-${id}`}>
+              <stop offset="0" stopColor={c} />
+              <stop offset=".6" stopColor={c} stopOpacity=".75" />
+              <stop offset="1" stopColor={c} stopOpacity="0" />
+            </radialGradient>
+          ))}
         </defs>
         <rect width="520" height="300" fill="url(#lp-dots)" />
         <path d="M-10 250 C60 215 90 290 150 270 S250 300 330 262 S470 230 540 258" fill="none" stroke="#14181e" strokeWidth="1.5" />
         <path d="M-10 120 C80 90 120 150 200 118 S330 40 400 60 S500 20 540 30" fill="none" stroke="#14181e" strokeWidth="1.5" />
         <path d="M-10 185 C70 160 130 205 210 180 S350 120 430 135 S500 110 540 118" fill="none" stroke="#12151a" strokeWidth="1.5" />
-        <g filter="url(#lp-wx)">
-          <g transform="translate(560,60)">
-            <g className="lp-cell">
-              <ellipse rx="92" ry="48" fill="#22c55e" opacity=".34" />
-              <ellipse cx="8" cy="-2" rx="56" ry="27" fill="#eab308" opacity=".42" />
-              <ellipse cx="16" cy="-4" rx="24" ry="11" fill="#f97316" opacity=".55" />
-            </g>
+        <g transform="translate(560,60)">
+          <g className="lp-cell">
+            <ellipse rx="92" ry="48" fill="url(#lp-wx-g)" opacity=".34" />
+            <ellipse cx="8" cy="-2" rx="56" ry="27" fill="url(#lp-wx-y)" opacity=".42" />
+            <ellipse cx="16" cy="-4" rx="24" ry="11" fill="url(#lp-wx-o)" opacity=".55" />
           </g>
-          <g transform="translate(640,170)">
-            <g className="lp-cell c2">
-              <ellipse rx="60" ry="30" fill="#22c55e" opacity=".3" />
-              <ellipse cx="-6" cy="3" rx="28" ry="13" fill="#eab308" opacity=".4" />
-            </g>
+        </g>
+        <g transform="translate(640,170)">
+          <g className="lp-cell c2">
+            <ellipse rx="60" ry="30" fill="url(#lp-wx-g)" opacity=".3" />
+            <ellipse cx="-6" cy="3" rx="28" ry="13" fill="url(#lp-wx-y)" opacity=".4" />
           </g>
         </g>
         <path data-route="base" d={ROUTE} fill="none" stroke="#2e3239" strokeWidth="5" strokeLinecap="round" />
-        <path data-route="glow" d={ROUTE} fill="none" stroke="#5ee9b5" strokeWidth="9" strokeLinecap="round" filter="url(#lp-soft)" opacity=".55" pathLength={1} strokeDasharray="1" strokeDashoffset="0" />
+        <path data-route="glow" d={ROUTE} fill="none" stroke="#5ee9b5" strokeWidth="12" strokeLinecap="round" opacity=".18" pathLength={1} strokeDasharray="1" strokeDashoffset="0" />
         <path data-route="live" d={ROUTE} fill="none" stroke="#5ee9b5" strokeWidth="4" strokeLinecap="round" pathLength={1} strokeDasharray="1" strokeDashoffset="0" />
         <circle cx="92" cy="238" r="6" fill="#060a10" stroke="#5ee9b5" strokeWidth="3" />
         <text x="60" y="264">Pasadena</text>
