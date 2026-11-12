@@ -133,6 +133,7 @@ func (r *forwardRunner) adopt(ctx context.Context, user string) (forward.Result,
 		return forward.Result{Status: 404, Class: "not_connected", Body: json.RawMessage(`{}`)}, nil
 	}
 	acct.Restore(sess)
+	//rivolt:transient the owner adopts a user's monitor on request; it streams only for groups this pod holds
 	r.monitors.Start(ctx, uid)
 	if j := ownerDiscoveryJob.Load(); j != nil {
 		j.NudgeUser(uid) // owner discovery: a user with no vehicle yet is looked up now (it only acts for a user in a group this pod holds)

@@ -79,6 +79,7 @@ func runLaunchPreflight(args []string) int {
 			return false, nil
 		}
 	}
+	//rivolt:transient a subcommand: runs once, in the foreground, and exits
 	rep := preflight.Run(ctx, in)
 	rep.Print(os.Stdout)
 	if !rep.Ready() {
