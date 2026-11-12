@@ -142,12 +142,20 @@ test("using a campground re-plans with it as the night, its outlet and the hooku
   const page = await ctx.newPage();
   const reqs: { days: { overnight?: { hookup?: string; l2_kw: number; name: string } }[] }[] = [];
   await open(page, []);
-  await page.route("**/api/trips/plan-multiday", (r) => {
+  // The tap alone re-plans: no Plan press. A double click is still one plan, and the name shows while it plans.
+  let release = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  await page.route("**/api/trips/plan-multiday", async (r) => {
     reqs.push(r.request().postDataJSON());
+    if (reqs.length === 1) await held;
     return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(BODY) });
   });
-  // The tap alone re-plans: no Plan press.
-  await page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" }).click();
+  const use = page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" });
+  await use.dblclick();
+  await expect(page.getByRole("status").filter({ hasText: "Re-planning with Convict Lake Campground (campground) as the night" })).toBeAttached();
+  await expect(page.locator("[data-plan-area=map][data-empty]")).toContainText("Re-planning with Convict Lake Campground (campground) as the night");
+  await page.waitForTimeout(300);
+  release();
   await expect.poll(() => reqs.length).toBe(1);
   const sent = reqs[0].days.map((d) => d.overnight).filter(Boolean);
   expect(sent).toContainEqual(expect.objectContaining({ hookup: "nema_14_50", l2_kw: 7.2, name: "Convict Lake Campground (campground)" }));
@@ -157,6 +165,16 @@ test("using a campground re-plans with it as the night, its outlet and the hooku
   await expect(night.getByLabel("Planned power in kW")).toHaveValue("7.2");
   await page.waitForTimeout(500);
   expect(reqs.length).toBe(1);
+
+  // Use on the place that is already the night: one plan, and nothing left armed for the next edit.
+  await use.click();
+  await expect.poll(() => reqs.length).toBe(2);
+  await expect(page.locator("[data-overnight-row]")).toBeVisible();
+  await page.getByRole("tab", { name: "Saved" }).click();
+  await page.getByRole("button", { name: /Pasadena to Mammoth/ }).click();
+  await page.getByRole("tab", { name: "Planner" }).click();
+  await page.waitForTimeout(500);
+  expect(reqs.length).toBe(2);
   await ctx.close();
 });
 
@@ -170,5 +188,7 @@ test("on a phone, a Use tap whose re-plan fails says why", async ({ browser }) =
   const why = page.locator("[data-plan-bar] [role=alert]");
   await expect(why).toBeVisible();
   await expect(why).toBeInViewport();
+  // The night stays in the form, so pressing Plan tries again with it.
+  await expect(page.locator("[data-overnight-stop]").filter({ hasText: "Convict Lake Campground (campground)" })).toBeVisible();
   await ctx.close();
 });

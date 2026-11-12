@@ -198,9 +198,23 @@ export default function TripPlanPage() {
   };
   // Use from the result (a "Where to sleep" pick or the map popup): with the form folded away an
   // edit alone shows nothing, so the trip re-plans with the night at once. The demo can't re-plan.
+  // One plan per tap (a double click must not spend the shared quota twice); the name shows while it plans.
+  const planning = planMutation.isPending || multidayMutation.isPending;
+  // A ref, not the pending flag: the second click of a double click lands before that renders.
+  const [usingNight, setUsingNight] = useState<string | null>(null);
+  const pickBusyRef = useRef(false);
+  useEffect(() => {
+    if (planning) return;
+    pickBusyRef.current = false;
+    setUsingNight(null);
+  }, [planning]);
   const pickOvernightNow = (stop: Parameters<typeof addOvernightStop>[0]) => {
+    if (planning || pickBusyRef.current) return;
     addOvernightStop(stop);
-    if (!inDemo()) replanAfterEdit();
+    if (inDemo()) return;
+    pickBusyRef.current = true;
+    setUsingNight(stop.label);
+    replanAfterEdit();
   };
   const overnightsEl = (
     <OvernightList
@@ -636,10 +650,11 @@ export default function TripPlanPage() {
           {!hasResult && (
             <div data-plan-area="map" data-empty="true" aria-hidden>
               <div className="flex h-full items-center justify-center px-6 text-center text-sm text-neutral-500">
-                {planMutation.isPending || multidayMutation.isPending ? "Planning your route…" : "Your route and charging stops appear here."}
+                {planning ? (usingNight ? `Re-planning with ${usingNight} as the night…` : "Planning your route…") : "Your route and charging stops appear here."}
               </div>
             </div>
           )}
+          {planning && usingNight && <p role="status" className="sr-only">Re-planning with {usingNight} as the night</p>}
         </div>
         </PlanSelectionProvider>
       </PlanTabPanel>
