@@ -78,12 +78,12 @@ type releaser interface {
 }
 
 // startTokenRelease wipes the clients of groups this pod has lost every tokensReleaseEvery until ctx ends.
-func startTokenRelease(ctx context.Context, reg rivian.AccountRegistry, log *slog.Logger) {
+func startTokenRelease(ctx context.Context, role rolePlan, reg rivian.AccountRegistry, log *slog.Logger) {
 	rel, ok := reg.(releaser)
 	if !ok {
 		return
 	}
-	go func() {
+	role.start("token_release", func() {
 		t := time.NewTicker(tokensReleaseEvery)
 		defer t.Stop()
 		for {
@@ -96,13 +96,13 @@ func startTokenRelease(ctx context.Context, reg rivian.AccountRegistry, log *slo
 				}
 			}
 		}
-	}()
+	})
 }
 
 // installNoStandingTokens gates reg when RIVOLT_NO_STANDING_TOKENS is on (the live and the replay registry share it). Lead mode is required, so
 // Require goes on before the gate: until the lease store is installed in liveFence the Holder answers Lost, and groupHold counts only Held
 // and Warming, so the boot window holds no token. bare builds ForLogin's throwaway client (live only).
-func installNoStandingTokens(ctx context.Context, reg rivian.AccountRegistry, log *slog.Logger, bare func(uuid.UUID) *rivian.LiveClient) {
+func installNoStandingTokens(ctx context.Context, role rolePlan, reg rivian.AccountRegistry, log *slog.Logger, bare func(uuid.UUID) *rivian.LiveClient) {
 	if os.Getenv("RIVOLT_NO_STANDING_TOKENS") != "1" {
 		return
 	}
@@ -121,6 +121,6 @@ func installNoStandingTokens(ctx context.Context, reg rivian.AccountRegistry, lo
 		}
 		return hold(ctx, uid)
 	}, bare)
-	startTokenRelease(ctx, reg, log)
+	startTokenRelease(ctx, role, reg, log)
 	log.Info("RIVOLT_NO_STANDING_TOKENS is on: Rivian session tokens are kept only for the groups this pod holds")
 }

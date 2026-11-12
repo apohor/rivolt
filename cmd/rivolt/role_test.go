@@ -24,11 +24,11 @@ func TestRolePlan(t *testing.T) {
 		want    rolePlan
 		wantErr string
 	}{
-		"unset is all":         {env: nil, want: rolePlan{Role: roleAll, Leases: true, ForwardOwner: true, LocalFallback: true, PublicRoutes: true}},
+		"unset is all":         {env: nil, want: rolePlan{Role: roleAll, Leases: true, ForwardOwner: true, LocalFallback: true, PublicRoutes: true, Jobs: true}},
 		"all, any case":        {env: map[string]string{"RIVOLT_ROLE": " ALL "}, want: planFor(roleAll)},
 		"ingest needs nothing": {env: map[string]string{"RIVOLT_ROLE": "ingest"}, want: rolePlan{Role: roleIngest, Leases: true, ForwardOwner: true, LocalFallback: true}},
 		"api":                  {env: leaselessOn("api"), want: rolePlan{Role: roleAPI, PublicRoutes: true}},
-		"jobs":                 {env: leaselessOn("jobs"), want: rolePlan{Role: roleJobs}},
+		"jobs":                 {env: leaselessOn("jobs"), want: rolePlan{Role: roleJobs, Jobs: true}},
 		"unknown":              {env: map[string]string{"RIVOLT_ROLE": "worker"}, wantErr: "must be one of all, ingest, api, jobs"},
 		"admin-only + ingest":  {env: map[string]string{"RIVOLT_ROLE": "ingest", "RIVOLT_ADMIN_ONLY": "true"}, wantErr: "admin deployment"},
 		"admin-only + all":     {env: map[string]string{"RIVOLT_ADMIN_ONLY": "true"}, want: planFor(roleAll)},

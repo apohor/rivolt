@@ -232,7 +232,7 @@ func startForward(ctx context.Context, logger *slog.Logger, appMetrics *metrics.
 	if owner == nil {
 		return forwardRuntime{setDraining: func() {}, forwarder: fwd}
 	}
-	go owner.Run(ctx)
+	plan.start("forward_owner", func() { owner.Run(ctx) })
 	logger.Info("forward: owner loop on", "pod", store.PodID())
 	return forwardRuntime{setDraining: owner.SetDraining, forwarder: fwd}
 }

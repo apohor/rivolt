@@ -117,12 +117,12 @@ func TestMainWiresTheRegistryBeforeTheBootSweepStartsMonitors(t *testing.T) {
 		t.Error("main.go must call monitorRegistry.RequireFence before the boot sweep (lead mode fails closed until the lease store is installed)")
 	}
 	// The shared holder (Live Activity, left-open, OTA and receipts syncers): required in lead mode before the sweep, and handed to
-	// the syncers when they are built, which is before they run (SetFence on the syncers precedes their go ...Run).
+	// the syncers when they are built, which is before they run (SetFence on the syncers precedes their start ...Run).
 	if i := strings.Index(text, "liveFence.Require("); i < 0 || i > start {
 		t.Error("main.go must call liveFence.Require before the boot sweep (the consumers fail closed in lead mode until the lease store is installed)")
 	}
 	for _, syncer := range []string{"otaSyncer", "receiptSyncer"} {
-		set, run := strings.Index(text, syncer+".SetFence(&liveFence)"), strings.Index(text, "go "+syncer+".Run(")
+		set, run := strings.Index(text, syncer+".SetFence(&liveFence)"), strings.Index(text, "func() { "+syncer+".Run(")
 		if set < 0 || run < 0 || set > run {
 			t.Errorf("main.go must give %s the fail-closed holder (%s.SetFence(&liveFence)) before it runs", syncer, syncer)
 		}
