@@ -194,7 +194,7 @@ var exportChargeHeader = []string{
 	"receipt_cost", "receipt_currency", "receipt_txn_id",
 	"estimate_month", "estimate_url",
 	"place_override", "location_override",
-	"energy_estimated",
+	"energy_estimated", "energy_source", "energy_recorded_kwh",
 }
 
 var exportReceiptHeader = []string{
@@ -235,7 +235,7 @@ func writeChargesCSV(w io.Writer, e exportData) error {
 			fptr(c.ReceiptCost), csvText(c.ReceiptCurrency), csvText(c.ReceiptTxnID),
 			csvText(c.EstimateMonth), csvText(c.EstimateURL),
 			csvText(c.PlaceOverride), csvText(c.LocationOverride),
-			strconv.FormatBool(c.EnergyEstimated),
+			strconv.FormatBool(c.EnergyEstimated), csvText(c.EnergySource), fnum(c.EnergyRecordedKWh),
 		}
 		if err := cw.Write(row); err != nil {
 			return err

@@ -355,6 +355,7 @@ func (s *Store) purge(ctx context.Context, pred func(col string) string, args ..
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 	var deleted int64
 	for i, q := range []string{
+		restoreEnergySQL + pred("charges.user_id"),
 		`UPDATE charges SET receipt_cost = NULL, receipt_currency = NULL, receipt_txn_id = NULL, receipt_source = NULL, updated_at = NOW()
 		  WHERE receipt_source IS NOT NULL AND ` + pred("charges.user_id"),
 		`DELETE FROM rivian_receipts WHERE ` + pred("rivian_receipts.user_id"),
@@ -364,7 +365,7 @@ func (s *Store) purge(ctx context.Context, pred func(col string) string, args ..
 		if err != nil {
 			return 0, err
 		}
-		if i == 1 {
+		if i == 2 {
 			deleted, _ = res.RowsAffected()
 		}
 	}

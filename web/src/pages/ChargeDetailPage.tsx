@@ -431,7 +431,7 @@ export default function ChargeDetailPage() {
         <Stat
           label="Energy"
           value={isEnergyEstimated(charge) && charge.EnergyAddedKWh > 0 ? `~${num(charge.EnergyAddedKWh, 1, "kWh")}` : num(charge.EnergyAddedKWh, 1, "kWh")}
-          hint={isEnergyEstimated(charge) ? ENERGY_ESTIMATED_NOTE : undefined}
+          hint={isEnergyEstimated(charge) ? ENERGY_ESTIMATED_NOTE : receiptEnergyNote(charge)}
         />
         <Stat label="Max kW" value={num(charge.MaxPowerKW, 1, "kW")} />
         <Stat
@@ -789,6 +789,15 @@ export function isFreeCharge(c: import("../lib/api").Charge): boolean {
   return (c.cost_source_effective ?? c.CostSource) === "user" && c.Cost === 0;
 }
 
+// receiptEnergyNote says the energy is Rivian's receipt figure, and what Rivolt recorded itself when that differs.
+function receiptEnergyNote(c: import("../lib/api").Charge): string | undefined {
+  if (c.EnergySource !== "rivian_receipt") return undefined;
+  const own = c.EnergyRecordedKWh ?? 0;
+  return own > 0 && Math.abs(own - c.EnergyAddedKWh) >= 0.05
+    ? `from Rivian's receipt (Rivolt recorded ${num(own, 2, "kWh")})`
+    : "from Rivian's receipt";
+}
+
 function chargeCostLabel(c: import("../lib/api").Charge): string {
   if (c.classification_unavailable) return "—";
   if (isFreeCharge(c)) return "Free";
@@ -988,6 +997,7 @@ function SessionInsights({
             label="Energy added"
             value={isEnergyEstimated(charge) && charge.EnergyAddedKWh > 0 ? `~${num(charge.EnergyAddedKWh, 2, "kWh")}` : num(charge.EnergyAddedKWh, 2, "kWh")}
           />
+          {receiptEnergyNote(charge) ? <Row label="Energy source" value={receiptEnergyNote(charge) ?? ""} /> : null}
           <Row
             label="Range efficiency"
             value={
