@@ -378,15 +378,25 @@
 :root [data-plan-sheet][data-snap='peek'] [data-plan-sheet-body] {
   overflow: hidden;
 }
-/* On a very short screen (a phone at Safari's aA 300 %) the open sheet keeps the title to one line and drops the summary line, whose figures are in
-   the details: two lines each left the details a sliver to scroll in. */
+/* On a very short screen (a phone at Safari's aA 300 %: 131 x 232 CSS px) the room under the top bar leaves the open sheet's details some 46 px,
+   less than one route card: the cards could not be reached (#1981). There the open sheet also covers the top bar (Map and the handle stay on top
+   to fold it back) and drops the title, whose start and end are the itinerary's first and last rows. The title stays laid out (hidden, out of the
+   flow), so the peek's height does not change under the open sheet. */
 @media (max-height: 299.98px) {
-  :root [data-plan-sheet][data-snap='full'] [data-plan-sheet-title] > h2 {
-    -webkit-line-clamp: 1;
-    line-clamp: 1;
+  :root [data-plan-sheet-room-full] {
+    top: calc(env(safe-area-inset-top, 0px) + 0.25rem);
   }
-  :root [data-plan-sheet][data-snap='full'] [data-plan-sheet-title] > p {
-    display: none;
+  :root [data-plan-sheet] {
+    max-height: calc(100dvh - var(--plan-sheet-bottom) - env(safe-area-inset-top, 0px) - 0.25rem);
+  }
+  :root [data-plan-sheet][data-snap='full'],
+  :root [data-plan-sheet][data-dragging='true'] {
+    z-index: 1150;
+  }
+  :root [data-plan-sheet][data-snap='full'] [data-plan-sheet-peek] {
+    position: absolute;
+    inset-inline: 0;
+    visibility: hidden;
   }
 }
 @media (prefers-reduced-motion: reduce) {

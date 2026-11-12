@@ -41,6 +41,10 @@ describe("snap maths", () => {
       expect(h.half).toBeLessThan(h.full);
     }
   });
+  it("full takes the open sheet's own room when it is taller (aA 300 %: over the top bar), the peek and half keep the room's", () => {
+    expect(snapHeights(112, 77, 170)).toEqual({ ...snapHeights(112, 77), full: 170 });
+    expect(snapHeights(743, 90, 743)).toEqual(snapHeights(743, 90));
+  });
 
   const h = snapHeights(743, 150); // peek 150, half 342, full 743
 

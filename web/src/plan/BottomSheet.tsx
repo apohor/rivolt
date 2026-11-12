@@ -30,12 +30,13 @@ export const FLICK_SPEED = 0.5;
 export const DRAG_SLOP = 10;
 
 // snapHeights are the three sheet heights in px for the room the sheet has (from above the tab bar to under the top bar, measured, not the
-// viewport): the peek is what its title and summary line need (peekNeed) up to 35 % of the room, half is about half, full is all of it. They are
-// kept strictly increasing, even in a very short window.
-export function snapHeights(room: number, peekNeed: number): SnapHeights {
+// viewport): the peek is what its title and summary line need (peekNeed) up to 35 % of the room, half is about half, full is all of it, or all of
+// fullRoom when that is taller (on a very short screen the open sheet also covers the top bar). They are kept strictly increasing, even in a very
+// short window.
+export function snapHeights(room: number, peekNeed: number, fullRoom = room): SnapHeights {
   const cap = Math.max(room * PEEK_CAP, Math.min(PEEK_FLOOR, room * 0.5));
   const peek = Math.round(peekNeed > 0 ? Math.min(peekNeed, cap) : Math.min(150, room * 0.3));
-  const full = Math.max(Math.round(room), peek + 80);
+  const full = Math.max(Math.round(room), Math.round(fullRoom), peek + 80);
   const half = Math.min(Math.max(Math.round(room * 0.46), peek + 40), full - 40);
   return { peek, half, full };
 }
@@ -166,14 +167,16 @@ export function BottomSheet({
 
   // The room is measured from a fixed box with the sheet's own limits (CSS), so the browser's bars and the safe areas are already out of it.
   const [roomEl, setRoomEl] = useState<HTMLDivElement | null>(null);
+  const [fullRoomEl, setFullRoomEl] = useState<HTMLDivElement | null>(null);
   const [peekEl, setPeekEl] = useState<HTMLDivElement | null>(null);
   const [handleEl, setHandleEl] = useState<HTMLButtonElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const measuredRoom = useHeight(roomEl);
+  const measuredFullRoom = useHeight(fullRoomEl);
   const handleH = useCallback(() => handleEl?.offsetHeight ?? 0, [handleEl]);
   const peekNeed = useHeight(peekEl, handleH);
   const room = measuredRoom > 0 ? measuredRoom : Math.round((typeof window === "undefined" ? 800 : window.innerHeight) * 0.88);
-  const heights = snapHeights(room, peekNeed);
+  const heights = snapHeights(room, peekNeed, measuredFullRoom);
 
   // Drag state: the live height while a drag moves the sheet (null otherwise).
   const [dragH, setDragH] = useState<number | null>(null);
@@ -351,6 +354,8 @@ export function BottomSheet({
     <SheetClearance height={height} peek={heights.peek} dragging={dragH !== null}>
       {/* The room the sheet has: the same limits as its own fixed box, measured. */}
       <div ref={setRoomEl} data-plan-sheet-room aria-hidden="true" />
+      {/* The room the open sheet has: the same, except on a very short screen, where it also takes the top bar's. */}
+      <div ref={setFullRoomEl} data-plan-sheet-room data-plan-sheet-room-full aria-hidden="true" />
       <section
         ref={setSectionEl}
         aria-label={label}
