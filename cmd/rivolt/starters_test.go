@@ -86,12 +86,12 @@ func TestStartersPerInstall(t *testing.T) {
 	admin.AdminOnly, admin.Demo = true, true
 	adminStarts := []string{"account_sync", "apple_revoke_retrier", "chargers_reload", "chargers_warm", "chargewatch", "demo_plans", "demo_pricing",
 		"demo_weather", "entitlement_stats", "flags_poll", "http_server", "http_shutdown", "idp_delete_retrier", "metrics_server",
-		"push_notifications_sweep", "second_signal", "settings_sync", "stripe_cancel_retrier", "token_release", "vehicle_discovery"}
+		"push_notifications_sweep", "second_signal", "settings_sync", "stripe_cancel_retrier", "token_release"}
 	if got := strings.Join(startedBy(admin), ","); got != strings.Join(adminStarts, ",") {
 		t.Errorf("the admin deployment starts %s\nwant %s", got, strings.Join(adminStarts, ","))
 	}
 	for _, name := range []string{"lease_coordinator", "forward_owner", "retention", "partition_janitor", "inactive_purge", "archive_deletions",
-		"backfill", "db_app_grants", "reauth_nudge", "rivian_expiry", "r2_arrival", "tire_low", "left_open", "milestones", "plug_reminder", "push_live"} {
+		"backfill", "vehicle_discovery", "db_app_grants", "reauth_nudge", "rivian_expiry", "r2_arrival", "tire_low", "left_open", "milestones", "plug_reminder", "push_live"} {
 		if admin.starts(starters[name]) {
 			t.Errorf("the admin deployment starts %s", name)
 		}

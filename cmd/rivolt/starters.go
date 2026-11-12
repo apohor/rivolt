@@ -81,7 +81,7 @@ var starters = map[string]starter{
 	"lease_coordinator":       {kind: startLeases, single: singleEveryPod, by: "the ownership protocol: each pod renews and sheds its own leases"},
 	"lease_reconcile_trigger": {kind: startLeases, single: singleEveryPod, by: "pokes this pod's coordinator"},
 	"forward_owner":           {kind: startLeases, single: singleOwned, by: "answers only the groups this pod holds"},
-	"vehicle_discovery":       {kind: startLeases, single: singleLock, by: "advisory rivolt:vehicle_discovery; owner mode: the groups this pod holds", onAdmin: true},
+	"vehicle_discovery":       {kind: startLeases, single: singleLock, by: "advisory rivolt:vehicle_discovery; owner mode: the groups this pod holds"}, // not onAdmin: it calls Rivian, and the admin deployment must not (Oct 28 re-login incident class)
 	"push_live":               {kind: startLeases, single: singleLock, by: "claim claimActivityUpdate; reads the owner's live state"},
 	"ota_sync":                {kind: startLeases, single: singleLock, by: "claim ClaimOTAFetch per vehicle a day"},
 	"receipt_sync":            {kind: startLeases, single: singleLock, by: "a claim per user"},
