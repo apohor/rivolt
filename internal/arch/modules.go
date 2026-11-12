@@ -31,7 +31,7 @@ var modules = map[string]string{
 	// recorder: the sessions and what is derived from them as they close.
 	"internal/drives": "recorder", "internal/charges": "recorder", "internal/samples": "recorder", "internal/milestones": "recorder",
 	"internal/leftopen": "recorder", "internal/packhealth": "recorder", "internal/tirelow": "recorder", "internal/otadetails": "recorder",
-	"internal/receipts": "recorder", "internal/ledger": "recorder", // the money statement: a read model of the recorded charges and drives
+	"internal/receipts": "recorder", "internal/ledger": "recorder", "internal/firstscreen": "recorder", // the money statement: a read model of the recorded charges and drives
 
 	// planner: trips, routing and the map services.
 	"internal/trips": "planner", "internal/planleg": "planner", "internal/tripadvice": "planner", "internal/tripmultiday": "planner",

@@ -98,6 +98,8 @@ const (
 // user's uid — there is no singleton "current user" anywhere in
 // the API surface.
 type Deps struct {
+	// FirstScreen serves GET /api/first-screen (RIVOLT_FIRST_SCREEN). Nil: the route does not exist.
+	FirstScreen FirstScreenSource
 	// StateForward and GroupOfVehicle route the one Rivian call of GET /api/state/{id} to the vehicle's group owner (single-owner M3-2b).
 	// Both nil (RIVOLT_FORWARD off): the pod calls Rivian itself, as before.
 	StateForward   StateForwarder
@@ -1363,6 +1365,10 @@ func New(d Deps) http.Handler {
 
 			// Opt-in to reading Rivian charging receipts (off by default;
 			// opting out deletes what was stored).
+			// The first screen of a new account (RIVOLT_FIRST_SCREEN; nil source: no route, 404). Postgres only, 12 a minute per user.
+			if d.FirstScreen != nil {
+				r.With(ls.user("first-screen", firstScreenPerMin).Middleware).Get("/first-screen", withUser(handleFirstScreen(d.FirstScreen, d.Flags, d.Settings)))
+			}
 			r.Get("/settings/rivian-receipts", withUser(handleRivianReceiptsGet(d.Flags, d.Settings)))
 			r.Put("/settings/rivian-receipts", withUser(handleRivianReceiptsPut(d.Flags, d.Settings, receipts.NewStore(d.DB))))
 

@@ -57,6 +57,7 @@ import (
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/engage"
 	"github.com/apohor/rivolt/internal/entitlements"
+	"github.com/apohor/rivolt/internal/firstscreen"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/fleetbucket"
 	"github.com/apohor/rivolt/internal/geocoding"
@@ -3356,10 +3357,18 @@ func runServer() {
 		}
 		startVehicleDiscovery(ctx, role, logger, appMetrics, job)
 	}
+	// RIVOLT_FIRST_SCREEN (first-screen design): GET /api/first-screen, Postgres reads only. Off (the default): no route. Goes on only after
+	// the release that carries the receipts_sync receiver is on every pod.
+	var firstScreen api.FirstScreenSource
+	if os.Getenv("RIVOLT_FIRST_SCREEN") == "1" && pgPool != nil {
+		firstScreen = firstscreen.New(pgPool)
+		logger.Info("first screen: GET /api/first-screen is on")
+	}
 	appBuild := api.NewAppBuildCounter()
 	appMetrics.Registry().MustRegister(appBuild.Collector())
 	handler := api.New(api.Deps{
 		AppBuild:              appBuild,
+		FirstScreen:           firstScreen,
 		StateForward:          stateForward,
 		OwnerDiscovery:        ownerDiscovery,
 		SignInNudge:           signInNudgeFn,
