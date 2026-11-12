@@ -1,6 +1,9 @@
 package api
 
 import (
+	"bytes"
+	"context"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -124,5 +127,67 @@ func ledgerInputForTest() ledger.Input {
 	return ledger.Input{
 		Charges: []ledger.Charge{{Source: "live"}, {Source: "tezlab_import"}, {Source: "electrafi_import"}},
 		Drives:  []ledger.Drive{{Source: "abrp_import"}, {Source: "live"}, {Source: "electrafi_import"}},
+	}
+}
+
+// One import in flight per user per pod: a second request from the same user is refused until the first is done, another user is not.
+func TestHistoryImportOneInFlightPerUser(t *testing.T) {
+	a := newHistoryImportAPI(Deps{})
+	req := func(uid uuid.UUID) *http.Request {
+		return httptest.NewRequest(http.MethodPost, "https://rivolt.dev/api/import/preview", nil).WithContext(auth.WithUser(context.Background(), uid))
+	}
+	u1, u2 := uuid.New(), uuid.New()
+	end1, ok := a.begin(httptest.NewRecorder(), req(u1))
+	if !ok {
+		t.Fatal("first request refused")
+	}
+	rec := httptest.NewRecorder()
+	if _, ok := a.begin(rec, req(u1)); ok || rec.Code != http.StatusTooManyRequests || !strings.Contains(rec.Body.String(), "in_progress") {
+		t.Errorf("second request of the same user = %v %d %s", ok, rec.Code, rec.Body)
+	}
+	end2, ok := a.begin(httptest.NewRecorder(), req(u2))
+	if !ok {
+		t.Fatal("another user refused")
+	}
+	end1()
+	end2()
+	end, ok := a.begin(httptest.NewRecorder(), req(u1))
+	if !ok {
+		t.Fatal("slot not returned")
+	}
+	end()
+	if len(a.active) != 0 || len(a.sem) != 0 {
+		t.Errorf("leaked: %d users, %d slots", len(a.active), len(a.sem))
+	}
+}
+
+// Only the eight known form fields are read, and at most sixteen non-file parts.
+func TestHistoryImportRefusesUnknownAndManyFields(t *testing.T) {
+	body := func(names ...string) (*bytes.Buffer, string) {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		for _, n := range names {
+			_ = mw.WriteField(n, "x")
+		}
+		_ = mw.Close()
+		return &b, mw.FormDataContentType()
+	}
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		a := newHistoryImportAPI(Deps{})
+		a.preview(w, r.WithContext(auth.WithUser(r.Context(), uuid.New())))
+	})
+	many := make([]string, 17)
+	for i := range many {
+		many[i] = "tz"
+	}
+	for name, names := range map[string][]string{"unknown": {"source", "evil"}, "seventeen": many} {
+		b, ct := body(names...)
+		req := httptest.NewRequest(http.MethodPost, "https://rivolt.dev/api/import/preview", b)
+		req.Header.Set("Content-Type", ct)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "bad_upload") {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body)
+		}
 	}
 }

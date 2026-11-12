@@ -51,6 +51,11 @@ func (e *hiEnv) as(uid uuid.UUID) http.Handler {
 
 func (e *hiEnv) post(uid uuid.UUID, path string, fields map[string]string, files ...string) *httptest.ResponseRecorder {
 	e.t.Helper()
+	return e.send(uid, e.request(path, fields, files...))
+}
+
+// request builds the upload; send serves it. They are apart so a measurement can leave the client's own copy of the body out.
+func (e *hiEnv) request(path string, fields map[string]string, files ...string) *http.Request {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	for k, v := range fields {
@@ -61,8 +66,12 @@ func (e *hiEnv) post(uid uuid.UUID, path string, fields map[string]string, files
 		_, _ = fw.Write([]byte(f))
 	}
 	_ = mw.Close()
-	req := httptest.NewRequest(http.MethodPost, "https://rivolt.dev"+path, &buf)
+	req := httptest.NewRequest(http.MethodPost, "https://rivolt.dev"+path, bytes.NewReader(buf.Bytes()))
 	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return req
+}
+
+func (e *hiEnv) send(uid uuid.UUID, req *http.Request) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	e.as(uid).ServeHTTP(rec, req)
 	return rec

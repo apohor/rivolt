@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -44,7 +45,19 @@ const (
 	importPreviewsPerHour = 30
 	importCommitsPerHour  = 10
 	importProgressEvery   = 200
+	// importReadWindow bounds how long one request may take to send its body while it holds a parse slot (50 MB in three minutes is
+	// 2.2 Mbit/s); importWriteWindow is how far each commit step pushes the connection's write deadline out, because the server's own
+	// WriteTimeout (5 min from the request) is shorter than a 100k-session commit.
+	importReadWindow  = 3 * time.Minute
+	importWriteWindow = 2 * time.Minute
+	// importMaxFieldParts and the field names bound the non-file parts of a form: a body of tiny uniquely named fields would otherwise
+	// build a map of hundreds of thousands of entries while holding a slot.
+	importMaxFieldParts = 16
 )
+
+var importFieldNames = map[string]bool{
+	"source": true, "vehicle_id": true, "tz": true, "distance_unit": true, "energy_unit": true, "pack_kwh": true, "vehicle": true, "sha256": true,
+}
 
 // importSources maps the form's source name to its formats, tried in order for each file.
 var importSources = map[string][]histimport.Format{
@@ -57,6 +70,9 @@ type historyImportAPI struct {
 	sem  chan struct{}
 	now  func() time.Time
 	logr *slog.Logger
+
+	mu     sync.Mutex
+	active map[uuid.UUID]bool // users with an import request in flight on this pod
 }
 
 func newHistoryImportAPI(d Deps) *historyImportAPI {
@@ -64,7 +80,7 @@ func newHistoryImportAPI(d Deps) *historyImportAPI {
 	if l == nil {
 		l = slog.Default()
 	}
-	return &historyImportAPI{d: d, sem: make(chan struct{}, importParseSlots), now: time.Now, logr: l}
+	return &historyImportAPI{d: d, sem: make(chan struct{}, importParseSlots), now: time.Now, logr: l, active: map[uuid.UUID]bool{}}
 }
 
 // mount registers the routes in the bulk-data group (no 30 s timeout: a commit streams for as long as it writes).
@@ -100,6 +116,39 @@ func (a *historyImportAPI) acquire(w http.ResponseWriter) bool {
 }
 
 func (a *historyImportAPI) release() { <-a.sem }
+
+// begin admits one request: a user has one import in flight per pod (a slow upload cannot hold both slots), then a parse slot. It returns
+// the function that gives both back.
+func (a *historyImportAPI) begin(w http.ResponseWriter, r *http.Request) (func(), bool) {
+	uid, _ := auth.UserFromContext(r.Context())
+	if uid != uuid.Nil {
+		a.mu.Lock()
+		busy := a.active[uid]
+		if !busy {
+			a.active[uid] = true
+		}
+		a.mu.Unlock()
+		if busy {
+			w.Header().Set("Retry-After", "10")
+			importError(w, http.StatusTooManyRequests, "in_progress", "Another import of yours is still running. Wait for it to finish.")
+			return nil, false
+		}
+	}
+	if !a.acquire(w) {
+		a.forget(uid)
+		return nil, false
+	}
+	return func() { a.release(); a.forget(uid) }, true
+}
+
+func (a *historyImportAPI) forget(uid uuid.UUID) {
+	if uid == uuid.Nil {
+		return
+	}
+	a.mu.Lock()
+	delete(a.active, uid)
+	a.mu.Unlock()
+}
 
 func importError(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, map[string]any{"error": msg, "code": code})
@@ -138,6 +187,8 @@ func (a *historyImportAPI) read(w http.ResponseWriter, r *http.Request) (*import
 		return nil, false
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, importMaxBytes)
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(a.now().Add(importReadWindow)) // not supported on a test recorder
 	mr, err := r.MultipartReader()
 	if err != nil {
 		importError(w, http.StatusBadRequest, "bad_upload", "Send the files as a multipart form.")
@@ -145,6 +196,7 @@ func (a *historyImportAPI) read(w http.ResponseWriter, r *http.Request) (*import
 	}
 	req := &importRequest{uid: uid}
 	fields := map[string]string{}
+	nFields := 0
 	for {
 		part, err := mr.NextPart()
 		if errors.Is(err, io.EOF) {
@@ -155,6 +207,10 @@ func (a *historyImportAPI) read(w http.ResponseWriter, r *http.Request) (*import
 			return nil, false
 		}
 		if part.FileName() == "" {
+			if nFields++; !importFieldNames[part.FormName()] || nFields > importMaxFieldParts {
+				importError(w, http.StatusBadRequest, "bad_upload", "The form has a field we do not know.")
+				return nil, false
+			}
 			b, err := io.ReadAll(io.LimitReader(part, 1<<10))
 			if err != nil {
 				a.readFailed(w, err)
@@ -167,12 +223,16 @@ func (a *historyImportAPI) read(w http.ResponseWriter, r *http.Request) (*import
 			importError(w, http.StatusBadRequest, "bad_upload", "Send up to four files under the field 'file'.")
 			return nil, false
 		}
-		b, err := io.ReadAll(part)
-		if err != nil {
+		var buf bytes.Buffer
+		// One allocation for the common single-file upload instead of ReadAll's doubling up to 50 MB.
+		if n := r.ContentLength; n > 0 && n <= importMaxBytes && len(req.files) == 0 {
+			buf.Grow(int(n))
+		}
+		if _, err := buf.ReadFrom(part); err != nil {
 			a.readFailed(w, err)
 			return nil, false
 		}
-		req.files = append(req.files, importFile{name: part.FileName(), data: b})
+		req.files = append(req.files, importFile{name: part.FileName(), data: buf.Bytes()})
 	}
 	if len(req.files) == 0 {
 		importError(w, http.StatusBadRequest, "no_file", "Choose a file to import.")
@@ -305,6 +365,10 @@ func (req *importRequest) parse(now time.Time) (*parsed, *parseFailure) {
 		}
 		out.drives = append(out.drives, res.Drives...)
 		out.charges = append(out.charges, res.Charges...)
+		// MaxSessions bounds one file; the request as a whole is held to the same number of each kind.
+		if len(out.drives) > histimport.MaxSessions || len(out.charges) > histimport.MaxSessions {
+			return nil, failureOf(histimport.ErrTooBig)
+		}
 		mergeReport(&out.report, res.Report)
 	}
 	return out, nil
@@ -487,28 +551,38 @@ type previewRow struct {
 }
 
 func (pl *plan) sample() []previewRow {
-	var all []previewRow
+	const keep = 5
+	var top []previewRow // the earliest rows, sorted; never more than keep+1 long, whatever the plan holds
+	add := func(r previewRow) {
+		i := sort.Search(len(top), func(i int) bool { return top[i].StartedAt.After(r.StartedAt) })
+		if i >= keep {
+			return
+		}
+		top = append(top, previewRow{})
+		copy(top[i+1:], top[i:])
+		top[i] = r
+		if len(top) > keep {
+			top = top[:keep]
+		}
+	}
 	for _, d := range pl.drives {
-		all = append(all, previewRow{Kind: "drive", StartedAt: d.StartedAt, EndedAt: d.EndedAt, DistanceMi: round2(d.DistanceMi), StartSoCPct: d.StartSoCPct, EndSoCPct: d.EndSoCPct})
+		add(previewRow{Kind: "drive", StartedAt: d.StartedAt, EndedAt: d.EndedAt, DistanceMi: round2(d.DistanceMi), StartSoCPct: d.StartSoCPct, EndSoCPct: d.EndSoCPct})
 	}
 	for _, c := range pl.charges {
-		all = append(all, previewRow{Kind: "charge", StartedAt: c.StartedAt, EndedAt: c.EndedAt, EnergyKWh: round2(c.EnergyAddedKWh), StartSoCPct: c.StartSoCPct, EndSoCPct: c.EndSoCPct})
+		add(previewRow{Kind: "charge", StartedAt: c.StartedAt, EndedAt: c.EndedAt, EnergyKWh: round2(c.EnergyAddedKWh), StartSoCPct: c.StartSoCPct, EndSoCPct: c.EndSoCPct})
 	}
-	sort.Slice(all, func(i, j int) bool { return all[i].StartedAt.Before(all[j].StartedAt) })
-	if len(all) > 5 {
-		all = all[:5]
-	}
-	return all
+	return top
 }
 
 func round2(v float64) float64 { return float64(int64(v*100+0.5)) / 100 }
 
 // preview parses and dedupes; it writes nothing.
 func (a *historyImportAPI) preview(w http.ResponseWriter, r *http.Request) {
-	if !a.acquire(w) {
+	end, ok := a.begin(w, r)
+	if !ok {
 		return
 	}
-	defer a.release()
+	defer end()
 	req, ok := a.read(w, r)
 	if !ok {
 		return
@@ -565,10 +639,11 @@ func histimportSource(req *importRequest) string { return req.formats[0].Source 
 
 // commit writes what the preview showed, as NDJSON lines so a proxy sees traffic while it runs.
 func (a *historyImportAPI) commit(w http.ResponseWriter, r *http.Request) {
-	if !a.acquire(w) {
+	end, ok := a.begin(w, r)
+	if !ok {
 		return
 	}
-	defer a.release()
+	defer end()
 	req, ok := a.read(w, r)
 	if !ok {
 		return
@@ -578,6 +653,9 @@ func (a *historyImportAPI) commit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := histfloor.Bypass(r.Context())
+	rc := http.NewResponseController(w)
+	push := func() { _ = rc.SetWriteDeadline(a.now().Add(importWriteWindow)) } // the server's WriteTimeout would cut a long commit's stream
+	push()
 	is, err := imports.New(a.d.DB, req.uid)
 	if err != nil {
 		serverError(w, r, "history import", err)
@@ -612,6 +690,7 @@ func (a *historyImportAPI) commit(w http.ResponseWriter, r *http.Request) {
 		serverError(w, r, "history import", err)
 		return
 	}
+	push()
 	var vehicleRow uuid.UUID
 	if err := a.d.DB.QueryRowContext(ctx, `SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2`, req.uid, req.rivianID).Scan(&vehicleRow); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		serverError(w, r, "history import", err)
@@ -657,6 +736,7 @@ func (a *historyImportAPI) commit(w http.ResponseWriter, r *http.Request) {
 	tick := func() {
 		done++
 		if done%importProgressEvery == 0 {
+			push()
 			_ = enc.Encode(map[string]any{"type": "progress", "done": done, "total": total})
 			flush()
 		}
