@@ -570,7 +570,14 @@ export function TripRouteMap({
 
       // In the fill layout the charger chips float over the top of the map: pad the fit so the route clears them.
       const narrow = window.innerWidth < 640;
+      // Tight: at Safari's largest text (300%: 131 x 232 CSS px) the strip of map above the sheet's peek is some 60 px, less than the chips and
+      // the zoom buttons alone. Then they are hidden (CSS, data-map-tight) and the route is framed in what is left, with a small margin.
+      const tight = () => fill && narrow && el.clientHeight - sheetCover() < 200;
       const padding = () => {
+        if (tight()) {
+          const bottom = Math.min(sheetCover() + 8, Math.max(8, el.clientHeight - 8 - 24));
+          return { top: 8, bottom, left: 8, right: 8 };
+        }
         // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
         // A card that is not drawn (hidden under 200 px, where the sheet's peek says the same) needs no room.
@@ -598,7 +605,10 @@ export function TripRouteMap({
         const r = el.getBoundingClientRect();
         return Math.round(Math.min(Math.max(0, r.bottom - sheet.getBoundingClientRect().top), Math.max(0, el.clientHeight - 32)));
       };
-      const liftCredits = () => el.style.setProperty("--plan-map-cover", `${sheetCover()}px`);
+      const liftCredits = () => {
+        el.style.setProperty("--plan-map-cover", `${sheetCover()}px`);
+        el.parentElement?.toggleAttribute("data-map-tight", tight());
+      };
       let fitPath: LatLng[] = wpLatLngs;
       let fitted = false;
       const fit = (maxZoom: number) => {
@@ -1231,6 +1241,7 @@ export function TripRouteMap({
       )}
       <div
         ref={ref}
+        data-map-canvas
         className={fill ? "h-full overflow-hidden" : "rounded-lg overflow-hidden border border-neutral-800"}
         style={fill ? undefined : { height }}
       />
