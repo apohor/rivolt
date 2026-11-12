@@ -94,3 +94,30 @@ func TestGeocodeCanceledIsQuietAndFailureIsLogged(t *testing.T) {
 		t.Errorf("transport: code=%d log: %s", w.Code, logs.String())
 	}
 }
+
+// A request deadline is not a client cancel: it stays a 503 with a WARN and is not counted as canceled.
+func TestGeocodeDeadlineIsNotCanceled(t *testing.T) {
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(release); slow.Close() })
+
+	var logs bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	canceled := 0
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/geocode?q=austin", nil).WithContext(ctx)
+	handleGeocode(geocoding.NewPhotonClient(slow.URL), false, func() { canceled++ })(w, req)
+	if w.Code != http.StatusServiceUnavailable || canceled != 0 || !strings.Contains(logs.String(), "level=WARN") {
+		t.Errorf("code=%d canceled=%d log=%s", w.Code, canceled, logs.String())
+	}
+}
