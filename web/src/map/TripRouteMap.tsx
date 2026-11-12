@@ -336,6 +336,22 @@ export function TripRouteMap({
         legPopupRef.current = legPopup;
         exclusive(legPopup);
         reclearOfChips(map, legPopup, ll, true);
+        // The room is measured again when the map stops moving (the pan to a selected stop, the nudge clear of the chips, a drag) and when the phone's
+        // sheet changes height: a card fitted once at open ran out of the map or under the sheet, or kept scrolling a line away (#1887).
+        const refit = () => {
+          if (!legPopup.isOpen()) return;
+          const y = map.project(ll).y;
+          const below = !String(legPopup.options?.anchor ?? vertical).startsWith("bottom");
+          // The card is the text plus its padding, 14 px off its point, and 8 px clear of the edge.
+          const card = root.parentElement;
+          const chrome = card ? Math.max(0, card.offsetHeight - root.clientHeight) : 24;
+          root.style.maxHeight = `${Math.max(72, Math.floor((below ? mapRoomBottom(map) - y : y) - 14 - chrome - 8))}px`;
+        };
+        const sheet = document.querySelector("[data-plan-sheet]");
+        const ro = sheet && typeof ResizeObserver !== "undefined" ? new ResizeObserver(refit) : null;
+        if (sheet) ro?.observe(sheet);
+        map.on("moveend", refit);
+        legPopup.once("close", () => { map.off("moveend", refit); ro?.disconnect(); });
       }, overlayBoxes(map.getContainer()), pillTakenRef.current, prev);
       remove = draw();
       updatePillsRef.current?.(true);

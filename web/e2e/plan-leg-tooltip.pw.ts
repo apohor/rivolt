@@ -157,3 +157,59 @@ for (const v of [
     await ctx.close();
   });
 }
+
+// The map can move after the tooltip opens (the pan to a selected stop, the nudge clear of the chips, a drag) and the phone's sheet can change height:
+// the card's height follows the room its point has then, so it neither runs out of the map or under the sheet nor scrolls a line away for nothing (#1887).
+test("@webkit iphone-390: the leg tooltip refits its height when the map moves under it", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  await page.route("**/api/trips/saved", (r) => r.fulfill(j([{ id: "st-a", name: "Old trip", inputs: INPUTS, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])));
+  await page.route("**/api/trips/plan", (r) => r.fulfill(j(PLAN)));
+  await page.goto("/trips/plan");
+  await page.getByRole("tab", { name: "Saved" }).click();
+  await page.getByRole("button", { name: /Old trip/ }).click();
+  await page.getByRole("tab", { name: "Planner" }).click();
+  await page.getByRole("button", { name: "Plan trip" }).click();
+  await expect(page.locator("[data-leg-badge]")).toHaveCount(2);
+  await page.waitForTimeout(700);
+  await page.locator("[data-leg-badge]").first().dispatchEvent("click");
+  await expect(page.locator("[data-leg-popup]")).toContainText("Terrain: USGS 3DEP");
+  await page.waitForTimeout(700);
+  const box = () =>
+    page.evaluate(() => {
+      const r = document.querySelector("[data-leg-popup]") as HTMLElement;
+      const c = (r.closest(".maplibregl-popup-content") as HTMLElement).getBoundingClientRect();
+      const m = (document.querySelector(".maplibregl-map") as HTMLElement).getBoundingClientRect();
+      const sheet = document.querySelector("[data-plan-sheet]")!.getBoundingClientRect().top;
+      const above = (r.closest(".maplibregl-popup") as HTMLElement).className.includes("anchor-bottom");
+      return { above, top: c.top - m.top, bottom: Math.min(m.bottom, sheet) - c.bottom, scrolls: r.scrollHeight > r.clientHeight + 1 };
+    });
+  const before = await box();
+  // The card opens whole, above its point.
+  expect(before, JSON.stringify(before)).toMatchObject({ above: true, scrolls: false });
+  // Drag the map up by more than the room above the card: its point (and the card) go up with it. The drag starts on an empty part of the map, under
+  // the route, and stops still so there is no glide.
+  const drag = Math.round(before.top + 60);
+  await page.mouse.move(330, 640);
+  await page.mouse.down();
+  await page.mouse.move(330, 640 - drag, { steps: 12 });
+  await page.waitForTimeout(300);
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  const after = await box();
+  // Still open, still inside the map: shorter, its lines scrolling inside it.
+  expect(after.top, JSON.stringify(after)).toBeGreaterThanOrEqual(-0.5);
+  expect(after.bottom, JSON.stringify(after)).toBeGreaterThanOrEqual(-0.5);
+  // Dragged back, it is whole again.
+  await page.mouse.move(330, 640 - drag);
+  await page.mouse.down();
+  await page.mouse.move(330, 640, { steps: 12 });
+  await page.waitForTimeout(300);
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  const back = await box();
+  expect(back, JSON.stringify(back)).toMatchObject({ scrolls: false });
+  expect(back.top, JSON.stringify(back)).toBeGreaterThanOrEqual(-0.5);
+  await ctx.close();
+});
