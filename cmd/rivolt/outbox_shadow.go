@@ -47,12 +47,16 @@ func newOutboxShadow(pool *sql.DB, store *outbox.Store, resolvers *db.VehicleRes
 
 // register adds the shadow hooks after every direct close hook (hooks run in order registered), so the insert never delays them.
 func (o *outboxShadow) register(reg *rivian.MonitorRegistry) {
-	reg.AddDriveCloseHookFactory(func(uid uuid.UUID) rivian.DriveCloseHook {
-		return func(ctx context.Context, d drives.Drive) { o.record(ctx, uid, d.VehicleID, "drive", "d", d.ID) }
-	})
-	reg.AddChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
-		return func(ctx context.Context, c charges.Charge) { o.record(ctx, uid, c.VehicleID, "charge", "c", c.ID) }
-	})
+	reg.AddDriveCloseHookFactory(o.driveHook)
+	reg.AddChargeCloseHookFactory(o.chargeHook)
+}
+
+func (o *outboxShadow) driveHook(uid uuid.UUID) rivian.DriveCloseHook {
+	return func(ctx context.Context, d drives.Drive) { o.record(ctx, uid, d.VehicleID, "drive", "d", d.ID) }
+}
+
+func (o *outboxShadow) chargeHook(uid uuid.UUID) rivian.ChargeCloseHook {
+	return func(ctx context.Context, c charges.Charge) { o.record(ctx, uid, c.VehicleID, "charge", "c", c.ID) }
 }
 
 // record writes one intent in its own bounded transaction, under the recorder's fence token when ctx carries one (a lost lease writes nothing).

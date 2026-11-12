@@ -171,7 +171,15 @@ type Replayer struct {
 	mu      sync.Mutex
 	closed  []drives.Drive
 	charged []charges.Charge
+	// alsoDrive and alsoCharge run after the collectors, from the same close-hook goroutine, as a hook factory added to the registry does.
+	alsoDrive  DriveCloseHook
+	alsoCharge ChargeCloseHook
 }
+
+// AlsoOnDriveClose and AlsoOnChargeClose add a hook that runs after the collecting one for each closed session, so a test can check a side
+// effect against what the recorder closed. Call before the first Feed.
+func (r *Replayer) AlsoOnDriveClose(h DriveCloseHook)   { r.alsoDrive = h }
+func (r *Replayer) AlsoOnChargeClose(h ChargeCloseHook) { r.alsoCharge = h }
 
 // NewReplayer builds a persistence-free monitor for one vehicle id. All
 // stores are left nil, so the recorder's writes are no-ops (the SetStores
@@ -183,15 +191,21 @@ func NewReplayer(vehicleID string) *Replayer {
 	// sessions, …) exists once frames exercise the charge path too.
 	m := NewStateMonitor(nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	m.parallaxGPS, m.parallaxDriveDynamics, m.parallaxCapture = false, false, false
-	m.driveCloseHook = func(_ context.Context, d drives.Drive) {
+	m.driveCloseHook = func(ctx context.Context, d drives.Drive) {
 		r.mu.Lock()
 		r.closed = append(r.closed, d)
 		r.mu.Unlock()
+		if r.alsoDrive != nil {
+			r.alsoDrive(ctx, d)
+		}
 	}
-	m.chargeCloseHook = func(_ context.Context, c charges.Charge) {
+	m.chargeCloseHook = func(ctx context.Context, c charges.Charge) {
 		r.mu.Lock()
 		r.charged = append(r.charged, c)
 		r.mu.Unlock()
+		if r.alsoCharge != nil {
+			r.alsoCharge(ctx, c)
+		}
 	}
 	r.m = m
 	return r
