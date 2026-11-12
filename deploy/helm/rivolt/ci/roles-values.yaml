@@ -13,20 +13,28 @@ roles:
   enabled: true
   ingest:
     replicaCount: 2
+    env:
+      RIVOLT_OIDC_PROVIDERS: ""
   api:
     replicaCount: 2
   jobs:
     replicaCount: 1
+    env:
+      RIVOLT_OIDC_PROVIDERS: ""
   secrets:
     secretRefs:
       archive-credentials: [api, jobs]
       mail-credentials: [ingest, api, jobs]
       forward-key: [ingest, api, jobs]
     env:
+      RIVOLT_OIDC_EXAMPLE_CLIENT_ID: [api]
       RIVOLT_OIDC_EXAMPLE_CLIENT_SECRET: [api]
 dbConnections:
   systemMaxConns: 5
 config:
+  baseUrl: https://rivolt.example.test
+  oidc:
+    providers: example
   replicaDivisor: "8"
 extraEnvFrom:
   - secretRef:
@@ -40,6 +48,11 @@ extraEnvFrom:
   - configMapRef:
       name: extra-settings
 extraEnv:
+  - name: RIVOLT_OIDC_EXAMPLE_CLIENT_ID
+    valueFrom:
+      secretKeyRef:
+        name: oidc-example
+        key: CLIENT_ID
   - name: RIVOLT_OIDC_EXAMPLE_CLIENT_SECRET
     valueFrom:
       secretKeyRef:
