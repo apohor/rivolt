@@ -5,7 +5,7 @@ import { ErrorBox, Spinner, Toggle } from "./ui";
 import { track } from "../lib/track";
 import { expiryDate } from "../lib/rivianExpiry";
 import { connectFailure, type ConnectFailure } from "../lib/connectErrors";
-import { discoveryView } from "../lib/vehicleDiscovery";
+import { discoveryStateOf, discoveryView, type DiscoveryState } from "../lib/vehicleDiscovery";
 
 // RivianAccountPanel drives the POST /api/settings/rivian/{login,mfa,
 // logout} flow. Three UI states derived from the status endpoint:
@@ -175,6 +175,20 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
     if (grown) setWatch(null);
   }, [grown]);
   const watching = live && !grown && !ownerSaidNone;
+  // With the server's discovery on, a new link waits minutes while it looks: the card says so, and says "no vehicle" only once it found none
+  // (same query as the connect prompt's; a database read).
+  const noVehicles = authenticated && !!owned.data && owned.data.vehicles.length === 0;
+  const discovery = useQuery({
+    queryKey: ["vehicles", "discovery"],
+    queryFn: () => backend.vehicleDiscovery(),
+    enabled: noVehicles,
+    retry: false,
+    refetchInterval: (q) => (discoveryStateOf(q.state.data, q.state.error instanceof ApiError ? q.state.error.status : undefined) === "looking" ? 30_000 : false),
+  });
+  const dstate = noVehicles ? discoveryStateOf(discovery.data, discovery.error instanceof ApiError ? discovery.error.status : undefined) : null;
+  useEffect(() => {
+    if (dstate === "found") void owned.refetch();
+  }, [dstate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (status.isLoading) return <Spinner />;
   // A refetch that fails while the panel already has an answer keeps showing that answer (the banner polls this same status every 15 s, and
@@ -273,6 +287,7 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
           rechecking={recheck.isPending}
           looking={watching}
           ownerSaidNone={ownerSaidNone && !grown}
+          discovery={dstate}
           onRecheck={() => recheck.mutate()}
           recheckError={recheck.isError ? String(recheck.error) : null}
         />
@@ -498,6 +513,7 @@ function ConnectedVehicles({
   rechecking,
   looking,
   ownerSaidNone,
+  discovery,
   onRecheck,
   recheckError,
 }: {
@@ -506,6 +522,7 @@ function ConnectedVehicles({
   rechecking: boolean;
   looking: boolean;
   ownerSaidNone: boolean;
+  discovery: DiscoveryState | null;
   onRecheck: () => void;
   recheckError: string | null;
 }) {
@@ -538,33 +555,49 @@ function ConnectedVehicles({
       </ul>
     );
   }
+  // Looking (the server's word, or a Check again the owner took) or none; with no word from the server (discovery off) the older wording.
+  const kind = looking ? "looking" : ownerSaidNone ? "none" : discovery === "looking" || discovery === "none" ? discovery : null;
+  const view = kind ? discoveryView(kind) : null;
+  const tone = kind === "looking" ? "neutral" : "amber";
+  const text = tone === "neutral" ? "text-neutral-400" : "text-amber-100/80";
   return (
-    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-      <div className="font-medium text-amber-200">
-        No vehicles on this Rivian account
+    <div
+      data-discovery={kind ?? "legacy"}
+      className={tone === "neutral" ? "rounded-md border border-neutral-700 bg-neutral-900/40 p-3 text-sm" : "rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"}
+    >
+      <div role={view ? "status" : undefined}>
+        <div className={tone === "neutral" ? "font-medium text-neutral-100" : "font-medium text-amber-200"}>
+          {view ? view.title : "No vehicles on this Rivian account"}
+        </div>
+        <p className={`mt-1 text-xs leading-relaxed ${text}`}>
+          {view ? (
+            view.body
+          ) : (
+            <>
+              Sign-in worked, but no vehicle is on this account yet. {NO_VEHICLE_CAUSE} <strong>Check again</strong>.
+            </>
+          )}
+        </p>
       </div>
-      <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
-        Sign-in worked, but no vehicle is on this account yet. {NO_VEHICLE_CAUSE}{" "}
-        <strong>Check again</strong>.
-      </p>
-      <p className="mt-1 text-xs leading-relaxed text-amber-100/80">{NO_VEHICLE_MAIN_ACCOUNT}</p>
+      {kind === "none" && (
+        <p className={`mt-1 text-xs leading-relaxed ${text}`}>
+          {NO_VEHICLE_CAUSE} <strong>Check again</strong>.
+        </p>
+      )}
+      {kind !== "looking" && <p className={`mt-1 text-xs leading-relaxed ${text}`}>{NO_VEHICLE_MAIN_ACCOUNT}</p>}
       <button
         type="button"
         onClick={onRecheck}
         disabled={rechecking}
-        className="mt-2 rounded-md border border-amber-500/50 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-500/10 disabled:opacity-50"
+        className={
+          tone === "neutral"
+            ? "mt-2 rounded-md border border-neutral-600 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+            : "mt-2 rounded-md border border-amber-500/50 px-3 py-1.5 text-xs font-medium text-amber-100 hover:bg-amber-500/10 disabled:opacity-50"
+        }
       >
         {rechecking ? "Checking…" : "Check again"}
       </button>
-      {looking && !rechecking && !recheckError && (
-        <p className="mt-2 text-xs text-amber-100/80" role="status">{discoveryView("looking")!.body}</p>
-      )}
-      {ownerSaidNone && !looking && !rechecking && !recheckError && (
-        <p className="mt-2 text-xs text-amber-100/80" role="status">{discoveryView("none")!.body}</p>
-      )}
-      {recheckError && (
-        <p className="mt-2 text-xs text-rose-300">{recheckError}</p>
-      )}
+      {recheckError && <p className="mt-2 text-xs text-rose-300">{recheckError}</p>}
     </div>
   );
 }

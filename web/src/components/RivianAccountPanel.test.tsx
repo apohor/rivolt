@@ -105,6 +105,30 @@ describe("connect step: driver account first", () => {
     expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
   });
 
+  it("says it is looking, not that there is no vehicle, while the server looks", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+      "/api/vehicles/discovery": { body: { state: "looking" } },
+    });
+    renderPanel();
+    expect(await screen.findByText("Looking for your vehicles")).toBeInTheDocument();
+    expect(screen.queryByText(/No vehicles on this Rivian account/)).toBeNull();
+    expect(screen.queryByText(/Usual cause/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeInTheDocument();
+  });
+
+  it("says no vehicle once the server found none", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+      "/api/vehicles/discovery": { body: { state: "none" } },
+    });
+    renderPanel();
+    expect(await screen.findByText("No vehicles on this Rivian account yet")).toBeInTheDocument();
+    expect(screen.getByText(/Usual cause/)).toBeInTheDocument();
+  });
+
   it("Check again answered 503 Retry-After by a server that asked the owner says Rivolt is checking, not an error", async () => {
     stubFetchRoutes({
       "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
