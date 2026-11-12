@@ -2,7 +2,7 @@
 // then Valhalla, else straight legs), markers for the origin (green), each charging stop (amber) and the destination (rose), and a
 // charger overlay along the route with add / preview popups. MapLibre loads as its own chunk when this mounts (loader.ts); without WebGL it
 // says the map is unavailable and the itinerary beside it stands.
-import { fetchRadarFrame, hideRadar, radarAsOf, radarEnabled, radarSpoken, RADAR_REFRESH_MS, showRadar as addRadar } from "./radar";
+import { fetchRadarFrame, hideRadar, RADAR_DENIED, radarAsOf, radarEnabled, radarSpoken, RADAR_REFRESH_MS, showRadar as addRadar } from "./radar";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GeoJSONSource, Map as MLMap, Marker, Popup } from "maplibre-gl";
 import { inDemo } from "../lib/demo";
@@ -221,7 +221,9 @@ export function TripRouteMap({
     window.setTimeout(() => setWeatherNote(""), 1600);
   };
   // Live radar: starts as the Trip planner settings say (off by default); hidden entirely when the server has the radar flag off.
-  const radarOn = radarEnabled();
+  // A 401/403 on the frame (radar is not served to this visitor) hides the button and says nothing, as if the server had no radar.
+  const [radarDenied, setRadarDenied] = useState(false);
+  const radarOn = radarEnabled() && !radarDenied;
   const [showRadar, setShowRadar] = useState(false);
   const [radarLabel, setRadarLabel] = useState("");
   const [radarSpokenLabel, setRadarSpokenLabel] = useState("");
@@ -238,6 +240,11 @@ export function TripRouteMap({
     const refresh = async () => {
       const f = await fetchRadarFrame(ac.signal);
       if (!alive) return;
+      if (f === RADAR_DENIED) {
+        hideRadar(map);
+        setRadarDenied(true);
+        return;
+      }
       if (!f) { // feed down or stale: show nothing rather than an old picture
         hideRadar(map);
         setRadarLabel("Radar unavailable");
