@@ -2734,7 +2734,7 @@ export const PLANNER_DEFAULTS = {
   corridor: "normal",
   start_exclude_mi: 0,
   min_fast_kw: 0,
-  layers_on: ["dcfc"],
+  layers_on: [],
   preferred_only: false,
   weather_on: true,
   radar_on: true,

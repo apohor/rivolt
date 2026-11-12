@@ -26,9 +26,12 @@ vi.mock("../lib/poi", () => ({
 const plannerState = vi.hoisted(() => ({
   prefs: { drive_mode: "", corridor: "normal", start_exclude_mi: 25, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: false } as Record<string, unknown>,
   settled: true,
+  loaded: true,
 }));
+const savePrefs = vi.hoisted(() => vi.fn());
 vi.mock("../lib/plannerPrefs", () => ({
   usePlannerPrefs: () => plannerState,
+  useSavePlannerPrefs: () => ({ mutate: savePrefs }),
   layerFiltersOf: (p: { corridor: string; start_exclude_mi: number; min_fast_kw: number }) => ({ preset: p.corridor, start_exclude_mi: p.start_exclude_mi, min_fast_kw: p.min_fast_kw }),
 }));
 
@@ -114,6 +117,7 @@ describe("TripRouteMap", () => {
     findLayers.mockResolvedValue({ pois: [], total: 0 });
     findOfNetworks.mockResolvedValue([]);
     plannerState.settled = true;
+    plannerState.loaded = true;
     plannerState.prefs = { drive_mode: "", corridor: "normal", start_exclude_mi: 25, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: false };
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     webgl.mockReturnValue(true);
@@ -136,6 +140,25 @@ describe("TripRouteMap", () => {
     const last = findLayers.mock.calls.find((c) => c[1].includes("dcfc"))!;
     expect(last[1]).toEqual(["dcfc", "hotels"]);
     expect(last[3]).toEqual({ preset: "wide", start_exclude_mi: 50, min_fast_kw: 150 });
+  });
+
+  it("saves a chip tap as the account's layers, and not while the saved settings are not in", async () => {
+    cleanup(); // the test before leaves its map up
+    render(<TripRouteMap route={route} />);
+    const hotel = await screen.findByRole("button", { name: "Hotel" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Fast" }).getAttribute("aria-pressed")).toBe("true"));
+    fireEvent.click(hotel);
+    expect(savePrefs).toHaveBeenLastCalledWith({ layers_on: ["dcfc", "hotels"] });
+    fireEvent.click(screen.getByRole("button", { name: "Fast" }));
+    expect(savePrefs).toHaveBeenLastCalledWith({ layers_on: ["hotels"] });
+    cleanup();
+    savePrefs.mockClear();
+    plannerState.loaded = false; // the read failed: the map runs on the defaults and a save would write them over the rest
+    render(<TripRouteMap route={route} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Hotel" }));
+    expect(screen.getByRole("button", { name: "Hotel" }).getAttribute("aria-pressed")).toBe("true");
+    expect(savePrefs).not.toHaveBeenCalled();
+    cleanup();
   });
 
   it("asks to hide nothing near the start for a line that does not start at the trip origin", async () => {

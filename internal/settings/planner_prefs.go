@@ -46,8 +46,8 @@ const (
 	DefaultRadarOn        = true
 )
 
-// DefaultLayersOn is the layers that start on for a user who never chose.
-func DefaultLayersOn() []string { return []string{"dcfc"} }
+// DefaultLayersOn is the layers that start on for a user who never chose: none, so the route and its stops read clearly until a chip is tapped.
+func DefaultLayersOn() []string { return []string{} }
 
 // Valid driveMode values for Rivian's planTrip2 enum. Names cribbed
 // from the home-assistant-rivian integration's DRIVE_MODE_MAP and

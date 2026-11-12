@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { DEVICE_WEATHER_KEY, usePlannerPrefs } from "./plannerPrefs";
+import { DEVICE_WEATHER_KEY, plannerWithDefaults, usePlannerPrefs } from "./plannerPrefs";
 
 const server = { drive_mode: "SPORT", corridor: "normal", start_exclude_mi: 0, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: false };
 
@@ -27,6 +27,12 @@ function stub() {
 
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.unstubAllGlobals());
+
+describe("plannerWithDefaults", () => {
+  it("starts with every charger layer off for a user who never chose", () => {
+    expect(plannerWithDefaults(undefined).layers_on).toEqual([]);
+  });
+});
 
 describe("usePlannerPrefs", () => {
   it("copies a weather choice made on this device into the account setting once, and shows it at once", async () => {

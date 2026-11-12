@@ -56,7 +56,8 @@ export function usePlannerPrefs() {
   }, [q.isSuccess, q.data, device, qc]);
   const prefs = plannerWithDefaults(q.data);
   if (q.isSuccess && device !== null) prefs.weather_on = device;
-  return { prefs, settled: q.isSuccess || q.isError };
+  // `loaded`: the saved settings are in, so a save built on them keeps every other field.
+  return { prefs, settled: q.isSuccess || q.isError, loaded: q.isSuccess };
 }
 
 // layerFiltersOf is the corridor-layers request fields for a user's settings.
