@@ -14,6 +14,7 @@ import {
   importFailure,
   previewEmpty,
   skipLabel,
+  undoUnknown,
   undoWarning,
   warningText,
 } from "../lib/historyImport";
@@ -31,9 +32,18 @@ function invalidateData(qc: ReturnType<typeof useQueryClient>) {
 
 function ImportError({ err }: { err: unknown }) {
   const f = importFailure(err);
+  const q = useQuery({ queryKey: ["imports"], queryFn: () => backend.listImports(), enabled: !!f.importID });
+  let text = f.text;
+  if (f.importID) {
+    const rec = q.data?.find((r) => r.id === f.importID);
+    if (q.isLoading) text = `${f.text} Checking what was saved.`;
+    else if (rec?.finished_at && !rec.undone_at) text = "The import finished, but the connection dropped before it said so. See Imports below.";
+    else if (rec && !rec.undone_at) text = `${f.text} ${drivesText(rec.drives)} and ${chargesText(rec.charges)} were saved so far. Undo it in Imports, then try again.`;
+    else text = `${f.text} Nothing was kept. Try again.`;
+  }
   return (
     <div role="alert" className="space-y-1 text-sm text-rose-300">
-      <p>{f.text}</p>
+      <p>{text}</p>
       {f.header && f.header.length > 0 && (
         <>
           <p className="text-neutral-400">The first line of the file reads:</p>
@@ -58,8 +68,10 @@ export function HistoryImportCard() {
   const [unit, setUnit] = useState("");
   const [energyUnit, setEnergyUnit] = useState("");
   const [fileVehicle, setFileVehicle] = useState("");
+  const [confirmUndo, setConfirmUndo] = useState(false);
   const [vehicleID, setVehicleID] = useState("");
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const importsQ = useQuery({ queryKey: ["imports"], queryFn: () => backend.listImports(), enabled: !!preview?.already_imported });
   const [event, setEvent] = useState<ImportEvent | null>(null);
   const [result, setResult] = useState<{ drives: number; charges: number } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -104,6 +116,7 @@ export function HistoryImportCard() {
       invalidateData(qc);
       setPreview(null);
       previewM.reset();
+      setConfirmUndo(false);
       setStep("files");
     },
   });
@@ -240,9 +253,26 @@ export function HistoryImportCard() {
             {preview.already_imported && (
               <div className="rounded-md border border-amber-800 p-3 text-amber-200">
                 <p>You already imported this file on {fmtDay(preview.already_imported.at)}.</p>
-                <button type="button" className={`${btn} mt-2`} disabled={undoM.isPending} onClick={() => undoM.mutate(preview.already_imported!.id)}>
-                  Undo that import
-                </button>
+                {!confirmUndo ? (
+                  <button type="button" className={`${btn} mt-2`} onClick={() => setConfirmUndo(true)}>
+                    Undo that import
+                  </button>
+                ) : (
+                  <div role="alertdialog" aria-label="Confirm undo" className="mt-2 rounded-md border border-rose-900 p-3 text-neutral-200">
+                    <p>
+                      {(() => {
+                        const rec = importsQ.data?.find((r) => r.id === preview.already_imported!.id);
+                        return rec ? undoWarning(rec.drives, rec.charges) : undoUnknown;
+                      })()}
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" className={btn} onClick={() => setConfirmUndo(false)}>Keep</button>
+                      <button type="button" className="rounded-md border border-rose-800 px-3 py-1.5 text-sm text-rose-200 hover:border-rose-600 disabled:opacity-50" disabled={undoM.isPending} onClick={() => undoM.mutate(preview.already_imported!.id)}>
+                        Remove them
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             <p className="text-neutral-200">

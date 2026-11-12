@@ -122,3 +122,19 @@ test("a file that needs a choice asks for it, then previews", async ({ page }) =
   await expect(card.getByText("12 drives and 4 charges will be added")).toBeVisible();
   expect(n).toBe(2);
 });
+
+test("undoing an already-imported file asks first", async ({ page }) => {
+  const state = await setup(page);
+  state.imports = [{ id: "imp-1", source: "tezlab", started_at: "2025-07-01T12:00:00Z", rows: 40, drives: 12, charges: 4, first: PREVIEW.first, last: PREVIEW.last }];
+  await page.route("**/api/import/preview", (r) => r.fulfill({ json: { ...PREVIEW, already_imported: { id: "imp-1", at: "2025-07-01T12:00:00Z" } } }));
+  await page.goto("/settings?tab=data#import-history");
+  const card = page.locator("[data-history-import]");
+  await card.getByRole("button", { name: "Continue" }).click();
+  await card.locator('input[type="file"]').setInputFiles({ name: "x.csv", mimeType: "text/csv", buffer: Buffer.from("a\n") });
+  await card.getByRole("button", { name: "Check file" }).click();
+  await card.getByRole("button", { name: "Undo that import" }).click();
+  await expect(card.getByText("This removes 12 drives and 4 charges.")).toBeVisible();
+  expect(state.undone).toBe(false);
+  await card.getByRole("button", { name: "Remove them" }).click();
+  await expect.poll(() => state.undone).toBe(true);
+});

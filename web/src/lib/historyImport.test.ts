@@ -17,6 +17,9 @@ describe("history import copy", () => {
     const f = importFailure(new ApiError(422, { error: "x", code: "unknown_columns", header: ["a", "b"] }));
     expect(f.header).toEqual(["a", "b"]);
   });
+  it("a stopped commit carries its import id", () => {
+    expect(importFailure(new ApiError(500, { error: "x", code: "stopped", id: "i1" })).importID).toBe("i1");
+  });
   it("maps codes, and carries what the file does not say", () => {
     expect(importFailure(new ApiError(409, { error: "x", code: "preview_stale" })).text).toMatch(/changed/);
     const n = importFailure(new ApiError(422, { error: "x", code: "need_choice", need: ["distance_unit"] }));

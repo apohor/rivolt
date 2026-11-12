@@ -1881,6 +1881,7 @@ export const backend = {
     let buf = "";
     let done: { id: string; drives: number; charges: number } | null = null;
     let err: string | null = null;
+    let importID = "";
     const line = (l: string) => {
       if (!l.trim()) return;
       let ev: Record<string, unknown>;
@@ -1889,6 +1890,7 @@ export const backend = {
       } catch {
         return;
       }
+      if (typeof ev.id === "string") importID = ev.id;
       if (ev.type === "done") done = ev as unknown as { id: string; drives: number; charges: number };
       else if (ev.type === "error") err = String(ev.error ?? "import failed");
       else onEvent?.(ev as unknown as ImportEvent);
@@ -1906,7 +1908,7 @@ export const backend = {
       if (eof) break;
     }
     line(buf);
-    if (err) throw new ApiError(500, { error: err, code: "stopped" });
+    if (err) throw new ApiError(500, { error: err, code: "stopped", id: importID });
     if (!done) throw new ApiError(500, { error: "The import stopped before it finished.", code: "stopped" });
     return done as { id: string; drives: number; charges: number };
   },

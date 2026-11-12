@@ -73,12 +73,14 @@ export type ImportFailure = {
   // need: what the file does not say and the person must choose: distance_unit, energy_unit, timezone, vehicle.
   need?: string[];
   vehicles?: string[];
+  // importID: the import a stopped commit had started, to look up in Imports.
+  importID?: string;
 };
 
 // importFailure turns a preview or commit failure into one plain sentence, keyed on the server's code.
 export function importFailure(err: unknown): ImportFailure {
   if (!(err instanceof ApiError)) return { text: "Something went wrong. Try again." };
-  const b = (err.body && typeof err.body === "object" ? err.body : {}) as { code?: string; header?: string[]; need?: string[]; vehicles?: string[] };
+  const b = (err.body && typeof err.body === "object" ? err.body : {}) as { id?: string; code?: string; header?: string[]; need?: string[]; vehicles?: string[] };
   switch (b.code) {
     case "need_choice":
       return { text: "The file does not say everything we need. Choose below.", need: b.need ?? [], vehicles: b.vehicles };
@@ -98,10 +100,13 @@ export function importFailure(err: unknown): ImportFailure {
     case "busy":
       return { text: err.retryAfter ? `Busy right now. Try again in ${err.retryAfter} seconds.` : "Busy right now. Try again soon." };
     case "stopped":
-      return { text: "The import stopped part way. Undo it in Imports and try again." };
+      return { text: "The import stopped part way.", importID: b.id };
     case "vehicle_not_found":
       return { text: "That vehicle was not found. Pick it again." };
   }
   if (err.status === 404) return { text: "Importing history is not available here." };
   return { text: "Something went wrong. Try again." };
 }
+
+// undoUnknown: the undo confirmation when the import's counts are not at hand.
+export const undoUnknown = "This removes everything that import added. Notes or tags you added to them go too.";
