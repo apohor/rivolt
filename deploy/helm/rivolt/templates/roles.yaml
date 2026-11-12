@@ -7,27 +7,43 @@
 {{- $spec := index $.Values.roles $name | default dict }}
 {{- $ctx := dict "Values" $.Values "Release" $.Release "Chart" $.Chart "Template" $.Template "Capabilities" $.Capabilities "Files" $.Files "role" $name }}
 ---
+{{- /* With rollout.enabled, the api role is an Argo Rollout (canary on the one lease-free tier); ingest and jobs stay Deployments: an
+       ingest roll is the lease move, so it is stepped by hand, not canaried. */}}
+{{- $asRollout := and $.Values.rollout.enabled (eq $name "api") }}
+{{- if $asRollout }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+{{- else }}
 apiVersion: apps/v1
 kind: Deployment
+{{- end }}
 metadata:
   name: {{ include "rivolt.fullname" $ }}-{{ $name }}
   namespace: {{ $.Release.Namespace }}
   labels:
     {{- include "rivolt.labels" $ | nindent 4 }}
     rivolt.dev/role: {{ $name }}
-  {{- if or $.Values.migrate.job.enabled $.Values.deploymentAnnotations }}
+  {{- if or $.Values.migrate.job.enabled (and (not $asRollout) $.Values.deploymentAnnotations) (and $asRollout $.Values.rollout.annotations) }}
   annotations:
     {{- if $.Values.migrate.job.enabled }}
     argocd.argoproj.io/sync-wave: "1"
     {{- end }}
-    {{- with $.Values.deploymentAnnotations }}
+    {{- with (ternary $.Values.rollout.annotations $.Values.deploymentAnnotations $asRollout) }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
   {{- end }}
 spec:
   replicas: {{ $spec.replicaCount | default 1 }}
+  {{- if $asRollout }}
+  revisionHistoryLimit: 2
+  {{- with $.Values.rollout.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- else }}
   strategy:
     {{- toYaml $.Values.updateStrategy | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "rivolt.selectorLabels" $ | nindent 6 }}

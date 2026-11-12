@@ -291,6 +291,11 @@ indentation of a "template:" key two spaces in (its content at four), starting o
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- if $role }}
+        {{- with (index .Values.roles $role | default dict).podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- end }}
       annotations:
         # Roll the pod when config or app secrets change so we don't
         # serve stale env until the next manual restart. Only the CONTENT is
@@ -358,6 +363,25 @@ indentation of a "template:" key two spaces in (its content at four), starting o
             {{- with $role }}
             - name: RIVOLT_ROLE
               value: {{ . | quote }}
+            {{- end }}
+            {{- /* Per-role pool shares and pins (roles.<role>.*): a container env entry wins over the shared ConfigMap, so one role can
+                   have its own pool and divisor, and ingest can pin its lease flags whatever the shared config says. */}}
+            {{- if $role }}
+            {{- $rs := index .Values.roles $role | default dict }}
+            {{- with $rs.dbMaxConns }}
+            - name: RIVOLT_DB_MAX_CONNS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.dbConnections.requestPool }}
+            - name: RIVOLT_REQUEST_DB_MAX_CONNS
+              value: {{ or $rs.requestMaxConns .Values.dbConnections.requestMaxConns | quote }}
+            {{- end }}
+            - name: RIVOLT_REPLICA_DIVISOR
+              value: {{ include "rivolt.roleDivisor" (dict "root" $ "role" $role) | quote }}
+            {{- range $k, $v := $rs.env | default dict }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
             {{- end }}
             {{- if not .Values.adminOnly }}
             # Pod identity for the subscription-lease coordinator
@@ -625,6 +649,40 @@ Per-role Deployments (roles.enabled; zero-downtime design §2.6, S19 9f). The ro
 {{- define "rivolt.roleNames" -}}ingest api jobs{{- end }}
 
 {{/*
+rivolt.roleDivisor: the replica divisor of the role .role: roles.<role>.replicaDivisor, else config.replicaDivisor, else the pods of every role
+that may run at once (the fallback limits while Redis is down are install-wide, so every pod takes 1/that).
+*/}}
+{{- define "rivolt.roleDivisor" -}}
+{{- $total := 0 }}
+{{- range $r := splitList " " (include "rivolt.roleNames" .root) }}{{ $total = add $total (int (include "rivolt.rolePods" (dict "root" $.root "role" $r))) }}{{ end }}
+{{- (index .root.Values.roles .role | default dict).replicaDivisor | default .root.Values.config.replicaDivisor | default $total }}
+{{- end }}
+
+{{/*
+rivolt.rolePods: the most pods of the role .role that may run at once (.root is the chart context): replicaCount plus the surge of its
+rolling update; for the api Rollout with traffic routing and no dynamicStableScale the stable set stays at full size while the canary
+scales up, so twice replicaCount. A percentage surge rounds up, as Kubernetes and Argo do.
+*/}}
+{{- define "rivolt.rolePods" -}}
+{{- $v := .root.Values }}
+{{- $n := int (dig "replicaCount" 1 (index $v.roles .role | default dict)) }}
+{{- $ms := dig "rollingUpdate" "maxSurge" 1 ($v.updateStrategy | default dict) }}
+{{- $peak := 0 }}
+{{- if and (eq .role "api") $v.rollout.enabled }}
+{{- $c := dig "canary" (dict) ($v.rollout.strategy | default dict) }}
+{{- $ms = dig "maxSurge" "25%" $c }}
+{{- if and $c.trafficRouting (not $c.dynamicStableScale) }}{{ $peak = mul 2 $n }}{{ end }}
+{{- end }}
+{{- $surge := 0 }}
+{{- if kindIs "string" $ms }}
+{{- $surge = int (ceil (divf (mulf $n (float64 (trimSuffix "%" $ms))) 100)) }}
+{{- else }}
+{{- $surge = int $ms }}
+{{- end }}
+{{- max $peak (add $n $surge) }}
+{{- end }}
+
+{{/*
 rivolt.roleMounts: "true" when the role in .role mounts the secret .name of the matrix row set .rows (roles.secrets.appSecretKeys,
 secretRefs or env).
 */}}
@@ -639,13 +697,54 @@ per-role pool shares), on a matrix entry naming an unknown role, and on a secret
 {{- define "rivolt.rolesCheck" -}}
 {{- $v := .Values }}
 {{- $m := $v.roles.secrets | default dict }}
-{{- if $v.rollout.enabled }}{{ fail "roles.enabled: the api Rollout comes with the cutover (S19 9h); turn rollout.enabled off" }}{{ end }}
 {{- if $v.autoscaling.enabled }}{{ fail "roles.enabled: set roles.<role>.replicaCount; autoscaling does not apply per role yet" }}{{ end }}
 {{- if $v.persistence.enabled }}{{ fail "roles.enabled: three Deployments cannot share the /data claim; turn persistence.enabled off" }}{{ end }}
 {{- if $v.adminOnly }}{{ fail "roles.enabled: the admin release runs no roles" }}{{ end }}
 {{- if $v.metrics.serviceMonitor.enabled }}{{ fail "roles.enabled: the Service selects the api pods only; scrape with metrics.podMonitor instead of metrics.serviceMonitor" }}{{ end }}
-{{- if not $v.dbConnections.systemMaxConns }}{{ fail "roles.enabled: set dbConnections.systemMaxConns (and requestMaxConns) for the pods of all three roles plus surge; per-role shares come with S19 9h" }}{{ end }}
-{{- if not $v.config.replicaDivisor }}{{ fail "roles.enabled: set config.replicaDivisor to the pods of all three roles that may run at once" }}{{ end }}
+{{- /* Pool budget (ruling: pools checked, not hand-counted): the sum over roles of the pods that may run at once times the connections of one
+       pod must fit dbConnections.budget. Explicit sizes override the floor, as for a single Deployment. */}}
+{{- $db := $v.dbConnections }}
+{{- $conns := 0 }}
+{{- $pods := 0 }}
+{{- range $r := splitList " " (include "rivolt.roleNames" .) }}
+{{- $rs := index $v.roles $r | default dict }}
+{{- $n := int (include "rivolt.rolePods" (dict "root" $ "role" $r)) }}
+{{- $sys := int (or $rs.dbMaxConns $db.systemMaxConns) }}
+{{- if not $sys }}{{ fail (printf "roles.enabled: set roles.%s.dbMaxConns (or dbConnections.systemMaxConns for every role) to the pool of one %s pod" $r $r) }}{{ end }}
+{{- $req := 0 }}
+{{- if $db.requestPool }}
+{{- $req = int (or $rs.requestMaxConns $db.requestMaxConns) }}
+{{- if not $req }}{{ fail (printf "roles.enabled: requestPool is on, so set roles.%s.requestMaxConns (or dbConnections.requestMaxConns): the ConfigMap's value is derived from the top-level replicaCount, not this role's pods" $r) }}{{ end }}
+{{- end }}
+{{- $conns = add $conns (mul $n (add $sys $req)) }}
+{{- $pods = add $pods $n }}
+{{- end }}
+{{- if gt (int $conns) (int ($db.budget | default 43)) }}{{ fail (printf "roles.enabled: the roles need %d database connections at their surge peak (pods x pool, summed), over dbConnections.budget %v; shrink a pool or raise max_connections and the budget first" (int $conns) ($db.budget | default 43)) }}{{ end }}
+{{- /* The fallback limits while Redis is down are install-wide: each pod takes 1/divisor of them, so the shares of all pods must not add up
+       to more than 1 (default divisor: every pod of every role that may run at once). */}}
+{{- $share := 0.0 }}
+{{- range $r := splitList " " (include "rivolt.roleNames" .) }}
+{{- $div := int (include "rivolt.roleDivisor" (dict "root" $ "role" $r)) }}
+{{- $share = addf $share (divf (float64 (int (include "rivolt.rolePods" (dict "root" $ "role" $r)))) (float64 $div)) }}
+{{- end }}
+{{- if gt $share 1.0001 }}{{ fail (printf "roles.enabled: the replica divisors give the pods %.2f times the shared fallback limits (must be <= 1): use the pods of all roles that may run at once (%d) for every role, or leave them unset" $share (int $pods)) }}{{ end }}
+{{- /* Names the chart sets itself must not be set a second time: the last duplicate wins, so extraEnv or a role env would silently beat them. */}}
+{{- range $r := splitList " " (include "rivolt.roleNames" .) }}
+{{- $rs := index $v.roles $r | default dict }}
+{{- range $k := keys ($rs.env | default dict) }}
+{{- if has $k (list "RIVOLT_ROLE" "RIVOLT_POD_ID" "RIVOLT_POD_GENERATION" "RIVOLT_DB_MAX_CONNS" "RIVOLT_REQUEST_DB_MAX_CONNS" "RIVOLT_REPLICA_DIVISOR") }}{{ fail (printf "roles.%s.env: %s is set by the chart (use roles.%s.dbMaxConns / requestMaxConns / replicaDivisor)" $r $k $r) }}{{ end }}
+{{- range $e := $v.extraEnv }}{{ if eq $e.name $k }}{{ fail (printf "roles.%s.env.%s is also in extraEnv, and the later entry would win: set it in one place" $r $k) }}{{ end }}{{ end }}
+{{- end }}
+{{- if hasKey ($rs.podLabels | default dict) "rivolt.dev/role" }}{{ fail (printf "roles.%s.podLabels: rivolt.dev/role is the chart's own label" $r) }}{{ end }}
+{{- range $k := keys ($rs.podLabels | default dict) }}
+{{- if hasKey ($v.podLabels | default dict) $k }}{{ fail (printf "roles.%s.podLabels.%s is also in podLabels, and a duplicate key renders twice: set it in one place" $r $k) }}{{ end }}
+{{- if has $k (list "app.kubernetes.io/name" "app.kubernetes.io/instance") }}{{ fail (printf "roles.%s.podLabels.%s is a Service selector label" $r $k) }}{{ end }}
+{{- end }}
+{{- end }}
+{{- if hasKey ($v.podLabels | default dict) "rivolt.dev/role" }}{{ fail "roles.enabled: podLabels must not carry rivolt.dev/role (the chart sets it per role)" }}{{ end }}
+{{- range $e := $v.extraEnv }}
+{{- if has $e.name (list "RIVOLT_ROLE" "RIVOLT_POD_ID" "RIVOLT_POD_GENERATION" "RIVOLT_DB_MAX_CONNS" "RIVOLT_REQUEST_DB_MAX_CONNS" "RIVOLT_REPLICA_DIVISOR") }}{{ fail (printf "roles.enabled: extraEnv %s duplicates an env entry the chart sets" $e.name) }}{{ end }}
+{{- end }}
 {{- $names := splitList " " (include "rivolt.roleNames" .) }}
 {{- range $kind := list "appSecretKeys" "secretRefs" "env" }}
 {{- range $name, $roles := index $m $kind | default dict }}

@@ -8,9 +8,14 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "rivolt.labels" . | nindent 4 }}
-  {{- if .Values.migrate.job.enabled }}
+  {{- if or .Values.migrate.job.enabled .Values.rollout.annotations }}
   annotations:
+    {{- if .Values.migrate.job.enabled }}
     argocd.argoproj.io/sync-wave: "1"
+    {{- end }}
+    {{- with .Values.rollout.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}

@@ -1,0 +1,46 @@
+# CI render (ingest 3 x 6 + jobs 2 x 4 + api 3 x 5 = 41 connections at the surge peak, under the budget of 43; the divisor defaults to the 8 pods): roles with the api role as an Argo Rollout, per-role pool shares and divisors, and ingest's lease flags pinned.
+secrets:
+  existingSecret: rivolt-app
+  autoGenerateKek: false
+cnpg:
+  enabled: true
+  instances: 1
+  storage:
+    size: 8Gi
+rollout:
+  enabled: true
+  annotations:
+    argocd.argoproj.io/sync-options: PruneLast=true
+  strategy:
+    canary:
+      stableService: rivolt-stable
+      canaryService: rivolt-canary
+      dynamicStableScale: true
+      trafficRouting:
+        traefik:
+          weightedTraefikServiceName: rivolt-weighted
+      steps:
+        - setWeight: 25
+        - pause: {duration: 120s}
+deploymentAnnotations:
+  argocd.argoproj.io/sync-options: PruneLast=true
+roles:
+  enabled: true
+  ingest:
+    replicaCount: 2
+    dbMaxConns: 6
+    env:
+      RIVOLT_GROUP_LEAD: "1"
+      RIVOLT_SINGLE_OWNER: "1"
+      RIVOLT_FORWARD: "1"
+      RIVOLT_OWNER_DISCOVERY: "1"
+  api:
+    replicaCount: 2
+    dbMaxConns: 5
+    podLabels:
+      rivolt.dev/public: "true"
+  jobs:
+    replicaCount: 1
+    dbMaxConns: 4
+  secrets:
+    appSecretKeys: {}

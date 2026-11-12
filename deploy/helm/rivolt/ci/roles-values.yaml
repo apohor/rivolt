@@ -25,7 +25,7 @@ roles:
     env:
       RIVOLT_OIDC_EXAMPLE_CLIENT_SECRET: [api]
 dbConnections:
-  systemMaxConns: 6
+  systemMaxConns: 5
 config:
   replicaDivisor: "8"
 extraEnvFrom:

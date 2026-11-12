@@ -64,6 +64,39 @@ refuse 'extraEnv RIVOLT_UNASSIGNED comes from a Secret' --set 'extraEnv[0].name=
 refuse 'unknown role "worker"' --set 'roles.secrets.env.RIVOLT_OIDC_EXAMPLE_CLIENT_SECRET[0]=worker'
 refuse 'holds VAPID_PRIVATE_KEY and roles.secrets.appSecretKeys does not assign it' --set secrets.existingSecret= --set 'secrets.kek=v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
   --set secrets.vapidPrivateKey=x --set roles.secrets.appSecretKeys.VAPID_PRIVATE_KEY=null
-refuse 'the api Rollout comes with the cutover' --set rollout.enabled=true
-refuse 'set dbConnections.systemMaxConns' --set dbConnections.systemMaxConns=
+refuse 'set roles.ingest.dbMaxConns' --set dbConnections.systemMaxConns=
+refuse 'database connections at their surge peak' --set dbConnections.systemMaxConns=6
+refuse 'requestPool is on, so set roles.ingest.requestMaxConns' --set dbConnections.requestPool=true
+refuse 'times the shared fallback limits' --set roles.ingest.replicaDivisor=3 --set roles.api.replicaDivisor=4 --set roles.jobs.replicaDivisor=2
+refuse 'roles.ingest.env: RIVOLT_DB_MAX_CONNS is set by the chart' --set roles.ingest.env.RIVOLT_DB_MAX_CONNS=3
+refuse 'is also in extraEnv, and the later entry would win' --set roles.ingest.env.RIVOLT_EXAMPLE_PLAIN=2
+refuse 'extraEnv RIVOLT_ROLE duplicates' --set 'extraEnv[1].name=RIVOLT_ROLE' --set 'extraEnv[1].value=x'
+refuse 'rivolt.dev/role is the chart' --set 'roles.api.podLabels.rivolt\.dev/role=x'
+refuse 'is also in podLabels' --set 'podLabels.team=a' --set 'roles.api.podLabels.team=b'
+refuse 'is a Service selector label' --set 'roles.api.podLabels.app\.kubernetes\.io/name=x'
+refuse 'podLabels must not carry rivolt.dev/role' --set 'podLabels.rivolt\.dev/role=x'
+# With rollout.enabled the api role is the only Rollout, and the Rollout mounts the same row as the api Deployment did.
+rr=$(helm template rivolt "$chart" -f "$case" --set rollout.enabled=true --set rollout.strategy.canary.steps[0].setWeight=25)
+[ "$(echo "$rr" | yq 'select(.kind == "Rollout") | .metadata.name' | grep '^rivolt')" = rivolt-api ] || { echo "::error::rollout.enabled with roles: want the api role as the only Rollout"; fail=1; }
+[ "$(echo "$rr" | yq 'select(.kind == "Deployment") | .metadata.name' | grep '^rivolt' | sort | tr '\n' ' ')" = "rivolt-ingest rivolt-jobs " ] || { echo "::error::rollout.enabled with roles: ingest and jobs must stay Deployments"; fail=1; }
+[ "$(echo "$out" | yq 'select(.kind == "Deployment" and .metadata.name == "rivolt-api") | .spec.template.spec.containers[0] | [(.envFrom[]? | select(.secretRef) | .secretRef.name), (.env[]? | .name)] | sort | join(",")' | grep -v -e '^---$' -e '^$')" \
+  = "$(echo "$rr" | yq 'select(.kind == "Rollout") | .spec.template.spec.containers[0] | [(.envFrom[]? | select(.secretRef) | .secretRef.name), (.env[]? | .name)] | sort | join(",")' | grep -v -e '^---$' -e '^$')" ] \
+  || { echo "::error::the api Rollout mounts a different row than the api Deployment"; fail=1; }
+# Ingest carries the four pinned lease flags as container env (explicit env wins over both envFrom sources), only ingest, and the
+# api pods alone carry the Service label.
+rv=$chart/ci/roles-rollout-values.yaml
+rr2=$(helm template rivolt "$chart" -f "$rv")
+for k in RIVOLT_GROUP_LEAD RIVOLT_SINGLE_OWNER RIVOLT_FORWARD RIVOLT_OWNER_DISCOVERY; do
+  for r in ingest api jobs; do
+    v=$(echo "$rr2" | yq "select(.metadata.name == \"rivolt-$r\") | .spec.template.spec.containers[0].env[]? | select(.name == \"$k\") | .value" | grep -v -e '^---$' -e '^$' || true)
+    if [ "$r" = ingest ]; then [ "$v" = 1 ] || { echo "::error::rivolt-ingest does not pin $k=1"; fail=1; }
+    else [ -z "$v" ] || { echo "::error::rivolt-$r pins $k"; fail=1; }; fi
+  done
+done
+for r in ingest api jobs; do
+  l=$(echo "$rr2" | yq "select(.metadata.name == \"rivolt-$r\") | .spec.template.metadata.labels.\"rivolt.dev/public\"" | grep -v -e '^---$' -e '^$' -e '^null$' || true)
+  if [ "$r" = api ]; then [ "$l" = true ] || { echo "::error::api pods lack rivolt.dev/public"; fail=1; }
+  else [ -z "$l" ] || { echo "::error::rivolt-$r carries rivolt.dev/public"; fail=1; }; fi
+done
+[ "$(echo "$rr2" | yq 'select(.kind == "Rollout") | .metadata.annotations."argocd.argoproj.io/sync-options"' | grep -v -e '^---$' -e '^$')" = PruneLast=true ] || { echo "::error::rollout.annotations did not reach the api Rollout"; fail=1; }
 exit $fail
