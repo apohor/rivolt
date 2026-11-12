@@ -1162,7 +1162,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for prefix in go-unit-a-Linux- go-unit-b-Linux- go-integration-Linux- go-image-Linux- gomod-Linux- playwright-Linux-chromium- playwright-Linux-webkit- e2e-timings-chromium- e2e-timings-webkit-; do
+          for prefix in go-unit-a-Linux- go-unit-b-Linux- go-integration-a-Linux- go-integration-b-Linux- go-integration-c-Linux- go-image-Linux- gomod-Linux- playwright-Linux-chromium- playwright-Linux-webkit- e2e-timings-chromium- e2e-timings-webkit-; do
             ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 100 --json id,key,sizeInBytes \
               | jq -r '.[1:][] | "\(.id) \(.key) \(.sizeInBytes)"')
             kept=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 1 --json key -q '.[0].key')
