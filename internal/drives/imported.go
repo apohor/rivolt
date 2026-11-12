@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/apohor/rivolt/internal/db"
 
 	"github.com/google/uuid"
 
@@ -85,24 +86,37 @@ func (s *Store) InsertImported(ctx context.Context, importID uuid.UUID, d Drive,
 // export and the recorder) from counting one trip twice, while a short drive that does not overlap anything is kept. A session of no
 // length overlaps nothing, as in LiveCovers.
 func (s *Store) Covers(ctx context.Context, rivianVehicleID string, start, end time.Time) (bool, error) {
-	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	got, err := s.CoversBatch(ctx, rivianVehicleID, []time.Time{start}, []time.Time{end})
 	if err != nil {
 		return false, err
 	}
-	var ok bool
-	err = s.db.QueryRowContext(ctx, `
-		SELECT EXISTS (
+	return got[0], nil
+}
+
+// CoversBatch is Covers for many sessions at once: one query per call, not per session. starts and ends are parallel; the answer has one
+// entry per session. Callers send chunks of about 1000.
+func (s *Store) CoversBatch(ctx context.Context, rivianVehicleID string, starts, ends []time.Time) ([]bool, error) {
+	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT n.i - 1 FROM unnest(string_to_array($3, ',')::timestamptz[], string_to_array($4, ',')::timestamptz[]) WITH ORDINALITY AS n(s, e, i)
+		 WHERE EXISTS (
 		  SELECT 1 FROM drives d,
-		         LATERAL (SELECT GREATEST(d.ended_at, d.started_at) AS e_end, GREATEST($4::timestamptz, $3::timestamptz) AS n_end) x
+		         LATERAL (SELECT GREATEST(d.ended_at, d.started_at) AS e_end, GREATEST(n.e, n.s) AS n_end) x
 		   WHERE d.user_id = $1 AND d.vehicle_id = $2
-		     AND d.started_at <= GREATEST($4::timestamptz, $3::timestamptz)
-		     AND d.started_at >= $3::timestamptz - interval '7 days'
-		     AND tstzrange(d.started_at, x.e_end) && tstzrange($3::timestamptz, x.n_end)
-		     AND (LEAST(x.e_end, x.n_end) - GREATEST(d.started_at, $3::timestamptz)
-		            >= 0.5 * LEAST(x.e_end - d.started_at, x.n_end - $3::timestamptz)
-		          OR abs(extract(epoch FROM d.started_at - $3::timestamptz)) <= 300))`,
-		s.userID, vid, start.UTC(), end.UTC()).Scan(&ok)
-	return ok, err
+		     AND d.started_at <= GREATEST(n.e, n.s)
+		     AND d.started_at >= n.s - interval '7 days'
+		     AND tstzrange(d.started_at, x.e_end) && tstzrange(n.s, x.n_end)
+		     AND (LEAST(x.e_end, x.n_end) - GREATEST(d.started_at, n.s)
+		            >= 0.5 * LEAST(x.e_end - d.started_at, x.n_end - n.s)
+		          OR abs(extract(epoch FROM d.started_at - n.s)) <= 300))`,
+		s.userID, vid, db.TimeList(starts), db.TimeList(ends))
+	if err != nil {
+		return nil, err
+	}
+	return flags(rows, len(starts))
 }
 
 // UndoImport deletes the drives a batch brought in, with the per-drive rows that hang off them (see Reset), inside tx (the caller's, so the

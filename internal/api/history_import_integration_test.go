@@ -41,6 +41,7 @@ type hiEnv struct {
 	pool *sql.DB
 	h    http.Handler
 	uid  uuid.UUID
+	api  *historyImportAPI
 }
 
 func (e *hiEnv) as(uid uuid.UUID) http.Handler {
@@ -130,7 +131,7 @@ func newHIEnv(t *testing.T) (*hiEnv, uuid.UUID) {
 		}
 		return uid
 	}
-	e := &hiEnv{t: t, pool: pool, h: r}
+	e := &hiEnv{t: t, pool: pool, h: r, api: a}
 	e.uid = mk("hi-a")
 	return e, mk("hi-b")
 }
@@ -290,4 +291,71 @@ func TestHistoryImportCommitIsRateLimited(t *testing.T) {
 	if rec.Code != 429 || rec.Header().Get("Retry-After") == "" {
 		t.Errorf("commit = %d %s", rec.Code, rec.Body)
 	}
+}
+
+// The batch dedupe answers exactly what the one-session calls do, for drives and charges, live and any source, on spans that touch,
+// overlap, nest, sit five minutes apart, have no length or are reversed.
+func TestHistoryImportBatchDedupeMatchesSingleCalls(t *testing.T) {
+	e, _ := newHIEnv(t)
+	ctx := auth.WithUser(context.Background(), e.uid)
+	var vid uuid.UUID
+	if err := e.pool.QueryRow(`SELECT id FROM vehicles WHERE user_id = $1`, e.uid).Scan(&vid); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 40; i++ {
+		src := []string{"live", "tezlab_import", "electrafi_import"}[i%3]
+		st := base.Add(time.Duration(i) * 47 * time.Minute)
+		en := st.Add(time.Duration(5+i%7*9) * time.Minute)
+		for _, tbl := range []string{"drives", "charges"} {
+			if _, err := e.pool.Exec(`INSERT INTO `+tbl+` (user_id, vehicle_id, external_id, started_at, ended_at, source) VALUES ($1,$2,$3,$4,$5,$6)`,
+				e.uid, vid, fmt.Sprintf("%s-%d", tbl, i), st, en, src); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	var starts, ends []time.Time
+	for i := 0; i < 300; i++ {
+		st := base.Add(time.Duration(i*13%1900-60) * time.Minute).Add(time.Duration(i%5) * 100 * time.Second)
+		var en time.Time
+		switch i % 4 {
+		case 0:
+			en = st
+		case 1:
+			en = st.Add(-time.Minute)
+		default:
+			en = st.Add(time.Duration(1+i%11*7) * time.Minute)
+		}
+		starts, ends = append(starts, st), append(ends, en)
+	}
+	ds, cs := e.api.d.Drives.For(e.uid), e.api.d.Charges.For(e.uid)
+	check := func(name string, all []bool, err error, one func(st, en time.Time) (bool, error)) {
+		if err != nil {
+			t.Fatal(name, err)
+		}
+		hits := 0
+		for i := range starts {
+			want, err := one(starts[i], ends[i])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if all[i] != want {
+				t.Errorf("%s span %d: batch %v, single %v", name, i, all[i], want)
+			}
+			if want {
+				hits++
+			}
+		}
+		if hits == 0 || hits == len(starts) {
+			t.Errorf("%s: %d of %d spans covered; the data does not exercise both answers", name, hits, len(starts))
+		}
+	}
+	a, err := ds.CoversBatch(ctx, "rv-hi-a", starts, ends)
+	check("drives covers", a, err, func(s, en time.Time) (bool, error) { return ds.Covers(ctx, "rv-hi-a", s, en) })
+	a, err = ds.LiveCoversBatch(ctx, "rv-hi-a", starts, ends)
+	check("drives live", a, err, func(s, en time.Time) (bool, error) { return ds.LiveCovers(ctx, "rv-hi-a", s, en) })
+	a, err = cs.CoversBatch(ctx, "rv-hi-a", starts, ends)
+	check("charges covers", a, err, func(s, en time.Time) (bool, error) { return cs.Covers(ctx, "rv-hi-a", s, en) })
+	a, err = cs.LiveCoversBatch(ctx, "rv-hi-a", starts, ends)
+	check("charges live", a, err, func(s, en time.Time) (bool, error) { return cs.LiveCovers(ctx, "rv-hi-a", s, en) })
 }

@@ -524,32 +524,35 @@ func (a *historyImportAPI) plan(ctx context.Context, req *importRequest, p *pars
 	for k, v := range p.report.Skipped {
 		pl.skipped[k] = v
 	}
-	for _, d := range p.drives {
-		if live, err := ds.LiveCovers(ctx, req.rivianID, d.StartedAt, d.EndedAt); err != nil {
-			return nil, err
-		} else if live {
-			pl.skipped[skipLive]++
-			continue
-		}
-		if any, err := ds.Covers(ctx, req.rivianID, d.StartedAt, d.EndedAt); err != nil {
-			return nil, err
-		} else if any {
-			pl.skipped[skipExisting]++
+	// One query per kind per chunk, not two per session: 100k sessions would otherwise be 200k round trips before the first byte goes back.
+	drv := make([]span, len(p.drives))
+	for i, d := range p.drives {
+		drv[i] = span{d.StartedAt, d.EndedAt}
+	}
+	skip, err := coveredBy(ctx, drv, func(st, en []time.Time) ([]bool, error) { return ds.LiveCoversBatch(ctx, req.rivianID, st, en) },
+		func(st, en []time.Time) ([]bool, error) { return ds.CoversBatch(ctx, req.rivianID, st, en) })
+	if err != nil {
+		return nil, err
+	}
+	for i, d := range p.drives {
+		if skip[i] != "" {
+			pl.skipped[skip[i]]++
 			continue
 		}
 		pl.drives = append(pl.drives, driveOf(req, d))
 	}
-	for _, c := range p.charges {
-		if live, err := cs.LiveCovers(ctx, req.rivianID, c.StartedAt, c.EndedAt); err != nil {
-			return nil, err
-		} else if live {
-			pl.skipped[skipLive]++
-			continue
-		}
-		if any, err := cs.Covers(ctx, req.rivianID, c.StartedAt, c.EndedAt); err != nil {
-			return nil, err
-		} else if any {
-			pl.skipped[skipExisting]++
+	chg := make([]span, len(p.charges))
+	for i, c := range p.charges {
+		chg[i] = span{c.StartedAt, c.EndedAt}
+	}
+	skip, err = coveredBy(ctx, chg, func(st, en []time.Time) ([]bool, error) { return cs.LiveCoversBatch(ctx, req.rivianID, st, en) },
+		func(st, en []time.Time) ([]bool, error) { return cs.CoversBatch(ctx, req.rivianID, st, en) })
+	if err != nil {
+		return nil, err
+	}
+	for i, c := range p.charges {
+		if skip[i] != "" {
+			pl.skipped[skip[i]]++
 			continue
 		}
 		ch, extra := chargeOf(req, c)
@@ -557,6 +560,52 @@ func (a *historyImportAPI) plan(ctx context.Context, req *importRequest, p *pars
 		pl.extra = append(pl.extra, extra)
 	}
 	return pl, nil
+}
+
+type span struct{ start, end time.Time }
+
+// importCoverChunk is how many sessions one dedupe query checks.
+const importCoverChunk = 1000
+
+// coveredBy returns, per session, the skip reason ("" when the session is new): a live row first, then any stored row, as the design orders them.
+func coveredBy(ctx context.Context, spans []span, live, any func(starts, ends []time.Time) ([]bool, error)) ([]string, error) {
+	out := make([]string, len(spans))
+	for lo := 0; lo < len(spans); lo += importCoverChunk {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		hi := min(lo+importCoverChunk, len(spans))
+		st, en := make([]time.Time, 0, hi-lo), make([]time.Time, 0, hi-lo)
+		for _, sp := range spans[lo:hi] {
+			st, en = append(st, sp.start), append(en, sp.end)
+		}
+		lv, err := live(st, en)
+		if err != nil {
+			return nil, err
+		}
+		st, en = st[:0], en[:0]
+		var idx []int
+		for i, sp := range spans[lo:hi] {
+			if lv[i] {
+				out[lo+i] = skipLive
+				continue
+			}
+			st, en, idx = append(st, sp.start), append(en, sp.end), append(idx, lo+i)
+		}
+		if len(st) == 0 {
+			continue
+		}
+		ex, err := any(st, en)
+		if err != nil {
+			return nil, err
+		}
+		for j, i := range idx {
+			if ex[j] {
+				out[i] = skipExisting
+			}
+		}
+	}
+	return out, nil
 }
 
 func driveOf(req *importRequest, d histimport.Drive) drives.Drive {
@@ -730,6 +779,7 @@ func (a *historyImportAPI) commit(w http.ResponseWriter, r *http.Request) {
 		serverError(w, r, "history import", err)
 		return
 	}
+	push() // a commit from another pod can hold the lock for minutes
 	pl, err := a.plan(ctx, req, p)
 	if err != nil {
 		serverError(w, r, "history import", err)
