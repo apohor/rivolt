@@ -19,8 +19,11 @@ var roleModules = map[string][]string{
 // roleExtraRoots are packages of another module that a role's starters run (cmd/rivolt/starters.go): the module says whose code it is,
 // the starter says where it runs.
 var roleExtraRoots = map[string][]string{
+	// The monitor's close hooks (push, recap, weather, engage, trips) run inside the Rivian session loop, so a change to them rolls ingest.
+	"ingest": {"internal/push", "internal/recap", "internal/weather", "internal/engage", "internal/trips"},
 	"jobs": {"internal/chargewatch", "internal/drain", "internal/rivianexpiry", "internal/packhealth", "internal/milestones",
-		"internal/samples", "internal/entitlements"},
+		"internal/samples", "internal/entitlements",
+		"internal/idp", "internal/oidc"}, // the IdP-delete and Apple-revoke retriers (api.RunIdPDeleteRetrier, oidc.AppleRevoke)
 }
 
 // RoleMap answers which roles a changed path affects. Build it with NewRoleMap from the repository's import graph.

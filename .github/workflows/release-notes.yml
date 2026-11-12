@@ -75,11 +75,6 @@ jobs:
               echo
               echo
               echo "**Full Changelog**: https://github.com/$REPO/compare/$PREV...$TAG"
-              # Which merges move Rivian sessions when they roll (S19 9g). The line is a record: a failure drops it, not the release.
-              if roles=$(go run ./internal/arch/cmd/mergeroles -from "$PREV" | tail -n 1); then
-                echo
-                echo "$roles"
-              fi
             else
               echo "## Initial release"
               echo
@@ -87,3 +82,8 @@ jobs:
             fi
           } > /tmp/notes.md
           gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md "${flags[@]}"
+          # Which merges move Rivian sessions when they roll (S19 9g). It goes to the job summary, not the public release body, and it is
+          # a record: a failure drops the line, not the release.
+          if [ -n "$PREV" ] && roles=$(go run ./internal/arch/cmd/mergeroles -from "$PREV" | tail -n 1); then
+            echo "$roles" >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -2,6 +2,7 @@ package arch
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -18,7 +19,7 @@ func TestRolesForRealPaths(t *testing.T) {
 		want  string
 	}{
 		{[]string{"internal/passkeys/passkeys.go"}, "api"},
-		{[]string{"internal/passkeys/passkeys.go", "internal/kratos/client.go", "web/src/main.tsx"}, "api"},
+		{[]string{"internal/passkeys/passkeys.go", "internal/kratos/client.go", "web/src/main.tsx"}, "api,jobs"}, // kratos is in the IdP retrier's closure
 		{[]string{"internal/tirelow/tirelow.go"}, "ingest"},
 		{[]string{"internal/retention/retention.go"}, "jobs"},
 		{[]string{"internal/db/users.go"}, "ingest,api,jobs"},
@@ -32,6 +33,26 @@ func TestRolesForRealPaths(t *testing.T) {
 	} {
 		if got := strings.Join(m.For(c.paths), ","); got != c.want {
 			t.Errorf("%v: roles %q, want %q", c.paths, got, c.want)
+		}
+	}
+}
+
+// The monitor's close hooks run in the Rivian session loop, so a change to their packages rolls ingest; the IdP-delete and Apple-revoke
+// retriers' packages roll jobs.
+func TestCloseHookAndRetrierPackages(t *testing.T) {
+	m, err := NewRoleMap(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for role, pkgs := range map[string][]string{
+		"ingest": {"push", "recap", "weather", "engage", "trips"},
+		"jobs":   {"idp", "oidc"},
+	} {
+		for _, p := range pkgs {
+			roles := m.For([]string{"internal/" + p + "/x.go"})
+			if !slices.Contains(roles, role) {
+				t.Errorf("internal/%s: roles %v, want %s among them", p, roles, role)
+			}
 		}
 	}
 }
@@ -51,7 +72,7 @@ func TestRoleMapOnAGraph(t *testing.T) {
 		"internal/testpg":    {"internal/db": true},
 	})
 	for path, want := range map[string]string{
-		"internal/trips/a.go":     "api",             // api imports it
+		"internal/trips/a.go":     "ingest,api",      // api imports it; the close hooks use it
 		"internal/drives/a.go":    "ingest,jobs",     // recorder, and retention imports it
 		"internal/db/a.go":        "ingest,api,jobs", // platform
 		"internal/testpg/a.go":    "",                // not linked
