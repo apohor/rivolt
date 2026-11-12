@@ -13,7 +13,7 @@ import (
 	"github.com/apohor/rivolt/internal/secrets"
 )
 
-// hasAccountSyncer reports whether reg reconciles accounts with the database (the live registry); replay, mock and stub registries do not.
+// hasAccountSyncer reports whether reg answers the stored account state (the live registry, and the replay one once it has a state source); mock and stub registries do not.
 func hasAccountSyncer(reg rivian.AccountRegistry) bool {
 	_, ok := reg.(interface {
 		Fresh(context.Context, uuid.UUID) (rivian.AccountDBState, bool)
@@ -37,8 +37,8 @@ func (d Deps) vehiclesAccountState(uid uuid.UUID) func(context.Context) (linked,
 		ctx = auth.WithUser(ctx, uid)
 		st, ok := freshAccountState(ctx, d.Accounts, uid)
 		if !ok && !hasAccountSyncer(d.Accounts) && d.DB != nil {
-			// A replay, mock or stub registry has no syncer (nothing to reconcile), but the users row is the same: read it directly, so a
-			// user there is "unlinked", "reauth" or linked instead of a 503 for ever.
+			// A mock or stub registry has no syncer (nothing to reconcile; replay answers Fresh itself), but the users row is the same: read it
+			// directly, so a user there is "unlinked", "reauth" or linked instead of a 503 for ever.
 			states, err := secrets.NewRivianAccountSource(d.DB, d.Secrets).States(ctx, []uuid.UUID{uid})
 			if err != nil {
 				return false, false, false
