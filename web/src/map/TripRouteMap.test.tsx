@@ -284,6 +284,35 @@ describe("TripRouteMap", () => {
     }
   });
 
+  // Under 200 px (Safari's aA 300 %) the trip card is display: none: its margin and the room above it are not reserved, so the strip of map keeps them.
+  it("reserves room under the route for the trip card only while it is drawn", async () => {
+    const w = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(400);
+    const h = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(800);
+    const bottomWith = async (drawn: boolean) => {
+      render(<TripRouteMap route={route} fill />);
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+      const card = document.createElement("div");
+      card.className = "rivolt-trip-card";
+      card.style.marginBottom = "22px";
+      // jsdom draws nothing: getClientRects is empty, as for display: none. A drawn card has a box.
+      if (drawn) card.getClientRects = () => [{}] as unknown as DOMRectList;
+      (FakeMap.last!.opts.container as HTMLElement).appendChild(card);
+      FakeMap.last?.fire("load");
+      await waitFor(() => expect(FakeMap.last?.fitBounds).toHaveBeenCalled());
+      const b = (FakeMap.last?.fitBounds.mock.calls.at(-1)?.[1] as { padding: { bottom: number } }).padding.bottom;
+      cleanup();
+      return b;
+    };
+    try {
+      expect(await bottomWith(true)).toBe(22 + 28);
+      expect(await bottomWith(false)).toBe(24);
+    } finally {
+      cleanup();
+      w.mockRestore();
+      h.mockRestore();
+    }
+  });
+
   it("draws the radar layer on the first plan with radar on, with no toggle (tiles still loading)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ frame_unix: 1_700_000_000 }) }) as unknown as Response));
     try {

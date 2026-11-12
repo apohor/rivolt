@@ -199,10 +199,11 @@ export function TripRouteMap({
   const weatherKey = JSON.stringify(legWeather ?? null);
   // Where the pins are on the map right now (the leg badges keep clear of them), and the pills' placement, which the badges call again once they move.
   const pillTakenRef = useRef<Box[]>([]);
-  // What floats over the map's top and bottom (the charger chips, the radar strip, the route summary card), in the map's own px.
+  // What floats over the map's top and bottom (the charger chips, the radar strip, the route summary card), in the map's own px. One that is not drawn
+  // (the trip card under 200 px) is no obstacle. getClientRects, not offsetParent: the strip on a phone is position: fixed and has no offsetParent.
   const overlayBoxes = (container: HTMLElement): Box[] => {
     const here = container.getBoundingClientRect();
-    return Array.from(container.parentElement?.querySelectorAll<HTMLElement>("[data-map-chips], [data-radar-label], .rivolt-trip-card") ?? []).map((o) => {
+    return Array.from(container.parentElement?.querySelectorAll<HTMLElement>("[data-map-chips], [data-radar-label], .rivolt-trip-card") ?? []).filter((o) => o.getClientRects().length > 0).map((o) => {
       const r = o.getBoundingClientRect();
       return { x0: r.left - here.left, y0: r.top - here.top, x1: r.right - here.left, y1: r.bottom - here.top };
     });
@@ -564,7 +565,9 @@ export function TripRouteMap({
       const padding = () => {
         // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
-        const card = el.querySelector<HTMLElement>(".rivolt-trip-card");
+        // A card that is not drawn (hidden under 200 px, where the sheet's peek says the same) needs no room.
+        const drawn = el.querySelector<HTMLElement>(".rivolt-trip-card");
+        const card = drawn?.getClientRects().length ? drawn : null;
         // On a phone the card rides above the sheet, and above the radar strip on its edge (reserved whether or not the radar is on, as at the top).
         const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 : 0) : 0) : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
