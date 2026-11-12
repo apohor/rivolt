@@ -18,8 +18,10 @@ export interface SnapHeights {
   full: number;
 }
 
-// The peek may not take more than this share of the room, whatever its text needs.
+// The peek may not take more than this share of the room, whatever its text needs; on a short room (a phone at Safari's aA 200 %) it may
+// still take up to PEEK_FLOOR px, never more than half the room, so a wrapped title and summary are not cut off.
 export const PEEK_CAP = 0.35;
+export const PEEK_FLOOR = 150;
 // A drag moves the sheet one step further than the last height it passed once it has gone this share of the way to the next one, or when it is
 // let go at FLICK_SPEED (px/ms) or faster.
 export const STEP_SHARE = 1 / 3;
@@ -31,7 +33,8 @@ export const DRAG_SLOP = 10;
 // viewport): the peek is what its title and summary line need (peekNeed) up to 35 % of the room, half is about half, full is all of it. They are
 // kept strictly increasing, even in a very short window.
 export function snapHeights(room: number, peekNeed: number): SnapHeights {
-  const peek = Math.round(peekNeed > 0 ? Math.min(peekNeed, room * PEEK_CAP) : Math.min(150, room * 0.3));
+  const cap = Math.max(room * PEEK_CAP, Math.min(PEEK_FLOOR, room * 0.5));
+  const peek = Math.round(peekNeed > 0 ? Math.min(peekNeed, cap) : Math.min(150, room * 0.3));
   const full = Math.max(Math.round(room), peek + 80);
   const half = Math.min(Math.max(Math.round(room * 0.46), peek + 40), full - 40);
   return { peek, half, full };

@@ -296,8 +296,10 @@ export function RouteCard({
           onSnapChange={setSheetSnap}
           peek={
             <div data-plan-sheet-title>
-              <h2 className="truncate text-base font-semibold text-neutral-100">{sheetTitle}</h2>
-              <p className="truncate text-sm text-neutral-400">
+              {/* One line each, cut short, on a phone at its usual text size; narrower than 360 CSS px (Safari's aA at 200 % and up) two lines
+                  each, so the peek (which grows to fit, up to its cap) still ends in a whole line. The full figures are in the sheet. */}
+              <h2 className="max-[359px]:line-clamp-2 text-base font-semibold text-neutral-100 [overflow-wrap:anywhere] min-[360px]:truncate">{sheetTitle}</h2>
+              <p className="max-[359px]:line-clamp-2 text-sm text-neutral-400 [overflow-wrap:anywhere] min-[360px]:truncate">
                 {sheetLine}
                 {!route.DestinationReached && <span className="text-amber-400">{sheetLine ? " · " : ""}destination unreachable</span>}
               </p>

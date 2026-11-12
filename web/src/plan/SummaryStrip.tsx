@@ -49,7 +49,9 @@ export function SummaryStrip({
   })();
   // The result as a hero (cost, arrival arc, time) over the map and a route timeline.
   return (
-    <div data-plan-hero className="mb-4 grid grid-cols-[auto_1fr] items-center gap-x-5 gap-y-4">
+    // Narrower than 360 CSS px (a phone with Safari's aA text size at 200 % and up) the cost goes under the arc and the four figures stack, so
+    // nothing is clipped or scrolls sideways.
+    <div data-plan-hero className="mb-4 grid grid-cols-1 items-center gap-x-5 gap-y-4 min-[360px]:grid-cols-[auto_1fr]">
       <ArcGauge
         value={arrSoCNext}
         label={arrSoCNext > 0 ? `Arrival battery ${Math.round(arrSoCNext)} percent` : "Arrival battery unknown"}
@@ -99,22 +101,22 @@ export function SummaryStrip({
           </p>
         )}
       </div>
-      <dl className="col-span-2 grid w-full grid-cols-2 gap-x-4 gap-y-3 border-t border-neutral-800 pt-3 text-sm sm:grid-cols-4">
+      <dl className="grid w-full grid-cols-1 gap-x-4 gap-y-3 border-t border-neutral-800 pt-3 text-sm min-[180px]:grid-cols-2 min-[360px]:col-span-2 sm:grid-cols-4">
         <div>
           <dt className="ui-label">Time</dt>
-          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
+          <dd className="pt-value tabular-nums min-[360px]:whitespace-nowrap text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Arrive</dt>
-          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">{arriveAt || "—"}</dd>
+          <dd className="pt-value tabular-nums min-[360px]:whitespace-nowrap text-neutral-100">{arriveAt || "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Distance</dt>
-          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? <>{distanceIn(route.TotalDriveDistanceMeters, distanceUnit).toFixed(0)}<Unit>{distanceUnit}</Unit></> : "—"}</dd>
+          <dd className="pt-value tabular-nums min-[360px]:whitespace-nowrap text-neutral-100">{route.TotalDriveDistanceMeters > 0 ? <>{distanceIn(route.TotalDriveDistanceMeters, distanceUnit).toFixed(0)}<Unit>{distanceUnit}</Unit></> : "—"}</dd>
         </div>
         <div>
           <dt className="ui-label">Charging</dt>
-          <dd className="pt-value whitespace-nowrap tabular-nums text-neutral-100">
+          <dd className="pt-value tabular-nums min-[360px]:whitespace-nowrap text-neutral-100">
             {stopCount > 0 ? <>{stopCount}<Unit>{stopCount === 1 ? "stop" : "stops"}</Unit> {totalChargeMin}<Unit>min</Unit></> : "none"}
           </dd>
         </div>
