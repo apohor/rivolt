@@ -862,8 +862,11 @@ html[data-theme='light'] {
   :root main[data-app-main]:not(:has([data-plan-next])) .whitespace-nowrap {
     white-space: normal;
   }
+  /* A word wider than the column ("Appearance", "November") breaks with a hyphen. */
   :root main[data-app-main]:not(:has([data-plan-next])) {
     overflow-wrap: break-word;
+    -webkit-hyphens: auto;
+    hyphens: auto;
   }
   /* Tiles side by side would leave each a few letters wide: one column. A calendar keeps its weeks (data-keep-grid). */
   :root main[data-app-main]:not(:has([data-plan-next])) .grid:not([data-keep-grid]) {

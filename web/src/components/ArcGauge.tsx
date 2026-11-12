@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from "react";
 import { useCountUp } from "../lib/uiNext";
 
 // ArcGauge: battery as a 240-degree arc with an animated fill. Used only by
@@ -23,6 +24,16 @@ export function ArcGauge({
 }) {
   const pct = Math.max(0, Math.min(100, value));
   const shown = useCountUp(pct, true);
+  // When the column squeezes the gauge below its size, the centre label shrinks with it so it stays inside the ring.
+  const box = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState(1);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setFit(Math.min(1, el.clientWidth / size)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [size]);
   const r = 52;
   const cx = 60;
   const cy = 60;
@@ -36,7 +47,7 @@ export function ArcGauge({
   const stroke = tone === "critical" ? "url(#ag-crit)" : tone === "idle" ? "url(#ag-idle)" : "url(#ag-ok)";
   return (
     // Never wider than its column (a phone at Safari's aA 300 % is 130 px wide): it scales down, keeping its shape.
-    <div className="ui-gauge relative max-w-full shrink-0" style={{ width: size, aspectRatio: "120 / 108" }} data-live={live ? "true" : undefined}>
+    <div ref={box} className="ui-gauge relative max-w-full shrink-0" style={{ width: size, aspectRatio: "120 / 108" }} data-live={live ? "true" : undefined}>
       <svg viewBox="0 0 120 108" width="100%" height="100%" role="img" aria-label={label}>
         <defs>
           <linearGradient id="ag-ok" x1="0" y1="0" x2="1" y2="1">
@@ -84,7 +95,7 @@ export function ArcGauge({
           className="ui-gauge-fill"
         />
       </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center pt-1">{children?.(shown)}</div>
+      <div className="absolute inset-0 flex flex-col items-center justify-center pt-1" style={fit < 1 ? { transform: `scale(${fit})` } : undefined}>{children?.(shown)}</div>
     </div>
   );
 }
