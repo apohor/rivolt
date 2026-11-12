@@ -276,3 +276,14 @@ func TestOperatorCostPricesEachHopAtItsServingModel(t *testing.T) {
 		t.Errorf("cache = %v, want 5.4", got)
 	}
 }
+
+func TestOperatorCostUnknownModelUsesHighestRate(t *testing.T) {
+	in, out := maxAnthropicPrice()
+	want := (in + out) // 1M each
+	if got := OperatorCostUSD(OperatorUsage{Model: "other", Input: 1e6, Output: 1e6}); got != want {
+		t.Errorf("unknown = %v, want %v", got, want)
+	}
+	if in < 5 || out < 25 {
+		t.Errorf("highest known rate = %v/%v, want at least the opus 5/25", in, out)
+	}
+}
