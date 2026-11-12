@@ -106,4 +106,20 @@ final class OnboardingTests: XCTestCase {
             }
         }
     }
+
+    /// Looking, none and the tapped (refused) states each draw Check again; the refusal is said in plain words.
+    func testCheckAgainStatesRender() throws {
+        Theme.registerFonts()
+        let refused = VehicleDiscoveryState.notice(forRefresh: APIError.server(status: 429, message: ""))
+        XCTAssertEqual(refused, "Checked a moment ago. We'll keep looking.")
+        XCTAssertNil(VehicleDiscoveryState.notice(forRefresh: APIError.server(status: 503, message: "", retryAfter: 5)))
+        XCTAssertNil(VehicleDiscoveryState.notice(forRefresh: nil))
+        for (state, notice, checking) in [(VehicleDiscoveryState.looking, String?.none, false), (.empty, nil, false), (.looking, refused, false), (.looking, nil, true)] {
+            let view = NoTruckContent(connect: URL(string: "https://rivolt.dev/settings"), discovery: state.view, notice: notice, checking: checking, onCheck: {}, onSample: {})
+                .frame(width: 393).background(Theme.background)
+            let image = try XCTUnwrap(ImageRenderer(content: view).uiImage)
+            XCTAssertGreaterThan(image.size.height, 100)
+        }
+        XCTAssertNil(VehicleDiscoveryState.looking.view?.action)
+    }
 }
