@@ -67,6 +67,8 @@ class FakeMap {
   lastData: unknown;
   getSource(id: string) { return this.sources.get(id); }
   addLayer(l: { id: string }) { this.layers.add(l.id); }
+  removeLayer(id: string) { this.layers.delete(id); }
+  removeSource(id: string) { this.sources.delete(id); }
   getLayer(id: string) { return this.layers.has(id) ? {} : undefined; }
   // The library's isStyleLoaded() is false while any source is loading a tile; the component must not depend on it.
   isStyleLoaded() { return false; }
@@ -185,6 +187,22 @@ describe("TripRouteMap", () => {
       render(<TripRouteMap route={route} />);
       await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
       expect(screen.queryByRole("button", { name: "Radar" })).toBeNull();
+    } finally {
+      cleanup();
+      radarCfg.url = "";
+      radarCfg.frameUrl = "";
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("draws the radar layer on the first plan with radar on, with no toggle (tiles still loading)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ frame_unix: 1_700_000_000 }) }) as unknown as Response));
+    try {
+      radarCfg.url = "/api/maps/radar/{z}/{x}/{y}.png";
+      radarCfg.frameUrl = "/api/maps/radar/frame";
+      plannerState.prefs = { ...plannerState.prefs, radar_on: true };
+      render(<TripRouteMap route={route} />);
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-radar-layer")).toBe(true));
     } finally {
       cleanup();
       radarCfg.url = "";

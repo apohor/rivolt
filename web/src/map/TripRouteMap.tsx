@@ -248,7 +248,8 @@ export function TripRouteMap({
       setRadarLabel(radarAsOf(f.frameUnix));
       setRadarSpokenLabel(radarSpoken(f.frameUnix));
     };
-    const drawRadar = (m: MLMap, t: number) => { if (m.isStyleLoaded()) addRadar(m, t); else m.once("style.load", () => alive && addRadar(m, t)); };
+    // styleReadyRef, not isStyleLoaded(): that is false while any tile is in flight, and the one style.load had already fired, so the first plan never drew.
+    const drawRadar = (m: MLMap, t: number) => { if (styleReadyRef.current) addRadar(m, t); else m.once("style.load", () => alive && addRadar(m, t)); };
     void refresh();
     const timer = window.setInterval(() => void refresh(), RADAR_REFRESH_MS);
     return () => { alive = false; ac.abort(); window.clearInterval(timer); hideRadar(map); setRadarLabel(""); setRadarSpokenLabel(""); };
