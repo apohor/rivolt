@@ -32,3 +32,11 @@ describe("history import copy", () => {
     expect(importFailure(new ApiError(429, { code: "rate_limited" })).text).toMatch(/Too many/);
   });
 });
+
+describe("a stopped commit with no id", () => {
+  it("says the outcome is unknown and points at Imports", () => {
+    const f = importFailure(new ApiError(500, { error: "x", code: "stopped" }));
+    expect(f.importID).toBeUndefined();
+    expect(f.text).toMatch(/cannot tell whether the import went through/);
+  });
+});

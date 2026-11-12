@@ -102,7 +102,9 @@ export function importFailure(err: unknown): ImportFailure {
     case "busy":
       return { text: err.retryAfter ? `Busy right now. Try again in ${err.retryAfter} seconds.` : "Busy right now. Try again soon." };
     case "stopped":
-      return { text: "The import stopped part way.", importID: b.id };
+      return b.id
+        ? { text: "The import stopped part way.", importID: b.id }
+        : { text: "We lost the connection, so we cannot tell whether the import went through. Look in Imports below before trying again." };
     case "vehicle_not_found":
       return { text: "That vehicle was not found. Pick it again." };
   }
