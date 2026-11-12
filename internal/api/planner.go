@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -26,7 +27,11 @@ import (
 // default, for self-hosters without Photon): on empty results or a Photon failure the
 // handler then asks Open-Meteo. Without the fallback, a Photon failure or an unwired Photon
 // answers "unavailable" and nothing leaves the server.
-func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool) http.HandlerFunc {
+//
+// A search the client gave up on (r.Context() done: the app's type-ahead cancels the older request when the next
+// keystroke lands) gets no response and bumps onCanceled; only a real Photon failure answers 503, with the error
+// logged at WARN (no query text), so "unavailable" keeps meaning an outage.
+func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCanceled func()) http.HandlerFunc {
 	var gc *geocoding.Client
 	if openMeteoFallback {
 		gc = geocoding.NewClient()
@@ -51,6 +56,15 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool) http.
 				results = r1
 			}
 			photonFailed = err != nil
+			if err != nil && r.Context().Err() != nil {
+				if onCanceled != nil {
+					onCanceled()
+				}
+				return
+			}
+			if err != nil {
+				slog.WarnContext(r.Context(), "geocode: photon failed", "err", withoutURL(err))
+			}
 		}
 		if gc == nil && len(results) == 0 && (photonFailed || !photon.Enabled()) {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "place search unavailable"})
@@ -69,6 +83,15 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool) http.
 		}
 		writeJSON(w, http.StatusOK, results)
 	}
+}
+
+// withoutURL drops the request URL (and with it the typed query) that a net/http error carries.
+func withoutURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return fmt.Errorf("photon: %s: %w", ue.Op, ue.Err)
+	}
+	return err
 }
 
 // homeLocationResponse is the saved home plus what the Settings card needs around it: whether there's an earlier

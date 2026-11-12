@@ -1782,7 +1782,11 @@ func New(d Deps) http.Handler {
 			// Returns city-level matches sorted by population so the
 			// SPA can render a sensible suggestion dropdown.
 			r.With(ls.user("geocode", geocodePerMin).Middleware).Get("/geocode", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleGeocode(d.Photon, d.GeocodeOpenMeteo)(w, r)
+				var onCanceled func()
+				if d.Metrics != nil {
+					onCanceled = d.Metrics.GeocodeCanceledTotal.Inc
+				}
+				handleGeocode(d.Photon, d.GeocodeOpenMeteo, onCanceled)(w, r)
 			}))
 		}) // end of timed authenticated /api group
 
