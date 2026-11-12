@@ -2,7 +2,8 @@ import XCTest
 
 /// The signed-in planner, driven like a person would, with every call answered from fixtures (Rivolt/App/UITestFixtures.swift): each layer chip draws its
 /// pins (the map says how many places are drawn along the route in its accessibility value, which is what these read), the two-day map has reachable
-/// Day chips, and the (i) opens and closes.
+/// Day chips, and the (i) opens and closes. The UI tests' saved planner settings (Fixtures/settings_planner.json) have Fast on; a new account starts with
+/// every layer off.
 final class PlannerLayerPinsUITests: XCTestCase {
     /// ios/RivoltUITests/Fixtures (the layer stations, the saved trips) and ios/RivoltTests/Fixtures (the unit tests' answers), found from this file's place.
     private static var fixtureDirectories: String {

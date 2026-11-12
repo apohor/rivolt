@@ -46,7 +46,7 @@ func TestPlannerPrefsSettingsRoundTrip(t *testing.T) {
 
 	raw, m := get(sa)
 	if m["corridor"] != "normal" || m["start_exclude_mi"] != float64(0) || m["min_fast_kw"] != float64(0) || m["preferred_only"] != false ||
-		m["weather_on"] != true || m["radar_on"] != true || !strings.Contains(raw, `"layers_on":["dcfc"]`) {
+		m["weather_on"] != true || m["radar_on"] != true || !strings.Contains(raw, `"layers_on":[]`) {
 		t.Fatalf("defaults: %s", raw)
 	}
 

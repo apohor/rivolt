@@ -9,7 +9,7 @@ import { inDemo } from "../lib/demo";
 import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
 import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
 import { findChargersOfNetworks, findLayersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
-import { layerFiltersOf, usePlannerPrefs } from "../lib/plannerPrefs";
+import { layerFiltersOf, usePlannerPrefs, useSavePlannerPrefs } from "../lib/plannerPrefs";
 import type { LayerKind, POI } from "../lib/poi";
 import type { HookupId } from "../plan/hookups";
 import { campgroundOfPoi } from "../plan/stays";
@@ -163,7 +163,8 @@ export function TripRouteMap({
   const [routePath, setRoutePath] = useState<LatLng[]>([]);
   // The Trip planner settings: what the map starts with (layers, preferred only, weather) and how the charger query is shaped. The map waits for
   // them so it does not ask once with the defaults and again with the user's choices.
-  const { prefs, settled: prefsSettled } = usePlannerPrefs();
+  const { prefs, settled: prefsSettled, loaded: prefsLoaded } = usePlannerPrefs();
+  const savePrefs = useSavePlannerPrefs();
   const filters = useMemo(
     () => ({ ...layerFiltersOf(prefs), ...(startsAtOrigin ? {} : { start_exclude_mi: 0 as const }) }),
     [prefs.corridor, prefs.start_exclude_mi, prefs.min_fast_kw, startsAtOrigin], // eslint-disable-line react-hooks/exhaustive-deps
@@ -171,10 +172,17 @@ export function TripRouteMap({
   const filtersKey = `${filters.preset}|${filters.start_exclude_mi}|${filters.min_fast_kw}`;
   // A switch the person has already flipped on this map is theirs; the settings only supply the starting state of the others.
   const touchedRef = useRef({ layers: false, preferred: false, weather: false, radar: false });
-  // The layers shown, each an independent switch: tap a lit chip to turn it off. Fast is on unless the settings say otherwise; with every chip off
-  // nothing is drawn and nothing is requested.
-  const [layers, setLayers] = useState<ReadonlySet<LayerKind>>(() => new Set<LayerKind>(["dcfc"]));
-  const toggleLayer = (k: LayerKind) => { touchedRef.current.layers = true; setLayers((cur) => { const next = new Set(cur); if (next.has(k)) next.delete(k); else next.add(k); return next; }); };
+  // The layers shown, each an independent switch: tap a lit chip to turn it off. All start off unless the settings say otherwise; with every chip
+  // off nothing is drawn and nothing is requested (the trip's own stops always draw). A tap is saved as the account's layers, so the next map starts
+  // the same way; not before the saved settings are in, or the save would write defaults over the rest of them.
+  const [layers, setLayers] = useState<ReadonlySet<LayerKind>>(() => new Set<LayerKind>());
+  const toggleLayer = (k: LayerKind) => {
+    touchedRef.current.layers = true;
+    const next = new Set(layers);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    setLayers(next);
+    if (prefsLoaded) savePrefs.mutate({ layers_on: (["dcfc", "l2", "hotels", "camp"] as const).filter((x) => next.has(x)) });
+  };
   const layersKey = (["dcfc", "l2", "hotels", "camp"] as const).filter((k) => layers.has(k)).join(",");
   const fastOn = layers.has("dcfc");
   const [campCount, setCampCount] = useState(0);
