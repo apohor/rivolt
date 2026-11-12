@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
 // /safe-to-connect: what connecting a Rivian account means (public, signed out), from one markdown
-// source, linked from the landing page's login section.
+// source, linked from the landing page's footer.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
@@ -37,10 +37,10 @@ for (const theme of ["dark", "light"] as const) {
   }
 }
 
-test("the landing's login section links the page", async ({ page }) => {
+test("the landing's footer links the page", async ({ page }) => {
   await stubApi(page, { signedIn: false, landing: true });
   await page.goto("/");
-  await page.getByRole("link", { name: "Is it safe to connect my Rivian account?" }).click();
+  await page.getByRole("link", { name: "Is it safe to connect?" }).click();
   await expect(page).toHaveURL(/\/safe-to-connect$/);
   await expect(page.getByRole("heading", { name: /Is it safe to connect my Rivian account to Rivolt/, level: 1 })).toBeVisible();
 });
