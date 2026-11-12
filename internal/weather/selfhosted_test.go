@@ -36,7 +36,7 @@ func TestSelfHostedClientUsesItsServerForRecentTimes(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path, vars, models = r.URL.Path, r.URL.Query().Get("hourly"), r.URL.Query().Get("models")
 		// A chain request is answered with one series per model, suffixed by the model id.
-		_, _ = w.Write([]byte(`{"hourly":{"time":["` + r.URL.Query().Get("start_date") + `T00:00"],"temperature_2m_ncep_rrfs_conus":[null],"temperature_2m_ncep_gfs013":[11.5],"temperature_2m_gem_seamless":[9]}}`))
+		_, _ = w.Write([]byte(`{"hourly":{"time":["` + r.URL.Query().Get("start_date") + `T00:00"],"temperature_2m_ncep_hrrr_conus":[null],"temperature_2m_ncep_gfs013":[11.5],"temperature_2m_gem_seamless":[9]}}`))
 	}))
 	defer srv.Close()
 	c := NewSelfHostedClient(srv.URL + "/")
@@ -49,7 +49,7 @@ func TestSelfHostedClientUsesItsServerForRecentTimes(t *testing.T) {
 	if path != "/v1/forecast" {
 		t.Errorf("path %q, want /v1/forecast", path)
 	}
-	if models != "ncep_rrfs_conus,ncep_gfs013,gem_seamless" {
+	if models != "ncep_hrrr_conus,ncep_gfs013,gem_seamless" {
 		t.Errorf("models %q, want the chain (without a models parameter the server answers all-null)", models)
 	}
 	for _, v := range []string{"temperature_2m", "apparent_temperature", "wind_speed_10m", "wind_direction_10m", "precipitation", "relative_humidity_2m", "weather_code"} {
@@ -155,9 +155,9 @@ func TestMergeChain(t *testing.T) {
 	body := []byte(`{"latitude":1,"hourly":{"time":["t0","t1","t2","t3"],
 	  "temperature_2m_gem_seamless":[1,2,3,4],
 	  "temperature_2m_ncep_gfs013":[10,20,null,40],
-	  "temperature_2m_ncep_rrfs_conus":[100,null,null,null],
+	  "temperature_2m_ncep_hrrr_conus":[100,null,null,null],
 	  "weather_code_gem_seamless":[3,3,71,3],
-	  "weather_code_ncep_rrfs_conus":[null,null,null,null],
+	  "weather_code_ncep_hrrr_conus":[null,null,null,null],
 	  "wind_speed_10m_ncep_gfs013":[null,null,null,null],
 	  "wind_speed_10m_gem_seamless":[null,null,null,null]}}`)
 	out, err := mergeChain(body, models)
@@ -186,10 +186,10 @@ func TestMergeChain(t *testing.T) {
 	}
 	eq := func(a, b []string) bool { return strings.Join(a, ",") == strings.Join(b, ",") }
 	if v := val("temperature_2m"); !eq(v, []string{"100", "20", "3", "40"}) {
-		t.Errorf("temperature: %v, want [100 20 3 40] (rrfs, else gfs, else gem)", v)
+		t.Errorf("temperature: %v, want [100 20 3 40] (hrrr, else gfs, else gem)", v)
 	}
 	if v := val("weather_code"); !eq(v, []string{"3", "3", "71", "3"}) {
-		t.Errorf("weather_code: %v (rrfs has none: gem's)", v)
+		t.Errorf("weather_code: %v (hrrr has none: gem's)", v)
 	}
 	if v := val("wind_speed_10m"); !eq(v, []string{"-", "-", "-", "-"}) {
 		t.Errorf("a variable no model answered must stay null: %v", v)
@@ -207,7 +207,7 @@ func TestMergeChain(t *testing.T) {
 // An hour no model answered is "no value", not 0 C.
 func TestFetchHourNullIsNotZero(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"hourly":{"time":["` + r.URL.Query().Get("start_date") + `T00:00"],"temperature_2m_ncep_rrfs_conus":[null],"temperature_2m_ncep_gfs013":[null],"temperature_2m_gem_seamless":[null]}}`))
+		_, _ = w.Write([]byte(`{"hourly":{"time":["` + r.URL.Query().Get("start_date") + `T00:00"],"temperature_2m_ncep_hrrr_conus":[null],"temperature_2m_ncep_gfs013":[null],"temperature_2m_gem_seamless":[null]}}`))
 	}))
 	defer srv.Close()
 	snap, _, err := NewSelfHostedClient(srv.URL).FetchHour(context.Background(), 30, -97, time.Now().Add(-time.Hour), 0, false)
@@ -223,7 +223,7 @@ func TestFetchHourNullIsNotZero(t *testing.T) {
 func TestMergeChainTakesWindAsAPair(t *testing.T) {
 	models := chainModels(selfHostedChain)
 	body := []byte(`{"hourly":{"time":["t0","t1","t2"],
-	  "wind_speed_10m_ncep_rrfs_conus":[10,11,null],"wind_direction_10m_ncep_rrfs_conus":[100,null,null],
+	  "wind_speed_10m_ncep_hrrr_conus":[10,11,null],"wind_direction_10m_ncep_hrrr_conus":[100,null,null],
 	  "wind_speed_10m_ncep_gfs013":[20,21,22],"wind_direction_10m_ncep_gfs013":[200,210,220],
 	  "wind_speed_10m_gem_seamless":[30,31,32],"wind_direction_10m_gem_seamless":[300,310,null]}}`)
 	out, err := mergeChain(body, models)
@@ -248,12 +248,42 @@ func TestMergeChainTakesWindAsAPair(t *testing.T) {
 		}
 		got.Hourly[k] = v
 	}
-	// t0: rrfs has both -> 10/100. t1: rrfs lacks direction -> the pair comes from gfs: 21/210 (never rrfs 11 with gfs 210). t2: gfs has both.
+	// t0: hrrr has both -> 10/100. t1: hrrr lacks direction -> the pair comes from gfs: 21/210 (never hrrr 11 with gfs 210). t2: gfs has both.
 	want := [][2]float64{{10, 100}, {21, 210}, {22, 220}}
 	for i, w := range want {
 		s, d := got.Hourly["wind_speed_10m"][i], got.Hourly["wind_direction_10m"][i]
 		if s == nil || d == nil || *s != w[0] || *d != w[1] {
 			t.Errorf("hour %d: speed %v direction %v, want %v", i, s, d, w)
 		}
+	}
+}
+
+// HRRR retires on Nov 30: its series may be missing from the response altogether, and the chain must fall back with no error.
+func TestMergeChainHRRRAbsent(t *testing.T) {
+	body := []byte(`{"hourly":{"time":["t0","t1"],
+	  "temperature_2m_ncep_gfs013":[10,null],
+	  "temperature_2m_gem_seamless":[1,2],
+	  "wind_speed_10m_gem_seamless":[5,6],"wind_direction_10m_gem_seamless":[90,91]}}`)
+	out, err := mergeChain(body, chainModels(selfHostedChain))
+	if err != nil {
+		t.Fatalf("absent model must not error: %v", err)
+	}
+	var got struct {
+		Hourly map[string]json.RawMessage `json:"hourly"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	series := func(k string) []*float64 {
+		var v []*float64
+		_ = json.Unmarshal(got.Hourly[k], &v)
+		return v
+	}
+	temp := series("temperature_2m")
+	if len(temp) != 2 || temp[0] == nil || *temp[0] != 10 || temp[1] == nil || *temp[1] != 2 {
+		t.Errorf("temperature: %v, want [10 2] (gfs, else gem)", temp)
+	}
+	if w := series("wind_speed_10m"); len(w) != 2 || w[0] == nil || *w[0] != 5 {
+		t.Errorf("wind speed: %v, want gem's", w)
 	}
 }
