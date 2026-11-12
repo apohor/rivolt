@@ -97,6 +97,10 @@ describe("snap maths", () => {
     expect(stepSnap("peek", 1)).toBe("half");
     expect(stepSnap("half", 1)).toBe("full");
     expect(stepSnap("full", 1)).toBe("full");
+    // On the short screen the down arrow lowers the peek to the handle (min), and up raises it back.
+    expect(stepSnap("peek", -1, true)).toBe("min");
+    expect(stepSnap("min", -1, true)).toBe("min");
+    expect(stepSnap("min", 1, true)).toBe("peek");
   });
 });
 

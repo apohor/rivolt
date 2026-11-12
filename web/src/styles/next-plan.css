@@ -346,7 +346,7 @@
 /* Narrower than 200 CSS px (Safari's aA 300 %) the centred grabber and Map share the handle row: the grabber moves to the left edge and Map
    gets tighter, so neither covers the other. */
 @media (width < 200px) {
-  :root [data-plan-sheet]:not([data-snap='peek']) [data-plan-sheet-handle]::after {
+  :root [data-plan-sheet]:has(> [data-plan-sheet-map]) [data-plan-sheet-handle]::after {
     left: 0.75rem;
     width: 40px;
     margin-left: 0;
@@ -795,6 +795,10 @@
   background: oklch(78% 0.15 168);
 }
 
+/* The Layers button is only for a tight map (below). */
+:root [data-map-layers-button] {
+  display: none;
+}
 /* Phone: the map fills the space between the top bar and the sheet's peek (BottomSheet sets --plan-sheet-peek-h to the peek it measured). At half
    the sheet covers its lower part, and the map's fit, its credits and the radar strip follow the sheet's edge. */
 @media (max-width: 1023.98px) {
@@ -807,8 +811,9 @@
     bottom: var(--plan-map-cover, 0px);
     transition: bottom 0.22s ease;
   }
-  /* The radar strip rides the sheet's top edge, clear of the route, at every height (at full it is under the top bar with the map). */
-  :root:has([data-plan-sheet]) [data-radar-label] {
+  /* The radar strip rides the sheet's top edge, clear of the route, at every height (at full it is under the top bar with the map). In the Layers
+     panel (tight) it stays in the panel. */
+  :root:has([data-plan-sheet]) [data-trip-map] [data-radar-label] {
     position: fixed;
     left: 1.25rem;
     bottom: calc(var(--plan-sheet-bottom) + var(--plan-sheet-h, 240px) + 4px);
@@ -824,10 +829,13 @@
   }
   /* A strip of map too short for its controls (Safari's 300% text: some 60 px above the peek): the route alone, framed in it (TripRouteMap,
      data-map-tight). The credits stay. */
-  :root [data-trip-map][data-map-tight] > :not([data-map-canvas]),
+  :root [data-trip-map][data-map-tight] > :not([data-map-canvas]):not([data-map-layers-button]),
   :root [data-trip-map][data-map-tight] .maplibregl-ctrl-top-left,
   :root [data-trip-map][data-map-tight] .rivolt-trip-card {
     display: none;
+  }
+  :root [data-trip-map][data-map-tight] > [data-map-layers-button] {
+    display: flex;
   }
   /* Fully open, the map is out of sight under the sheet, and so is its strip. */
   :root:has([data-plan-sheet][data-snap='full']:not([data-dragging])) [data-radar-label] {

@@ -4,6 +4,7 @@
 // says the map is unavailable and the itinerary beside it stands.
 import { fetchRadarFrame, hideRadar, RADAR_DENIED, radarAsOf, radarEnabled, radarSpoken, RADAR_REFRESH_MS, showRadar as addRadar } from "./radar";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { GeoJSONSource, Map as MLMap, Marker, Popup } from "maplibre-gl";
 import { inDemo } from "../lib/demo";
 import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
@@ -142,7 +143,7 @@ export function TripRouteMap({
   // The weather on each leg (leg i runs from waypoint i to i+1; null where there is none): drawn as a badge on the route, with a "Weather" chip.
   legWeather?: (LegWeatherInfo | null)[];
   // The phone's bottom sheet height (peek, half, full): once it settles, the map's fit and its credits follow the sheet's edge.
-  sheetSnap?: "peek" | "half" | "full";
+  sheetSnap?: "min" | "peek" | "half" | "full";
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -240,6 +241,24 @@ export function TripRouteMap({
   const reframeRef = useRef<(() => void) | null>(null);
   useEffect(() => { if (radarDenied) reframeRef.current?.(); }, [radarDenied]);
   const [showRadar, setShowRadar] = useState(false);
+  // Tight (Safari's aA 300 %, see tight() below): the map's own controls are hidden, and one Layers button opens them in a panel over the page,
+  // with the radar legend. The leg weather badges are not drawn there (they covered the route); each stop's card in the itinerary has the weather.
+  const [tightNow, setTightNow] = useState(false);
+  const [layersOpen, setLayersOpen] = useState(false);
+  const layersButtonRef = useRef<HTMLButtonElement | null>(null);
+  const layersPanelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { if (!tightNow) setLayersOpen(false); }, [tightNow]);
+  useEffect(() => {
+    if (!layersOpen) return;
+    layersPanelRef.current?.querySelector<HTMLElement>("button")?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setLayersOpen(false);
+      layersButtonRef.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [layersOpen]);
   const [radarLabel, setRadarLabel] = useState("");
   const [radarSpokenLabel, setRadarSpokenLabel] = useState("");
   const toggleRadar = () => {
@@ -292,7 +311,7 @@ export function TripRouteMap({
   // and that must not close it. It closes when the weather goes off, on another tap, and with the map.
   const legPopupRef = useRef<Popup | null>(null);
   // Effect: the sheet's height changed; once its move is over (0.22 s in CSS), the map follows it. Not while it is still moving: one refit, on settle.
-  const followSheetRef = useRef<((snap: "peek" | "half" | "full") => void) | null>(null);
+  const followSheetRef = useRef<((snap: "min" | "peek" | "half" | "full") => void) | null>(null);
   useEffect(() => {
     if (!sheetSnap) return;
     const t = window.setTimeout(() => followSheetRef.current?.(sheetSnap), 260);
@@ -317,11 +336,11 @@ export function TripRouteMap({
     legPopupRef.current?.remove(); legPopupRef.current = null;
   }, [showWeather, hasWeather, weatherKey]);
   useEffect(() => () => { legPopupRef.current?.remove(); legPopupRef.current = null; }, []);
-  // Effect: one weather badge per leg while the "Weather" chip is on. A tap on one opens that leg's details.
+  // Effect: one weather badge per leg while the "Weather" chip is on, and the map is not tight. A tap on one opens that leg's details.
   useEffect(() => {
     const map = mapReady;
     const legs = legWeatherRef.current;
-    if (!map || !showWeather || !legs || !hasWeather) return;
+    if (!map || !showWeather || !legs || !hasWeather || tightNow) return;
     let alive = true;
     let remove: BadgesHandle = () => {};
     let redraw: (() => void) | null = null;
@@ -392,7 +411,7 @@ export function TripRouteMap({
       if (timer !== undefined) window.clearTimeout(timer);
       remove();
     };
-  }, [mapReady, showWeather, weatherKey, hasWeather, routePath, route.Waypoints]);
+  }, [mapReady, showWeather, weatherKey, hasWeather, routePath, route.Waypoints, tightNow]);
   // Refs so async handlers call the latest callbacks without being effect dependencies (which would re-mount the map every render).
   const onAddStopRef = useRef(onAddStop);
   useEffect(() => { onAddStopRef.current = onAddStop; }, [onAddStop]);
@@ -575,8 +594,9 @@ export function TripRouteMap({
       const tight = () => fill && narrow && el.clientHeight - sheetCover() < 200;
       const padding = () => {
         if (tight()) {
+          // The Layers button (28 px) sits at the top left: the route keeps to its right.
           const bottom = Math.min(sheetCover() + 8, Math.max(8, el.clientHeight - 8 - 24));
-          return { top: 8, bottom, left: 8, right: 8 };
+          return { top: 8, bottom, left: 40, right: 8 };
         }
         // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
@@ -608,6 +628,7 @@ export function TripRouteMap({
       const liftCredits = () => {
         el.style.setProperty("--plan-map-cover", `${sheetCover()}px`);
         el.parentElement?.toggleAttribute("data-map-tight", tight());
+        setTightNow(tight());
       };
       let fitPath: LatLng[] = wpLatLngs;
       let fitted = false;
@@ -1144,12 +1165,9 @@ export function TripRouteMap({
           <span aria-hidden="true">{radarLabel}</span>
         </span>
   ) : null;
-  return (
-    <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
-      {/* The chips and, under them, the radar strip: one column at the map's top left, so the strip never lands on the route. */}
-      <div className={fill ? "pointer-events-none absolute left-14 right-2 top-3 z-[500] flex flex-col items-start gap-1 max-[200px]:left-12 max-[200px]:right-1" : "contents"}>
-      {!noChargerSource && (
-        <div className={fill ? "pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm max-[200px]:px-1" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
+  // The charger chips: floating over the map's top (fill), in the flow above it, or in the Layers panel (tight).
+  const chargerChips = (panel: boolean) => (
+        <div className={fill && !panel ? "pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm max-[200px]:px-1" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill && !panel ? "" : undefined} data-map-chips={panel ? undefined : ""}>
           {!noChargerSource && <>
           <span className="whitespace-nowrap text-xs text-neutral-500 mr-1 max-[200px]:sr-only">Chargers:</span>
           {(["dcfc", "l2", "hotels", "camp"] as const).filter((f) => f !== "camp" || campCount > 0 || layers.has("camp")).map((f) => (
@@ -1203,7 +1221,12 @@ export function TripRouteMap({
           )}
           </>}
         </div>
-      )}
+  );
+  return (
+    <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
+      {/* The chips and, under them, the radar strip: one column at the map's top left, so the strip never lands on the route. */}
+      <div className={fill ? "pointer-events-none absolute left-14 right-2 top-3 z-[500] flex flex-col items-start gap-1 max-[200px]:left-12 max-[200px]:right-1" : "contents"}>
+      {!noChargerSource && chargerChips(false)}
       </div>
       {!fill && radarStrip}
       {(hasWeather || radarOn) && (
@@ -1236,9 +1259,57 @@ export function TripRouteMap({
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12l6-6" /></svg>
           </button>
-          {fill && radarStrip}
+          {fill && !layersOpen && radarStrip}
         </div>
       )}
+      {fill && (radarOn || !noChargerSource) && (
+        // Shown only while tight (CSS): the one way to the layers there.
+        <button
+          ref={layersButtonRef}
+          type="button"
+          data-map-layers-button
+          aria-label="Map layers"
+          aria-expanded={layersOpen}
+          onClick={() => setLayersOpen(!layersOpen)}
+          className="absolute left-1 top-1 z-[500] h-7 w-7 items-center justify-center rounded border border-neutral-700 bg-neutral-900/90 text-neutral-200"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5 9-5z" /><path d="M3 13l9 5 9-5" /></svg>
+        </button>
+      )}
+      {layersOpen &&
+        createPortal(
+          <>
+            {/* A tap anywhere else closes it; the page under it is not inert (not modal). */}
+            <div aria-hidden="true" className="fixed inset-0 z-[1180]" onClick={() => setLayersOpen(false)} />
+            <div
+              ref={layersPanelRef}
+              role="dialog"
+              aria-label="Map layers"
+              data-map-layers-panel
+              className="fixed inset-x-2 top-[calc(env(safe-area-inset-top,0px)+0.5rem)] z-[1190] max-h-[calc(100dvh-env(safe-area-inset-top,0px)-1rem)] overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-900 p-2 text-sm text-neutral-200 shadow-lg"
+            >
+              <button type="button" onClick={() => { setLayersOpen(false); layersButtonRef.current?.focus(); }} className="mb-2 rounded border border-neutral-700 px-2 py-0.5 text-xs">
+                Done
+              </button>
+              {!noChargerSource && chargerChips(true)}
+              {radarOn && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={showRadar}
+                    onClick={toggleRadar}
+                    title="Live weather radar (NOAA/NWS)"
+                    className={`whitespace-nowrap rounded px-2 py-0.5 text-xs ${showRadar ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400"}`}
+                  >
+                    Radar
+                  </button>
+                  {radarStrip}
+                </div>
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
       <div
         ref={ref}
         data-map-canvas
