@@ -633,7 +633,27 @@ func (r *replayAccountRegistry) Fresh(ctx context.Context, uid uuid.UUID) (Accou
 		return AccountDBState{}, false
 	}
 	st, ok := m[uid]
+	if st.SessionVersion.IsZero() {
+		r.dropStale(uid)
+	}
 	return st, ok
+}
+
+// dropStale signs out this pod's copy of a user whose stored session is gone (a sign-out made on a peer pod), as the live syncer does. A
+// sign-in made here within loginGrace is kept: the handler stores it a moment after the client holds it.
+func (r *replayAccountRegistry) dropStale(uid uuid.UUID) {
+	r.mu.RLock()
+	c := r.users[uid]
+	r.mu.RUnlock()
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	stale := c.email != "" && time.Since(c.authenticatedAt) > loginGrace
+	c.mu.Unlock()
+	if stale {
+		c.Logout()
+	}
 }
 
 // NewReplayAccountRegistry returns a registry handing each user a

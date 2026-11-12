@@ -244,6 +244,33 @@ func TestReplayRegistry_FreshReadsStoredState(t *testing.T) {
 	}
 }
 
+// A sign-out made on a peer pod (no stored session) signs this pod's copy out too, once the sign-in grace has passed.
+func TestReplayRegistry_FreshDropsSessionSignedOutElsewhere(t *testing.T) {
+	f, _ := testFeed(replayEpoch, time.Hour)
+	reg := NewReplayAccountRegistry(f, nil).(*replayAccountRegistry)
+	uid := uuid.New()
+	c := reg.For(uid).(*ReplayClient)
+	reg.SetStateSource(fixedStates{uid: {}})
+
+	c.email, c.authenticatedAt = "a@example.invalid", time.Now()
+	reg.Fresh(context.Background(), uid)
+	if !c.Authenticated() {
+		t.Fatal("a sign-in made just now was dropped inside the grace")
+	}
+	c.authenticatedAt = time.Now().Add(-2 * loginGrace)
+	reg.Fresh(context.Background(), uid)
+	if c.Authenticated() {
+		t.Fatal("a session with no stored copy survived Fresh")
+	}
+
+	c.email, c.authenticatedAt = "a@example.invalid", time.Now().Add(-2*loginGrace)
+	reg.SetStateSource(fixedStates{uid: {SessionVersion: time.Now()}})
+	reg.Fresh(context.Background(), uid)
+	if !c.Authenticated() {
+		t.Fatal("a session with a stored copy was dropped")
+	}
+}
+
 // A scheduled pause (charging_ready) between charging frames keeps the
 // cable plugged; driving or charger_disconnected clears it.
 func TestPlugTrackerStickyThroughChargingReady(t *testing.T) {
