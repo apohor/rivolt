@@ -1,10 +1,12 @@
 import { useEffect, useRef } from "react";
 import { reducedMotion } from "./motion";
 import deskShot from "../../assets/landing/desk-plan.webp";
+import phoneShot from "../../assets/landing/phone-plan.webp";
 import cardShot from "../../assets/landing/plan-itinerary.webp";
 
 // Real planner screenshots of one trip: the desktop planner with the radar
-// layer on, and its itinerary. The desktop shot tips up flat as it scrolls in
+// layer on (the phone planner below 700 px, where the desktop shot is
+// unreadable), and its itinerary. The desktop shot tips up flat as it scrolls in
 // and the itinerary rises beside it; both rest flat (and stay flat with
 // reduced motion).
 export default function PlannerShots() {
@@ -17,7 +19,8 @@ export default function PlannerShots() {
     let raf = 0;
     const tip = () => {
       raf = 0;
-      const r = el.getBoundingClientRect(), vh = innerHeight;
+      const r = el.getBoundingClientRect(),
+        vh = innerHeight;
       const k = Math.max(0, Math.min(1, (vh - r.top) / (vh * 0.85)));
       browser.style.setProperty("--tilt", `${(22 * (1 - k)).toFixed(2)}deg`);
       browser.style.setProperty("--zoom", (0.9 + 0.1 * k).toFixed(3));
@@ -44,14 +47,22 @@ export default function PlannerShots() {
           <i />
           <span>rivolt.dev/trips/plan</span>
         </div>
-        <img
-          src={deskShot}
-          alt="Rivolt trip planner on a desktop browser: Cleveland to Albany with two charging stops, temperature and wind on the route, and the live weather radar layer on the map"
-          loading="lazy"
-          decoding="async"
-          width={1600}
-          height={1000}
-        />
+        <picture>
+          <source
+            media="(max-width: 699px)"
+            srcSet={phoneShot}
+            width={780}
+            height={1688}
+          />
+          <img
+            src={deskShot}
+            alt="Rivolt trip planner: Cleveland to Albany with two charging stops, temperature and wind on the route, and the live weather radar layer on the map"
+            loading="lazy"
+            decoding="async"
+            width={1600}
+            height={1000}
+          />
+        </picture>
       </figure>
       <figure className="lp-card-shot" style={{ margin: 0 }}>
         <img

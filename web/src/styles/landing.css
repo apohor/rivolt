@@ -33,7 +33,7 @@
   -webkit-font-smoothing: antialiased;
   overflow-x: clip;
 }
-.lp img { max-width: 100%; display: block; }
+.lp img, .lp picture { max-width: 100%; display: block; }
 .lp a { color: inherit; }
 .lp .wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
 .lp h1, .lp h2, .lp h3 { font-weight: 600; color: var(--ink); letter-spacing: -0.035em; line-height: 1.06; margin: 0; text-wrap: balance; }
@@ -47,7 +47,7 @@
 .lp :focus-visible { outline: 2px solid var(--route); outline-offset: 3px; border-radius: 6px; }
 
 /* nav */
-.lp-nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); background: rgba(6, 10, 16, 0.72); border-bottom: 1px solid transparent; transition: border-color 0.3s; }
+.lp-nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); background: rgba(6, 8, 12, 0.92); border-bottom: 1px solid transparent; transition: border-color 0.3s; }
 .lp-nav[data-stuck='true'] { border-color: var(--line); }
 .lp-nav .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
 .lp-logo { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1.1rem; color: var(--ink); text-decoration: none; letter-spacing: -0.02em; }
@@ -122,6 +122,12 @@
 @media (max-width: 900px) {
   .lp-plan-grid { grid-template-columns: 1fr; }
   .lp-card-shot { max-width: 340px; }
+}
+/* Below 700 px the desktop shot is unreadable: PlannerShots swaps in the
+   phone planner, framed as a phone rather than a browser window. */
+@media (max-width: 699px) {
+  .lp-browser { max-width: 340px; border-radius: 24px; }
+  .lp-bar { display: none; }
 }
 
 /* tiles */
