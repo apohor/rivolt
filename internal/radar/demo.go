@@ -3,6 +3,7 @@ package radar
 import (
 	"context"
 	"encoding/json"
+	"github.com/redis/go-redis/v9"
 	"log/slog"
 	"math"
 	"net/http"
@@ -304,8 +305,9 @@ func (d *Demo) Warm(ctx context.Context) int {
 	now := d.svc.cfg.Now()
 	if rc := d.svc.cfg.Redis; rc != nil {
 		c, cancel := context.WithTimeout(ctx, redisOp)
-		prev, _ := rc.GetSet(c, d.frameKey(), strconv.FormatInt(frame.Unix(), 10)).Int64()
-		_ = rc.Expire(c, d.frameKey(), demoTTL).Err()
+		// One command, so the frame key never exists without an expiry.
+		pv, _ := rc.SetArgs(c, d.frameKey(), strconv.FormatInt(frame.Unix(), 10), redis.SetArgs{Get: true, TTL: demoTTL}).Result()
+		prev, _ := strconv.ParseInt(pv, 10, 64)
 		if prev != 0 && prev != frame.Unix() {
 			pipe := rc.Pipeline()
 			for _, t := range d.tiles {

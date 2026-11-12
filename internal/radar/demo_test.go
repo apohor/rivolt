@@ -209,6 +209,9 @@ func TestDemoNewFrameExpiresThePreviousTiles(t *testing.T) {
 	if d.Warm(context.Background()) == 0 {
 		t.Fatal("second frame not warmed")
 	}
+	if ttl := mr.TTL(d.frameKey()); ttl <= 0 || ttl > demoTTL {
+		t.Fatalf("frame key ttl %v", ttl)
+	}
 	for tl := range d.set {
 		if ttl := mr.TTL(d.tileKey(first, tl)); ttl > demoOldTTL {
 			t.Fatalf("previous frame tile kept %v", ttl)
