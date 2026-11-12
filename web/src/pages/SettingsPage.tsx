@@ -1,5 +1,6 @@
 import { UNSET_RATE_NOTE, memberSaving, networkRateSet } from "../lib/networkRates";
-import { useAIEnabled, useTripPlannerEnabled } from "../lib/config";
+import { useAIEnabled, useHistoryImport, useTripPlannerEnabled } from "../lib/config";
+import { HistoryImportCard, ImportsListCard } from "../components/HistoryImport";
 import { usePlannerPrefs, useSavePlannerPrefs } from "../lib/plannerPrefs";
 import { ChargersOnMapCard, MapDefaultsCard } from "../components/TripPlannerSettings";
 import { useAIConsent } from "../lib/aiConsent";
@@ -79,6 +80,8 @@ const USER_SCROLL_EVENTS = ["wheel", "touchstart", "keydown", "pointerdown"] as 
 // Every card id a link may point at; a missing one opens Account with no card.
 const HASH_TO_TAB: Record<string, TabId> = {
   rivian: "account",
+  "import-history": "data",
+  imports: "data",
   "ai-features": "account",
   "r2-arrival": "account",
   plan: "account",
@@ -138,6 +141,7 @@ function SettingsPageInner() {
   const location = useLocation();
   // The Trip planner tab exists only where the planner does. The networks card stays under Charging: it is the price book the charge costs use too.
   const plannerOn = useTripPlannerEnabled();
+  const historyImport = useHistoryImport();
   // The tab's cards that load their own data appear after the first frame; watching this root (not the target's
   // parent, which does not exist yet) is what lets the anchor re-align once the target card has mounted.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -323,6 +327,12 @@ function SettingsPageInner() {
       {tab === "data" && (
         <>
           <ExportCard />
+          {historyImport && (
+            <>
+              <HistoryImportCard />
+              <ImportsListCard />
+            </>
+          )}
           <Card title="Import ElectraFi CSV" id="import">
             <ImportPanel />
           </Card>

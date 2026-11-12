@@ -31,6 +31,36 @@ export type AuthSession = {
   current: boolean;
 };
 
+function importForm(files: File[], c: ImportChoices): FormData {
+  const fd = new FormData();
+  fd.append("source", c.source);
+  fd.append("vehicle_id", c.vehicleID);
+  fd.append("tz", c.tz);
+  if (c.distanceUnit) fd.append("distance_unit", c.distanceUnit);
+  if (c.energyUnit) fd.append("energy_unit", c.energyUnit);
+  if (c.packKWh && c.packKWh > 0) fd.append("pack_kwh", String(c.packKWh));
+  if (c.vehicle) fd.append("vehicle", c.vehicle);
+  for (const f of files) fd.append("file", f, f.name);
+  return fd;
+}
+
+async function readImportJSON<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  let body: unknown = text;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // keep text
+  }
+  if (!res.ok) {
+    const err = new ApiError(res.status, body);
+    const ra = Number(res.headers.get("Retry-After"));
+    if (ra > 0) err.retryAfter = ra;
+    throw err;
+  }
+  return body as T;
+}
+
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -1835,6 +1865,55 @@ export const backend = {
   // One charge by id; HTTP 402 outside_free_window when it is older than a free account's history.
   charge: (id: string) => api.get<Charge>(`/api/charges/${encodeURIComponent(id)}`),
   // Deletes the signed-in user's drives, charges and telemetry from before the first of `before` ("2026-07", UTC). Free on every plan.
+  // History import. Files are sent twice (preview, then commit); nothing is staged on the server.
+  importPreview: async (files: File[], c: ImportChoices): Promise<ImportPreview> => {
+    const res = await fetch("/api/import/preview", { method: "POST", body: importForm(files, c) });
+    return readImportJSON<ImportPreview>(res);
+  },
+  importCommit: async (files: File[], c: ImportChoices, sha256: string, onEvent?: (e: ImportEvent) => void) => {
+    const fd = importForm(files, c);
+    fd.append("sha256", sha256);
+    const res = await fetch("/api/import/commit", { method: "POST", body: fd });
+    if (!res.ok) await readImportJSON<never>(res);
+    if (!res.body) throw new ApiError(500, "no response body");
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    let done: { id: string; drives: number; charges: number } | null = null;
+    let err: string | null = null;
+    let importID = "";
+    const line = (l: string) => {
+      if (!l.trim()) return;
+      let ev: Record<string, unknown>;
+      try {
+        ev = JSON.parse(l);
+      } catch {
+        return;
+      }
+      if (typeof ev.id === "string") importID = ev.id;
+      if (ev.type === "done") done = ev as unknown as { id: string; drives: number; charges: number };
+      else if (ev.type === "error") err = String(ev.error ?? "import failed");
+      else onEvent?.(ev as unknown as ImportEvent);
+    };
+    for (;;) {
+      const { value, done: eof } = await reader.read();
+      if (value) {
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          line(buf.slice(0, i));
+          buf = buf.slice(i + 1);
+        }
+      }
+      if (eof) break;
+    }
+    line(buf);
+    if (err) throw new ApiError(500, { error: err, code: "stopped", id: importID });
+    if (!done) throw new ApiError(500, { error: "The import stopped before it finished.", code: "stopped" });
+    return done as { id: string; drives: number; charges: number };
+  },
+  listImports: async () => (await api.get<{ imports: ImportRecord[] }>("/api/imports")).imports ?? [],
+  undoImport: (id: string) => api.post<{ drives: number; charges: number }>(`/api/imports/${encodeURIComponent(id)}/undo`, {}),
   deleteHistoryBefore: (before: string) => api.post<{ drives: number; charges: number; samples: number }>("/api/data/delete-range", { before, confirm: true }),
   // The vehicle a free account shows (the others are Pro). Free on every plan: it is a setting.
   primaryVehicle: () => api.get<{ vehicle_id: string }>("/api/settings/primary-vehicle"),
@@ -2285,6 +2364,59 @@ export type ImportResult = {
   Charges: number;
   SkippedRows: number;
 };
+
+
+// History import (TezLab, ABRP): preview writes nothing; commit writes after the user confirms; undo removes one import's rows.
+// ElectraFi keeps its own endpoint (importElectrafi) for now.
+export type ImportSource = "tezlab" | "abrp";
+export type ImportSampleRow = {
+  kind: string;
+  started_at: string;
+  ended_at: string;
+  distance_mi?: number;
+  energy_kwh?: number;
+  start_soc_pct: number;
+  end_soc_pct: number;
+};
+export type ImportPreview = {
+  sha256: string;
+  source: ImportSource;
+  first: string;
+  last: string;
+  rows: number;
+  new_drives: number;
+  new_charges: number;
+  // skipped: rows left out, by reason (overlaps_live, overlaps_existing, parser reasons).
+  skipped: Record<string, number>;
+  assumptions: { soc_scale?: string; distance_unit?: string; energy_unit?: string; tz: string };
+  vehicles?: string[];
+  // warnings: codes (brings_back_deleted_history, ambiguous_local_times, positions_left_out).
+  warnings: string[];
+  sample: ImportSampleRow[];
+  already_imported?: { id: string; at: string };
+};
+export type ImportRecord = {
+  id: string;
+  source: ImportSource;
+  started_at: string;
+  finished_at?: string;
+  undone_at?: string;
+  rows: number;
+  drives: number;
+  charges: number;
+  first: string;
+  last: string;
+};
+export type ImportChoices = {
+  source: ImportSource;
+  vehicleID: string;
+  tz: string;
+  distanceUnit?: string;
+  energyUnit?: string;
+  packKWh?: number;
+  vehicle?: string;
+};
+export type ImportEvent = { type: string; done?: number; total?: number };
 
 // ImportProgress is a single server-emitted NDJSON event for the
 // streaming /api/import/electrafi endpoint. The final {event:"done"}

@@ -95,6 +95,8 @@ export type RuntimeConfig = {
     // admin-only shell, forces the new look and sends every non-admin path to /admin. An older
     // server that omits it is treated as false.
     adminOnly: boolean;
+    // historyImport: features.history_import (env RIVOLT_HISTORY_IMPORT); off hides Settings → Data → Import history and the server 404s its endpoints.
+    historyImport: boolean;
     // appUrl: origin of the real app (e.g. "https://rivolt.dev") for demo
     // CTAs. Empty means same-origin routes.
     appUrl: string;
@@ -138,7 +140,7 @@ const fallback: RuntimeConfig = {
   valhalla: { path: "" },
   tiles: { url: "", chargersUrl: "", glyphsUrl: "", demUrl: "", demMinZoom: 3, demMaxZoom: 10, radarUrl: "", radarFrameUrl: "", radarMinZoom: 3, radarMaxZoom: 9, radarDemoUrl: "", radarDemoFrameUrl: "", radarDemoMinZoom: 4, radarDemoMaxZoom: 7 },
   ai: { enabled: false },
-  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false, demoOnly: false, adminOnly: false, appUrl: "", iosAppUrl: "" },
+  features: { tripPlannerEnabled: false, landingEnabled: false, demoEnabled: false, signupEnabled: true, eventsEnabled: false, demoOnly: false, adminOnly: false, historyImport: false, appUrl: "", iosAppUrl: "" },
   grafana: { baseUrl: "" },
   booking: { affiliateId: "" },
   gps: { missingPct: 0.4, staleSec: 300, jumpCount: 2 },
@@ -160,7 +162,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string; glyphs_url?: string; dem_url?: string; dem_minzoom?: number; dem_maxzoom?: number; radar_url?: string; radar_frame_url?: string; radar_minzoom?: number; radar_maxzoom?: number; radar_demo_url?: string; radar_demo_frame_url?: string; radar_demo_minzoom?: number; radar_demo_maxzoom?: number };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; admin_only?: boolean; app_url?: string; ios_app_url?: string; rivian_actions?: boolean };
+      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; admin_only?: boolean; history_import?: boolean; app_url?: string; ios_app_url?: string; rivian_actions?: boolean };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
@@ -193,6 +195,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
         eventsEnabled: j?.features?.events_enabled === true,
         demoOnly: j?.features?.demo_only === true,
         adminOnly: j?.features?.admin_only === true,
+        historyImport: j?.features?.history_import === true,
         appUrl: (j?.features?.app_url ?? "").replace(/\/+$/, ""),
         iosAppUrl: j?.features?.ios_app_url ?? "",
       },
@@ -448,6 +451,21 @@ export function useRivianActions(): boolean {
     let cancelled = false;
     ensureConfig().then((c) => {
       if (!cancelled) setOn(c.rivianActions);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return on;
+}
+
+// useHistoryImport: whether history import (features.history_import) is on here. False until /api/config answers, so the wizard never flashes up on a site that has it off.
+export function useHistoryImport(): boolean {
+  const [on, setOn] = useState<boolean>(configLoaded ? cached.features.historyImport : false);
+  useEffect(() => {
+    let cancelled = false;
+    ensureConfig().then((c) => {
+      if (!cancelled) setOn(c.features.historyImport);
     });
     return () => {
       cancelled = true;

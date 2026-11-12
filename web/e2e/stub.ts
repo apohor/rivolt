@@ -201,10 +201,12 @@ export type StubOptions = {
   signedIn?: boolean;
   landing?: boolean;
   admin?: boolean;
+  // features.history_import (RIVOLT_HISTORY_IMPORT).
+  historyImport?: boolean;
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent" } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false } = opts;
   const month = currentMonth(new Date(e2eNow()));
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -247,7 +249,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/config") {
       return json(route, {
-        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo || demoOnly, signup_enabled: !signupDisabled, ...(demoOnly ? { demo_only: true, app_url: "https://rivolt.dev" } : {}) },
+        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo || demoOnly, signup_enabled: !signupDisabled, ...(historyImport ? { history_import: true } : {}), ...(demoOnly ? { demo_only: true, app_url: "https://rivolt.dev" } : {}) },
         tiles: { url: noTiles ? "" : tilesUrl || "/api/maps/tiles/us.pmtiles", chargers_url: tilesUrl ? tilesUrl.replace("us.pmtiles", "chargers.pmtiles") : "/api/maps/tiles/chargers.pmtiles", glyphs_url: "/api/maps/glyphs/{fontstack}/{range}.pbf", dem_url: "/api/maps/dem/{z}/{x}/{y}.png", dem_minzoom: 3, dem_maxzoom: 10 },
         valhalla: { path: "/api/maps/valhalla" },
         impersonation: { disabled: true },
