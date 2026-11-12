@@ -1330,7 +1330,7 @@ function LocationField({
         {value ? (
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
             <span className="pt-value min-w-0 max-w-full truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
-            <span className="flex shrink-0 items-center gap-3 text-xs">
+            <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
               {onSaveAsFavorite && value.label !== "Home" && (
                 <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset" aria-label={`Save place: ${value.label}, as a favorite`}>
                   ☆ save place
