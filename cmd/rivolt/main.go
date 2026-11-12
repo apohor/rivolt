@@ -1638,7 +1638,8 @@ func runServer() {
 			// Receipt-sourced energy (#1885): observe counts only; apply writes the receipt's energy to a closed
 			// charge that passes the check. Flipping to apply is its own reviewed change.
 			energyMode := strings.ToLower(strings.TrimSpace(envOr("RIVOLT_RECEIPT_ENERGY", receipts.EnergyObserve)))
-			if energyMode != receipts.EnergyApply && energyMode != receipts.EnergyOff {
+			if energyMode != receipts.EnergyApply && energyMode != receipts.EnergyOff && energyMode != receipts.EnergyObserve {
+				logger.Warn("RIVOLT_RECEIPT_ENERGY unknown value, acting as observe", "value", energyMode)
 				energyMode = receipts.EnergyObserve
 			}
 			for _, o := range []string{receipts.OutcomeApplied, receipts.OutcomeWouldApply, receipts.OutcomeHome, receipts.OutcomeNoDetail,
