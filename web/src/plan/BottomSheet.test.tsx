@@ -31,6 +31,10 @@ describe("snap maths", () => {
   it("the peek is what its text needs, up to 35 % of the room; the heights stay strictly increasing", () => {
     expect(snapHeights(743, 90)).toEqual({ peek: 90, half: 342, full: 743 });
     expect(snapHeights(743, 400).peek).toBe(260); // capped
+    // A short room (Safari's aA 200 %) lets a wrapped peek have up to 150 px, never more than half the room.
+    expect(snapHeights(310, 140).peek).toBe(140);
+    expect(snapHeights(310, 400).peek).toBe(150);
+    expect(snapHeights(200, 400).peek).toBe(100);
     for (const room of [743, 500, 300, 160]) {
       const h = snapHeights(room, 120);
       expect(h.peek).toBeLessThan(h.half);

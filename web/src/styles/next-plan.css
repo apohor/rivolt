@@ -201,6 +201,9 @@
 /* Plan tabs (plumbing defaults; the look is ux's): a segmented control. */
 :root [data-plan-tabs] {
   display: inline-flex;
+  /* Safari's aA text size at 200 % leaves a phone ~195 CSS px wide: the tabs wrap rather than push the page sideways. */
+  flex-wrap: wrap;
+  max-width: 100%;
   padding: 2px;
   border: 1px solid oklch(30% 0.01 262);
   border-radius: 0.5rem;
@@ -578,6 +581,12 @@
   --pt-cap: 0.6875rem;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
+}
+/* Narrower than 200 CSS px (a phone at Safari's aA 300 %) the trip cost at full size is wider than the sheet. */
+@media (max-width: 199.98px) {
+  :root [data-plan-next] {
+    --pt-hero: 1.625rem;
+  }
 }
 :root [data-plan-next] *:not(.maplibregl-map *):not(svg *) {
   font-family: 'Geist UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
