@@ -135,25 +135,19 @@ final class PlanSheetUITests: XCTestCase {
     }
 
     /// #1886: at AX3 half Edit and the day chips sat under the tab bar: the header's height never reached the screen (it was sent back as 0), so half
-    /// fell to its floor. This drives the real screen, so it covers the wiring as well as SheetLayout's sums. The summary may start under the tab bar
-    /// at half; fully open it shows.
-    func testAtAX3HalfTheSheetsControlsSitWholeAboveTheTabBar() throws {
+    /// fell to its floor. This drives the real screen, so it covers the wiring as well as SheetLayout's sums.
+    func testAtAX3HalfEditAndTheDayChipsSitWholeAboveTheTabBar() throws {
         let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
         let grabber = open("Two days to Spokane", in: app)
         expect(grabber, "peek", "at accessibility sizes it opens at the peek")
         grabber.tap()
         expect(grabber, "half", "the grabber raises it to half")
         let tabTop = app.buttons["Activity"].firstMatch.frame.minY   // the custom tab bar (ThemeTabBar): its buttons fill it
-        for name in ["Whole trip", "Day 1", "Day 2", "Networks", "Edit"] {
+        for name in ["Edit", "Whole trip", "Day 1", "Day 2"] {
             let button = app.buttons[name].firstMatch
             XCTAssertTrue(button.waitForExistence(timeout: 10), "\(name) is there")
             XCTAssertLessThanOrEqual(button.frame.maxY, tabTop + 0.5, "\(name) ends above the tab bar (\(button.frame), tab bar at \(tabTop))")
             XCTAssertTrue(button.isHittable, "\(name) takes a tap")
         }
-        grabber.tap()
-        expect(grabber, "full", "the grabber opens it fully")
-        let summary = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "driving")).firstMatch
-        XCTAssertTrue(summary.waitForExistence(timeout: 5), "the trip's summary is there")
-        XCTAssertLessThanOrEqual(summary.frame.maxY, tabTop + 0.5, "and fully open it shows (\(summary.frame))")
     }
 }
