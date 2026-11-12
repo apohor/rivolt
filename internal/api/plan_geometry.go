@@ -97,8 +97,8 @@ func withGeometryAll(ctx context.Context, ins []*rivian.TripPlan, opts maps.Rout
 		plan.Routes = append([]rivian.TripRoute(nil), in.Routes...)
 		outs[pi] = &plan
 	}
-	// Every day's recommended route first, then the alternatives: when the shared budget runs short, it is the alternatives of the early
-	// days that go undrawn, never the primary line of a late day.
+	// Every day's recommended route first, then the alternatives: when the shared budget runs short, it is the alternatives of the late
+	// days that go undrawn, never the primary line of any day.
 	var jobs []job
 	for ri := 0; ri < maxGeometryRoutes; ri++ {
 		for pi, plan := range outs {

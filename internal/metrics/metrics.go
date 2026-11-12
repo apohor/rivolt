@@ -35,10 +35,10 @@ import (
 // RoutePointRefusals are the rivolt_route_point_refused_total "where" values, all created at 0 at boot: fix_offglobe (a position off the
 // globe), fill_globe (a route-fill with such a vertex, caught by the recorder), fill_offglobe and fill_detour (the routing engine's shape
 // failed its own check: off the globe, or nowhere near the two ends), encode_skip (the encoder's last line), plan_offglobe and plan_detour (a served plan's line failed the same checks and was left out).
+var RoutePointRefusals = []string{"fix_offglobe", "fill_globe", "fill_offglobe", "fill_detour", "encode_skip", "plan_offglobe", "plan_detour"}
+
 // PlanGeometryOutcomes are the rivolt_plan_geometry_routes_total outcomes.
 var PlanGeometryOutcomes = []string{"drawn", "budget", "failed"}
-
-var RoutePointRefusals = []string{"fix_offglobe", "fill_globe", "fill_offglobe", "fill_detour", "encode_skip", "plan_offglobe", "plan_detour"}
 
 // TripPlanStages are the rivolt_trip_plan_stage_seconds stages: our own work around the planner call, so Rivian's time (the upstream
 // histogram) can be told from ours. planner is the whole planner call (a multi-day plan: all its days, one after another, with the weather pass between them); geometry is the road line through the stops (up to three Valhalla routes, at most three in flight, one budget for the whole response);
@@ -1020,7 +1020,7 @@ func New() *Metrics {
 		PlanGeometryRoutesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_plan_geometry_routes_total",
-				Help: "Routes of served plans that asked for a road line, by outcome: drawn, budget (the response's shared budget ended before it was drawn), failed (any other reason). Never a user, vehicle or place.",
+				Help: "Routes of served plans that asked for a road line, by outcome: drawn, budget (the response's shared budget ended, or the client went away, before it was drawn), failed (any other reason). Never a user, vehicle or place.",
 			},
 			[]string{"outcome"},
 		),
