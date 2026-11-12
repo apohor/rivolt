@@ -1,0 +1,103 @@
+import fs from "node:fs";
+import path from "node:path";
+import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { stubApi } from "./stub";
+
+// Settings → Data → Import history: pick a source, add a file, check the preview, import, then undo it from the Imports list.
+// The API is stubbed; the contract it follows is the one in history-import-design.md.
+const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
+test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
+
+const PREVIEW = {
+  sha256: "ab".repeat(32),
+  source: "tezlab",
+  range: { from: "2024-03-02T00:00:00Z", to: "2025-06-20T00:00:00Z" },
+  new: { drives: 12, charges: 4 },
+  skipped: [{ reason: "covered", count: 3 }],
+  assumptions: { tz: "America/Los_Angeles", distance_unit: "mi" },
+  ask: [],
+  warnings: [],
+  sample: [{ start: "2024-03-02 08:10", miles: 14.2, kwh: 5.1 }],
+  already_imported: null,
+  floor_note: null,
+};
+
+async function setup(page: Page) {
+  await stubApi(page, { historyImport: true });
+  await page.route("**/api/vehicles/owned", (r) => r.fulfill({ json: { vehicles: [{ id: "o1", rivian_vehicle_id: "veh-1", display_name: "Sample R1S", model: "R1S" }] } }));
+  const state = { imports: [] as Record<string, unknown>[], undone: false, posts: [] as string[] };
+  await page.route("**/api/import/preview", (r) => r.fulfill({ json: PREVIEW }));
+  await page.route("**/api/import/commit", (r) => {
+    const body = r.request().postData() ?? "";
+    state.posts.push(body.includes(PREVIEW.sha256) ? "sha" : "nosha");
+    state.imports = [{ id: "imp-1", source: "tezlab", created_at: "2025-07-01T12:00:00Z", range: PREVIEW.range, drives: 12, charges: 4, undone_at: null }];
+    const nd = [{ event: "start" }, { event: "progress", rows: 900 }, { event: "done", import_id: "imp-1", drives: 12, charges: 4 }].map((e) => JSON.stringify(e)).join("\n") + "\n";
+    return r.fulfill({ status: 200, contentType: "application/x-ndjson", body: nd });
+  });
+  await page.route("**/api/imports", (r) => r.fulfill({ json: state.imports }));
+  await page.route("**/api/imports/imp-1/undo", (r) => {
+    state.undone = true;
+    state.imports = [];
+    return r.fulfill({ json: { drives: 12, charges: 4 } });
+  });
+  return state;
+}
+
+for (const w of [390, 1280] as const) {
+  test(`import → undo · ${w}px`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
+    const page = await ctx.newPage();
+    const state = await setup(page);
+    await page.goto("/settings?tab=data#import-history");
+    const card = page.locator("[data-history-import]");
+    await card.getByLabel("TezLab").check();
+    await card.getByRole("button", { name: "Continue" }).click();
+    await expect(card.getByText("Export from TezLab")).toBeVisible();
+    await page.screenshot({ path: path.join(SHOTS, `import-files-${w}.png`) });
+    await card.locator('input[type="file"]').setInputFiles([
+      { name: "drives.csv", mimeType: "text/csv", buffer: Buffer.from("a,b\n1,2\n") },
+      { name: "charges.csv", mimeType: "text/csv", buffer: Buffer.from("a,b\n1,2\n") },
+    ]);
+    await card.getByRole("button", { name: "Check file" }).click();
+    await expect(card.getByText("12 drives and 4 charges will be added")).toBeVisible();
+    await expect(card.getByText("3 skipped: already recorded by your vehicle")).toBeVisible();
+    await page.screenshot({ path: path.join(SHOTS, `import-preview-${w}.png`), fullPage: true });
+    await card.getByRole("button", { name: "Import", exact: true }).click();
+    await expect(card.getByText("Added 12 drives, 4 charges.")).toBeVisible();
+    expect(state.posts).toEqual(["sha"]);
+    const list = page.locator("[data-imports-list]");
+    await expect(list.getByText("12 drives, 4 charges")).toBeVisible();
+    await list.getByRole("button", { name: /^Undo TezLab import/ }).click();
+    await expect(list.getByText("This removes 12 drives and 4 charges. Notes or tags you added to them go too.")).toBeVisible();
+    await page.screenshot({ path: path.join(SHOTS, `import-undo-${w}.png`), fullPage: true });
+    await list.getByRole("button", { name: "Remove them" }).click();
+    await expect(list.getByText("Nothing imported yet.")).toBeVisible();
+    expect(state.undone).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
+    const ax = await new AxeBuilder({ page }).include("#import-history").include("#imports").withTags(["wcag2a", "wcag2aa"]).analyze();
+    const sum = ax.violations.map((x) => `${x.id}: ${x.nodes.map((n) => n.target.join(" ")).join(" | ")}`);
+    expect(sum, sum.join("\n")).toEqual([]);
+    await ctx.close();
+  });
+}
+
+test("unrecognized columns show header names and a mail link", async ({ page }) => {
+  await setup(page);
+  await page.route("**/api/import/preview", (r) => r.fulfill({ status: 422, json: { error: "unrecognized_headers", headers: ["foo", "bar"] } }));
+  await page.goto("/settings?tab=data#import-history");
+  const card = page.locator("[data-history-import]");
+  await card.getByRole("button", { name: "Continue" }).click();
+  await card.locator('input[type="file"]').setInputFiles({ name: "x.csv", mimeType: "text/csv", buffer: Buffer.from("foo,bar\n") });
+  await card.getByRole("button", { name: "Check file" }).click();
+  await expect(card.getByText("We don't recognize this file's columns.")).toBeVisible();
+  await expect(card.getByText("foo, bar")).toBeVisible();
+  await expect(card.getByRole("link", { name: "Send us this header line" })).toBeVisible();
+});
+
+test("flag off keeps the ElectraFi card", async ({ page }) => {
+  await stubApi(page);
+  await page.goto("/settings?tab=data");
+  await expect(page.getByText("Import ElectraFi CSV")).toBeVisible();
+  await expect(page.locator("[data-history-import]")).toHaveCount(0);
+});
