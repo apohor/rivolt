@@ -138,3 +138,22 @@ test("undoing an already-imported file asks first", async ({ page }) => {
   await card.getByRole("button", { name: "Remove them" }).click();
   await expect.poll(() => state.undone).toBe(true);
 });
+
+test("a commit refused because another import is running says so and can be retried", async ({ page }) => {
+  await setup(page);
+  let n = 0;
+  await page.route("**/api/import/commit", (r) => {
+    n++;
+    if (n === 1) return r.fulfill({ status: 429, headers: { "Retry-After": "10" }, json: { error: "busy", code: "in_progress" } });
+    return r.fulfill({ status: 200, contentType: "application/x-ndjson", body: JSON.stringify({ type: "done", id: "imp-1", drives: 12, charges: 4, skipped: {} }) + "\n" });
+  });
+  await page.goto("/settings?tab=data#import-history");
+  const card = page.locator("[data-history-import]");
+  await card.getByRole("button", { name: "Continue" }).click();
+  await card.locator('input[type="file"]').setInputFiles({ name: "x.csv", mimeType: "text/csv", buffer: Buffer.from("a\n") });
+  await card.getByRole("button", { name: "Check file" }).click();
+  await card.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(card.getByText(/Another import of yours is running/)).toBeVisible();
+  await card.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(card.getByText("Added 12 drives, 4 charges.")).toBeVisible();
+});

@@ -97,6 +97,8 @@ export function importFailure(err: unknown): ImportFailure {
       return { text: "These files were already imported. Undo that import first to import them again." };
     case "rate_limited":
       return { text: "Too many imports just now. Try again in a few minutes." };
+    case "in_progress":
+      return { text: `Another import of yours is running. Wait for it, then press Import again${err.retryAfter ? ` (about ${err.retryAfter} seconds)` : ""}.` };
     case "busy":
       return { text: err.retryAfter ? `Busy right now. Try again in ${err.retryAfter} seconds.` : "Busy right now. Try again soon." };
     case "stopped":
