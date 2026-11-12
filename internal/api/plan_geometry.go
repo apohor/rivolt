@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/apohor/rivolt/internal/maps"
@@ -56,8 +57,8 @@ const geometryToleranceM = 10.0
 // long day fits, and past eight doublings the line is thinned evenly, the stops kept.
 const maxGeometryPoints = 4000
 
-// geometryBudget bounds all the routing of one plan (a multi-day plan has one per day, each bounded again by the handler's own timeout).
-const geometryBudget = 8 * time.Second
+// geometryBudget bounds all the routing of one response: every day of a multi-day plan shares it.
+var geometryBudget = 8 * time.Second // a var only so tests can move it
 
 // withGeometry is a copy of the plan whose routes carry Geometry (polyline6) and GeometryPrecision. The input is never changed (a plan can be
 // shared). It is best effort: with no router, or on any failure, the route has no line and the plan is served as it was.
@@ -69,62 +70,119 @@ func observePlanStage(ctx context.Context, stage string, start time.Time) {
 }
 
 func withGeometry(ctx context.Context, in *rivian.TripPlan, opts maps.RouteOpts) *rivian.TripPlan {
+	return withGeometryAll(ctx, []*rivian.TripPlan{in}, opts)[0]
+}
+
+// geometryConcurrency caps the Valhalla routes one request has in flight. A plan is at most maxGeometryRoutes routes a day and a multi-day
+// plan has several days, but one request never asks for more than this at once, so a busy fleet of pods cannot multiply it.
+const geometryConcurrency = 3
+
+// withGeometryAll is withGeometry for several plans (the days of a multi-day plan) under ONE geometryBudget for the whole response, with at
+// most geometryConcurrency routes in flight. A route that is not drawn before the budget ends has no line, as with any other failure.
+func withGeometryAll(ctx context.Context, ins []*rivian.TripPlan, opts maps.RouteOpts) []*rivian.TripPlan {
 	pg, ok := ctx.Value(planGeometryKey{}).(planGeometry)
-	if !ok || pg.router == nil || in == nil || !pg.router.Enabled() {
-		return in
+	if !ok || pg.router == nil || !pg.router.Enabled() {
+		return ins
 	}
 	defer observePlanStage(ctx, "geometry", time.Now())
-	plan := *in
-	plan.Routes = append([]rivian.TripRoute(nil), in.Routes...)
 	ctx, cancel := context.WithTimeout(ctx, geometryBudget)
 	defer cancel()
-	for i := range plan.Routes {
-		if i >= maxGeometryRoutes {
-			break
-		}
-		r := &plan.Routes[i]
-		locs := make([][2]float64, 0, len(r.Waypoints))
-		for _, w := range r.Waypoints {
-			if validLatLon(w.Latitude, w.Longitude) {
-				locs = append(locs, [2]float64{w.Latitude, w.Longitude})
-			}
-		}
-		if len(locs) < 2 {
+	outs := make([]*rivian.TripPlan, len(ins))
+	type job struct{ plan, route int }
+	for pi, in := range ins {
+		if in == nil {
 			continue
 		}
-		rt, err := pg.router.RouteChecked(ctx, locs, opts)
-		if err != nil {
-			var bad *maps.BadShapeError
-			if errors.As(err, &bad) && pg.metrics != nil {
-				pg.metrics.RoutePointRefusedTotal.WithLabelValues("plan_" + bad.Kind).Inc()
-			}
-			slog.WarnContext(ctx, "plan geometry: no line for a route", "class", geometryErrClass(err)) // no coordinates, no gateway text
-			continue
-		}
-		// The road's own shape has a vertex every few meters: thin it to a tolerance the map cannot show, keep the stops, cap the points,
-		// and check the thinned legs again with the same guard as the raw ones.
-		shapes := make([][][2]float64, len(rt.Legs))
-		for k, leg := range rt.Legs {
-			shapes[k] = leg.Shape
-		}
-		thin := maps.SimplifyLegs(shapes, geometryToleranceM, maxGeometryPoints)
-		bad := false
-		for k, shape := range thin {
-			if k+1 < len(locs) && maps.CheckShape(shape, locs[k], locs[k+1]) != nil {
-				bad = true
-			}
-		}
-		if bad {
-			slog.WarnContext(ctx, "plan geometry: no line for a route", "class", "bad_shape_simplified")
-			continue
-		}
-		line := maps.JoinLegs(thin)
-		if len(line) < 2 {
-			continue
-		}
-		r.Geometry, r.GeometryPrecision = maps.EncodePolyline6(line), 6
+		plan := *in
+		plan.Routes = append([]rivian.TripRoute(nil), in.Routes...)
+		outs[pi] = &plan
 	}
-	return &plan
+	// Every day's recommended route first, then the alternatives: when the shared budget runs short, it is the alternatives of the early
+	// days that go undrawn, never the primary line of a late day.
+	var jobs []job
+	for ri := 0; ri < maxGeometryRoutes; ri++ {
+		for pi, plan := range outs {
+			if plan != nil && ri < len(plan.Routes) {
+				jobs = append(jobs, job{pi, ri})
+			}
+		}
+	}
+	sem := make(chan struct{}, geometryConcurrency)
+	var wg sync.WaitGroup
+	for _, j := range jobs {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(r *rivian.TripRoute) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			routeGeometry(ctx, pg, r, opts)
+		}(&outs[j.plan].Routes[j.route])
+	}
+	wg.Wait()
+	return outs
+}
+
+// routeGeometry fills Geometry and GeometryPrecision of one route, or leaves it as it was.
+func routeGeometry(ctx context.Context, pg planGeometry, r *rivian.TripRoute, opts maps.RouteOpts) {
+	locs := make([][2]float64, 0, len(r.Waypoints))
+	for _, w := range r.Waypoints {
+		if validLatLon(w.Latitude, w.Longitude) {
+			locs = append(locs, [2]float64{w.Latitude, w.Longitude})
+		}
+	}
+	if len(locs) < 2 {
+		return
+	}
+	count := func(outcome string) {
+		if pg.metrics != nil {
+			pg.metrics.PlanGeometryRoutesTotal.WithLabelValues(outcome).Inc()
+		}
+	}
+	if ctx.Err() != nil { // the response's shared budget ended before this route was asked for
+		count("budget")
+		slog.WarnContext(ctx, "plan geometry: no line for a route", "class", "budget")
+		return
+	}
+	rt, err := pg.router.RouteChecked(ctx, locs, opts)
+	if err != nil {
+		if ctx.Err() != nil { // asked, and the shared budget ended on it
+			count("budget")
+			slog.WarnContext(ctx, "plan geometry: no line for a route", "class", "budget")
+			return
+		}
+		count("failed")
+		var bad *maps.BadShapeError
+		if errors.As(err, &bad) && pg.metrics != nil {
+			pg.metrics.RoutePointRefusedTotal.WithLabelValues("plan_" + bad.Kind).Inc()
+		}
+		slog.WarnContext(ctx, "plan geometry: no line for a route", "class", geometryErrClass(err)) // no coordinates, no gateway text
+		return
+	}
+	// The road's own shape has a vertex every few meters: thin it to a tolerance the map cannot show, keep the stops, cap the points,
+	// and check the thinned legs again with the same guard as the raw ones.
+	shapes := make([][][2]float64, len(rt.Legs))
+	for k, leg := range rt.Legs {
+		shapes[k] = leg.Shape
+	}
+	thin := maps.SimplifyLegs(shapes, geometryToleranceM, maxGeometryPoints)
+	bad := false
+	for k, shape := range thin {
+		if k+1 < len(locs) && maps.CheckShape(shape, locs[k], locs[k+1]) != nil {
+			bad = true
+		}
+	}
+	if bad {
+		count("failed")
+		slog.WarnContext(ctx, "plan geometry: no line for a route", "class", "bad_shape_simplified")
+		return
+	}
+	line := maps.JoinLegs(thin)
+	if len(line) < 2 {
+		count("failed")
+		return
+	}
+	count("drawn")
+	r.Geometry, r.GeometryPrecision = maps.EncodePolyline6(line), 6
 }
 
 func geometryErrClass(err error) string {

@@ -245,7 +245,9 @@ func handleTripPlan(c rivian.Client, mon *rivian.StateMonitor, pool *sql.DB, uid
 		if farFuture {
 			planner = shiftedPlanner{inner: planner, shift: shift, now: now}
 		}
+		plannerStart := time.Now()
 		plan, err := planner.PlanTrip(r.Context(), in)
+		observePlanStage(r.Context(), "planner", plannerStart)
 		if err != nil {
 			// The class only: no gateway text, no coordinates.
 			slog.WarnContext(r.Context(), "trip plan failed",

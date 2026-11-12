@@ -351,7 +351,9 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			return adj.FinalArrivalSoC, true
 		}
 
+		plannerStart := time.Now()
 		out, err := tripmultiday.Plan(r.Context(), planner, mreq)
+		observePlanStage(r.Context(), "planner", plannerStart)
 		if err != nil {
 			var re *tripmultiday.RequestError
 			if errors.As(err, &re) {
@@ -375,11 +377,10 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			last := days[len(days)-1].End
 			resp.DestinationTZ = zonelookup.For(last.Latitude, last.Longitude)
 		}
-		// One climb deadline for every day of the response, not one per day.
-		climbCtx, cancelClimb := withClimbBudget(r.Context())
-		defer cancelClimb()
-		radarCtx, cancelRadar := withRadarBudget(r.Context())
-		defer cancelRadar()
+		// The weather and cost pass of each day, then the road line of all the days at once under one budget (a few routes in flight), then the
+		// climb and radar of each day, which read that line. One climb and one radar deadline for every day of the response, not one per day.
+		resp.Days = make([]tripPlanMultidayDay, 0, len(out.Days))
+		labelled := make([]*rivian.TripPlan, len(out.Days))
 		for i, d := range out.Days {
 			day := tripPlanMultidayDay{Day: d, EndTZ: zonelookup.For(d.End.Latitude, d.End.Longitude)}
 			if ex, ok := extras[d.Index]; ok {
@@ -396,12 +397,22 @@ func handleTripPlanMultiday(c rivian.Client, mon *rivian.StateMonitor, pool *sql
 			for _, v := range d.Vias {
 				vias = append(vias, rivian.ViaPoint{Lat: v.Latitude, Lon: v.Longitude, EntityID: v.EntityID})
 			}
-			day.Day.Plan = withGeometry(r.Context(), rivian.LabelStops(d.Plan, vias, d.Overnight != nil), routeOptsOf(req.RoutePreferences.toRivian()))
+			labelled[i] = rivian.LabelStops(d.Plan, vias, d.Overnight != nil)
+			resp.Days = append(resp.Days, day)
+		}
+		for i, p := range withGeometryAll(r.Context(), labelled, routeOptsOf(req.RoutePreferences.toRivian())) {
+			resp.Days[i].Day.Plan = p
+		}
+		climbCtx, cancelClimb := withClimbBudget(r.Context())
+		defer cancelClimb()
+		radarCtx, cancelRadar := withRadarBudget(r.Context())
+		defer cancelRadar()
+		for i := range resp.Days {
+			day := &resp.Days[i]
 			day.ElevationProfile = addLegClimb(climbCtx, day.WeatherAdjustment, day.Day.Plan)
 			if !farFuture {
 				addLegRadar(radarCtx, day.WeatherAdjustment, day.Day.Plan)
 			}
-			resp.Days = append(resp.Days, day)
 		}
 		if out.FailedDay > 0 {
 			resp.FailedDay, resp.Error = out.FailedDay, out.Error
