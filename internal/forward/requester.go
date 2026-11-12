@@ -360,6 +360,11 @@ func (f *Forwarder) push(ctx context.Context, user, group string, kind Kind) boo
 	if n, err := rdb.Exists(ctx, f.cfg.Keys.Ready(owner.Pod)).Result(); err != nil || n == 0 {
 		return false
 	}
+	// A no-reply push never fills the owner's queue past what attempt() accepts: past MaxQueue every requester refuses this pod, so the
+	// message is dropped (the sender's fallback is the owner's sweep).
+	if n, err := rdb.LLen(ctx, f.cfg.Keys.Queue(owner.Pod)).Result(); err != nil || n >= MaxQueue {
+		return false
+	}
 	now, err := rdb.Time(ctx).Result()
 	if err != nil {
 		return false

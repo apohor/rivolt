@@ -113,6 +113,9 @@ type Deps struct {
 	// ReceiptsSyncNow, when set (RIVOLT_FIRST_SCREEN), is called after a user opts in to Rivian receipts to queue one summaries pass at the owner of
 	// their group. It must only queue; the handler never calls Rivian.
 	ReceiptsSyncNow func(uid uuid.UUID)
+	// ReceiptsSignedIn, when set (RIVOLT_FIRST_SCREEN), is called once per completed Rivian sign-in (finishRivianConnect, any vehicle count; not the
+	// refresh path). The hook asks only for a user who is opted in to receipts.
+	ReceiptsSignedIn func(ctx context.Context, uid uuid.UUID)
 	// ForwardReplayTest is RIVOLT_FORWARD_REPLAY_TEST: also forward the replay client's calls (see stateForward.replayTest).
 	ForwardReplayTest bool
 	// SampleRetentionMonths is RIVOLT_SAMPLE_RETENTION_MONTHS (0 keeps raw
@@ -1245,6 +1248,9 @@ func New(d Deps) http.Handler {
 				if d.SignInNudge != nil {
 					r.Use(withSignInNudge(d.SignInNudge))
 				}
+				if d.ReceiptsSignedIn != nil {
+					r.Use(withReceiptsSignIn(d.ReceiptsSignedIn))
+				}
 				r.Get("/", handleRivianStatus(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger, func() bool {
 					return d.Flags != nil && d.Flags.KillSwitch().Paused
 				}))
@@ -1373,7 +1379,7 @@ func New(d Deps) http.Handler {
 				r.With(ls.user("first-screen", firstScreenPerMin).Middleware).Get("/first-screen", withUser(handleFirstScreen(d.FirstScreen, d.Flags, d.Settings)))
 			}
 			r.Get("/settings/rivian-receipts", withUser(handleRivianReceiptsGet(d.Flags, d.Settings)))
-			r.Put("/settings/rivian-receipts", withUser(handleRivianReceiptsPut(d.Flags, d.Settings, receipts.NewStore(d.DB), d.ReceiptsSyncNow)))
+			r.With(ls.user("receipts-optin", 10).Middleware).Put("/settings/rivian-receipts", withUser(handleRivianReceiptsPut(d.Flags, d.Settings, receipts.NewStore(d.DB), d.ReceiptsSyncNow)))
 
 			// Per-user switch for sending trip/drive data to the AI provider.
 			// Off by default; the advice endpoints refuse until it is on.

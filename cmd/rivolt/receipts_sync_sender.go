@@ -28,7 +28,10 @@ type receiptsSyncSender struct {
 	local   func(ctx context.Context, uid uuid.UUID)
 	peer    func(ctx context.Context, uid, group string) bool
 	optedIn func(uuid.UUID) bool
-	log     *slog.Logger
+	// once claims this user's send window and reports whether this call won it. It lives in Valkey, not in the receipts tables: opting out
+	// purges rivian_receipt_sync (and with it the Postgres claim), so a toggle loop would otherwise get a fresh Rivian call each time.
+	once func(ctx context.Context, uid uuid.UUID) bool
+	log  *slog.Logger
 }
 
 // receiptsSyncTimeout bounds one sender run; it matches the receiver's budget for a summaries-only pass.
@@ -36,8 +39,8 @@ const receiptsSyncTimeout = 25 * time.Second
 
 // newReceiptsSyncSender wires the sender to the lease store, the hold predicate, this pod's syncer and the forwarder (nil without
 // RIVOLT_FORWARD: then only the local path works).
-func newReceiptsSyncSender(role rolePlan, groups *leases.Store, held func(context.Context, uuid.UUID) (bool, bool), fw *forward.Forwarder, syncer *receipts.Syncer, optedIn func(uuid.UUID) bool, log *slog.Logger) *receiptsSyncSender {
-	s := &receiptsSyncSender{start: role.start, groupOf: groups.GroupOfUser, held: held, optedIn: optedIn, log: log,
+func newReceiptsSyncSender(role rolePlan, groups *leases.Store, held func(context.Context, uuid.UUID) (bool, bool), fw *forward.Forwarder, syncer *receipts.Syncer, optedIn func(uuid.UUID) bool, once func(context.Context, uuid.UUID) bool, log *slog.Logger) *receiptsSyncSender {
+	s := &receiptsSyncSender{start: role.start, groupOf: groups.GroupOfUser, held: held, optedIn: optedIn, once: once, log: log,
 		local: func(ctx context.Context, uid uuid.UUID) {
 			//rivolt:transient the owner pod's one summaries pass for this user, claim-capped; detached from the request that asked
 			if _, err := syncer.SyncOnRequest(ctx, uid); err != nil && log != nil {
@@ -66,6 +69,9 @@ func (s *receiptsSyncSender) SignedIn(_ context.Context, uid uuid.UUID) {
 func (s *receiptsSyncSender) run(uid uuid.UUID) {
 	ctx, cancel := context.WithTimeout(context.Background(), receiptsSyncTimeout)
 	defer cancel()
+	if s.once != nil && !s.once(ctx, uid) {
+		return
+	}
 	group, ok, err := s.groupOf(ctx, uid.String())
 	if err != nil || !ok {
 		return

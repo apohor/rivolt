@@ -510,6 +510,10 @@ func finishRivianConnect(
 	if n == 0 {
 		recordFunnel(ctx, m, uid, funnelRivianNoVehicles, "first_connect", firstConnect)
 	}
+	// A completed sign-in by a user who is already opted in to receipts: ask the owner for one summaries pass (the hook checks the opt-in).
+	if hook := receiptsSignInFrom(ctx); hook != nil {
+		hook(ctx, uid)
+	}
 	if n <= 0 {
 		// No vehicle yet (or the lookup failed): the owner of the user's group looks them up now, whatever backoff a stored answer carries.
 		if nudge := signInNudgeFrom(ctx); nudge != nil {

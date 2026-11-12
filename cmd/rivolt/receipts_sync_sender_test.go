@@ -51,3 +51,18 @@ func TestReceiptsSyncSenderSignedInNeedsOptIn(t *testing.T) {
 		}
 	}
 }
+
+// The send window decides before anything is looked up or pushed: once claimed, further requests for the user do nothing.
+func TestReceiptsSyncSenderHonoursTheSendWindow(t *testing.T) {
+	var c senderCalls
+	s := testSender(false, true, true, true, &c)
+	claimed := false
+	s.once = func(context.Context, uuid.UUID) bool { won := !claimed; claimed = true; return won }
+	uid := uuid.New()
+	for i := 0; i < 5; i++ {
+		s.run(uid)
+	}
+	if c.peer != 1 {
+		t.Errorf("peer pushes %d, want 1", c.peer)
+	}
+}

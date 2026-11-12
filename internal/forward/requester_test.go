@@ -444,6 +444,26 @@ func TestRequesterReceiptsSyncPush(t *testing.T) {
 	}
 }
 
+// A no-reply push is dropped once the owner's queue is at MaxQueue, so it can never be the thing that makes every requester refuse that pod.
+func TestRequesterPushDropsAtMaxQueue(t *testing.T) {
+	f := newFleet(t)
+	req := f.requester(nil)
+	f.owner("pod-a", 7, true, nil)
+	f.stops[len(f.stops)-1]() // stop the owner's loop so it does not drain the queue; its ready key stays
+	time.Sleep(100 * time.Millisecond)
+	q := f.keys.Queue("pod-a")
+	for i := 0; i < forward.MaxQueue+5; i++ { // a few extra: the stopping loop may take one
+		f.rdb.RPush(context.Background(), q, "x")
+	}
+	before := f.rdb.LLen(context.Background(), q).Val()
+	if req.ReceiptsSync(context.Background(), user, group) {
+		t.Error("a push to an owner whose queue is full must be dropped")
+	}
+	if n := f.rdb.LLen(context.Background(), q).Val(); n != before {
+		t.Errorf("queue length %d, want %d", n, before)
+	}
+}
+
 func TestNewForwarderValidates(t *testing.T) {
 	f := newFleet(t)
 	for name, mut := range map[string]func(*forward.RequesterConfig){
