@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,9 @@ var MaxAge = map[string]time.Duration{
 	KindEmail:        24 * time.Hour,
 	KindMilestone:    24 * time.Hour,
 }
+
+// PendingGrace is how long past its kind's MaxAge a never-consumed pending row stays before Purge expires it.
+const PendingGrace = 24 * time.Hour
 
 const (
 	// MaxAttempts is how many times a row is claimed before it is set aside as failed.
@@ -174,13 +178,23 @@ func (s *Store) Insert(ctx context.Context, tx *sql.Tx, in Intent) (bool, error)
 // pushes claimed_until out by its backoff, so a backed-off row is not due). attempts rises at the claim. A row already claimed MaxAttempts
 // times is set aside as failed here and not returned, so a row that crashes its sender cannot come back forever on lease expiry.
 func (s *Store) Claim(ctx context.Context, owner string, n int, lease time.Duration) ([]Row, error) {
+	return s.claim(ctx, owner, nil, n, lease)
+}
+
+// claim leases due rows of kinds (all kinds when nil).
+func (s *Store) claim(ctx context.Context, owner string, kinds []string, n int, lease time.Duration) ([]Row, error) {
 	if owner == "" || n <= 0 {
 		return nil, errors.New("outbox: claim needs an owner and a positive count")
+	}
+	var kindArg any
+	if kinds != nil {
+		kindArg = strings.Join(kinds, ",") // kinds are from the fixed set: no comma in any
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		WITH due AS (
 			SELECT id FROM outbox
 			 WHERE sent_at IS NULL AND failed_at IS NULL AND (claimed_until IS NULL OR claimed_until <= now())
+			   AND ($5::text IS NULL OR kind = ANY(string_to_array($5, ',')))
 			 ORDER BY id LIMIT $2
 			 FOR UPDATE SKIP LOCKED),
 		poison AS (
@@ -190,7 +204,7 @@ func (s *Store) Claim(ctx context.Context, owner string, n int, lease time.Durat
 		UPDATE outbox o SET claimed_by = $1, claimed_until = now() + make_interval(secs => $3), attempts = o.attempts + 1
 		  FROM due WHERE o.id = due.id AND o.attempts < $4
 		RETURNING o.id, o.key, o.user_id, o.vehicle_id, o.kind, o.payload, o.created_at, o.attempts`,
-		owner, n, lease.Seconds(), MaxAttempts)
+		owner, n, lease.Seconds(), MaxAttempts, kindArg)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +220,15 @@ func (s *Store) Claim(ctx context.Context, owner string, n int, lease time.Durat
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// ClaimKinds is Claim restricted to the given kinds. With none it claims nothing and does not query: a sender with no handler registered
+// leaves every row alone (not claimed, not counted as an attempt).
+func (s *Store) ClaimKinds(ctx context.Context, owner string, kinds []string, n int, lease time.Duration) ([]Row, error) {
+	if len(kinds) == 0 {
+		return nil, nil
+	}
+	return s.claim(ctx, owner, kinds, n, lease)
 }
 
 // MarkSent records the send. It needs the row to be claimed by owner and not yet sent; it does not require the lease to be live, so a send that
@@ -236,14 +259,40 @@ func (s *Store) Drop(ctx context.Context, id int64, owner string) error {
 	return one(res, err)
 }
 
-// Purge deletes sent rows older than sentBefore and failed rows older than failedBefore (the policy: 7 and 30 days). Pending rows stay.
-func (s *Store) Purge(ctx context.Context, sentBefore, failedBefore time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM outbox WHERE (sent_at IS NOT NULL AND sent_at < $1) OR (failed_at IS NOT NULL AND failed_at < $2)`,
-		sentBefore.UTC(), failedBefore.UTC())
-	if err != nil {
-		return 0, err
+// Purged is what one PurgeBatch removed, by class.
+type Purged struct{ Sent, Failed, Expired int64 }
+
+// Total is the rows removed.
+func (p Purged) Total() int64 { return p.Sent + p.Failed + p.Expired }
+
+// PurgeBatch deletes at most limit rows, oldest id first: sent before sentBefore, failed before failedBefore, and pending rows (never sent, never
+// failed) older than their kind's MaxAge plus PendingGrace, which nothing consumed (a shadow row with no handler, or an intent past any use). A short batch
+// (Total < limit) means the table is clear of them; the caller loops with pauses so no statement runs long.
+func (s *Store) PurgeBatch(ctx context.Context, sentBefore, failedBefore time.Time, limit int) (Purged, error) {
+	var p Purged
+	var ks, ss []string
+	for k, d := range MaxAge {
+		ks = append(ks, k)
+		ss = append(ss, strconv.FormatFloat((d+PendingGrace).Seconds(), 'f', 0, 64))
 	}
-	return res.RowsAffected()
+	if limit <= 0 {
+		return p, errors.New("outbox: purge needs a positive limit")
+	}
+	err := s.db.QueryRowContext(ctx, `
+		WITH gone AS (
+			DELETE FROM outbox WHERE id IN (
+				SELECT id FROM outbox
+				 WHERE (sent_at IS NOT NULL AND sent_at < $1)
+				    OR (failed_at IS NOT NULL AND failed_at < $2)
+				    OR (sent_at IS NULL AND failed_at IS NULL AND (claimed_until IS NULL OR claimed_until <= now()) AND created_at < now() - make_interval(secs => (
+					      SELECT s FROM unnest(string_to_array($4, ',')::text[], string_to_array($5, ',')::float8[]) AS m(k, s) WHERE m.k = kind)))
+				 ORDER BY id LIMIT $3)
+			RETURNING sent_at, failed_at)
+		SELECT count(*) FILTER (WHERE sent_at IS NOT NULL),
+		       count(*) FILTER (WHERE failed_at IS NOT NULL),
+		       count(*) FILTER (WHERE sent_at IS NULL AND failed_at IS NULL)
+		  FROM gone`, sentBefore.UTC(), failedBefore.UTC(), limit, strings.Join(ks, ","), strings.Join(ss, ",")).Scan(&p.Sent, &p.Failed, &p.Expired)
+	return p, err
 }
 
 func one(res sql.Result, err error) error {

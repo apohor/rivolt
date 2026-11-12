@@ -74,6 +74,7 @@ import (
 	"github.com/apohor/rivolt/internal/oidc"
 	"github.com/apohor/rivolt/internal/onboardmail"
 	"github.com/apohor/rivolt/internal/otadetails"
+	"github.com/apohor/rivolt/internal/outbox"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/passkeys"
 	"github.com/apohor/rivolt/internal/planleg"
@@ -3146,6 +3147,15 @@ func runServer() {
 			jobs = append(jobs, retention.Job{Name: "vehicle_state_thinning", Run: thinner.Run})
 		}
 		role.start("retention", func() { retention.Run(ctx, logger, jobs) })
+	}
+	// Transactional outbox (S19 8, slices 2-3): the sender claims intents and runs the handler for their kind; today no handler is registered, so it
+	// claims nothing. The janitor purges sent, failed and never-consumed rows in limited batches under a singleton lock.
+	if pgPool != nil && !adminOnlyMode {
+		outboxStore := outbox.NewStore(pgPool, appMetrics.Registry())
+		outboxSender := outbox.NewSender(outboxStore, appMetrics.Registry())
+		outboxJanitor := outbox.NewJanitor(pgPool, outboxStore, appMetrics.Registry())
+		role.start("outbox_sender", func() { outboxSender.Run(ctx) })
+		role.start("outbox_purge", func() { outboxJanitor.Run(ctx) })
 	}
 	// Background backfills (zero-impact deploys, G6b): data that moves after a schema change, in short batches on one pod at a time, resumable.
 	// On by default, with an empty registry today. RIVOLT_BACKFILL=0 stops them all; one job is paused by its flags row backfill.<job>.paused

@@ -233,11 +233,13 @@ func TestPurgeAndCascade(t *testing.T) {
 	oldFail := mk("pf-", `failed_at = now() - interval '31 days'`)
 	midFail := mk("pf-", `failed_at = now() - interval '10 days'`)
 	pending := mk("pp-", `created_at = now() - interval '40 days'`)
-	n, err := e.s.Purge(e.ctx, time.Now().Add(-7*24*time.Hour), time.Now().Add(-30*24*time.Hour))
-	if err != nil || n < 2 {
-		t.Fatalf("purge = %d, %v", n, err)
+	young := mk("pn-", `created_at = now() - interval '1 day'`)
+	now := time.Now()
+	n, err := e.s.PurgeBatch(e.ctx, now.Add(-SentTTL), now.Add(-FailedTTL), 1000)
+	if err != nil || n.Sent < 1 || n.Failed < 1 || n.Expired < 1 {
+		t.Fatalf("purge = %+v, %v", n, err)
 	}
-	for id, want := range map[int64]int{oldSent: 0, newSent: 1, oldFail: 0, midFail: 1, pending: 1} {
+	for id, want := range map[int64]int{oldSent: 0, newSent: 1, oldFail: 0, midFail: 1, pending: 0, young: 1} {
 		if got := e.count(t, `id = $1`, id); got != want {
 			t.Errorf("row %d: %d rows after purge, want %d", id, got, want)
 		}
