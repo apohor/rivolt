@@ -157,6 +157,10 @@ type Metrics struct {
 	// GeocodeCanceledTotal counts /api/geocode searches the client abandoned before the answer (the app's type-ahead drops an older search when the
 	// next keystroke lands). They get no response and are not an outage: PlaceSearchUnavailable counts only real 503s. No labels.
 	GeocodeCanceledTotal prometheus.Counter
+	// AIOperatorTokensTotal counts tokens spent on the operator's Anthropic key by route (recap, efficiency, advice, ping, other), the model that served
+	// the request (a fixed set; a fallback hop counts under its own model) and direction (input = uncached input, output, cache_read, cache_write).
+	// Counts only, no user label. Nothing is counted for users' own keys.
+	AIOperatorTokensTotal *prometheus.CounterVec
 	// VehicleDiscoveryTotal counts the vehicle discovery job's turns by outcome (stored, empty, error, skipped, needs_reauth): linked users with no
 	// vehicle row, looked up so their vehicles get a lease (single-owner M3-6). No user label. A steady error rate is an account Rivian keeps refusing.
 	VehicleDiscoveryTotal *prometheus.CounterVec
@@ -620,6 +624,10 @@ func New() *Metrics {
 			Name: "rivolt_vehicle_discovery_total",
 			Help: "Vehicle discovery turns for linked users with no vehicle row, by outcome (stored, empty, error, skipped, needs_reauth).",
 		}, []string{"outcome"}),
+		AIOperatorTokensTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_ai_operator_tokens_total",
+			Help: "Tokens spent on the operator's Anthropic key, by route, serving model and direction (input, output, cache_read, cache_write).",
+		}, []string{"route", "model", "direction"}),
 		GeocodeCanceledTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "rivolt_geocode_canceled_total",
 			Help: "Place searches (/api/geocode) the client abandoned before the answer; no response is written and they are not counted as unavailable.",
@@ -1070,6 +1078,7 @@ func New() *Metrics {
 		m.ChargewatchLastSuccess,
 		m.VehiclesFallbackTotal,
 		m.GeocodeCanceledTotal,
+		m.AIOperatorTokensTotal,
 		m.VehicleDiscoveryTotal,
 		m.WeatherRequestsTotal,
 		m.HandoffGapSeconds,

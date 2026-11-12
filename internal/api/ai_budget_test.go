@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apohor/rivolt/internal/ai"
 	"github.com/apohor/rivolt/internal/aibudget"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
@@ -86,9 +87,11 @@ func TestAIBudgetMW_429OverCap(t *testing.T) {
 	}
 
 	var hits int
+	var reserved bool
 	mw := requireAIBudgetMW(fl, aibudget.New(pool))
-	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
+		reserved = ai.Reserved(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -102,6 +105,9 @@ func TestAIBudgetMW_429OverCap(t *testing.T) {
 
 	if w := do(); w.Code != http.StatusOK {
 		t.Fatalf("first request: got %d, want 200", w.Code)
+	}
+	if !reserved {
+		t.Fatal("the request that consumed a unit does not carry the reservation the operator key needs")
 	}
 	w := do()
 	if w.Code != http.StatusTooManyRequests {

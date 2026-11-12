@@ -34,6 +34,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/adminhealth"
 	"github.com/apohor/rivolt/internal/adminonly"
+	"github.com/apohor/rivolt/internal/ai"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appauth"
 	"github.com/apohor/rivolt/internal/applebill"
@@ -2863,14 +2864,32 @@ func runServer() {
 			logger.Error("appsettings init", "err", err.Error())
 			os.Exit(1)
 		}
+		// RIVOLT_AI_OPERATOR_KEY=1 turns the environment's Anthropic key into the
+		// operator's key: it is not seeded as the install's own key (so it is never
+		// stored), and it is used only while the install has no key of its own,
+		// behind the per-user budget. Off (the default) it seeds as it always did.
+		seedAnthropic, operatorKey := *anthropicKey, ""
+		if os.Getenv("RIVOLT_AI_OPERATOR_KEY") == "1" {
+			seedAnthropic, operatorKey = "", *anthropicKey
+		}
 		mgr, err := settings.NewManager(ctx, appKV, settings.AIConfig{
 			OpenAIKey:    *openAIKey,
-			AnthropicKey: *anthropicKey,
+			AnthropicKey: seedAnthropic,
 			GeminiKey:    *geminiKey,
 		})
 		if err != nil {
 			logger.Error("settings manager init", "err", err.Error())
 			os.Exit(1)
+		}
+		mgr.SetOperator(operatorKey, func(u ai.OperatorUsage) {
+			for dir, n := range map[string]int64{"input": u.Input, "output": u.Output, "cache_read": u.CacheRead, "cache_write": u.CacheWrite} {
+				if n > 0 {
+					appMetrics.AIOperatorTokensTotal.WithLabelValues(string(u.Route), u.Model, dir).Add(float64(n))
+				}
+			}
+		})
+		if operatorKey != "" {
+			logger.Info("ai operator key enabled (RIVOLT_AI_OPERATOR_KEY=1)")
 		}
 		settingsMgr = mgr
 		// Follow settings changed on another replica (recap weather, AI keys, GPS

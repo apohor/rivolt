@@ -202,7 +202,7 @@ const DefaultDCFCRateUSD = 0.46
 func Generate(ctx context.Context, a *ai.Analyzer, plan *rivian.TripPlan, tc Context) (Result, error) {
 	cost := estimateCost(plan, tc)
 	system, user := buildPrompt(plan, tc, cost)
-	raw, usage, err := a.Complete(ctx, system, user)
+	raw, usage, err := a.Complete(ai.WithRoute(ctx, ai.RouteAdvice), system, user)
 	if err != nil {
 		return Result{}, err
 	}

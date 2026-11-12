@@ -97,7 +97,7 @@ func GenerateEfficiency(ctx context.Context, a *ai.Analyzer, in EfficiencyInputs
 		return EfficiencyResult{}, fmt.Errorf("nil analyzer")
 	}
 	system, user := buildEfficiencyPrompt(in)
-	reply, usage, err := a.Complete(ctx, system, user)
+	reply, usage, err := a.Complete(ai.WithRoute(ctx, ai.RouteEfficiency), system, user)
 	if err != nil {
 		return EfficiencyResult{}, err
 	}

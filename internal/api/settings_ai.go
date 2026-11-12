@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/apohor/rivolt/internal/ai"
 	"github.com/apohor/rivolt/internal/settings"
 )
 
@@ -168,7 +169,8 @@ func handleAIPing(mgr *settings.Manager) http.HandlerFunc {
 		const system = "You are a connectivity smoke test. Answer in one short sentence only."
 		const user = "Reply with a single sentence confirming that this integration works."
 		start := time.Now()
-		reply, usage, err := analyzer.Complete(ctx, system, user)
+		// Admin-only smoke test: one tiny call, so it reserves its own unit for the operator key.
+		reply, usage, err := analyzer.Complete(ai.WithReservation(ai.WithRoute(ctx, ai.RoutePing)), system, user)
 		latency := time.Since(start)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{

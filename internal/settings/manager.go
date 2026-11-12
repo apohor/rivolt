@@ -227,6 +227,23 @@ type Manager struct {
 	cfg      AIConfig
 	analyzer *ai.Analyzer
 	provider ai.Provider
+
+	// The operator's Anthropic key (RIVOLT_AI_OPERATOR_KEY=1 and a key from
+	// the environment). It is never part of cfg, so it is never persisted,
+	// shown, or compared; it is used only when no key of the install's own
+	// is set. See SetOperator.
+	opKey     string
+	opObserve ai.OperatorObserver
+}
+
+// SetOperator installs the operator's Anthropic key and the observer that
+// counts its tokens, then rebuilds the analyzer. An empty key removes it.
+// Call it once at boot, after NewManager.
+func (m *Manager) SetOperator(key string, observe ai.OperatorObserver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.opKey, m.opObserve = key, observe
+	m.rebuildLocked()
 }
 
 // NewManager loads any persisted config and builds the initial Analyzer.
@@ -804,7 +821,7 @@ func (m *Manager) rebuild() {
 }
 
 func (m *Manager) rebuildLocked() {
-	p, err := buildProvider(m.cfg)
+	p, err := buildProvider(m.cfg, m.opKey, m.opObserve)
 	if err != nil {
 		slog.Warn("ai disabled", "err", err.Error())
 		m.analyzer = nil
@@ -839,7 +856,14 @@ func effectiveProvider(cfg AIConfig) string {
 
 // buildProvider constructs the concrete provider for the active selection.
 // Returns (nil, nil) if no key is available — AI simply stays disabled.
-func buildProvider(cfg AIConfig) (ai.Provider, error) {
+//
+// opKey is the operator's Anthropic key: used only when the install has no key
+// of its own for the chosen (or any) provider, always on OperatorModel, and
+// only through the budget-reserving path in ai.AnthropicProvider.
+func buildProvider(cfg AIConfig, opKey string, observe ai.OperatorObserver) (ai.Provider, error) {
+	operator := func() (ai.Provider, error) {
+		return ai.NewAnthropic(ai.AnthropicConfig{APIKey: opKey, Model: ai.OperatorModel, Operator: true, Observe: observe})
+	}
 	switch cfg.Provider {
 	case ProviderOpenAI:
 		if cfg.OpenAIKey == "" {
@@ -848,6 +872,9 @@ func buildProvider(cfg AIConfig) (ai.Provider, error) {
 		return ai.NewOpenAI(ai.OpenAIConfig{APIKey: cfg.OpenAIKey, Model: cfg.OpenAIModel})
 	case ProviderAnthropic:
 		if cfg.AnthropicKey == "" {
+			if opKey != "" {
+				return operator()
+			}
 			return nil, fmt.Errorf("anthropic selected but no API key set")
 		}
 		return ai.NewAnthropic(ai.AnthropicConfig{APIKey: cfg.AnthropicKey, Model: cfg.AnthropicModel})
@@ -865,6 +892,8 @@ func buildProvider(cfg AIConfig) (ai.Provider, error) {
 			return ai.NewAnthropic(ai.AnthropicConfig{APIKey: cfg.AnthropicKey, Model: cfg.AnthropicModel})
 		case cfg.GeminiKey != "":
 			return ai.NewGemini(ai.GeminiConfig{APIKey: cfg.GeminiKey, Model: cfg.GeminiModel})
+		case opKey != "":
+			return operator()
 		}
 		return nil, nil
 	}

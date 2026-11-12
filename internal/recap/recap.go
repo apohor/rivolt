@@ -140,7 +140,7 @@ func Generate(ctx context.Context, a *ai.Analyzer, in Inputs) (Result, error) {
 		return Result{}, fmt.Errorf("recap: analyzer is nil")
 	}
 	system, user := buildPrompt(in)
-	reply, usage, err := a.Complete(ctx, system, user)
+	reply, usage, err := a.Complete(ai.WithRoute(ctx, ai.RouteRecap), system, user)
 	if err != nil {
 		return Result{}, err
 	}
