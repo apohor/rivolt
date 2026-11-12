@@ -80,8 +80,8 @@ func syntheticPointsXLSX(n int) []byte {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	w, _ := zw.Create("xl/worksheets/sheet1.xml")
-	io.WriteString(w, sheet.String())
-	zw.Close()
+	_, _ = io.WriteString(w, sheet.String())
+	_ = zw.Close()
 	return buf.Bytes()
 }
 

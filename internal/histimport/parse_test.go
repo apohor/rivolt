@@ -288,9 +288,9 @@ func buildXLSX(rows [][]any) []byte {
 	zw := zip.NewWriter(&buf)
 	for _, f := range []struct{ name, body string }{{"xl/worksheets/sheet1.xml", sheet.String()}, {"xl/sharedStrings.xml", ss.String()}} {
 		w, _ := zw.Create(f.name)
-		io.WriteString(w, f.body)
+		_, _ = io.WriteString(w, f.body)
 	}
-	zw.Close()
+	_ = zw.Close()
 	return buf.Bytes()
 }
 
@@ -372,8 +372,8 @@ func TestXLSXRefusesWhatIsNotAWorkbook(t *testing.T) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	w, _ := zw.Create("readme.txt")
-	io.WriteString(w, "x")
-	zw.Close()
+	_, _ = io.WriteString(w, "x")
+	_ = zw.Close()
 	if _, err := OpenXLSX(bytes.NewReader(buf.Bytes()), int64(buf.Len())); err == nil {
 		t.Error("a zip with no worksheet must be refused")
 	}
@@ -385,9 +385,9 @@ func TestXLSXZipBombIsRefused(t *testing.T) {
 	w, _ := zw.Create("xl/worksheets/sheet1.xml")
 	chunk := bytes.Repeat([]byte("<c/>"), 1<<20)
 	for i := 0; i < 60; i++ {
-		w.Write(chunk)
+		_, _ = w.Write(chunk)
 	}
-	zw.Close()
+	_ = zw.Close()
 	_, err := OpenXLSX(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
 	if !errors.Is(err, ErrTooBig) {
 		t.Fatalf("want ErrTooBig, got %v", err)
@@ -399,8 +399,8 @@ func TestXLSXEntitiesAreNotExpanded(t *testing.T) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	w, _ := zw.Create("xl/worksheets/sheet1.xml")
-	io.WriteString(w, sheet)
-	zw.Close()
+	_, _ = io.WriteString(w, sheet)
+	_ = zw.Close()
 	tb, err := OpenXLSX(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
 	if err == nil && len(strings.Join(tb.Header(), "")) > 100 {
 		t.Fatal("an entity was expanded")

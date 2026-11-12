@@ -35,20 +35,6 @@ func (p *parser) sessions(t Table) error {
 	return nil
 }
 
-// rowErr maps a read failure onto a skip reason, or returns the zone question as fatal.
-func (p *parser) rowErr(err error) (fatal error) {
-	var nc *NeedChoiceError
-	if errors.As(err, &nc) {
-		return err
-	}
-	if errors.Is(err, errBadValue) {
-		p.reject(ReasonBadNumber, 1)
-		return nil
-	}
-	p.reject(ReasonMissing, 1)
-	return nil
-}
-
 func (p *parser) driveRow(row []string) error {
 	d := Drive{Source: p.f.Source, VehicleLabel: p.val(row, FVehicle)}
 	var err error

@@ -163,7 +163,7 @@ func (t *xlsxTable) Next() ([]string, error) {
 	for {
 		row, err := t.row()
 		if err != nil {
-			t.rc.Close()
+			_ = t.rc.Close()
 			return nil, err
 		}
 		if blank(row) {
