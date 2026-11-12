@@ -1,0 +1,37 @@
+# The weekly ingest-affecting figure (S19 9g): of the merges to main in the last 7 days, how many changed code the ingest role runs
+# (a roll of ingest moves Rivian sessions; api and jobs rolls do not). Each merge and its roles go to the job summary, from
+# internal/arch/cmd/mergeroles. Mondays, and by hand.
+name: merge-roles-weekly
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  figure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Merges and roles, last 7 days
+        run: |
+          set -euo pipefail
+          out=$(go run ./internal/arch/cmd/mergeroles -since "7 days ago")
+          {
+            echo "### $(echo "$out" | tail -n 1)"
+            echo
+            echo '| Merge | Roles |'
+            echo '| --- | --- |'
+            echo "$out" | sed '$d' | awk -F '\t' '{print "| " $1 " | " $2 " |"}'
+          } | tee -a "$GITHUB_STEP_SUMMARY"

@@ -33,6 +33,12 @@ jobs:
           # what changed in this release.
           fetch-depth: 0
 
+      # For the ingest-affecting line (S19 9g, internal/arch/cmd/mergeroles).
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
       - name: Create release with commit-derived notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -76,3 +82,8 @@ jobs:
             fi
           } > /tmp/notes.md
           gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md "${flags[@]}"
+          # Which merges move Rivian sessions when they roll (S19 9g). It goes to the job summary, not the public release body, and it is
+          # a record: a failure drops the line, not the release.
+          if [ -n "$PREV" ] && roles=$(go run ./internal/arch/cmd/mergeroles -from "$PREV" | tail -n 1); then
+            echo "$roles" >> "$GITHUB_STEP_SUMMARY"
+          fi

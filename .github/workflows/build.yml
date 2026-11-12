@@ -876,6 +876,34 @@ jobs:
           if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
           bash .github/scripts/policy-date-check.sh "$base" HEAD
 
+  # Which process roles this change affects (S19 9g): ingest, api, jobs, or none, from the module map and import graph in
+  # internal/arch (roles.go). A record in the job summary, not a gate: the weekly figure (merge-roles-weekly.yml) and the release
+  # notes count the merges that touch ingest, the role whose roll moves Rivian sessions. Pull requests and main pushes; a few seconds.
+  merge-roles:
+    name: merge-roles
+    if: "!startsWith(github.ref, 'refs/tags/v')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Roles this change affects
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # As in policy-dates: a PR checks out its merge into the base, so HEAD^1..HEAD is what the PR changes; a main push is
+          # its merge commit (or a direct commit), HEAD^1..HEAD too.
+          if [ -n "$BASE" ] && ! git rev-parse -q --verify HEAD^2 >/dev/null; then rng="$BASE...HEAD"; else rng="HEAD^1..HEAD"; fi
+          roles=$(go run ./internal/arch/cmd/mergeroles -range "$rng")
+          echo "Roles this change affects ($rng): $roles" | tee -a "$GITHUB_STEP_SUMMARY"
+
   # golangci-lint (config: .golangci.yml, the standard set), as its own job so it
   # runs beside `go` and adds nothing to the critical path, and so a lint finding
   # never hides test results. NOT a required check until it has stayed green; main
