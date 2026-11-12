@@ -202,6 +202,16 @@ func (j *Job) ownerPass(ctx context.Context) error {
 	for i, m := range mine {
 		tok[m.UID], ids[i] = m.Token, m.UID
 	}
+	// A user who signed out keeps no answer: the next account they link starts at "looking", whatever the last one said.
+	if gone, err := db.ListUnlinkedWithDiscoveryAmong(ctx, j.DB, ids); err != nil {
+		j.logger().Warn("vehicle discovery: listing signed-out users failed", "err", err.Error())
+	} else {
+		for _, uid := range gone {
+			if err := db.ClearDiscovery(withToken(ctx, tok[uid]), j.DB, uid); err != nil {
+				j.logger().Warn("vehicle discovery: clearing a signed-out user's answer failed", "err", err.Error())
+			}
+		}
+	}
 	uids, err := db.ListLinkedUsersWithoutVehiclesAmong(ctx, j.DB, ids, perTick)
 	if err != nil {
 		return err
