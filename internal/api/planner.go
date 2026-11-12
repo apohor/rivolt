@@ -28,7 +28,7 @@ import (
 // handler then asks Open-Meteo. Without the fallback, a Photon failure or an unwired Photon
 // answers "unavailable" and nothing leaves the server.
 //
-// A search the client gave up on (r.Context() done: the app's type-ahead cancels the older request when the next
+// A search the client gave up on (r.Context() canceled, not a deadline: the app's type-ahead cancels the older request when the next
 // keystroke lands) gets no response and bumps onCanceled; only a real Photon failure answers 503, with the error
 // logged at WARN (no query text), so "unavailable" keeps meaning an outage.
 func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCanceled func()) http.HandlerFunc {
@@ -56,7 +56,7 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCan
 				results = r1
 			}
 			photonFailed = err != nil
-			if err != nil && r.Context().Err() != nil {
+			if err != nil && errors.Is(r.Context().Err(), context.Canceled) {
 				if onCanceled != nil {
 					onCanceled()
 				}
