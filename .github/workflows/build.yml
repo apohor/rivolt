@@ -773,12 +773,19 @@ jobs:
           path: web/e2e-timings
           key: e2e-timings-webkit-${{ github.run_id }}
 
-  go:
-    name: go
+  # The unit tests, in two shards that run side by side (the one job took 284 s). Shard "a" runs the packages listed in
+  # the step below, shard "b" runs every other package, so a new package is covered without touching this file; only the
+  # balance drifts. The required check "go" is the job after this one, which fails unless both shards passed.
+  go-shard:
+    name: go-shard (${{ matrix.shard }})
     needs: changes
     if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [a, b]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -819,8 +826,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
-          key: go-unit-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.day }}
-          restore-keys: ${{ github.event_name == 'push' && 'no-fallback-on-push-' || format('go-unit-{0}-{1}-{2}', runner.os, steps.ck.outputs.gover, steps.ck.outputs.prev) }}
+          key: go-unit-${{ matrix.shard }}-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.day }}
+          restore-keys: ${{ github.event_name == 'push' && 'no-fallback-on-push-' || format('go-unit-{0}-{1}-{2}-{3}', matrix.shard, runner.os, steps.ck.outputs.gover, steps.ck.outputs.prev) }}
 
       # Satisfy `//go:embed all:dist` without running the vite build.
       # Assets() returns nil at runtime when index.html is absent, so
@@ -838,10 +845,17 @@ jobs:
       # must pass.
       - name: go vet + go test
         run: |
-          go vet ./... > vet.log 2>&1 & vet=$!
-          go test -race ./...; t=$?
-          wait $vet; v=$?
-          cat vet.log
+          heavy='rivian ratelimit forward histimport fleetbucket radar archive'
+          all=$(go list ./...)
+          a=$(for d in $heavy; do echo "github.com/apohor/rivolt/internal/$d"; done)
+          for d in $heavy; do echo "$all" | grep -qx "github.com/apohor/rivolt/internal/$d" || { echo "shard list names a package that is gone: $d" >&2; exit 1; }; done
+          if [ "${{ matrix.shard }}" = a ]; then pkgs="$a"; else pkgs=$(echo "$all" | grep -vxF "$a"); fi
+          echo "shard ${{ matrix.shard }} packages: $(echo "$pkgs" | wc -l) of $(echo "$all" | wc -l)"
+          # vet covers every package once, on shard b, alongside its tests.
+          if [ "${{ matrix.shard }}" = b ]; then go vet ./... > vet.log 2>&1 & vet=$!; fi
+          go test -race $pkgs; t=$?
+          v=0
+          if [ -n "${vet:-}" ]; then wait $vet; v=$?; cat vet.log; fi
           exit $(( t != 0 || v != 0 ))
 
       - name: Save Go module download cache
@@ -857,6 +871,22 @@ jobs:
         with:
           path: ~/.cache/go-build
           key: ${{ steps.gocache.outputs.cache-primary-key }}
+
+  # The required check "go": passes only when both shards above passed. Not skipped when a shard fails (a skipped
+  # required check would read as passed), and skipped with them when the change touches no Go.
+  go:
+    name: go
+    needs: [changes, go-shard]
+    if: "!cancelled() && !startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Both shards passed
+        env:
+          RESULT: ${{ needs.go-shard.result }}
+        run: |
+          echo "go-shard: $RESULT"
+          [ "$RESULT" = success ]
 
   # A change to a policy page's text must also move its "Last updated" date (DA's standing rule; the pages and the exempt frozen
   # Terms are listed in .github/scripts/policy-date-check.sh). Pull requests only; a few seconds, no build.
@@ -977,12 +1007,19 @@ jobs:
           DEMO_VIDEO_HELD_WORDS: ${{ secrets.DEMO_VIDEO_HELD_WORDS }}
         run: make demo-video-lint
 
-  integration:
-    name: integration
+  # The integration tests, in three shards that run side by side (the one job took 222 s plus 40 s of extra runs). Shards "a" and
+  # "b" run the packages listed in the step below, shard "c" runs every other integration package, so a new package is covered
+  # without touching this file; only the balance drifts. The required check "integration" is the job after this one.
+  integration-shard:
+    name: integration-shard (${{ matrix.shard }})
     needs: changes
     if: "!startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [a, b, c]
     # GitHub-hosted ubuntu runners ship Docker, which testcontainers-go
     # talks to over the default unix socket — no extra service: block
     # needed.
@@ -1014,8 +1051,8 @@ jobs:
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/go-build
-          key: go-integration-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.day }}
-          restore-keys: ${{ github.event_name == 'push' && 'no-fallback-on-push-' || format('go-integration-{0}-{1}-{2}', runner.os, steps.ck.outputs.gover, steps.ck.outputs.prev) }}
+          key: go-integration-${{ matrix.shard }}-${{ runner.os }}-${{ steps.ck.outputs.gover }}-${{ steps.ck.outputs.day }}
+          restore-keys: ${{ github.event_name == 'push' && 'no-fallback-on-push-' || format('go-integration-{0}-{1}-{2}-{3}', matrix.shard, runner.os, steps.ck.outputs.gover, steps.ck.outputs.prev) }}
 
       # Pre-pull so the testcontainers run-time isn't dominated by the
       # postgres image fetch. ~80MB, cached across runs by docker.
@@ -1043,19 +1080,30 @@ jobs:
         # tests never ran in CI (found on #789, 2026-10-21). The listing
         # is printed so the log shows what ran.
         run: |
-          pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' internal cmd 2>/dev/null | xargs -n1 dirname | sort -u | sed 's#^#./#')
-          [ -n "$pkgs" ] || { echo "no integration packages found" >&2; exit 1; }
-          echo "integration packages:"; echo "$pkgs"
+          all=$(grep -rl --include='*_test.go' '^//go:build integration' internal cmd 2>/dev/null | xargs -n1 dirname | sort -u | sed 's#^#./#')
+          [ -n "$all" ] || { echo "no integration packages found" >&2; exit 1; }
+          shard_a='./internal/integration ./internal/rivian ./internal/leases ./internal/db'
+          shard_b='./internal/api ./internal/charges ./internal/drives ./internal/push'
+          for d in $shard_a $shard_b; do echo "$all" | grep -qx "$d" || { echo "shard list names a package with no integration test: $d" >&2; exit 1; }; done
+          listed=$(for d in $shard_a $shard_b; do echo "$d"; done)
+          case "${{ matrix.shard }}" in
+            a) pkgs=$(for d in $shard_a; do echo "$d"; done) ;;
+            b) pkgs=$(for d in $shard_b; do echo "$d"; done) ;;
+            c) pkgs=$(echo "$all" | grep -vxF "$listed") ;;
+          esac
+          echo "integration packages (shard ${{ matrix.shard }}):"; echo "$pkgs"
           # RIVOLT_TEST_REQUEST_POOL: the api tests that build a router or a handler run on a real request pool (a rivolt_app
           # style role under the tenant policies), the way the server runs with row-level security on. See poolOn.
           RIVOLT_TEST_REQUEST_POOL=1 go test -tags=integration -count=1 -timeout=10m $pkgs
 
       - name: go test (integration, request pool off)
+        if: matrix.shard == 'b'
         # The self-hosted shape, where RIVOLT_REQUEST_DATABASE_URL is never set and everything runs on the one owner pool. A small
         # run is enough to keep that fallback from rotting; the full suite above runs with the pool on.
         run: go test -tags=integration -count=1 -timeout=5m -run 'TestSelfDelete_|TestAppBearerThroughTheRouter|TestAccountUnits|TestBackupRestoreRoundTrip|TestBackupStreamsWithBoundedMemory' ./internal/api
 
       - name: go test (re-auth pods, 20 times)
+        if: matrix.shard == 'b'
         # The cross-pod re-auth tests have flaked before (a stale pod flagging a fresh sign-in, found by the diagnostics of #1385). Twenty runs
         # on every PR keep a regression of the stale-pod fix, or a new flake in these tests, from reaching main.
         # The two barrier tests of #1508 (a stale raise racing a sign-in's row lock; the flag between Login's clear and the session save) are in the
@@ -1073,6 +1121,22 @@ jobs:
         with:
           path: ~/.cache/go-build
           key: ${{ steps.gocache.outputs.cache-primary-key }}
+
+  # The required check "integration": passes only when all three shards passed. Not skipped when a shard fails (a skipped
+  # required check would read as passed), and skipped with them when the change touches no Go.
+  integration:
+    name: integration
+    needs: [changes, integration-shard]
+    if: "!cancelled() && !startsWith(github.ref, 'refs/tags/v') && needs.changes.outputs.go == 'true'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All shards passed
+        env:
+          RESULT: ${{ needs.integration-shard.result }}
+        run: |
+          echo "integration-shard: $RESULT"
+          [ "$RESULT" = success ]
 
   # Keeps the repo's Actions cache from filling up. The Go caches are saved once a UTC
   # day under a new key (so the build cache is refreshed), and the old day's entry
@@ -1098,7 +1162,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for prefix in go-unit-Linux- go-integration-Linux- go-image-Linux- gomod-Linux- playwright-Linux-chromium- playwright-Linux-webkit- e2e-timings-chromium- e2e-timings-webkit-; do
+          for prefix in go-unit-a-Linux- go-unit-b-Linux- go-integration-Linux- go-image-Linux- gomod-Linux- playwright-Linux-chromium- playwright-Linux-webkit- e2e-timings-chromium- e2e-timings-webkit-; do
             ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 100 --json id,key,sizeInBytes \
               | jq -r '.[1:][] | "\(.id) \(.key) \(.sizeInBytes)"')
             kept=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 1 --json key -q '.[0].key')
