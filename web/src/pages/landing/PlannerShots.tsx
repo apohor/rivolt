@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react";
 import { reducedMotion } from "./motion";
 import deskShot from "../../assets/landing/desk-plan.webp";
-import cardShot from "../../assets/landing/plan-card.webp";
+import cardShot from "../../assets/landing/plan-itinerary.webp";
 
-// Real planner screenshots with the radar layer on. The desktop shot tips up
-// flat as it scrolls in, and the plan-card close-up rises beside it; both rest
-// flat (and stay flat with reduced motion).
+// Real planner screenshots of one trip: the desktop planner with the radar
+// layer on, and its itinerary. The desktop shot tips up flat as it scrolls in
+// and the itinerary rises beside it; both rest flat (and stay flat with
+// reduced motion).
 export default function PlannerShots() {
   const grid = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -55,11 +56,11 @@ export default function PlannerShots() {
       <figure className="lp-card-shot" style={{ margin: 0 }}>
         <img
           src={cardShot}
-          alt="The same plan on a phone: radar map, then the itinerary with each charging stop's minutes, charge in and out, temperature and wind"
+          alt="The same trip's itinerary: two charging stops with minutes plugged in and charge in and out, then arrival in Albany at 22 percent, with temperature, headwind and rain"
           loading="lazy"
           decoding="async"
-          width={920}
-          height={2880}
+          width={780}
+          height={958}
         />
       </figure>
     </div>
