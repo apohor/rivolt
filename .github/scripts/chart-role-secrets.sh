@@ -53,6 +53,30 @@ if echo "$out" | yq "select(.kind == \"Deployment\") | .spec.template.spec.conta
 fi
 helm template rivolt "$chart" -f "$chart/ci/existing-secret-values.yaml" | yq 'select(.kind == "Deployment") | .spec.template.spec.containers[0].envFrom[].secretRef.name' | grep -x rivolt-app >/dev/null \
   || { echo "::error::the default render lost the app Secret's envFrom"; fail=1; }
+# Each role boots with its secret scope: a provider the role's effective RIVOLT_OIDC_PROVIDERS lists (its own env, else the ConfigMap's) needs
+# that provider's CLIENT_ID and CLIENT_SECRET among the role's env, or the app exits at boot ("HYDRA_CLIENT_ID is empty", preview, Nov 12).
+oidc_boot() {
+  local render=$1 role cm list slug u bad=0
+  cm=$(echo "$render" | yq 'select(.kind == "ConfigMap") | .data.RIVOLT_OIDC_PROVIDERS // ""' | grep -v '^---$' | grep -v '^$' | head -1 || true)
+  for role in ingest api jobs; do
+    list=$(echo "$render" | yq "select(.kind == \"Deployment\" and .metadata.name == \"rivolt-$role\") | .spec.template.spec.containers[0].env[] | select(.name == \"RIVOLT_OIDC_PROVIDERS\") | \"set:\" + .value" | head -1)
+    if [ -n "$list" ]; then list=${list#set:}; else list=$cm; fi
+    names=$(echo "$render" | yq "select(.kind == \"Deployment\" and .metadata.name == \"rivolt-$role\") | .spec.template.spec.containers[0].env[].name")
+    for slug in ${list//,/ }; do
+      u=$(echo "$slug" | tr '[:lower:]-' '[:upper:]_')
+      for k in CLIENT_ID CLIENT_SECRET; do
+        echo "$names" | grep -x "RIVOLT_OIDC_${u}_$k" >/dev/null || { echo "rivolt-$role lists OIDC provider $slug but has no RIVOLT_OIDC_${u}_$k"; bad=1; }
+      done
+    done
+  done
+  return $bad
+}
+oidc_boot "$out" || { echo "::error::a role would exit at boot on its OIDC provider list"; fail=1; }
+[ -n "$(echo "$out" | yq 'select(.kind == "ConfigMap") | .data.RIVOLT_OIDC_PROVIDERS')" ] || { echo "::error::the OIDC boot check has no provider to check"; fail=1; }
+# The check catches the preview Nov 12 mistake: ingest keeps the global provider list while the client id and secret reach api only.
+if oidc_boot "$(helm template rivolt "$chart" -f "$case" --set roles.ingest.env.RIVOLT_OIDC_PROVIDERS=example)" >/dev/null; then
+  echo "::error::the OIDC boot check passed a role that lists a provider without its client id"; fail=1
+fi
 # Refused renders: a Secret no row assigns, an unknown role, a chart-held key with no row, and what the cutover brings.
 refuse() {
   local want=$1; shift
