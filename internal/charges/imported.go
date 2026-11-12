@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/apohor/rivolt/internal/db"
 	"strings"
 	"time"
 
@@ -89,24 +90,37 @@ func (s *Store) InsertImported(ctx context.Context, importID uuid.UUID, c Charge
 // Covers reports whether a charge of any source for this vehicle already covers the session [start, end): the two overlap by at least
 // half of the shorter one, or they start within five minutes of each other and overlap at all. See drives.Store.Covers.
 func (s *Store) Covers(ctx context.Context, rivianVehicleID string, start, end time.Time) (bool, error) {
-	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	got, err := s.CoversBatch(ctx, rivianVehicleID, []time.Time{start}, []time.Time{end})
 	if err != nil {
 		return false, err
 	}
-	var ok bool
-	err = s.db.QueryRowContext(ctx, `
-		SELECT EXISTS (
+	return got[0], nil
+}
+
+// CoversBatch is Covers for many sessions at once: one query per call, not per session. starts and ends are parallel; the answer has one
+// entry per session. Callers send chunks of about 1000.
+func (s *Store) CoversBatch(ctx context.Context, rivianVehicleID string, starts, ends []time.Time) ([]bool, error) {
+	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT n.i - 1 FROM unnest(string_to_array($3, ',')::timestamptz[], string_to_array($4, ',')::timestamptz[]) WITH ORDINALITY AS n(s, e, i)
+		 WHERE EXISTS (
 		  SELECT 1 FROM charges c,
-		         LATERAL (SELECT GREATEST(c.ended_at, c.started_at) AS e_end, GREATEST($4::timestamptz, $3::timestamptz) AS n_end) x
+		         LATERAL (SELECT GREATEST(c.ended_at, c.started_at) AS e_end, GREATEST(n.e, n.s) AS n_end) x
 		   WHERE c.user_id = $1 AND c.vehicle_id = $2
-		     AND c.started_at <= GREATEST($4::timestamptz, $3::timestamptz)
-		     AND c.started_at >= $3::timestamptz - interval '7 days'
-		     AND tstzrange(c.started_at, x.e_end) && tstzrange($3::timestamptz, x.n_end)
-		     AND (LEAST(x.e_end, x.n_end) - GREATEST(c.started_at, $3::timestamptz)
-		            >= 0.5 * LEAST(x.e_end - c.started_at, x.n_end - $3::timestamptz)
-		          OR abs(extract(epoch FROM c.started_at - $3::timestamptz)) <= 300))`,
-		s.userID, vid, start.UTC(), end.UTC()).Scan(&ok)
-	return ok, err
+		     AND c.started_at <= GREATEST(n.e, n.s)
+		     AND c.started_at >= n.s - interval '7 days'
+		     AND tstzrange(c.started_at, x.e_end) && tstzrange(n.s, x.n_end)
+		     AND (LEAST(x.e_end, x.n_end) - GREATEST(c.started_at, n.s)
+		            >= 0.5 * LEAST(x.e_end - c.started_at, x.n_end - n.s)
+		          OR abs(extract(epoch FROM c.started_at - n.s)) <= 300))`,
+		s.userID, vid, db.TimeList(starts), db.TimeList(ends))
+	if err != nil {
+		return nil, err
+	}
+	return flags(rows, len(starts))
 }
 
 // UndoImport deletes the charges a batch brought in, inside tx (the caller's, so the batch row and the drives go in the same

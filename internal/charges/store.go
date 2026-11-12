@@ -1570,18 +1570,46 @@ func haversineM(lat1, lon1, lat2, lon2 float64) float64 {
 // overlaps [start, end). Importers use it to leave sessions the
 // recorder already captured alone instead of double-counting them.
 func (s *Store) LiveCovers(ctx context.Context, rivianVehicleID string, start, end time.Time) (bool, error) {
-	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	got, err := s.LiveCoversBatch(ctx, rivianVehicleID, []time.Time{start}, []time.Time{end})
 	if err != nil {
 		return false, err
 	}
-	var ok bool
-	err = s.db.QueryRowContext(ctx, `
-		SELECT EXISTS (
+	return got[0], nil
+}
+
+// LiveCoversBatch is LiveCovers for many sessions in one query (see CoversBatch).
+func (s *Store) LiveCoversBatch(ctx context.Context, rivianVehicleID string, starts, ends []time.Time) ([]bool, error) {
+	vid, err := s.vehicles.Resolve(ctx, rivianVehicleID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT n.i - 1 FROM unnest(string_to_array($3, ',')::timestamptz[], string_to_array($4, ',')::timestamptz[]) WITH ORDINALITY AS n(s, e, i)
+		 WHERE EXISTS (
 		  SELECT 1 FROM charges
 		   WHERE user_id = $1 AND vehicle_id = $2 AND source = 'live'
-		     AND tstzrange(started_at, GREATEST(ended_at, started_at)) && tstzrange($3::timestamptz, GREATEST($4::timestamptz, $3::timestamptz)))`,
-		s.userID, vid, start.UTC(), end.UTC()).Scan(&ok)
-	return ok, err
+		     AND tstzrange(started_at, GREATEST(ended_at, started_at)) && tstzrange(n.s, GREATEST(n.e, n.s)))`,
+		s.userID, vid, db.TimeList(starts), db.TimeList(ends))
+	if err != nil {
+		return nil, err
+	}
+	return flags(rows, len(starts))
+}
+
+// flags reads the 0-based positions a batch query returned into one bool per session.
+func flags(rows *sql.Rows, n int) ([]bool, error) {
+	defer rows.Close()
+	out := make([]bool, n)
+	for rows.Next() {
+		var i int
+		if err := rows.Scan(&i); err != nil {
+			return nil, err
+		}
+		if i >= 0 && i < n {
+			out[i] = true
+		}
+	}
+	return out, rows.Err()
 }
 
 // ChartCharge is the part of a charge the iPhone's charts need: when and the charge

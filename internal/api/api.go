@@ -100,6 +100,8 @@ const (
 type Deps struct {
 	// FirstScreen serves GET /api/first-screen (RIVOLT_FIRST_SCREEN). Nil: the route does not exist.
 	FirstScreen FirstScreenSource
+	// HistoryImport serves /api/import/preview, /api/import/commit and /api/imports (RIVOLT_HISTORY_IMPORT). False: the routes do not exist.
+	HistoryImport bool
 	// StateForward and GroupOfVehicle route the one Rivian call of GET /api/state/{id} to the vehicle's group owner (single-owner M3-2b).
 	// Both nil (RIVOLT_FORWARD off): the pod calls Rivian itself, as before.
 	StateForward   StateForwarder
@@ -1862,6 +1864,9 @@ func New(d Deps) http.Handler {
 			// it through the importer so users don't have to drop into a
 			// terminal to load data.
 			r.Post("/import/electrafi", handleImportElectrafi(d))
+			if d.HistoryImport {
+				newHistoryImportAPI(d).mount(r, ls)
+			}
 
 			// Data management. GET /data/backup streams every
 			// drive/charge/sample for the current user as a single

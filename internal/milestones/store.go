@@ -71,8 +71,8 @@ func (s *pgStore) Vehicles(ctx context.Context, active time.Time) ([]VehicleRef,
 		  FROM vehicles v JOIN users u ON u.id = v.user_id AND NOT u.disabled
 		 WHERE v.rivian_vehicle_id <> '' AND v.rivian_vehicle_id NOT LIKE 'electrafi-%'
 		   AND ($1::timestamptz IS NULL
-		        OR EXISTS (SELECT 1 FROM drives d WHERE d.vehicle_id = v.id AND d.ended_at > $1::timestamptz)
-		        OR EXISTS (SELECT 1 FROM charges c WHERE c.vehicle_id = v.id AND c.ended_at > $1::timestamptz))`,
+		        OR EXISTS (SELECT 1 FROM drives d WHERE d.vehicle_id = v.id AND d.source = 'live' AND d.ended_at > $1::timestamptz)
+		        OR EXISTS (SELECT 1 FROM charges c WHERE c.vehicle_id = v.id AND c.source = 'live' AND c.ended_at > $1::timestamptz))`,
 		nullTime(active))
 	if err != nil {
 		return nil, err
