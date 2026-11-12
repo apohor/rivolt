@@ -195,6 +195,46 @@ describe("TripRouteMap", () => {
     }
   });
 
+  it("shows no radar button or unavailable text in the signed-out demo, nor when the server refuses the frame (401/403)", async () => {
+    radarCfg.url = "/api/maps/radar/{z}/{x}/{y}.png";
+    radarCfg.frameUrl = "/api/maps/radar/frame";
+    plannerState.prefs = { ...plannerState.prefs, radar_on: true };
+    try {
+      // The demo: no button at all, and the frame is never asked for.
+      const demoFetch = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }) as unknown as Response);
+      vi.stubGlobal("fetch", demoFetch);
+      window.history.pushState({}, "", "/demo/trips/plan");
+      render(<TripRouteMap route={route} />);
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+      expect(screen.queryByRole("button", { name: "Radar" })).toBeNull();
+      expect(screen.queryByText(/Radar unavailable/)).toBeNull();
+      expect(demoFetch.mock.calls.some((c) => String(c[0]).includes("/radar/frame"))).toBe(false);
+      cleanup();
+      window.history.pushState({}, "", "/");
+      // Signed in but refused: the button goes and nothing says "unavailable".
+      for (const status of [401, 403]) {
+        vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status, json: async () => ({}) }) as unknown as Response));
+        render(<TripRouteMap route={route} />);
+        await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+        await waitFor(() => expect(screen.queryByRole("button", { name: "Radar" })).toBeNull());
+        expect(screen.queryByText(/Radar unavailable/)).toBeNull();
+        expect(FakeMap.last?.layers.has("rivolt-radar-layer")).toBe(false);
+        cleanup();
+      }
+      // NOAA down (503) for a signed-in user still says so.
+      vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }) as unknown as Response));
+      render(<TripRouteMap route={route} />);
+      expect(await screen.findByText("Radar unavailable")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Radar" })).toBeInTheDocument();
+    } finally {
+      cleanup();
+      window.history.pushState({}, "", "/");
+      radarCfg.url = "";
+      radarCfg.frameUrl = "";
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("draws the radar layer on the first plan with radar on, with no toggle (tiles still loading)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ frame_unix: 1_700_000_000 }) }) as unknown as Response));
     try {
