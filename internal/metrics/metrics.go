@@ -154,6 +154,9 @@ type Metrics struct {
 	// and were stored), empty, error, skipped (inside the 5-minute window after an attempt, no Rivian call), unsynced (a connected account's rows the owner has not marked synced yet: the transition path, expected to fall to 0). A steady rate of error means an
 	// account whose lookup keeps failing; none at all is the goal (single-owner M3-5a). Outcome label only.
 	VehiclesFallbackTotal *prometheus.CounterVec
+	// GeocodeCanceledTotal counts /api/geocode searches the client abandoned before the answer (the app's type-ahead drops an older search when the
+	// next keystroke lands). They get no response and are not an outage: PlaceSearchUnavailable counts only real 503s. No labels.
+	GeocodeCanceledTotal prometheus.Counter
 	// VehicleDiscoveryTotal counts the vehicle discovery job's turns by outcome (stored, empty, error, skipped, needs_reauth): linked users with no
 	// vehicle row, looked up so their vehicles get a lease (single-owner M3-6). No user label. A steady error rate is an account Rivian keeps refusing.
 	VehicleDiscoveryTotal *prometheus.CounterVec
@@ -587,6 +590,10 @@ func New() *Metrics {
 			Name: "rivolt_vehicle_discovery_total",
 			Help: "Vehicle discovery turns for linked users with no vehicle row, by outcome (stored, empty, error, skipped, needs_reauth).",
 		}, []string{"outcome"}),
+		GeocodeCanceledTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_geocode_canceled_total",
+			Help: "Place searches (/api/geocode) the client abandoned before the answer; no response is written and they are not counted as unavailable.",
+		}),
 		VehiclesFallbackTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_vehicles_fallback_total",
 			Help: "The linked-account-with-no-stored-vehicle Rivian lookups of /api/vehicles, by outcome (stored, empty, error, skipped, unsynced).",
@@ -1025,6 +1032,7 @@ func New() *Metrics {
 		m.OpenChargesOldestSeconds,
 		m.ChargewatchLastSuccess,
 		m.VehiclesFallbackTotal,
+		m.GeocodeCanceledTotal,
 		m.VehicleDiscoveryTotal,
 		m.WeatherRequestsTotal,
 		m.HandoffGapSeconds,
