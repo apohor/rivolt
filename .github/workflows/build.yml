@@ -343,7 +343,8 @@ jobs:
           # The one intended difference: the generation env reads the label name of its workload (pod-template-hash / rollouts-pod-template-hash).
           a=$(echo "$d" | yq 'select(.kind == "Deployment") | .spec.template' | sed 's/rollouts-pod-template-hash/pod-template-hash/')
           b=$(echo "$r" | yq 'select(.kind == "Rollout") | .spec.template' | sed 's/rollouts-pod-template-hash/pod-template-hash/')
-          echo "$r" | yq 'select(.kind == "Rollout") | .spec.template' | grep -q "labels\['rollouts-pod-template-hash'\]" \
+          # grep without -q: under pipefail, -q exits at the first match and closes the pipe on yq (SIGPIPE), which failed this step at random.
+          echo "$r" | yq 'select(.kind == "Rollout") | .spec.template' | grep "labels\['rollouts-pod-template-hash'\]" >/dev/null \
             || { echo "::error::the Rollout's RIVOLT_POD_GENERATION does not read rollouts-pod-template-hash"; exit 1; }
           [ -n "$a" ] && [ "$a" = "$b" ] || { echo "::error::the Rollout's pod template differs from the Deployment's (or one is missing)"; exit 1; }
           [ -z "$(echo "$d" | yq 'select(.kind == "Rollout")')" ] || { echo "::error::the default render has a Rollout"; exit 1; }
