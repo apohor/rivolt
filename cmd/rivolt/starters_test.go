@@ -37,8 +37,8 @@ func startedBy(p rolePlan) []string {
 // here: on api and jobs the fence reads every group Lost (lead mode is required for them, role.go), so no monitor streams or writes there.
 func TestStartersPerRole(t *testing.T) {
 	never := map[processRole][]string{
-		roleAPI:    {"db_app_grants", "db_readonly_grants", "inactive_purge", "archive_deletions", "lease_coordinator", "lease_reconcile_trigger", "forward_owner", "vehicle_discovery", "push_live", "ota_sync", "receipt_sync", "left_open", "tire_low", "partition_janitor", "retention", "backfill", "chargewatch", "rivian_expiry", "r2_arrival"},
-		roleIngest: {"chargers_warm", "chargers_reload", "partition_janitor", "retention", "inactive_purge", "stripe_cancel_retrier", "rivian_expiry", "r2_arrival"},
+		roleAPI:    {"db_app_grants", "db_readonly_grants", "inactive_purge", "archive_deletions", "lease_coordinator", "lease_reconcile_trigger", "forward_owner", "vehicle_discovery", "push_live", "ota_sync", "receipt_sync", "left_open", "tire_low", "partition_janitor", "retention", "backfill", "chargewatch", "rivian_expiry", "r2_arrival", "outbox_sender", "outbox_purge"},
+		roleIngest: {"chargers_warm", "chargers_reload", "partition_janitor", "retention", "inactive_purge", "stripe_cancel_retrier", "rivian_expiry", "r2_arrival", "outbox_sender", "outbox_purge"},
 		roleJobs:   {"lease_coordinator", "lease_reconcile_trigger", "forward_owner", "vehicle_discovery", "ota_sync", "receipt_sync", "chargers_warm", "chargers_reload"},
 	}
 	always := []string{"http_server", "http_shutdown", "metrics_server", "second_signal", "drain_watch", "drain_watch_leaseless", "token_release", "group_map_follow"}
@@ -91,7 +91,7 @@ func TestStartersPerInstall(t *testing.T) {
 		t.Errorf("the admin deployment starts %s\nwant %s", got, strings.Join(adminStarts, ","))
 	}
 	for _, name := range []string{"lease_coordinator", "forward_owner", "retention", "partition_janitor", "inactive_purge", "archive_deletions",
-		"backfill", "vehicle_discovery", "db_app_grants", "reauth_nudge", "rivian_expiry", "r2_arrival", "tire_low", "left_open", "milestones", "plug_reminder", "push_live"} {
+		"backfill", "vehicle_discovery", "db_app_grants", "reauth_nudge", "rivian_expiry", "r2_arrival", "tire_low", "left_open", "milestones", "plug_reminder", "push_live", "outbox_sender", "outbox_purge"} {
 		if admin.starts(starters[name]) {
 			t.Errorf("the admin deployment starts %s", name)
 		}

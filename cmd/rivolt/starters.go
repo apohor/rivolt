@@ -115,6 +115,8 @@ var starters = map[string]starter{
 	"retention":                {kind: startJobs, single: singleLock, by: "advisory rv_rete; its small DELETEs are idempotent"},
 	"backfill":                 {kind: startJobs, single: singleLock, by: "advisory backfill (internal/singleton)"},
 	"milestones":               {kind: startJobs, single: singleLock, by: "insert ON CONFLICT DO NOTHING, then the engage claim", offDemoOnly: true},
+	"outbox_sender":            {kind: startJobs, single: singleLock, by: "SKIP LOCKED claim + lease (internal/outbox); claims nothing while no handler is registered", offDemoOnly: true},
+	"outbox_purge":             {kind: startJobs, single: singleLock, by: "advisory rivolt:outbox_purge (internal/singleton); limited batches", offDemoOnly: true},
 	"plug_reminder":            {kind: startJobs, single: singleLock, by: "engage claim per (account, kind, local date)", offDemoOnly: true},
 }
 
