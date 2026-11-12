@@ -38,7 +38,7 @@ import { proLimitOf, type ProLimit } from "../lib/proLimit";
 // anywhere else.
 
 export default function TripPlanPage() {
-  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
+  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab();
   const aiConsent = useAIConsent();
   // When a plan arrives, bring it into view. Phones: the map (or the multi-day result) up under the top bar so
@@ -195,6 +195,12 @@ export default function TripPlanPage() {
     if (stop.hookup && stop.l2Kw !== undefined) updateOvernight(target, { l2Kw: stop.l2Kw, hookup: stop.hookup, campground: !!stop.campground }, false);
     else if (stop.l2Kw !== undefined) updateOvernight(target, { l2Kw: stop.l2Kw }, false);
     else updateOvernight(target, { l2Kw: DEFAULT_OVERNIGHT_KW, hookup: "j1772" }, false);
+  };
+  // Use from the result (a "Where to sleep" pick or the map popup): with the form folded away an
+  // edit alone shows nothing, so the trip re-plans with the night at once. The demo can't re-plan.
+  const pickOvernightNow = (stop: Parameters<typeof addOvernightStop>[0]) => {
+    addOvernightStop(stop);
+    if (!inDemo()) replanAfterEdit();
   };
   const overnightsEl = (
     <OvernightList
@@ -389,7 +395,7 @@ export default function TripPlanPage() {
             originLabel={origin?.label ?? ""}
             destLabel={destination?.label ?? ""}
             departureAt={departureAt}
-            onAddOvernight={addOvernightStop}
+            onAddOvernight={pickOvernightNow}
             stays={Object.fromEntries(extraStops.filter((_, i) => overnightFlags[i]).map((st) => [st.label, { hookup: optsFor(st).hookup, kw: optsFor(st).l2Kw, campground: optsFor(st).campground }]))}
             replan={multidaySnapshot?.replan}
           />
@@ -599,7 +605,7 @@ export default function TripPlanPage() {
                 });
                 setOvernightFlags((prev) => [...prev, false]);
               }}
-              onAddOvernight={addOvernightStop}
+              onAddOvernight={pickOvernightNow}
               departureAt={departureAt}
             />
           </ErrorBoundary>

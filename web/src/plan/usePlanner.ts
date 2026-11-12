@@ -400,14 +400,30 @@ export function usePlanner() {
   // React has flushed the new extraStops into the mutationFn closure.
   // Latch-and-clear via ref so the effect doesn't fire on unrelated
   // extraStops changes (saved-trip load, ViaStopList edits, etc.).
+  // A night picked from the result (Use under "Where to sleep", or the map
+  // popup) re-plans the same way, as multi-day once any stop is a night;
+  // the nonce makes the effect run even when the place was already a night.
+  const [replanNonce, setReplanNonce] = useState(0);
+  const replanAfterEdit = () => {
+    autoReplanAfterAddRef.current = true;
+    setReplanNonce((n) => n + 1);
+  };
   useEffect(() => {
     if (!autoReplanAfterAddRef.current) return;
     autoReplanAfterAddRef.current = false;
-    planMutation.mutate();
+    if (hasOvernightStops) {
+      // While it plans the result gives way to "Planning your route…" and the open form, where a
+      // failure shows under the Plan button; a saved trip left on screen would hide both.
+      setLoadedSnapshot(null);
+      planMutation.reset();
+      multidayMutation.mutate();
+    } else {
+      planMutation.mutate();
+    }
     // planMutation.mutate is stable; intentionally excluding it to
     // avoid re-firing when the mutation completes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [extraStops]);
+  }, [extraStops, overnightFlags, replanNonce]);
 
   // Saved trips. loadedSnapshot, when non-null, is what the result
   // card renders instead of the live planMutation.data — that's how
@@ -648,6 +664,7 @@ export function usePlanner() {
     prefsApplied,
     setPrefsApplied,
     autoReplanAfterAddRef,
+    replanAfterEdit,
     planMutation,
     adviceMutation,
     hasOvernightStops,

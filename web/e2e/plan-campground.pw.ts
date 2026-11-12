@@ -137,7 +137,7 @@ for (const v of [
   });
 }
 
-test("using a campground makes it the night with its outlet and sends the hookup", async ({ browser }) => {
+test("using a campground re-plans with it as the night, its outlet and the hookup", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", timezoneId: "America/Los_Angeles" });
   const page = await ctx.newPage();
   const reqs: { days: { overnight?: { hookup?: string; l2_kw: number; name: string } }[] }[] = [];
@@ -146,13 +146,29 @@ test("using a campground makes it the night with its outlet and sends the hookup
     reqs.push(r.request().postDataJSON());
     return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(BODY) });
   });
+  // The tap alone re-plans: no Plan press.
   await page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" }).click();
-  const night = page.locator("[data-overnight-stop]").filter({ hasText: "Convict Lake Campground (campground)" });
-  await expect(night.getByLabel("Hookup at the stop")).toHaveValue("nema_14_50");
-  await expect(night.getByLabel("Planned power in kW")).toHaveValue("7.2");
-  await page.getByRole("button", { name: /Plan \d-day trip/ }).click();
   await expect.poll(() => reqs.length).toBe(1);
   const sent = reqs[0].days.map((d) => d.overnight).filter(Boolean);
   expect(sent).toContainEqual(expect.objectContaining({ hookup: "nema_14_50", l2_kw: 7.2, name: "Convict Lake Campground (campground)" }));
+  await expect(page.locator("[data-overnight-row]")).toBeVisible();
+  const night = page.locator("[data-overnight-stop]").filter({ hasText: "Convict Lake Campground (campground)" });
+  await expect(night.getByLabel("Hookup at the stop")).toHaveValue("nema_14_50");
+  await expect(night.getByLabel("Planned power in kW")).toHaveValue("7.2");
+  await page.waitForTimeout(500);
+  expect(reqs.length).toBe(1);
+  await ctx.close();
+});
+
+test("on a phone, a Use tap whose re-plan fails says why", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", timezoneId: "America/Los_Angeles" });
+  const page = await ctx.newPage();
+  await open(page, []);
+  await expect(page.locator("[data-plan-bar]")).toHaveAttribute("data-collapsed", "true");
+  await page.route("**/api/trips/plan-multiday", (r) => r.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "planner unavailable" }) }));
+  await page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" }).click();
+  const why = page.locator("[data-plan-bar] [role=alert]");
+  await expect(why).toBeVisible();
+  await expect(why).toBeInViewport();
   await ctx.close();
 });
