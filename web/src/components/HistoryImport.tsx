@@ -6,7 +6,6 @@ import {
   MAX_IMPORT_FILES,
   MAX_IMPORT_MB,
   SOURCES,
-  addedSummary,
   browserTZ,
   chargesText,
   drivesText,
@@ -14,6 +13,7 @@ import {
   importFailure,
   previewEmpty,
   skipLabel,
+  doneBanner,
   undoUnknown,
   undoWarning,
   warningText,
@@ -73,7 +73,8 @@ export function HistoryImportCard() {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const importsQ = useQuery({ queryKey: ["imports"], queryFn: () => backend.listImports(), enabled: !!preview?.already_imported });
   const [event, setEvent] = useState<ImportEvent | null>(null);
-  const [result, setResult] = useState<{ drives: number; charges: number } | null>(null);
+  const [result, setResult] = useState<{ id?: string; drives: number; charges: number } | null>(null);
+  const doneQ = useQuery({ queryKey: ["imports"], queryFn: () => backend.listImports(), enabled: step === "done" && !!result?.id });
   const inputRef = useRef<HTMLInputElement | null>(null);
   const source = SOURCES.find((s) => s.id === sourceID) ?? SOURCES[0];
 
@@ -313,15 +314,18 @@ export function HistoryImportCard() {
           </p>
         )}
 
-        {step === "done" && result && (
+        {step === "done" && result && (() => {
+          const banner = doneBanner(result, doneQ.data?.find((r) => r.id === result.id)?.undone_at);
+          return (
           <>
-            <p role="status" className="text-emerald-300">{addedSummary(result.drives, result.charges)}</p>
+            <p role="status" className={banner.undone ? "text-neutral-300" : "text-emerald-300"}>{banner.text}</p>
             <div className="flex gap-2">
-              <Link to="/drives" className={btn}>See drives</Link>
+              {!banner.undone && <Link to="/drives" className={btn}>See drives</Link>}
               <button type="button" className={btn} onClick={reset}>Import another</button>
             </div>
           </>
-        )}
+          );
+        })()}
       </div>
     </Card>
   );

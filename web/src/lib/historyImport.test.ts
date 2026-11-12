@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./api";
-import { addedSummary, importFailure, skipLabel, undoWarning, warningText } from "./historyImport";
+import { addedSummary, doneBanner, importFailure, skipLabel, undoWarning, warningText } from "./historyImport";
 
 describe("history import copy", () => {
   it("says what was added and what undo removes", () => {
@@ -38,5 +38,12 @@ describe("a stopped commit with no id", () => {
     const f = importFailure(new ApiError(500, { error: "x", code: "stopped" }));
     expect(f.importID).toBeUndefined();
     expect(f.text).toMatch(/cannot tell whether the import went through/);
+  });
+});
+
+describe("doneBanner", () => {
+  it("says Added until the import is undone, then Removed", () => {
+    expect(doneBanner({ drives: 60, charges: 20 })).toEqual({ text: "Added 60 drives, 20 charges.", undone: false });
+    expect(doneBanner({ drives: 60, charges: 20 }, "2026-11-12T16:00:00Z")).toEqual({ text: "Removed 60 drives, 20 charges.", undone: true });
   });
 });
