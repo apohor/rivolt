@@ -1873,15 +1873,37 @@ export const backend = {
   importCommit: async (files: File[], c: ImportChoices, sha256: string, onEvent?: (e: ImportEvent) => void) => {
     const fd = importForm(files, c);
     fd.append("sha256", sha256);
-    const res = await fetch("/api/import/commit", { method: "POST", body: fd });
-    if (!res.ok) await readImportJSON<never>(res);
+    // Once the files are sent the server may have started writing, so a lost connection or a gateway error (524) is "stopped", not a plain
+    // failure: the caller looks in Imports before suggesting a retry. importID is the id from the stream's first line, when one arrived.
+    let importID = "";
+    const stopped = (msg: string) => new ApiError(500, { error: msg, code: "stopped", id: importID || undefined });
+    let res: Response;
+    try {
+      res = await fetch("/api/import/commit", { method: "POST", body: fd });
+    } catch {
+      throw stopped("The connection dropped.");
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let body: unknown = text;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        // not JSON: a gateway page
+      }
+      const coded = !!body && typeof body === "object" && typeof (body as { code?: unknown }).code === "string";
+      if (res.status >= 500 && !coded) throw stopped("The server did not answer.");
+      const err = new ApiError(res.status, body);
+      const ra = Number(res.headers.get("Retry-After"));
+      if (ra > 0) err.retryAfter = ra;
+      throw err;
+    }
     if (!res.body) throw new ApiError(500, "no response body");
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
     let done: { id: string; drives: number; charges: number } | null = null;
     let err: string | null = null;
-    let importID = "";
     const line = (l: string) => {
       if (!l.trim()) return;
       let ev: Record<string, unknown>;
@@ -1895,21 +1917,25 @@ export const backend = {
       else if (ev.type === "error") err = String(ev.error ?? "import failed");
       else onEvent?.(ev as unknown as ImportEvent);
     };
-    for (;;) {
-      const { value, done: eof } = await reader.read();
-      if (value) {
-        buf += dec.decode(value, { stream: true });
-        let i;
-        while ((i = buf.indexOf("\n")) >= 0) {
-          line(buf.slice(0, i));
-          buf = buf.slice(i + 1);
+    try {
+      for (;;) {
+        const { value, done: eof } = await reader.read();
+        if (value) {
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf("\n")) >= 0) {
+            line(buf.slice(0, i));
+            buf = buf.slice(i + 1);
+          }
         }
+        if (eof) break;
       }
-      if (eof) break;
+    } catch {
+      throw stopped("The connection dropped.");
     }
     line(buf);
     if (err) throw new ApiError(500, { error: err, code: "stopped", id: importID });
-    if (!done) throw new ApiError(500, { error: "The import stopped before it finished.", code: "stopped" });
+    if (!done) throw stopped("The import stopped before it finished.");
     return done as { id: string; drives: number; charges: number };
   },
   listImports: async () => (await api.get<{ imports: ImportRecord[] }>("/api/imports")).imports ?? [],

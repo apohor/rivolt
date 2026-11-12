@@ -108,7 +108,11 @@ export function HistoryImportCard() {
       setStep("done");
       invalidateData(qc);
     },
-    onError: () => setStep("preview"),
+    onError: () => {
+      setStep("preview");
+      // A stopped commit may have written rows: the Imports list must show them.
+      qc.invalidateQueries({ queryKey: ["imports"] });
+    },
   });
   const undoM = useMutation({
     mutationFn: (id: string) => backend.undoImport(id),
@@ -265,6 +269,7 @@ export function HistoryImportCard() {
                         return rec ? undoWarning(rec.drives, rec.charges) : undoUnknown;
                       })()}
                     </p>
+                    {undoM.isError && <p role="alert" className="mt-2 text-rose-300">{importFailure(undoM.error).text}</p>}
                     <div className="mt-2 flex gap-2">
                       <button type="button" className={btn} onClick={() => setConfirmUndo(false)}>Keep</button>
                       <button type="button" className="rounded-md border border-rose-800 px-3 py-1.5 text-sm text-rose-200 hover:border-rose-600 disabled:opacity-50" disabled={undoM.isPending} onClick={() => undoM.mutate(preview.already_imported!.id)}>
@@ -293,7 +298,6 @@ export function HistoryImportCard() {
             {preview.warnings.map((w) => (warningText(w) ? <p key={w} className="text-amber-300">{warningText(w)}</p> : null))}
             {preview.sample.length > 0 && <SampleTable rows={preview.sample} />}
             {commitM.isError && <ImportError err={commitM.error} />}
-            {undoM.isError && <ImportError err={undoM.error} />}
             <div className="flex flex-wrap gap-2">
               <button type="button" className={btn} onClick={() => setStep("files")}>Back</button>
               <button type="button" className={btnMain} disabled={previewEmpty(preview) || commitM.isPending} onClick={() => commitM.mutate()}>

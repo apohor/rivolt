@@ -157,3 +157,51 @@ test("a commit refused because another import is running says so and can be retr
   await card.getByRole("button", { name: "Import", exact: true }).click();
   await expect(card.getByText("Added 12 drives, 4 charges.")).toBeVisible();
 });
+
+async function toPreview(page: Page) {
+  await page.goto("/settings?tab=data#import-history");
+  const card = page.locator("[data-history-import]");
+  await card.getByRole("button", { name: "Continue" }).click();
+  await card.locator('input[type="file"]').setInputFiles({ name: "x.csv", mimeType: "text/csv", buffer: Buffer.from("a\n") });
+  await card.getByRole("button", { name: "Check file" }).click();
+  return card;
+}
+
+test("a gateway timeout on commit does not claim a plain failure", async ({ page }) => {
+  await setup(page);
+  await page.route("**/api/import/commit", (r) => r.fulfill({ status: 524, contentType: "text/html", body: "<html>timeout</html>" }));
+  const card = await toPreview(page);
+  await card.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(card.getByText(/cannot tell whether the import went through/)).toBeVisible();
+  await expect(card.getByText("Something went wrong")).toHaveCount(0);
+});
+
+test("a commit stream that ends after its first line keeps the import id and checks Imports", async ({ page }) => {
+  const state = await setup(page);
+  state.imports = [{ id: "imp-1", source: "tezlab", started_at: "2025-07-01T12:00:00Z", rows: 40, drives: 7, charges: 2, first: PREVIEW.first, last: PREVIEW.last }];
+  await page.route("**/api/import/commit", (r) =>
+    r.fulfill({ status: 200, contentType: "application/x-ndjson", body: JSON.stringify({ type: "start", id: "imp-1" }) + "\n" }),
+  );
+  const card = await toPreview(page);
+  await card.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(card.getByText(/7 drives and 2 charges were saved so far/)).toBeVisible();
+});
+
+test("a connection that drops on commit is the stopped path", async ({ page }) => {
+  await setup(page);
+  await page.route("**/api/import/commit", (r) => r.abort("connectionreset"));
+  const card = await toPreview(page);
+  await card.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(card.getByText(/cannot tell whether the import went through/)).toBeVisible();
+});
+
+test("a failed undo says so inside the confirmation", async ({ page }) => {
+  const state = await setup(page);
+  state.imports = [{ id: "imp-1", source: "tezlab", started_at: "2025-07-01T12:00:00Z", rows: 40, drives: 12, charges: 4, first: PREVIEW.first, last: PREVIEW.last }];
+  await page.route("**/api/import/preview", (r) => r.fulfill({ json: { ...PREVIEW, already_imported: { id: "imp-1", at: "2025-07-01T12:00:00Z" } } }));
+  await page.route("**/api/imports/imp-1/undo", (r) => r.fulfill({ status: 500, json: { error: "boom" } }));
+  const card = await toPreview(page);
+  await card.getByRole("button", { name: "Undo that import" }).click();
+  await card.getByRole("button", { name: "Remove them" }).click();
+  await expect(card.getByRole("alertdialog").getByRole("alert")).toContainText("Something went wrong");
+});
