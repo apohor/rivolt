@@ -14,6 +14,12 @@ func (s *Service) ObserveSends(fn func(channel, service, outcome string)) *Servi
 	return s
 }
 
+// PushServices and PushOutcomes are the fixed label values of the send observer.
+var (
+	PushWebServices = []string{"apple", "fcm", "mozilla", "windows", "other"}
+	PushOutcomes    = []string{"ok", "gone", "rejected", "error"}
+)
+
 func (s *Service) observeSend(channel, endpoint, outcome string) {
 	if s == nil || s.observe == nil {
 		return

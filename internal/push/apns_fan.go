@@ -94,7 +94,11 @@ func (s *Service) fanAPNsTo(ctx context.Context, store *Store, p Payload, everyD
 			}
 			var ae *APNsError
 			if errors.As(err, &ae) {
-				s.observeSend("apns", "", "rejected")
+				if ae.Dead() {
+					s.observeSend("apns", "", "gone")
+				} else {
+					s.observeSend("apns", "", "rejected")
+				}
 				if ae.Dead() {
 					_ = store.deleteAPNsDeviceByID(ctx, d.ID)
 				}
