@@ -423,6 +423,47 @@ func TestRequesterNudge(t *testing.T) {
 	}
 }
 
+// receipts_sync is the same kind of push, but its own kind: the owner's runner sees receipts_sync, never adopt (which an old receiver would
+// run as owner discovery), and an owner that is not ready gets nothing.
+func TestRequesterReceiptsSyncPush(t *testing.T) {
+	f := newFleet(t)
+	req := f.requester(nil)
+	if req.ReceiptsSync(context.Background(), user, group) {
+		t.Error("nothing is pushed to an owner that is not ready")
+	}
+	f.owner("pod-a", 7, true, nil)
+	if !req.ReceiptsSync(context.Background(), user, group) {
+		t.Fatal("a ready owner gets the push")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(f.runners["pod-a"].Calls()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if c := f.runners["pod-a"].Calls(); len(c) != 1 || c[0].Kind != forward.KindReceiptsSync || c[0].User != user {
+		t.Fatalf("owner calls = %+v", c)
+	}
+}
+
+// A no-reply push is dropped once the owner's queue is at MaxQueue, so it can never be the thing that makes every requester refuse that pod.
+func TestRequesterPushDropsAtMaxQueue(t *testing.T) {
+	f := newFleet(t)
+	req := f.requester(nil)
+	f.owner("pod-a", 7, true, nil)
+	f.stops[len(f.stops)-1]() // stop the owner's loop so it does not drain the queue; its ready key stays
+	time.Sleep(100 * time.Millisecond)
+	q := f.keys.Queue("pod-a")
+	for i := 0; i < forward.MaxQueue+5; i++ { // a few extra: the stopping loop may take one
+		f.rdb.RPush(context.Background(), q, "x")
+	}
+	before := f.rdb.LLen(context.Background(), q).Val()
+	if req.ReceiptsSync(context.Background(), user, group) {
+		t.Error("a push to an owner whose queue is full must be dropped")
+	}
+	if n := f.rdb.LLen(context.Background(), q).Val(); n != before {
+		t.Errorf("queue length %d, want %d", n, before)
+	}
+}
+
 func TestNewForwarderValidates(t *testing.T) {
 	f := newFleet(t)
 	for name, mut := range map[string]func(*forward.RequesterConfig){

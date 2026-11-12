@@ -55,3 +55,28 @@ func TestSignInWithNoVehicleNudgesDiscovery(t *testing.T) {
 		})
 	}
 }
+
+// The receipts hook goes out once per completed sign-in whatever the vehicle count (the discovery nudge does not: it asks only for a user with
+// no vehicle), and the unheld-refresh path, which clients poll, never sends it.
+func TestSignInReceiptsHookFiresForAnyVehicleCount(t *testing.T) {
+	ctx, pool := openFunnelDB(t)
+	store := secrets.New(pool, crypto.NoopSealer{})
+	for _, vehicles := range [][]rivian.Vehicle{nil, {{ID: "veh-rcpt", Name: "Blue", Model: "R1S"}}} {
+		uid, err := db.EnsureUser(ctx, pool, "rcpt-"+uuid.NewString()[:8])
+		if err != nil {
+			t.Fatal(err)
+		}
+		mock := rivian.NewMock()
+		mock.SetVehicles(vehicles)
+		reg := rivian.NewMockAccountRegistry(func(uuid.UUID) *rivian.MockClient { return mock })
+		var hook, nudge atomic.Int32
+		h := withSignInNudge(func(context.Context, uuid.UUID) { nudge.Add(1) })(
+			withReceiptsSignIn(func(context.Context, uuid.UUID) { hook.Add(1) })(handleRivianLogin(reg, store, nil, nil, pool, metrics.New(), nil)))
+		if code, _ := postJSON(t, ctx, func(w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }, uid, rivianLoginReq{Email: "d@example.invalid", Password: "pw"}); code != http.StatusOK {
+			t.Fatalf("login = %d", code)
+		}
+		if hook.Load() != 1 {
+			t.Errorf("%d vehicles: receipts hook fired %d times, want 1", len(vehicles), hook.Load())
+		}
+	}
+}

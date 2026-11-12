@@ -1924,7 +1924,9 @@ func runServer() {
 	var stateForward api.StateForwarder
 	var ownerDiscoveryUsers func(context.Context) ([]vehiclediscovery.OwnedUser, error) // the users of the groups this pod holds (RIVOLT_OWNER_DISCOVERY)
 	var groupOfVehicle func(string) (string, bool)
-	var signInNudgeFn func(context.Context, uuid.UUID) // owner discovery's sign-in nudge (RIVOLT_OWNER_DISCOVERY)
+	var signInNudgeFn func(context.Context, uuid.UUID)    // owner discovery's sign-in nudge (RIVOLT_OWNER_DISCOVERY)
+	var receiptsSignedIn func(context.Context, uuid.UUID) // completed sign-in hook (RIVOLT_FIRST_SCREEN)
+	var receiptsSyncNow func(uuid.UUID)                   // opt-in handler's receipts_sync sender (RIVOLT_FIRST_SCREEN)
 
 	// Keep `vehicle_state` monthly partitions rolling. Without
 	// this a pod that runs past the last partition created at
@@ -2384,6 +2386,14 @@ func runServer() {
 		}
 		if os.Getenv("RIVOLT_OWNER_DISCOVERY") == "1" {
 			signInNudgeFn = newSignInNudge(role, leaseStore, groupHold(&liveFence), fwdRT.forwarder, logger).Nudge
+		}
+		// First screen: the receipts_sync sender (opt-in handler, and a completed sign-in by an already opted-in user). Off without the flag: nothing is sent.
+		if os.Getenv("RIVOLT_FIRST_SCREEN") == "1" && receiptSyncer != nil {
+			snd := newReceiptsSyncSender(role, leaseStore, groupHold(&liveFence), fwdRT.forwarder, receiptSyncer,
+				func(uid uuid.UUID) bool { return settingsFactory.RivianReceiptsOptIn(context.Background(), uid) },
+				receipts.SendOnce(sharedRedis, redisKeyPrefix), logger)
+			receiptsSyncNow = snd.Request
+			receiptsSignedIn = snd.SignedIn
 		}
 		var markDraining func(context.Context)
 		if coord != nil {
@@ -3372,6 +3382,8 @@ func runServer() {
 		StateForward:          stateForward,
 		OwnerDiscovery:        ownerDiscovery,
 		SignInNudge:           signInNudgeFn,
+		ReceiptsSyncNow:       receiptsSyncNow,
+		ReceiptsSignedIn:      receiptsSignedIn,
 		GroupOfVehicle:        groupOfVehicle,
 		ForwardReplayTest:     forwardReplayTestOn,
 		AuditKey:              deriveKey(cookieSecret, "rivolt/audit/v1"),
