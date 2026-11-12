@@ -342,3 +342,25 @@ func TestSyncOnRequestFiveTogglesMakeOneCall(t *testing.T) {
 		t.Errorf("counted %v, want forward/ok 1 and forward/skipped 4", got)
 	}
 }
+
+// The forwarded pass stores and matches the summaries and makes no detail call (ten paced calls take 27 s, longer than the kind's
+// timeout); the details stay for the sweep's details-only pass, which finds them waiting.
+func TestSyncOnRequestMakesNoDetailCalls(t *testing.T) {
+	st := &fakeStore{claimOK: true, needDetail: []string{"a", "b", "c"}}
+	a := &fakeAcct{sums: []rivian.SessionSummary{{TransactionID: "t1"}}}
+	s, sleeps := newTestSyncer(st, a, true)
+	res, err := s.SyncOnRequest(context.Background(), uuid.New())
+	if err != nil || a.sumCalls != 1 || len(st.upserted) != 1 || st.refreshed != 1 {
+		t.Fatalf("res %+v err %v summaries %d upserted %d refreshed %d", res, err, a.sumCalls, len(st.upserted), st.refreshed)
+	}
+	if len(a.detailCalls) != 0 || len(*sleeps) != 0 || !res.DetailsLeft {
+		t.Errorf("detail calls %d, sleeps %d, left %v; want 0, 0, true", len(a.detailCalls), len(*sleeps), res.DetailsLeft)
+	}
+	if len(st.results) != 1 {
+		t.Errorf("the result was not recorded: %v", st.results)
+	}
+	// The sweep's details-only pass then finds them.
+	if _, err := s.Sync(context.Background(), uuid.New(), time.Hour, true); err != nil || len(a.detailCalls) != 3 {
+		t.Errorf("details-only pass: err %v, %d detail calls, want 3", err, len(a.detailCalls))
+	}
+}
