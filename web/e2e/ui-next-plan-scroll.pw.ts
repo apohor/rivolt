@@ -39,3 +39,30 @@ for (const theme of ["dark", "light"] as const) {
     await ctx.close();
   });
 }
+
+// #1984: the page above the map can change height while the smooth scroll to the map runs (here the heading goes, 120 ms in). The scroll was aimed
+// once, so the map ended under the top bar by that much (at Safari's 300% text its Layers button was hidden there). Now the page is put right once
+// the scroll comes to rest.
+test("@webkit phone: the map ends just under the top bar when the page above it changes during the scroll", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", reducedMotion: "no-preference" });
+  const page = await ctx.newPage();
+  await stubApi(page, { demo: true, signedIn: false });
+  await page.goto("/demo/trips/plan");
+  await expect(page.locator("main h1")).toBeVisible();
+  await page.evaluate(() => {
+    const h = document.querySelector("main h1") as HTMLElement;
+    h.style.minHeight = "60px";
+    new MutationObserver((_, mo) => {
+      if (!document.querySelector("[data-plan-area='map']:not([data-empty])")) return;
+      mo.disconnect();
+      window.setTimeout(() => { h.style.display = "none"; }, 120);
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  await page.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
+  await expect(page.locator("main h1")).toBeHidden();
+  await settled(page, ["[data-plan-area='map']", "[data-plan-sheet]"]);
+  const gap = () => page.evaluate(() => Math.round(document.querySelector("[data-plan-area='map']")!.getBoundingClientRect().top - document.querySelector("header.sticky")!.getBoundingClientRect().bottom));
+  await expect.poll(gap, { timeout: 3000 }).toBeGreaterThanOrEqual(6);
+  expect(await gap()).toBeLessThanOrEqual(10);
+  await ctx.close();
+});
