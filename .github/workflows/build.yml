@@ -852,8 +852,8 @@ jobs:
           for d in $heavy; do echo "$all" | grep -qx "github.com/apohor/rivolt/internal/$d" || { echo "shard list names a package that is gone: $d" >&2; exit 1; }; done
           if [ "${{ matrix.shard }}" = a ]; then pkgs="$a"; else pkgs=$(echo "$all" | grep -vxF "$a"); fi
           echo "shard ${{ matrix.shard }} packages: $(echo "$pkgs" | wc -l) of $(echo "$all" | wc -l)"
-          # vet covers every package once, on shard b, alongside its tests.
-          if [ "${{ matrix.shard }}" = b ]; then go vet ./... > vet.log 2>&1 & vet=$!; fi
+          # vet covers every package once, on shard a (the lighter one), alongside its tests.
+          if [ "${{ matrix.shard }}" = a ]; then go vet ./... > vet.log 2>&1 & vet=$!; fi
           go test -race $pkgs; t=$?
           v=0
           if [ -n "${vet:-}" ]; then wait $vet; v=$?; cat vet.log; fi
