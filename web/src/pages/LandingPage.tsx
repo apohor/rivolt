@@ -167,6 +167,18 @@ export default function LandingPage() {
               </h2>
             </div>
             <PlannerShots />
+            {/* The shots show our map, so they carry its credits (the words of the map's own attribution, BASEMAP_ATTRIBUTION) and the radar's source. */}
+            <p className="lp-shot-credit">
+              Map:{" "}
+              <a href="https://protomaps.com" target="_blank" rel="noopener">
+                Protomaps
+              </a>{" "}
+              ©{" "}
+              <a href="https://openstreetmap.org/copyright" target="_blank" rel="noopener">
+                OpenStreetMap
+              </a>{" "}
+              contributors · Radar: NOAA/NWS
+            </p>
             <div className="lp-bento">
               <Tile title="Stops chosen for you" icon={<path d="M13 3 5 13h6l-1 8 8-10h-6z" />}>
                 Charger, minutes plugged in and the charge you arrive with.
