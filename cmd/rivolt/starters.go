@@ -26,10 +26,6 @@ var starters = map[string]starterKind{
 	"second_signal":         startAlways,
 	"drain_watch":           startAlways,
 	"drain_watch_leaseless": startAlways,
-	// Grants re-applied every 6 h on every replica (idempotent; CNPG creates the roles on its own schedule).
-	"db_app_grants":      startAlways,
-	"db_repair_grants":   startAlways,
-	"db_readonly_grants": startAlways,
 	// Drop and count the Rivian clients of groups this pod does not hold: a pod with no leases needs it most.
 	"token_release":       startAlways,
 	"tokens_unheld_gauge": startAlways,
@@ -48,6 +44,11 @@ var starters = map[string]starterKind{
 	"receipt_sync":            startLeases,
 	"left_open":               startLeases,
 	"tire_low":                startLeases,
+
+	// Grants re-applied every 6 h (idempotent; CNPG creates the roles on its own schedule, and rivolt migrate grants after each migration).
+	"db_app_grants":      startJobs,
+	"db_repair_grants":   startJobs,
+	"db_readonly_grants": startJobs,
 
 	"stripe_cancel_retrier":    startJobs,
 	"chargewatch":              startJobs,

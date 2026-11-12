@@ -29,12 +29,13 @@ func startedBy(p rolePlan) []string {
 	return out
 }
 
-// What each role starts (S19 9d): api starts no lease coordinator, no Rivian work and no jobs; ingest serves no public routes and runs no
+// What each role starts (S19 9b, 9d): api starts no lease coordinator, no Rivian work and no singleton (discovery, janitor, grant tickers,
+// archive, retention and thinning); ingest serves no public routes and runs no
 // jobs; jobs holds no leases and serves no public routes; all starts everything. The monitors and the recorder are not goroutines started
 // here: on api and jobs the fence reads every group Lost (lead mode is required for them, role.go), so no monitor streams or writes there.
 func TestStartersPerRole(t *testing.T) {
 	never := map[processRole][]string{
-		roleAPI:    {"lease_coordinator", "lease_reconcile_trigger", "forward_owner", "vehicle_discovery", "push_live", "ota_sync", "receipt_sync", "left_open", "tire_low", "partition_janitor", "retention", "backfill", "chargewatch"},
+		roleAPI:    {"db_app_grants", "db_readonly_grants", "inactive_purge", "archive_deletions", "lease_coordinator", "lease_reconcile_trigger", "forward_owner", "vehicle_discovery", "push_live", "ota_sync", "receipt_sync", "left_open", "tire_low", "partition_janitor", "retention", "backfill", "chargewatch"},
 		roleIngest: {"chargers_warm", "chargers_reload", "partition_janitor", "retention", "inactive_purge", "stripe_cancel_retrier"},
 		roleJobs:   {"lease_coordinator", "lease_reconcile_trigger", "forward_owner", "vehicle_discovery", "ota_sync", "receipt_sync", "chargers_warm", "chargers_reload"},
 	}
