@@ -41,6 +41,7 @@ export function RouteChooser({
     return v.kind === "range" ? `${fmtRange(v.low, v.high, (x) => fmt(x, c?.currency))} · ` : "";
   };
   return (
+    // Each choice is at most as wide as the row, its lines wrapping on a very narrow screen (Safari's aA 300 %): the row scrolls, a card never clips.
     <div role="radiogroup" aria-label="Route options" data-plan-routes data-sheet-pan-x className="mb-3 flex gap-2 overflow-x-auto pb-1">
       {routes.map((r, i) => {
         const c = costs?.[i];
@@ -52,7 +53,7 @@ export function RouteChooser({
             role="radio"
             aria-checked={i === active}
             onClick={() => onChange(i)}
-            className={`min-w-32 shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+            className={`min-w-[min(8rem,100%)] max-w-full shrink-0 rounded-lg border px-3 py-2 text-left text-xs transition-colors max-[200px]:px-2 max-[200px]:[overflow-wrap:anywhere] ${
               i === active ? "border-emerald-600/60 bg-emerald-600/10" : "border-neutral-800 hover:border-neutral-600"
             }`}
           >

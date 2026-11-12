@@ -598,6 +598,10 @@
   :root [data-plan-next] {
     --pt-hero: 1.625rem;
   }
+  /* The map is a strip there: the one-line trip card would cover it, and the sheet's peek says the same. */
+  :root [data-plan-next] .rivolt-trip-card {
+    display: none;
+  }
 }
 :root [data-plan-next] *:not(.maplibregl-map *):not(svg *) {
   font-family: 'Geist UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
