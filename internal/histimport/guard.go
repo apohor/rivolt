@@ -54,34 +54,27 @@ func (d *xmlDepth) see(tok xml.Token) error {
 	return nil
 }
 
-// csvGuard fails with ErrTooBig when one record runs past maxCSVRecord bytes or holds more than MaxCols delimiters outside quotes, before
-// encoding/csv has built a field index for it. It tracks quote parity the way a quoted newline needs; a stray quote can only make it stricter.
-type csvGuard struct {
-	r      io.Reader
-	delim  byte // zero until the header has been sniffed
-	quoted bool
-	bytes  int
-	delims int
+// csvBudget fails with ErrTooBig when more than maxCSVBudget bytes are read from the file without a record completing. It sits under the
+// bufio.Reader that encoding/csv reads through, and the table resets it after every record csv returns, so it does not depend on csv's
+// quoting rules: whatever csv takes for one field, a record that would hold more than the budget stops at the budget instead of being built.
+// It counts from the first byte, so the header line is bounded too. The slack above maxCSVRecord is the 64 KiB bufio buffer, which may
+// already hold the start of the next record when the count is reset, and csv's own 4 KiB buffer.
+type csvBudget struct {
+	r io.Reader
+	n int
 }
 
-func (g *csvGuard) Read(p []byte) (int, error) {
+const maxCSVBudget = maxCSVRecord + 64<<10 + 4<<10
+
+func (g *csvBudget) Read(p []byte) (int, error) {
 	n, err := g.r.Read(p)
-	for _, b := range p[:n] {
-		g.bytes++
-		switch {
-		case b == '"':
-			g.quoted = !g.quoted
-		case b == '\n' && !g.quoted:
-			g.bytes, g.delims = 0, 0
-		case b == g.delim && g.delim != 0 && !g.quoted:
-			g.delims++
-		}
-		if g.bytes > maxCSVRecord || g.delims > MaxCols {
-			return 0, ErrTooBig
-		}
+	if g.n += n; g.n > maxCSVBudget {
+		return 0, ErrTooBig
 	}
 	return n, err
 }
+
+func (g *csvBudget) reset() { g.n = 0 }
 
 // checkZipDirectory reads the end-of-central-directory record before zip.NewReader does, because NewReader builds a File for every entry it
 // finds from the directory offset up to that record. It refuses zip64, more than maxZipEntries entries, and a directory over maxZipDirectory bytes.

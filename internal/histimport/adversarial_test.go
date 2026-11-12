@@ -260,3 +260,125 @@ func TestBlankVehicleLabelIsAnotherVehicleOnceOneIsChosen(t *testing.T) {
 		t.Fatalf("%v %+v", err, r)
 	}
 }
+
+func TestCSVGuardStrayQuoteInUnquotedFieldDoesNotStopRecords(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("Start Time,End Time,Distance (mi),Vehicle\n")
+	b.WriteString("2026-03-01T08:00:00Z,2026-03-01T08:30:00Z,20,5\" tall\n") // a literal quote mid-field
+	for i := 0; i < 20000; i++ {                                             // well over maxCSVRecord bytes in total
+		fmt.Fprintf(&b, "2026-03-02T08:%02d:00Z,2026-03-02T09:%02d:00Z,20,Truck\n", i%60, i%60)
+	}
+	if b.Len() < 2*maxCSVRecord {
+		t.Fatal("test file too small")
+	}
+	r, err := Parse(csvT(t, b.String()), TezLabDrives, Options{Now: now, Vehicle: "Truck"})
+	if err != nil || r.Report.Rows != 20001 {
+		t.Fatalf("%v %+v", err, r)
+	}
+}
+
+func TestCSVGuardQuotedFieldsWithNewlinesAndEscapedQuotes(t *testing.T) {
+	in := "a,b\n\"line one\nline \"\"two\"\"\nline three\",x\n\"y\",\"z\"\n"
+	tb, err := OpenCSV(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := 0
+	for {
+		rec, err := tb.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows++
+		if rows == 1 && rec[0] != "line one\nline \"two\"\nline three" {
+			t.Fatalf("%q", rec)
+		}
+	}
+	if rows != 2 {
+		t.Fatalf("rows %d", rows)
+	}
+	// A real unclosed quote still ends in ErrTooBig (TestAdversarialCSVHugeQuotedRecord).
+}
+
+// Each attack comes after more than 64 KB of valid rows, so the bufio buffer and every delimiter path are past their first fill. The byte
+// budget does not depend on csv's quoting rules, so each ends in ErrTooBig before the record is built.
+func TestAdversarialCSVRecordAttacksAfterValidRows(t *testing.T) {
+	valid := "a,b\n" + strings.Repeat("1,2\n", 40<<10) // 160 KB
+	attacks := map[string]struct {
+		head string
+		tail io.Reader
+	}{
+		"quote then letter":  {"\"x\"y\n", &lines{n: scaled(20<<20, 100<<20)}},
+		"quote then CR LF":   {"\"x\"\r\r\n", &lines{n: scaled(20<<20, 100<<20)}},
+		"quote then lone CR": {"\"x\"\ry\n", &lines{n: scaled(20<<20, 100<<20)}},
+		"unclosed quote":     {"\"start\n", &lines{n: scaled(20<<20, 100<<20)}},
+		"plain 400 KB line":  {"", strings.NewReader(strings.Repeat("z", 400<<10))},
+		"256 KB of commas":   {"", &zeroCommas{n: 300 << 10}},
+		"commas in the tail": {"", &zeroCommas{n: scaled(20<<20, 50<<20)}},
+	}
+	for name, a := range attacks {
+		var err error
+		pk, _ := peak(func() {
+			r := io.MultiReader(strings.NewReader(valid+a.head), a.tail)
+			var tb Table
+			if tb, err = OpenCSV(r); err != nil {
+				return
+			}
+			for err == nil {
+				_, err = tb.Next()
+			}
+		})
+		if !errors.Is(err, ErrTooBig) || pk > adversarialPeakMax {
+			t.Errorf("%s: %v peak %d", name, err, pk)
+		}
+	}
+}
+
+// A header line with no newline in a file far past the budget fails in OpenCSV.
+func TestAdversarialCSVHeaderWithoutNewline(t *testing.T) {
+	_, err := OpenCSV(io.MultiReader(strings.NewReader("a"), strings.NewReader(strings.Repeat("z", 1<<20))))
+	if !errors.Is(err, ErrTooBig) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// A long but legitimate quoted field with line breaks, under the budget, still reads.
+func TestCSVLongQuotedFieldUnderTheBudgetParses(t *testing.T) {
+	note := strings.Repeat("line of a note\n", 12<<10) // about 180 KB
+	tb, err := OpenCSV(strings.NewReader("a,b\n1,\"" + note + "\"\n3,4\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1, err := tb.Next()
+	if err != nil || len(r1[1]) != len(note) {
+		t.Fatalf("long field: %v len %d", err, len(r1[1]))
+	}
+	if r2, err := tb.Next(); err != nil || r2[0] != "3" {
+		t.Fatalf("next: %v %v", r2, err)
+	}
+}
+
+// A closing quote before a delimiter, a newline or CRLF ends the field: ordinary quoted files still parse.
+func TestCSVQuotedFieldsStillClose(t *testing.T) {
+	in := "a,b\r\n\"x\",\"y\"\r\n\"p\"\"q\",\"z\"\n"
+	tb, err := OpenCSV(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for {
+		if _, err := tb.Next(); err != nil {
+			if err != io.EOF {
+				t.Fatal(err)
+			}
+			break
+		}
+		n++
+	}
+	if n != 2 {
+		t.Errorf("%d rows, want 2", n)
+	}
+}
