@@ -2579,7 +2579,7 @@ export const PLANNER_DEFAULTS = {
   layers_on: ["dcfc"],
   preferred_only: false,
   weather_on: true,
-  radar_on: false,
+  radar_on: true,
 } as const;
 
 // PlannerFavorite is one user-saved place surfaced as a preset on

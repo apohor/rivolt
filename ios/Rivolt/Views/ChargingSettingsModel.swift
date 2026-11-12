@@ -85,7 +85,7 @@ struct PlannerMapSettings: Equatable, Hashable {
     var layersOn: Set<String> = ["dcfc"]
     var preferredOnly = false
     var weatherOn = true
-    var radarOn = false
+    var radarOn = true
 
     init() {}
 
@@ -98,7 +98,7 @@ struct PlannerMapSettings: Equatable, Hashable {
         layersOn = Set(p.layersOn ?? ["dcfc"])
         preferredOnly = p.preferredOnly ?? false
         weatherOn = p.weatherOn ?? true
-        radarOn = p.radarOn ?? false
+        radarOn = p.radarOn ?? true
     }
 }
 

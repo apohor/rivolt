@@ -11,7 +11,7 @@ final class PlannerSettingsTests: XCTestCase {
 
     func testTheServersFullAnswerDecodesToTheDefaults() throws {
         // The shape backend-2's contract gives (a fixture of it comes with the server's change).
-        let json = #"{"drive_mode":"EVERYDAY","has_adapter":true,"corridor":"normal","start_exclude_mi":0,"min_fast_kw":0,"layers_on":["dcfc"],"preferred_only":false,"weather_on":true,"radar_on":false}"#
+        let json = #"{"drive_mode":"EVERYDAY","has_adapter":true,"corridor":"normal","start_exclude_mi":0,"min_fast_kw":0,"layers_on":["dcfc"],"preferred_only":false,"weather_on":true,"radar_on":true}"#
         let p = try JSON.decoder().decode(PlannerPrefs.self, from: Data(json.utf8))
         let m = try XCTUnwrap(PlannerMapSettings(p))
         XCTAssertEqual(m.corridor, "normal")
@@ -20,7 +20,7 @@ final class PlannerSettingsTests: XCTestCase {
         XCTAssertEqual(m.layersOn, ["dcfc"], "Fast is on to begin with")
         XCTAssertFalse(m.preferredOnly)
         XCTAssertTrue(m.weatherOn)
-        XCTAssertFalse(m.radarOn)
+        XCTAssertTrue(m.radarOn, "Radar is on to begin with")
     }
 
     func testAnOlderServerHasNoMapSettingsAndTheGroupsAreNotShown() throws {

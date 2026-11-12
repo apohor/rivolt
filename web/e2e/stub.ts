@@ -339,7 +339,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/settings/planner") {
       return route.request().method() === "PUT"
         ? json(route, JSON.parse(route.request().postData() ?? "{}"))
-        : json(route, { drive_mode: "EVERYDAY", corridor: "normal", start_exclude_mi: 0, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: false });
+        : json(route, { drive_mode: "EVERYDAY", corridor: "normal", start_exclude_mi: 0, min_fast_kw: 0, layers_on: ["dcfc"], preferred_only: false, weather_on: true, radar_on: true });
     }
     if (p === "/api/settings/home-location") return json(route, { set: true, ...HOME, label: "Home" });
     if (p === "/api/settings/charging/") {

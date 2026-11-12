@@ -46,11 +46,11 @@ func TestPlannerPrefsSettingsRoundTrip(t *testing.T) {
 
 	raw, m := get(sa)
 	if m["corridor"] != "normal" || m["start_exclude_mi"] != float64(0) || m["min_fast_kw"] != float64(0) || m["preferred_only"] != false ||
-		m["weather_on"] != true || m["radar_on"] != false || !strings.Contains(raw, `"layers_on":["dcfc"]`) {
+		m["weather_on"] != true || m["radar_on"] != true || !strings.Contains(raw, `"layers_on":["dcfc"]`) {
 		t.Fatalf("defaults: %s", raw)
 	}
 
-	if c := put(sa, `{"drive_mode":"SPORT","corridor":"wide","start_exclude_mi":50,"min_fast_kw":150,"layers_on":["dcfc","hotels"],"preferred_only":true,"weather_on":false,"radar_on":true}`); c != 200 {
+	if c := put(sa, `{"drive_mode":"SPORT","corridor":"wide","start_exclude_mi":50,"min_fast_kw":150,"layers_on":["dcfc","hotels"],"preferred_only":true,"weather_on":false,"radar_on":false}`); c != 200 {
 		t.Fatalf("full put: %d", c)
 	}
 	// An older client sends only the two fields it knows: the rest stay.
@@ -59,7 +59,7 @@ func TestPlannerPrefsSettingsRoundTrip(t *testing.T) {
 	}
 	raw, m = get(sa)
 	if m["drive_mode"] != "WINTER" || m["corridor"] != "wide" || m["start_exclude_mi"] != float64(50) || m["min_fast_kw"] != float64(150) ||
-		m["preferred_only"] != true || m["weather_on"] != false || m["radar_on"] != true || !strings.Contains(raw, `"layers_on":["dcfc","hotels"]`) {
+		m["preferred_only"] != true || m["weather_on"] != false || m["radar_on"] != false || !strings.Contains(raw, `"layers_on":["dcfc","hotels"]`) {
 		t.Errorf("after an old client's PUT: %s", raw)
 	}
 	// No layer on is a real choice, not a reset to the default.
@@ -85,7 +85,7 @@ func TestPlannerPrefsSettingsRoundTrip(t *testing.T) {
 	}
 
 	// Another user is untouched.
-	if _, m = get(sb); m["corridor"] != "normal" || m["radar_on"] != false {
+	if _, m = get(sb); m["corridor"] != "normal" || m["radar_on"] != true {
 		t.Errorf("another user's prefs changed: %v", m)
 	}
 }
