@@ -48,6 +48,7 @@ struct SignedInGate: View {
             }
         }
         .task { await check() }
+        .onChange(of: discovery?.kind) { notice = nil }
         .task(id: discovery?.kind == .looking) {
             while discovery?.kind == .looking, !Task.isCancelled {
                 try? await Task.sleep(for: Self.lookAgainEvery)
