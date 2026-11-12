@@ -127,7 +127,7 @@ function UpdateAlertsRow() {
   }
   return (
     <li data-first-day-step={on ? "done" : "todo"} data-first-day-alerts className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md border border-neutral-800 px-3 py-2">
-      <div className="min-w-[180px] flex-1">
+      <div className="min-w-[min(180px,100%)] flex-1">
         <div className="text-sm text-neutral-200">
           {on && <span aria-hidden className="mr-1.5 text-emerald-400">✓</span>}
           {on ? "Alerts on" : "Update alerts"}
@@ -167,7 +167,7 @@ function UpdateAlertsRow() {
 function Step({ done, to, label, hint, cta, doneCta }: { done: boolean; to: string; label: string; hint: string; cta: string; doneCta: string }) {
   return (
     <li data-first-day-step={done ? "done" : "todo"} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md border border-neutral-800 px-3 py-2">
-      <div className="min-w-[180px] flex-1">
+      <div className="min-w-[min(180px,100%)] flex-1">
         <div className="text-sm text-neutral-200">
           {done && <span aria-hidden className="mr-1.5 text-emerald-400">✓</span>}
           {label}

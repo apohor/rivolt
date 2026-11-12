@@ -178,13 +178,13 @@ export default function MoneyPage() {
 function MonthPicker({ month, max, onChange }: { month: string; max: string; onChange: (m: string) => void }) {
   const atMax = month >= max;
   const btn =
-    "rounded-md px-2 py-1.5 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 disabled:opacity-30 disabled:hover:bg-transparent";
+    "rounded-md px-2 py-1.5 max-[200px]:px-1 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 disabled:opacity-30 disabled:hover:bg-transparent";
   return (
-    <div className="inline-flex items-center rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm">
+    <div className="inline-flex items-center rounded-lg border border-neutral-800 bg-neutral-900/60 p-0.5 text-sm" data-keep-row>
       <button type="button" className={btn} onClick={() => onChange(shiftMonth(month, -1))} aria-label="Previous month">
         ◀
       </button>
-      <span className="min-w-32 px-2 text-center tabular-nums text-neutral-100" aria-live="polite">
+      <span className="min-w-32 px-2 text-center tabular-nums text-neutral-100 max-[200px]:min-w-0 max-[200px]:px-1" aria-live="polite">
         {monthLabel(month)}
       </span>
       <button

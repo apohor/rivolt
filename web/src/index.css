@@ -841,3 +841,39 @@ html[data-theme='light'] {
 .route-thumb-end {
   fill: var(--thumb-end);
 }
+
+/* Narrower than 200 CSS px (a phone at Safari's aA 300 %, #1949) the tabs' rows were built for 320 px and up: figures,
+   pills and segmented controls sit side by side and would push the page sideways. There, rows wrap instead, pieces
+   that never shrink are still capped at their row, grids go to one column, long words break and bignums step down. */
+@media (width < 200px) {
+  /* A month stepper keeps its arrows either side of the month, which wraps instead. */
+  :root main .flex:not(.flex-col):not([data-keep-row]),
+  :root main .inline-flex:not([data-keep-row]) {
+    flex-wrap: wrap;
+  }
+  :root main .inline-flex,
+  :root main .shrink-0 {
+    max-width: 100%;
+  }
+  :root main .flex > * {
+    min-width: 0;
+  }
+  :root main .whitespace-nowrap {
+    white-space: normal;
+  }
+  :root main {
+    overflow-wrap: break-word;
+  }
+  /* Tiles side by side would leave each a few letters wide: one column. */
+  :root main .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Cards keep a narrow edge: at p-4 a 130 px screen left the statement 64 px. */
+  :root main .p-4 {
+    padding: 0.5rem;
+  }
+  :root main .ui-bignum.text-4xl {
+    font-size: 1.375rem;
+    overflow-wrap: anywhere;
+  }
+}

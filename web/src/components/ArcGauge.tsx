@@ -35,8 +35,9 @@ export function ArcGauge({
   const len = (Math.PI * r * sweep) / 180;
   const stroke = tone === "critical" ? "url(#ag-crit)" : tone === "idle" ? "url(#ag-idle)" : "url(#ag-ok)";
   return (
-    <div className="ui-gauge relative shrink-0" style={{ width: size, height: size * 0.9 }} data-live={live ? "true" : undefined}>
-      <svg viewBox="0 0 120 108" width={size} height={size * 0.9} role="img" aria-label={label}>
+    // Never wider than its column (a phone at Safari's aA 300 % is 130 px wide): it scales down, keeping its shape.
+    <div className="ui-gauge relative max-w-full shrink-0" style={{ width: size, aspectRatio: "120 / 108" }} data-live={live ? "true" : undefined}>
+      <svg viewBox="0 0 120 108" width="100%" height="100%" role="img" aria-label={label}>
         <defs>
           <linearGradient id="ag-ok" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="oklch(78% 0.15 168)" />

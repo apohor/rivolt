@@ -135,7 +135,7 @@ export default function FirstChargeCard({ vehicleID, charges, drives, demo = fal
           <NotifyRow />
           {!lease.isPending && !lease.data && (
             <li data-first-charge-row="lease" className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md border border-neutral-800 px-3 py-2">
-              <div className="min-w-[180px] flex-1">
+              <div className="min-w-[min(180px,100%)] flex-1">
                 <div className="text-sm text-neutral-200">Add your lease</div>
                 <div className="text-xs text-neutral-400">Optional. Enter your allowance and term to see projected miles at lease return and the overage cost.</div>
               </div>
@@ -179,7 +179,7 @@ function NotifyRow() {
     if (hidden) return null;
     return (
       <li data-first-charge-row="notify-ios" className={row}>
-        <div className="min-w-[180px] flex-1">
+        <div className="min-w-[min(180px,100%)] flex-1">
           <div className="text-sm text-neutral-200">Get a notification when charging finishes</div>
           <div className="text-xs text-neutral-400">On iPhone, add Rivolt to your home screen first (Share → Add to Home Screen), then turn this on here.</div>
         </div>
@@ -211,7 +211,7 @@ function NotifyRow() {
     <>
       {!hidden && (
         <li data-first-charge-row="notify" className={row}>
-          <div className="min-w-[180px] flex-1">
+          <div className="min-w-[min(180px,100%)] flex-1">
             <div className="text-sm text-neutral-200">Get a notification when charging finishes</div>
             {state === "blocked" && <div className="text-xs text-neutral-400">Notifications are blocked in this browser. You can allow them in the browser&apos;s site settings.</div>}
             {state === "error" && <div role="alert" className="text-xs text-rose-400">Couldn&apos;t turn that on. Try again in a moment.</div>}
