@@ -287,3 +287,9 @@ func TestOperatorCostUnknownModelUsesHighestRate(t *testing.T) {
 		t.Errorf("highest known rate = %v/%v, want at least the opus 5/25", in, out)
 	}
 }
+
+func TestOperatorCostIgnoresDateSuffix(t *testing.T) {
+	if got := OperatorCostUSD(OperatorUsage{Model: "claude-opus-5-5-20260301", Input: 1e6, Output: 1e6}); got != 24 {
+		t.Errorf("dated opus-5-5 = %v, want 24", got)
+	}
+}

@@ -318,8 +318,8 @@ func describeAPIError(err error) error {
 // OperatorCostUSD prices one model hop at the model that served it: cache
 // reads at 0.1x and cache writes at 1.25x of that model's input rate.
 func OperatorCostUSD(u OperatorUsage) float64 {
-	in, out := priceFor("anthropic", u.Model)
-	if _, known := pricePer1MTokens["anthropic:"+u.Model]; !known {
+	in, out, known := lookupPrice("anthropic", u.Model)
+	if !known {
 		// An unknown (or "other"-labelled) model is priced at the highest
 		// Anthropic rate, so operator spend is never underestimated.
 		in, out = maxAnthropicPrice()
