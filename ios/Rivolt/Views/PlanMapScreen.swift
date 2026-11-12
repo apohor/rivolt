@@ -194,20 +194,21 @@ struct PlanMapScreen: View {
         }
     }
 
-    /// The trip's summary, Edit, the day chips and Networks, at the top of the sheet's content at accessibility sizes.
+    /// The day chips, Networks, Edit and the trip's summary, at the top of the sheet's content at accessibility sizes. Half holds the controls
+    /// (measured into axLead) above the tab bar; the summary, which is only text, may start under it and is one scroll or full away (#1886).
     private var axControls: some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 8) {
-                if let summary = model.plan?.best.map({ TripPlanLogic.summary($0, metric: metric) }) {
-                    Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                }
+                if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
+                networksButton
                 Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
                     .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                     .accessibilityHint("Change the trip or open a saved one")
-                if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { axLead = $0 }
-            networksButton
+            if let summary = model.plan?.best.map({ TripPlanLogic.summary($0, metric: metric) }) {
+                Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
