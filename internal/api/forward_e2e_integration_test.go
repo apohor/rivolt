@@ -17,6 +17,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,6 +36,7 @@ import (
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/leases"
+	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/testpg"
 )
@@ -111,6 +113,8 @@ type e2ePod struct {
 	stop    context.CancelFunc
 	user    uuid.UUID
 	view    *forward.PGLeaseView
+	rsync   *receipts.Syncer // receipts_sync: the real syncer over the shared Postgres, a counting Rivian source
+	summary atomic.Int32     // summaries calls this pod's source received
 
 	// stall, when set, makes the owner side wait on it before running a kind, ignoring the request deadline: a pod that has hung or died with
 	// the request in hand (a dead process sends no reply). entered counts the kinds that reached it.
@@ -125,6 +129,20 @@ func (r e2eRunner) Run(ctx context.Context, kind forward.Kind, user, group strin
 	r.p.entered.Add(1)
 	if r.p.stall != nil {
 		<-r.p.stall
+	}
+	if kind == forward.KindReceiptsSync {
+		uid, err := uuid.Parse(user)
+		if err != nil {
+			return forward.Result{Status: 400, Class: "bad_request"}, nil
+		}
+		res, err := r.p.rsync.SyncOnRequest(ctx, uid)
+		if err != nil {
+			return forward.Result{Status: 500, Class: "internal"}, nil
+		}
+		if res.NotOwner {
+			return forward.Result{Status: 503, Class: "not_owner"}, nil
+		}
+		return forward.Result{Status: 200, Class: "ok", Body: json.RawMessage(`{}`)}, nil
 	}
 	if pa, ok := args.(*forward.PlanLegsArgs); ok && kind == forward.KindPlanLegs {
 		if g, known := r.p.store.GroupOfVehicle(pa.VehicleID); !known || g != group {
@@ -222,6 +240,8 @@ func (e *e2eEnv) pod(t *testing.T, name string, uid uuid.UUID) *e2ePod {
 	p := &e2ePod{name: name, store: store, gw: gw, client: cl, mon: rivian.NewStateMonitor(nil, nil), reg: reg, user: uid, metrics: forward.NewMetrics(reg)}
 	view := forward.NewPGLeaseView(e.pool, store)
 	p.view = view
+	p.rsync = receipts.NewSyncer(receipts.NewStore(e.pool), e2eReceiptAccounts{p}, func(uuid.UUID) bool { return true }, nil, slog.Default())
+	p.rsync.SetFence(store)
 	keys := forward.Keys{Prefix: "e2e"}
 	owner, err := forward.NewOwner(forward.OwnerConfig{Pod: name, Keys: keys, Signer: signer, Redis: e.rdb, Leases: view,
 		Runner: e2eRunner{p}, Metrics: p.metrics, BlockFor: 200 * time.Millisecond, PerUser: e.opts.PerUser})
@@ -377,4 +397,24 @@ func jitterOf(d time.Duration) func() time.Duration {
 		return nil
 	}
 	return func() time.Duration { return d }
+}
+
+// e2eReceiptAccounts hands the syncer an account whose receipts source counts the summaries calls it gets, in place of Rivian.
+type e2eReceiptAccounts struct{ p *e2ePod }
+
+func (r e2eReceiptAccounts) For(uuid.UUID) rivian.Account { return e2eReceiptAccount{p: r.p} }
+func (r e2eReceiptAccounts) Loaded() []uuid.UUID          { return nil }
+
+type e2eReceiptAccount struct {
+	rivian.Account // never used: the syncer only asks for the receipts source
+	p              *e2ePod
+}
+
+func (a e2eReceiptAccount) CompletedSessionSummaries(context.Context) ([]rivian.SessionSummary, error) {
+	a.p.summary.Add(1)
+	return nil, nil
+}
+
+func (a e2eReceiptAccount) SessionCharger(context.Context, string) (*rivian.SessionCharger, error) {
+	return nil, nil
 }

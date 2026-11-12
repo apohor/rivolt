@@ -24,7 +24,7 @@ func handleRivianReceiptsGet(f *flags.Store, sf *settings.Factory) func(uuid.UUI
 	}
 }
 
-func handleRivianReceiptsPut(f *flags.Store, sf *settings.Factory, st *receipts.Store) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+func handleRivianReceiptsPut(f *flags.Store, sf *settings.Factory, st *receipts.Store, syncNow func(uuid.UUID)) func(uuid.UUID, http.ResponseWriter, *http.Request) {
 	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			OptIn bool `json:"opt_in"`
@@ -47,6 +47,11 @@ func handleRivianReceiptsPut(f *flags.Store, sf *settings.Factory, st *receipts.
 				http.Error(w, "could not delete stored receipts", http.StatusInternalServerError)
 				return
 			}
+		}
+		// First screen: ask the owner for one summaries pass now. The hook only queues work (the syncer re-checks the operator flag and the
+		// opt-in before it asks Rivian); the handler never calls Rivian.
+		if body.OptIn && syncNow != nil {
+			syncNow(uid)
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{
 			"opt_in":    body.OptIn,

@@ -341,6 +341,17 @@ func (f *Forwarder) attempt(ctx context.Context, c Call, owner LeaseOwner) (Resu
 // Nudge is the best-effort `adopt` push: user and group only, no reply is awaited, nothing is retried and nothing is served locally.
 // It reports whether a message was pushed to the group's ready owner.
 func (f *Forwarder) Nudge(ctx context.Context, user, group string) bool {
+	return f.push(ctx, user, group, KindAdopt)
+}
+
+// ReceiptsSync is the same push for `receipts_sync`: the owner runs one summaries pass for the user (the Postgres claim caps it at one
+// per 30 minutes), and a lost message falls back to the owner's sweep. It never calls Rivian here.
+func (f *Forwarder) ReceiptsSync(ctx context.Context, user, group string) bool {
+	return f.push(ctx, user, group, KindReceiptsSync)
+}
+
+// push puts a no-reply kind with empty args on the ready owner's queue.
+func (f *Forwarder) push(ctx context.Context, user, group string, kind Kind) bool {
 	owner, err := f.cfg.Leases.Owner(ctx, group)
 	if err != nil || !owner.Found || !ValidPod(owner.Pod) || owner.Pod == f.cfg.Pod {
 		return false
@@ -357,8 +368,8 @@ func (f *Forwarder) Nudge(ctx context.Context, user, group string) bool {
 	if err != nil {
 		return false
 	}
-	req := &Request{V: Version, ID: id, User: user, Group: group, Epoch: owner.Epoch, Kind: KindAdopt, Args: json.RawMessage(`{}`),
-		ExpiresMS: ExpiresMS(now.UnixMilli(), KindAdopt)}
+	req := &Request{V: Version, ID: id, User: user, Group: group, Epoch: owner.Epoch, Kind: kind, Args: json.RawMessage(`{}`),
+		ExpiresMS: ExpiresMS(now.UnixMilli(), kind)}
 	f.cfg.Signer.SignRequest(req)
 	body, _ := json.Marshal(req)
 	queue := f.cfg.Keys.Queue(owner.Pod)

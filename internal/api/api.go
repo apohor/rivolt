@@ -110,6 +110,9 @@ type Deps struct {
 	// SignInNudge is called after a successful Rivian sign-in (password or MFA leg) of a user with no vehicle yet, so the owner of their group
 	// looks them up now (single-owner M4-2b). It must not block. Nil without owner discovery.
 	SignInNudge func(ctx context.Context, uid uuid.UUID)
+	// ReceiptsSyncNow, when set (RIVOLT_FIRST_SCREEN), is called after a user opts in to Rivian receipts to queue one summaries pass at the owner of
+	// their group. It must only queue; the handler never calls Rivian.
+	ReceiptsSyncNow func(uid uuid.UUID)
 	// ForwardReplayTest is RIVOLT_FORWARD_REPLAY_TEST: also forward the replay client's calls (see stateForward.replayTest).
 	ForwardReplayTest bool
 	// SampleRetentionMonths is RIVOLT_SAMPLE_RETENTION_MONTHS (0 keeps raw
@@ -1370,7 +1373,7 @@ func New(d Deps) http.Handler {
 				r.With(ls.user("first-screen", firstScreenPerMin).Middleware).Get("/first-screen", withUser(handleFirstScreen(d.FirstScreen, d.Flags, d.Settings)))
 			}
 			r.Get("/settings/rivian-receipts", withUser(handleRivianReceiptsGet(d.Flags, d.Settings)))
-			r.Put("/settings/rivian-receipts", withUser(handleRivianReceiptsPut(d.Flags, d.Settings, receipts.NewStore(d.DB))))
+			r.Put("/settings/rivian-receipts", withUser(handleRivianReceiptsPut(d.Flags, d.Settings, receipts.NewStore(d.DB), d.ReceiptsSyncNow)))
 
 			// Per-user switch for sending trip/drive data to the AI provider.
 			// Off by default; the advice endpoints refuse until it is on.

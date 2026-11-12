@@ -423,6 +423,27 @@ func TestRequesterNudge(t *testing.T) {
 	}
 }
 
+// receipts_sync is the same kind of push, but its own kind: the owner's runner sees receipts_sync, never adopt (which an old receiver would
+// run as owner discovery), and an owner that is not ready gets nothing.
+func TestRequesterReceiptsSyncPush(t *testing.T) {
+	f := newFleet(t)
+	req := f.requester(nil)
+	if req.ReceiptsSync(context.Background(), user, group) {
+		t.Error("nothing is pushed to an owner that is not ready")
+	}
+	f.owner("pod-a", 7, true, nil)
+	if !req.ReceiptsSync(context.Background(), user, group) {
+		t.Fatal("a ready owner gets the push")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(f.runners["pod-a"].Calls()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if c := f.runners["pod-a"].Calls(); len(c) != 1 || c[0].Kind != forward.KindReceiptsSync || c[0].User != user {
+		t.Fatalf("owner calls = %+v", c)
+	}
+}
+
 func TestNewForwarderValidates(t *testing.T) {
 	f := newFleet(t)
 	for name, mut := range map[string]func(*forward.RequesterConfig){

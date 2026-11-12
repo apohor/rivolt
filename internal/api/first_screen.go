@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/firstscreen"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/settings"
 )
 
@@ -27,6 +29,7 @@ func handleFirstScreen(src FirstScreenSource, f *flags.Store, sf *settings.Facto
 		receipts := sf.RivianReceiptsOptIn(r.Context(), uid) && f != nil && f.RivianReceipts().Enabled(uid.String())
 		d, err := src.FirstScreen(r.Context(), uid, receipts)
 		if err != nil {
+			slog.WarnContext(r.Context(), "first screen failed", "user_id", uid.String(), "err", logging.ScrubErr(err))
 			http.Error(w, "first screen unavailable", http.StatusServiceUnavailable)
 			return
 		}
