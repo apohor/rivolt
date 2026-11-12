@@ -279,7 +279,7 @@ export function RouteCard({
   const toName = shortName(destLabel || dest?.Name) || "Your trip";
   const sheetTitle = fromName ? `${fromName} → ${toName}` : `To ${toName}`;
   const sheetLine = [
-    route.TotalDriveDistanceMeters > 0 ? formatDistance(route.TotalDriveDistanceMeters / 1000, distanceUnit) : null,
+    route.TotalDriveDistanceMeters > 0 ? wholeDistance(route.TotalDriveDistanceMeters, distanceUnit) : null, // the same whole number as the map card
     route.TotalDriveDurationSec > 0 ? `${formatDuration(route.TotalDriveDurationSec)} driving` : null,
     route.TotalChargingDurationSec > 0 ? `${formatDuration(route.TotalChargingDurationSec)} charging` : null,
   ].filter((p): p is string => !!p).join(" · ");
