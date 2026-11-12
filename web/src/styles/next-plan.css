@@ -343,6 +343,19 @@
   background: oklch(96% 0.003 262);
   color: oklch(25% 0 0);
 }
+/* Narrower than 200 CSS px (Safari's aA 300 %) the centred grabber and Map share the handle row: the grabber moves to the left edge and Map
+   gets tighter, so neither covers the other. */
+@media (width < 200px) {
+  :root [data-plan-sheet]:not([data-snap='peek']) [data-plan-sheet-handle]::after {
+    left: 0.75rem;
+    width: 40px;
+    margin-left: 0;
+  }
+  :root [data-plan-sheet-map] {
+    right: 0.5rem;
+    padding: 0 0.5rem;
+  }
+}
 :root [data-plan-sheet-peek] {
   flex: none;
   position: relative;
@@ -601,6 +614,11 @@
   /* The map is a strip there: the one-line trip card would cover it, and the sheet's peek says the same. */
   :root [data-plan-next] .rivolt-trip-card {
     display: none;
+  }
+  /* A word wider than its card ("Recommended") breaks with a hyphen. */
+  :root [data-plan-next] {
+    -webkit-hyphens: auto;
+    hyphens: auto;
   }
 }
 :root [data-plan-next] *:not(.maplibregl-map *):not(svg *) {
