@@ -24,6 +24,7 @@ import (
 )
 
 type fakeGeoRouter struct {
+	mu      sync.Mutex
 	enabled bool
 	err     error
 	calls   int
@@ -32,8 +33,10 @@ type fakeGeoRouter struct {
 
 func (f *fakeGeoRouter) Enabled() bool { return f.enabled }
 func (f *fakeGeoRouter) RouteChecked(_ context.Context, locs [][2]float64, _ maps.RouteOpts) (maps.Route, error) {
+	f.mu.Lock()
 	f.calls++
 	f.locs = append(f.locs, locs)
+	f.mu.Unlock()
 	if f.err != nil {
 		return maps.Route{}, f.err
 	}
@@ -285,4 +288,83 @@ func histCount(t *testing.T, m *metrics.Metrics, stage string) uint64 {
 		t.Fatal(err)
 	}
 	return d.GetHistogram().GetSampleCount()
+}
+
+// slowGeoRouter answers after a pause (or when the context ends) and records how many routes were in flight at once.
+type slowGeoRouter struct {
+	pause         time.Duration
+	mu            sync.Mutex
+	inflight, max int
+	calls         int
+}
+
+func (f *slowGeoRouter) Enabled() bool { return true }
+func (f *slowGeoRouter) RouteChecked(ctx context.Context, locs [][2]float64, o maps.RouteOpts) (maps.Route, error) {
+	f.mu.Lock()
+	f.calls++
+	f.inflight++
+	if f.inflight > f.max {
+		f.max = f.inflight
+	}
+	f.mu.Unlock()
+	defer func() { f.mu.Lock(); f.inflight--; f.mu.Unlock() }()
+	select {
+	case <-time.After(f.pause):
+	case <-ctx.Done():
+		return maps.Route{}, ctx.Err()
+	}
+	return (&fakeGeoRouter{enabled: true}).RouteChecked(ctx, locs, o)
+}
+
+// The days of a multi-day plan are routed together: every day gets its line, never more than geometryConcurrency routes are in flight,
+// and four days of three routes take about four rounds of the pause, not twelve.
+func TestWithGeometryAllRoutesDaysTogetherUnderTheCap(t *testing.T) {
+	r := &slowGeoRouter{pause: 40 * time.Millisecond}
+	ctx := withPlanGeometry(context.Background(), r, nil)
+	ins := []*rivian.TripPlan{geoPlan(3), geoPlan(3), geoPlan(3), geoPlan(3)}
+	start := time.Now()
+	outs := withGeometryAll(ctx, ins, maps.RouteOpts{})
+	took := time.Since(start)
+	for i, p := range outs {
+		for k, rt := range p.Routes {
+			if rt.Geometry == "" {
+				t.Errorf("day %d route %d has no line", i, k)
+			}
+		}
+		if ins[i].Routes[0].Geometry != "" {
+			t.Errorf("day %d: the input was changed", i)
+		}
+	}
+	if r.max > geometryConcurrency || r.max < 2 {
+		t.Errorf("max in flight = %d, want 2..%d", r.max, geometryConcurrency)
+	}
+	if took > 8*r.pause {
+		t.Errorf("took %v for 12 routes of %v: not routed together", took, r.pause)
+	}
+}
+
+// One budget for the whole response: routes that cannot finish inside it have no line, and the response comes back with the budget, not
+// with a budget per day.
+func TestWithGeometryAllSharesOneBudgetAcrossDays(t *testing.T) {
+	old := geometryBudget
+	geometryBudget = 100 * time.Millisecond
+	t.Cleanup(func() { geometryBudget = old })
+	r := &slowGeoRouter{pause: time.Minute}
+	ctx := withPlanGeometry(context.Background(), r, nil)
+	ins := []*rivian.TripPlan{geoPlan(3), geoPlan(3), geoPlan(3), geoPlan(3)}
+	start := time.Now()
+	outs := withGeometryAll(ctx, ins, maps.RouteOpts{})
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("took %v, want about the 100 ms budget", took)
+	}
+	for i, p := range outs {
+		if p == nil || len(p.Routes) != 3 {
+			t.Fatalf("day %d lost its routes", i)
+		}
+		for _, rt := range p.Routes {
+			if rt.Geometry != "" {
+				t.Errorf("day %d has a line though no route could finish", i)
+			}
+		}
+	}
 }
