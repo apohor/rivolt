@@ -213,3 +213,57 @@ test("@webkit iphone-390: the leg tooltip refits its height when the map moves u
   expect(back.top, JSON.stringify(back)).toBeGreaterThanOrEqual(-0.5);
   await ctx.close();
 });
+
+// With radar on, the radar strip rides the top of the phone's sheet: a tooltip that opens below its point stops above the strip, not under it.
+test("@webkit small phone: a tooltip opening downwards stops above the radar strip", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 375, height: 600 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  await page.route("**/api/config", (r) =>
+    r.fulfill(j({
+      features: { trip_planner_enabled: true, landing_enabled: false, demo_enabled: false, signup_enabled: true },
+      tiles: { url: "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles", glyphs_url: "/api/maps/glyphs/{fontstack}/{range}.pbf", dem_url: "/api/maps/dem/{z}/{x}/{y}.png", dem_minzoom: 3, dem_maxzoom: 10, radar_url: "/api/maps/radar/{t}/{z}/{x}/{y}.png", radar_frame_url: "/api/maps/radar/frame", radar_minzoom: 3, radar_maxzoom: 9 },
+      valhalla: { path: "/api/maps/valhalla" },
+      impersonation: { disabled: true },
+    })),
+  );
+  await page.route("**/api/maps/radar/frame", (r) => r.fulfill(j({ frame_unix: Math.floor(Date.now() / 1000) - 300 })));
+  await page.route("**/api/trips/saved", (r) => r.fulfill(j([{ id: "st-a", name: "Old trip", inputs: INPUTS, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])));
+  await page.route("**/api/trips/plan", (r) => r.fulfill(j(PLAN)));
+  await page.goto("/trips/plan");
+  await page.getByRole("tab", { name: "Saved" }).click();
+  await page.getByRole("button", { name: /Old trip/ }).click();
+  await page.getByRole("tab", { name: "Planner" }).click();
+  await page.getByRole("button", { name: "Plan trip" }).click();
+  await expect(page.locator("[data-leg-badge]")).toHaveCount(2);
+  await expect(page.locator("[data-radar-label]")).toBeVisible();
+  await page.waitForTimeout(700);
+  // Drag the map so the first leg's point sits just above the middle of the room over the sheet, then open its tooltip: the card opens below the
+  // point, its height cut to the room left down to the sheet.
+  const at = await page.evaluate(() => {
+    const b = document.querySelector("[data-leg-badge]")!.getBoundingClientRect();
+    const m = (document.querySelector(".maplibregl-map") as HTMLElement).getBoundingClientRect();
+    const sheet = document.querySelector("[data-plan-sheet]")!.getBoundingClientRect().top;
+    return { y: b.top + b.height / 2, target: m.top + (sheet - m.top) / 2 - 16 };
+  });
+  const dy = Math.round(at.target - at.y);
+  await page.mouse.move(330, 300);
+  await page.mouse.down();
+  await page.mouse.move(330, 300 + dy, { steps: 12 });
+  await page.waitForTimeout(300);
+  await page.mouse.up();
+  await page.waitForTimeout(800);
+  await page.locator("[data-leg-badge]").first().dispatchEvent("click");
+  await expect(page.locator("[data-leg-popup]")).toContainText("Terrain: USGS 3DEP");
+  await page.waitForTimeout(800);
+  const g = await page.evaluate(() => {
+    const r = document.querySelector("[data-leg-popup]") as HTMLElement;
+    const pop = r.closest(".maplibregl-popup") as HTMLElement;
+    const c = (r.closest(".maplibregl-popup-content") as HTMLElement).getBoundingClientRect();
+    const strip = document.querySelector("[data-radar-label]")!.getBoundingClientRect();
+    return { below: pop.className.includes("anchor-top"), cardBottom: Math.round(c.bottom), stripTop: Math.round(strip.top) };
+  });
+  expect(g.below, JSON.stringify(g)).toBe(true);
+  expect(g.cardBottom, JSON.stringify(g)).toBeLessThanOrEqual(g.stripTop);
+  await ctx.close();
+});
