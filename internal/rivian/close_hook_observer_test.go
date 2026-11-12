@@ -28,7 +28,7 @@ func TestCloseHookObserverCountsFiredOnly(t *testing.T) {
 	quiet := NewStateMonitor(nil, nil)
 	quiet.driveCloseHook = func(context.Context, drives.Drive) {}
 	quiet.quietHooks.Store(true)
-	quiet.fireDriveCloseHook(drives.Drive{ID: "d2"}) // replay catch-up
+	quiet.fireDriveCloseHook(drives.Drive{ID: "d2"})                     // replay catch-up
 	NewStateMonitor(nil, nil).fireDriveCloseHook(drives.Drive{ID: "d3"}) // no hook set
 	bg.Default.Wait(5 * time.Second)
 	mu.Lock()
