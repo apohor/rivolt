@@ -174,7 +174,12 @@ func TestPxNextGuardrails(t *testing.T) {
 	}
 	var buf syncBuffer
 	m := NewStateMonitor(nil, nil)
-	m.logger = slog.New(slog.NewJSONHandler(&buf, nil))
+	m.logger = slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{ReplaceAttr: func(g []string, a slog.Attr) slog.Attr { // no time attr: its digits could contain a coordinate fragment
+		if len(g) == 0 && a.Key == slog.TimeKey {
+			return slog.Attr{}
+		}
+		return a
+	}}))
 	coords := append(pbFloat(1, 34.147812), pbFloat(2, -118.144531)...)
 	// The same position as E7 integers; a negative int32 is a 10-byte uvarint.
 	coords = append(coords, pbVarint(4, 341478120)...)

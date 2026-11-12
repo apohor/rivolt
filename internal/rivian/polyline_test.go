@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"math"
 	"strings"
@@ -114,7 +115,7 @@ func TestRefusedRoutePointsAreCountedByWhereAndLoggedWithoutCoordinates(t *testi
 	t.Cleanup(func() { SetRoutePointObserver(nil) })
 	var logs bytes.Buffer
 	old := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	slog.SetDefault(untimedLogger(&logs))
 	t.Cleanup(func() { slog.SetDefault(old) })
 
 	t0 := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
@@ -152,6 +153,17 @@ func TestRefusedRoutePointsAreCountedByWhereAndLoggedWithoutCoordinates(t *testi
 			t.Errorf("the WARN carries %q, which is a coordinate or names one:\n%s", leak, out)
 		}
 	}
+}
+
+// untimedLogger logs without the time attribute. The no-leak log checks look for figures as substrings, and a
+// timestamp's digits (03:52:51.970Z) can contain one by chance, which made them flaky.
+func untimedLogger(w io.Writer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+		if len(groups) == 0 && a.Key == slog.TimeKey {
+			return slog.Attr{}
+		}
+		return a
+	}}))
 }
 
 // badShape stands in for maps.BadShapeError: the recorder recognises it by its methods, with no import of the maps package.
