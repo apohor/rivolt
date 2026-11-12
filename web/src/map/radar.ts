@@ -1,6 +1,7 @@
 // The live weather radar layer: NOAA/NWS base reflectivity, drawn from the server's same-origin tile proxy (browsers never call NOAA).
 import type { Map as MLMap } from "maplibre-gl";
 import { tilesRadar } from "../lib/config";
+import { inDemo } from "../lib/demo";
 import { firstLabelLayer } from "./route";
 
 const SOURCE = "rivolt-radar";
@@ -14,17 +15,22 @@ const ROUTE_LAYER_PREFIXES = ["rivolt-track", "rivolt-drive", "rivolt-route"];
 
 export type RadarFrame = { frameUnix: number };
 
-// radarEnabled is whether the server advertises the radar (the button is hidden otherwise).
+// radarEnabled is whether the server advertises the radar (the button is hidden otherwise). Never in the signed-out demo: the server does not serve
+// it radar, and a button that can only say "Radar unavailable" would read as a fault.
 export function radarEnabled(): boolean {
-  return tilesRadar().url !== "";
+  return tilesRadar().url !== "" && !inDemo();
 }
 
-// fetchRadarFrame asks the server for the newest frame time; null when the feed is down or stale (503) or the call fails.
-export async function fetchRadarFrame(signal?: AbortSignal): Promise<RadarFrame | null> {
+// RADAR_DENIED is what fetchRadarFrame returns when the server will not serve this visitor radar (401/403): not a fault, so nothing is said.
+export const RADAR_DENIED = "denied";
+
+// fetchRadarFrame asks the server for the newest frame time; null when the feed is down or stale (503) or the call fails, RADAR_DENIED on 401/403.
+export async function fetchRadarFrame(signal?: AbortSignal): Promise<RadarFrame | typeof RADAR_DENIED | null> {
   const t = tilesRadar();
   if (!t.frameUrl) return null;
   try {
     const r = await fetch(t.frameUrl, { signal, credentials: "same-origin" });
+    if (r.status === 401 || r.status === 403) return RADAR_DENIED;
     if (!r.ok) return null;
     const j = (await r.json()) as { frame_unix?: number };
     return typeof j.frame_unix === "number" && j.frame_unix > 0 ? { frameUnix: j.frame_unix } : null;
