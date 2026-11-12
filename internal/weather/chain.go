@@ -7,13 +7,14 @@ import (
 )
 
 // selfHostedChain is the model chain our server is asked for, best first, merged per hour and per variable (first non-null wins):
-//   - ncep_rrfs_conus: NOAA RRFS 3 km, the continental US, hours out to its horizon;
-//   - ncep_gfs013: NOAA GFS 0.11 degree, global, days out: the US beyond RRFS and Alaska;
+//   - ncep_hrrr_conus: NOAA HRRR 3 km, North America, hours out to its horizon. It matches the public default within 0.3 C and keeps its
+//     snow hours. NOAA retires it on Nov 30, 2026; after that its series is absent or all null and the merge falls through to the next model;
+//   - ncep_gfs013: NOAA GFS 0.11 degree, global, days out: the US beyond HRRR and Alaska;
 //   - gem_seamless: ECCC GEM, built from the synced regional and global models: every point, the last fallback.
 //
 // Preview diff against the public default (what prod serves today) showed GEM alone moves US temperature by 1.3 to 6.1 C and loses the
 // default's snow hours in Canada, so GEM is the fallback and not the primary.
-const selfHostedChain = "ncep_rrfs_conus,ncep_gfs013,gem_seamless"
+const selfHostedChain = "ncep_hrrr_conus,ncep_gfs013,gem_seamless"
 
 // chainModels splits a models parameter; one model (or none) means no merging is needed.
 func chainModels(models string) []string {
