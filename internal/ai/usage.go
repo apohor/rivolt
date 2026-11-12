@@ -303,14 +303,20 @@ func ComputeCost(provider, model string, inTokens, outTokens int64) float64 {
 // priceFor returns the per-1M-token input and output price, with the same
 // conservative fallback for unknown models.
 func priceFor(provider, model string) (in, out float64) {
+	in, out, ok := lookupPrice(provider, model)
+	if !ok {
+		return 1.0, 4.0
+	}
+	return in, out
+}
+
+// lookupPrice finds a model's price, ignoring a trailing date suffix.
+func lookupPrice(provider, model string) (in, out float64, ok bool) {
 	prices, ok := pricePer1MTokens[provider+":"+stripDate(model)]
 	if !ok {
 		prices, ok = pricePer1MTokens[provider+":"+model]
 	}
-	if !ok {
-		return 1.0, 4.0
-	}
-	return prices.In, prices.Out
+	return prices.In, prices.Out, ok
 }
 
 // stripDate removes trailing date suffixes like "-20251001" so the same
