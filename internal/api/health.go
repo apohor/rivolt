@@ -154,6 +154,8 @@ type configExtras struct {
 	Radar bool
 	// DemoRadar: the signed-out demo's cache-only radar routes are mounted.
 	DemoRadar bool
+	// HistoryImport: the history import routes are mounted (RIVOLT_HISTORY_IMPORT).
+	HistoryImport bool
 }
 
 func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager, extras ...configExtras) http.HandlerFunc {
@@ -245,6 +247,8 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		// SPA renders the admin-only shell, since the user routes it would
 		// otherwise probe do not exist there.
 		AdminOnly bool `json:"admin_only"`
+		// HistoryImport: Settings shows Import history and Imports (the routes are mounted).
+		HistoryImport bool `json:"history_import"`
 	}
 	type valhallaCfg struct {
 		// Path is the same-origin URL prefix for Valhalla's HTTP
@@ -328,6 +332,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	base.Features.EventsEnabled = eventsEnabled()
 	base.Features.RivianActions = rivianActionsEnabled()
 	base.Features.AdminOnly = adminonly.Enabled(os.Getenv)
+	base.Features.HistoryImport = ex.HistoryImport
 	base.Features.DemoEnabled = demo.Enabled()
 	base.Features.SignupEnabled = !signupgate.Disabled()
 	base.Features.IOSAppURL = iosapp.URL()

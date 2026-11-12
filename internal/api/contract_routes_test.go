@@ -253,6 +253,10 @@ var webCallsOptionalByConfig = map[string]string{
 	"POST /api/auth/apple-link/unlink":      "as above",
 	"POST /api/billing/checkout":            "mounted only where Stripe billing is configured (Deps.StripeBilling, and not on the admin-only host); the Plan card hides the buttons when it is off",
 	"POST /api/billing/portal":              "as above",
+	"POST /api/import/preview":              "mounted only where history import is on (Deps.HistoryImport: RIVOLT_HISTORY_IMPORT=1); the Settings wizard shows only when /api/config says features.history_import",
+	"POST /api/import/commit":               "as above",
+	"GET /api/imports":                      "as above",
+	"POST /api/imports/{x}/undo":            "as above",
 }
 
 // appleLinkStub stands in for the identity store behind the Apple link routes: they are mounted in the contract router, never called.
@@ -301,6 +305,7 @@ func contractRouterGates(t *testing.T, gates bool) chi.Routes {
 		Settings: new(settings.Factory), IOSAppIDs: []string{"TEAMID.dev.rivolt.test"},
 		// The expiry reminders' Settings routes exist only where the sender runs; the web calls them.
 		RivianExpiryEmails: gates,
+		HistoryImport:      gates,
 	}
 	if gates { // the Apple link routes exist only where its identity store is wired
 		d.AppleLinkAccounts = appleLinkStub{}
