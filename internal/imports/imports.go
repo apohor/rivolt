@@ -153,3 +153,62 @@ func (s *Store) Undo(ctx context.Context, id uuid.UUID) (Undone, error) {
 	}
 	return u, tx.Commit()
 }
+
+// Started counts the batches this user began since t, undone ones included: the commit rate limit.
+func (s *Store) Started(ctx context.Context, since time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM imports WHERE user_id = $1 AND started_at > $2`, s.userID, since).Scan(&n)
+	return n, err
+}
+
+// Item is one row of the user's import list.
+type Item struct {
+	ID         uuid.UUID  `json:"id"`
+	Source     string     `json:"source"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	UndoneAt   *time.Time `json:"undone_at,omitempty"`
+	Rows       int        `json:"rows"`
+	Drives     int        `json:"drives"`
+	Charges    int        `json:"charges"`
+	Skipped    int        `json:"skipped"`
+	First      string     `json:"first,omitempty"`
+	Last       string     `json:"last,omitempty"`
+}
+
+// List returns the user's batches, newest first (at most 100).
+func (s *Store) List(ctx context.Context) ([]Item, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, source, started_at, finished_at, undone_at, rows, drives, charges, skipped,
+		       COALESCE(metadata->>'first', ''), COALESCE(metadata->>'last', '')
+		  FROM imports WHERE user_id = $1 ORDER BY started_at DESC LIMIT 100`, s.userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Item{}
+	for rows.Next() {
+		var it Item
+		if err := rows.Scan(&it.ID, &it.Source, &it.StartedAt, &it.FinishedAt, &it.UndoneAt, &it.Rows, &it.Drives, &it.Charges, &it.Skipped, &it.First, &it.Last); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
+
+// Check reports a live batch of this source and file hash as *AlreadyImported, nil when there is none. It writes nothing (the preview's
+// "already imported on <date>").
+func (s *Store) Check(ctx context.Context, source, sha string) error {
+	var dup AlreadyImported
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, started_at FROM imports WHERE user_id = $1 AND source = $2 AND sha256 = $3 AND undone_at IS NULL`,
+		s.userID, source, sha).Scan(&dup.ID, &dup.At)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return &dup
+}

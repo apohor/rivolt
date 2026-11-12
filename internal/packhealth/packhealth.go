@@ -302,6 +302,7 @@ func (s *Store) BackfillVehicle(ctx context.Context, vehicleID uuid.UUID) (int, 
 		       COALESCE(energy_added_kwh, 0)
 		FROM charges
 		WHERE vehicle_id = $1
+		  AND source = 'live'
 		  AND ended_at IS NOT NULL
 		  AND start_soc_pct IS NOT NULL
 		  AND end_soc_pct IS NOT NULL

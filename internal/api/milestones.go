@@ -22,9 +22,32 @@ func MilestoneLedgerInput(pool *sql.DB, sf *settings.Factory) func(ctx context.C
 	la := newLedgerAPI(pool, sf)
 	return func(ctx context.Context, uid uuid.UUID, rivianID string) (ledger.Input, error) {
 		now := time.Now()
-		return la.input(ctx, uid, ledgerParams{vehicleID: rivianID, tzSource: "milestones"},
+		in, err := la.input(ctx, uid, ledgerParams{vehicleID: rivianID, tzSource: "milestones"},
 			ledger.Period{Month: "all", Loc: time.UTC, Start: time.Unix(0, 0).UTC(), End: now.AddDate(0, 0, 1)})
+		if err != nil {
+			return in, err
+		}
+		return liveOnlyInput(in), nil
 	}
+}
+
+// liveOnlyInput drops imported and ElectraFi rows: only what Rivolt recorded
+// itself counts toward a milestone, so an import never announces "1000 miles".
+func liveOnlyInput(in ledger.Input) ledger.Input {
+	cs := make([]ledger.Charge, 0, len(in.Charges))
+	for _, c := range in.Charges {
+		if c.Source == "live" {
+			cs = append(cs, c)
+		}
+	}
+	ds := make([]ledger.Drive, 0, len(in.Drives))
+	for _, d := range in.Drives {
+		if d.Source == "live" {
+			ds = append(ds, d)
+		}
+	}
+	in.Charges, in.Drives = cs, ds
+	return in
 }
 
 // MilestoneLease says how far through its lease a vehicle is (Total 0: none).

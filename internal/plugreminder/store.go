@@ -92,7 +92,7 @@ func (s *pgSource) RecentlyPlugged(ctx context.Context, uid uuid.UUID, homeLat, 
 	err = s.db.QueryRowContext(ctx, `
 		SELECT EXISTS (
 		  SELECT 1 FROM charges c
-		   WHERE c.user_id = $1 AND c.started_at > $2::timestamptz
+		   WHERE c.user_id = $1 AND c.source = 'live' AND c.started_at > $2::timestamptz
 		     AND c.lat IS NOT NULL AND c.lon IS NOT NULL
 		     AND abs(c.lat - $3) < 0.002 AND abs(c.lon - $4) < 0.002)`, uid, since.UTC(), homeLat, homeLon).Scan(&started)
 	if errors.Is(err, sql.ErrNoRows) {

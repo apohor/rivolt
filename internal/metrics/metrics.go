@@ -100,6 +100,8 @@ type Metrics struct {
 	// (single-owner M4-1). Every site is created at 0. A non-zero value at seed, refresh_once or ws_dial is a finding: nothing should
 	// have tried.
 	RivianCallRefused *prometheus.CounterVec
+	// ImportParseRejected counts history-import previews and commits refused (503) because this pod already runs its limit of parses.
+	ImportParseRejected prometheus.Counter
 	// RivianRequestSeconds is how long each request that reached Rivian's GraphQL gateway took, by operation (a fixed set, rivian.PermitOps
 	// without ws_dial). Every operation is created at 0. Nothing per user or vehicle.
 	RivianRequestSeconds *prometheus.HistogramVec
@@ -707,6 +709,10 @@ func New() *Metrics {
 			Name: "rivolt_rivian_ws_reconnects_total",
 			Help: "vehicleState subscriptions opened again, by reason: nudge, watchdog, no_frames, error or clean.",
 		}, []string{"reason"}),
+		ImportParseRejected: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_import_parse_rejected_total",
+			Help: "History-import requests answered 503 because the pod was already parsing its limit of files.",
+		}),
 		RivianCallRefused: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_rivian_call_refused_total",
@@ -1127,6 +1133,7 @@ func New() *Metrics {
 		m.LeaseFenceWouldReject,
 		m.LeaseFenced,
 		m.RivianCallRefused,
+		m.ImportParseRejected,
 		m.RivianRequestSeconds,
 		m.ReauthRaiseRefused,
 		m.ReauthRaiseAttempts,

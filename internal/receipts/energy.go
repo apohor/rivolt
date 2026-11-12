@@ -154,7 +154,7 @@ func (s *Store) EnergyCandidates(ctx context.Context, uid uuid.UUID, since time.
 		       COALESCE(c.price_per_kwh,0)::float8, COALESCE(c.metadata->>'energy_source','') = $3,
 		       r.started_at, r.ended_at, r.energy_kwh, r.is_home_charger, r.detail_fetched_at IS NOT NULL
 		  FROM rivian_receipts r
-		  JOIN charges c ON c.id = r.charge_id AND c.user_id = r.user_id
+		  JOIN charges c ON c.id = r.charge_id AND c.user_id = r.user_id AND c.source = 'live'
 		 WHERE r.user_id = $1 AND r.matched_at >= $2
 		 ORDER BY r.started_at`, uid, since, SourceReceipt)
 	if err != nil {
@@ -192,7 +192,7 @@ func (s *Store) ApplyEnergy(ctx context.Context, uid uuid.UUID, c EnergyCand, up
 		UPDATE charges
 		   SET energy_added_kwh = $4, avg_power_kw = $5, cost = COALESCE($6, cost),
 		       metadata = metadata || $7::jsonb, updated_at = NOW()
-		 WHERE id = $1 AND user_id = $2 AND receipt_txn_id = $3
+		 WHERE id = $1 AND user_id = $2 AND receipt_txn_id = $3 AND source = 'live'
 		   AND COALESCE(final_state,'') <> 'charging_active'
 		   AND COALESCE(energy_added_kwh,0)::float8 = $8 AND `+fence.OK,
 		c.ChargeID, uid, c.TxnID, up.Energy, up.AvgPower, up.Cost, string(meta), up.ExpectedNow)

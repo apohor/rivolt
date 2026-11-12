@@ -3406,6 +3406,7 @@ func runServer() {
 	handler := api.New(api.Deps{
 		AppBuild:              appBuild,
 		FirstScreen:           firstScreen,
+		HistoryImport:         os.Getenv("RIVOLT_HISTORY_IMPORT") == "1" && pgPool != nil,
 		StateForward:          stateForward,
 		OwnerDiscovery:        ownerDiscovery,
 		SignInNudge:           signInNudgeFn,
