@@ -1,4 +1,4 @@
-# CI render: roles with the api role as an Argo Rollout, per-role pool shares and divisors, and ingest's lease flags pinned.
+# CI render (ingest 3 x 6 + jobs 2 x 4 + api 3 x 5 = 41 connections at the surge peak, under the budget of 43; the divisor defaults to the 8 pods): roles with the api role as an Argo Rollout, per-role pool shares and divisors, and ingest's lease flags pinned.
 secrets:
   existingSecret: rivolt-app
   autoGenerateKek: false
@@ -29,7 +29,6 @@ roles:
   ingest:
     replicaCount: 2
     dbMaxConns: 6
-    replicaDivisor: "3"
     env:
       RIVOLT_GROUP_LEAD: "1"
       RIVOLT_SINGLE_OWNER: "1"
@@ -38,13 +37,10 @@ roles:
   api:
     replicaCount: 2
     dbMaxConns: 5
-    requestMaxConns: 3
-    replicaDivisor: "4"
     podLabels:
       rivolt.dev/public: "true"
   jobs:
     replicaCount: 1
     dbMaxConns: 4
-    replicaDivisor: "2"
   secrets:
     appSecretKeys: {}

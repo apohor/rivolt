@@ -65,7 +65,14 @@ refuse 'unknown role "worker"' --set 'roles.secrets.env.RIVOLT_OIDC_EXAMPLE_CLIE
 refuse 'holds VAPID_PRIVATE_KEY and roles.secrets.appSecretKeys does not assign it' --set secrets.existingSecret= --set 'secrets.kek=v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
   --set secrets.vapidPrivateKey=x --set roles.secrets.appSecretKeys.VAPID_PRIVATE_KEY=null
 refuse 'set roles.ingest.dbMaxConns' --set dbConnections.systemMaxConns=
-refuse 'set roles.jobs.replicaDivisor' --set config.replicaDivisor= --set roles.ingest.replicaDivisor=3 --set roles.api.replicaDivisor=4
+refuse 'database connections at their surge peak' --set dbConnections.systemMaxConns=6
+refuse 'requestPool is on, so set roles.ingest.requestMaxConns' --set dbConnections.requestPool=true
+refuse 'times the shared fallback limits' --set roles.ingest.replicaDivisor=3 --set roles.api.replicaDivisor=4 --set roles.jobs.replicaDivisor=2
+refuse 'roles.ingest.env: RIVOLT_DB_MAX_CONNS is set by the chart' --set roles.ingest.env.RIVOLT_DB_MAX_CONNS=3
+refuse 'is also in extraEnv, and the later entry would win' --set roles.ingest.env.RIVOLT_EXAMPLE_PLAIN=2
+refuse 'extraEnv RIVOLT_ROLE duplicates' --set 'extraEnv[1].name=RIVOLT_ROLE' --set 'extraEnv[1].value=x'
+refuse 'rivolt.dev/role is the chart' --set 'roles.api.podLabels.rivolt\.dev/role=x'
+refuse 'podLabels must not carry rivolt.dev/role' --set 'podLabels.rivolt\.dev/role=x'
 # With rollout.enabled the api role is the only Rollout, and the Rollout mounts the same row as the api Deployment did.
 rr=$(helm template rivolt "$chart" -f "$case" --set rollout.enabled=true --set rollout.strategy.canary.steps[0].setWeight=25)
 [ "$(echo "$rr" | yq 'select(.kind == "Rollout") | .metadata.name' | grep '^rivolt')" = rivolt-api ] || { echo "::error::rollout.enabled with roles: want the api role as the only Rollout"; fail=1; }
