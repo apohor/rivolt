@@ -198,7 +198,7 @@ func (s *dbSession) release(discard bool) {
 
 func dbElect(d *sql.DB) func(ctx context.Context) (session, error) {
 	return func(ctx context.Context) (session, error) {
-		conn, done, err := db.Pin(ctx, d)
+		conn, done, err := db.Pin(ctx, d, "drain_leader", 1)
 		if errors.Is(err, db.ErrPinGateFull) {
 			return nil, nil // the pool has no connection to spare for the leader lock; the next election tries again
 		}

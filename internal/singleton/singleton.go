@@ -46,10 +46,9 @@ func Acquire(ctx context.Context, d *sql.DB, job string, key Key) (release func(
 	if d == nil {
 		return nil, false, nil
 	}
-	conn, done, err := db.Pin(ctx, d)
+	conn, done, err := db.Pin(ctx, d, job, 2) // the lock connection, plus the pool query its job runs meanwhile
 	if errors.Is(err, db.ErrPinGateFull) {
 		observe(job, Skipped)
-		slog.DebugContext(ctx, "singleton job skipped: the pool has no connection to spare for it", "job", job)
 		return nil, false, nil
 	}
 	if err != nil {

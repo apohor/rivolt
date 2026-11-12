@@ -571,6 +571,10 @@ func runServer() {
 		logger.Error("weather", "err", werr.Error())
 		os.Exit(1)
 	}
+	db.SetPinObserver(func(job string) { appMetrics.DBPinGateFullTotal.WithLabelValues(job).Inc() })
+	for _, job := range []string{"archive", "samples_thin", "samples_retention", "drain_leader"} {
+		appMetrics.DBPinGateFullTotal.WithLabelValues(job)
+	}
 	singleton.SetObserver(func(job, outcome string) { appMetrics.SingletonRunsTotal.WithLabelValues(job, outcome).Inc() })
 	appMetrics.RegisterDBPool("system", pgPool)
 	if pgPool != nil {

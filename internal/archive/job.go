@@ -153,7 +153,7 @@ func NewArchiver(db *sql.DB, cfg Config, sealer crypto.Sealer) (*Archiver, error
 // if its month wasn't thinned (the database still has every row), otherwise
 // merged with the existing object, whose rows win where both have one.
 func (a *Archiver) Run(ctx context.Context) (int64, error) {
-	conn, done, err := db.Pin(ctx, a.db)
+	conn, done, err := db.Pin(ctx, a.db, "archive", 1)
 	if errors.Is(err, db.ErrPinGateFull) {
 		return 0, nil
 	}

@@ -139,7 +139,7 @@ func (t *Thinner) Run(ctx context.Context) (int64, error) {
 	if t == nil {
 		return 0, nil
 	}
-	conn, done, err := db.Pin(ctx, t.db)
+	conn, done, err := db.Pin(ctx, t.db, "samples_thin", 1)
 	if errors.Is(err, db.ErrPinGateFull) {
 		return 0, nil
 	}

@@ -407,6 +407,9 @@ type Metrics struct {
 	// Periodic jobs that run on one replica at a time (internal/singleton), by job and outcome (ran, skipped, error). "skipped" is another
 	// replica holding the job's lock: normal at N replicas, one per tick per extra pod. "error" is the lock itself failing.
 	SingletonRunsTotal *prometheus.CounterVec
+	// Maintenance job runs refused because every connection the pool may pin was in use (db.Pin), by job. Not zero for long: a job that
+	// loses it at every tick never runs (retention enforces the privacy windows).
+	DBPinGateFullTotal *prometheus.CounterVec
 	// The dated Pro notices (internal/launchnotice), by kind and outcome (sent, in_app, skipped, failed, late). "late" counts a founding
 	// year that had to be extended to keep the 30 days' notice the Terms promise: any nonzero value is worth a look.
 	DatedNoticesTotal *prometheus.CounterVec
@@ -873,6 +876,13 @@ func New() *Metrics {
 			},
 			[]string{"job", "outcome"},
 		),
+		DBPinGateFullTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_db_pin_gate_full_total",
+				Help: "Maintenance job runs skipped because the pool had no connection to spare for a pinned one, by job.",
+			},
+			[]string{"job"},
+		),
 		EngagementSendsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_engagement_sends_total",
@@ -1164,6 +1174,7 @@ func New() *Metrics {
 		m.RateLimiterFallbackTotal,
 		m.EngagementSendsTotal,
 		m.SingletonRunsTotal,
+		m.DBPinGateFullTotal,
 		m.DatedNoticesTotal,
 		m.AppleNotificationsTotal,
 		m.AppleLinkTotal,

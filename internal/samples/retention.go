@@ -91,7 +91,7 @@ func (r *Retention) Run(ctx context.Context) (int64, error) {
 	if r == nil {
 		return 0, nil
 	}
-	conn, done, err := db.Pin(ctx, r.db)
+	conn, done, err := db.Pin(ctx, r.db, "samples_retention", 1)
 	if errors.Is(err, db.ErrPinGateFull) {
 		return 0, nil
 	}
