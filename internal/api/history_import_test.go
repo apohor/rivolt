@@ -246,3 +246,17 @@ func TestHistoryImportSecFetchSite(t *testing.T) {
 		}
 	}
 }
+
+// Undo deletes rows, so it gets the same check; a refused request never reaches the store.
+func TestHistoryImportUndoSecFetchSite(t *testing.T) {
+	a := newHistoryImportAPI(Deps{})
+	for _, sfs := range []string{"same-site", "cross-site"} {
+		r := httptest.NewRequest(http.MethodPost, "https://rivolt.dev/api/imports/"+uuid.NewString()+"/undo", nil).WithContext(auth.WithUser(context.Background(), uuid.New()))
+		r.Header.Set("Sec-Fetch-Site", sfs)
+		rec := httptest.NewRecorder()
+		a.undo(rec, r)
+		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "cross_site_request") {
+			t.Errorf("Sec-Fetch-Site %q: %d %s", sfs, rec.Code, rec.Body.String())
+		}
+	}
+}

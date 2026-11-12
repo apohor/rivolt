@@ -118,13 +118,21 @@ func (a *historyImportAPI) acquire(w http.ResponseWriter) bool {
 
 func (a *historyImportAPI) release() { <-a.sem }
 
+// sameSite refuses a request that did not come from our own origin. A multipart POST is a simple cross-origin request and the session
+// cookie is SameSite=Lax on the whole site, so a page on another subdomain could post here (and undo deletes rows). Browsers say where a
+// request comes from; anything but our own origin (or no page at all) is refused.
+func sameSite(w http.ResponseWriter, r *http.Request) bool {
+	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "" && sfs != "same-origin" && sfs != "none" {
+		importError(w, http.StatusForbidden, "cross_site_request", "This request did not come from rivolt.dev.")
+		return false
+	}
+	return true
+}
+
 // begin admits one request: a user has one import in flight per pod (a slow upload cannot hold both slots), then a parse slot. It returns
 // the function that gives both back.
 func (a *historyImportAPI) begin(w http.ResponseWriter, r *http.Request) (func(), bool) {
-	// A multipart POST is a simple cross-origin request and the session cookie is SameSite=Lax on the whole site, so a page on another
-	// subdomain could post here. Browsers say where a request comes from; anything but our own origin (or no page at all) is refused.
-	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs != "" && sfs != "same-origin" && sfs != "none" {
-		importError(w, http.StatusForbidden, "cross_site_request", "This request did not come from rivolt.dev.")
+	if !sameSite(w, r) {
 		return nil, false
 	}
 	uid, _ := auth.UserFromContext(r.Context())
@@ -905,6 +913,9 @@ func (a *historyImportAPI) list(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/imports/{id}/undo: removes everything the batch brought in. 404 when it is not the account's or is already undone.
 func (a *historyImportAPI) undo(w http.ResponseWriter, r *http.Request) {
+	if !sameSite(w, r) {
+		return
+	}
 	uid, ok := auth.UserFromContext(r.Context())
 	if !ok || uid == uuid.Nil {
 		importError(w, http.StatusUnauthorized, "unauthenticated", "Sign in first.")
