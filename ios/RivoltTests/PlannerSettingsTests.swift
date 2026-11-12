@@ -52,10 +52,10 @@ final class PlannerSettingsTests: XCTestCase {
         XCTAssertEqual(p.layersOn, ["dcfc", "hotels"], "in the server's layer order, whatever order they were switched on")
         XCTAssertEqual(p.preferredOnly, false)
         XCTAssertEqual(p.weatherOn, true)
-        XCTAssertEqual(p.radarOn, false, "kept as it is while the radar row is not shown")
+        XCTAssertEqual(p.radarOn, true, "kept as it is while the radar row is not shown")
         let enc = JSONEncoder(); enc.keyEncodingStrategy = .convertToSnakeCase; enc.outputFormatting = [.sortedKeys]
         XCTAssertEqual(String(data: try enc.encode(p), encoding: .utf8),
-                       #"{"corridor":"normal","drive_mode":"EVERYDAY","has_adapter":true,"layers_on":["dcfc","hotels"],"min_fast_kw":0,"preferred_only":false,"radar_on":false,"start_exclude_mi":25,"weather_on":true}"#)
+                       #"{"corridor":"normal","drive_mode":"EVERYDAY","has_adapter":true,"layers_on":["dcfc","hotels"],"min_fast_kw":0,"preferred_only":false,"radar_on":true,"start_exclude_mi":25,"weather_on":true}"#)
     }
 
     func testTheRadarDefaultRowIsThereOnlyWhereTheServerHasRadar() {

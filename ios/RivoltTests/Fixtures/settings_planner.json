@@ -9,5 +9,5 @@
   ],
   "preferred_only": false,
   "weather_on": true,
-  "radar_on": false
+  "radar_on": true
 }
