@@ -776,18 +776,24 @@ func (a *historyImportAPI) commit(w http.ResponseWriter, r *http.Request) {
 		pf.write(w)
 		return
 	}
-	// One commit at a time per user, across pods: a second waits here, then finds the first one's rows and dedupes against them.
+	// One commit at a time per user, across pods. A second one waiting would send nothing for minutes and hit Cloudflare's 100 s, so it is
+	// refused the way a second on this pod is; the client retries once the first has finished and then dedupes against its rows.
 	lock, err := a.d.DB.BeginTx(ctx, nil)
 	if err != nil {
 		serverError(w, r, "history import", err)
 		return
 	}
 	defer lock.Rollback() //nolint:errcheck // the lock is released either way
-	if _, err := lock.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('history_import'), hashtext($1))`, req.uid.String()); err != nil {
+	var got bool
+	if err := lock.QueryRowContext(ctx, `SELECT pg_try_advisory_xact_lock(hashtext('history_import'), hashtext($1))`, req.uid.String()).Scan(&got); err != nil {
 		serverError(w, r, "history import", err)
 		return
 	}
-	push() // a commit from another pod can hold the lock for minutes
+	if !got {
+		w.Header().Set("Retry-After", "10")
+		importError(w, http.StatusTooManyRequests, "in_progress", "Another import of yours is still running. Wait for it to finish.")
+		return
+	}
 	pl, err := a.plan(ctx, req, p)
 	if err != nil {
 		serverError(w, r, "history import", err)

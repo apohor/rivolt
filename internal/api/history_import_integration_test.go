@@ -359,3 +359,30 @@ func TestHistoryImportBatchDedupeMatchesSingleCalls(t *testing.T) {
 	a, err = cs.LiveCoversBatch(ctx, "rv-hi-a", starts, ends)
 	check("charges live", a, err, func(s, en time.Time) (bool, error) { return cs.LiveCovers(ctx, "rv-hi-a", s, en) })
 }
+
+// A commit whose user already has one running on another pod is refused at once instead of waiting on the lock, and goes through when
+// the lock is free.
+func TestHistoryImportCommitDoesNotWaitOnAnotherPod(t *testing.T) {
+	e, _ := newHIEnv(t)
+	ctx := context.Background()
+	form := e.form("rv-hi-a", nil)
+	p := hiJSON(t, e.post(e.uid, "/api/import/preview", form, hiDrives))
+	form["sha256"] = p["sha256"].(string)
+
+	holder, err := e.pool.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := holder.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('history_import'), hashtext($1))`, e.uid.String()); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	rec := e.post(e.uid, "/api/import/commit", form, hiDrives)
+	if rec.Code != 429 || hiJSON(t, rec)["code"] != "in_progress" || rec.Header().Get("Retry-After") == "" || time.Since(start) > 5*time.Second {
+		t.Errorf("commit while locked = %d %s after %s", rec.Code, rec.Body, time.Since(start))
+	}
+	_ = holder.Rollback()
+	if rec := e.post(e.uid, "/api/import/commit", form, hiDrives); rec.Code != 200 {
+		t.Errorf("commit after release = %d %s", rec.Code, rec.Body)
+	}
+}
