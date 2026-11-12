@@ -58,6 +58,17 @@ for (const [zoom, width, height] of [[200, 195, 422], [300, 130, 281]] as const)
           document.querySelector("[data-plan-sheet]")!.clientHeight,
         ]);
         expect(body, `details ${body}px of a ${sheet}px sheet`).toBeGreaterThanOrEqual(sheet / 2);
+        // Map shares the handle row with the grabber and must not cover it; a route name wider than its card breaks with a hyphen.
+        const row = await page.evaluate(() => {
+          const h = document.querySelector<HTMLElement>("[data-plan-sheet-handle]")!;
+          const g = getComputedStyle(h, "::after");
+          const left = h.getBoundingClientRect().left + parseFloat(g.left) + parseFloat(g.marginLeft);
+          const map = document.querySelector<HTMLElement>("[data-plan-sheet-map]")!.getBoundingClientRect();
+          const card = document.querySelector<HTMLElement>("[data-plan-routes] [role=radio]");
+          return { grabber: left + parseFloat(g.width), map: map.left, hyphens: card ? getComputedStyle(card).hyphens : "none" };
+        });
+        expect(row.grabber, "grabber under Map").toBeLessThanOrEqual(row.map);
+        expect(row.hyphens).toBe("auto");
       }
     }
     await ctx.close();
