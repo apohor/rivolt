@@ -22,6 +22,8 @@ metadata:
   # the data cluster deliberately separate from the app's release.
   annotations:
     helm.sh/resource-policy: keep
+    # Argo prune and app deletion must never remove the database or its data (helm keep is ignored by Argo).
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
     {{- if .Values.migrate.job.enabled }}
     # Before the migrate Job (wave 0), which needs the database.
     argocd.argoproj.io/sync-wave: "-1"
