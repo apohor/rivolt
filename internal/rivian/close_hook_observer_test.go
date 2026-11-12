@@ -25,11 +25,11 @@ func TestCloseHookObserverCountsFiredOnly(t *testing.T) {
 	m.fireDriveCloseHook(drives.Drive{ID: "d1"})
 	m.fireDriveCloseHook(drives.Drive{ID: "d1"}) // same session again
 	m.fireChargeCloseHook(charges.Charge{ID: "c1"})
-	m.quietHooks.Store(true)
-	m.fireDriveCloseHook(drives.Drive{ID: "d2"}) // replay catch-up
-	m.quietHooks.Store(false)
-	m.driveCloseHook = nil
-	m.fireDriveCloseHook(drives.Drive{ID: "d3"}) // no hook set
+	quiet := NewStateMonitor(nil, nil)
+	quiet.driveCloseHook = func(context.Context, drives.Drive) {}
+	quiet.quietHooks.Store(true)
+	quiet.fireDriveCloseHook(drives.Drive{ID: "d2"}) // replay catch-up
+	NewStateMonitor(nil, nil).fireDriveCloseHook(drives.Drive{ID: "d3"}) // no hook set
 	bg.Default.Wait(5 * time.Second)
 	mu.Lock()
 	defer mu.Unlock()
