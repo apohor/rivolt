@@ -31,9 +31,13 @@ final class PlannerTimeoutTests: XCTestCase {
         let wp = [TripPlanWaypoint(latitude: 41.5, longitude: -81.7, waypointType: "origin"),
                   TripPlanWaypoint(latitude: 39.7, longitude: -105.0, waypointType: "destination")]
         _ = try? await client.planTrip(TripPlanRequest(waypoints: wp))
+        _ = try? await client.planMultiday(TripMultidayRequest(
+            startAt: "2026-11-12T12:00:00Z", tz: "America/New_York",
+            origin: TripPoint(lat: 41.5, lon: -81.7), days: [TripDayRequest(end: TripPoint(lat: 39.7, lon: -105.0))]))
         _ = try? await client.vehicles()
         let byPath = Dictionary(uniqueKeysWithValues: Recorder.seen.map { ($0.url!.path, $0.timeoutInterval) })
         XCTAssertEqual(byPath["/api/trips/plan"], 60)
+        XCTAssertEqual(byPath["/api/trips/plan-multiday"], 60)
         XCTAssertEqual(byPath["/api/vehicles"], 15, "other calls keep the 15 s")
     }
 
