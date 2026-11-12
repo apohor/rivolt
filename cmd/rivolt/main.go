@@ -1038,7 +1038,23 @@ func runServer() {
 			if demo.Enabled() {
 				allowed[demo.UserID()] = true
 			}
+			// Users who sign in with no vehicle on the account (below) are allowed to sign in.
+			for _, u := range strings.Split(os.Getenv("RIVOLT_REPLAY_EMPTY_USERS"), ",") {
+				if u = strings.TrimSpace(u); u != "" {
+					allowed[db.UserIDFor(u)] = true
+				}
+			}
 			feed.SetAllowedUsers(func(uid uuid.UUID) bool { return allowed[uid] })
+		}
+		// Preview only: usernames whose replay sign-in works but whose account lists no vehicle, so the no-vehicle states can be seen.
+		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_EMPTY_USERS")); v != "" {
+			emptyUsers := map[uuid.UUID]bool{}
+			for _, u := range strings.Split(v, ",") {
+				if u = strings.TrimSpace(u); u != "" {
+					emptyUsers[db.UserIDFor(u)] = true
+				}
+			}
+			feed.SetEmptyUsers(func(uid uuid.UUID) bool { return emptyUsers[uid] })
 		}
 		fixtures, ferr := demo.PlanFixtures()
 		if ferr != nil {
@@ -1046,6 +1062,14 @@ func runServer() {
 		}
 		tripSynth = &syntheticplan.Planner{Vehicle: syntheticplan.SampleVehicle(), Now: time.Now}
 		accountRegistry = rivian.NewReplayAccountRegistry(feed, rivian.FirstPlanner{rivian.NewFixturePlanner(fixtures, nil), tripSynth})
+		// The sign-in-again flag comes from the users row here as it does on a live install (no syncer is attached in replay).
+		if pgPool != nil {
+			if rr, ok := accountRegistry.(interface {
+				SetStateSource(rivian.AccountStateSource)
+			}); ok {
+				rr.SetStateSource(secrets.NewRivianAccountSource(pgPool, secretsStore))
+			}
+		}
 		// Preview is a replay install: it runs the same gate as live so the flag's code paths are exercised there (no real token exists).
 		installNoStandingTokens(ctx, role, accountRegistry, logger, nil)
 		rivianClient = rivian.NewStub()
