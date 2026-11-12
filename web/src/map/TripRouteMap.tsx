@@ -1124,17 +1124,17 @@ export function TripRouteMap({
   return (
     <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
       {/* The chips and, under them, the radar strip: one column at the map's top left, so the strip never lands on the route. */}
-      <div className={fill ? "pointer-events-none absolute left-14 right-2 top-3 z-[500] flex flex-col items-start gap-1" : "contents"}>
+      <div className={fill ? "pointer-events-none absolute left-14 right-2 top-3 z-[500] flex flex-col items-start gap-1 max-[200px]:left-12 max-[200px]:right-1" : "contents"}>
       {!noChargerSource && (
-        <div className={fill ? "pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
+        <div className={fill ? "pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm max-[200px]:px-1" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill ? "" : undefined} data-map-chips>
           {!noChargerSource && <>
-          <span className="whitespace-nowrap text-xs text-neutral-500 mr-1">Chargers:</span>
+          <span className="whitespace-nowrap text-xs text-neutral-500 mr-1 max-[200px]:sr-only">Chargers:</span>
           {(["dcfc", "l2", "hotels", "camp"] as const).filter((f) => f !== "camp" || campCount > 0 || layers.has("camp")).map((f) => (
             <button
               key={f}
               aria-pressed={layers.has(f)}
               onClick={() => toggleLayer(f)}
-              className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors ${
+              className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors max-[200px]:px-1 ${
                 layers.has(f) ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
               }`}
             >
@@ -1160,14 +1160,14 @@ export function TripRouteMap({
               <button type="button" data-layer-retry onClick={() => setRetry((n) => n + 1)} className="underline underline-offset-2 hover:text-amber-200">Try again</button>
             </span>
           ) : layers.size > 0 && !chargersLoading && chargerCount === 0 ? (
-            <span className="basis-full text-xs text-neutral-400">No chargers in this area at this zoom. Zoom out or move the map.</span>
+            <span className="basis-full text-xs text-neutral-400 max-[200px]:hidden">No chargers in this area at this zoom. Zoom out or move the map.</span>
           ) : (
-            <span className="whitespace-nowrap text-xs text-neutral-500 ml-1" data-layer-count>
+            <span className="whitespace-nowrap text-xs text-neutral-500 ml-1 max-[200px]:hidden" data-layer-count>
               {layers.size === 0 ? "" : chargersLoading ? "…" : chargerCount != null ? (chargerTotal != null && chargerTotal > chargerCount ? `Showing ${chargerCount} of ${chargerTotal}` : `${chargerCount} found`) : ""}
             </span>
           )}
           {layers.size > 1 && (
-            <span className="whitespace-nowrap text-xs text-neutral-600 ml-1">
+            <span className="whitespace-nowrap text-xs text-neutral-600 ml-1 max-[200px]:hidden">
               {(["dcfc", "l2", "hotels", "camp"] as const).filter((k) => layers.has(k)).map((k) => (
                 <span key={k}><span style={{ color: dotColor[k] }}>●</span> {filterLabels[k]} &nbsp;</span>
               ))}

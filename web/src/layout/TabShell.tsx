@@ -83,7 +83,7 @@ export function BottomTabBar({
         {tabs.map((t) => {
           const isActive = t.key === active;
           return (
-            <li key={t.key} className="flex-1">
+            <li key={t.key} className="min-w-0 flex-1">
               <Link
                 to={t.to}
                 aria-current={isActive ? "page" : undefined}
@@ -94,7 +94,8 @@ export function BottomTabBar({
                 }`}
               >
                 <TabIcon tab={t.key} />
-                <span>{t.label}</span>
+                {/* Narrower than 200 CSS px (Safari's aA 300 %) five labels do not fit: icons only, the label stays the accessible name. */}
+                <span className="max-[200px]:sr-only">{t.label}</span>
               </Link>
             </li>
           );

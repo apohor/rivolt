@@ -68,13 +68,14 @@ function UserLayout() {
       <ImpersonationBanner />
       <IOSInstallBanner />
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
+        {/* Narrower than 200 CSS px (a phone at Safari's aA 300 %) the name goes (it stays the link's accessible name) so the settings button fits. */}
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 max-[200px]:gap-2 max-[200px]:px-3">
           <NavLink
             to="/"
             className="flex items-center gap-2 font-semibold tracking-tight text-neutral-100 hover:text-emerald-300 transition-colors shrink-0"
           >
             <Logo size={22} className="text-emerald-400" />
-            <span>Rivolt</span>
+            <span className="max-[200px]:sr-only">Rivolt</span>
           </NavLink>
           {/* Settings, one tap from every screen (the person icon, as on the iPhone). The Settings sub-link under Truck stays. */}
           <NavLink
