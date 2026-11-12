@@ -76,7 +76,7 @@ export function StopCard({
         className="block w-full rounded-lg px-3 py-2 text-left transition-colors hover:bg-neutral-900/50"
       >
         {/* Narrower than 200 CSS px (a phone at Safari's aA 300 %) the leg distance drops under the name rather than squeezing it to nothing. */}
-        <span className="flex items-baseline justify-between gap-3 max-[199px]:flex-wrap">
+        <span className="flex items-baseline justify-between gap-3 max-[200px]:flex-wrap">
           <span className="pt-value min-w-0 text-neutral-100">
             {name}
             {/* A place to break before the badges: on a very narrow screen they go to the next line instead of sticking out past the edge. */}
@@ -122,12 +122,12 @@ export function StopCard({
         )}
         {isStop && (
           <span className="pt-sub mt-1.5 flex items-center gap-2 text-neutral-400" data-plan-soc>
-            <span className="w-10 shrink-0 text-right max-[199px]:w-auto">{inSoc.toFixed(0)}<Unit>%</Unit></span>
+            <span className="w-10 shrink-0 text-right max-[200px]:w-auto">{inSoc.toFixed(0)}<Unit>%</Unit></span>
             <span className="relative h-1.5 flex-1 rounded-full bg-neutral-800/70" aria-hidden>
               <span className="absolute inset-y-0 rounded-full bg-amber-400" style={{ left: `${inSoc}%`, width: `${Math.max(1, outSoc - inSoc)}%` }} />
               <span className="absolute inset-y-0 left-0 rounded-full bg-neutral-600" style={{ width: `${inSoc}%` }} />
             </span>
-            <span className="w-10 shrink-0 text-neutral-200 max-[199px]:w-auto">{outSoc.toFixed(0)}<Unit>%</Unit></span>
+            <span className="w-10 shrink-0 text-neutral-200 max-[200px]:w-auto">{outSoc.toFixed(0)}<Unit>%</Unit></span>
           </span>
         )}
       </button>
