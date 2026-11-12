@@ -1,25 +1,71 @@
 import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 import Logo from "../components/Logo";
-import { useEffect } from "react";
 import { getConfig } from "../lib/config";
 import { track } from "../lib/track";
+import HeroTrip from "./landing/HeroTrip";
+import Terrain from "./landing/Terrain";
+import PhoneTour from "./landing/PhoneTour";
+import PlannerShots from "./landing/PlannerShots";
+import "../styles/landing.css";
 
-// Public landing page for signed-out visitors, rendered at "/" only when
-// the install enables it. Copy makes claims about Rivolt's own behaviour only,
-// nothing about Rivian's app, no "real-time" or "battery-friendly"
-// headline. Illustrations are drawn components with masked figures,
-// never real data or screenshots. No third-party assets.
+// Public main page for signed-out visitors, rendered at "/" only when the
+// install enables it (#1909). One job: open the trip planner demo or connect
+// a truck. Every figure on it is the demo truck's and is labelled as a
+// sample; the planner screenshots are real (radar layer on). No prices, no
+// trial or "free" wording, nothing from another host. Title, description,
+// canonical and structured data come from the server (internal/api/seo.go).
 
 const REPO = "https://github.com/apohor/rivolt";
 // The public sample-truck demo lives on its own host. On the hosted
-// instance the landing links there; a self-host has no such host and
-// shows the in-app /demo link only when its operator enabled it.
+// instance the page links there; a self-host has no such host and shows
+// its in-app /demo only when its operator enabled it.
 const DEMO_URL = "https://demo.rivolt.dev";
+
+function Arrow() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 8h10M9 4l4 4-4 4" />
+    </svg>
+  );
+}
+
+// A link into the demo: in-app on an install with the demo on, else the
+// public demo host. demo_click carries only where it sits (hero or footer).
+function DemoLink({ path, where, className, children }: { path: string; where: "hero" | "footer"; className?: string; children: React.ReactNode }) {
+  const { demoEnabled } = getConfig().features;
+  const onClick = () => track("demo_click", { where });
+  return demoEnabled ? (
+    <Link to={path} onClick={onClick} className={className}>
+      {children}
+    </Link>
+  ) : (
+    <a href={`${DEMO_URL}${path}`} onClick={onClick} className={className}>
+      {children}
+    </a>
+  );
+}
+
+function Tile({ icon, title, children }: { icon: React.ReactNode; title: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <article className="lp-tile rv">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {icon}
+      </svg>
+      <div>
+        <h3>{title}</h3>
+        <p>{children}</p>
+      </div>
+    </article>
+  );
+}
 
 export default function LandingPage() {
   const { demoEnabled, signupEnabled } = getConfig().features;
-  const hostedDemo = !demoEnabled && /(^|\.)rivolt\.dev$/.test(window.location.hostname);
-  const demo = demoEnabled || hostedDemo;
+  const hosted = /(^|\.)rivolt\.dev$/.test(window.location.hostname);
+  const demo = demoEnabled || hosted;
+  const connect = signupEnabled ? { to: "/signup", label: "Connect your Rivian" } : { to: "/login", label: "Sign in" };
+  const [stuck, setStuck] = useState(false);
   useEffect(() => {
     // Referrer host and utm_source only (tokens, never a full URL).
     const tok = (v: string | null) => (v && /^[a-z0-9_.-]{1,40}$/.test(v.toLowerCase()) ? v.toLowerCase() : undefined);
@@ -35,264 +81,204 @@ export default function LandingPage() {
     if (utm) props.utm_source = utm;
     track("landing_view", props);
   }, []);
+  useEffect(() => {
+    const onScroll = () => setStuck(scrollY > 8);
+    addEventListener("scroll", onScroll, { passive: true });
+    return () => removeEventListener("scroll", onScroll);
+  }, []);
+
+  const ctas = (where: "hero" | "footer") => (
+    <div className="cta">
+      {demo && (
+        <DemoLink path="/demo/trips/plan" where={where} className="btn go">
+          Plan a sample trip
+          <Arrow />
+        </DemoLink>
+      )}
+      <Link to={connect.to} className={demo ? "btn" : "btn go"}>
+        {connect.label}
+      </Link>
+    </div>
+  );
+
   return (
-    <div className="min-h-full bg-neutral-950 text-neutral-100">
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-        <span className="flex items-center gap-2 font-semibold tracking-tight">
-          <Logo size={22} className="text-emerald-400" />
-          Rivolt
-        </span>
-        <Link to="/login" className="text-sm text-neutral-300 hover:text-neutral-100">
-          Sign in
-        </Link>
+    <div className="lp">
+      <header className="lp-nav" data-stuck={String(stuck)}>
+        <div className="wrap">
+          <span className="lp-logo">
+            <Logo size={24} />
+            Rivolt
+          </span>
+          <nav aria-label="Sections">
+            <a href="#planner">Trip planner</a>
+            <a href="#tour">Your truck</a>
+          </nav>
+          <Link to="/login" className="signin">
+            Sign in
+          </Link>
+          {demo && (
+            <DemoLink path="/demo" where="hero" className="btn go sm">
+              Try the demo
+            </DemoLink>
+          )}
+        </div>
       </header>
 
-      <main className="mx-auto max-w-5xl space-y-16 px-4 pb-16">
-        <section className="grid gap-8 pt-6 md:grid-cols-2 md:items-center">
-          <div>
-            <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">What your Rivian actually costs.</h1>
-            <p className="mt-4 text-lg text-neutral-300">
-              Every charge and trip priced from what Rivian billed or your rates, or flagged when we can&apos;t price it, with the source of
-              every number. Open source. Self-host it or let us run it.
-            </p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              {demoEnabled && (
-                <Link
-                  to="/demo"
-                  onClick={() => track("demo_click", { where: "hero" })}
-                  className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-                >
-                  Try the demo truck
-                </Link>
-              )}
-              {hostedDemo && (
-                <a
-                  href={DEMO_URL}
-                  onClick={() => track("demo_click", { where: "hero" })}
-                  className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-                >
-                  Try the demo truck
-                </a>
-              )}
-              <Link
-                to={signupEnabled ? "/signup" : "/login"}
-                className={
-                  demo
-                    ? "rounded-md border border-neutral-700 px-4 py-2 text-sm font-semibold text-neutral-100 hover:bg-neutral-900"
-                    : "rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+      <main>
+        <div className="lp-hero">
+          <Terrain />
+          <div className="wrap lp-hero-grid">
+            <div>
+              <p className="tag">
+                <b>Trip planner for Rivian owners</b>
+              </p>
+              <h1>
+                <span className="w">Plan</span> <span className="w" style={{ animationDelay: ".07s" }}>the</span>{" "}
+                <span className="w" style={{ animationDelay: ".14s" }}>trip.</span>{" "}
+                <br />
+                <span className="w" style={{ animationDelay: ".25s" }}>
+                  <em>Charging</em>
+                </span>{" "}
+                <span className="w" style={{ animationDelay: ".33s" }}>
+                  <em>included.</em>
+                </span>
+              </h1>
+              <p className="lede">
+                Where to stop, how long to charge, what you arrive with and what it costs. And how weather and elevation will affect your trip.
+              </p>
+              {ctas("hero")}
+              {demo && <p className="fine">The demo uses a sample truck and needs no account.</p>}
+            </div>
+            <HeroTrip />
+          </div>
+        </div>
+
+        <section className="lp-planner" id="planner" aria-labelledby="lp-planner-h">
+          <div className="wrap">
+            <div className="head rv">
+              <p className="tag">
+                <b>Trip planner</b>
+              </p>
+              <h2 id="lp-planner-h">
+                The route, the stops, the <em className="amber">bill.</em>
+              </h2>
+            </div>
+            <PlannerShots />
+            <div className="lp-bento">
+              <Tile title="Stops chosen for you" icon={<path d="M13 3 5 13h6l-1 8 8-10h-6z" />}>
+                Charger, minutes plugged in and the charge you arrive with.
+              </Tile>
+              <Tile title="Weather and elevation" icon={<path d="M7 17a4.5 4.5 0 0 1 .6-8.96A6 6 0 0 1 19 9.5 3.8 3.8 0 0 1 18 17zM9 20v1M13 20v1M17 20v1" />}>
+                See how weather and climbs will affect your trip, with a live radar layer on the map.
+              </Tile>
+              <Tile title="What is on the way" icon={<path d="M3 20h18M5 20V9l7-5 7 5v11M10 20v-5h4v5" />}>
+                Chargers, hotels and campgrounds, plus your own stops.
+              </Tile>
+              <Tile title="Multi-day trips" icon={<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />}>
+                Overnight stays, and plan vs actual when you are back.
+              </Tile>
+            </div>
+          </div>
+        </section>
+
+        <section id="tour" aria-labelledby="lp-tour-h">
+          <div className="wrap">
+            <div className="head rv">
+              <p className="tag">
+                <b>Between trips</b>
+              </p>
+              <h2 id="lp-tour-h">
+                And every mile <em>in between.</em>
+              </h2>
+            </div>
+            <PhoneTour />
+          </div>
+        </section>
+
+        <section style={{ paddingTop: 0 }} aria-labelledby="lp-next-h">
+          <div className="wrap">
+            <div className="head rv">
+              <p className="tag">
+                <b>Coming next</b>
+              </p>
+              <h2 id="lp-next-h">
+                Rivolt <em>Pro</em> and the <em>iPhone</em> app.
+              </h2>
+            </div>
+            <div className="lp-bento" style={{ maxWidth: 860 }}>
+              <Tile
+                title={
+                  <>
+                    Rivolt Pro <span className="lp-soon">Coming next</span>
+                  </>
+                }
+                icon={<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z" />}
+              >
+                A paid plan for longer trips and deeper history.
+              </Tile>
+              <Tile
+                title={
+                  <>
+                    iPhone app <span className="lp-soon">Coming next</span>
+                  </>
+                }
+                icon={
+                  <>
+                    <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+                    <path d="M11 18.5h2" />
+                  </>
                 }
               >
-                {signupEnabled ? "Create an account" : "Sign in"}
-              </Link>
+                The trip planner and your truck, in your pocket.
+              </Tile>
             </div>
-            <p className="mt-3 text-xs text-neutral-500">
-              {demo ? "The demo uses a generated sample truck: no sign-in, no Rivian account. " : ""}
-              Free during the beta. Sign up with Google or GitHub; no invite needed while there is room.
-            </p>
           </div>
-          <StatementIllustration />
         </section>
 
-        <section aria-label="What Rivolt does" className="grid gap-6 md:grid-cols-3">
-          <Claim
-            title="Every dollar has a source"
-            body="Billed by Rivian, estimated from your home rate, estimated from the charging network, or entered by you. Charges we can't price are flagged, not guessed. You always see which one."
-          >
-            <SourceLegend />
-          </Claim>
-          <Claim
-            title="Price the trip before you go"
-            body="See fast-charging spend versus charging at home before you leave, so the fast-charging stops on a road trip are no surprise."
-          >
-            <a href={`${DEMO_URL}/demo/trips/plan`} className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
-              See a planned trip first: Los Angeles to Las Vegas in two days
-            </a>
-          </Claim>
-          <Claim
-            title="Yours to keep"
-            body="MIT licensed. Export your data as a zip of CSVs, or download a full JSON backup. Run it on your own server with docker compose and an OIDC provider (maps and the planner need the optional tiles and Valhalla services), or use ours."
-          >
-            <a href={REPO} className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
-              Source and self-host guide
-            </a>
-          </Claim>
-        </section>
-
-        <section aria-label="More of what Rivolt does" className="grid gap-6 md:grid-cols-3">
-          <Claim
-            title="Lease miles, projected"
-            body="Enter your allowance and term. Rivolt projects your miles at lease return and what the overage would cost at your per-mile rate."
-          >
-            <Link to="/lease-calculator" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
-              Try the free lease calculator
-            </Link>
-          </Claim>
-          <Claim
-            title="Efficiency, explained"
-            body="mi/kWh broken down by outside temperature, speed and drive mode, so you can see what actually moves your number."
-          />
-          <Claim
-            title="Software update alerts"
-            body="A push notification when an update is offered or installs, and release notes linked from the Truck tab."
-          />
-        </section>
-
-        <section aria-label="Coming from ElectraFi" className="rounded-xl border border-neutral-800 p-6">
-          <h2 className="text-xl font-semibold">Coming from ElectraFi?</h2>
-          <p className="mt-3 text-sm text-neutral-300">
-            Bring your history with you. Download your data from ElectraFi, then upload the CSVs under Settings, Data,
-            Import ElectraFi CSV. Rivolt skips anything it has already recorded.
-          </p>
-          <Link to="/moving-from-electrafi" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
-            Import steps
-          </Link>
-        </section>
-
-        <section aria-label="Your Rivian login" className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-6">
-          <h2 className="text-xl font-semibold">How your Rivian login is handled</h2>
-          <ul className="mt-3 space-y-2 text-sm text-neutral-300">
-            <li>Your Rivian session is stored encrypted, and your Rivian password is never stored.</li>
-            <li>
-              We recommend connecting a separate Authorized Driver account, so Rivolt never holds your primary
-              login.
-            </li>
-            <li>
-              With an Authorized Driver account you can revoke Rivolt from the Rivian app at any time. Either way you
-              can delete your data from Settings.
-            </li>
-          </ul>
-          <Link to="/safe-to-connect" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
-            Is it safe to connect my Rivian account?
-          </Link>
-        </section>
-
-        <section aria-label="Limits" className="rounded-xl border border-neutral-800 p-6">
-          <h2 className="text-xl font-semibold">What Rivolt can&apos;t do</h2>
-          <ul className="mt-3 space-y-2 text-sm text-neutral-300">
-            <li>
-              Unofficial: Rivolt uses Rivian&apos;s unofficial API and is not affiliated with Rivian. It can break.
-            </li>
-            <li>No fleet leaderboards or software-rollout tracking.</li>
-            <li>Beta: expect rough edges.</li>
-          </ul>
+        <section style={{ paddingTop: 0 }} aria-labelledby="lp-close-h">
+          <div className="wrap">
+            <div className="lp-close-box rv">
+              <svg className="road" viewBox="0 0 520 300" fill="none" aria-hidden="true">
+                <path
+                  d="M92 238 C134 244 164 244 172 228 S190 178 204 159 S256 140 274 130 S312 104 328 98 S372 92 382 80 S404 36 410 18"
+                  stroke="#5ee9b5"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  pathLength={1}
+                />
+              </svg>
+              <h2 id="lp-close-h">
+                Where to <em>next?</em>
+              </h2>
+              {ctas("footer")}
+            </div>
+          </div>
         </section>
       </main>
 
-      <footer className="border-t border-neutral-800 px-4 py-6 text-xs text-neutral-500">
-        <div className="mx-auto max-w-5xl space-y-1">
-          <p>
-            Rivolt is open source under the MIT license.{" "}
-            <a href={REPO} className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
-              GitHub
-            </a>
-            {" · "}
-            <Link to="/privacy" className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
-              Privacy
-            </Link>
-            {" · "}
-            <Link to="/terms" className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
-              Terms
-            </Link>
-            {" · "}
-            <Link to="/support" className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
-              Support
-            </Link>
-            {" · "}
-            <Link to="/lease-calculator" className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100">
-              Lease calculator
-            </Link>
-            {demoEnabled && (
-              <>
-                {" · "}
-                <Link
-                  to="/demo"
-                  onClick={() => track("demo_click", { where: "footer" })}
-                  className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100"
-                >
-                  Demo
-                </Link>
-              </>
+      <footer className="lp-footer">
+        <div className="wrap">
+          <nav aria-label="More from Rivolt">
+            <a href={REPO}>GitHub</a>
+            <Link to="/privacy">Privacy</Link>
+            <Link to="/terms">Terms</Link>
+            <Link to="/support">Support</Link>
+            <Link to="/safe-to-connect">Is it safe to connect?</Link>
+            <Link to="/moving-from-electrafi">Moving from ElectraFi</Link>
+            <Link to="/lease-calculator">Lease calculator</Link>
+            {demo && (
+              <DemoLink path="/demo" where="footer">
+                Demo
+              </DemoLink>
             )}
-            {hostedDemo && (
-              <>
-                {" · "}
-                <a
-                  href={DEMO_URL}
-                  onClick={() => track("demo_click", { where: "footer" })}
-                  className="text-neutral-300 underline underline-offset-2 hover:text-neutral-100"
-                >
-                  Demo
-                </a>
-              </>
-            )}
-          </p>
+          </nav>
           <p>
-            Rivian is a trademark of Rivian Automotive, LLC. Rivolt is an independent project and is not affiliated
-            with, endorsed by or sponsored by Rivian.
+            Rivian is a trademark of Rivian Automotive, LLC. Rivolt is an independent, open-source project and is not affiliated with, endorsed by
+            or sponsored by Rivian.
           </p>
+          {hosted && <p>Operated by ZeroDowntime LLC · support@rivolt.dev</p>}
         </div>
       </footer>
     </div>
-  );
-}
-
-function Claim({ title, body, children }: { title: string; body: string; children?: React.ReactNode }) {
-  return (
-    <div>
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mt-2 text-sm text-neutral-300">{body}</p>
-      {children}
-    </div>
-  );
-}
-
-// Drawn illustration of a statement with masked figures: it shows the
-// shape of the product (source labels per charge), not anyone's data.
-function StatementIllustration() {
-  const rows: { label: string; source: string; tone: string }[] = [
-    { label: "Home charge", source: "home rate", tone: "text-emerald-300" },
-    { label: "Fast charge", source: "network estimate", tone: "text-amber-300" },
-    { label: "Fast charge", source: "billed by Rivian", tone: "text-sky-300" },
-    { label: "Away charge", source: "needs a price", tone: "text-neutral-400" },
-  ];
-  return (
-    <div
-      role="img"
-      aria-label="Illustration of a monthly statement: each charge lists its price source. Amounts are masked."
-      className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5"
-    >
-      <div className="text-xs uppercase tracking-wide text-neutral-500">Sample statement · figures masked</div>
-      <div className="mt-1 text-4xl font-semibold tabular-nums">$•••.••</div>
-      <ul className="mt-4 divide-y divide-neutral-800 text-sm">
-        {rows.map((r, i) => (
-          <li key={i} className="flex items-baseline justify-between gap-3 py-2">
-            <span>{r.label}</span>
-            <span className="flex items-baseline gap-3">
-              <span className={`text-xs ${r.tone}`}>{r.source}</span>
-              <span className="tabular-nums text-neutral-400">$•.••</span>
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function SourceLegend() {
-  const items = [
-    ["Billed", "bg-sky-400"],
-    ["Home rate", "bg-emerald-400"],
-    ["Network estimate", "bg-amber-400"],
-    ["Entered by you", "bg-neutral-400"],
-  ] as const;
-  return (
-    <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
-      {items.map(([t, c]) => (
-        <li key={t} className="flex items-center gap-1.5">
-          <span className={`inline-block h-2 w-2 rounded-full ${c}`} />
-          {t}
-        </li>
-      ))}
-    </ul>
   );
 }

@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
 // /moving-from-electrafi: the public ElectraFi import guide (signed out), from one markdown source,
-// linked from the landing page's "Coming from ElectraFi?" section.
+// linked from the landing page's footer.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
@@ -35,10 +35,10 @@ for (const theme of ["dark", "light"] as const) {
   }
 }
 
-test("the landing's ElectraFi section links the guide", async ({ page }) => {
+test("the landing's footer links the guide", async ({ page }) => {
   await stubApi(page, { signedIn: false, landing: true });
   await page.goto("/");
-  await page.getByRole("link", { name: "Import steps" }).click();
+  await page.getByRole("link", { name: "Moving from ElectraFi" }).click();
   await expect(page).toHaveURL(/\/moving-from-electrafi$/);
   await expect(page.getByRole("heading", { name: /Moving your history from ElectraFi/, level: 1 })).toBeVisible();
 });

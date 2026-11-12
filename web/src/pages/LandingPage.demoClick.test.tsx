@@ -23,7 +23,11 @@ describe("landing demo links", () => {
       </MemoryRouter>,
     );
     track.mockClear(); // the landing_view on mount is not the subject here
-    fireEvent.click(screen.getByRole("link", { name: "Try the demo truck" }));
+    fireEvent.click(screen.getAllByRole("link", { name: "Plan a sample trip" })[0]);
+    expect(track).toHaveBeenLastCalledWith("demo_click", { where: "hero" });
+    fireEvent.click(screen.getAllByRole("link", { name: "Plan a sample trip" })[1]);
+    expect(track).toHaveBeenLastCalledWith("demo_click", { where: "footer" });
+    fireEvent.click(screen.getByRole("link", { name: "Try the demo" }));
     expect(track).toHaveBeenLastCalledWith("demo_click", { where: "hero" });
     fireEvent.click(screen.getByRole("link", { name: "Demo" }));
     expect(track).toHaveBeenLastCalledWith("demo_click", { where: "footer" });

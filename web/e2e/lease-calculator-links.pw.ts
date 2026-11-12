@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// Something links to /lease-calculator: the footer (app and landing) and the landing's lease claim.
+// Something links to /lease-calculator: the footer (app and landing).
 for (const w of [390, 1280] as const) {
   test(`app footer links the calculator · ${w}px`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
@@ -16,15 +16,15 @@ for (const w of [390, 1280] as const) {
     await ctx.close();
   });
 
-  test(`landing links the calculator in the lease claim and the footer · ${w}px`, async ({ browser }) => {
+  test(`landing footer links the calculator · ${w}px`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: w, height: 900 } });
     const page = await ctx.newPage();
     await stubApi(page, { signedIn: false, landing: true });
     await page.goto("/");
-    await expect(page.getByRole("link", { name: "Try the free lease calculator" })).toHaveAttribute("href", "/lease-calculator");
-    await expect(page.locator("footer").getByRole("link", { name: "Lease calculator" })).toHaveAttribute("href", "/lease-calculator");
+    const link = page.locator("footer").getByRole("link", { name: "Lease calculator" });
+    await expect(link).toHaveAttribute("href", "/lease-calculator");
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
-    await page.getByRole("link", { name: "Try the free lease calculator" }).click();
+    await link.click();
     await expect(page.getByRole("heading", { name: "Rivian lease mileage calculator", level: 1 })).toBeVisible();
     await ctx.close();
   });

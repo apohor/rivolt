@@ -1,0 +1,180 @@
+/* Signed-out main page (#1909). Dark only: the shell's light theme never
+   applies here. Colours are the app's tokens; Geist / Geist Mono are the
+   self-hosted faces from index.css. Everything readable is visible at rest:
+   animations start from a visible state, and prefers-reduced-motion shows
+   the final state with no motion (the JS side checks the same query). */
+.lp {
+  --night: #06080c;
+  --panel: #0e1115;
+  --line: #1d2127;
+  --line2: #2e3239;
+  --ink: var(--color-neutral-100);
+  --text: var(--color-neutral-300);
+  --dim: var(--color-neutral-400);
+  --label: oklch(66% 0 0);
+  --route: var(--color-emerald-300);
+  --fill: var(--color-emerald-500);
+  --button: var(--color-emerald-600);
+  --charge: var(--color-amber-500);
+  --arrive: var(--color-rose-500);
+  --edge: rgba(255, 255, 255, 0.07);
+  --sans: 'Geist UI', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Geist Mono UI', ui-monospace, 'SF Mono', Menlo, monospace;
+  --card: inset 0 1px 0 0 var(--edge), 0 1px 2px rgba(0, 0, 0, 0.45), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  --sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 45%);
+  color-scheme: dark;
+  min-height: 100%;
+  background: var(--night) radial-gradient(120% 60% at 50% -10%, rgba(40, 60, 110, 0.22), transparent 70%);
+  color: var(--text);
+  font-family: var(--sans);
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+.lp img { max-width: 100%; display: block; }
+.lp a { color: inherit; }
+.lp .wrap { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+.lp h1, .lp h2, .lp h3 { font-weight: 600; color: var(--ink); letter-spacing: -0.035em; line-height: 1.06; margin: 0; text-wrap: balance; }
+.lp h2 { font-size: clamp(2rem, 4.4vw, 3.5rem); }
+.lp p { margin: 0; }
+.lp .lede { color: var(--dim); font-size: clamp(1.05rem, 1.5vw, 1.25rem); max-width: 34em; }
+.lp .tag { font-size: 12px; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--label); }
+.lp .tag b { color: var(--route); font-weight: 500; }
+.lp em { font-style: normal; color: var(--route); }
+.lp em.amber { color: var(--charge); }
+.lp :focus-visible { outline: 2px solid var(--route); outline-offset: 3px; border-radius: 6px; }
+
+/* nav */
+.lp-nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); background: rgba(6, 10, 16, 0.72); border-bottom: 1px solid transparent; transition: border-color 0.3s; }
+.lp-nav[data-stuck='true'] { border-color: var(--line); }
+.lp-nav .wrap { display: flex; align-items: center; gap: 28px; height: 64px; }
+.lp-logo { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1.1rem; color: var(--ink); text-decoration: none; letter-spacing: -0.02em; }
+.lp-logo svg { color: var(--route); }
+.lp-nav nav { display: flex; gap: 26px; margin-left: auto; font-size: 0.95rem; }
+.lp-nav nav a { text-decoration: none; color: var(--dim); transition: color 0.2s; }
+.lp-nav nav a:hover { color: var(--ink); }
+.lp-nav .signin { color: var(--dim); font-size: 0.95rem; text-decoration: none; }
+.lp-nav .signin:hover { color: var(--ink); }
+@media (max-width: 720px) {
+  .lp-nav nav { display: none; }
+  .lp-nav .signin { margin-left: auto; }
+}
+
+.lp .btn { display: inline-flex; align-items: center; gap: 10px; height: 46px; padding: 0 20px; border-radius: 10px; font-weight: 500; font-size: 0.98rem; text-decoration: none; border: 1px solid var(--line2); background: transparent; color: var(--ink); transition: transform 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.3s; white-space: nowrap; }
+.lp .btn:hover { transform: translateY(-2px); border-color: #34465a; }
+.lp .btn.go { background: var(--button); color: #fff; border-color: var(--button); box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.14); }
+.lp .btn.go:hover { box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.14), 0 0 44px -10px rgba(41, 213, 165, 0.6); }
+.lp .btn.sm { height: 36px; padding: 0 14px; font-size: 0.9rem; border-radius: 8px; }
+.lp .btn svg { width: 16px; height: 16px; transition: transform 0.2s; }
+.lp .btn:hover svg { transform: translateX(3px); }
+
+/* hero */
+.lp-hero { position: relative; padding: clamp(40px, 7vw, 88px) 0 clamp(64px, 9vw, 120px); isolation: isolate; }
+.lp-terrain { position: absolute; inset: auto 0 0 0; width: 100%; height: 78%; z-index: -1; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 80%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 80%, transparent); }
+.lp-hero-grid { display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr); gap: clamp(28px, 5vw, 72px); align-items: center; }
+.lp-hero h1 { margin-top: 20px; font-size: clamp(2.3rem, 4.7vw, 4.1rem); }
+.lp-hero h1 .w { display: inline-block; animation: lp-word 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+/* Moves only, never fades: text is full contrast at every frame, so a stalled animation hides nothing. */
+@keyframes lp-word { from { transform: translateY(0.3em); } to { transform: none; } }
+.lp-hero .lede { margin-top: 26px; }
+.lp .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+.lp .fine { margin-top: 18px; color: var(--dim); font-size: 0.9rem; }
+
+/* the sample trip card */
+.lp-trip { position: relative; border: 1px solid rgba(41, 213, 165, 0.42); border-radius: 14px; background: radial-gradient(70% 90% at 14% 0%, rgba(41, 213, 165, 0.13), transparent 72%), var(--sheen), rgba(14, 17, 21, 0.92); box-shadow: var(--card), 0 0 0 1px rgba(41, 213, 165, 0.16), 0 0 44px -10px rgba(41, 213, 165, 0.4); overflow: hidden; }
+.lp-trip-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.lp-state { white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 500; color: var(--route); border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: 999px; padding: 3px 10px; transition: color 0.3s; }
+.lp-state i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: lp-ping 1.6s infinite; }
+.lp-state[data-charging='true'] { color: var(--charge); }
+@keyframes lp-ping { 0% { box-shadow: 0 0 0 0 rgba(41, 213, 165, 0.6); } 100% { box-shadow: 0 0 0 10px rgba(41, 213, 165, 0); } }
+.lp-map { display: block; width: 100%; height: auto; }
+.lp-map text { font-family: var(--sans); font-size: 11.5px; font-weight: 600; fill: var(--ink); }
+.lp-cell { animation: lp-drift 16s linear infinite; }
+.lp-cell.c2 { animation-duration: 21s; animation-delay: -6s; }
+@keyframes lp-drift { from { translate: 0 0; } to { translate: -760px 70px; } }
+.lp-hud { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--line); margin: 0; }
+.lp-hud div { padding: 14px 16px 16px; border-left: 1px solid var(--line); }
+.lp-hud div:first-child { border-left: 0; }
+.lp-hud dt { font-size: 11px; font-weight: 500; letter-spacing: 0.09em; text-transform: uppercase; color: var(--label); }
+.lp-hud dd { margin: 4px 0 0; font-family: var(--mono); color: var(--ink); font-weight: 500; font-size: clamp(1.15rem, 2vw, 1.6rem); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lp-hud small { font-family: var(--sans); font-size: 0.6em; font-weight: 500; color: var(--dim); margin-left: 2px; }
+.lp-trip-foot { padding: 10px 20px 14px; color: var(--dim); font-size: 0.8rem; border-top: 1px solid var(--line); }
+@media (max-width: 900px) {
+  .lp-hero-grid { grid-template-columns: 1fr; }
+  .lp-hud { grid-template-columns: repeat(2, 1fr); }
+  .lp-hud div:nth-child(3) { border-left: 0; }
+  .lp-hud div:nth-child(n + 3) { border-top: 1px solid var(--line); }
+}
+
+.lp section { padding: clamp(72px, 11vw, 150px) 0; scroll-margin-top: 64px; }
+.lp .head { display: grid; gap: 18px; max-width: 780px; }
+
+/* planner */
+.lp-planner { position: relative; background: radial-gradient(900px 500px at 70% 0%, rgba(245, 158, 11, 0.1), transparent 70%); }
+.lp-plan-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: clamp(20px, 3vw, 40px); align-items: center; margin-top: clamp(40px, 6vw, 72px); perspective: 1800px; }
+.lp-browser { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #0a0f15; transform-origin: 50% 100%; transform: rotateX(var(--tilt, 0deg)) scale(var(--zoom, 1)); box-shadow: 0 60px 140px -50px rgba(0, 0, 0, 0.9), 0 0 90px -40px rgba(41, 213, 165, 0.35); }
+.lp-bar { display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+.lp-bar i { width: 10px; height: 10px; border-radius: 50%; background: #243240; }
+.lp-bar span { margin-left: 10px; font-size: 12px; color: var(--label); }
+.lp-card-shot { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 40px 90px -30px #000; transform: translateY(var(--lift, 0px)); }
+/* The phone capture is tall; show its map, trip cost and first stops so it sits level with the desktop shot. */
+.lp-card-shot img { width: 100%; aspect-ratio: 920 / 1700; object-fit: cover; object-position: top; }
+@media (max-width: 900px) {
+  .lp-plan-grid { grid-template-columns: 1fr; }
+  .lp-card-shot { max-width: 340px; }
+}
+
+/* tiles */
+.lp-bento { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 14px; margin-top: clamp(36px, 5vw, 60px); }
+.lp-tile { position: relative; border-radius: 12px; padding: 24px; background: var(--sheen), rgba(14, 17, 21, 0.6); box-shadow: var(--card); border: 1px solid var(--line); min-height: 190px; display: grid; align-content: space-between; gap: 28px; }
+.lp-tile svg { width: 28px; height: 28px; color: var(--route); }
+.lp-tile h3 { font-size: 1.1rem; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 8px; }
+.lp-tile p { color: var(--dim); font-size: 0.95rem; }
+.lp-soon { font-size: 11px; font-weight: 500; letter-spacing: 0.04em; color: var(--charge); border: 1px solid color-mix(in srgb, var(--charge) 35%, transparent); border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: 2px; white-space: nowrap; }
+
+/* phone tour */
+.lp-tour { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(24px, 6vw, 96px); margin-top: clamp(40px, 6vw, 72px); }
+.lp-stage { position: sticky; top: 96px; align-self: start; height: min(760px, calc(100vh - 128px)); display: grid; place-items: center; }
+.lp-glow { position: absolute; inset: 8% 6%; border-radius: 50%; background: radial-gradient(closest-side, var(--halo, rgba(41, 213, 165, 0.22)), transparent); filter: blur(30px); transition: background 0.6s; }
+.lp-phone { position: relative; height: 100%; aspect-ratio: 780 / 1688; border-radius: 44px; padding: 9px; background: var(--panel); border: 1px solid var(--line2); box-shadow: 0 50px 100px -30px #000, 0 0 0 1px #05080c inset; transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.lp-phone .scr { position: relative; width: 100%; height: 100%; border-radius: 36px; overflow: hidden; background: #000; }
+.lp-phone img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top; opacity: 0; transition: opacity 0.55s; }
+.lp-phone img[data-on='true'] { opacity: 1; }
+/* No dimming: the off chapters stay fully readable; the side bar marks the one on the phone. */
+.lp-chap { min-height: min(74vh, 640px); display: grid; align-content: center; gap: 16px; padding: 24px 0 24px 22px; border-left: 2px solid var(--line); transition: border-color 0.4s; }
+.lp-chap[data-on='true'] { border-left-color: var(--route); }
+.lp-chap .num { text-transform: uppercase; font-size: 12px; font-weight: 500; letter-spacing: 0.09em; color: var(--route); }
+.lp-chap h3 { font-size: clamp(1.7rem, 3.2vw, 2.6rem); }
+.lp-chap p { color: var(--dim); max-width: 30em; }
+.lp-chap .inline { display: none; }
+@media (max-width: 900px) {
+  .lp-tour { grid-template-columns: 1fr; }
+  .lp-stage { display: none; }
+  .lp-chap { min-height: 0; padding: 36px 0; border-left: 0; border-top: 1px solid var(--line); }
+  .lp-chap .inline { display: block; width: min(300px, 78%); border-radius: 28px; border: 1px solid #2a3846; margin-top: 12px; }
+}
+
+/* closing */
+.lp-close-box { position: relative; border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--card); padding: clamp(32px, 6vw, 72px); overflow: hidden; background: radial-gradient(700px 380px at 85% 110%, rgba(41, 213, 165, 0.22), transparent 70%), radial-gradient(500px 300px at 10% -10%, rgba(245, 158, 11, 0.12), transparent 70%), var(--panel); }
+.lp-close-box h2 { max-width: 11em; }
+.lp-close-box .road { position: absolute; right: -20px; bottom: -10px; width: min(520px, 60%); pointer-events: none; }
+.lp-close-box .road path { stroke-dasharray: 1; stroke-dashoffset: 0; animation: lp-draw 5s ease-in-out infinite alternate; }
+@keyframes lp-draw { from { stroke-dashoffset: 0.6; } to { stroke-dashoffset: 0; } }
+
+.lp-footer { border-top: 1px solid var(--line); padding: 28px 0 44px; color: var(--dim); font-size: 0.88rem; }
+.lp-footer .wrap { display: grid; gap: 14px; }
+.lp-footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.lp-footer nav a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.lp-footer nav a:hover { color: var(--ink); }
+
+/* Scroll reveals: visible at rest, animated only where view timelines exist. */
+@supports (animation-timeline: view()) {
+  .lp .rv { animation: lp-rise linear both; animation-timeline: view(); animation-range: entry 0% entry 55%; }
+  @keyframes lp-rise { from { transform: translateY(32px); } to { transform: none; } }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp *, .lp *::before, .lp *::after { animation: none !important; transition: none !important; }
+  .lp-browser, .lp-card-shot, .lp-phone { transform: none !important; }
+}
