@@ -64,6 +64,13 @@ refuse 'extraEnv RIVOLT_UNASSIGNED comes from a Secret' --set 'extraEnv[0].name=
 refuse 'unknown role "worker"' --set 'roles.secrets.env.RIVOLT_OIDC_EXAMPLE_CLIENT_SECRET[0]=worker'
 refuse 'holds VAPID_PRIVATE_KEY and roles.secrets.appSecretKeys does not assign it' --set secrets.existingSecret= --set 'secrets.kek=v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' \
   --set secrets.vapidPrivateKey=x --set roles.secrets.appSecretKeys.VAPID_PRIVATE_KEY=null
-refuse 'the api Rollout comes with the cutover' --set rollout.enabled=true
-refuse 'set dbConnections.systemMaxConns' --set dbConnections.systemMaxConns=
+refuse 'set roles.ingest.dbMaxConns' --set dbConnections.systemMaxConns=
+refuse 'set roles.jobs.replicaDivisor' --set config.replicaDivisor= --set roles.ingest.replicaDivisor=3 --set roles.api.replicaDivisor=4
+# With rollout.enabled the api role is the only Rollout, and the Rollout mounts the same row as the api Deployment did.
+rr=$(helm template rivolt "$chart" -f "$case" --set rollout.enabled=true --set rollout.strategy.canary.steps[0].setWeight=25)
+[ "$(echo "$rr" | yq 'select(.kind == "Rollout") | .metadata.name' | grep '^rivolt')" = rivolt-api ] || { echo "::error::rollout.enabled with roles: want the api role as the only Rollout"; fail=1; }
+[ "$(echo "$rr" | yq 'select(.kind == "Deployment") | .metadata.name' | grep '^rivolt' | sort | tr '\n' ' ')" = "rivolt-ingest rivolt-jobs " ] || { echo "::error::rollout.enabled with roles: ingest and jobs must stay Deployments"; fail=1; }
+[ "$(echo "$out" | yq 'select(.kind == "Deployment" and .metadata.name == "rivolt-api") | .spec.template.spec.containers[0] | [(.envFrom[]? | select(.secretRef) | .secretRef.name), (.env[]? | .name)] | sort | join(",")' | grep -v -e '^---$' -e '^$')" \
+  = "$(echo "$rr" | yq 'select(.kind == "Rollout") | .spec.template.spec.containers[0] | [(.envFrom[]? | select(.secretRef) | .secretRef.name), (.env[]? | .name)] | sort | join(",")' | grep -v -e '^---$' -e '^$')" ] \
+  || { echo "::error::the api Rollout mounts a different row than the api Deployment"; fail=1; }
 exit $fail
