@@ -94,3 +94,47 @@ for (const v of [
     await ctx.close();
   });
 }
+
+// A trip with a night in it plans as multi-day, so a stop added on the map re-plans it as multi-day too, not as one day that drops the
+// night. A saved trip whose stored plan is one day while its inputs already hold a night shows the one-day map with the night set.
+test("Add as a stop on a trip with a night re-plans it as multi-day", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
+  const single: unknown[] = [];
+  const multi: { days?: unknown[] }[] = [];
+  const inputs = { ...INPUTS, extra_stops: [pt("Omaha", 41.26, -95.94)], overnight_flags: [true] };
+  await page.route("**/api/trips/saved", (r) => r.fulfill(j([{ id: "st-n", name: "Night trip", inputs, plan: DEMO_PLAN, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])));
+  await page.route("**/api/trips/plan", (r) => {
+    single.push(r.request().postDataJSON());
+    return r.fulfill(j(DEMO_PLAN));
+  });
+  await page.route("**/api/trips/plan-multiday", (r) => {
+    multi.push(r.request().postDataJSON());
+    return r.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "stub" }) });
+  });
+  await page.goto("/trips/plan");
+  await page.getByRole("tab", { name: "Saved" }).click();
+  await page.getByRole("button", { name: /Night trip/ }).click();
+  await page.getByRole("tab", { name: "Planner" }).click();
+  const map = page.locator("[data-plan-area='map'] .maplibregl-map").first();
+  await expect(map.locator(".maplibregl-marker").first()).toBeVisible();
+  await settled(page);
+  const add = page.getByRole("button", { name: "Add as a stop" });
+  await expect(async () => {
+    const b = (await map.boundingBox())!;
+    await page.mouse.click(b.x + b.width * 0.6, b.y + b.height * 0.3, { button: "right" });
+    await expect(add).toBeVisible({ timeout: 1500 });
+  }).toPass({ timeout: 10_000 });
+  await add.click();
+  await expect.poll(() => multi.length).toBe(1);
+  // Two days, split at the night, and no one-day plan.
+  expect(multi[0].days).toHaveLength(2);
+  expect(JSON.stringify(multi[0])).toContain("Omaha");
+  expect(single).toHaveLength(0);
+  // The multi-day answer fails here: the failure is said, and both stops stay on the trip.
+  await expect(page.locator("[data-plan-bar] [role=alert]")).toBeVisible();
+  await expect(page.getByText("A place you chose").first()).toBeAttached();
+  await ctx.close();
+});
