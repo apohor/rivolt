@@ -224,6 +224,12 @@ export function TripRouteMap({
   // A 401/403 on the frame (radar is not served to this visitor) hides the button and says nothing, as if the server had no radar.
   const [radarDenied, setRadarDenied] = useState(false);
   const radarOn = radarEnabled() && !radarDenied;
+  // The map's fit reads the radar row's room through this, so a refused radar stops reserving it.
+  const radarOnRef = useRef(radarOn);
+  radarOnRef.current = radarOn;
+  // Reframes the route with the current padding (null until the map is up); called once the radar row goes away.
+  const reframeRef = useRef<(() => void) | null>(null);
+  useEffect(() => { if (radarDenied) reframeRef.current?.(); }, [radarDenied]);
   const [showRadar, setShowRadar] = useState(false);
   const [radarLabel, setRadarLabel] = useState("");
   const [radarSpokenLabel, setRadarSpokenLabel] = useState("");
@@ -558,16 +564,16 @@ export function TripRouteMap({
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
         const card = el.querySelector<HTMLElement>(".rivolt-trip-card");
         // On a phone the card rides above the sheet, and above the radar strip on its edge (reserved whether or not the radar is on, as at the top).
-        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() + (radarEnabled() ? 28 : 0) : 0) : 0;
+        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 : 0) : 0) : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
-        // ...and the radar strip under them (one line, and the label of a pin that sits just under it), when the server has radar: reserved whether or not it is on, so turning it on covers no pin.
+        // ...and the radar strip under them (one line, and the label of a pin that sits just under it), when this visitor has radar: reserved whether or not it is on, so turning it on covers no pin.
         // On a phone the strip rides the sheet's edge instead, inside the bottom's room.
-        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom + (radarEnabled() && !sheetEdge() ? 52 : 0)) : 24;
+        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom + (radarOnRef.current && !sheetEdge() ? 52 : 0)) : 24;
         const base = fill ? (narrow ? 40 : 24) : 24;
         // The phone's sheet covers the lower part of the map at half: the route clears it and the strip on its edge.
-        const cover = sheetEdge() ? sheetCover() + (radarEnabled() ? 28 : 0) + 12 : 0;
+        const cover = sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 : 0) + 12 : 0;
         const bottom = Math.max(base, Math.min(Math.max(lift, cover), el.clientHeight - top - 60));
         return { top, bottom, left: 24, right: 24 };
       };
@@ -856,6 +862,8 @@ export function TripRouteMap({
         if (!touched && snap !== "full") fit(fitZoom);
       };
       cleanups.push(() => { followSheetRef.current = null; });
+      reframeRef.current = () => { if (alive && mapRef.current === map && !touched) fit(fitZoom); };
+      cleanups.push(() => { reframeRef.current = null; });
       cleanups.push(() => { ro.disconnect(); roChips.disconnect(); if (roRaf) cancelAnimationFrame(roRaf); });
       // The map's first full load can land after the person (or our own popup nudge) has already moved it: do not reframe it back.
       map.once("load", () => { if (!touched) fit(fitZoom); });

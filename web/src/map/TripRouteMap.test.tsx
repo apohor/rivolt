@@ -235,6 +235,48 @@ describe("TripRouteMap", () => {
     }
   });
 
+  it("stops reserving the radar row's room once the frame is refused, and reframes the route", async () => {
+    radarCfg.url = "/api/maps/radar/{z}/{x}/{y}.png";
+    radarCfg.frameUrl = "/api/maps/radar/frame";
+    plannerState.prefs = { ...plannerState.prefs, radar_on: true };
+    // A sized map under a phone sheet, so the fit runs and the strip on the sheet's edge counts.
+    const w = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(400);
+    const h = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(800);
+    const sheet = document.createElement("div");
+    sheet.setAttribute("data-plan-sheet", "");
+    document.body.appendChild(sheet);
+    const lastBottom = () => (FakeMap.last?.fitBounds.mock.calls.at(-1)?.[1] as { padding: { bottom: number } }).padding.bottom;
+    try {
+      vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ frame_unix: 1_700_000_000 }) }) as unknown as Response));
+      render(<TripRouteMap route={route} fill />);
+      await screen.findByText(/^NOAA\/NWS · \d/);
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+      FakeMap.last?.fire("load");
+      await waitFor(() => expect(FakeMap.last?.fitBounds).toHaveBeenCalled());
+      const withRadar = lastBottom();
+      cleanup();
+      // The refusal lands after the route was framed: the map reframes without the strip's room.
+      let refuse = () => {};
+      vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((res) => { refuse = () => res({ ok: false, status: 401, json: async () => ({}) } as unknown as Response); })));
+      render(<TripRouteMap route={route} fill />);
+      await waitFor(() => expect(FakeMap.last?.layers.has("rivolt-track-main")).toBe(true));
+      FakeMap.last?.fire("load");
+      await waitFor(() => expect(FakeMap.last?.fitBounds).toHaveBeenCalled());
+      expect(lastBottom()).toBe(withRadar);
+      refuse();
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Radar" })).toBeNull());
+      await waitFor(() => expect(lastBottom()).toBeLessThan(withRadar));
+    } finally {
+      cleanup();
+      sheet.remove();
+      w.mockRestore();
+      h.mockRestore();
+      radarCfg.url = "";
+      radarCfg.frameUrl = "";
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("draws the radar layer on the first plan with radar on, with no toggle (tiles still loading)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ frame_unix: 1_700_000_000 }) }) as unknown as Response));
     try {
