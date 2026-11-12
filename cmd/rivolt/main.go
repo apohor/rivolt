@@ -2833,7 +2833,7 @@ func runServer() {
 			"secure_cookie", secureCookie,
 			"cookie_secret", cookieSecretSource,
 		)
-	} else {
+	} else if role.PublicRoutes {
 		logger.Warn("auth not enforced — API is open. Configure RIVOLT_OIDC_PROVIDERS or RIVOLT_AUTH_BYPASS_USER to enable.")
 	}
 
