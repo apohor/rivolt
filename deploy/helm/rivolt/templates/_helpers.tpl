@@ -736,6 +736,10 @@ per-role pool shares), on a matrix entry naming an unknown role, and on a secret
 {{- range $e := $v.extraEnv }}{{ if eq $e.name $k }}{{ fail (printf "roles.%s.env.%s is also in extraEnv, and the later entry would win: set it in one place" $r $k) }}{{ end }}{{ end }}
 {{- end }}
 {{- if hasKey ($rs.podLabels | default dict) "rivolt.dev/role" }}{{ fail (printf "roles.%s.podLabels: rivolt.dev/role is the chart's own label" $r) }}{{ end }}
+{{- range $k := keys ($rs.podLabels | default dict) }}
+{{- if hasKey ($v.podLabels | default dict) $k }}{{ fail (printf "roles.%s.podLabels.%s is also in podLabels, and a duplicate key renders twice: set it in one place" $r $k) }}{{ end }}
+{{- if has $k (list "app.kubernetes.io/name" "app.kubernetes.io/instance") }}{{ fail (printf "roles.%s.podLabels.%s is a Service selector label" $r $k) }}{{ end }}
+{{- end }}
 {{- end }}
 {{- if hasKey ($v.podLabels | default dict) "rivolt.dev/role" }}{{ fail "roles.enabled: podLabels must not carry rivolt.dev/role (the chart sets it per role)" }}{{ end }}
 {{- range $e := $v.extraEnv }}

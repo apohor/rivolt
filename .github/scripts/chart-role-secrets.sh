@@ -72,6 +72,8 @@ refuse 'roles.ingest.env: RIVOLT_DB_MAX_CONNS is set by the chart' --set roles.i
 refuse 'is also in extraEnv, and the later entry would win' --set roles.ingest.env.RIVOLT_EXAMPLE_PLAIN=2
 refuse 'extraEnv RIVOLT_ROLE duplicates' --set 'extraEnv[1].name=RIVOLT_ROLE' --set 'extraEnv[1].value=x'
 refuse 'rivolt.dev/role is the chart' --set 'roles.api.podLabels.rivolt\.dev/role=x'
+refuse 'is also in podLabels' --set 'podLabels.team=a' --set 'roles.api.podLabels.team=b'
+refuse 'is a Service selector label' --set 'roles.api.podLabels.app\.kubernetes\.io/name=x'
 refuse 'podLabels must not carry rivolt.dev/role' --set 'podLabels.rivolt\.dev/role=x'
 # With rollout.enabled the api role is the only Rollout, and the Rollout mounts the same row as the api Deployment did.
 rr=$(helm template rivolt "$chart" -f "$case" --set rollout.enabled=true --set rollout.strategy.canary.steps[0].setWeight=25)
