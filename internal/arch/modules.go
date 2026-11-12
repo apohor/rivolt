@@ -55,7 +55,7 @@ var modules = map[string]string{
 	"internal/archive": "jobs", "internal/retention": "jobs", "internal/repair": "jobs", "internal/recap": "jobs", "internal/weekly": "jobs",
 	"internal/insights": "jobs", "internal/push": "jobs", "internal/onboardmail": "jobs",
 	"internal/plugreminder": "jobs", "internal/overnight": "jobs", "internal/r2arrival": "jobs",
-	"internal/engage": "jobs", "internal/electrafi": "jobs", "internal/demo": "jobs", "internal/backfill": "jobs",
+	"internal/engage": "jobs", "internal/electrafi": "jobs", "internal/demo": "jobs", "internal/backfill": "jobs", "internal/outbox": "jobs",
 
 	// The composition roots: they wire everything.
 	"cmd/rivolt": "root", "cmd/replay": "root", "cmd/sampletruck": "root",
