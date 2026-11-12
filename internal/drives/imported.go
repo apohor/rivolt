@@ -3,6 +3,7 @@ package drives
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -10,6 +11,20 @@ import (
 	"github.com/apohor/rivolt/internal/histfloor"
 	"time"
 )
+
+// ErrImportClosed: the batch is undone (or not this user's), so nothing more may be written under it.
+var ErrImportClosed = errors.New("drives: import batch is closed")
+
+// lockLiveBatch takes a KEY SHARE lock on the live batch row. Undo's FOR UPDATE on the row waits for the insert's transaction, and an
+// insert that starts after Undo committed finds undone_at set, so no row can be written under a batch that was already undone.
+func lockLiveBatch(ctx context.Context, tx *sql.Tx, userID, importID uuid.UUID) error {
+	var one int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM imports WHERE id = $1 AND user_id = $2 AND undone_at IS NULL FOR KEY SHARE`, importID, userID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrImportClosed
+	}
+	return err
+}
 
 // InsertImported writes one drive that came from a history import (batch importID, an imports row). It is insert-only: a drive with the
 // same (vehicle, external id) is left exactly as it is, so a re-import never overwrites a row the user has edited since (notes, tags,
@@ -32,7 +47,15 @@ func (s *Store) InsertImported(ctx context.Context, importID uuid.UUID, d Drive,
 	for k, v := range extra {
 		meta[k] = v
 	}
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if err := lockLiveBatch(ctx, tx, s.userID, importID); err != nil {
+		return false, err
+	}
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO drives (`+driveColumns+`, import_id
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23)
 		ON CONFLICT (vehicle_id, external_id) DO NOTHING`,
@@ -51,6 +74,9 @@ func (s *Store) InsertImported(ctx context.Context, importID uuid.UUID, d Drive,
 		return false, err
 	}
 	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
 	return n == 1, nil
 }
 
@@ -69,6 +95,8 @@ func (s *Store) Covers(ctx context.Context, rivianVehicleID string, start, end t
 		  SELECT 1 FROM drives d,
 		         LATERAL (SELECT GREATEST(d.ended_at, d.started_at) AS e_end, GREATEST($4::timestamptz, $3::timestamptz) AS n_end) x
 		   WHERE d.user_id = $1 AND d.vehicle_id = $2
+		     AND d.started_at <= GREATEST($4::timestamptz, $3::timestamptz)
+		     AND d.started_at >= $3::timestamptz - interval '7 days'
 		     AND tstzrange(d.started_at, x.e_end) && tstzrange($3::timestamptz, x.n_end)
 		     AND (LEAST(x.e_end, x.n_end) - GREATEST(d.started_at, $3::timestamptz)
 		            >= 0.5 * LEAST(x.e_end - d.started_at, x.n_end - $3::timestamptz)

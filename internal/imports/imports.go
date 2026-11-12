@@ -86,22 +86,28 @@ func (s *Store) Begin(ctx context.Context, b Batch) (uuid.UUID, error) {
 		meta = []byte("{}")
 	}
 	var id uuid.UUID
-	err = s.db.QueryRowContext(ctx, `
-		INSERT INTO imports (user_id, vehicle_id, source, filename, sha256, bytes, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
-		ON CONFLICT (user_id, source, sha256) WHERE sha256 IS NOT NULL AND undone_at IS NULL DO NOTHING
-		RETURNING id`, s.userID, b.VehicleID, b.Source, b.Source+"."+b.Ext, b.SHA256, b.Bytes, string(meta)).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
+	for try := 0; try < 2; try++ {
+		err = s.db.QueryRowContext(ctx, `
+			INSERT INTO imports (user_id, vehicle_id, source, filename, sha256, bytes, metadata)
+			VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+			ON CONFLICT (user_id, source, sha256) WHERE sha256 IS NOT NULL AND undone_at IS NULL DO NOTHING
+			RETURNING id`, s.userID, b.VehicleID, b.Source, b.Source+"."+b.Ext, b.SHA256, b.Bytes, string(meta)).Scan(&id)
+		if !errors.Is(err, sql.ErrNoRows) {
+			return id, err
+		}
 		var dup AlreadyImported
 		err = s.db.QueryRowContext(ctx, `
 			SELECT id, started_at FROM imports
 			 WHERE user_id = $1 AND source = $2 AND sha256 = $3 AND undone_at IS NULL`, s.userID, b.Source, b.SHA256).Scan(&dup.ID, &dup.At)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue // the batch we collided with was undone in between: insert again
+		}
 		if err != nil {
 			return uuid.Nil, err
 		}
 		return uuid.Nil, &dup
 	}
-	return id, err
+	return uuid.Nil, errors.New("imports: could not record the batch, try again")
 }
 
 // Finish records the counts and the end time of a batch.

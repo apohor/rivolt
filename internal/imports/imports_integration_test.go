@@ -159,10 +159,12 @@ func TestInsertImportedIsInsertOnlyAndUndoRemovesEverything(t *testing.T) {
 	}
 	for _, q := range []string{
 		`INSERT INTO drive_recaps (user_id, drive_id, model, recap) VALUES ($1, 'imp-d1', 'm', 'r')`,
-		`INSERT INTO drive_efficiency (user_id, drive_id) VALUES ($1, 'imp-d1')`,
+		`INSERT INTO drive_efficiency (user_id, drive_id, model, analysis_text, result_json) VALUES ($1, 'imp-d1', 'm', 'a', '{}')`,
+		`INSERT INTO drive_weather (user_id, drive_id, coarse_lat, coarse_lon, sampled_at, provider) VALUES ($1, 'imp-d1', 1, 1, now(), 'p')`,
+		`INSERT INTO drive_weather_series (user_id, drive_id, sampled_at, cadence_minutes, coarse_lat, coarse_lon, provider) VALUES ($1, 'imp-d1', now(), 15, 1, 1, 'p')`,
 	} {
 		if _, err := e.pool.Exec(q, e.uid); err != nil {
-			t.Logf("skip per-drive seed (%v)", err)
+			t.Fatalf("seed per-drive row: %v", err)
 		}
 	}
 	// A live drive of the same user is not touched.
@@ -235,5 +237,41 @@ func TestImportFKsAreValidated(t *testing.T) {
 	}
 	if n := e.count(t, `SELECT count(*) FROM pg_indexes WHERE indexname = 'imports_user_sha'`); n != 0 {
 		t.Fatal("old imports_user_sha index still present")
+	}
+}
+
+func TestUndoRacingInsertsLeavesNothingBehind(t *testing.T) {
+	e := setup(t)
+	ctx := context.Background()
+	id, err := e.is.Begin(ctx, imports.Batch{Source: "tezlab_import", Ext: "csv", SHA256: sha("e"), Bytes: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Date(2025, 5, 1, 0, 0, 0, 0, time.UTC)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 300; i++ {
+			at := t0.Add(time.Duration(i) * time.Hour)
+			if _, err := e.ds.InsertImported(ctx, id, drive("race-d"+strings.Repeat("x", i%3)+time.Duration(i).String(), at, 20*time.Minute), nil); err != nil && !errors.Is(err, drives.ErrImportClosed) {
+				t.Error(err)
+				return
+			}
+			if _, err := e.cs.InsertImported(ctx, id, charge("race-c"+time.Duration(i).String(), at, 20*time.Minute), nil); err != nil && !errors.Is(err, charges.ErrImportClosed) {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	time.Sleep(150 * time.Millisecond)
+	if _, err := e.is.Undo(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	if n := e.count(t, `SELECT (SELECT count(*) FROM drives WHERE import_id = $1) + (SELECT count(*) FROM charges WHERE import_id = $1)`, id); n != 0 {
+		t.Fatalf("%d rows carry the undone import id", n)
+	}
+	if _, err := e.ds.InsertImported(ctx, id, drive("late", t0, time.Hour), nil); !errors.Is(err, drives.ErrImportClosed) {
+		t.Fatalf("insert after undo = %v, want ErrImportClosed", err)
 	}
 }
