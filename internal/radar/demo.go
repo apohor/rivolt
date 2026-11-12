@@ -23,7 +23,8 @@ const (
 	DemoMaxTiles = 160
 	// demoPadDeg widens each sample route's box so the tiles beside the route are there when the map is panned a little.
 	demoPadDeg    = 0.75
-	demoTTL       = 45 * time.Minute // a warmed frame outlives a missed round or two; a frame older than staleAfter is not served
+	demoTTL       = 15 * time.Minute // frames come about every 10 min; a feed that stops leaves the tiles to expire
+	demoOldTTL    = 3 * time.Minute  // the previous frame's tiles, kept for maps still showing it
 	demoWarmEvery = 5 * time.Minute
 	demoFrameRead = 15 * time.Second // how long a pod keeps the warmed frame it read
 	demoTileMax   = 64 << 10
@@ -252,12 +253,12 @@ func (d *Demo) Run(ctx context.Context) {
 // number of tiles stored.
 func (d *Demo) Warm(ctx context.Context) int {
 	if rc := d.svc.cfg.Redis; rc != nil {
-		// One pod warms per round: the lock is held for most of the interval, and a pod that cannot reach Redis warms for itself.
+		// One pod warms per round: the lock is held for most of the interval. A pod that cannot reach Redis does nothing.
 		c, cancel := context.WithTimeout(ctx, redisOp)
 		ok, err := rc.SetNX(c, d.svc.rkey("demo", "warm-lock"), "1", demoWarmEvery-time.Minute).Result()
 		cancel()
-		if err == nil && !ok {
-			return 0
+		if err != nil || !ok {
+			return 0 // another pod has the round, or Redis is down: fetching from NOAA with nowhere to store it would only spend upstream calls
 		}
 	}
 	fr, err := d.svc.Frames(ctx)
@@ -303,7 +304,15 @@ func (d *Demo) Warm(ctx context.Context) int {
 	now := d.svc.cfg.Now()
 	if rc := d.svc.cfg.Redis; rc != nil {
 		c, cancel := context.WithTimeout(ctx, redisOp)
-		_ = rc.Set(c, d.frameKey(), strconv.FormatInt(frame.Unix(), 10), demoTTL).Err()
+		prev, _ := rc.GetSet(c, d.frameKey(), strconv.FormatInt(frame.Unix(), 10)).Int64()
+		_ = rc.Expire(c, d.frameKey(), demoTTL).Err()
+		if prev != 0 && prev != frame.Unix() {
+			pipe := rc.Pipeline()
+			for _, t := range d.tiles {
+				pipe.Expire(c, d.tileKey(prev, t), demoOldTTL)
+			}
+			_, _ = pipe.Exec(c)
+		}
 		cancel()
 	}
 	d.mu.Lock()

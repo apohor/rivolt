@@ -42,6 +42,9 @@ func newDemoRadar(svc *radar.Service, m *metrics.Metrics, log *slog.Logger) *rad
 	if len(boxes) == 0 {
 		return nil
 	}
+	for _, r := range []string{"hit", "miss", "limited"} {
+		m.DemoRadarTotal.WithLabelValues(r)
+	}
 	d := radar.NewDemo(svc, boxes, func(result string) { m.DemoRadarTotal.WithLabelValues(result).Inc() }, log)
 	log.Info("demo radar enabled", "tiles", d.Len())
 	return d

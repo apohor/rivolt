@@ -174,3 +174,45 @@ func TestDemoWarmIsOnePodAndOncePerFrame(t *testing.T) {
 		t.Error("the second pod does not see the warmed frame")
 	}
 }
+
+// With Redis down a pod does not warm: the tiles would have nowhere to go, so NOAA is not called at all.
+func TestDemoWarmWithRedisDownCallsNothing(t *testing.T) {
+	mr := miniredis.RunT(t)
+	f := &fakeNOAA{t: t, newest: t0.Add(-3 * time.Minute)}
+	d, _ := newDemoOver(t, f, mr.Addr())
+	mr.Close()
+	if n := d.Warm(context.Background()); n != 0 {
+		t.Errorf("stored %d with Redis down", n)
+	}
+	if len(f.maps()) != 0 || f.capsHits.Load() != 0 {
+		t.Errorf("Redis down reached NOAA: %d tiles, %d capabilities", len(f.maps()), f.capsHits.Load())
+	}
+}
+
+// A new frame shortens the previous frame's tiles to a few minutes, so Redis holds about two frames, not nine.
+func TestDemoNewFrameExpiresThePreviousTiles(t *testing.T) {
+	mr := miniredis.RunT(t)
+	f := &fakeNOAA{t: t, newest: t0.Add(-13 * time.Minute)}
+	d, _ := newDemoOver(t, f, mr.Addr())
+	d.Warm(context.Background())
+	first, _ := d.svc.cfg.Redis.Get(context.Background(), d.frameKey()).Int64()
+	f.newest = t0.Add(-3 * time.Minute)
+	d.svc.mu.Lock()
+	d.svc.framesAt = time.Time{}
+	d.svc.mu.Unlock()
+	mr.Del(d.svc.rkey("frames"))
+	mr.Del(d.svc.rkey("demo", "warm-lock"))
+	mr.FastForward(2 * time.Minute)
+	d.mu.Lock()
+	d.frameAt = time.Time{}
+	d.mu.Unlock()
+	if d.Warm(context.Background()) == 0 {
+		t.Fatal("second frame not warmed")
+	}
+	for tl := range d.set {
+		if ttl := mr.TTL(d.tileKey(first, tl)); ttl > demoOldTTL {
+			t.Fatalf("previous frame tile kept %v", ttl)
+		}
+		break
+	}
+}
