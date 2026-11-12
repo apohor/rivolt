@@ -498,6 +498,9 @@ export type Charge = {
   // the activity feed sends energy_estimated.
   EnergyEstimated?: boolean;
   energy_estimated?: boolean;
+  // "rivian_receipt" when EnergyAddedKWh comes from the matched Rivian receipt; EnergyRecordedKWh is what Rivolt recorded itself.
+  EnergySource?: string;
+  EnergyRecordedKWh?: number;
   MilesAdded: number;
   MaxPowerKW: number;
   AvgPowerKW: number;

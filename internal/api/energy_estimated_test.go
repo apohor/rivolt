@@ -40,9 +40,17 @@ func TestEnergyEstimatedIsServed(t *testing.T) {
 	if err != nil || len(recs) != 2 {
 		t.Fatalf("csv: %v %v", recs, err)
 	}
-	last := len(exportChargeHeader) - 1
+	last := -1
+	for i, h := range exportChargeHeader {
+		if h == "energy_estimated" {
+			last = i
+		}
+	}
+	if last < 0 {
+		t.Fatal("no energy_estimated column")
+	}
 	if exportChargeHeader[last] != "energy_estimated" || len(recs[1]) != len(exportChargeHeader) || recs[1][last] != "true" {
-		t.Errorf("csv last column %q = %q (row has %d fields, header %d), want energy_estimated = true", exportChargeHeader[last], recs[1][last], len(recs[1]), len(exportChargeHeader))
+		t.Errorf("csv column %q = %q (row has %d fields, header %d), want energy_estimated = true", exportChargeHeader[last], recs[1][last], len(recs[1]), len(exportChargeHeader))
 	}
 	e.Charges[0].EnergyEstimated = false
 	buf.Reset()

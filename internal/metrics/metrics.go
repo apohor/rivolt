@@ -198,6 +198,12 @@ type Metrics struct {
 	TakeoverWaitSeconds    *prometheus.HistogramVec
 	TakeoverStarvedTotal   *prometheus.CounterVec
 	TakeoverLocalOnlyTotal *prometheus.CounterVec
+
+	// ReceiptEnergyTotal counts matched receipts looked at by the receipt-energy check, by outcome (applied, would_apply in observe
+	// mode, or why not: home, no_detail, no_energy, open, below_recorded, above_tail_limit), once per receipt and outcome.
+	// ReceiptEnergyDeltaPct is the receipt's energy minus what we recorded, as a percentage of ours, for the receipts the check could compare.
+	ReceiptEnergyTotal    *prometheus.CounterVec
+	ReceiptEnergyDeltaPct prometheus.Histogram
 	// SessionDecrypts counts decrypts of a stored Rivian session by call site (SessionDecryptSites; any other label is "other"); no user id.
 	// TokensLoadedUnheld is how many clients in this pod's account registry hold a session token for a user whose group this pod does not
 	// hold (single-owner M4-5 baseline: flag-off prod shows what the flag would remove; 0 with lead mode off, where the notion does not apply).
@@ -488,6 +494,15 @@ func New() *Metrics {
 			Name: "rivolt_rivian_takeover_starved_total",
 			Help: "Takeover calls that went ahead without a pacing slot after the wait bound (30 s active, 5 min idle).",
 		}, []string{"class", "priority"}),
+		ReceiptEnergyTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_receipt_energy_total",
+			Help: "Matched Rivian receipts the receipt-energy check looked at, by outcome (applied, would_apply in observe mode, home, no_detail, no_energy, open, below_recorded, above_tail_limit).",
+		}, []string{"outcome"}),
+		ReceiptEnergyDeltaPct: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "rivolt_receipt_energy_delta_pct",
+			Help:    "Receipt energy minus the energy we recorded, as a percentage of ours, for matched non-home receipts the check could compare.",
+			Buckets: []float64{-5, -2, -1, 0, 0.5, 1, 2, 3, 5, 10, 20, 50},
+		}),
 		TakeoverLocalOnlyTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_rivian_takeover_local_only_total",
 			Help: "Takeover calls paced by the process's own bucket alone because the fleet budget in Redis did not answer.",
@@ -1047,6 +1062,8 @@ func New() *Metrics {
 		m.TakeoverWaitSeconds,
 		m.TakeoverStarvedTotal,
 		m.TakeoverLocalOnlyTotal,
+		m.ReceiptEnergyTotal,
+		m.ReceiptEnergyDeltaPct,
 		m.SessionDecrypts,
 		m.TokensLoadedUnheld,
 		m.LeaseReconcileTotal,

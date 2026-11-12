@@ -146,6 +146,12 @@ type Charge struct {
 	// longer than its integration cap) from the SoC the pack gained across them, not metered. 0 when none. Stored
 	// in metadata ("gap_kwh"); an upsert with 0 leaves a stored value alone.
 	GapKWh float64
+	// EnergySource is "rivian_receipt" when EnergyAddedKWh was taken from the matched Rivian receipt (the recorder's
+	// own total, kept in EnergyRecordedKWh, stopped short of the session's end); empty when it is what we recorded.
+	// Stored in metadata ("energy_source", "energy_recorded_kwh"), written only by the receipts sync; the upsert
+	// below keeps the receipt's energy, power and price-based cost when the row is saved again.
+	EnergySource      string
+	EnergyRecordedKWh float64
 }
 
 // chargeMetaDoc is the metadata an upsert merges into the row: the energy marks, only the ones that are set,
@@ -312,17 +318,18 @@ const chargeOnConflict = `
 			ended_at         = EXCLUDED.ended_at,
 			start_soc_pct    = EXCLUDED.start_soc_pct,
 			end_soc_pct      = EXCLUDED.end_soc_pct,
-			energy_added_kwh = EXCLUDED.energy_added_kwh,
+			-- Energy the receipts sync took from Rivian's receipt survives a re-save of the session.
+			energy_added_kwh = CASE WHEN charges.metadata->>'energy_source' = 'rivian_receipt' THEN charges.energy_added_kwh ELSE EXCLUDED.energy_added_kwh END,
 			miles_added      = EXCLUDED.miles_added,
 			max_power_kw     = EXCLUDED.max_power_kw,
-			avg_power_kw     = EXCLUDED.avg_power_kw,
+			avg_power_kw     = CASE WHEN charges.metadata->>'energy_source' = 'rivian_receipt' THEN charges.avg_power_kw ELSE EXCLUDED.avg_power_kw END,
 			final_state      = EXCLUDED.final_state,
 			lat              = EXCLUDED.lat,
 			lon              = EXCLUDED.lon,
 			source           = EXCLUDED.source,
 			-- A price the user entered survives the recorder re-saving
 			-- the session (lifecycle upserts keep firing until close).
-			cost             = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.cost ELSE EXCLUDED.cost END,
+			cost             = CASE WHEN charges.metadata->>'cost_recorded' IS NOT NULL THEN charges.cost WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.cost ELSE EXCLUDED.cost END,
 			currency         = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.currency ELSE EXCLUDED.currency END,
 			price_per_kwh    = CASE WHEN charges.cost_source = 'user' OR (charges.network_state = 'confirmed' AND EXCLUDED.cost_source IS DISTINCT FROM 'rivian') THEN charges.price_per_kwh ELSE EXCLUDED.price_per_kwh END,
 			-- Only overwrite thermal_kwh when the new row actually
@@ -549,7 +556,8 @@ func (s *Store) listWindow(ctx context.Context, limit int, rivianVehicleID strin
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
 		       COALESCE(c.metadata->>'energy_estimated' = 'true', false),
-		       COALESCE((c.metadata->>'gap_kwh')::float8, 0)
+		       COALESCE((c.metadata->>'gap_kwh')::float8, 0),
+		       COALESCE(c.metadata->>'energy_source',''), COALESCE((c.metadata->>'energy_recorded_kwh')::float8, 0)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -579,7 +587,7 @@ func (s *Store) listWindow(ctx context.Context, limit int, rivianVehicleID strin
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh,
+			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh, &c.EnergySource, &c.EnergyRecordedKWh,
 		); err != nil {
 			return nil, err
 		}
@@ -621,7 +629,8 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
 		       COALESCE(c.metadata->>'energy_estimated' = 'true', false),
-		       COALESCE((c.metadata->>'gap_kwh')::float8, 0)
+		       COALESCE((c.metadata->>'gap_kwh')::float8, 0),
+		       COALESCE(c.metadata->>'energy_source',''), COALESCE((c.metadata->>'energy_recorded_kwh')::float8, 0)
 		FROM charges c
 		WHERE c.user_id = $1 AND c.vehicle_id = $3
 		  AND c.source = 'live'
@@ -652,7 +661,7 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Ch
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-		&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh,
+		&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh, &c.EnergySource, &c.EnergyRecordedKWh,
 	); err != nil {
 		return nil, err
 	}
@@ -894,7 +903,8 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
 		       COALESCE(c.metadata->>'energy_estimated' = 'true', false),
-		       COALESCE((c.metadata->>'gap_kwh')::float8, 0)
+		       COALESCE((c.metadata->>'gap_kwh')::float8, 0),
+		       COALESCE(c.metadata->>'energy_source',''), COALESCE((c.metadata->>'energy_recorded_kwh')::float8, 0)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1
@@ -919,7 +929,7 @@ func (s *Store) each(ctx context.Context, listedOnly bool, fn func(Charge) error
 			&c.Cost, &c.Currency, &c.PricePerKWh,
 			&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 			&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh,
+			&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh, &c.EnergySource, &c.EnergyRecordedKWh,
 		); err != nil {
 			return err
 		}
@@ -1137,7 +1147,8 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		       COALESCE(c.estimate_month,''), COALESCE(c.estimate_url,''),
 		       COALESCE(c.place_override,''), COALESCE(c.location_override,''),
 		       COALESCE(c.metadata->>'energy_estimated' = 'true', false),
-		       COALESCE((c.metadata->>'gap_kwh')::float8, 0)
+		       COALESCE((c.metadata->>'gap_kwh')::float8, 0),
+		       COALESCE(c.metadata->>'energy_source',''), COALESCE((c.metadata->>'energy_recorded_kwh')::float8, 0)
 		FROM charges c
 		JOIN vehicles v ON v.id = c.vehicle_id
 		WHERE c.user_id = $1 AND c.external_id = $2`, s.userID, externalID)
@@ -1161,7 +1172,7 @@ func (s *Store) GetByExternalID(ctx context.Context, externalID string) (*Charge
 		&c.Cost, &c.Currency, &c.PricePerKWh,
 		&thermal, &limit, &c.ActiveSeconds, &c.CostSource, &c.Network, &c.Place,
 		&c.NetworkState, &netConf, &netEv, &recCost, &c.ReceiptCurrency, &c.ReceiptTxnID, &c.EstimateMonth, &c.EstimateURL,
-		&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh,
+		&c.PlaceOverride, &c.LocationOverride, &c.EnergyEstimated, &c.GapKWh, &c.EnergySource, &c.EnergyRecordedKWh,
 	); err != nil {
 		return nil, err
 	}

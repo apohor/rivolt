@@ -1635,6 +1635,24 @@ func runServer() {
 			monitorRegistry.AddChargeCloseHookFactory(func(uid uuid.UUID) rivian.ChargeCloseHook {
 				return func(_ context.Context, _ charges.Charge) { receiptSyncer.OnChargeClose(uid) }
 			})
+			// Receipt-sourced energy (#1885): observe counts only; apply writes the receipt's energy to a closed
+			// charge that passes the check. Flipping to apply is its own reviewed change.
+			energyMode := strings.ToLower(strings.TrimSpace(envOr("RIVOLT_RECEIPT_ENERGY", receipts.EnergyObserve)))
+			if energyMode != receipts.EnergyApply && energyMode != receipts.EnergyOff {
+				energyMode = receipts.EnergyObserve
+			}
+			for _, o := range []string{receipts.OutcomeApplied, receipts.OutcomeWouldApply, receipts.OutcomeHome, receipts.OutcomeNoDetail,
+				receipts.OutcomeNoEnergy, receipts.OutcomeOpen, receipts.OutcomeBelow, receipts.OutcomeAbove} {
+				appMetrics.ReceiptEnergyTotal.WithLabelValues(o)
+			}
+			receiptSyncer.SetEnergy(energyMode, func(outcome string, deltaPct float64) {
+				appMetrics.ReceiptEnergyTotal.WithLabelValues(outcome).Inc()
+				switch outcome {
+				case receipts.OutcomeApplied, receipts.OutcomeWouldApply, receipts.OutcomeBelow, receipts.OutcomeAbove:
+					appMetrics.ReceiptEnergyDeltaPct.Observe(deltaPct)
+				}
+			})
+			logger.Info("rivian receipt energy", "mode", energyMode)
 			receiptSyncer.SetFence(&liveFence) // before Run and before the first charge close; it reads the lease store once installed
 			role.start("receipt_sync", func() { receiptSyncer.Run(ctx) })
 			logger.Info("rivian receipts sync enabled (per-user flag rivian_receipts)")

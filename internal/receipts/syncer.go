@@ -80,6 +80,11 @@ type Syncer struct {
 
 	// fence, when set, says whether this pod owns the user's group (single-owner, lead mode).
 	fence atomic.Pointer[userFencer]
+
+	// receipt energy (energy.go)
+	energyMode    string
+	energyObserve func(outcome string, deltaPct float64)
+	energyDone    map[energyKey]struct{} // guarded by mu
 }
 
 // UserFencer resolves a user to the fence state of their group: the lease store implements it.
@@ -204,6 +209,12 @@ func (s *Syncer) run(ctx context.Context, uid uuid.UUID, src rivian.ReceiptSourc
 			return err
 		}
 	}
+	// After the details: the check needs to know whether the receipt is a home charger's.
+	defer func() {
+		if err := s.applyEnergy(ctx, uid); err != nil {
+			s.logger.Warn("receipts: energy check failed", "user_id", uid.String(), "err", describe(err))
+		}
+	}()
 	txns, err := s.st.NeedDetail(ctx, uid, maxDetailPerRun+1)
 	if err != nil {
 		return err
