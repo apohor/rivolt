@@ -368,3 +368,47 @@ func TestWithGeometryAllSharesOneBudgetAcrossDays(t *testing.T) {
 		}
 	}
 }
+
+// A ten-day plan that cannot all be drawn inside the budget: every day's primary route gets its line before any alternative does, and
+// each route left without one is counted as "budget", so the totals add up to the routes asked for.
+func TestWithGeometryAllDrawsEveryPrimaryBeforeAnyAlternative(t *testing.T) {
+	old := geometryBudget
+	geometryBudget = 250 * time.Millisecond
+	t.Cleanup(func() { geometryBudget = old })
+	m := metrics.New()
+	r := &slowGeoRouter{pause: 40 * time.Millisecond}
+	ctx := withPlanGeometry(context.Background(), r, m)
+	var ins []*rivian.TripPlan
+	for i := 0; i < 10; i++ {
+		ins = append(ins, geoPlan(3))
+	}
+	outs := withGeometryAll(ctx, ins, maps.RouteOpts{})
+	drawn, alts := 0, 0
+	for i, p := range outs {
+		if p.Routes[0].Geometry == "" {
+			t.Errorf("day %d: the primary route has no line while the budget allowed it", i)
+		}
+		for k, rt := range p.Routes {
+			if rt.Geometry != "" {
+				drawn++
+				if k > 0 {
+					alts++
+				}
+			}
+		}
+	}
+	total := 0
+	for _, p := range outs {
+		total += len(p.Routes)
+	}
+	if alts >= total-10 {
+		t.Fatalf("every alternative was drawn (%d of %d): the budget did not bite, the test proves nothing", alts, total-10)
+	}
+	skipped := total - drawn
+	if got := testutil.ToFloat64(m.PlanGeometryRoutesTotal.WithLabelValues("budget")); got != float64(skipped) {
+		t.Errorf("budget = %v, want %d skipped", got, skipped)
+	}
+	if got := testutil.ToFloat64(m.PlanGeometryRoutesTotal.WithLabelValues("drawn")); got != float64(drawn) {
+		t.Errorf("drawn = %v, want %d", got, drawn)
+	}
+}

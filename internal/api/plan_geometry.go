@@ -89,7 +89,6 @@ func withGeometryAll(ctx context.Context, ins []*rivian.TripPlan, opts maps.Rout
 	defer cancel()
 	outs := make([]*rivian.TripPlan, len(ins))
 	type job struct{ plan, route int }
-	var jobs []job
 	for pi, in := range ins {
 		if in == nil {
 			continue
@@ -97,11 +96,15 @@ func withGeometryAll(ctx context.Context, ins []*rivian.TripPlan, opts maps.Rout
 		plan := *in
 		plan.Routes = append([]rivian.TripRoute(nil), in.Routes...)
 		outs[pi] = &plan
-		for ri := range plan.Routes {
-			if ri >= maxGeometryRoutes {
-				break
+	}
+	// Every day's recommended route first, then the alternatives: when the shared budget runs short, it is the alternatives of the early
+	// days that go undrawn, never the primary line of a late day.
+	var jobs []job
+	for ri := 0; ri < maxGeometryRoutes; ri++ {
+		for pi, plan := range outs {
+			if plan != nil && ri < len(plan.Routes) {
+				jobs = append(jobs, job{pi, ri})
 			}
-			jobs = append(jobs, job{pi, ri})
 		}
 	}
 	sem := make(chan struct{}, geometryConcurrency)
@@ -127,11 +130,27 @@ func routeGeometry(ctx context.Context, pg planGeometry, r *rivian.TripRoute, op
 			locs = append(locs, [2]float64{w.Latitude, w.Longitude})
 		}
 	}
-	if len(locs) < 2 || ctx.Err() != nil {
+	if len(locs) < 2 {
+		return
+	}
+	count := func(outcome string) {
+		if pg.metrics != nil {
+			pg.metrics.PlanGeometryRoutesTotal.WithLabelValues(outcome).Inc()
+		}
+	}
+	if ctx.Err() != nil { // the response's shared budget ended before this route was asked for
+		count("budget")
+		slog.WarnContext(ctx, "plan geometry: no line for a route", "class", "budget")
 		return
 	}
 	rt, err := pg.router.RouteChecked(ctx, locs, opts)
 	if err != nil {
+		if ctx.Err() != nil { // asked, and the shared budget ended on it
+			count("budget")
+			slog.WarnContext(ctx, "plan geometry: no line for a route", "class", "budget")
+			return
+		}
+		count("failed")
 		var bad *maps.BadShapeError
 		if errors.As(err, &bad) && pg.metrics != nil {
 			pg.metrics.RoutePointRefusedTotal.WithLabelValues("plan_" + bad.Kind).Inc()
@@ -153,13 +172,16 @@ func routeGeometry(ctx context.Context, pg planGeometry, r *rivian.TripRoute, op
 		}
 	}
 	if bad {
+		count("failed")
 		slog.WarnContext(ctx, "plan geometry: no line for a route", "class", "bad_shape_simplified")
 		return
 	}
 	line := maps.JoinLegs(thin)
 	if len(line) < 2 {
+		count("failed")
 		return
 	}
+	count("drawn")
 	r.Geometry, r.GeometryPrecision = maps.EncodePolyline6(line), 6
 }
 

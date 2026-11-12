@@ -35,6 +35,9 @@ import (
 // RoutePointRefusals are the rivolt_route_point_refused_total "where" values, all created at 0 at boot: fix_offglobe (a position off the
 // globe), fill_globe (a route-fill with such a vertex, caught by the recorder), fill_offglobe and fill_detour (the routing engine's shape
 // failed its own check: off the globe, or nowhere near the two ends), encode_skip (the encoder's last line), plan_offglobe and plan_detour (a served plan's line failed the same checks and was left out).
+// PlanGeometryOutcomes are the rivolt_plan_geometry_routes_total outcomes.
+var PlanGeometryOutcomes = []string{"drawn", "budget", "failed"}
+
 var RoutePointRefusals = []string{"fix_offglobe", "fill_globe", "fill_offglobe", "fill_detour", "encode_skip", "plan_offglobe", "plan_detour"}
 
 // TripPlanStages are the rivolt_trip_plan_stage_seconds stages: our own work around the planner call, so Rivian's time (the upstream
@@ -405,6 +408,8 @@ type Metrics struct {
 	AppleLinkTotal *prometheus.CounterVec
 	// RoutePointRefusedTotal counts route points kept out of a stored drive route, by where (see RoutePointRefusals).
 	RoutePointRefusedTotal *prometheus.CounterVec
+	// PlanGeometryRoutesTotal counts the routes a served plan asked a road line for, by outcome (see PlanGeometryOutcomes): what the shared budget costs.
+	PlanGeometryRoutesTotal *prometheus.CounterVec
 	// BillingNonUSTotal counts Stripe customers whose billing address is outside the US (Rivolt Pro is sold in the US only), once per customer
 	// and country per process. The account keeps Pro; the operator refunds and cancels, so any increase is worth an alert. Starts at 0.
 	BillingNonUSTotal prometheus.Counter
@@ -1004,6 +1009,13 @@ func New() *Metrics {
 			},
 			[]string{"status"},
 		),
+		PlanGeometryRoutesTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_plan_geometry_routes_total",
+				Help: "Routes of served plans that asked for a road line, by outcome: drawn, budget (the response's shared budget ended before it was drawn), failed (any other reason). Never a user, vehicle or place.",
+			},
+			[]string{"outcome"},
+		),
 		TireLowWouldSendTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_tire_low_would_send_total",
@@ -1129,6 +1141,7 @@ func New() *Metrics {
 		m.AppleNotificationsTotal,
 		m.AppleLinkTotal,
 		m.RoutePointRefusedTotal,
+		m.PlanGeometryRoutesTotal,
 		m.BillingNonUSTotal,
 		m.RecorderWriteFailuresTotal,
 		m.WSFramesDroppedTotal,
@@ -1166,6 +1179,9 @@ func New() *Metrics {
 	// very event it is for). Keep the label values in step with the callers.
 	for _, outcome := range applebill.Outcomes {
 		m.AppleNotificationsTotal.WithLabelValues(outcome).Add(0)
+	}
+	for _, outcome := range PlanGeometryOutcomes {
+		m.PlanGeometryRoutesTotal.WithLabelValues(outcome).Add(0)
 	}
 	for _, where := range RoutePointRefusals {
 		m.RoutePointRefusedTotal.WithLabelValues(where).Add(0)
