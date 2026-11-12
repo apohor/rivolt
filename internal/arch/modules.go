@@ -49,7 +49,7 @@ var modules = map[string]string{
 	"internal/appleid": "api", "internal/identity": "api", "internal/sessions": "api", "internal/cfaccess": "api", "internal/adminonly": "api",
 	"internal/adminaudit": "api", "internal/adminhealth": "api", "internal/signupgate": "api", "internal/signuprequests": "api",
 	"internal/settings": "api", "internal/appsettings": "api", "internal/privacy": "api", "internal/analytics": "api",
-	"internal/changelog": "api", "internal/launch": "api", "internal/launchnotice": "api", "internal/preflight": "api",
+	"internal/histimport": "api", "internal/changelog": "api", "internal/launch": "api", "internal/launchnotice": "api", "internal/preflight": "api",
 
 	// jobs: background work over the stored data, and what it sends.
 	"internal/archive": "jobs", "internal/retention": "jobs", "internal/repair": "jobs", "internal/recap": "jobs", "internal/weekly": "jobs",
