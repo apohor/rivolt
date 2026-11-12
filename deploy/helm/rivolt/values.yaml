@@ -64,6 +64,8 @@ updateStrategy:
 rollout:
   enabled: false
   strategy: {}
+  # -- Annotations on the Rollout (for example Argo CD sync options such as PruneLast=true, which a Rollout's deletion needs when it is replaced).
+  annotations: {}
 
 # -- Extra annotations on the Deployment (for example Argo CD sync options). Not used by the Rollout.
 deploymentAnnotations: {}
@@ -421,7 +423,8 @@ extraEnvFrom: []
 # Argo Rollout (rollout.strategy) and ingest and jobs stay Deployments; the stable and canary Services you name in rollout.strategy must
 # select rivolt.dev/role: api. Refuses autoscaling and persistence. Each role needs a pool and a divisor: roles.<role>.dbMaxConns /
 # replicaDivisor, or dbConnections.systemMaxConns / config.replicaDivisor for all roles. Per role, `env` entries (also
-# requestMaxConns) are container env and win over the shared ConfigMap; use them to pin a role's flags.
+# requestMaxConns) are container env and win over the shared ConfigMap; use them to pin a role's flags. `podLabels` add pod labels to
+# one role, for example a label a Service selects on only the api pods.
 roles:
   enabled: false
   ingest:

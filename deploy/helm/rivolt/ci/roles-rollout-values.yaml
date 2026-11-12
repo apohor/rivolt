@@ -9,6 +9,8 @@ cnpg:
     size: 8Gi
 rollout:
   enabled: true
+  annotations:
+    argocd.argoproj.io/sync-options: PruneLast=true
   strategy:
     canary:
       stableService: rivolt-stable
@@ -32,11 +34,14 @@ roles:
       RIVOLT_GROUP_LEAD: "1"
       RIVOLT_SINGLE_OWNER: "1"
       RIVOLT_FORWARD: "1"
+      RIVOLT_OWNER_DISCOVERY: "1"
   api:
     replicaCount: 2
     dbMaxConns: 5
     requestMaxConns: 3
     replicaDivisor: "4"
+    podLabels:
+      rivolt.dev/public: "true"
   jobs:
     replicaCount: 1
     dbMaxConns: 4

@@ -23,12 +23,12 @@ metadata:
   labels:
     {{- include "rivolt.labels" $ | nindent 4 }}
     rivolt.dev/role: {{ $name }}
-  {{- if or $.Values.migrate.job.enabled (and (not $asRollout) $.Values.deploymentAnnotations) }}
+  {{- if or $.Values.migrate.job.enabled (and (not $asRollout) $.Values.deploymentAnnotations) (and $asRollout $.Values.rollout.annotations) }}
   annotations:
     {{- if $.Values.migrate.job.enabled }}
     argocd.argoproj.io/sync-wave: "1"
     {{- end }}
-    {{- with (not $asRollout | ternary $.Values.deploymentAnnotations dict) }}
+    {{- with (ternary $.Values.rollout.annotations $.Values.deploymentAnnotations $asRollout) }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
   {{- end }}

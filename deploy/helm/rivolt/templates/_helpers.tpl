@@ -291,6 +291,11 @@ indentation of a "template:" key two spaces in (its content at four), starting o
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- if $role }}
+        {{- with (index .Values.roles $role | default dict).podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- end }}
       annotations:
         # Roll the pod when config or app secrets change so we don't
         # serve stale env until the next manual restart. Only the CONTENT is

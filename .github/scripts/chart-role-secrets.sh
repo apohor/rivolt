@@ -73,4 +73,21 @@ rr=$(helm template rivolt "$chart" -f "$case" --set rollout.enabled=true --set r
 [ "$(echo "$out" | yq 'select(.kind == "Deployment" and .metadata.name == "rivolt-api") | .spec.template.spec.containers[0] | [(.envFrom[]? | select(.secretRef) | .secretRef.name), (.env[]? | .name)] | sort | join(",")' | grep -v -e '^---$' -e '^$')" \
   = "$(echo "$rr" | yq 'select(.kind == "Rollout") | .spec.template.spec.containers[0] | [(.envFrom[]? | select(.secretRef) | .secretRef.name), (.env[]? | .name)] | sort | join(",")' | grep -v -e '^---$' -e '^$')" ] \
   || { echo "::error::the api Rollout mounts a different row than the api Deployment"; fail=1; }
+# Ingest carries the four pinned lease flags as container env (explicit env wins over both envFrom sources), only ingest, and the
+# api pods alone carry the Service label.
+rv=$chart/ci/roles-rollout-values.yaml
+rr2=$(helm template rivolt "$chart" -f "$rv")
+for k in RIVOLT_GROUP_LEAD RIVOLT_SINGLE_OWNER RIVOLT_FORWARD RIVOLT_OWNER_DISCOVERY; do
+  for r in ingest api jobs; do
+    v=$(echo "$rr2" | yq "select(.metadata.name == \"rivolt-$r\") | .spec.template.spec.containers[0].env[]? | select(.name == \"$k\") | .value" | grep -v -e '^---$' -e '^$' || true)
+    if [ "$r" = ingest ]; then [ "$v" = 1 ] || { echo "::error::rivolt-ingest does not pin $k=1"; fail=1; }
+    else [ -z "$v" ] || { echo "::error::rivolt-$r pins $k"; fail=1; }; fi
+  done
+done
+for r in ingest api jobs; do
+  l=$(echo "$rr2" | yq "select(.metadata.name == \"rivolt-$r\") | .spec.template.metadata.labels.\"rivolt.dev/public\"" | grep -v -e '^---$' -e '^$' -e '^null$' || true)
+  if [ "$r" = api ]; then [ "$l" = true ] || { echo "::error::api pods lack rivolt.dev/public"; fail=1; }
+  else [ -z "$l" ] || { echo "::error::rivolt-$r carries rivolt.dev/public"; fail=1; }; fi
+done
+[ "$(echo "$rr2" | yq 'select(.kind == "Rollout") | .metadata.annotations."argocd.argoproj.io/sync-options"' | grep -v -e '^---$' -e '^$')" = PruneLast=true ] || { echo "::error::rollout.annotations did not reach the api Rollout"; fail=1; }
 exit $fail
