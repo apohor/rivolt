@@ -306,3 +306,39 @@ func TestSyncStopsSavingWhenTheUserOptsOutMidPass(t *testing.T) {
 		})
 	}
 }
+
+// claimOnceStore is a fakeStore whose summaries claim behaves like the database one: the first caller in the window wins.
+type claimOnceStore struct {
+	*fakeStore
+	taken bool
+}
+
+func (c *claimOnceStore) ClaimSummaries(ctx context.Context, uid uuid.UUID, d time.Duration) (bool, error) {
+	if c.taken {
+		return false, nil
+	}
+	c.taken = true
+	return c.fakeStore.ClaimSummaries(ctx, uid, d)
+}
+
+// Five forwarded requests inside the claim window (a user toggling the opt-in) make one summaries call, and each pass is counted under
+// trigger=forward with the outcome it had.
+func TestSyncOnRequestFiveTogglesMakeOneCall(t *testing.T) {
+	a := &fakeAcct{}
+	s, _ := newTestSyncer(nil, a, true)
+	s.st = &claimOnceStore{fakeStore: &fakeStore{claimOK: true}}
+	got := map[string]int{}
+	s.SetObserve(func(trigger, outcome string) { got[trigger+"/"+outcome]++ })
+	uid := uuid.New()
+	for i := 0; i < 5; i++ {
+		if _, err := s.SyncOnRequest(context.Background(), uid); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if a.sumCalls != 1 {
+		t.Errorf("summaries calls = %d, want 1", a.sumCalls)
+	}
+	if got["forward/ok"] != 1 || got["forward/skipped"] != 4 || len(got) != 2 {
+		t.Errorf("counted %v, want forward/ok 1 and forward/skipped 4", got)
+	}
+}

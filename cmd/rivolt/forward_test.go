@@ -12,6 +12,7 @@ import (
 	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/metrics"
+	"github.com/apohor/rivolt/internal/receipts"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/secrets"
 )
@@ -43,7 +44,7 @@ func TestForwardRunnerKinds(t *testing.T) {
 func TestStartForwardIsOffByDefault(t *testing.T) {
 	t.Setenv("RIVOLT_FORWARD", "")
 	m := metrics.New()
-	rt := startForward(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), m, nil, nil, nil, nil, nil, "rivolt", planFor(roleAll))
+	rt := startForward(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), m, nil, nil, nil, nil, nil, nil, "rivolt", planFor(roleAll))
 	rt.setDraining() // must not panic
 	if rt.forwarder != nil {
 		t.Error("no requester with the flag off")
@@ -218,5 +219,45 @@ func TestForwardRunnerAdoptOnAnUnheldPod(t *testing.T) {
 	res, err := r.adopt(context.Background(), uuid.NewString())
 	if err != nil || res.Status != 503 || res.Class != "not_owner" {
 		t.Fatalf("adopt = %+v, %v; want 503 not_owner", res, err)
+	}
+}
+
+type fakeReceipts struct {
+	res   receipts.Result
+	err   error
+	users []uuid.UUID
+}
+
+func (f *fakeReceipts) SyncOnRequest(_ context.Context, uid uuid.UUID) (receipts.Result, error) {
+	f.users = append(f.users, uid)
+	return f.res, f.err
+}
+
+// receipts_sync runs one summaries pass for the named user and nothing else: no discovery, no monitor. A pod that does not own the user
+// answers not_owner (Sync checked the fence before the claim); a runner with nothing wired, or a user that is not a uuid, is a 400.
+func TestForwardRunnerReceiptsSync(t *testing.T) {
+	const user = "11111111-2222-3333-4444-555555555555"
+	lg := slog.New(slog.NewTextHandler(io.Discard, nil))
+	f := &fakeReceipts{}
+	r := &forwardRunner{receipts: f, logger: lg}
+	res, err := r.Run(context.Background(), forward.KindReceiptsSync, user, "g", &forward.ReceiptsSyncArgs{})
+	if err != nil || res.Status != 200 || len(f.users) != 1 || f.users[0].String() != user {
+		t.Fatalf("receipts_sync = %+v %v, users %v; want 200 and one pass for the user", res, err, f.users)
+	}
+	f.res = receipts.Result{Skipped: true, NotOwner: true}
+	if res, err = r.Run(context.Background(), forward.KindReceiptsSync, user, "g", &forward.ReceiptsSyncArgs{}); err != nil || res.Status != 503 || res.Class != "not_owner" {
+		t.Errorf("not the owner: %+v %v, want 503 not_owner", res, err)
+	}
+	if res, err = (&forwardRunner{logger: lg}).Run(context.Background(), forward.KindReceiptsSync, user, "g", &forward.ReceiptsSyncArgs{}); err != nil || res.Status != 400 {
+		t.Errorf("nothing wired: %+v %v, want 400", res, err)
+	}
+	if res, err = r.Run(context.Background(), forward.KindReceiptsSync, "not-a-uuid", "g", &forward.ReceiptsSyncArgs{}); err != nil || res.Status != 400 {
+		t.Errorf("bad user: %+v %v, want 400", res, err)
+	}
+	// Every allowlisted kind has a runner branch: none falls through to 501.
+	for k := range forward.Kinds {
+		if res, _ := r.Run(context.Background(), k, user, "g", nil); res.Class == "not_implemented" {
+			t.Errorf("kind %s is allowlisted but the runner does not implement it", k)
+		}
 	}
 }

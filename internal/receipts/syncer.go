@@ -81,10 +81,54 @@ type Syncer struct {
 	// fence, when set, says whether this pod owns the user's group (single-owner, lead mode).
 	fence atomic.Pointer[userFencer]
 
+	// observe counts one summaries pass by trigger and outcome (nil: not counted).
+	observe func(trigger, outcome string)
+
 	// receipt energy (energy.go)
 	energyMode    string
 	energyObserve func(outcome string, deltaPct float64)
 	energyDone    map[energyKey]struct{} // guarded by mu
+}
+
+// Triggers and outcomes of a summaries pass, for rivolt_receipts_sync_total. Outcomes: ok (the pass ran), skipped (opted out, no
+// receipt source, or the 30 min claim is held by an earlier pass on any pod), not_owner (another pod owns the user's group), error.
+const (
+	TriggerForward = "forward"
+	TriggerSweep   = "sweep"
+	TriggerClose   = "close"
+)
+
+var (
+	Triggers = []string{TriggerForward, TriggerSweep, TriggerClose}
+	Outcomes = []string{"ok", "skipped", "not_owner", "error"}
+)
+
+// SetObserve installs the counter hook for summaries passes (before Run and before the first charge close).
+func (s *Syncer) SetObserve(f func(trigger, outcome string)) { s.observe = f }
+
+// syncAs is Sync for a summaries pass that is counted under trigger.
+func (s *Syncer) syncAs(ctx context.Context, trigger string, uid uuid.UUID, minInterval time.Duration) (Result, error) {
+	res, err := s.Sync(ctx, uid, minInterval, false)
+	if s.observe != nil {
+		outcome := "ok"
+		switch {
+		case err != nil:
+			outcome = "error"
+		case res.NotOwner:
+			outcome = "not_owner"
+		case res.Skipped:
+			outcome = "skipped"
+		}
+		s.observe(trigger, outcome)
+	}
+	return res, err
+}
+
+// SyncOnRequest is the owner's side of a forwarded receipts_sync: one summaries pass with the close-time claim window, so the
+// cross-pod claim lets at most one summaries call per user through every 30 min however often it is asked for. The fence check
+// inside Sync comes before the claim.
+func (s *Syncer) SyncOnRequest(ctx context.Context, uid uuid.UUID) (Result, error) {
+	return s.syncAs(ctx, TriggerForward, uid, closeMinInterval)
 }
 
 // UserFencer resolves a user to the fence state of their group: the lease store implements it.
@@ -290,7 +334,7 @@ func (s *Syncer) OnChargeClose(uid uuid.UUID) {
 		s.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		if _, err := s.Sync(ctx, uid, closeMinInterval, false); err != nil {
+		if _, err := s.syncAs(ctx, TriggerClose, uid, closeMinInterval); err != nil {
 			s.logger.Warn("receipts: sync after charge close failed", "user_id", uid.String(), "err", describe(err))
 		}
 	})
@@ -325,7 +369,7 @@ func (s *Syncer) sweep(ctx context.Context) {
 		if s.enabled != nil && !s.enabled(uid) {
 			continue
 		}
-		res, err := s.Sync(ctx, uid, dailyInterval, false)
+		res, err := s.syncAs(ctx, TriggerSweep, uid, dailyInterval)
 		if err == nil && res.Skipped {
 			// Not due for summaries: finish a backfill tail if one is waiting.
 			res, err = s.Sync(ctx, uid, detailMinInterval, true)

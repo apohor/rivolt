@@ -318,7 +318,7 @@ func (o *Owner) run(ctx context.Context, req *Request, args any, nowMS int64) {
 
 // reply signs and pushes the answer to the one-shot reply list. adopt has no waiting requester, so it writes none.
 func (o *Owner) reply(ctx context.Context, req *Request, r Reply) {
-	if req.Kind == KindAdopt {
+	if Kinds[req.Kind].NoReply {
 		return
 	}
 	r.V, r.ID, r.User = Version, req.ID, req.User
