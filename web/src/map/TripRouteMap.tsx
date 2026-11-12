@@ -566,8 +566,8 @@ export function TripRouteMap({
         // The legend card sits at the bottom left: leave room under the route for its height, but never so much that the padding leaves the route
         // under 60 px of the map's height (MapLibre refuses a fit whose padding does not fit, and the route is then not framed at all).
         // A card that is not drawn (hidden under 200 px, where the sheet's peek says the same) needs no room.
-        const drawn = el.querySelector<HTMLElement>(".rivolt-trip-card");
-        const card = drawn?.getClientRects().length ? drawn : null;
+        const tripCardEl = el.querySelector<HTMLElement>(".rivolt-trip-card");
+        const card = tripCardEl?.getClientRects().length ? tripCardEl : null;
         // On a phone the card rides above the sheet, and above the radar strip on its edge (reserved whether or not the radar is on, as at the top).
         const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 : 0) : 0) : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).

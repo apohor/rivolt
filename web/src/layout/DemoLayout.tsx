@@ -58,7 +58,7 @@ export default function DemoLayout() {
           <h1 className="sr-only">Rivolt demo</h1>
         </div>
       </header>
-      <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4">
+      <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4 max-[200px]:px-3">
         <SideRail tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
         <main data-app-main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">
           <SubNav tab={current} onPrefetch={prefetchRoute} />

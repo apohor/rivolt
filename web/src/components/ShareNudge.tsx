@@ -28,9 +28,10 @@ export const rememberShareNudgeDismissed = () => {
 export const shareNudgeShows = (o: { sample: boolean; disabled: boolean; prompt: boolean; dismissed: boolean }): boolean =>
   !o.sample && !o.disabled && !o.prompt && !o.dismissed;
 
+// Not under 200 px (Safari's aA 300 %): its card is a few letters wide there, and the Share statement button above does the same.
 export function ShareNudge({ onShare, onLater }: { onShare: () => void; onLater: () => void }) {
   return (
-    <section aria-label={SHARE_NUDGE_TITLE} data-share-nudge className="mt-2 w-full basis-full rounded-lg border border-neutral-800 bg-neutral-900/60 p-3">
+    <section aria-label={SHARE_NUDGE_TITLE} data-share-nudge className="mt-2 w-full basis-full rounded-lg border border-neutral-800 bg-neutral-900/60 p-3 max-[200px]:hidden">
       <h3 className="text-sm font-semibold text-neutral-100">{SHARE_NUDGE_TITLE}</h3>
       <p className="mt-1 text-sm text-neutral-400">{SHARE_NUDGE_BODY}</p>
       <div className="mt-2 flex flex-wrap items-center gap-3">

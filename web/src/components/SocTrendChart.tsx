@@ -321,7 +321,8 @@ export function SocTrendChart({
         aria-label={`Battery level by day. ${spokenBand(rows)}`}
         onPointerMove={move}
         onPointerLeave={() => setHover(null)}
-        className="touch-pan-y"
+        // Below 260 px (Safari's aA 300 %) the chart is drawn at 260 and scaled down to its column, not cut off.
+        className="h-auto max-w-full touch-pan-y"
       >
         <rect x={PAD.l} y={Y(LOW_ZONE)} width={iw} height={Y(0) - Y(LOW_ZONE)} fill="#f43f5e" opacity={0.045} data-draw="low-zone" />
         {[0, 50, 100].map((v) => (

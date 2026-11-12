@@ -24,7 +24,7 @@ export function InstallOfferRow() {
       data-install-row
       className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md border border-neutral-800 px-3 py-2"
     >
-      <div className="min-w-[180px] flex-1 text-sm text-neutral-200">Add Rivolt to your home screen</div>
+      <div className="min-w-[min(180px,100%)] flex-1 text-sm text-neutral-200">Add Rivolt to your home screen</div>
       <div className="flex items-center gap-3">
         <button
           type="button"

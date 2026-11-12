@@ -84,7 +84,7 @@ export default function ThreeThingsCard({ vehicleID, demo = false }: { vehicleID
         <ul className="space-y-2">
           {rows.map((r) => (
             <li key={r.key} data-three-things-row={r.key} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-md border border-neutral-800 px-3 py-2">
-              <div className="min-w-[180px] flex-1">
+              <div className="min-w-[min(180px,100%)] flex-1">
                 <div className="text-sm text-neutral-200">{r.label}</div>
                 <div className="text-xs text-neutral-400">{r.hint}</div>
               </div>

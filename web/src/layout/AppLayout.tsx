@@ -99,7 +99,7 @@ function UserLayout() {
           </NavLink>
         </div>
       </header>
-      <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4">
+      <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4 max-[200px]:px-3">
         <SideRail tabs={tabs} active={current?.key} onPrefetch={prefetchRoute} />
         {/* pb-24 on mobile keeps the last row clear of the fixed tab bar. */}
         <main data-app-main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">

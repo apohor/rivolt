@@ -306,7 +306,7 @@ export default function NowCard({
                   <p className="ui-label">Speed</p>
                   <p className={`text-3xl font-semibold leading-none tabular-nums ${tone}`}>
                     {Math.round(view.speedMph)}
-                    <span className="ml-1 text-sm font-normal text-neutral-400">mph</span>
+                    <span className="ml-1 inline-block text-sm font-normal text-neutral-400">mph</span>
                   </p>
                 </div>
               )}
@@ -315,7 +315,7 @@ export default function NowCard({
                   <p className="ui-label">Charge limit</p>
                   <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">
                     {Math.round(view.limitPct)}
-                    <span className="ml-1 text-sm font-normal text-neutral-400">%</span>
+                    <span className="ml-1 inline-block text-sm font-normal text-neutral-400">%</span>
                   </p>
                 </div>
               )}
@@ -324,7 +324,7 @@ export default function NowCard({
                   <p className="ui-label">Range</p>
                   <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">
                     {Math.round(view.rangeMi)}
-                    <span className="ml-1 text-sm font-normal text-neutral-400">mi</span>
+                    <span className="ml-1 inline-block text-sm font-normal text-neutral-400">mi</span>
                   </p>
                 </div>
               )}
@@ -337,7 +337,7 @@ export default function NowCard({
             <PowerSpark values={powerHist} />
             <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-100">
               {Math.round(powerHist[powerHist.length - 1])}
-              <span className="ml-1 text-xs font-normal text-neutral-400">kW</span>
+              <span className="ml-1 inline-block text-xs font-normal text-neutral-400">kW</span>
             </span>
           </div>
         )}

@@ -437,7 +437,7 @@ function Stat({
         {m ? (
           <>
             {m[1]}
-            <span className="ml-1 text-xs font-normal text-neutral-400">{m[2]}</span>
+            <span className="ml-1 inline-block text-xs font-normal text-neutral-400">{m[2]}</span>
           </>
         ) : (
           value
