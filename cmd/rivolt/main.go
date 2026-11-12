@@ -763,7 +763,20 @@ func runServer() {
 		if verr != nil {
 			logger.Warn("VAPID setup failed", "err", verr.Error())
 		} else {
-			pushSvc = push.NewService(serverPushStore, vapid, logger)
+			// Every series starts at 0 so increase() sees the first failure after a pod start.
+			for _, o := range push.PushOutcomes {
+				for _, svc := range push.PushWebServices {
+					appMetrics.PushSendsTotal.WithLabelValues("web", svc, o)
+				}
+				appMetrics.PushSendsTotal.WithLabelValues("apns", "apple", o)
+			}
+			pushSvc = push.NewService(serverPushStore, vapid, logger).
+				ObserveSends(func(channel, service, outcome string) {
+					appMetrics.PushSendsTotal.WithLabelValues(channel, service, outcome).Inc()
+				})
+			if cerr := push.CheckVAPIDSubject(vapid.Subject); cerr != nil {
+				logger.Warn("VAPID_SUBJECT will be refused by Apple web push; set a real mailto: or https: contact", "err", cerr.Error())
+			}
 			// The iPhone app's push (Apple Push Notification service). Off unless
 			// all four RIVOLT_APNS_* values are set; an incomplete or unusable
 			// key is logged and leaves it off rather than stopping the server.

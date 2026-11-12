@@ -85,6 +85,7 @@ func (s *Service) fanAPNsTo(ctx context.Context, store *Store, p Payload, everyD
 			defer cancel()
 			err := s.apns.Send(sctx, d.Env, d.Token, id.String())
 			if err == nil {
+				s.observeSend("apns", "", "ok")
 				store.touchAPNsDevice(ctx, d.ID)
 				mu.Lock()
 				ok++
@@ -94,11 +95,17 @@ func (s *Service) fanAPNsTo(ctx context.Context, store *Store, p Payload, everyD
 			var ae *APNsError
 			if errors.As(err, &ae) {
 				if ae.Dead() {
+					s.observeSend("apns", "", "gone")
+				} else {
+					s.observeSend("apns", "", "rejected")
+				}
+				if ae.Dead() {
 					_ = store.deleteAPNsDeviceByID(ctx, d.ID)
 				}
 				s.logger.Warn("push: apns refused", "status", ae.Status, "reason", ae.Reason, "device", d.ID.String(), "dead", ae.Dead())
 				return
 			}
+			s.observeSend("apns", "", "error")
 			s.logger.Warn("push: apns send failed", "device", d.ID.String())
 		}(d)
 	}

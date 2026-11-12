@@ -68,6 +68,9 @@ type Service struct {
 	// user whose phone was offline overnight, short enough not to deliver
 	// "shot finished" 4 days later.
 	ttlSeconds int
+
+	// observe, when set, is told the outcome of every send to a push service (see ObserveSends).
+	observe func(channel, host, outcome string)
 }
 
 // NewService builds a Service. Callers should only construct one per
@@ -602,16 +605,9 @@ func (s *Service) sendOne(ctx context.Context, store *Store, sub Subscription, p
 	// produces a doubled "mailto:mailto:..." which APNs rejects as
 	// BadJwtToken. Strip a leading "mailto:" so we hand the library
 	// what it expects (a bare email address).
-	subscriber := strings.TrimPrefix(s.vapid.Subject, "mailto:")
-	res, err := s.sender.SendNotification(body, wsub, &webpush.Options{
-		Subscriber:      subscriber,
-		VAPIDPublicKey:  s.vapid.PublicKey,
-		VAPIDPrivateKey: s.vapid.PrivateKey,
-		TTL:             s.ttlSeconds,
-		Urgency:         webpush.UrgencyHigh,
-		HTTPClient:      pushHTTPClient,
-	})
+	res, err := s.sender.SendNotification(body, wsub, s.webpushOptions())
 	if err != nil {
+		s.observeSend("web", sub.Endpoint, "error")
 		return err
 	}
 	defer res.Body.Close()
@@ -627,6 +623,7 @@ func (s *Service) sendOne(ctx context.Context, store *Store, sub Subscription, p
 	host := endpointHost(sub.Endpoint)
 	switch {
 	case res.StatusCode == http.StatusNotFound || res.StatusCode == http.StatusGone:
+		s.observeSend("web", sub.Endpoint, "gone")
 		// Browser has told the push service this subscription is dead
 		// (uninstalled PWA, revoked permission, etc.). Clean it up via
 		// the per-user store if the caller supplied one; otherwise log
@@ -643,6 +640,7 @@ func (s *Service) sendOne(ctx context.Context, store *Store, sub Subscription, p
 		}
 		return nil
 	case res.StatusCode >= 200 && res.StatusCode < 300:
+		s.observeSend("web", sub.Endpoint, "ok")
 		s.logger.Debug("push: delivered",
 			"host", host,
 			"status", res.StatusCode,
@@ -652,6 +650,7 @@ func (s *Service) sendOne(ctx context.Context, store *Store, sub Subscription, p
 		// 400 (bad JWT / bad encryption), 401/403 (VAPID rejected),
 		// 413 (payload too big), 429 (rate limited), 5xx (provider
 		// down). Apple returns descriptive bodies; log them.
+		s.observeSend("web", sub.Endpoint, "rejected")
 		s.logger.Warn("push: non-2xx response",
 			"host", host,
 			"status", res.StatusCode,
@@ -731,4 +730,17 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return "…" + s[len(s)-n:]
+}
+
+// webpushOptions are the options of every web push send. webpush-go prepends "mailto:" to the subscriber unless it starts with
+// "https:", so a leading "mailto:" is stripped here (a doubled one is BadJwtToken at Apple).
+func (s *Service) webpushOptions() *webpush.Options {
+	return &webpush.Options{
+		Subscriber:      strings.TrimPrefix(s.vapid.Subject, "mailto:"),
+		VAPIDPublicKey:  s.vapid.PublicKey,
+		VAPIDPrivateKey: s.vapid.PrivateKey,
+		TTL:             s.ttlSeconds,
+		Urgency:         webpush.UrgencyHigh,
+		HTTPClient:      pushHTTPClient,
+	}
 }
