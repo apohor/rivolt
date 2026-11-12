@@ -340,8 +340,11 @@ jobs:
           set -o pipefail
           d=$(helm template rivolt "$CHART" -f "$CHART/ci/default-values.yaml")
           r=$(helm template rivolt "$CHART" -f "$CHART/ci/rollout-values.yaml")
-          a=$(echo "$d" | yq 'select(.kind == "Deployment") | .spec.template')
-          b=$(echo "$r" | yq 'select(.kind == "Rollout") | .spec.template')
+          # The one intended difference: the generation env reads the label name of its workload (pod-template-hash / rollouts-pod-template-hash).
+          a=$(echo "$d" | yq 'select(.kind == "Deployment") | .spec.template' | sed 's/rollouts-pod-template-hash/pod-template-hash/')
+          b=$(echo "$r" | yq 'select(.kind == "Rollout") | .spec.template' | sed 's/rollouts-pod-template-hash/pod-template-hash/')
+          echo "$r" | yq 'select(.kind == "Rollout") | .spec.template' | grep -q "labels\['rollouts-pod-template-hash'\]" \
+            || { echo "::error::the Rollout's RIVOLT_POD_GENERATION does not read rollouts-pod-template-hash"; exit 1; }
           [ -n "$a" ] && [ "$a" = "$b" ] || { echo "::error::the Rollout's pod template differs from the Deployment's (or one is missing)"; exit 1; }
           [ -z "$(echo "$d" | yq 'select(.kind == "Rollout")')" ] || { echo "::error::the default render has a Rollout"; exit 1; }
           [ -z "$(echo "$r" | yq 'select(.kind == "Deployment")')" ] || { echo "::error::the rollout render still has a Deployment"; exit 1; }
