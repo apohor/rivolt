@@ -152,6 +152,8 @@ type configExtras struct {
 	DEM bool
 	// Radar: the radar routes are mounted (RIVOLT_RADAR).
 	Radar bool
+	// DemoRadar: the signed-out demo's cache-only radar routes are mounted.
+	DemoRadar bool
 }
 
 func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager, extras ...configExtras) http.HandlerFunc {
@@ -188,6 +190,11 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		RadarFrameURL string `json:"radar_frame_url,omitempty"`
 		RadarMinZoom  int    `json:"radar_minzoom,omitempty"`
 		RadarMaxZoom  int    `json:"radar_maxzoom,omitempty"`
+		// The signed-out demo's radar: the same, for the fixed tile set over the sample trips (cache-only, no account).
+		RadarDemoURL      string `json:"radar_demo_url,omitempty"`
+		RadarDemoFrameURL string `json:"radar_demo_frame_url,omitempty"`
+		RadarDemoMinZoom  int    `json:"radar_demo_minzoom,omitempty"`
+		RadarDemoMaxZoom  int    `json:"radar_demo_maxzoom,omitempty"`
 	}
 	type aiCfg struct {
 		// Enabled is true when the install has at least one
@@ -311,6 +318,11 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		base.Tiles.RadarURL = "/api/maps/radar/{z}/{x}/{y}.png"
 		base.Tiles.RadarFrameURL = "/api/maps/radar/frame"
 		base.Tiles.RadarMinZoom, base.Tiles.RadarMaxZoom = radar.ClientMinZoom, radar.ClientMaxZoom
+	}
+	if ex.DemoRadar {
+		base.Tiles.RadarDemoURL = "/api/demo/radar/{z}/{x}/{y}.png"
+		base.Tiles.RadarDemoFrameURL = "/api/demo/radar/frame"
+		base.Tiles.RadarDemoMinZoom, base.Tiles.RadarDemoMaxZoom = radar.DemoMinZoom, radar.DemoMaxZoom
 	}
 	base.AI.Enabled = aiEnabled
 	base.Features.EventsEnabled = eventsEnabled()

@@ -53,6 +53,8 @@ func TestAccessLogRedactsTileAddresses(t *testing.T) {
 		"/api/maps/radar/7/20/45.png":     "/api/maps/radar/:tile",
 		"/api/maps/radar/frame":           "/api/maps/radar/frame",
 		"/api/maps/dem/7/20/45.png":       "/api/maps/dem/:tile",
+		"/api/demo/radar/7/20/45.png":     "/api/demo/radar/:tile",
+		"/api/demo/radar/frame":           "/api/demo/radar/frame",
 		"/api/maps/tiles/basemap.pmtiles": "/api/maps/tiles/basemap.pmtiles",
 		"/api/vehicles":                   "/api/vehicles",
 	} {

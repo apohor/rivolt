@@ -2995,14 +2995,22 @@ func runServer() {
 
 	// Live weather radar (RIVOLT_RADAR=1, off by default): NOAA/NWS MRMS base reflectivity, fetched and cached by this server so no browser or phone
 	// calls NOAA. RIVOLT_RADAR_UPSTREAM overrides the GeoServer (default https://opengeo.ncep.noaa.gov/geoserver).
-	var radarHandler http.Handler
+	var radarHandler, demoRadarHandler http.Handler
 	if os.Getenv("RIVOLT_RADAR") == "1" {
 		rcfg := radar.Config{BaseURL: strings.TrimSpace(os.Getenv("RIVOLT_RADAR_UPSTREAM")), Prefix: redisKeyPrefix}
 		if sharedRedis != nil {
 			rcfg.Redis = sharedRedis
 		}
-		radarHandler = radar.New(rcfg).Handler()
+		radarSvc := radar.New(rcfg)
+		radarHandler = radarSvc.Handler()
 		logger.Info("radar tile proxy enabled", "upstream", firstNonEmpty(rcfg.BaseURL, radar.DefaultBaseURL))
+		// The signed-out demo's radar: a fixed tile set over the sample trips, warmed here and served from the cache only.
+		if demo.Enabled() && !adminOnlyMode {
+			if dr := newDemoRadar(radarSvc, appMetrics, logger); dr != nil {
+				demoRadarHandler = dr.Handler()
+				role.start("demo_radar_warm", func() { dr.Run(ctx) })
+			}
+		}
 	}
 
 	// Photon geocoder. RIVOLT_PHOTON_BASE_URL points at the
@@ -3487,6 +3495,7 @@ func runServer() {
 		TilesProxy:       tilesProxy,
 		DEMProxy:         demProxy,
 		Radar:            radarHandler,
+		DemoRadar:        demoRadarHandler,
 		ChargersArchive:  chargersArchive,
 		Photon:           photonClient,
 		GeocodeOpenMeteo: rivian.ParseBoolEnv(os.Getenv("RIVOLT_GEOCODE_OPEN_METEO")),

@@ -422,6 +422,8 @@ type Deps struct {
 	// /api/maps/radar/frame: NOAA/NWS MRMS base reflectivity, fetched by this server so no browser or phone ever calls NOAA. Signed-in users only
 	// (not the signed-out demo), one per-user limiter, and /api/config advertises it so the clients can show or hide the layer.
 	Radar http.Handler
+	// DemoRadar is the signed-out demo's cache-only radar (nil: none). Mounted at /api/demo/radar only when the demo is on.
+	DemoRadar http.Handler
 	// ChargersArchive, when non-nil, exposes a server-side
 	// chargers-along-corridor query at /api/maps/chargers-along.
 	// Backed by an in-memory copy of chargers.pmtiles so the SPA
@@ -733,7 +735,7 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil}))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil, DemoRadar: demo.Enabled() && d.DemoRadar != nil}))
 		// The charging-networks comparison page's data: public reference data (plans as each
 		// network states them, typical observed prices with their label and month).
 		r.With(clLimiter.Middleware).Get("/charging-networks", handleChargingNetworks(time.Now))
@@ -891,6 +893,10 @@ func New(d Deps) http.Handler {
 			dl, dg := newDemoLimiter(ls, "demo-trips"), newDemoGlobalLimiter(ls, "demo-trips-global")
 			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips", handleDemoTrips)
 			r.With(dl.Middleware, dg.Middleware).Get("/demo/trips/{id}/plan", handleDemoTripPlan)
+			if d.DemoRadar != nil {
+				rl, rg := newDemoRadarLimiter(ls, "demo-radar", d.Metrics), newDemoRadarGlobalLimiter(ls, "demo-radar-global", d.Metrics)
+				r.With(rl.Middleware, rg.Middleware).Mount("/demo/radar", http.StripPrefix("/api/demo/radar", d.DemoRadar))
+			}
 		}
 		// Public sign-up: validate invite code and create account.
 		// Deliberately outside the requireUser group — the user

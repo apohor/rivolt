@@ -102,6 +102,7 @@ var starters = map[string]starter{
 	"push_notifications_sweep": {kind: startJobs, single: singleEveryPod, by: "one idempotent DELETE an hour", onAdmin: true, offDemoOnly: true},
 	"demo_pricing":             {kind: startJobs, single: singleLock, by: "advisory lock pricing (demo onOneReplica)", onAdmin: true, demo: true},
 	"demo_weather":             {kind: startJobs, single: singleLock, by: "advisory lock weather (demo onOneReplica)", onAdmin: true, demo: true},
+	"demo_radar_warm":          {kind: startRoutes, single: singleLock, by: "Redis lock demo-warm (one pod warms per round; without Redis each pod warms its own)", demo: true},
 	"demo_plans":               {kind: startJobs, single: singleLock, by: "advisory lock plans (demo onOneReplica)", onAdmin: true, demo: true},
 	"partition_janitor":        {kind: startJobs, single: singleLock, by: "advisory rv_parj"},
 	"drain_metrics":            {kind: startJobs, single: singleLock, by: "advisory rivolt-drain-metrics (leader)"},
