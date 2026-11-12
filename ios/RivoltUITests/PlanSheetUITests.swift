@@ -10,9 +10,10 @@ final class PlanSheetUITests: XCTestCase {
         return [here.appendingPathComponent("Fixtures").path, ios.appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
     }
 
-    private func launch() -> XCUIApplication {
+    private func launch(_ arguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = Self.fixtureDirectories
+        app.launchArguments += arguments
         app.launch()
         return app
     }
@@ -131,5 +132,21 @@ final class PlanSheetUITests: XCTestCase {
         app.buttons["Edit"].firstMatch.tap()
         let gone = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: grabber)], timeout: 5)
         XCTAssertEqual(gone, .completed, "Edit took the tap and left the map for the trip's form")
+    }
+
+    /// #1886: at AX3 half the day chips sat under the tab bar (the summary and Edit above them took the room half is allowed).
+    func testAtAX3HalfTheDayChipsSitWholeAboveTheTabBar() throws {
+        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
+        let grabber = open("Two days to Spokane", in: app)
+        expect(grabber, "peek", "at accessibility sizes it opens at the peek")
+        grabber.tap()
+        expect(grabber, "half", "the grabber raises it to half")
+        let tabTop = app.buttons["Activity"].firstMatch.frame.minY   // the custom tab bar (ThemeTabBar): its buttons fill it
+        for name in ["Whole trip", "Day 1", "Day 2"] {
+            let chip = app.buttons[name].firstMatch
+            XCTAssertTrue(chip.waitForExistence(timeout: 10), "\(name) is there")
+            XCTAssertLessThanOrEqual(chip.frame.maxY, tabTop + 0.5, "\(name) ends above the tab bar (\(chip.frame), tab bar at \(tabTop))")
+            XCTAssertTrue(chip.isHittable, "\(name) takes a tap")
+        }
     }
 }
