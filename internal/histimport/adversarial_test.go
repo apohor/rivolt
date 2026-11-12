@@ -303,12 +303,26 @@ func TestCSVGuardQuotedFieldsWithNewlinesAndEscapedQuotes(t *testing.T) {
 	// A real unclosed quote still ends in ErrTooBig (TestAdversarialCSVHugeQuotedRecord).
 }
 
-// A quote followed by a letter inside a quoted field is a literal for encoding/csv with LazyQuotes: the field stays open across every line.
-func TestAdversarialCSVQuoteThenLetterStaysQuoted(t *testing.T) {
-	for _, head := range []string{"a,b\n\"x\"y\n", "a,b\n\"x\"\ry\n"} {
+// Each attack comes after more than 64 KB of valid rows, so the bufio buffer and every delimiter path are past their first fill. The byte
+// budget does not depend on csv's quoting rules, so each ends in ErrTooBig before the record is built.
+func TestAdversarialCSVRecordAttacksAfterValidRows(t *testing.T) {
+	valid := "a,b\n" + strings.Repeat("1,2\n", 40<<10) // 160 KB
+	attacks := map[string]struct {
+		head string
+		tail io.Reader
+	}{
+		"quote then letter":  {"\"x\"y\n", &lines{n: scaled(20<<20, 100<<20)}},
+		"quote then CR LF":   {"\"x\"\r\r\n", &lines{n: scaled(20<<20, 100<<20)}},
+		"quote then lone CR": {"\"x\"\ry\n", &lines{n: scaled(20<<20, 100<<20)}},
+		"unclosed quote":     {"\"start\n", &lines{n: scaled(20<<20, 100<<20)}},
+		"plain 400 KB line":  {"", strings.NewReader(strings.Repeat("z", 400<<10))},
+		"256 KB of commas":   {"", &zeroCommas{n: 300 << 10}},
+		"commas in the tail": {"", &zeroCommas{n: scaled(20<<20, 50<<20)}},
+	}
+	for name, a := range attacks {
 		var err error
 		pk, _ := peak(func() {
-			r := io.MultiReader(strings.NewReader(head), &lines{n: scaled(20<<20, 100<<20)})
+			r := io.MultiReader(strings.NewReader(valid+a.head), a.tail)
 			var tb Table
 			if tb, err = OpenCSV(r); err != nil {
 				return
@@ -318,8 +332,32 @@ func TestAdversarialCSVQuoteThenLetterStaysQuoted(t *testing.T) {
 			}
 		})
 		if !errors.Is(err, ErrTooBig) || pk > adversarialPeakMax {
-			t.Fatalf("%q: %v peak %d", head, err, pk)
+			t.Errorf("%s: %v peak %d", name, err, pk)
 		}
+	}
+}
+
+// A header line with no newline in a file far past the budget fails in OpenCSV.
+func TestAdversarialCSVHeaderWithoutNewline(t *testing.T) {
+	_, err := OpenCSV(io.MultiReader(strings.NewReader("a"), strings.NewReader(strings.Repeat("z", 1<<20))))
+	if !errors.Is(err, ErrTooBig) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// A long but legitimate quoted field with line breaks, under the budget, still reads.
+func TestCSVLongQuotedFieldUnderTheBudgetParses(t *testing.T) {
+	note := strings.Repeat("line of a note\n", 12<<10) // about 180 KB
+	tb, err := OpenCSV(strings.NewReader("a,b\n1,\"" + note + "\"\n3,4\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r1, err := tb.Next()
+	if err != nil || len(r1[1]) != len(note) {
+		t.Fatalf("long field: %v len %d", err, len(r1[1]))
+	}
+	if r2, err := tb.Next(); err != nil || r2[0] != "3" {
+		t.Fatalf("next: %v %v", r2, err)
 	}
 }
 

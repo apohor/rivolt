@@ -54,64 +54,27 @@ func (d *xmlDepth) see(tok xml.Token) error {
 	return nil
 }
 
-// csvGuard fails with ErrTooBig when one record runs past maxCSVRecord bytes or holds more than MaxCols delimiters outside quotes, before
-// encoding/csv has built a field index for it. A quote opens a quoted field only at the start of a field, as in encoding/csv with LazyQuotes:
-// a stray quote inside an unquoted field is a literal and must not stop a newline from ending the record. Inside a quoted field a quote closes
-// it only before a delimiter or a line break; before anything else it is a literal and the field stays open, as in encoding/csv.
-type csvGuard struct {
-	r       io.Reader
-	delim   byte // zero until the header has been sniffed
-	quoted  bool
-	closing bool // inside a quoted field, just after a '"' that closes it or begins an escaped pair
-	atStart bool // the next byte begins a field
-	started bool // atStart has been initialised for the first record
-	bytes   int
-	delims  int
+// csvBudget fails with ErrTooBig when more than maxCSVBudget bytes are read from the file without a record completing. It sits under the
+// bufio.Reader that encoding/csv reads through, and the table resets it after every record csv returns, so it does not depend on csv's
+// quoting rules: whatever csv takes for one field, a record that would hold more than the budget stops at the budget instead of being built.
+// It counts from the first byte, so the header line is bounded too. The slack above maxCSVRecord is the 64 KiB bufio buffer, which may
+// already hold the start of the next record when the count is reset, and csv's own 4 KiB buffer.
+type csvBudget struct {
+	r io.Reader
+	n int
 }
 
-func (g *csvGuard) Read(p []byte) (int, error) {
+const maxCSVBudget = maxCSVRecord + 64<<10 + 4<<10
+
+func (g *csvBudget) Read(p []byte) (int, error) {
 	n, err := g.r.Read(p)
-	if !g.started {
-		g.started, g.atStart = true, true
-	}
-	for _, b := range p[:n] {
-		g.bytes++
-		if g.closing {
-			switch {
-			case b == '\r': // part of \r\n; the byte after decides
-				goto check
-			case b == '"': // "" is an escaped quote: still inside the field
-				g.closing = false
-				goto check
-			case b == '\n' || (b == g.delim && g.delim != 0): // the quote closed the field
-				g.closing, g.quoted = false, false
-			default: // encoding/csv with LazyQuotes keeps the quote as a literal and the field open
-				g.closing = false
-				goto check
-			}
-		}
-		switch {
-		case g.quoted:
-			if b == '"' {
-				g.closing = true
-			}
-		case b == '\n':
-			g.bytes, g.delims, g.atStart = 0, 0, true
-		case b == g.delim && g.delim != 0:
-			g.delims++
-			g.atStart = true
-		case b == '"' && g.atStart:
-			g.quoted, g.atStart = true, false
-		default:
-			g.atStart = false
-		}
-	check:
-		if g.bytes > maxCSVRecord || g.delims > MaxCols {
-			return 0, ErrTooBig
-		}
+	if g.n += n; g.n > maxCSVBudget {
+		return 0, ErrTooBig
 	}
 	return n, err
 }
+
+func (g *csvBudget) reset() { g.n = 0 }
 
 // checkZipDirectory reads the end-of-central-directory record before zip.NewReader does, because NewReader builds a File for every entry it
 // finds from the directory offset up to that record. It refuses zip64, more than maxZipEntries entries, and a directory over maxZipDirectory bytes.

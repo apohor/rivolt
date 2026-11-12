@@ -32,13 +32,14 @@ type Table interface {
 
 type csvTable struct {
 	r      *csv.Reader
+	budget *csvBudget
 	header []string
 	rows   int
 }
 
 // OpenCSV reads a CSV with a header row. It skips a UTF-8 byte order mark and picks the delimiter (comma, semicolon or tab) from the header line.
 func OpenCSV(src io.Reader) (Table, error) {
-	guard := &csvGuard{r: &capReader{r: src, left: MaxCSVBytes}}
+	guard := &csvBudget{r: &capReader{r: src, left: MaxCSVBytes}}
 	br := bufio.NewReaderSize(guard, 64<<10)
 	if b, err := br.Peek(3); err == nil && bytes.Equal(b, []byte{0xEF, 0xBB, 0xBF}) {
 		_, _ = br.Discard(3)
@@ -53,7 +54,6 @@ func OpenCSV(src io.Reader) (Table, error) {
 	}
 	r := csv.NewReader(br)
 	r.Comma = sniffDelimiter(line)
-	guard.delim = byte(r.Comma)
 	r.FieldsPerRecord = -1
 	r.LazyQuotes = true
 	r.ReuseRecord = true
@@ -67,7 +67,8 @@ func OpenCSV(src io.Reader) (Table, error) {
 	if len(h) > MaxCols {
 		return nil, ErrTooBig
 	}
-	t := &csvTable{r: r, header: append([]string(nil), h...)}
+	guard.reset()
+	t := &csvTable{r: r, budget: guard, header: append([]string(nil), h...)}
 	for i := range t.header {
 		t.header[i] = strings.TrimSpace(t.header[i])
 	}
@@ -89,6 +90,9 @@ func (t *csvTable) Header() []string { return t.header }
 func (t *csvTable) Next() ([]string, error) {
 	for {
 		rec, err := t.r.Read()
+		if err == nil {
+			t.budget.reset()
+		}
 		if err != nil {
 			var pe *csv.ParseError
 			if errors.As(err, &pe) {
