@@ -302,3 +302,45 @@ func TestCSVGuardQuotedFieldsWithNewlinesAndEscapedQuotes(t *testing.T) {
 	}
 	// A real unclosed quote still ends in ErrTooBig (TestAdversarialCSVHugeQuotedRecord).
 }
+
+// A quote followed by a letter inside a quoted field is a literal for encoding/csv with LazyQuotes: the field stays open across every line.
+func TestAdversarialCSVQuoteThenLetterStaysQuoted(t *testing.T) {
+	for _, head := range []string{"a,b\n\"x\"y\n", "a,b\n\"x\"\ry\n"} {
+		var err error
+		pk, _ := peak(func() {
+			r := io.MultiReader(strings.NewReader(head), &lines{n: scaled(20<<20, 100<<20)})
+			var tb Table
+			if tb, err = OpenCSV(r); err != nil {
+				return
+			}
+			for err == nil {
+				_, err = tb.Next()
+			}
+		})
+		if !errors.Is(err, ErrTooBig) || pk > adversarialPeakMax {
+			t.Fatalf("%q: %v peak %d", head, err, pk)
+		}
+	}
+}
+
+// A closing quote before a delimiter, a newline or CRLF ends the field: ordinary quoted files still parse.
+func TestCSVQuotedFieldsStillClose(t *testing.T) {
+	in := "a,b\r\n\"x\",\"y\"\r\n\"p\"\"q\",\"z\"\n"
+	tb, err := OpenCSV(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for {
+		if _, err := tb.Next(); err != nil {
+			if err != io.EOF {
+				t.Fatal(err)
+			}
+			break
+		}
+		n++
+	}
+	if n != 2 {
+		t.Errorf("%d rows, want 2", n)
+	}
+}

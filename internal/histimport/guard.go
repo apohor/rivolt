@@ -56,7 +56,8 @@ func (d *xmlDepth) see(tok xml.Token) error {
 
 // csvGuard fails with ErrTooBig when one record runs past maxCSVRecord bytes or holds more than MaxCols delimiters outside quotes, before
 // encoding/csv has built a field index for it. A quote opens a quoted field only at the start of a field, as in encoding/csv with LazyQuotes:
-// a stray quote inside an unquoted field is a literal and must not stop a newline from ending the record.
+// a stray quote inside an unquoted field is a literal and must not stop a newline from ending the record. Inside a quoted field a quote closes
+// it only before a delimiter or a line break; before anything else it is a literal and the field stays open, as in encoding/csv.
 type csvGuard struct {
 	r       io.Reader
 	delim   byte // zero until the header has been sniffed
@@ -76,11 +77,18 @@ func (g *csvGuard) Read(p []byte) (int, error) {
 	for _, b := range p[:n] {
 		g.bytes++
 		if g.closing {
-			g.closing = false
-			if b == '"' { // "" is an escaped quote: still inside the field
+			switch {
+			case b == '\r': // part of \r\n; the byte after decides
+				goto check
+			case b == '"': // "" is an escaped quote: still inside the field
+				g.closing = false
+				goto check
+			case b == '\n' || (b == g.delim && g.delim != 0): // the quote closed the field
+				g.closing, g.quoted = false, false
+			default: // encoding/csv with LazyQuotes keeps the quote as a literal and the field open
+				g.closing = false
 				goto check
 			}
-			g.quoted = false
 		}
 		switch {
 		case g.quoted:
