@@ -18,21 +18,23 @@ final class NowV2Tests: XCTestCase {
 
     func testDefaultIsThreeQuarterInThePagesDesign() {
         let images = [img("https://i.example/side", "side"), img("https://i.example/tq-dark", "three-quarter"), img("https://i.example/tq-light", "three-quarter", "light")]
-        XCTAssertEqual(VehiclePicture.forNow(images, kind: .parked, light: false)?.absoluteString, "https://i.example/tq-dark")
-        XCTAssertEqual(VehiclePicture.forNow(images, kind: .parked, light: true)?.absoluteString, "https://i.example/tq-light")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .parked, powerKw: nil, light: false)?.absoluteString, "https://i.example/tq-dark")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .parked, powerKw: nil, light: true)?.absoluteString, "https://i.example/tq-light")
     }
 
     func testChargingAndDrivingWantTheirPlacement() {
         let images = [img("https://i.example/tq", "three-quarter"), img("https://i.example/side", "side"), img("https://i.example/chg", "side-charging")]
-        XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, light: false)?.absoluteString, "https://i.example/chg")
-        XCTAssertEqual(VehiclePicture.forNow(images, kind: .driving, light: false)?.absoluteString, "https://i.example/side")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: 11, light: false)?.absoluteString, "https://i.example/chg")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .driving, powerKw: nil, light: false)?.absoluteString, "https://i.example/side")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: 0, light: false)?.absoluteString, "https://i.example/tq", "plugged in, drawing nothing: not the cropped charging art")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: nil, light: false)?.absoluteString, "https://i.example/tq")
     }
 
     func testMissingPlacementFallsBackAndInteriorIsNeverShown() {
-        XCTAssertEqual(VehiclePicture.forNow([img("https://i.example/front", "front")], kind: .charging, light: false)?.absoluteString, "https://i.example/front")
-        XCTAssertNil(VehiclePicture.forNow([img("https://i.example/in", "interior-front")], kind: .parked, light: false))
-        XCTAssertNil(VehiclePicture.forNow(nil, kind: .parked, light: false))
-        XCTAssertNil(VehiclePicture.forNow([img("http://i.example/plain", "side")], kind: .parked, light: false), "https only")
+        XCTAssertEqual(VehiclePicture.forNow([img("https://i.example/front", "front")], kind: .charging, powerKw: 11, light: false)?.absoluteString, "https://i.example/front")
+        XCTAssertNil(VehiclePicture.forNow([img("https://i.example/in", "interior-front")], kind: .parked, powerKw: nil, light: false))
+        XCTAssertNil(VehiclePicture.forNow(nil, kind: .parked, powerKw: nil, light: false))
+        XCTAssertNil(VehiclePicture.forNow([img("http://i.example/plain", "side")], kind: .parked, powerKw: nil, light: false), "https only")
     }
 
     func testChipNeverSaysLive() throws {
