@@ -112,7 +112,7 @@ export default function NowHeroV2({
       ? formatTemperature(ambient.temp_c, temperatureUnit)
       : null;
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
-  const carUrl = pickImageForNow(images, charging ? "charging" : view.kind, light);
+  const carUrl = pickImageForNow(images, charging ? "charging" : view.kind, light, view.powerKw);
   // A Rivian image that fails to load (moved or blocked) gives way to the drawn truck instead of a broken picture.
   const [failedUrl, setFailedUrl] = useState("");
   const [info, setInfo] = useState(false);

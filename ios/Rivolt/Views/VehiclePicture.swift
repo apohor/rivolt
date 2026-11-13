@@ -32,8 +32,9 @@ enum VehiclePicture {
         return nil
     }
 
-    /// Now: charging shows the plugged side view, driving the side view, otherwise the three-quarter view.
-    static func forNow(_ images: [VehicleImage]?, kind: NowSnapshot.State, light: Bool) -> URL? {
-        pick(images, wants: kind == .charging ? ["side-charging"] : kind == .driving ? ["side"] : [], light: light)
+    /// Now: actively charging (power flowing) shows the plugged side view, driving the side view, otherwise the three-quarter view.
+    /// Rivian's side-charging art is a cropped close-up, so a plugged-in truck that draws nothing keeps the three-quarter one.
+    static func forNow(_ images: [VehicleImage]?, kind: NowSnapshot.State, powerKw: Double?, light: Bool) -> URL? {
+        pick(images, wants: kind == .charging && (powerKw ?? 0) > 0 ? ["side-charging"] : kind == .driving ? ["side"] : [], light: light)
     }
 }
