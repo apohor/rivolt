@@ -6,7 +6,7 @@ import { PowerSpark } from "./PowerSpark";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useImpersonationTarget } from "../lib/impersonation";
-import { backend, type VehicleState } from "../lib/api";
+import { backend, type VehicleImage, type VehicleState } from "../lib/api";
 import {
   advanceTripDistance,
   computeNow,
@@ -81,11 +81,13 @@ export default function NowCard({
   vehicleID,
   vehicleName,
   packKwh,
+  images,
   showTelemetryLink = true,
 }: {
   vehicleID: string;
   vehicleName: string;
   packKwh: number | null;
+  images?: VehicleImage[];
   // /live needs a signed-in session, so the public demo turns it off.
   showTelemetryLink?: boolean;
 }) {
@@ -276,6 +278,7 @@ export default function NowCard({
         <NowHeroV2
           view={view}
           vehicleID={vehicleID}
+          images={images}
           chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text)}
           pillTone={pill.tone}
           ambient={server?.ambient}
