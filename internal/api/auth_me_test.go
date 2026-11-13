@@ -193,7 +193,14 @@ func TestPlanFieldsForAFreeAccount(t *testing.T) {
 	b, _ := json.Marshal(pf)
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
-	if m["plan"] != "free" || m["plan_source"] != nil || m["plan_period_end"] != nil || m["plan_trial_ends"] != nil || m["plan_ended_at"] != nil || m["plan_ended_source"] != nil || m["billing_enabled"] != true || m["history_days"] != float64(90) {
+	if m["plan"] != "free" || m["plan_source"] != nil || m["plan_period_end"] != nil || m["plan_trial_ends"] != nil || m["plan_ended_at"] != nil || m["plan_ended_source"] != nil || m["billing_enabled"] != true {
 		t.Errorf("%s", b)
+	}
+	// The window is whole calendar months: a year to a year and a month long, from the first of a month.
+	if d, _ := m["history_days"].(float64); d < 365 || d > 396 {
+		t.Errorf("history_days %v, want 365-396: %s", m["history_days"], b)
+	}
+	if f, _ := m["history_from"].(string); len(f) != 10 || f[8:] != "01" {
+		t.Errorf("history_from %v, want a first of the month: %s", m["history_from"], b)
 	}
 }

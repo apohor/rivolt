@@ -158,6 +158,8 @@ func main() {
 			os.Exit(runLaunchPreflight(os.Args[2:]))
 		case "archive":
 			os.Exit(runArchive(os.Args[2:]))
+		case "ai-eval":
+			os.Exit(runAIEval(os.Args[2:], os.Stdout, os.Stderr))
 		default:
 			// Anything that is not a flag is a subcommand this binary does not have. Starting the
 			// server for it would boot a second Rivolt in a pod whose chart execs a subcommand the
@@ -186,6 +188,9 @@ Usage:
                   carry a running energy total into one row. Dry run
                   unless --apply; --apply needs --user/--since/--until
                   and writes a CSV backup first.
+  rivolt ai-eval [--budget USD] [--inputs N]
+                  Run the recap, efficiency and advice prompts on the candidate Claude models over demo inputs
+                  and print the answers side by side (reads ANTHROPIC_API_KEY; no database, no server).
   rivolt migrate [--check]    apply pending database migrations (or list them); for deployments that migrate in a job
   rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE] | --restore-csv FILE
                   Classify legacy charge prices and re-price DC fast
@@ -3440,6 +3445,7 @@ func runServer() {
 		AppBuild:              appBuild,
 		FirstScreen:           firstScreen,
 		HistoryImport:         os.Getenv("RIVOLT_HISTORY_IMPORT") == "1" && pgPool != nil,
+		DesignPreview:         api.ParseDesignPreview(os.Getenv("RIVOLT_DESIGN_PREVIEW")),
 		StateForward:          stateForward,
 		OwnerDiscovery:        ownerDiscovery,
 		SignInNudge:           signInNudgeFn,

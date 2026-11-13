@@ -73,7 +73,7 @@ if [ -z "$RC" ]; then
     if ! why=$(python3 -I "$CTL" rc-gate-check "$VERSION" "$RCTAG" "$rcsha" "$FULL" ${t1:+"$t1"} ${t2:+"$t2"} 2>&1); then refuse "$why"
     else note "rc gate: $VERSION = $RCTAG at ${FULL:0:7}; preview values are on the rc image"; fi
     if [ -n "$rcsha" ]; then
-      st=$(gh api "repos/$REPO/commits/$rcsha/statuses" --jq '[.[] | select(.context == "qa/rc-gate")][0].state // "none"' 2>/dev/null) || st="unreadable"
+      st=$(gh api "repos/$REPO/commits/$rcsha/status" --jq '[.statuses[] | select(.context == "qa/rc-gate")][0].state // "none"' 2>/dev/null) || st="unreadable"
       [ "$st" = success ] || refuse "qa/rc-gate on $RCTAG (${rcsha:0:7}) is '$st', not success"
     fi
     note "not checked here: the images the preview pods run (cluster)"

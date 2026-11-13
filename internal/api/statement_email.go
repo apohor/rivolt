@@ -213,7 +213,7 @@ func (a *statementAPI) preview(uid uuid.UUID, w http.ResponseWriter, r *http.Req
 	// A free account previews the months its Money tab shows. The email job itself is not windowed (it covers last month, which is inside).
 	from, windowed := moneyWindowStart(r.Context(), a.now(), loc)
 	if t, perr := time.ParseInLocation("2006-01", period, loc); windowed && perr == nil && t.Before(from) {
-		writeOutsideFreeWindow(w)
+		writeOutsideFreeWindow(w, r)
 		return
 	}
 	cur, err := a.monthly(r.Context(), uid, period, loc)
