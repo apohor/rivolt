@@ -49,3 +49,21 @@ func TestAIEvalNeedsKey(t *testing.T) {
 		t.Fatalf("code %d out %q err %q", code, out.String(), errOut.String())
 	}
 }
+
+func TestServedCostUsesServedModel(t *testing.T) {
+	u := ai.TokenUsage{InputTokens: 1_000_000, OutputTokens: 1_000_000}
+	haiku := ai.ComputeCost("anthropic", "claude-haiku-5-5", u.InputTokens, u.OutputTokens)
+	opus := ai.ComputeCost("anthropic", "claude-opus-5-5", u.InputTokens, u.OutputTokens)
+	if haiku >= opus {
+		t.Fatalf("test needs haiku < opus, got %v %v", haiku, opus)
+	}
+	if got := servedCost("claude-haiku-5-5", []string{"claude-opus-5-5"}, u); got != opus {
+		t.Errorf("served opus priced as %v, want %v", got, opus)
+	}
+	if got := servedCost("claude-haiku-5-5", nil, u); got != haiku {
+		t.Errorf("no report priced as %v, want requested %v", got, haiku)
+	}
+	if got := servedCost("claude-haiku-5-5", []string{"claude-haiku-5-5", "claude-opus-5-5"}, u); got != opus {
+		t.Errorf("mixed priced as %v, want dearest %v", got, opus)
+	}
+}
