@@ -294,3 +294,70 @@ func TestPlugTrackerStickyThroughChargingReady(t *testing.T) {
 		}
 	}
 }
+
+// Pictures reach a signed-in allowed user's demo vehicle with that vehicle's id and no order id, whatever the list said, and never the user
+// noImages names (the public demo account).
+func TestReplayClient_VehicleImagesRewrittenAndDenied(t *testing.T) {
+	f, _ := testFeed(replayEpoch, time.Hour)
+	imgs, err := ParseReplayImages(`[
+		{"vehicle_id":"src-id","order_id":"ord-1","url":"https://example.test/int.webp","placement":"interior"},
+		{"vehicle_id":"src-id","order_id":"ord-1","url":"https://example.test/3q.webp","placement":"exterior-3qfront-driver"}]`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, user := uuid.New(), uuid.New()
+	f.SetImages(imgs, func(uid uuid.UUID) bool { return uid == pub })
+	ctx := context.Background()
+	vehicle := func(uid uuid.UUID) Vehicle {
+		c := NewReplayClient(f, uid)
+		if err := c.Login(ctx, Credentials{Email: "x@y", Password: "p"}); err != nil {
+			t.Fatal(err)
+		}
+		vs, err := c.Vehicles(ctx)
+		if err != nil || len(vs) != 1 {
+			t.Fatalf("vehicles: %v %v", vs, err)
+		}
+		return vs[0]
+	}
+	if v := vehicle(pub); v.ImageURL != "" || len(v.Images) != 0 {
+		t.Fatalf("public demo account got images: %+v", v)
+	}
+	v := vehicle(user)
+	if v.ImageURL != "https://example.test/3q.webp" || len(v.Images) != 2 {
+		t.Fatalf("hero %q, %d images", v.ImageURL, len(v.Images))
+	}
+	for _, img := range v.Images {
+		if img.VehicleID != v.ID || img.OrderID != "" {
+			t.Errorf("ids not rewritten: %+v (demo id %s)", img, v.ID)
+		}
+	}
+	if len(imgs[0].VehicleID)+len(imgs[0].OrderID) != 0 {
+		t.Errorf("parse kept the source ids: %+v", imgs[0])
+	}
+}
+
+func TestParseReplayImagesRefusals(t *testing.T) {
+	for name, raw := range map[string]string{
+		"signed":   `[{"url":"https://cdn.example.test/a.webp?Expires=1&Signature=x&Key-Pair-Id=k"}]`,
+		"http":     `[{"url":"http://cdn.example.test/a.webp"}]`,
+		"vin":      `[{"url":"https://cdn.example.test/1ABCDEFGHJKLMNPRS/a.webp"}]`,
+		"not url":  `[{"url":"a.webp"}]`,
+		"not json": `{`,
+	} {
+		if _, err := ParseReplayImages(raw); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// A long base64url path segment is not a VIN, even when it holds a 17-character run of VIN letters; the real preview list carries such segments.
+func TestParseReplayImagesAcceptsOpaqueTokens(t *testing.T) {
+	tok := "ABCDEFGHJKLMNPRSTVWXYZ0123456789abcdefghij-"
+	if len(tok) != 43 {
+		t.Fatalf("fixture token is %d chars", len(tok))
+	}
+	raw := `[{"url":"https://cdn.example.test/mobile/static/img/v3/` + tok + `/vehicle/` + tok + `/front_dark_large_xxhdpi.webp","placement":"front"}]`
+	if _, err := ParseReplayImages(raw); err != nil {
+		t.Fatalf("opaque token refused: %v", err)
+	}
+}
