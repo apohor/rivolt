@@ -23,6 +23,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/adminhealth"
 	"github.com/apohor/rivolt/internal/aibudget"
+	"github.com/apohor/rivolt/internal/aitaste"
 	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/auth"
@@ -351,6 +352,10 @@ type Deps struct {
 	// gate — the cost backstop fails open so no-DB and test paths
 	// keep working.
 	AIBudget *aibudget.Store
+	// AITaste counts a free account's operator-key answers per UTC month (request pool); AITasteSpend is the install-wide daily
+	// ceiling on what those answers may cost (system pool). Either nil leaves a free account without the operator key.
+	AITaste      *aitaste.Store
+	AITasteSpend *aitaste.Spend
 	// Secrets is the envelope-encrypted per-user blob store
 	// (see internal/crypto, internal/secrets). Holds the
 	// sealed rivian.Session and, later, AI provider keys and
@@ -1841,10 +1846,12 @@ func New(d Deps) http.Handler {
 			// The user's own consent comes first, so a refused call is not
 			// charged to the budget.
 			aiGate := requireAIConsentMW(d.Settings)
-			r.With(historyWindowMiddleware(d.Entitlements), rowVehicleMiddleware(pv, "drives"), aiGate, aiBudgetMW).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			// The free account's taste (Pro v6) is taken by the operator key itself, just before the model call.
+			aiTaste := requireAITasteMW(d.Entitlements, d.AITaste, d.AITasteSpend)
+			r.With(historyWindowMiddleware(d.Entitlements), rowVehicleMiddleware(pv, "drives"), aiGate, aiBudgetMW, aiTaste).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
-			r.With(aiGate, aiBudgetMW).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(aiGate, aiBudgetMW, aiTaste).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanAdvice(d.SettingsMgr, d.Settings.For(uid), d.WeatherClient)(w, r)
 			}))
 			// Multi-day orchestrator: N sequential planTrip2 calls.

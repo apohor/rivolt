@@ -28,7 +28,7 @@ func TestAIEvalCasesBuildPrompts(t *testing.T) {
 	routes := map[ai.Route]int{}
 	for _, c := range cases {
 		routes[c.route]++
-		if _, _, err := c.call(ai.WithReservation(context.Background()), a); err != nil {
+		if _, _, err := c.call(ai.WithUnmetered(context.Background()), a); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
 	}

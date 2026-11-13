@@ -68,7 +68,7 @@ func runAIEval(args []string, out, errOut io.Writer) int {
 				fmt.Fprintf(out, "### %s\n\nSKIPPED: budget reached ($%.4f spent)\n\n", m, total)
 				continue
 			}
-			ctx := ai.WithReservation(ai.WithRoute(context.Background(), c.route))
+			ctx := ai.WithUnmetered(ai.WithRoute(context.Background(), c.route))
 			ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			served = served[:0]
 			start := time.Now()
