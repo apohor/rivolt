@@ -922,3 +922,34 @@ func TestRequesterWaitersShareOnePoller(t *testing.T) {
 		t.Errorf("%d lease reads for %d waiters, want at most %d: the waiters must share one poller", got, waiters, waiters+5)
 	}
 }
+
+// heldView reports the group as held once held is set.
+type heldView struct {
+	*switchView
+	held atomic.Bool
+}
+
+func (h *heldView) Held(string) (int64, bool) { return 9, h.held.Load() }
+
+// If the wait ends because this pod took the group, the call is served here as the owner, not refused.
+func TestRequesterServesWhenItBecomesTheOwnerDuringTheWait(t *testing.T) {
+	f := drainingFleet(t)
+	hv := &heldView{switchView: f.view}
+	fw := f.requester(func(cfg *forward.RequesterConfig) {
+		cfg.AcquireOnRequest = true
+		cfg.Leases = hv
+		cfg.OwnerWait = 5 * time.Second
+		cfg.OwnerPoll = 20 * time.Millisecond
+		cfg.OwnerLeaseEvery = 20 * time.Millisecond
+	})
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		hv.held.Store(true)
+		f.view.SetOwner(group, forward.LeaseOwner{Found: true, Pod: "pod-c", Epoch: 9})
+	}()
+	var local localCounter
+	_, outcome, err := fw.Do(context.Background(), callFresh, local.fn)
+	if err != nil || outcome != "held" || local.n.Load() != 1 {
+		t.Fatalf("outcome=%q local=%d err=%v, want held and one local run", outcome, local.n.Load(), err)
+	}
+}
