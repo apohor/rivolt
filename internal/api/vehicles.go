@@ -291,6 +291,9 @@ type vehiclesFromDB struct {
 	// account with nothing stored gets an empty list (the discovery endpoint says whether the lookup is still going), and stored but not yet
 	// synced rows are served as they are.
 	ownerDiscovery bool
+	// replayVehicle is the vehicle a replay install's feed lists for this user (nil outside replay), so the stored row follows the feed on a
+	// pod that does not hold the account too (see syncReplayRow).
+	replayVehicle func() (rivian.Vehicle, bool)
 }
 
 func (f *vehiclesFromDB) observe(outcome string) {
@@ -316,10 +319,13 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				writeUpstreamError(w, rivian.ErrNeedsReauth)
 				return
 			}
-			// A replay vehicle with pictures (preview) has no owner refresh to store them, so its stored row gets them here, the same upsert the
-			// sign-in prime makes; the list below then answers from that row. Replay with no pictures set never writes.
-			if rc, ok := c.(*rivian.ReplayClient); ok && rc.HasImages() && sqlDB != nil {
-				storeReplayImages(r.Context(), rc, sqlDB, logger)
+			// A replay account has no owner refresh to store its pictures, so the row follows the feed here (written only when it differs).
+			if fromDB.replayVehicle != nil && sqlDB != nil {
+				if v, ok := fromDB.replayVehicle(); ok {
+					if userID, ok := auth.UserFromContext(r.Context()); ok {
+						syncReplayRow(r.Context(), sqlDB, userID, v, logger)
+					}
+				}
 			}
 			answered, unsynced := handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, fromDB.ownerDiscovery)
 			if answered {
@@ -406,10 +412,16 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 		// subscription that is itself gated by the ownership check).
 		// One upsert per upstream vehicle on each /api/vehicles call
 		// is cheap and idempotent.
+		_, isReplay := c.(*rivian.ReplayClient)
 		if sqlDB != nil {
 			if userID, ok := auth.UserFromContext(r.Context()); ok {
 				for i := range vs {
 					if vs[i].ID == "" {
+						continue
+					}
+					if isReplay {
+						// A replay vehicle (the public demo, preview) is the same on every call: its row is written when it differs, not on every hit.
+						syncReplayRow(r.Context(), sqlDB, userID, vs[i], logger)
 						continue
 					}
 					uerr := db.UpsertVehicleFromSync(r.Context(), sqlDB, userID, db.VehicleSync{
@@ -500,7 +512,7 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 		if sqlDB != nil {
 			if userID, ok := auth.UserFromContext(r.Context()); ok {
 				for i := range vs {
-					if vs[i].ID == "" || vs[i].ImageURL == "" {
+					if vs[i].ID == "" || vs[i].ImageURL == "" || isReplay {
 						continue
 					}
 					if ierr := db.SetVehicleImageURL(r.Context(), sqlDB, userID, vs[i].ID, vs[i].ImageURL); ierr != nil && logger != nil {
@@ -844,42 +856,45 @@ func (d Deps) rivianSessionCheck(uid uuid.UUID) func(context.Context) (bool, err
 	}
 }
 
-// storeReplayImages writes a replay account's vehicles, pictures included, to its stored rows (see handleVehicles).
-func storeReplayImages(ctx context.Context, rc *rivian.ReplayClient, sqlDB *sql.DB, logger *slog.Logger) {
-	userID, ok := auth.UserFromContext(ctx)
-	if !ok {
+// syncReplayRow makes a replay vehicle's stored row match the vehicle its feed lists: created when missing, rewritten when the name or the
+// pictures differ, and its hero and gallery removed when the feed has none (RIVOLT_REPLAY_VEHICLE_IMAGES unset), which the upsert alone
+// would keep. A row that already matches is not written, so a list read on every page load does no database write.
+func syncReplayRow(ctx context.Context, sqlDB *sql.DB, userID uuid.UUID, v rivian.Vehicle, logger *slog.Logger) {
+	if v.ID == "" {
 		return
 	}
-	vs, err := rc.Vehicles(ctx)
+	var row *db.VehicleAPIRow
+	rows, err := db.ListUserVehiclesForAPI(ctx, sqlDB, userID)
 	if err != nil {
+		if logger != nil {
+			logger.Warn("replay vehicle row read failed", "err", err.Error())
+		}
 		return
 	}
-	// Write only what differs from the stored row: the list is read far more often than the pictures change.
-	stored := map[string]db.VehicleAPIRow{}
-	if rows, err := db.ListUserVehiclesForAPI(ctx, sqlDB, userID); err == nil {
-		for _, row := range rows {
-			stored[row.RivianVehicleID] = row
+	for i := range rows {
+		if rows[i].RivianVehicleID == v.ID {
+			row = &rows[i]
 		}
 	}
-	for _, v := range vs {
-		if v.ID == "" {
-			continue
+	var have rivian.Vehicle
+	if row != nil {
+		have.ApplyStoredInfo(row.Info)
+		if row.DisplayName == v.Name && row.Model == v.Model && row.ImageURL == v.ImageURL &&
+			reflect.DeepEqual(have.Images, v.Images) && rivian.StoredInfoSynced(row.Info) == v.InfoSynced {
+			return
 		}
-		if row, ok := stored[v.ID]; ok && row.ImageURL == v.ImageURL && rivian.StoredInfoSynced(row.Info) {
-			var have rivian.Vehicle
-			have.ApplyStoredInfo(row.Info)
-			if reflect.DeepEqual(have.Images, v.Images) {
-				continue
-			}
-		}
-		err := db.UpsertVehicleFromSync(ctx, sqlDB, userID, db.VehicleSync{
-			RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear, Trim: v.TrimID, PackKWh: v.PackKWh, Info: v.StoredInfo(),
-		})
-		if err == nil && v.ImageURL != "" {
-			err = db.SetVehicleImageURL(ctx, sqlDB, userID, v.ID, v.ImageURL)
-		}
-		if err != nil && logger != nil {
-			logger.Warn("replay vehicle images store failed", "err", err.Error())
-		}
+	}
+	err = db.UpsertVehicleFromSync(ctx, sqlDB, userID, db.VehicleSync{
+		RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear, Trim: v.TrimID, PackKWh: v.PackKWh, Info: v.StoredInfo(),
+	})
+	switch {
+	case err != nil:
+	case v.ImageURL != "":
+		err = db.SetVehicleImageURL(ctx, sqlDB, userID, v.ID, v.ImageURL)
+	case row != nil:
+		err = db.ClearVehiclePictures(ctx, sqlDB, userID, v.ID)
+	}
+	if err != nil && logger != nil {
+		logger.Warn("replay vehicle row store failed", "err", err.Error())
 	}
 }

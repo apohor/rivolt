@@ -1145,6 +1145,11 @@ func New(d Deps) http.Handler {
 				var fromDB *vehiclesFromDB
 				if d.DB != nil && d.Accounts != nil {
 					fromDB = &vehiclesFromDB{gate: vehiclesFallback, account: d.vehiclesAccountState(uid), ownerDiscovery: d.OwnerDiscovery}
+					if rr, ok := d.Accounts.(interface {
+						ReplayVehicle(uuid.UUID) (rivian.Vehicle, bool)
+					}); ok {
+						fromDB.replayVehicle = func() (rivian.Vehicle, bool) { return rr.ReplayVehicle(uid) }
+					}
 				}
 				handleVehicles(clientFor(d, uid), monitorFor(d, uid), d.DB, d.Logger, hasSession, pv.lockedID, fromDB)(w, r)
 			}))

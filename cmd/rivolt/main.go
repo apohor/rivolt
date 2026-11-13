@@ -1061,14 +1061,14 @@ func runServer() {
 			}
 			feed.SetAllowedUsers(func(uid uuid.UUID) bool { return allowed[uid] })
 		}
-		// Preview only: Rivian pictures for the replay vehicles (any source). Never the public demo account, and never set in demo or prod values.
+		// Rivian pictures for the replay vehicles (any source), the public demo account's included. Never set on a live (prod) deployment.
 		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_VEHICLE_IMAGES")); v != "" {
 			imgs, err := rivian.ParseReplayImages(v)
 			if err != nil {
 				logger.Error("bad RIVOLT_REPLAY_VEHICLE_IMAGES", "err", err.Error())
 				os.Exit(1)
 			}
-			feed.SetImages(imgs, func(uid uuid.UUID) bool { return demo.Enabled() && uid == demo.UserID() })
+			feed.SetImages(imgs)
 		}
 		// Preview only: usernames whose replay sign-in works but whose account lists no vehicle, so the no-vehicle states can be seen.
 		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_EMPTY_USERS")); v != "" {

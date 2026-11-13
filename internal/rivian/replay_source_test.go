@@ -295,9 +295,9 @@ func TestPlugTrackerStickyThroughChargingReady(t *testing.T) {
 	}
 }
 
-// Pictures reach a signed-in allowed user's demo vehicle with that vehicle's id and no order id, whatever the list said, and never the user
-// noImages names (the public demo account).
-func TestReplayClient_VehicleImagesRewrittenAndDenied(t *testing.T) {
+// Pictures reach every demo vehicle, the public demo account's included, with that vehicle's id and no order id whatever the list said, and
+// none when the key is unset.
+func TestReplayClient_VehicleImagesRewritten(t *testing.T) {
 	f, _ := testFeed(replayEpoch, time.Hour)
 	imgs, err := ParseReplayImages(`[
 		{"vehicle_id":"src-id","order_id":"ord-1","url":"https://example.test/int.webp","placement":"interior"},
@@ -305,8 +305,6 @@ func TestReplayClient_VehicleImagesRewrittenAndDenied(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pub, user := uuid.New(), uuid.New()
-	f.SetImages(imgs, func(uid uuid.UUID) bool { return uid == pub })
 	ctx := context.Background()
 	vehicle := func(uid uuid.UUID) Vehicle {
 		c := NewReplayClient(f, uid)
@@ -319,16 +317,20 @@ func TestReplayClient_VehicleImagesRewrittenAndDenied(t *testing.T) {
 		}
 		return vs[0]
 	}
+	pub := uuid.New() // stands in for the public demo account
 	if v := vehicle(pub); v.ImageURL != "" || len(v.Images) != 0 {
-		t.Fatalf("public demo account got images: %+v", v)
+		t.Fatalf("key unset: demo vehicle got images: %+v", v)
 	}
-	v := vehicle(user)
-	if v.ImageURL != "https://example.test/3q.webp" || len(v.Images) != 2 {
-		t.Fatalf("hero %q, %d images", v.ImageURL, len(v.Images))
-	}
-	for _, img := range v.Images {
-		if img.VehicleID != v.ID || img.OrderID != "" {
-			t.Errorf("ids not rewritten: %+v (demo id %s)", img, v.ID)
+	f.SetImages(imgs)
+	for _, uid := range []uuid.UUID{pub, uuid.New()} {
+		v := vehicle(uid)
+		if v.ImageURL != "https://example.test/3q.webp" || len(v.Images) != 2 {
+			t.Fatalf("hero %q, %d images", v.ImageURL, len(v.Images))
+		}
+		for _, img := range v.Images {
+			if img.VehicleID != v.ID || img.OrderID != "" {
+				t.Errorf("ids not rewritten: %+v (demo id %s)", img, v.ID)
+			}
 		}
 	}
 	if len(imgs[0].VehicleID)+len(imgs[0].OrderID) != 0 {
