@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/apohor/rivolt/internal/maps"
@@ -166,17 +167,21 @@ func Build(in Input) (*Snapshot, error) {
 	startLat, startLon := line[0][0], line[0][1]
 	endLat, endLon := line[len(line)-1][0], line[len(line)-1][1]
 	var wps []planWaypoint
+	private := map[int]bool{}
 	for _, w := range rt.Waypoints {
 		switch {
-		case w.Source == "origin" || w.WaypointType == "origin":
+		case w.Source == "origin" || strings.EqualFold(w.WaypointType, "origin"):
 			startLat, startLon = w.Latitude, w.Longitude
-		case w.Source == "destination" || w.WaypointType == "destination":
+		case w.Source == "destination" || strings.EqualFold(w.WaypointType, "destination"):
 			endLat, endLon = w.Latitude, w.Longitude
-		case w.Source == "via" || w.Source == "overnight":
-			circles = append(circles, Circle{w.Latitude, w.Longitude, r})
+		case w.Source == "planner":
 			wps = append(wps, w)
 		default:
+			// Fail closed: only a stop the planner itself chose may be shown as a named charger. A via, an overnight, or a plan saved
+			// before Source existed gets a circle and a generic stop.
+			circles = append(circles, Circle{w.Latitude, w.Longitude, r})
 			wps = append(wps, w)
+			private[len(wps)-1] = true
 		}
 	}
 	circles = append(circles, Circle{startLat, startLon, r}, Circle{endLat, endLon, r})
@@ -219,15 +224,14 @@ func Build(in Input) (*Snapshot, error) {
 	}
 
 	var at []*int
-	for _, w := range wps {
+	for i, w := range wps {
 		st := Stop{
 			Lat: w.Latitude, Lon: w.Longitude,
 			ArriveAt: w.ArrivalTimeUTC, DepartAt: w.DepartureTimeUTC,
 			ArriveSoC: w.ArrivalSoC, DepartSoC: w.DepartureSoC,
 			ChargeS: w.ChargeDurationSec, MaxKW: w.MaxPowerKW,
 		}
-		private := w.Source == "via" || w.Source == "overnight" || inAny(circles, w.Latitude, w.Longitude)
-		if private {
+		if private[i] || inAny(circles, w.Latitude, w.Longitude) {
 			// A generic stop at a rounded point: no name, no exact position.
 			st.Kind, st.Name = "stop", ""
 			st.Lat, st.Lon = roundArea(w.Latitude), roundArea(w.Longitude)

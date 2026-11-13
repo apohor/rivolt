@@ -264,3 +264,33 @@ func TestElevationCollapsesCuts(t *testing.T) {
 		t.Fatal("waypoint_at_m misaligned")
 	}
 }
+
+// A plan saved before Source existed: upper-case types, no Source anywhere. Nothing but the planner's own stops may be shown by name, so the
+// via is cut out of the route and both middle stops are generic.
+func TestLegacyPlanWithoutSourceFailsClosed(t *testing.T) {
+	line := eastLine(36.0, -115.0, 1000, 120)
+	wps := basicWps(line)
+	wps[0].WaypointType, wps[0].Source = "ORIGIN", ""
+	wps[2].WaypointType, wps[2].Source = "DESTINATION", ""
+	wps[1].WaypointType, wps[1].Source = "CHARGER", ""
+	via := line[30]
+	wps = append(wps[:2], append([]rivian.PlannedWaypoint{{WaypointType: "VIA", Name: "Aunt Mary House", Latitude: via[0], Longitude: via[1], ArrivalSoC: 50, DepartureSoC: 50}}, wps[2:]...)...)
+	s := build(t, line, wps, nil, 4000)
+	if len(s.Stops) != 2 {
+		t.Fatalf("stops %+v", s.Stops)
+	}
+	for _, st := range s.Stops {
+		if st.Kind != "stop" || st.Name != "" || st.AtM != nil {
+			t.Fatalf("legacy stop shown as %+v", st)
+		}
+	}
+	if d := minDistTo(s, via[0], via[1]); d < 3500 {
+		t.Fatalf("the route passes %.0f m from the via", d)
+	}
+	b, _ := json.Marshal(s)
+	for _, bad := range []string{"Aunt Mary", "Mid Charger", "123 Home", "9 Far"} {
+		if strings.Contains(string(b), bad) {
+			t.Fatalf("%q leaked", bad)
+		}
+	}
+}

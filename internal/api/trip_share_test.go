@@ -132,3 +132,16 @@ func TestTripSharePublicRouteNotOnAdminSite(t *testing.T) {
 		t.Fatalf("answered on the admin site: %d", rec.Code)
 	}
 }
+
+// The share lookups may hold at most half of the system pool (the one /readyz pings), and never fewer than one slot.
+func TestShareLookupSlotsHalfThePool(t *testing.T) {
+	for pool, want := range map[int]int{1: 1, 2: 1, 3: 1, 4: 2, 10: 5, 100: 50} {
+		if got := shareLookupSlots(pool); got != want {
+			t.Errorf("pool %d: %d slots, want %d", pool, got, want)
+		}
+	}
+	n, _ := db.SystemPoolSize(func(string) string { return "" })
+	if got := shareLookupSlots(n); got > max(1, n/2) {
+		t.Errorf("default pool %d: %d slots", n, got)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,6 +16,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
 	"github.com/apohor/rivolt/internal/trips"
@@ -29,7 +31,8 @@ import (
 const publicSharePath = "/api/public/trips/share"
 
 // shareLookupSlots caps the public lookups in flight on one pod; past it a request is answered 503 at once, so a flood cannot hold the pool.
-const shareLookupSlots = 8
+// It is at most half the system pool (the pool /readyz pings too), at least 1, so anonymous lookups can never take every connection.
+func shareLookupSlots(poolSize int) int { return max(1, poolSize/2) }
 
 // shareLookupTimeout bounds the one indexed query behind a lookup.
 const shareLookupTimeout = 3 * time.Second
@@ -48,11 +51,12 @@ type tripShareAPI struct {
 }
 
 func newTripShareAPI(d Deps) *tripShareAPI {
+	poolN, _ := db.SystemPoolSize(os.Getenv)
 	a := &tripShareAPI{
 		store:    &tripshare.Store{Req: d.DB, Sys: d.sysDB()},
 		trips:    d.Trips,
 		settings: d.Settings,
-		slots:    make(chan struct{}, shareLookupSlots),
+		slots:    make(chan struct{}, shareLookupSlots(poolN)),
 		count:    func(string) {},
 		log:      d.Logger,
 		now:      time.Now,
