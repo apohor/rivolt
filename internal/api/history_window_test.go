@@ -69,8 +69,8 @@ var routeClasses = map[string]windowClass{
 	"POST /api/trips/saved/{id}/link":            {"proOnly", ""},
 	"POST /api/trips/saved/{id}/unlink":          {"proOnly", ""},
 	"POST /api/trips/overnight-candidates":       {"proOnly", ""},
-	"POST /api/push/apns/activity":               {"proOnly", ""},
-	"POST /api/push/apns/activity/test":          {"proOnly", ""},
+	"POST /api/push/apns/activity":               {"exempt", "registers the push token of the caller's own running Live Activity; Live Activities are free"},
+	"POST /api/push/apns/activity/test":          {"exempt", "sends fixed figures to the caller's own Live Activities; Live Activities are free"},
 
 	// The free account's delete-by-range (a privacy control for rows outside its window): a gate item for billing.
 	"POST /api/billing/checkout":       {"exempt", "creates a Stripe Checkout session for the signed-in account; returns no history"},

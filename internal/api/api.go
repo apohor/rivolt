@@ -1070,14 +1070,14 @@ func New(d Deps) http.Handler {
 					handleAPNsPreferences(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				apnsActivityLimiter := ls.user("apns-activity", 30)
-				r.With(proOnlyMiddleware(d.Entitlements), apnsActivityLimiter.Middleware).Post("/apns/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(apnsActivityLimiter.Middleware).Post("/apns/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivity(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				r.With(apnsActivityLimiter.Middleware).Post("/apns/activity/end", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivityEnd(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				apnsActivityTestLimiter := ls.user("apns-activity-test", 3)
-				r.With(proOnlyMiddleware(d.Entitlements), apnsActivityTestLimiter.Middleware).Post("/apns/activity/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(apnsActivityTestLimiter.Middleware).Post("/apns/activity/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivityTest(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				apnsTestLimiter := ls.user("apns-test", 6)

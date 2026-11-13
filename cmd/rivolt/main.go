@@ -810,7 +810,6 @@ func runServer() {
 					logger.Warn("APNs disabled", "err", aerr.Error())
 				} else {
 					pushSvc.WithAPNs(a)
-					pushSvc.WithProCheck(entitlementsSvc.Pro)
 					logger.Info("APNs enabled", "topic", a.Topic())
 					// The charging Live Activity: off unless RIVOLT_APNS_LIVE is set.
 					if live := strings.EqualFold(os.Getenv("RIVOLT_APNS_LIVE"), "true") || os.Getenv("RIVOLT_APNS_LIVE") == "1"; live {
