@@ -40,6 +40,9 @@ export function nowChip(
     v.stateSinceMs != null
   )
     return `${v.kind === "plugged" ? "Plugged in" : "Parked"} · since ${clock(v.stateSinceMs)}`;
+  // The chip names the truck's state, never "Live" (that word is the button to the live view).
+  if (pillText === "Live")
+    return v.kind === "plugged" ? "Plugged in" : v.kind === "asleep" ? "Asleep" : "Parked";
   return pillText;
 }
 
