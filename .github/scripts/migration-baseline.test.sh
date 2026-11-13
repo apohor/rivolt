@@ -48,5 +48,27 @@ sed "s/VALUES ('a'/VALUES ('b'/" a.sql > b.sql;                          case_ "
 { cat a.sql; echo "CREATE INDEX extra ON public.t (id);"; } > b.sql;     case_ "an extra statement" 1
 : > b.sql;                                                               case_ "an empty dump" 1
 
+# Function bodies and literals (DA N2): a $$ body is one item, and `--` inside a string is text, not a comment.
+cat > a.sql <<'SQL'
+CREATE FUNCTION public.f() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.a := 1;
+  NEW.b := 'x -- y';
+  RETURN NEW;
+END;
+$$;
+INSERT INTO public.flags (name, value) VALUES ('k', '{"u": "http://a--b;c"}');
+SQL
+cp a.sql b.sql;                                                          case_ "identical function and literals" 0
+sed 's/NEW.a := 1;/NEW.a := 2;/' a.sql > b.sql;                          case_ "a changed statement inside a function" 1
+# NEW.a and NEW.b swapped (the dump is a line file, so awk does it): print the b line first.
+awk '/NEW.a := 1;/ {held=$0; next} {print} /NEW.b := / {print held}' a.sql > b.sql
+case_ "two statements swapped inside a function" 1
+sed "s/x -- y/x -- z/" a.sql > b.sql;                                    case_ "a literal-only change inside a function" 1
+sed 's/a--b;c/a--b;d/' a.sql > b.sql;                                    case_ "a changed seed literal after a -- and a ;" 1
+sed 's/^BEGIN$/BEGIN -- note/' a.sql > b.sql;                            case_ "a comment inside a function body is part of the body" 1
+
 [ "$fails" = 0 ] || { echo "$fails failed"; exit 1; }
 echo "all passed"
