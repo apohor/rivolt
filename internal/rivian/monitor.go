@@ -329,6 +329,8 @@ type StateMonitor struct {
 	fetchSchedules           func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
 	// onScheduleRead counts schedule-read outcomes (SetScheduleObserver).
 	onScheduleRead func(outcome string)
+	// onInfoDeferred counts a vehicle info write deferred past the warm-up (SetVehicleInfoDeferredObserver).
+	onInfoDeferred func()
 	// onRollout counts what a takeover did to open sessions (SetRolloutObserver); prevEnd replaces the store read of the previous row (tests).
 	onRollout func(event, kind, source string)
 	prevEnd   func(ctx context.Context, vehicleID, kind, exclude string) (time.Time, bool)
@@ -4380,8 +4382,8 @@ func (m *StateMonitor) persistVehicleInfo(hook func(context.Context, []Vehicle),
 			// write here left the stored gallery empty for a day, and the next start could land in a warm-up again. Write it after the
 			// warm-up, from what was just fetched (no Rivian call).
 			v := v
-			if m.onFenced != nil {
-				m.onFenced("vehicle_info_deferred") // not a loss: counted so the after-check can tell this cause from a rate-limited refresh
+			if m.onInfoDeferred != nil {
+				m.onInfoDeferred() // not a refusal, so not the lease-fenced counter: it tells this cause from a rate-limited refresh
 			}
 			m.afterWarmUp(v.ID, func(fc context.Context) error {
 				hook(fc, []Vehicle{v})

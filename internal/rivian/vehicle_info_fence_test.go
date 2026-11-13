@@ -116,7 +116,9 @@ func TestVehicleInfoHookWritesAfterWarmUp(t *testing.T) {
 	m.warmWait = 20 * time.Millisecond
 	var kinds []string
 	var kmu sync.Mutex
+	deferred := 0
 	m.SetFence(src, func(kind string) { kmu.Lock(); kinds = append(kinds, kind); kmu.Unlock() })
+	m.SetVehicleInfoDeferredObserver(func() { kmu.Lock(); deferred++; kmu.Unlock() })
 	got := make(chan Vehicle, 2)
 	m.persistVehicleInfo(func(ctx context.Context, vs []Vehicle) {
 		if got, ok := fence.From(ctx); !ok || got != tok {
@@ -146,8 +148,8 @@ func TestVehicleInfoHookWritesAfterWarmUp(t *testing.T) {
 	}
 	kmu.Lock()
 	defer kmu.Unlock()
-	if len(kinds) != 1 || kinds[0] != "vehicle_info_deferred" {
-		t.Errorf("counted %v, want exactly one vehicle_info_deferred", kinds)
+	if deferred != 1 || len(kinds) != 0 {
+		t.Errorf("deferred counted %d, lease-fenced kinds %v; want one deferral and nothing on the lease-fenced counter", deferred, kinds)
 	}
 }
 

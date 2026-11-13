@@ -55,6 +55,7 @@ type MonitorRegistry struct {
 	started        bool // a monitor has been built: setters called after this reach only monitors built later
 	lateWirings    int
 	onScheduleRead func(outcome string)
+	onInfoDeferred func()
 	onRollout      func(event, kind, source string)
 	// wanted are subscriptions EnsureSubscribed could not start because the owner has no monitor yet
 	// (vehicle -> owner); Start runs them when the owner's monitor comes up, so a lease acquired before
@@ -431,6 +432,7 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 	mon.SetTakeoverLimiter(r.takeoverLimiter)
 	mon.SetFence(registryFence{r}, r.fenced)
 	mon.SetScheduleObserver(r.scheduleObserver())
+	mon.SetVehicleInfoDeferredObserver(r.infoDeferredObserver())
 	mon.SetRolloutObserver(r.rolloutObserver())
 	mon.SetStores(
 		r.samples.For(uid),
@@ -682,6 +684,24 @@ func (r *MonitorRegistry) scheduleObserver() func(outcome string) {
 		r.mu.Unlock()
 		if fn != nil {
 			fn(outcome)
+		}
+	}
+}
+
+// SetVehicleInfoDeferredObserver wires the deferred-write counter into every monitor (see SetScheduleObserver).
+func (r *MonitorRegistry) SetVehicleInfoDeferredObserver(fn func()) {
+	r.mu.Lock()
+	r.onInfoDeferred = fn
+	r.mu.Unlock()
+}
+
+func (r *MonitorRegistry) infoDeferredObserver() func() {
+	return func() {
+		r.mu.Lock()
+		fn := r.onInfoDeferred
+		r.mu.Unlock()
+		if fn != nil {
+			fn()
 		}
 	}
 }
