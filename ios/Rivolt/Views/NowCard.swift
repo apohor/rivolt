@@ -16,12 +16,12 @@ struct NowCard: View {
     var liveDrive: LiveDrive?
     /// The server's row for the charge in progress, for its cost so far.
     var charge: ChargeBrief?
-    /// The redesigned hero (design_preview key now_v2): the Live button on its own row, Rivian's picture of the truck beside
+    /// The redesigned hero (design_preview key now_v2): Rivian's picture of the truck beside
     /// the range, one line for the cabin and outside temperatures. Without the key the card is the one it always was.
     var v2 = false
     var images: [VehicleImage]?
-    /// Where the Live button goes (the web's live view); nil hides it (the demo has no live view).
-    var liveURL: URL?
+    /// "Full charge today ≈ X", the user's own range at today's temperature (the server's cold-range answer), in the display unit.
+    var fullChargeRange: Int?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -65,20 +65,45 @@ struct NowCard: View {
     // MARK: The redesigned hero (now_v2)
 
     private var heroV2: some View {
-        let showRows = charging || driving || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true)
+        let showRows = driving || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || chargingRowsV2
         return VStack(alignment: .leading, spacing: 12) {
-            // The Live button has its own row above the gauge and the picture, so nothing overlaps it.
-            if let liveURL { HStack { Spacer(minLength: 0); NowLiveButton(url: liveURL, pulsing: (charging || driving) && isLive) } }
             VStack(alignment: .leading, spacing: 12) {
                 heroGaugeV2
+                if let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if showRows { detailRows }
-                if temperaturesLine != nil { temperatures }
-                Text(footer).themeText(.subline)
+                if let note = freshnessNote { Text(note).themeText(.subline) }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(spoken)
+            // Outside the combined element above, so VoiceOver reaches the (i) button and the note it opens.
+            if temperaturesLine != nil { temperatures }
         }
         .themeHero(live: liveKind, critical: critical)
+    }
+
+    /// Charging to the limit and what that buys, or the user's own full-charge range; as the web's hero.
+    var subline: String? {
+        if charging {
+            guard let limit = summary.chargeTargetPct else { return nil }
+            var text = "Charging to \(Int(limit.rounded()))%"
+            if let soc = summary.socPct, soc > 0, let km = summary.rangeKm {
+                let atLimit = km / soc * limit
+                text += " · ≈ \(Int((NowFormat.usesMetric ? atLimit : atLimit / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi") when done"
+            }
+            return text
+        }
+        guard let full = fullChargeRange else { return nil }
+        return "Full charge today ≈ \(full) \(NowFormat.usesMetric ? "km" : "mi")"
+    }
+
+    /// The chip already says the state and since when, so the footer shows only when the picture is old or the link is down.
+    private var freshnessNote: String? {
+        (offline || summary.presence == .stale || summary.freshness == .needsReconnect || summary.freshness == .paused) ? footer : nil
+    }
+
+    /// Added and Cost so far remain while charging; Power and Time left repeat the chip.
+    private var chargingRowsV2: Bool {
+        charging && (summary.chargeAddedPct != nil || ChargingDetail.make(summary: summary, session: session, charge: charge)?.cost != nil)
     }
 
     private var carURL: URL? { VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, light: colorScheme == .light) }
@@ -287,8 +312,8 @@ struct NowCard: View {
     @ViewBuilder
     private var chargingRows: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
-            if let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", t) }
+            if !v2, let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
+            if !v2, let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", t) }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
             }
@@ -502,47 +527,5 @@ struct NoDataCard: View {
         }
         .themeCard(padding: 5 * Theme.unit)
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// The Live button: a pill that looks pressable (a rim, a chevron, a press state), at least 44 pt, with a pulsing dot while the truck
-/// is charging or driving. It opens the web's live view in an in-app browser sheet.
-struct NowLiveButton: View {
-    let url: URL
-    var pulsing = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-    @State private var showing = false
-
-    var body: some View {
-        Button { showing = true } label: {
-            HStack(spacing: 8) {
-                if pulsing {
-                    Circle().fill(Theme.accentFill).frame(width: 8, height: 8)
-                        .opacity(pulse && !reduceMotion ? 0.35 : 1)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 1).repeatForever(autoreverses: true), value: pulse)
-                        .onAppear { pulse = true }
-                }
-                Text("Live").themeText(.value, color: Theme.textPrimary).fontWeight(.medium)
-                Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.textSecondary)
-            }
-            .padding(.horizontal, 16)
-            .frame(minWidth: 44, minHeight: 44)
-        }
-        .buttonStyle(NowLiveButtonStyle())
-        .sheet(isPresented: $showing) { SafariSheet(url: url).ignoresSafeArea() }
-        .accessibilityLabel("Live")
-        .accessibilityHint("Opens the live view in a sheet")
-        .accessibilityIdentifier("now-live-button")
-    }
-}
-
-private struct NowLiveButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(configuration.isPressed ? Theme.borderStrong : Theme.card, in: Capsule())
-            .overlay(Capsule().strokeBorder(Theme.borderStrong, lineWidth: 1))
-            .scaleEffect(configuration.isPressed ? 0.95 : 1)
-            .contentShape(Capsule())
     }
 }

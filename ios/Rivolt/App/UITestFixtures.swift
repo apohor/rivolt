@@ -70,6 +70,7 @@ final class FixtureURLProtocol: URLProtocol {
             if ProcessInfo.processInfo.arguments.contains("-uitest-now-v2"), method == "GET" {
                 if path.contains("/state/") { return "state" }  // the truck read (not spelled as a path: the contract test reads literals)
                 if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/now") { return "now_v1" }
+                if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/cold-range") { return "cold_range" }
             }
             // The stays near where a day's driving runs out, and the two days with a night at one (not spelled as paths: see startLoading).
             if method == "POST", path.hasSuffix("/trips/overnight-candidates") { return "trip_overnight_candidates" }

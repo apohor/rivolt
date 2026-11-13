@@ -18,6 +18,8 @@ struct HomeView: View {
     /// The truck `vehicleState` was read for.
     @State private var stateVehicleID: String?
     @State private var now: NowSnapshot?
+    /// The user's own range at today's temperature, for the redesigned hero's "Full charge today" line.
+    @State private var coldRange: ColdRange?
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var showNotifications = false
@@ -73,7 +75,7 @@ struct HomeView: View {
                             if haveData {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
                                         session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil,
-                                        v2: v2, images: vehicle.images, liveURL: v2 && !state.isDemo ? URL(string: "/live", relativeTo: state.serverURL)?.absoluteURL : nil)
+                                        v2: v2, images: vehicle.images, fullChargeRange: v2 ? coldRange?.fullChargeRange : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -283,6 +285,7 @@ struct HomeView: View {
         vehicleState = NowReads.stateToShow(fresh: s, last: vehicleState, lastID: stateVehicleID, id: id)
         stateVehicleID = vehicleState == nil ? nil : id
         now = n ?? nil
+        if v2, let t = now?.ambient?.tempC { coldRange = try? await client.coldRange(vehicleID: id, tempC: t.rounded(), grid: [], metric: NowFormat.usesMetric) } else { coldRange = nil }
         if s != nil || n != nil { freshness.fetched(at: .now) }
         publishConnection()
         recentCharges = c ?? []

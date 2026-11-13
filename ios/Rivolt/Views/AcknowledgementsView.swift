@@ -12,6 +12,19 @@ struct AcknowledgementsView: View {
     /// station data (public domain) and Recreation.gov campgrounds (CC BY 4.0, credited as the web does).
     static let chargerData = "Charging stations on a charge's map come from the Alternative Fuels Data Center of the U.S. Department of Energy (NREL AFDC, afdc.energy.gov), public domain. The charger data also holds campgrounds from Recreation.gov (RIDB, catalog.data.gov/dataset/recreation-information-database-ridb) under CC BY 4.0 (creativecommons.org/licenses/by/4.0), filtered by Rivolt."
 
+    /// The web's data credits (web/src/content/credits.md), as Markdown so the licence links work. The outside temperature, the
+    /// trip planner's weather and the rain tags are Open-Meteo's, so its credit lives here, not on the Now screen.
+    static let weatherCredit = "Weather data by [Open-Meteo.com](https://open-meteo.com/), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). It is shown in the trip planner, on a drive's weather chart and as the outside temperature, and we may have changed it (rounded places, converted units, derived values such as headwind)."
+    static let weatherModels = "Open-Meteo's forecasts are built from national weather services' models, including NOAA's GFS and RRFS (US government works) and Environment and Climate Change Canada's GEM (contains information licensed under the [Open Government Licence – Canada](https://open.canada.ca/en/open-government-licence-canada)). Data processed by Open-Meteo.com. Rivolt is not endorsed by Open-Meteo, NOAA or Environment and Climate Change Canada."
+    static let radarCredit = "Radar images are from the [NOAA/NWS](https://www.weather.gov/) MRMS base reflectivity service (US government work, public domain). Rivolt shows them as received, only reprojected to map tiles and made partly transparent, and they are not an official NWS product. Rivolt is not endorsed by or affiliated with NOAA or the National Weather Service. Radar is for general awareness, not for safety-critical decisions."
+    static let terrainCredit = "The map's shading and the climb along a planned route use Terrain Tiles data (Mapzen, hosted on AWS Open Data). ArcticDEM terrain data DEM(s) were created from DigitalGlobe, Inc., imagery and funded under National Science Foundation awards 1043681, 1559691, and 1542736. Canada terrain data contains information licensed under the Open Government Licence – Canada. Global ETOPO1 terrain data U.S. National Oceanic and Atmospheric Administration. Mexico terrain data source: INEGI, Continental relief, 2016. United States 3DEP (formerly NED) and global GMTED2010 and SRTM terrain data courtesy of the U.S. Geological Survey."
+
+    private func credit(_ markdown: String) -> some View {
+        Text((try? AttributedString(markdown: markdown)) ?? AttributedString(markdown))
+            .themeText(.value)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     /// The licence text from the bundle, or a pointer to where it lives if it is somehow missing.
     /// A licence text bundled under Map/, or a pointer to where it lives.
     static func mapText(_ name: String, in subdirectory: String, bundle: Bundle = .main, fallback: String) -> String {
@@ -74,6 +87,16 @@ struct AcknowledgementsView: View {
                         .padding(.top, 2 * Theme.unit)
                 }
                 .padding(4 * Theme.unit)
+                ThemeSection(title: "Weather") {
+                    credit(Self.weatherCredit)
+                    credit(Self.weatherModels).padding(.top, 2 * Theme.unit)
+                }
+                .padding(.horizontal, 4 * Theme.unit)
+                ThemeSection(title: "Weather radar") { credit(Self.radarCredit) }
+                    .padding(.horizontal, 4 * Theme.unit)
+                    .padding(.top, 4 * Theme.unit)
+                ThemeSection(title: "Terrain") { credit(Self.terrainCredit) }
+                    .padding(4 * Theme.unit)
                 ThemeSection(title: "Charger data") {
                     Text(Self.chargerData)
                         .themeText(.value)

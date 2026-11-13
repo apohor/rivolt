@@ -75,12 +75,31 @@ final class NowV2Tests: XCTestCase {
         let clock = try XCTUnwrap(now.at).addingTimeInterval(120)
         let summary = NowSummary(state: st, now: now, clock: clock)
         for scheme in [ColorScheme.light, .dark] {
-            let card = NowCard(vehicle: vehicle, summary: summary, clock: clock, v2: true, liveURL: URL(string: "https://example.invalid/live"))
+            let card = NowCard(vehicle: vehicle, summary: summary, clock: clock, v2: true, fullChargeRange: 283)
                 .padding().frame(width: 393).background(Color(.systemGroupedBackground)).environment(\.colorScheme, scheme)
             let r = ImageRenderer(content: card)
             r.scale = 2
             let image = try XCTUnwrap(r.uiImage)
             XCTAssertGreaterThan(image.size.height, 200)
         }
+    }
+
+    func testSublineChargingAndParked() throws {
+        let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]
+        let at = Date(timeIntervalSince1970: 1_800_000_000)
+        func card(_ charger: String, range: Int?) -> NowCard {
+            let input = NowSummary.Input(socPct: 72, rangeKm: 330, chargeTargetPct: 80, gear: "P", powerState: "ready", chargerState: charger, chargerPowerKw: charger == "charging_active" ? 11 : 0, at: at)
+            return NowCard(vehicle: vehicle, summary: NowSummary(input: input, now: nil, clock: at.addingTimeInterval(10)), clock: at.addingTimeInterval(10), v2: true, fullChargeRange: range)
+        }
+        XCTAssertEqual(card("charger_disconnected", range: 283).subline.map { $0.hasPrefix("Full charge today ≈ 283 ") }, true)
+        XCTAssertNil(card("charger_disconnected", range: nil).subline)
+        let line = try XCTUnwrap(card("charging_active", range: 283).subline)
+        XCTAssertTrue(line.hasPrefix("Charging to 80% · ≈ "), line)
+        XCTAssertTrue(line.hasSuffix(" when done"), line)
+    }
+
+    func testColdRangeDecodesAndNeedsBothEnds() throws {
+        let r = try Fixture.decode(ColdRange.self, "cold_range")
+        XCTAssertEqual(r.fullChargeRange, 283)
     }
 }

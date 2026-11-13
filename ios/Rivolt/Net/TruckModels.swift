@@ -151,6 +151,14 @@ struct ColdRange: Decodable, Equatable {
     let minMiles: Double
 }
 
+extension ColdRange {
+    /// Now's "Full charge today": the middle of the range, or nil without enough drives (no line, as on the web).
+    var fullChargeRange: Int? {
+        guard reason == nil, let lo = rangeLow, let hi = rangeHigh else { return nil }
+        return Int(((lo + hi) / 2).rounded())
+    }
+}
+
 /// `GET /api/vehicles/{id}/lease`: the terms (set on the web).
 struct LeaseTerms: Decodable, Equatable {
     let endDate: String

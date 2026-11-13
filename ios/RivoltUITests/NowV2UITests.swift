@@ -24,25 +24,14 @@ final class NowV2UITests: XCTestCase {
 
     func testNowV2ShowsTheNewLayout() {
         let app = launch(["-uitest-now-v2"])
-        XCTAssertTrue(app.buttons["now-live-button"].firstMatch.waitForExistence(timeout: 20), "the Live button is on the Now card")
-        XCTAssertTrue(app.descendants(matching: .any)["now-month"].firstMatch.waitForExistence(timeout: 10), "the 2x2 month strip")
+        XCTAssertTrue(app.descendants(matching: .any)["now-month"].firstMatch.waitForExistence(timeout: 20), "the 2x2 month strip")
+        XCTAssertFalse(app.buttons["now-live-button"].exists, "the iPhone has no Live button until it has a native Live screen")
         XCTAssertFalse(app.staticTexts["Live"].exists && app.staticTexts.matching(NSPredicate(format: "label == 'Live'")).count > 1, "the status chip never says Live")
         shot(app, "now-v2-top")
         app.swipeUp()
         shot(app, "now-v2-scrolled")
         app.swipeUp()
         shot(app, "now-v2-bottom")
-    }
-
-    /// Live opens in a sheet over the app, not by leaving it for Safari.
-    func testLiveOpensInASheetAndTheAppStaysInFront() {
-        let app = launch(["-uitest-now-v2"])
-        let live = app.buttons["now-live-button"].firstMatch
-        XCTAssertTrue(live.waitForExistence(timeout: 20))
-        live.tap()
-        sleep(2)
-        XCTAssertEqual(app.state, .runningForeground, "the app is still the front app")
-        shot(app, "now-v2-live-sheet")
     }
 
     func testWithoutTheFlagTheClassicCardStays() {
