@@ -239,8 +239,35 @@ describe("connect step: driver account first", () => {
     });
     renderPanel();
     fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
-    expect(await screen.findByText(/unavailable/)).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't check right now. Try again in a minute.")).toBeInTheDocument();
+    expect(screen.queryByText(/unavailable/)).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("Check again answered 429 says it checked a moment ago, as a quiet note, not an error", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/settings/rivian/refresh-vehicles": { status: 429, body: { error: "limited" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    const note = await screen.findByText("Checked a moment ago. We'll keep looking.");
+    expect(note).toHaveAttribute("role", "status");
+    expect(note.className).not.toMatch(/rose/);
+    expect(screen.queryByText(/limited/)).toBeNull();
+  });
+
+  it("Check again failing any other way says it could not check, never the raw error", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/settings/rivian/refresh-vehicles": { status: 500, body: { error: "boom" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Couldn't check right now. Try again in a minute.")).toBeInTheDocument();
+    expect(screen.queryByText(/boom|Error:/)).toBeNull();
   });
 });
 
