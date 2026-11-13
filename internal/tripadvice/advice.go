@@ -208,7 +208,7 @@ func Generate(ctx context.Context, a *ai.Analyzer, plan *rivian.TripPlan, tc Con
 	}
 	var res Result
 	res.Raw = raw
-	res.Model = a.ModelName()
+	res.Model = a.ModelNameFor(ai.RouteAdvice)
 	res.InputTokens = usage.InputTokens
 	res.OutputTokens = usage.OutputTokens
 	res.Parsed = parse(raw)
