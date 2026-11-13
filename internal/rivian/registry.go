@@ -344,6 +344,13 @@ type unheldClient struct{}
 // NewUnheldClient returns the Client a data-plane handler uses for a user whose group this pod does not hold.
 func NewUnheldClient() Client { return unheldClient{} }
 
+// IsUnheld reports whether c is the client NewUnheldClient returns: a pod holding no tokens for the account, whose Rivian calls belong to the
+// group's owner.
+func IsUnheld(c any) bool {
+	_, ok := c.(unheldClient)
+	return ok
+}
+
 func notHeld(op string) error {
 	return &UpstreamError{Class: ClassOutage, Op: op, Reason: "this server does not hold the vehicle's account"}
 }

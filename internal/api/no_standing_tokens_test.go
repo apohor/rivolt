@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/forward"
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
@@ -138,5 +140,35 @@ func TestRefreshVehiclesOnAnUnheldPodNudgesTheOwner(t *testing.T) {
 	}
 	if len(nudged) != 1 || nudged[0] != uid {
 		t.Fatalf("nudged %v, want the user once", nudged)
+	}
+}
+
+// The Nov 12 prod 503: GET /api/state/{id} through the real router, as a user whose group another pod holds, on a pod with no tokens. The
+// request must reach the forwarder (the owner answers) instead of the unheld client refusing it.
+func TestStateOnATokenlessPodIsForwardedThroughTheRouter(t *testing.T) {
+	reg := rivian.NewLiveAccountRegistry(func(uuid.UUID) *rivian.LiveClient { return rivian.NewLive() })
+	reg.(interface {
+		SetNoStandingTokens(func(context.Context, uuid.UUID) (bool, bool), func(uuid.UUID) *rivian.LiveClient)
+	}).SetNoStandingTokens(func(context.Context, uuid.UUID) (bool, bool) { return false, true }, func(uuid.UUID) *rivian.LiveClient { return rivian.NewLive() })
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(rivian.State{VehicleID: fwdVehicle, PowerState: "ready", BatteryLevelPct: 61})
+	fw := &fakeStateForwarder{res: forward.Result{Status: 200, Body: body}}
+	router := New(Deps{Auth: svc, AuthEnforced: true, Accounts: reg, StateForward: fw,
+		GroupOfVehicle: func(string) (string, bool) { return fwdGroup, true }})
+
+	req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev/api/state/"+fwdVehicle, nil)
+	req.RemoteAddr = "203.0.113.9:4000"
+	ctx := auth.WithUser(req.Context(), uuid.New())
+	ctx = auth.WithSession(ctx, auth.SessionRef{ID: uuid.New(), Kind: "web"})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req.WithContext(ctx))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/state on a token-less pod = %d %q, want the owner's 200", rec.Code, rec.Body.String())
+	}
+	if len(fw.calls) != 1 || fw.calls[0].Kind != forward.KindFreshState {
+		t.Fatalf("forwarder calls %+v, want one fresh_state", fw.calls)
 	}
 }
