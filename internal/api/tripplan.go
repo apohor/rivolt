@@ -587,6 +587,9 @@ func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store, 
 		}
 		result, err := tripadvice.Generate(r.Context(), mgr.Analyzer(), body.Plan, tc)
 		if err != nil {
+			if writeAITasteError(w, err) {
+				return
+			}
 			slog.WarnContext(r.Context(), "trip advice generation failed", "err", err.Error())
 			http.Error(w, "AI analysis failed: "+err.Error(), http.StatusBadGateway)
 			return
