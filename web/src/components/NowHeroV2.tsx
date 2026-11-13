@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { ArcGauge } from "./ArcGauge";
 import { useColdRange } from "./AmbientTempLine";
+import { pickImageForNow, useIsLight, type PlacedImage } from "../lib/vehicleImage";
 import { useAmbientTemp } from "../lib/ambientTemp";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { clock, type NowView } from "../lib/nowState";
@@ -55,6 +56,7 @@ export default function NowHeroV2({
   footer,
   telemetryLink,
   critical,
+  images,
 }: {
   view: NowView;
   vehicleID: string;
@@ -68,8 +70,11 @@ export default function NowHeroV2({
   footer: React.ReactNode;
   telemetryLink: boolean;
   critical: boolean;
+  // The vehicle's Rivian images; without any the drawn truck below stays (the line-art fallback slots in there).
+  images?: PlacedImage[];
 }) {
   const { temperatureUnit, distanceUnit } = usePreferences();
+  const light = useIsLight();
   // Every distance on the card is in the user's unit (the truck reports miles).
   const dist = (mi: number) =>
     `${Math.round(distanceUnit === "km" ? mi * 1.609344 : mi)} ${distanceUnit}`;
@@ -101,6 +106,7 @@ export default function NowHeroV2({
       ? formatTemperature(ambient.temp_c, temperatureUnit)
       : null;
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
+  const carUrl = pickImageForNow(images, charging ? "charging" : view.kind, light);
   const [info, setInfo] = useState(false);
   const [slot, setSlot] = useState<Element | null>(null);
   useEffect(() => {
@@ -193,7 +199,11 @@ export default function NowHeroV2({
             )}
           </ArcGauge>
           <div className={`flex min-w-0 flex-1 flex-col items-start gap-1 ${telemetryLink ? "pt-10" : ""}`}>
-            <Truck charging={charging} />
+            {carUrl ? (
+              <img data-testid="now-car" src={carUrl} alt="" loading="lazy" className="max-h-24 w-full object-contain object-left" />
+            ) : (
+              <Truck charging={charging} />
+            )}
             {view.rangeMi != null && (
               <p className="min-w-0">
                 <span className="text-2xl font-semibold tabular-nums text-neutral-100">
