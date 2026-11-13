@@ -47,3 +47,10 @@ func SetLockRetryForTest(budget, min, max time.Duration) (restore func()) {
 	lockRetryBudget, lockRetryMin, lockRetryMax = budget, min, max
 	return func() { lockRetryBudget, lockRetryMin, lockRetryMax = b, lo, hi }
 }
+
+// RunnerSettingsForTest is the runner's SET LOCAL limits, and AppliesRunnerLimitsForTest says which files get them, for the probe.
+const RunnerSettingsForTest = runnerSettings
+
+func AppliesRunnerLimitsForTest(id string) bool { return appliesRunnerLimits(id) }
+
+func LockRetryBudgetForTest() time.Duration { return lockRetryBudget }
