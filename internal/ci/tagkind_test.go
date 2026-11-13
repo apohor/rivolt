@@ -83,9 +83,9 @@ func jobOf(t *testing.T, file, name string) string {
 func TestAReleaseCandidateNeverReachesProd(t *testing.T) {
 	bump := job(t, "bump-prod")
 	for _, want := range []string{
-		"needs.tag-validate.outputs.kind == 'final'", // the job condition
-		"needs: [tag-validate, retag]",               // so that condition can read tag-validate's output
-		`*-*)`,                                       // the step's own refusal of any prerelease version
+		"needs.tag-validate.outputs.kind == 'final'",  // the job condition
+		"needs: [tag-validate, retag, contract-gate]", // so that condition can read tag-validate's output
+		`*-*)`, // the step's own refusal of any prerelease version
 	} {
 		if !strings.Contains(bump, want) {
 			t.Errorf("bump-prod lost %q: a release candidate could reach prod's values", want)
@@ -166,7 +166,10 @@ func TestPreviewTag(t *testing.T) {
 	tagOn := func(dir string) string {
 		return sh(dir, "git", "show", "origin/main:apps/platform/rivolt-admin-preview/values.yaml")
 	}
-	head := func() string { sh(work, "git", "fetch", "-q", "origin", "main"); return sh(work, "git", "rev-parse", "origin/main") }
+	head := func() string {
+		sh(work, "git", "fetch", "-q", "origin", "main")
+		return sh(work, "git", "rev-parse", "origin/main")
+	}
 
 	before := head()
 	if out, err := run("unpin", "sha-1234567", src, "m"); err != nil || !strings.Contains(out, "not pinned") || head() != before {

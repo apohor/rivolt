@@ -1791,9 +1791,24 @@ jobs:
           echo "Retagging ${IMAGE}:${short} → ${args[*]}"
           docker buildx imagetools create "${args[@]}" "${IMAGE}:${short}"
 
+  # The destructive-migration gate in front of prod's pin commit. Prod is an autosync Application (or about to be), so the commit bump-prod
+  # writes is the deploy: a contract migration (a "-- contract:" marker) must never ride it. Fails closed. Break-glass is in contract-gate.sh.
+  contract-gate:
+    name: contract-gate
+    needs: [tag-validate]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.tag-validate.outputs.kind == 'final'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: No contract migration since the previous release
+        run: bash .github/ci/contract-gate.sh "${GITHUB_REF_NAME}"
+
   bump-prod:
     name: bump-prod
-    needs: [tag-validate, retag]
+    needs: [tag-validate, retag, contract-gate]
     # After retag attaches the prod tag to the existing image, rewrite
     # rivolt-infra's apps/platform/rivolt{,-admin,-demo}/{app.yaml,values.yaml} so ArgoCD picks
     # up the new version automatically. Removes the manual sed dance
