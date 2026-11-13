@@ -582,7 +582,8 @@ func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store, 
 				if wc == nil {
 					wc = weather.NewClient()
 				}
-				if snap, _, err := wc.FetchHour(r.Context(), lat, lon, at, 0, false); err == nil {
+				bearing, hasBearing := firstLegBearing(body.Plan)
+				if snap, _, err := wc.FetchHour(r.Context(), lat, lon, at, bearing, hasBearing); err == nil {
 					tc.Weather = snap
 				}
 			}
@@ -644,6 +645,32 @@ func originLatLon(plan *rivian.TripPlan) (lat, lon float64, ok bool) {
 		}
 	}
 	return 0, 0, false
+}
+
+// firstLegBearing is the compass bearing from the origin to the next waypoint with a
+// position, so the origin's wind can be signed against the direction of the first leg
+// in Go instead of being left to the model.
+func firstLegBearing(plan *rivian.TripPlan) (float64, bool) {
+	if plan == nil {
+		return 0, false
+	}
+	for _, r := range plan.Routes {
+		var from *rivian.PlannedWaypoint
+		for i := range r.Waypoints {
+			w := &r.Waypoints[i]
+			if w.Latitude == 0 && w.Longitude == 0 {
+				continue
+			}
+			if from == nil {
+				if strings.EqualFold(w.WaypointType, "origin") {
+					from = w
+				}
+				continue
+			}
+			return weather.Bearing(from.Latitude, from.Longitude, w.Latitude, w.Longitude), true
+		}
+	}
+	return 0, false
 }
 
 // handleTripPlanRawDebug forwards an arbitrary variables JSON to

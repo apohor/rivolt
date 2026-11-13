@@ -32,6 +32,7 @@ import (
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/samples"
+	"github.com/apohor/rivolt/internal/weather"
 )
 
 // Highlight is one badge-sized stat the SPA renders next to the
@@ -332,16 +333,14 @@ func buildPrompt(in Inputs) (string, string) {
 			fmt.Fprintf(&sb, "  wind_from_deg: %.0f\n", w.WindDirDeg)
 		}
 		if w.HasHeadwind {
-			// Sign convention: positive = headwind, negative = tailwind.
-			label := "headwind"
-			val := w.HeadwindKPH
-			if val < 0 {
-				label = "tailwind"
-				val = -val
-			}
-			if in.UseFahrenheit {
+			// Signed against the drive's bearing in Go; the model reads the label and never works out directions.
+			label, val := weather.WindRelation(w.HeadwindKPH, w.WindKPH)
+			switch {
+			case label == "crosswind":
+				fmt.Fprintf(&sb, "  wind_vs_drive: crosswind\n")
+			case in.UseFahrenheit:
 				fmt.Fprintf(&sb, "  %s_mph: %.0f\n", label, val*0.621371)
-			} else {
+			default:
 				fmt.Fprintf(&sb, "  %s_kph: %.0f\n", label, val)
 			}
 		}

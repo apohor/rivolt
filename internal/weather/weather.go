@@ -115,6 +115,23 @@ func Headwind(windKPH, windFromDeg, tripBearingDeg float64) float64 {
 	return windKPH * math.Cos(rel*math.Pi/180)
 }
 
+// WindRelation names the wind against the direction of travel for a prompt, so a
+// model reads the label instead of doing bearing arithmetic (Sonnet called a north
+// wind on a southbound drive a headwind). headwindKPH is the signed value from
+// Headwind; windKPH the raw speed. The wind is a crosswind when its along-track
+// component is under 3 kph or under 30% of its speed (within about 17 degrees of
+// square on); kph is then 0. Otherwise kph is the size of the component.
+func WindRelation(headwindKPH, windKPH float64) (label string, kph float64) {
+	mag := math.Abs(headwindKPH)
+	if mag < 3 || mag < 0.3*math.Abs(windKPH) {
+		return "crosswind", 0
+	}
+	if headwindKPH > 0 {
+		return "headwind", mag
+	}
+	return "tailwind", mag
+}
+
 // Cache is the persistent cache backing for drive weather. Methods
 // are safe to call with a nil Cache; they degrade to "no-op". The
 // recap handler keeps a single Cache for the lifetime of the

@@ -10,6 +10,7 @@ import (
 	"github.com/apohor/rivolt/internal/ai"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/samples"
+	"github.com/apohor/rivolt/internal/weather"
 )
 
 // EfficiencyFactor is a single contributor to efficiency variance,
@@ -358,11 +359,12 @@ Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
 			parts = append(parts, fmt.Sprintf("%.0f mph wind", mph))
 		}
 		if w.HasHeadwind {
-			mph := w.HeadwindKPH * 0.621371
-			if mph > 0 {
-				parts = append(parts, fmt.Sprintf("%.0f mph headwind", mph))
-			} else if mph < 0 {
-				parts = append(parts, fmt.Sprintf("%.0f mph tailwind", -mph))
+			// Signed against the drive's bearing in Go; the model reads the label and never works out directions.
+			label, kph := weather.WindRelation(w.HeadwindKPH, w.WindKPH)
+			if label == "crosswind" {
+				parts = append(parts, "crosswind")
+			} else {
+				parts = append(parts, fmt.Sprintf("%.0f mph %s", kph*0.621371, label))
 			}
 		}
 		if w.HasPrecip && w.PrecipMM > 0 {
