@@ -166,7 +166,7 @@ func robotsTxt(host string) string {
 	}
 	// Content Signals (contentsignals.org): public pages may be searched and
 	// used as input for answers; training on them is not allowed.
-	return "User-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=no\nDisallow: /api/\n\nSitemap: https://" + host + "/sitemap.xml\n"
+	return "User-agent: *\nContent-Signal: search=yes, ai-input=yes, ai-train=no\nDisallow: /api/\nDisallow: /s$\n\nSitemap: https://" + host + "/sitemap.xml\n"
 }
 
 const repoURL = "https://github.com/apohor/rivolt"

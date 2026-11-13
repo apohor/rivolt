@@ -156,6 +156,8 @@ type configExtras struct {
 	DemoRadar bool
 	// HistoryImport: the history import routes are mounted (RIVOLT_HISTORY_IMPORT).
 	HistoryImport bool
+	// TripShare: the shared trip link routes are mounted (RIVOLT_TRIP_SHARE).
+	TripShare bool
 	// DesignPreview: the design keys switched on (RIVOLT_DESIGN_PREVIEW, see ParseDesignPreview).
 	DesignPreview []string
 }
@@ -251,6 +253,8 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		AdminOnly bool `json:"admin_only"`
 		// HistoryImport: Settings shows Import history and Imports (the routes are mounted).
 		HistoryImport bool `json:"history_import"`
+		// TripShare: Saved trips offers Share and /s opens a shared trip (the routes are mounted).
+		TripShare bool `json:"trip_share"`
 		// DesignPreview lists the design keys the client shows its new look for (RIVOLT_DESIGN_PREVIEW; on in preview, off in prod). Always an array; keys are passed through unchecked, a client ignores keys it does not know.
 		DesignPreview []string `json:"design_preview"`
 	}
@@ -337,6 +341,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	base.Features.RivianActions = rivianActionsEnabled()
 	base.Features.AdminOnly = adminonly.Enabled(os.Getenv)
 	base.Features.HistoryImport = ex.HistoryImport
+	base.Features.TripShare = ex.TripShare
 	base.Features.DesignPreview = append([]string{}, ex.DesignPreview...)
 	base.Features.DemoEnabled = demo.Enabled()
 	base.Features.SignupEnabled = !signupgate.Disabled()

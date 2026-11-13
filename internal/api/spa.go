@@ -44,6 +44,10 @@ func spaHandler(fsys fs.FS, assetMiss func()) http.Handler {
 			return
 		}
 		noCacheIndex(w)
+		// /s opens a shared trip from the token in its fragment: nothing on it may leave in a Referer or be indexed.
+		if r.URL.Path == "/s" {
+			w.Header().Set("Referrer-Policy", "no-referrer")
+		}
 		page, canon, ok := seoLookup(host, r.URL.Path)
 		if !ok {
 			w.Header().Set("X-Robots-Tag", "noindex")

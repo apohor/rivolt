@@ -39,6 +39,7 @@ const MovingFromElectraFiPage = lazy(() => import("./pages/MovingFromElectraFiPa
 const SafeToConnectPage = lazy(() => import("./pages/SafeToConnectPage"));
 const SupportPage = lazy(() => import("./pages/SupportPage"));
 const CreditsPage = lazy(() => import("./pages/CreditsPage"));
+const SharedTripPage = lazy(() => import("./pages/SharedTripPage"));
 const LeaseCalculatorPage = lazy(() => import("./pages/LeaseCalculatorPage"));
 const ChargingCostPage = lazy(() => import("./pages/ChargingCostPage"));
 const HydraLoginPage = lazy(pageLoaders.hydraLogin);
@@ -78,7 +79,7 @@ export default function App() {
     queryKey: ["auth", "me"],
     queryFn: () => backend.whoami(),
     staleTime: 5 * 60_000,
-    enabled: !demoOnly.loading && !demoOnly.only && !inDemo(),
+    enabled: !demoOnly.loading && !demoOnly.only && !inDemo() && location.pathname !== "/s",
   });
   // An admin viewing as a user has not accepted anything for them and cannot (read-only).
   const impersonating = useImpersonationTarget();
@@ -123,6 +124,7 @@ export default function App() {
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
       <Route path="support" element={<SupportPage />} />
       <Route path="credits" element={<CreditsPage />} />
+      <Route path="s" element={<SharedTripPage />} />
       <Route path="r2" element={<R2GuidePage />} />
       <Route path="charging-networks" element={<ChargingNetworksPage />} />
       <Route path="lease-calculator" element={<LeaseCalculatorPage />} />
