@@ -34,6 +34,7 @@ const (
 	HomeSourceAddress     = "address"
 	HomeSourceCoordinates = "coordinates"
 	HomeSourceCharge      = "charge"
+	HomeSourceTruck       = "truck" // the setup sheet: the position the truck reported now, shown on a pin before it is saved
 )
 
 // ErrHomeLocationInvalid: a latitude or longitude that isn't a finite value in range.
@@ -50,7 +51,7 @@ func ValidateHomeLocation(h HomeLocation) error {
 		return ErrHomeLocationInvalid
 	}
 	switch h.Source {
-	case "", HomeSourceCity, HomeSourceAddress, HomeSourceCoordinates, HomeSourceCharge:
+	case "", HomeSourceCity, HomeSourceAddress, HomeSourceCoordinates, HomeSourceCharge, HomeSourceTruck:
 		return nil
 	}
 	return errors.New("unknown source")
@@ -76,7 +77,7 @@ type HomeLocation struct {
 	// Address is the full geocoded address kept for context on
 	// the Settings card. Never used as the primary label.
 	Address string `json:"address,omitempty"`
-	// Source is how the home was set: "city", "address", "coordinates" or "charge" ("" before it was recorded).
+	// Source is how the home was set: "city", "address", "coordinates", "charge" or "truck" ("" before it was recorded).
 	Source string `json:"source,omitempty"`
 }
 

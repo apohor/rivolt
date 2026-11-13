@@ -19,6 +19,7 @@ func TestHomeLocationValidation(t *testing.T) {
 		ok   bool
 	}{
 		{"a precise home", settings.HomeLocation{Set: true, Latitude: 32.776665, Longitude: -96.796989, Source: settings.HomeSourceCoordinates}, true},
+		{"set from the truck position", settings.HomeLocation{Set: true, Latitude: 34.161, Longitude: -118.168, Label: "Home", Source: settings.HomeSourceTruck}, true},
 		{"the edges", settings.HomeLocation{Set: true, Latitude: -90, Longitude: 180}, true},
 		{"a clear", settings.HomeLocation{Set: false, Latitude: 999}, true},
 		{"latitude past 90", settings.HomeLocation{Set: true, Latitude: 90.0001, Longitude: 0}, false},
