@@ -443,6 +443,9 @@ func TestServeLiveSessionReturnsTheMonitorsRead(t *testing.T) {
 	if err := json.Unmarshal(res.Body, &w); err != nil {
 		t.Fatal(err)
 	}
+	if w.Session != nil {
+		t.Fatalf("a monitor with no open charge sent session %+v, want none", w.Session)
+	}
 	if got := ServeLiveSession(nil, fwdVehicle); got.Status != http.StatusServiceUnavailable {
 		t.Fatalf("ServeLiveSession without a monitor = %d, want 503", got.Status)
 	}
