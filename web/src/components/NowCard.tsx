@@ -303,7 +303,14 @@ export default function NowCard({
               )}
             </>
           }
-          footer={<p data-testid="now-freshness">{freshnessLine(view)}</p>}
+          // Only when the picture is old; a live truck's chip already says the state and since when.
+          footer={
+            offline || view.stale ? (
+              <p data-testid="now-freshness" className="pointer-events-none relative mt-3 text-xs text-neutral-500">
+                {freshnessLine(view)}
+              </p>
+            ) : null
+          }
           telemetryLink={!impersonating && showTelemetryLink}
         />
         {alertList}

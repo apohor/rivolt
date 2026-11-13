@@ -33,6 +33,13 @@ export function nowChip(
     return v.speedMph != null
       ? `Driving · ${Math.round(v.speedMph)} mph`
       : "Driving";
+  // Parked or plugged in: the state and since when. A stale or offline truck keeps the pill's own "Last seen ...".
+  if (
+    (v.kind === "parked" || v.kind === "plugged") &&
+    !v.stale &&
+    v.stateSinceMs != null
+  )
+    return `${v.kind === "plugged" ? "Plugged in" : "Parked"} · since ${clock(v.stateSinceMs)}`;
   return pillText;
 }
 
@@ -95,6 +102,7 @@ export default function NowHeroV2({
       ? formatTemperature(ambient.temp_c, temperatureUnit)
       : null;
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
+  const [info, setInfo] = useState(false);
   const [slot, setSlot] = useState<Element | null>(null);
   useEffect(() => setSlot(document.querySelector("[data-now-chip-slot]")), []);
   const chipEl = (
@@ -133,9 +141,36 @@ export default function NowHeroV2({
               ? "driving"
               : undefined
         }
-        className={`rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
+        className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
       >
-        <div className="flex items-center gap-4">
+        {telemetryLink && (
+          <>
+            {/* The whole card opens Full telemetry; controls inside sit above this link. */}
+            <Link
+              to="/live"
+              aria-label="Full telemetry"
+              className="absolute inset-0 z-0 rounded-2xl"
+            />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute right-4 top-4 text-neutral-500"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m9 5 7 7-7 7" />
+              </svg>
+            </span>
+          </>
+        )}
+        <div className="pointer-events-none relative flex items-center gap-4">
           <ArcGauge
             value={view.soc}
             label={
@@ -197,32 +232,52 @@ export default function NowHeroV2({
         )}
         {(cabin || outside) && (
           <div
-            className="mt-3 border-t border-neutral-800 pt-3 text-sm text-neutral-300"
+            className="pointer-events-none relative mt-3 border-t border-neutral-800 pt-3 text-sm text-neutral-300"
             data-testid="now-temps"
           >
-            {[
-              cabin && `Cabin ${cabin}`,
-              outside && `Outside ${outside} (estimate)`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+            <span>
+              {[cabin && `Cabin ${cabin}`, outside && `Outside ${outside}`]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+            {outside && (
+              <button
+                type="button"
+                aria-label="About the outside temperature"
+                aria-expanded={info}
+                onClick={() => setInfo((o) => !o)}
+                className="pointer-events-auto ml-2 inline-flex align-middle text-neutral-500 hover:text-neutral-300"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 11v6M12 7.5v.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+            {outside && info && (
+              <p className="mt-2 text-xs text-neutral-400">
+                Outside is an estimate, looked up from Open-Meteo for your
+                truck&apos;s location.
+              </p>
+            )}
           </div>
         )}
         {amb.enabled === false && (
-          <AmbientTempLine ambient={ambient} vehicleID={vehicleID} />
+          <div className="relative">
+            <AmbientTempLine ambient={ambient} vehicleID={vehicleID} />
+          </div>
         )}
-        {extra}
-        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
-          {footer}
-          {telemetryLink && (
-            <Link
-              to="/live"
-              className="text-neutral-300 hover:text-emerald-300"
-            >
-              Full telemetry →
-            </Link>
-          )}
+        <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+          {extra}
         </div>
+        {footer}
       </div>
       {outside && (
         <WeatherCredit className="text-center text-sm text-neutral-500" />

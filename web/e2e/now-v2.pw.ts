@@ -37,6 +37,13 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
   await expect(page.locator("[data-now-chip]")).toBeVisible();
   await expect(page.getByTestId("now-subline")).toHaveText(/Full charge today ≈ 266 mi/);
   await expect(page.getByTestId("now-temps")).toContainText("Outside");
+  // State and time in the chip; no metadata line; the card opens Full telemetry; "estimate" sits behind the (i).
+  await expect(page.locator("[data-now-chip]")).toHaveText(/(Parked|Plugged in|Asleep) · since \d/);
+  await expect(page.getByTestId("now-freshness")).toHaveCount(0);
+  await expect(hero.getByRole("link", { name: "Full telemetry" })).toHaveAttribute("href", "/live");
+  await expect(page.getByTestId("now-temps")).not.toContainText("estimate");
+  await page.getByRole("button", { name: "About the outside temperature" }).click();
+  await expect(page.getByTestId("now-temps")).toContainText("estimate");
   await expect(page.getByTestId("now-month")).toBeVisible();
   await expect(page.getByTestId("now-month")).toContainText("miles");
   await expect(page.getByTestId("now-month")).toContainText("kWh added");
@@ -48,7 +55,7 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
 
 test("flag on, charging: the chip says power and the subline says what the limit buys", async ({ page }) => {
   await open(page, true, "charging");
-  await expect(page.locator("[data-now-chip]")).toContainText(/Charging · .* kW/);
+  await expect(page.locator("[data-now-chip]")).toContainText(/Charging · .* kW · (done|full) by \d/);
   await expect(page.getByTestId("now-subline")).toContainText(/Charging to \d+%/);
 });
 
