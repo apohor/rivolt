@@ -216,7 +216,7 @@ final class PlanSheetUITests: XCTestCase {
 
     /// At accessibility text the chart is still whole: on the screen's width, with its words.
     func testTheElevationChartFitsAtAX3() throws {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
+        let app = launch(["-uitest-ios-elevation", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
         let grabber = open("Seattle to Spokane", in: app)
         let chart = chart(in: app, grabber: grabber)
         let window = app.windows.firstMatch.frame
