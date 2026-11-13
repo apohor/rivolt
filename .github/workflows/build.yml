@@ -1856,6 +1856,18 @@ jobs:
           fi
           sed -i -E "s/^([[:space:]]+version:)[[:space:]]+v[0-9]+\.[0-9]+\.[0-9]+/\1 ${VERSION}/" "${apps[@]}"
           sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+\"[0-9]+\.[0-9]+\.[0-9]+\"/\1 \"${v}\"/" "${vals[@]}"
+          # Once the demo is a plain (autosync) Application, its chart revision lives in argocd/autosync-demo.yaml on the one line tagged
+          # `# release-pin`, and its image tag on the line tagged `# release-pin-image`. Both move with app.yaml and values in this commit; no other line of the file is touched, and a file that
+          # exists without the tagged line fails the job rather than leaving the demo on old templates.
+          pin=argocd/autosync-demo.yaml
+          if [ -f "$pin" ]; then
+            sed -i -E "s/^([[:space:]]+targetRevision:)[[:space:]]+v[0-9]+\.[0-9]+\.[0-9]+([[:space:]]+# release-pin)\$/\1 ${VERSION}\2/" "$pin"
+            grep -qE "^[[:space:]]+targetRevision:[[:space:]]+${VERSION}[[:space:]]+# release-pin\$" "$pin" || { echo "::error::$pin has no '# release-pin' targetRevision line to bump to ${VERSION}"; exit 1; }
+            # The image tag is a Helm parameter in the same Application (tagged `# release-pin-image`), so templates and image move in one object.
+            sed -i -E "s/^([[:space:]]+value:)[[:space:]]+\"[0-9]+\.[0-9]+\.[0-9]+\"([[:space:]]+# release-pin-image)\$/\1 \"${v}\"\2/" "$pin"
+            grep -qE "^[[:space:]]+value:[[:space:]]+\"${v}\"[[:space:]]+# release-pin-image\$" "$pin" || { echo "::error::$pin has no '# release-pin-image' image.tag line to bump to ${v}"; exit 1; }
+            apps+=("$pin")
+          fi
           if git diff --quiet "${apps[@]}" "${vals[@]}"; then
             echo "prod already on ${VERSION} — nothing to commit."
             exit 0
