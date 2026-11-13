@@ -92,7 +92,9 @@ test("flag on, outside temperature setting off: Cabin only, and no offer to turn
   await expect(page.locator("[data-weather-credit]")).toHaveCount(1);
 });
 
-test("flag on: the Three things card is last on Now, below the Battery trend and above the footer", async ({ page }) => {
+for (const width of [1440, 1280, 393]) {
+test(`flag on: the Three things card is last on Now, below the Battery trend and above the footer (${width} px)`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
   await open(page, true);
   const card = page.locator("[data-three-things]");
   await expect(card).toBeVisible();
@@ -102,6 +104,7 @@ test("flag on: the Three things card is last on Now, below the Battery trend and
   expect(c.y).toBeGreaterThan(trend.y);
   expect(c.y + c.height).toBeLessThanOrEqual(foot.y + 1);
 });
+}
 
 test("flag on: the (i) has a 44 px target and a tap beside it stays on the page", async ({ page }) => {
   await open(page, true);

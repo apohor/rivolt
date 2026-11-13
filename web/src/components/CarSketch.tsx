@@ -24,7 +24,7 @@ export function CarSketch({
         <svg
           viewBox="-12 -12 24 24"
           aria-hidden="true"
-          className="absolute right-[22%] top-[10%] h-6 w-6"
+          className="absolute right-[22%] top-[10%] aspect-square w-[11%]"
         >
           <circle r="11" className="fill-emerald-500" />
           <path d="M1.5 -6.5 -4 1h4l-1.5 5.5 5.5-7.5h-4z" fill="#06080C" />
