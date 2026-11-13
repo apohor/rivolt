@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { ArcGauge } from "./ArcGauge";
+import { CarSketch } from "./CarSketch";
 import { useColdRange } from "./AmbientTempLine";
 import { pickImageForNow, useIsLight, type PlacedImage } from "../lib/vehicleImage";
 import { useAmbientTemp } from "../lib/ambientTemp";
@@ -60,6 +61,7 @@ export default function NowHeroV2({
   telemetryLink,
   critical,
   images,
+  model,
 }: {
   view: NowView;
   vehicleID: string;
@@ -73,8 +75,9 @@ export default function NowHeroV2({
   footer: React.ReactNode;
   telemetryLink: boolean;
   critical: boolean;
-  // The vehicle's Rivian images; without any the drawn truck below stays (the line-art fallback slots in there).
+  // The vehicle's Rivian images; without any the line-art sketch of the model shows instead.
   images?: PlacedImage[];
+  model?: string | null;
 }) {
   const { temperatureUnit, distanceUnit } = usePreferences();
   const light = useIsLight();
@@ -210,7 +213,7 @@ export default function NowHeroV2({
             {carUrl && carUrl !== failedUrl ? (
               <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left" />
             ) : (
-              <Truck charging={charging} />
+              <CarSketch model={model} charging={charging} />
             )}
             {view.rangeMi != null && (
               <p className="min-w-0">
@@ -290,55 +293,5 @@ export default function NowHeroV2({
         {footer}
       </div>
     </>
-  );
-}
-
-// A plain pickup in side view: no badges, lights or grille. Colours follow the theme through the neutral scale.
-function Truck({ charging }: { charging: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 240 104"
-      role="img"
-      aria-label="Truck"
-      className="h-auto w-full max-w-[200px]"
-    >
-      <ellipse cx="120" cy="91" rx="112" ry="6" className="fill-black/30" />
-      <path
-        d="M8 76 V58 Q8 50 16 49 L54 45 L80 26 Q83 24 88 24 L140 24 Q146 24 148 29 L154 45 L226 45 Q233 45 233 52 L233 76 L210 76 A21 21 0 0 0 168 76 L72 76 A21 21 0 0 0 30 76 Z"
-        className="fill-neutral-700"
-      />
-      <path
-        d="M63 44 L82 30 Q84 28.5 87 28.5 L110 28.5 L110 44 Z"
-        className="fill-neutral-500"
-      />
-      <path
-        d="M114 28.5 L139 28.5 Q142.5 28.5 143.5 31.5 L148.5 44 L114 44 Z"
-        className="fill-neutral-500"
-      />
-      <path
-        d="M112 46 V74 M156 47 V74"
-        className="stroke-neutral-800"
-        strokeWidth="1.2"
-        fill="none"
-      />
-      {[51, 189].map((cx) => (
-        <g key={cx}>
-          <circle cx={cx} cy="78" r="16" className="fill-neutral-900" />
-          <circle
-            cx={cx}
-            cy="78"
-            r="9"
-            className="fill-none stroke-neutral-500"
-            strokeWidth="3"
-          />
-        </g>
-      ))}
-      {charging && (
-        <g transform="translate(206 30)">
-          <circle r="11" className="fill-emerald-500" />
-          <path d="M1.5 -6.5 -4 1h4l-1.5 5.5 5.5-7.5h-4z" fill="#06080C" />
-        </g>
-      )}
-    </svg>
   );
 }

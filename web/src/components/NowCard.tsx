@@ -82,12 +82,14 @@ export default function NowCard({
   vehicleName,
   packKwh,
   images,
+  model,
   showTelemetryLink = true,
 }: {
   vehicleID: string;
   vehicleName: string;
   packKwh: number | null;
   images?: VehicleImage[];
+  model?: string | null;
   // /live needs a signed-in session, so the public demo turns it off.
   showTelemetryLink?: boolean;
 }) {
@@ -279,6 +281,7 @@ export default function NowCard({
           view={view}
           vehicleID={vehicleID}
           images={images}
+          model={model}
           chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text)}
           pillTone={pill.tone}
           ambient={server?.ambient}
