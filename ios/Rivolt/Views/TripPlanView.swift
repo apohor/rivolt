@@ -175,7 +175,7 @@ struct TripPlanResult: View {
         if case .planned = model.night {
             LongDriveSection(model: model, metric: metric, showsMap: showsMap, onlyDay: onlyDay)
         } else {
-            if showsMap { PlanMap(content: .route(.init(route: route)), focus: model.focusedStop, onStop: { model.focusedStop = $0 }, along: model.chargers, onLine: { line, _ in model.roadLine = line }) }
+            if showsMap { PlanMap(content: .route(.init(route: route)), focus: model.focusedStop, onStop: { model.focusedStop = $0 }, cursorShare: model.elevationCursor, onCursorShare: PlanElevation.shown(plan.elevationProfile, designPreview: state.designPreview) == nil ? nil : { model.elevationCursor = $0 }, along: model.chargers, onLine: { line, _ in model.roadLine = line }) }
             if showsMap, !state.isDemo { AlongToggle(model: model) }
             ThemeSection(title: "The plan") {
                 if let arrive = TripPlanLogic.arrival(route, timeZone: TripPlanLogic.zone(plan.destinationTz) ?? .current) {
@@ -190,6 +190,9 @@ struct TripPlanResult: View {
                 if let warning = TripPlanLogic.shortfall(route, metric: metric) {
                     Text(warning).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
                 }
+            }
+            if let profile = PlanElevation.shown(plan.elevationProfile, designPreview: state.designPreview) {
+                ElevationChartView(profile: profile, metric: metric, share: Binding(get: { model.elevationCursor }, set: { model.elevationCursor = $0 }))
             }
             if TripPlanLogic.offersDrivingPerDay(route), !state.isDemo { DrivingPerDayRow(model: model) }
             if TripPlanLogic.isLongDrive(route), !state.isDemo { LongDriveSection(model: model, metric: metric) }

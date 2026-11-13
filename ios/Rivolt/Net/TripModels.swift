@@ -23,13 +23,15 @@ struct TripPlan: Decodable, Equatable {
     var costs: [TripCost]? = nil
     /// The server's weather correction (leg i runs from waypoint i to i+1 of the first route); nil when weather is off or no leg had a forecast.
     var weatherAdjustment: TripWeatherAdjustment? = nil
+    /// The terrain under the first route, for the elevation chart; nil when the server sent none.
+    var elevationProfile: ElevationProfile? = nil
     /// The destination's IANA zone ("America/Denver"); absent when the coordinates name none, and on plans from before it existed.
     var destinationTz: String?
     /// The answer exactly as it came, for saving it back as the web does.
     var raw: JSONValue?
 
     enum CodingKeys: String, CodingKey {
-        case destinationTz, weatherAdjustment, status = "Status", chargeStationsAvailable = "ChargeStationsAvailable", soCBelowLimit = "SoCBelowLimit", routes = "Routes", costs
+        case destinationTz, weatherAdjustment, elevationProfile, status = "Status", chargeStationsAvailable = "ChargeStationsAvailable", soCBelowLimit = "SoCBelowLimit", routes = "Routes", costs
     }
 
     init(from decoder: Decoder) throws {
@@ -41,6 +43,7 @@ struct TripPlan: Decodable, Equatable {
         costs = try? c.decode([TripCost].self, forKey: .costs)
         destinationTz = try? c.decode(String.self, forKey: .destinationTz)
         weatherAdjustment = try? c.decode(TripWeatherAdjustment.self, forKey: .weatherAdjustment)
+        elevationProfile = try? c.decode(ElevationProfile.self, forKey: .elevationProfile)
         raw = try? JSONValue(from: decoder)
     }
 
@@ -704,4 +707,12 @@ struct TripWeatherLeg: Decodable, Equatable {
     var climbM: Double?
     var descentM: Double?
 
+}
+
+
+/// `elevation_profile` on a plan: the terrain along the first route as [distance in metres, elevation in metres] points (200 at most), and where each
+/// waypoint sits along it in metres (null for one that could not be placed). Context only: no energy figure comes from it.
+struct ElevationProfile: Decodable, Equatable {
+    var points: [[Double]]
+    var waypointAtM: [Double?]
 }

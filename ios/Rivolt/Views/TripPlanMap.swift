@@ -262,6 +262,10 @@ struct PlanMapCanvas: View {
     var onStop: ((Int) -> Void)?
     /// A tap on a leg's weather label goes to `onLegTag` when it is given.
     var onLegTag: ((RouteSnap.Drawing.LegTag) -> Void)?
+    /// Where the elevation chart's cursor is on the route: a dot there (nil: none).
+    var cursor: RouteSnap.Coord?
+    /// A tap on the map that hit no pin or label: the place and the metres a thumb covers there.
+    var onTapAt: ((RouteSnap.Coord, Double) -> Void)?
     /// A map to explore: pinch and pan (never rotate or tilt), filling the room it is given (the plan's full-height map), with the camera
     /// fitted above `bottomInset` points that something else (the itinerary sheet) covers.
     var fills = false
@@ -289,7 +293,7 @@ struct PlanMapCanvas: View {
             if health == .failed {
                 MapMessage(text: "Map unavailable.")
             } else if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, recenter: reframe, radar: radar, bottomInset: bottomInset, topInset: topInset, onStop: onStop, onLegTag: onLegTag.map { cb in { i in if drawing.legTags.indices.contains(i) { cb(drawing.legTags[i]) } } }, onLongPress: onLongPress, onCenter: onCenter, onDrawnLegTags: drawnLegTagsReport)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, recenter: reframe, radar: radar, cursor: cursor, bottomInset: bottomInset, topInset: topInset, onStop: onStop, onLegTag: onLegTag.map { cb in { i in if drawing.legTags.indices.contains(i) { cb(drawing.legTags[i]) } } }, onTapAt: onTapAt, onLongPress: onLongPress, onCenter: onCenter, onDrawnLegTags: drawnLegTagsReport)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     // The places drawn along the route (the layer chips' pins), for VoiceOver and for a UI test: nothing is said when there are none.
@@ -369,6 +373,9 @@ struct PlanMap: View {
     var onStop: ((Int) -> Void)?
     /// A tap on a leg's weather label.
     var onLegTag: ((RouteSnap.Drawing.LegTag) -> Void)?
+    /// The elevation chart's cursor, a share (0 to 1) of the way along the route (the one-route map only), and a tap on the route putting it somewhere.
+    var cursorShare: Double?
+    var onCursorShare: ((Double) -> Void)?
     /// The layer pins (chargers, hotels, campgrounds along the route) the person asked to see.
     var along: [AlongCharger] = []
     /// The road line the layers follow once it is known, and whether it starts at the trip's own origin (see `LayerSearch.startsAtOrigin`).
@@ -419,6 +426,18 @@ struct PlanMap: View {
         }
     }
 
+    /// The dot for the elevation chart's cursor: that share of the way along the route's drawn line.
+    private var cursorCoord: RouteSnap.Coord? {
+        guard let cursorShare, case .route = content, let line = lines.first else { return nil }
+        return PlanElevation.point(on: line, at: cursorShare)
+    }
+
+    /// A tap within a thumb of the route's line puts the chart's cursor there.
+    private func routeTapped(_ at: RouteSnap.Coord, _ reach: Double) {
+        guard case .route = content, let line = lines.first, let hit = PlanElevation.share(of: at, on: line), hit.offMeters <= reach else { return }
+        onCursorShare?(hit.share)
+    }
+
     /// The layers follow the line on show: the whole trip, or the day the person picked.
     private func reportLine() {
         guard !lines.isEmpty else { return }
@@ -426,7 +445,7 @@ struct PlanMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, fills: fills, bottomInset: bottomInset, topInset: topInset, reframe: reframe, showsCredit: showsCredit, onLongPress: onLongPress, onCenter: onCenter)
+        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, cursor: cursorCoord, onTapAt: onCursorShare == nil ? nil : routeTapped, fills: fills, bottomInset: bottomInset, topInset: topInset, reframe: reframe, showsCredit: showsCredit, onLongPress: onLongPress, onCenter: onCenter)
             .onChange(of: day) { reportLine() }
             .task(id: key) { await load() }
             // A stop just added or removed: our own roads line (Valhalla's route through the places with the new set) at once, while the planner works.
