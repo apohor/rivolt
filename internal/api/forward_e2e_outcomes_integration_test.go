@@ -119,14 +119,14 @@ func TestForwardE2ESoftCasesServeLocally(t *testing.T) {
 func TestForwardE2ETimeoutIs503AndNeverLocal(t *testing.T) {
 	short := map[forward.Kind]time.Duration{forward.KindFreshState: 600 * time.Millisecond, forward.KindPlanLegs: 600 * time.Millisecond}
 	env := newE2EEnv(t, e2eOpts{Timeouts: short})
-	env.a.stop() // the owner loop ends and removes its marker (once its blocking pop returns)...
+	env.a.stop() // the owner loop ends and marks it draining (once its blocking pop returns)...
 	ready := forward.Keys{Prefix: "e2e"}.Ready(env.a.name)
 	for i := 0; ; i++ {
-		if n, _ := env.rdb.Exists(context.Background(), ready).Result(); n == 0 {
+		if v, _ := env.rdb.Get(context.Background(), ready).Result(); v == "draining" {
 			break
 		}
 		if i > 100 {
-			t.Fatal("the owner's readiness marker never went away")
+			t.Fatal("the owner's readiness marker never went to draining")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
