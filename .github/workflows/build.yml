@@ -1071,15 +1071,33 @@ jobs:
       # Pre-pull so the testcontainers run-time isn't dominated by the
       # postgres image fetch. ~80MB, cached across runs by docker.
       - name: Pull postgres image
-        run: docker pull postgres:16-alpine
+        run: |
+          # Docker Hub's CDN drops a fetch now and then (main 8719590); retry, the pinned image text stays greppable (migration-compat reads it).
+          for i in 1 2 3; do
+            docker pull postgres:16-alpine && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
 
       # The Hydra the sign-out/revoke test runs against (internal/integration/hydra_remember_test.go); same tag as prod, bump it with the Ory chart appVersion.
       - name: Pull hydra image
-        run: docker pull oryd/hydra:v26.2.0@sha256:ff67c7fb5f95074fa53374d41151713554960504b340cd3f95b09e65deaea2a9
+        run: |
+          # Docker Hub's CDN drops a fetch now and then (main 8719590); retry, the pinned image text stays greppable (migration-compat reads it).
+          for i in 1 2 3; do
+            docker pull oryd/hydra:v26.2.0@sha256:ff67c7fb5f95074fa53374d41151713554960504b340cd3f95b09e65deaea2a9 && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
 
       # The Kratos the sign-out/revoke test runs against (internal/integration/kratos_revoke_test.go); the digest prod and preview run, bump it with the Ory chart appVersion.
       - name: Pull kratos image
-        run: docker pull oryd/kratos:v26.2.0@sha256:2a13bb8d362c7a7ae33bd7c0f5168aee46921f15c916a06346db91c06dc76643
+        run: |
+          # Docker Hub's CDN drops a fetch now and then (main 8719590); retry, the pinned image text stays greppable (migration-compat reads it).
+          for i in 1 2 3; do
+            docker pull oryd/kratos:v26.2.0@sha256:2a13bb8d362c7a7ae33bd7c0f5168aee46921f15c916a06346db91c06dc76643 && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
 
       # cmd/rivolt has an integration test now; its package embeds the web build (`//go:embed all:dist`), as in the go job.
       - name: Stub web assets for embed
