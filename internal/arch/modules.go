@@ -41,7 +41,7 @@ var modules = map[string]string{
 
 	// billing.
 	"internal/stripebill": "billing", "internal/applebill": "billing", "internal/entitlements": "billing", "internal/billingdates": "billing",
-	"internal/billingmail": "billing", "internal/statement": "billing", "internal/aibudget": "billing",
+	"internal/billingmail": "billing", "internal/statement": "billing", "internal/aibudget": "billing", "internal/aitaste": "billing",
 
 	// api: HTTP, identity and the user's own settings.
 	"internal/api": "api", "internal/web": "api", "internal/webcarry": "api", "internal/auth": "api", "internal/appauth": "api",
