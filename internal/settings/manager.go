@@ -861,11 +861,11 @@ func effectiveProvider(cfg AIConfig) string {
 // Returns (nil, nil) if no key is available — AI simply stays disabled.
 //
 // opKey is the operator's Anthropic key: used only when the install has no key
-// of its own for the chosen (or any) provider, always on OperatorModel, and
+// of its own for the chosen (or any) provider, on the per-route operator models (ai.OperatorModelFor), and
 // only through the budget-reserving path in ai.AnthropicProvider.
 func buildProvider(cfg AIConfig, opKey string, observe ai.OperatorObserver) (ai.Provider, error) {
 	operator := func() (ai.Provider, error) {
-		return ai.NewAnthropic(ai.AnthropicConfig{APIKey: opKey, Model: ai.OperatorModel, Operator: true, Observe: observe})
+		return ai.NewAnthropic(ai.AnthropicConfig{APIKey: opKey, Model: ai.OperatorModel, Operator: true, PerRouteModels: true, Observe: observe})
 	}
 	switch cfg.Provider {
 	case ProviderOpenAI:

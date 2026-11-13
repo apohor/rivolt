@@ -104,7 +104,7 @@ func GenerateEfficiency(ctx context.Context, a *ai.Analyzer, in EfficiencyInputs
 	out := EfficiencyResult{
 		Analysis:     strings.TrimSpace(reply),
 		Parsed:       ParseEfficiency(reply),
-		Model:        a.ModelName(),
+		Model:        a.ModelNameFor(ai.RouteEfficiency),
 		InputTokens:  usage.InputTokens,
 		OutputTokens: usage.OutputTokens,
 	}

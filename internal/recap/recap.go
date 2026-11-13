@@ -149,7 +149,7 @@ func Generate(ctx context.Context, a *ai.Analyzer, in Inputs) (Result, error) {
 	return Result{
 		Recap:        raw,
 		Parsed:       parsed,
-		Model:        a.ModelName(),
+		Model:        a.ModelNameFor(ai.RouteRecap),
 		InputTokens:  usage.InputTokens,
 		OutputTokens: usage.OutputTokens,
 	}, nil
