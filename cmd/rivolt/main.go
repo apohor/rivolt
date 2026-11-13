@@ -3445,6 +3445,7 @@ func runServer() {
 		AppBuild:              appBuild,
 		FirstScreen:           firstScreen,
 		HistoryImport:         os.Getenv("RIVOLT_HISTORY_IMPORT") == "1" && pgPool != nil,
+		DesignPreview:         api.ParseDesignPreview(os.Getenv("RIVOLT_DESIGN_PREVIEW")),
 		StateForward:          stateForward,
 		OwnerDiscovery:        ownerDiscovery,
 		SignInNudge:           signInNudgeFn,

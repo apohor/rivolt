@@ -156,6 +156,8 @@ type configExtras struct {
 	DemoRadar bool
 	// HistoryImport: the history import routes are mounted (RIVOLT_HISTORY_IMPORT).
 	HistoryImport bool
+	// DesignPreview: the design keys switched on (RIVOLT_DESIGN_PREVIEW, see ParseDesignPreview).
+	DesignPreview []string
 }
 
 func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager, extras ...configExtras) http.HandlerFunc {
@@ -249,6 +251,8 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		AdminOnly bool `json:"admin_only"`
 		// HistoryImport: Settings shows Import history and Imports (the routes are mounted).
 		HistoryImport bool `json:"history_import"`
+		// DesignPreview lists the design keys the client shows its new look for (RIVOLT_DESIGN_PREVIEW; on in preview, off in prod). Always an array; keys are passed through unchecked, a client ignores keys it does not know.
+		DesignPreview []string `json:"design_preview"`
 	}
 	type valhallaCfg struct {
 		// Path is the same-origin URL prefix for Valhalla's HTTP
@@ -333,6 +337,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	base.Features.RivianActions = rivianActionsEnabled()
 	base.Features.AdminOnly = adminonly.Enabled(os.Getenv)
 	base.Features.HistoryImport = ex.HistoryImport
+	base.Features.DesignPreview = append([]string{}, ex.DesignPreview...)
 	base.Features.DemoEnabled = demo.Enabled()
 	base.Features.SignupEnabled = !signupgate.Disabled()
 	base.Features.IOSAppURL = iosapp.URL()
@@ -368,4 +373,19 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		}
 		writeJSON(w, http.StatusOK, c)
 	}
+}
+
+// ParseDesignPreview splits a comma-separated list of design keys (RIVOLT_DESIGN_PREVIEW): spaces are trimmed, empty entries and repeats dropped, order kept. Unknown keys are kept. Empty input gives an empty (non-nil) list.
+func ParseDesignPreview(s string) []string {
+	keys := []string{}
+	seen := map[string]bool{}
+	for _, k := range strings.Split(s, ",") {
+		k = strings.TrimSpace(k)
+		if k == "" || seen[k] {
+			continue
+		}
+		seen[k] = true
+		keys = append(keys, k)
+	}
+	return keys
 }

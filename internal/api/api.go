@@ -102,6 +102,8 @@ type Deps struct {
 	FirstScreen FirstScreenSource
 	// HistoryImport serves /api/import/preview, /api/import/commit and /api/imports (RIVOLT_HISTORY_IMPORT). False: the routes do not exist.
 	HistoryImport bool
+	// DesignPreview is the parsed RIVOLT_DESIGN_PREVIEW list, served as features.design_preview.
+	DesignPreview []string
 	// StateForward and GroupOfVehicle route the one Rivian call of GET /api/state/{id} to the vehicle's group owner (single-owner M3-2b).
 	// Both nil (RIVOLT_FORWARD off): the pod calls Rivian itself, as before.
 	StateForward   StateForwarder
@@ -740,7 +742,7 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil, DemoRadar: demo.Enabled() && d.DemoRadar != nil, HistoryImport: d.HistoryImport}))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil, DemoRadar: demo.Enabled() && d.DemoRadar != nil, HistoryImport: d.HistoryImport, DesignPreview: d.DesignPreview}))
 		// The charging-networks comparison page's data: public reference data (plans as each
 		// network states them, typical observed prices with their label and month).
 		r.With(clLimiter.Middleware).Get("/charging-networks", handleChargingNetworks(time.Now))
