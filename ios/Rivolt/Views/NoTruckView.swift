@@ -48,7 +48,6 @@ struct SignedInGate: View {
             }
         }
         .task { await check() }
-        .onChange(of: discovery?.kind) { notice = nil }
         .task(id: discovery?.kind == .looking) {
             while discovery?.kind == .looking, !Task.isCancelled {
                 try? await Task.sleep(for: Self.lookAgainEvery)
@@ -77,17 +76,19 @@ struct SignedInGate: View {
                 try? await Task.sleep(for: .seconds(min(max(after, 1), 15)))
             } catch { refused = VehicleDiscoveryState.notice(forRefresh: error) }
         }
-        if tapped { notice = refused }
         let list = try? await state.client.vehicles()
         gate = Onboarding.gate(vehicles: list)
-        guard gate == .noTruck else { discovery = nil; return }
+        guard gate == .noTruck else { notice = nil; discovery = nil; return }
         var answer: VehicleDiscovery?
         var failure: Error?
         do { answer = try await state.client.vehicleDiscovery() } catch { failure = error }
         let found = VehicleDiscoveryState.from(answer, error: failure)
         // A vehicle turned up since the list was read: look at the list again.
         if found == .found, let again = try? await state.client.vehicles() { gate = Onboarding.gate(vehicles: again) }
-        discovery = (found == .empty && ownerAsked ? VehicleDiscoveryState.looking : found)?.view
+        let next = (found == .empty && ownerAsked ? VehicleDiscoveryState.looking : found)?.view
+        // The tap's own refusal stays; a background re-read that moves the card to another kind drops an older one.
+        if tapped { notice = refused } else if next?.kind != discovery?.kind { notice = nil }
+        discovery = next
     }
 
     /// While the server is still looking, the screen asks again every half minute.
