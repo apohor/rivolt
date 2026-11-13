@@ -22,7 +22,7 @@ import (
 // every build, so caching them aggressively is correct. Without the
 // no-cache on the index, browsers were holding stale HTML for
 // minutes/hours after a deploy, leaving users on the previous bundle.
-func spaHandler(fsys fs.FS) http.Handler {
+func spaHandler(fsys fs.FS, assetMiss func()) http.Handler {
 	if fsys == nil {
 		fsys = noFS{} // no web build embedded (an API-only build, a test router): every page is a clean 404, not a nil dereference
 	}
@@ -127,6 +127,9 @@ func spaHandler(fsys fs.FS) http.Handler {
 				// minutes, which would break that file for everyone after the
 				// rollout. no-store makes the miss one-off.
 				w.Header().Set("Cache-Control", "no-store")
+				if assetMiss != nil && strings.HasPrefix(p, "assets/") {
+					assetMiss()
+				}
 				http.NotFound(w, r)
 				return
 			}

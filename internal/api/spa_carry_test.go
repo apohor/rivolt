@@ -22,7 +22,7 @@ func TestSPAServesAChunkFromTheCarryDirAndStill404sTheRest(t *testing.T) {
 		t.Fatal(err)
 	}
 	fsys, _ := webcarry.WithCarry(fstest.MapFS{"index.html": {Data: []byte("shell")}, "assets/new-AAAAAAAA.js": {Data: []byte("new chunk")}}, dir)
-	h := spaHandler(fsys)
+	h := spaHandler(fsys, nil)
 	get := func(path string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
