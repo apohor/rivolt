@@ -29,7 +29,6 @@ import (
 	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/launchnotice"
 	"github.com/apohor/rivolt/internal/stripebill"
-	"github.com/apohor/rivolt/internal/tripshare"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -414,7 +413,7 @@ type Metrics struct {
 	// The dated Pro notices (internal/launchnotice), by kind and outcome (sent, in_app, skipped, failed, late). "late" counts a founding
 	// year that had to be extended to keep the 30 days' notice the Terms promise: any nonzero value is worth a look.
 	DatedNoticesTotal *prometheus.CounterVec
-	// TripShareTotal counts shared trip link events by event (see tripshare.MetricEvents): created, revoked, viewed, miss (unknown, expired or
+	// TripShareTotal counts shared trip link events by event (kept in step with tripshare.MetricEvents): created, revoked, viewed, miss (unknown, expired or
 	// revoked token), rate_limited, busy (the per-pod lookup pool was full), refused (a plan that cannot be shared). Pre-created at 0.
 	TripShareTotal *prometheus.CounterVec
 	// App Store Server Notifications by outcome (applied, duplicate, ignored, unmapped, stale, rejected); a rejected one is a bad signature or
@@ -1251,7 +1250,7 @@ func New() *Metrics {
 		m.TripPlanLegsTotal.WithLabelValues(result).Add(0)
 	}
 	// The dated Pro notices: every (kind, outcome) the jobs can report, so the first "late" is an increase.
-	for _, ev := range tripshare.MetricEvents {
+	for _, ev := range []string{"created", "revoked", "viewed", "miss", "rate_limited", "busy", "refused"} {
 		m.TripShareTotal.WithLabelValues(ev).Add(0)
 	}
 	for _, kind := range launchnotice.MetricKinds {

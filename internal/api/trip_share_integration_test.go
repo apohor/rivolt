@@ -20,8 +20,8 @@ import (
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/rivian"
 	"github.com/apohor/rivolt/internal/settings"
-	"github.com/apohor/rivolt/internal/tripshare"
 	"github.com/apohor/rivolt/internal/trips"
+	"github.com/apohor/rivolt/internal/tripshare"
 )
 
 // shareTestPlan is a 120 km east-west plan whose origin sits at (lat, lon) with a VIN-like entity id and a street-address name on it.
@@ -78,7 +78,9 @@ func TestTripShareLifecycleOnRequestPool(t *testing.T) {
 	r := chi.NewRouter()
 	asUser := func(uid uuid.UUID) func(http.Handler) http.Handler {
 		return func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid))) })
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				next.ServeHTTP(w, r.WithContext(auth.WithUser(r.Context(), uid)))
+			})
 		}
 	}
 	for _, c := range []struct {
