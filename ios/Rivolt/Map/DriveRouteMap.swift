@@ -682,7 +682,7 @@ struct RouteMapView: UIViewRepresentable {
                 ring.circleStrokeWidth = NSExpression(forConstantValue: 3)
                 style.addLayer(ring)
             }
-            // The timeline's cursor dot, over everything but nothing it covers matters (6 pt, white ring).
+            // The timeline's cursor dot, over the line and the stops but under the leg weather labels (a label is never hidden by the dot; 6 pt, white ring).
             let cursorSource = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-cursor", shape: nil, options: nil)
             style.addSource(cursorSource)
             let dot = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-cursor", source: cursorSource)
@@ -690,7 +690,7 @@ struct RouteMapView: UIViewRepresentable {
             dot.circleColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
             dot.circleStrokeColor = NSExpression(forConstantValue: UIColor(Theme.background))
             dot.circleStrokeWidth = NSExpression(forConstantValue: 2)
-            style.addLayer(dot)
+            if let tags = style.layer(withIdentifier: "\(RouteMapView.sourceID)-legtags") { style.insertLayer(dot, below: tags) } else { style.addLayer(dot) }
             self.cursorSource = cursorSource
             setCursor(cursorAt)
             if !keepCamera { fit(map) }
