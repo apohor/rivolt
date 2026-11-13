@@ -25,7 +25,7 @@ func TestSEOInjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := spaHandler(fstest.MapFS{"index.html": {Data: shell}})
+	h := spaHandler(fstest.MapFS{"index.html": {Data: shell}}, nil)
 
 	t.Run("app host root", func(t *testing.T) {
 		rec := seoGet(t, h, "rivolt.dev", "/")

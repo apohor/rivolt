@@ -102,6 +102,9 @@ type Metrics struct {
 	RivianCallRefused *prometheus.CounterVec
 	// ImportParseRejected counts history-import previews and commits refused (503) because this pod already runs its limit of parses.
 	ImportParseRejected prometheus.Counter
+	// SPAAsset404 counts requests under /assets/ answered 404: a browser holding an older (or newer) web build asks for a hashed file this pod
+	// does not ship. No path label. It measures stale chunks after a deploy.
+	SPAAsset404 prometheus.Counter
 	// RivianRequestSeconds is how long each request that reached Rivian's GraphQL gateway took, by operation (a fixed set, rivian.PermitOps
 	// without ws_dial). Every operation is created at 0. Nothing per user or vehicle.
 	RivianRequestSeconds *prometheus.HistogramVec
@@ -719,6 +722,10 @@ func New() *Metrics {
 			Name: "rivolt_import_parse_rejected_total",
 			Help: "History-import requests answered 503 because the pod was already parsing its limit of files.",
 		}),
+		SPAAsset404: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_spa_asset_404_total",
+			Help: "Requests under /assets/ answered 404 (a browser asking for a web build file this pod does not have).",
+		}),
 		RivianCallRefused: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_rivian_call_refused_total",
@@ -1154,6 +1161,7 @@ func New() *Metrics {
 		m.LeaseFenced,
 		m.RivianCallRefused,
 		m.ImportParseRejected,
+		m.SPAAsset404,
 		m.RivianRequestSeconds,
 		m.ReauthRaiseRefused,
 		m.ReauthRaiseAttempts,

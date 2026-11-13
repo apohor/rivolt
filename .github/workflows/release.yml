@@ -1,0 +1,80 @@
+# Release as a Git event, step 2 of the release-gitops design: the dispatch that will cut an rc or a final tag. REPORT-ONLY for now: it runs the
+# checks ship-rc.sh / ship-release.sh make before a tag (.github/ci/release-verdict.sh) and prints the verdict, and tags nothing. It runs beside the
+# scripts for one release so the two verdicts can be compared; the real tag creation (App token) comes with PR 7, after N66 and a clean run.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, vX.Y.Z"
+        required: true
+        type: string
+      rc:
+        description: "Cut release candidate vX.Y.Z-rc.N: the number N. Empty = the final tag"
+        required: false
+        type: string
+      gated_rc:
+        description: "Final tag: the number of the rc qa gated (the final is cut at that rc's commit)"
+        required: false
+        type: string
+      no_rc_reason:
+        description: "Final tag without a gated rc: the real reason (logged; emergency only)"
+        required: false
+        type: string
+      sha:
+        description: "Commit to tag. Empty = main's head"
+        required: false
+        type: string
+
+# One release at a time, queued not cancelled (pin/unpin jobs join this group later).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+  statuses: read
+
+jobs:
+  verdict:
+    name: verdict (report-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Token for rivolt-infra (GitHub App, read)
+        id: infra-token
+        if: vars.RIVOLT_INFRA_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RIVOLT_INFRA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RIVOLT_INFRA_APP_KEY }}
+          owner: apohor
+          repositories: rivolt-infra
+          permission-contents: read
+      - name: Checkout rivolt-infra (release helpers and the preview values)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: apohor/rivolt-infra
+          token: ${{ steps.infra-token.outputs.token }}
+          persist-credentials: false
+          path: infra
+          sparse-checkout: |
+            ops/release/releasectl.py
+            apps/platform/rivolt-preview/values.yaml
+            apps/platform/rivolt-admin-preview/values.yaml
+      - name: Verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          RC: ${{ inputs.rc }}
+          GATED_RC: ${{ inputs.gated_rc }}
+          NO_RC_REASON: ${{ inputs.no_rc_reason }}
+          SHA: ${{ inputs.sha }}
+          INFRA_DIR: ${{ github.workspace }}/infra
+        run: bash .github/ci/release-verdict.sh

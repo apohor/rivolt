@@ -1938,7 +1938,11 @@ func New(d Deps) http.Handler {
 		r.Get("/.well-known/apple-app-site-association", handleAASA(d.IOSAppIDs))
 		r.Get(appCallbackPath, handleAppCallbackPage())
 	}
-	r.Handle("/*", spaHandler(d.WebFS))
+	var assetMiss func()
+	if d.Metrics != nil {
+		assetMiss = d.Metrics.SPAAsset404.Inc
+	}
+	r.Handle("/*", spaHandler(d.WebFS, assetMiss))
 
 	return r
 }
