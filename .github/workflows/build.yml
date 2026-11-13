@@ -24,8 +24,11 @@ on:
     # tag-validate classifies the tag and refuses any other shape (.github/ci/tag-kind.sh).
     tags: ["v*.*.*"]
     # Non-code paths build nothing, except Markdown under web/: that is
-    # shipped page content (web/src/content/privacy.md, terms.md). Later
-    # patterns override earlier ones. Tag pushes ignore path filters.
+    # shipped page content (web/src/content/privacy.md, terms.md), and
+    # release-notes/**: a final tags its rc's commit, which must carry the
+    # hand-written notes, so a notes-only merge has to get a main build
+    # (ship-rc.sh waits for one) or no rc could be cut at that commit.
+    # Later patterns override earlier ones. Tag pushes ignore path filters.
     paths:
       - "**"
       - "!**.md"
@@ -35,6 +38,7 @@ on:
       - "!LICENSE"
       - "!.editorconfig"
       - "web/**"
+      - "release-notes/**"
   # No paths-ignore on PRs: a workflow that never runs never reports the
   # required checks (go, integration, web), so a docs-only PR could not
   # merge. The `changes` job below skips the test jobs instead, and a
