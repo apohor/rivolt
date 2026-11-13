@@ -107,6 +107,8 @@ export default function NowHeroV2({
       : null;
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
   const carUrl = pickImageForNow(images, charging ? "charging" : view.kind, light);
+  // A Rivian image that fails to load (moved or blocked) gives way to the drawn truck instead of a broken picture.
+  const [failedUrl, setFailedUrl] = useState("");
   const [info, setInfo] = useState(false);
   const [slot, setSlot] = useState<Element | null>(null);
   useEffect(() => {
@@ -158,10 +160,12 @@ export default function NowHeroV2({
               aria-label="Full telemetry"
               className="absolute inset-0 z-0 rounded-2xl"
             />
+            {/* The pill has its own row above the gauge and the truck, so nothing overlaps it. */}
+            <div className="pointer-events-none relative z-10 mb-2 flex justify-end">
             <Link
               to="/live"
               data-testid="now-live-link"
-              className="absolute right-2 top-2 z-10 inline-flex min-h-11 min-w-11 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
+              className="pointer-events-auto inline-flex min-h-11 min-w-11 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
             >
               {(charging || view.kind === "driving") && (
                 <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />
@@ -171,6 +175,7 @@ export default function NowHeroV2({
                 <path d="m9 5 7 7-7 7" />
               </svg>
             </Link>
+            </div>
           </>
         )}
         <div className="pointer-events-none relative flex items-center gap-4">
@@ -198,9 +203,9 @@ export default function NowHeroV2({
               </span>
             )}
           </ArcGauge>
-          <div className={`flex min-w-0 flex-1 flex-col items-start gap-1 ${telemetryLink ? "pt-10" : ""}`}>
-            {carUrl ? (
-              <img data-testid="now-car" src={carUrl} alt="" loading="lazy" className="max-h-24 w-full object-contain object-left" />
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+            {carUrl && carUrl !== failedUrl ? (
+              <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left" />
             ) : (
               <Truck charging={charging} />
             )}

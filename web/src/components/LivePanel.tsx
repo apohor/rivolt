@@ -1,6 +1,7 @@
 import { fieldHidden, fieldLabel } from "../lib/fieldSupport";
 import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE, isEnergyEstimated } from "../lib/energyEstimated";
 import { detailPath } from "../lib/demo";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ApiError, backend, isReconnecting, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
@@ -142,7 +143,9 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   // Pick the configurator image that matches the current vehicle
   // state — charging shows side-charging, driving shows in-use,
   // frunk open shows front, liftgate/tonneau shows rear, etc.
-  const heroUrl = pickImageForState(vehicle.images, s, light) || vehicle.image_url || "";
+  // An image that fails to load (moved or blocked) is dropped, no broken picture; the image_url fallback gets its turn.
+  const [badUrls, setBadUrls] = useState<string[]>([]);
+  const heroUrl = [pickImageForState(vehicle.images, s, light), vehicle.image_url || ""].find((u) => u && !badUrls.includes(u)) || "";
 
   return (
     <Card
@@ -174,6 +177,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
                 without the left column dwarfing the status panel. */}
             <img
               src={heroUrl}
+              onError={() => setBadUrls((f) => [...f, heroUrl])}
               alt={name}
               loading="lazy"
               className="max-h-40 w-full max-w-sm rounded-md object-contain"
