@@ -28,6 +28,7 @@ func RepairWriteTables() []string { return append([]string(nil), repairWriteTabl
 var repairDeniedTables = append([]string{
 	"user_secrets", "sessions", "archive_keys", "invite_codes", "operator_actions",
 	"webauthn_credentials", "webauthn_ceremonies", "webauthn_users", // passkeys and their challenge state
+	"trip_shares",                                                     // the hash of a public share link token
 	"push_subscriptions", "push_apns_devices", "push_apns_activities", // web-push endpoints and keys, APNs device and Live Activity tokens
 	"app_auth_requests", "apple_link_intents", "apple_identities", "apple_events", "apple_notification_seen", // the iPhone sign-in and Apple linking state
 	"billing_customers", "billing_stripe_subs", "billing_apple_subs", "stripe_events", "stripe_closed_customers", // payment-provider identifiers
