@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -240,6 +241,8 @@ type Manager struct {
 // counts its tokens, then rebuilds the analyzer. An empty key removes it.
 // Call it once at boot, after NewManager.
 func (m *Manager) SetOperator(key string, observe ai.OperatorObserver) {
+	// A secret mounted from a file or store often ends in a newline, which Go rejects in an Authorization header.
+	key = strings.TrimSpace(key)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.opKey, m.opObserve = key, observe
