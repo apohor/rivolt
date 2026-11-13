@@ -392,7 +392,18 @@ jobs:
             || { echo "::error::the migrate Job lacks compare-options IgnoreExtraneous"; exit 1; }
           [ "$(echo "$job" | yq '.spec.ttlSecondsAfterFinished // 0')" -gt 0 ] \
             || { echo "::error::the migrate Job has no ttlSecondsAfterFinished"; exit 1; }
-          echo "migrate Job: wave-0 resource, not a hook, IgnoreExtraneous, TTL set"
+          # An automated prune would delete the previous Job (the name changes per release), a failed one included.
+          echo "$job" | yq '.metadata.annotations["argocd.argoproj.io/sync-options"]' | grep -q 'Prune=false' \
+            || { echo "::error::the migrate Job lacks sync-options Prune=false"; exit 1; }
+          echo "migrate Job: wave-0 resource, not a hook, IgnoreExtraneous, Prune=false, TTL set"
+          # The database objects an automated prune or delete must never touch: the CNPG Cluster and the data PVC
+          # (no CI case enables persistence, so render it explicitly). Each must be found, so the check can't pass on nothing.
+          for spec in "Cluster|-f $CHART/ci/cnpg-values.yaml" "PersistentVolumeClaim|-f $CHART/ci/default-values.yaml --set persistence.enabled=true"; do
+            kind=${spec%%|*}; args=${spec#*|}
+            r=$(helm template rivolt "$CHART" $args | yq "select(.kind == \"$kind\") | .metadata.annotations[\"argocd.argoproj.io/sync-options\"]")
+            [ "$r" = "Prune=false,Delete=false" ] || { echo "::error::$kind lacks sync-options Prune=false,Delete=false (got: '$r')"; exit 1; }
+          done
+          echo "CNPG Cluster and data PVC: Prune=false,Delete=false"
           # The Job's name is per release and spec (so it runs once per new image or spec): stable
           # for the same input, new when the spec changes, a DNS-1123 subdomain of at most 63
           # characters even for a long tag.
