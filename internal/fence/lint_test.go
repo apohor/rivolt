@@ -183,6 +183,7 @@ var notOwnerSide = map[string]string{
 	"db.ClearR2ArrivalMonth":                  "user action (the reminder email's one-click delete)",
 	"db.SetRivianExpiryEmailsOff":             "user action (unsubscribe)",
 	"db.SetVehicleImageURL":                   "user request (/api/vehicles)",
+	"db.ClearVehiclePictures":                 "user request (/api/vehicles, replay installs only)",
 	"db.SetVehicleProfile":                    "user action (vehicle profile)",
 	"db.ResetUserArchive":                     "user action (reset data)",
 	"db.DeleteUserArchiveBefore":              "user action (delete history before a month)",
