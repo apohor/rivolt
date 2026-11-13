@@ -25,6 +25,23 @@ func withPlanRadar(ctx context.Context, rs RadarSource) context.Context {
 	return context.WithValue(ctx, planRadarKey{}, rs)
 }
 
+type planRadarFreeKey struct{}
+
+// withPlanRadarPlan marks the request's account plan for the radar tags: a free account (pro false) gets only the teaser, never leg.radar.
+func withPlanRadarPlan(ctx context.Context, pro bool) context.Context {
+	if pro {
+		return ctx
+	}
+	return context.WithValue(ctx, planRadarFreeKey{}, true)
+}
+
+// radarTeaserDTO is what a free account sees of the forecast radar (Pro): how many legs of the plan have rain or snow likely, out of the legs
+// the forecast could read. It names no leg and no level, and comes from the same in-cluster grid as the Pro tags (no extra call).
+type radarTeaserDTO struct {
+	WetLegs int `json:"wet_legs"`
+	Legs    int `json:"legs"`
+}
+
 const (
 	// radarBudget bounds the radar work for one plan response (all days together): a leg not read in time simply has no tag.
 	radarBudget = 2 * time.Second
@@ -57,6 +74,22 @@ func addLegRadar(ctx context.Context, adj *tripWeatherAdjustmentDTO, plan *rivia
 	r := plan.Routes[0]
 	got := routeLegRadar(ctx, rs, r.Geometry, r.GeometryPrecision, r.Waypoints)
 	if len(got) != len(adj.Legs) {
+		return
+	}
+	if free, _ := ctx.Value(planRadarFreeKey{}).(bool); free {
+		t := radarTeaserDTO{}
+		for _, g := range got {
+			if g == "" {
+				continue
+			}
+			t.Legs++
+			if g != string(radar.Dry) {
+				t.WetLegs++
+			}
+		}
+		if t.Legs > 0 {
+			adj.RadarTeaser = &t
+		}
 		return
 	}
 	for i, g := range got {
