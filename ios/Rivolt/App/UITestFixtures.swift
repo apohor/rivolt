@@ -120,6 +120,7 @@ final class FixtureURLProtocol: URLProtocol {
         } else if ProcessInfo.processInfo.environment[UITestLaunch.refreshLimitedVariable] != nil, method == "POST", url.lastPathComponent == "refresh-vehicles" {
             Self.refreshed = true
             failed = 429
+            retryAfter = "600"
             answer = Data(#"{"error":"too many checks"}"#.utf8)
         } else if ProcessInfo.processInfo.environment[UITestLaunch.stateFailsVariable] != nil, method == "GET", url.path.hasPrefix("/api/vehicles/"), url.path.hasSuffix("/state") {
             failed = 503
