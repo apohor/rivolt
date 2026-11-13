@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/apohor/rivolt/internal/auth"
 )
 
 // refreshLookupOpTimeout bounds the Redis calls of the gate: a slow Redis must not hold a "Check again" tap.
@@ -68,7 +70,7 @@ func (g *refreshLookupGate) release(uid uuid.UUID) {
 	if g == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), refreshLookupOpTimeout)
+	ctx, cancel := context.WithTimeout(auth.WithUser(context.Background(), uid), refreshLookupOpTimeout)
 	defer cancel()
 	_ = g.rdb.Del(ctx, g.redisKey(uid)).Err()
 }
