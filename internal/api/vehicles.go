@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -314,6 +315,11 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 			if reauth {
 				writeUpstreamError(w, rivian.ErrNeedsReauth)
 				return
+			}
+			// A replay vehicle with pictures (preview) has no owner refresh to store them, so its stored row gets them here, the same upsert the
+			// sign-in prime makes; the list below then answers from that row. Replay with no pictures set never writes.
+			if rc, ok := c.(*rivian.ReplayClient); ok && rc.HasImages() && sqlDB != nil {
+				storeReplayImages(r.Context(), rc, sqlDB, logger)
 			}
 			answered, unsynced := handleVehiclesFromDB(w, r, mon, sqlDB, logger, onlyVehicle, fromDB.ownerDiscovery)
 			if answered {
@@ -835,5 +841,45 @@ func (d Deps) rivianSessionCheck(uid uuid.UUID) func(context.Context) (bool, err
 	return func(ctx context.Context) (bool, error) {
 		sess, err := secrets.LoadRivianSession(ctx, d.Secrets, uid)
 		return sess.UserSessionToken != "", err
+	}
+}
+
+// storeReplayImages writes a replay account's vehicles, pictures included, to its stored rows (see handleVehicles).
+func storeReplayImages(ctx context.Context, rc *rivian.ReplayClient, sqlDB *sql.DB, logger *slog.Logger) {
+	userID, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return
+	}
+	vs, err := rc.Vehicles(ctx)
+	if err != nil {
+		return
+	}
+	// Write only what differs from the stored row: the list is read far more often than the pictures change.
+	stored := map[string]db.VehicleAPIRow{}
+	if rows, err := db.ListUserVehiclesForAPI(ctx, sqlDB, userID); err == nil {
+		for _, row := range rows {
+			stored[row.RivianVehicleID] = row
+		}
+	}
+	for _, v := range vs {
+		if v.ID == "" {
+			continue
+		}
+		if row, ok := stored[v.ID]; ok && row.ImageURL == v.ImageURL && rivian.StoredInfoSynced(row.Info) {
+			var have rivian.Vehicle
+			have.ApplyStoredInfo(row.Info)
+			if reflect.DeepEqual(have.Images, v.Images) {
+				continue
+			}
+		}
+		err := db.UpsertVehicleFromSync(ctx, sqlDB, userID, db.VehicleSync{
+			RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear, Trim: v.TrimID, PackKWh: v.PackKWh, Info: v.StoredInfo(),
+		})
+		if err == nil && v.ImageURL != "" {
+			err = db.SetVehicleImageURL(ctx, sqlDB, userID, v.ID, v.ImageURL)
+		}
+		if err != nil && logger != nil {
+			logger.Warn("replay vehicle images store failed", "err", err.Error())
+		}
 	}
 }
