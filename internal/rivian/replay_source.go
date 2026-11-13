@@ -427,16 +427,6 @@ func NewDBReplayFeed(ctx context.Context, pool *sql.DB, sourceVehicleID string, 
 // (the default) allows everyone.
 func (f *ReplayFeed) SetAllowedUsers(allow func(uid uuid.UUID) bool) { f.allow = allow }
 
-// SetSourceImages replaces the Rivian pictures the demo vehicles carry (RIVOLT_REPLAY_VEHICLE_IMAGES), for a corpus whose recorded vehicle has
-// none stored. Empty keeps what the corpus gave.
-func (f *ReplayFeed) SetSourceImages(images []VehicleImage) {
-	if len(images) == 0 {
-		return
-	}
-	f.source.Images = images
-	f.source.ImageURL = pickHeroImage(images)
-}
-
 // SetEmptyUsers names the users whose sign-in succeeds with no vehicle on the account. nil (the default) names nobody.
 func (f *ReplayFeed) SetEmptyUsers(empty func(uid uuid.UUID) bool) { f.empty = empty }
 

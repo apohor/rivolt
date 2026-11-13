@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -284,8 +283,6 @@ Environment:
                                  or YYYY-MM-DD).
   RIVOLT_REPLAY_BACKFILL         replay: history recorded on first connect
                                  (Go duration, default 720h).
-  RIVOLT_REPLAY_VEHICLE_IMAGES   replay (db source only): JSON list of Rivian image
-                                 URLs for a recorded vehicle with none stored
   RIVOLT_REPLAY_ALLOWED_USERS    replay: comma-separated usernames allowed a
                                  demo vehicle; "*" for everyone (default:
                                  nobody).
@@ -1032,15 +1029,6 @@ func runServer() {
 			if err != nil {
 				logger.Error("replay feed", "err", err.Error())
 				os.Exit(1)
-			}
-			// Optional Rivian picture list for a recorded vehicle that has none stored; never read for the sample (demo) feed.
-			if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_VEHICLE_IMAGES")); v != "" {
-				var imgs []rivian.VehicleImage
-				if err := json.Unmarshal([]byte(v), &imgs); err != nil {
-					logger.Error("bad RIVOLT_REPLAY_VEHICLE_IMAGES (want a JSON list of {vehicle_id,url,placement})", "err", err.Error())
-					os.Exit(1)
-				}
-				feed.SetSourceImages(imgs)
 			}
 		}
 		// A db-backed corpus is a real vehicle's history; the generated

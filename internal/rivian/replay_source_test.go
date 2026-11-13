@@ -314,14 +314,11 @@ func TestReplayClient_VehicleCarriesSourceImages(t *testing.T) {
 	if v := login(NewReplayClient(f, uid))[0]; v.ImageURL != "" || len(v.Images) != 0 {
 		t.Fatalf("bare feed gave images: %+v", v)
 	}
-	f.SetSourceImages(nil)
-	if v := login(NewReplayClient(f, uid))[0]; v.ImageURL != "" {
-		t.Fatalf("empty list changed the feed: %+v", v)
-	}
-	f.SetSourceImages([]VehicleImage{
+	f.source.Images = []VehicleImage{
 		{VehicleID: "src", URL: "https://example.test/int.webp", Placement: "interior"},
 		{VehicleID: "src", URL: "https://example.test/3q.webp", Placement: "exterior-3qfront-driver"},
-	})
+	}
+	f.source.ImageURL = pickHeroImage(f.source.Images)
 	v := login(NewReplayClient(f, uid))[0]
 	if v.ImageURL != "https://example.test/3q.webp" || len(v.Images) != 2 {
 		t.Fatalf("vehicle images = %q, %d", v.ImageURL, len(v.Images))
