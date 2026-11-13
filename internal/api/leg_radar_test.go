@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,5 +118,68 @@ func TestAddLegRadarFillsOnlyWithARadar(t *testing.T) {
 	addLegRadar(ctx, adj2, plan)
 	if adj2.Legs[0].Radar != nil {
 		t.Error("tag assigned to a mismatched leg list")
+	}
+}
+
+// Forecast radar along the route is Pro (v6): a free account gets only the teaser, never leg.radar, and the Pro account gets the legs and
+// no teaser. No extra call is made for the teaser: it reads the same grid once.
+func TestFreeAccountGetsRadarTeaserNotLegTags(t *testing.T) {
+	plan := &rivian.TripPlan{Routes: []rivian.TripRoute{{
+		Waypoints: []rivian.PlannedWaypoint{timedWP(30.0, 0, 0), timedWP(30.2, time.Hour, time.Hour), timedWP(30.4, 2*time.Hour, 2*time.Hour)},
+		Geometry:  maps.EncodePolyline6(lineNorth(30.0, 30.4)), GeometryPrecision: 6,
+	}}}
+	wet := func(lat float64, _ time.Time) (radar.Level, bool) {
+		if lat > 30.2 {
+			return radar.Rain, true
+		}
+		return radar.Dry, true
+	}
+	run := func(pro bool) (*tripWeatherAdjustmentDTO, int) {
+		fr := &fakeRadar{at: wet}
+		adj := &tripWeatherAdjustmentDTO{Legs: make([]tripWeatherAdjLegDTO, 2)}
+		addLegRadar(withPlanRadarPlan(withPlanRadar(context.Background(), fr), pro), adj, plan)
+		return adj, fr.calls
+	}
+	free, freeCalls := run(false)
+	for i, l := range free.Legs {
+		if l.Radar != nil {
+			t.Errorf("free account got leg.radar on leg %d", i)
+		}
+	}
+	if free.RadarTeaser == nil || free.RadarTeaser.Legs != 2 || free.RadarTeaser.WetLegs != 1 {
+		t.Fatalf("teaser: %+v", free.RadarTeaser)
+	}
+	pro, proCalls := run(true)
+	if pro.RadarTeaser != nil || pro.Legs[0].Radar == nil || pro.Legs[1].Radar == nil || pro.Legs[1].Radar.Level != "rain" {
+		t.Fatalf("pro: teaser %+v legs %+v", pro.RadarTeaser, pro.Legs)
+	}
+	if freeCalls != proCalls {
+		t.Errorf("the teaser made %d radar reads, Pro %d: it must cost the same", freeCalls, proCalls)
+	}
+	// A leg the forecast cannot read is neither wet nor counted.
+	none := &fakeRadar{at: func(float64, time.Time) (radar.Level, bool) { return radar.Dry, false }}
+	adj := &tripWeatherAdjustmentDTO{Legs: make([]tripWeatherAdjLegDTO, 2)}
+	addLegRadar(withPlanRadarPlan(withPlanRadar(context.Background(), none), false), adj, plan)
+	if adj.RadarTeaser != nil {
+		t.Errorf("teaser with nothing readable: %+v", adj.RadarTeaser)
+	}
+}
+
+// The live tiles stay free: no plan middleware on /maps/radar, and both plan handlers pass the account's plan to the radar tags.
+func TestRadarTilesStayFreeAndPlanHandlersPassThePlan(t *testing.T) {
+	src, err := os.ReadFile("api.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+	i := strings.Index(s, `"/maps/radar"`)
+	if i < 0 {
+		t.Fatal("/maps/radar is not mounted")
+	}
+	if line := s[strings.LastIndex(s[:i], "\n")+1 : i+strings.Index(s[i:], "\n")]; strings.Contains(line, "Pro") || strings.Contains(line, ".With(") {
+		t.Errorf("/maps/radar must be mounted with no plan gate: %s", line)
+	}
+	if n := strings.Count(s, "withPlanRadarPlan("); n != 2 {
+		t.Errorf("withPlanRadarPlan is wired %d times in api.go, want 2 (plan and plan-multiday)", n)
 	}
 }

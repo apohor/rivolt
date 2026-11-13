@@ -70,8 +70,6 @@ func TestProGateRoutesCarryTheirMiddleware(t *testing.T) {
 		"GET /api/trips/saved/{id}/active":  "proOnlyMiddleware",
 		"POST /api/trips/saved/{id}/link":   "proOnlyMiddleware",
 		"POST /api/trips/saved/{id}/unlink": "proOnlyMiddleware",
-		"POST /api/push/apns/activity":      "proOnlyMiddleware",
-		"POST /api/push/apns/activity/test": "proOnlyMiddleware",
 		"GET /api/drives":                   "freeVehicleMiddleware",
 		"GET /api/charges":                  "freeVehicleMiddleware",
 		"GET /api/chart-points":             "freeVehicleMiddleware",
@@ -97,6 +95,31 @@ func TestProGateRoutesCarryTheirMiddleware(t *testing.T) {
 	}
 	for key := range want {
 		if !found[key] {
+			t.Errorf("%s is not a route of the API", key)
+		}
+	}
+}
+
+// The Live Activity is free (Pro v6): its three routes carry no plan gate, so a free account registers, tests and ends an activity.
+func TestLiveActivityRoutesAreFree(t *testing.T) {
+	free := map[string]bool{"POST /api/push/apns/activity": false, "POST /api/push/apns/activity/test": false, "POST /api/push/apns/activity/end": false}
+	err := chi.Walk(contractRouter(t), func(method, route string, _ http.Handler, mws ...func(http.Handler) http.Handler) error {
+		key := method + " " + strings.TrimSuffix(route, "/")
+		if _, ok := free[key]; ok {
+			free[key] = true
+			for _, gate := range []string{"proOnlyMiddleware", "ProMiddleware", "multidayProMiddleware"} {
+				if hasMiddlewareNamed(mws, gate) {
+					t.Errorf("%s is behind %s; the Live Activity is free", key, gate)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, seen := range free {
+		if !seen {
 			t.Errorf("%s is not a route of the API", key)
 		}
 	}

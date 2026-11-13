@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -35,6 +36,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminhealth"
 	"github.com/apohor/rivolt/internal/adminonly"
 	"github.com/apohor/rivolt/internal/ai"
+	"github.com/apohor/rivolt/internal/aitaste"
 	"github.com/apohor/rivolt/internal/api"
 	"github.com/apohor/rivolt/internal/appauth"
 	"github.com/apohor/rivolt/internal/applebill"
@@ -810,7 +812,6 @@ func runServer() {
 					logger.Warn("APNs disabled", "err", aerr.Error())
 				} else {
 					pushSvc.WithAPNs(a)
-					pushSvc.WithProCheck(entitlementsSvc.Pro)
 					logger.Info("APNs enabled", "topic", a.Topic())
 					// The charging Live Activity: off unless RIVOLT_APNS_LIVE is set.
 					if live := strings.EqualFold(os.Getenv("RIVOLT_APNS_LIVE"), "true") || os.Getenv("RIVOLT_APNS_LIVE") == "1"; live {
@@ -3445,6 +3446,7 @@ func runServer() {
 		AppBuild:              appBuild,
 		FirstScreen:           firstScreen,
 		HistoryImport:         os.Getenv("RIVOLT_HISTORY_IMPORT") == "1" && pgPool != nil,
+		DesignPreview:         api.ParseDesignPreview(os.Getenv("RIVOLT_DESIGN_PREVIEW")),
 		StateForward:          stateForward,
 		OwnerDiscovery:        ownerDiscovery,
 		SignInNudge:           signInNudgeFn,
@@ -3519,8 +3521,10 @@ func runServer() {
 		Logger:                logger,
 		Flags:                 flagsStore,
 		AIBudget:              reqStores.AIBudget, // request pool: one (user_id, day) row per caller
-		Secrets:               reqStores.Secrets,  // request pool: the Rivian sign-in surface reads and writes the caller's own session
-		SystemSecrets:         secretsStore,       // admin refresh of another user's Rivian session
+		AITaste:               reqStores.AITaste,  // request pool: one (user_id, month) row per free account
+		AITasteSpend:          aitaste.NewSpend(pgPool, aiTasteCeilingUSD(logger)),
+		Secrets:               reqStores.Secrets, // request pool: the Rivian sign-in surface reads and writes the caller's own session
+		SystemSecrets:         secretsStore,      // admin refresh of another user's Rivian session
 		Metrics:               appMetrics,
 		Users:                 userProvider,
 		AppleRevocation:       appleRevocation,
@@ -4095,4 +4099,20 @@ func (s r2ArrivalSource) ClearEnded(ctx context.Context, now time.Time) (int64, 
 
 func (s r2ArrivalSource) StillWanted(ctx context.Context, uid uuid.UUID, month time.Time) (bool, error) {
 	return db.R2ArrivalStillWanted(ctx, s.db, uid, month)
+}
+
+// aiTasteCeilingUSD is the install-wide daily ceiling on what free accounts' AI taste may cost the operator
+// (RIVOLT_AI_TASTE_DAILY_USD, default 5), on top of the Console spend limit. A value that is not a number above zero keeps the
+// default; set it low to shut the taste off.
+func aiTasteCeilingUSD(logger *slog.Logger) float64 {
+	v := os.Getenv("RIVOLT_AI_TASTE_DAILY_USD")
+	if v == "" {
+		return aitaste.DefaultDailyCeilingUSD
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+		logger.Warn("RIVOLT_AI_TASTE_DAILY_USD is not a positive number; using the default", "default", aitaste.DefaultDailyCeilingUSD)
+		return aitaste.DefaultDailyCeilingUSD
+	}
+	return f
 }

@@ -195,10 +195,28 @@ func (p *AnthropicProvider) Name() string { return "anthropic:" + p.model }
 // Complete sends a system+user prompt pair and returns the assistant text
 // along with real token usage from the response.
 func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (string, TokenUsage, error) {
-	route := RouteFrom(ctx)
-	if p.operator && !Reserved(ctx) {
+	if !p.operator {
+		return p.complete(ctx, system, user)
+	}
+	if !Reserved(ctx) {
 		return "", TokenUsage{}, ErrOperatorDenied
 	}
+	taste, ok := TasteFrom(ctx)
+	if !ok {
+		return "", TokenUsage{}, ErrOperatorDenied
+	}
+	if err := taste.Take(ctx); err != nil {
+		return "", TokenUsage{}, err
+	}
+	out, usage, err := p.complete(ctx, system, user)
+	if err != nil && !errors.Is(err, ErrRefused) && !errors.Is(err, ErrTruncated) {
+		taste.Refund(context.WithoutCancel(ctx)) // the provider failed: no answer was produced
+	}
+	return out, usage, err
+}
+
+func (p *AnthropicProvider) complete(ctx context.Context, system, user string) (string, TokenUsage, error) {
+	route := RouteFrom(ctx)
 	rp, ok := routeTable[route]
 	if !ok {
 		route, rp = RouteOther, routeTable[RouteOther]
@@ -298,6 +316,13 @@ func (p *AnthropicProvider) account(ctx context.Context, route Route, msg *anthr
 		}
 	}
 	if p.operator {
+		if taste, ok := TasteFrom(ctx); ok {
+			var c float64
+			for _, h := range hops {
+				c += OperatorCostUSD(h)
+			}
+			taste.Spent(ctx, c)
+		}
 		slog.DebugContext(ctx, "anthropic usage", "route", string(route), "hops", len(hops),
 			"cost_usd", func() (c float64) {
 				for _, h := range hops {

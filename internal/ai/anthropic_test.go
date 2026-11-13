@@ -70,7 +70,7 @@ func newTest(t *testing.T, f *fakeAnthropic, model string, operator bool, obs Op
 func TestOperatorRequestShapeAndTextOnly(t *testing.T) {
 	f := &fakeAnthropic{replies: []fakeReply{ok("claude-opus-5-5", "end_turn", textAndThinking, `{"input_tokens":10,"output_tokens":20}`)}}
 	p := newTest(t, f, OperatorModel, true, nil)
-	ctx := WithReservation(WithRoute(context.Background(), RouteRecap))
+	ctx := WithUnmetered(WithRoute(context.Background(), RouteRecap))
 	got, usage, err := p.Complete(ctx, "sys prompt", "user text")
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +109,7 @@ func TestEffortPerRoute(t *testing.T) {
 	for route, want := range map[Route]string{RouteEfficiency: "medium", RouteAdvice: "medium", RoutePing: "low", RouteOther: "medium"} {
 		f := &fakeAnthropic{replies: []fakeReply{ok("claude-opus-5-5", "end_turn", textAndThinking, `{"input_tokens":1,"output_tokens":1}`)}}
 		p := newTest(t, f, OperatorModel, true, nil)
-		if _, _, err := p.Complete(WithReservation(WithRoute(context.Background(), route)), "s", "u"); err != nil {
+		if _, _, err := p.Complete(WithUnmetered(WithRoute(context.Background(), route)), "s", "u"); err != nil {
 			t.Fatal(err)
 		}
 		if got := f.bodies[0]["output_config"].(map[string]any)["effort"]; got != want {
@@ -159,7 +159,7 @@ func TestOwnKeyKeepsPlainRequestOnOlderModel(t *testing.T) {
 func TestRefusalIsCleanAndNotRetried(t *testing.T) {
 	f := &fakeAnthropic{replies: []fakeReply{ok("claude-opus-5-5", "refusal", `[]`, `{"input_tokens":5,"output_tokens":0}`)}}
 	p := newTest(t, f, OperatorModel, true, nil)
-	_, _, err := p.Complete(WithReservation(context.Background()), "s", "u")
+	_, _, err := p.Complete(WithUnmetered(context.Background()), "s", "u")
 	if err != ErrRefused {
 		t.Fatalf("err = %v, want ErrRefused", err)
 	}
@@ -171,7 +171,7 @@ func TestRefusalIsCleanAndNotRetried(t *testing.T) {
 func TestTruncationIsAnError(t *testing.T) {
 	f := &fakeAnthropic{replies: []fakeReply{ok("claude-opus-5-5", "max_tokens", `[{"type":"text","text":"{\"a\":"}]`, `{"input_tokens":5,"output_tokens":99}`)}}
 	p := newTest(t, f, OperatorModel, true, nil)
-	if _, _, err := p.Complete(WithReservation(context.Background()), "s", "u"); err != ErrTruncated {
+	if _, _, err := p.Complete(WithUnmetered(context.Background()), "s", "u"); err != ErrTruncated {
 		t.Fatalf("err = %v, want ErrTruncated", err)
 	}
 }
@@ -179,7 +179,7 @@ func TestTruncationIsAnError(t *testing.T) {
 func TestClientErrorNotRetriedAndLeaksNothing(t *testing.T) {
 	f := &fakeAnthropic{replies: []fakeReply{{400, `{"type":"error","error":{"type":"invalid_request_error","message":"bad sk-test-secret"}}`}}}
 	p := newTest(t, f, OperatorModel, true, nil)
-	_, _, err := p.Complete(WithReservation(context.Background()), "s", "u")
+	_, _, err := p.Complete(WithUnmetered(context.Background()), "s", "u")
 	if err == nil {
 		t.Fatal("want error")
 	}
@@ -197,7 +197,7 @@ func TestServerErrorRetriedBySDK(t *testing.T) {
 		ok("claude-opus-5-5", "end_turn", `[{"type":"text","text":"fine"}]`, `{"input_tokens":1,"output_tokens":1}`),
 	}}
 	p := newTest(t, f, OperatorModel, true, nil)
-	got, _, err := p.Complete(WithReservation(context.Background()), "s", "u")
+	got, _, err := p.Complete(WithUnmetered(context.Background()), "s", "u")
 	if err != nil || got != "fine" {
 		t.Fatalf("got %q, %v", got, err)
 	}
@@ -218,7 +218,7 @@ func TestOperatorUsageCountsEveryHopAndCacheReads(t *testing.T) {
 	f := &fakeAnthropic{replies: []fakeReply{first, second, hops}}
 	var seen []OperatorUsage
 	p := newTest(t, f, OperatorModel, true, func(u OperatorUsage) { seen = append(seen, u) })
-	ctx := WithReservation(WithRoute(context.Background(), RouteAdvice))
+	ctx := WithUnmetered(WithRoute(context.Background(), RouteAdvice))
 	for i := 0; i < 3; i++ {
 		if _, _, err := p.Complete(ctx, "stable system prompt", "u"); err != nil {
 			t.Fatal(err)
@@ -303,7 +303,7 @@ func TestKeyWhitespaceIsTrimmed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := p.Complete(WithReservation(WithRoute(context.Background(), RouteRecap)), "s", "u"); err != nil {
+	if _, _, err := p.Complete(WithUnmetered(WithRoute(context.Background(), RouteRecap)), "s", "u"); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.headers[0].Get("Authorization"); got != "Bearer sk-test-secret" {

@@ -15,7 +15,7 @@ import (
 
 // The free plan's history window (Rivolt Pro, Sprint 14, item 2).
 //
-// A free account sees the last 90 days of drives and charges and the current and previous two months of statements. Nothing is deleted or
+// A free account sees the current calendar month and the twelve before it (drives, charges and statements share one cutoff). Nothing is deleted or
 // hidden in storage: the recorder, the jobs, the export and every privacy path see everything. The window is a property of a request: a
 // route that returns history is registered behind historyWindowMiddleware, which stamps the free window on the request's context for a
 // free account (nothing for Pro, billing off, the demo, or when the plan lookup failed). Handlers then narrow their RESPONSE:
@@ -23,7 +23,7 @@ import (
 //   - Anything derived from the whole history (cost rates, charge classification, clusters) is computed over everything and only the rows
 //     returned are narrowed, so a free account's numbers are the numbers a Pro account sees for the same rows, and nothing computed under
 //     a window is ever stored or cached.
-//   - A single row outside the window (a drive or charge by id) answers 402 {"error":"outside_free_window","free_days":90}; a Pro-only
+//   - A single row outside the window (a drive or charge by id) answers 402 {"error":"outside_free_window","free_days":N,"free_from":"YYYY-MM-DD"}; a Pro-only
 //     insight answers 402 {"error":"pro_required"}. 402, not 403: the clients read 403 as "terms required" or "signed out".
 //   - A client-supplied range (?since, ?month, ?from) is clamped to the window, never trusted.
 //
@@ -49,14 +49,14 @@ func historyWindowMiddleware(e *entitlements.Service) func(http.Handler) http.Ha
 	}
 }
 
-// moneyWindowStart is the first instant of the oldest month a free account's Money statements show: the current month and the two before,
+// moneyWindowStart is the first instant of the oldest month a free account's Money statements show: the current month and the twelve before,
 // cut in the zone the request asked for. on is false when the request has no window (Pro, billing off, or a background context).
 func moneyWindowStart(ctx context.Context, now time.Time, loc *time.Location) (from time.Time, on bool) {
 	if _, ok := histwin.From(ctx); !ok {
 		return time.Time{}, false
 	}
 	cur := now.In(loc)
-	return time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, -2, 0), true
+	return time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, -histwin.Months, 0), true
 }
 
 // windowRows narrows rows (newest first or any order) to the request's window; with no window it returns rows unchanged.
@@ -77,6 +77,8 @@ func windowRows[T any](ctx context.Context, rows []T, started func(T) time.Time)
 type paywallBody struct {
 	Error    string `json:"error"`
 	FreeDays int    `json:"free_days,omitempty"`
+	// FreeFrom is the first day (UTC, YYYY-MM-DD) the free plan shows; clients display this, never their own number.
+	FreeFrom string `json:"free_from,omitempty"`
 }
 
 // proOnlyMiddleware answers 402 pro_required to a free account on a Pro-only read (trends, range near a temperature, capacity estimate).
@@ -97,8 +99,12 @@ func proOnlyMiddleware(e *entitlements.Service) func(http.Handler) http.Handler 
 }
 
 // writeOutsideFreeWindow is the answer for a single row older than the free window.
-func writeOutsideFreeWindow(w http.ResponseWriter) {
-	writeJSON(w, http.StatusPaymentRequired, paywallBody{Error: "outside_free_window", FreeDays: histwin.FreeDays})
+func writeOutsideFreeWindow(w http.ResponseWriter, r *http.Request) {
+	body := paywallBody{Error: "outside_free_window"}
+	if win, ok := histwin.From(r.Context()); ok {
+		body.FreeDays, body.FreeFrom = win.Days, win.Since.Format("2006-01-02")
+	}
+	writeJSON(w, http.StatusPaymentRequired, body)
 }
 
 // writeProRequired is the answer for a read that is Pro-only on a free account (a CSV of a past month, trends, range near a temperature,
@@ -132,7 +138,7 @@ func requireDriveInWindow(w http.ResponseWriter, r *http.Request, pool *sql.DB, 
 		return false
 	}
 	if !ok {
-		writeOutsideFreeWindow(w)
+		writeOutsideFreeWindow(w, r)
 		return false
 	}
 	return true

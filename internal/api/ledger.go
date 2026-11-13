@@ -14,6 +14,7 @@ import (
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/flags"
+	"github.com/apohor/rivolt/internal/histwin"
 	"github.com/apohor/rivolt/internal/ledger"
 	"github.com/apohor/rivolt/internal/offpeak"
 	"github.com/apohor/rivolt/internal/settings"
@@ -206,9 +207,9 @@ func (a ledgerAPI) monthly(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 		http.Error(w, "month must be YYYY-MM", http.StatusBadRequest)
 		return
 	}
-	// A free account's statements are the current month and the two before; an older month is 402 (the rows are kept, not shown).
+	// A free account's statements are the current month and the twelve before; an older month is 402 (the rows are kept, not shown).
 	if from, on := moneyWindowStart(r.Context(), a.now(), p.loc); on && period.Start.Before(from) {
-		writeOutsideFreeWindow(w)
+		writeOutsideFreeWindow(w, r)
 		return
 	}
 	in, err := a.input(r.Context(), uid, p, period)
@@ -250,9 +251,9 @@ func (a ledgerAPI) summary(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 		}
 		n = parsed
 	}
-	// A free account's list stops at the window: the current month and the two before, however many were asked for.
-	if _, on := moneyWindowStart(r.Context(), a.now(), p.loc); on && n > 3 {
-		n = 3
+	// A free account's list stops at the window: the current month and the twelve before, however many were asked for.
+	if _, on := moneyWindowStart(r.Context(), a.now(), p.loc); on && n > histwin.Months+1 {
+		n = histwin.Months + 1
 	}
 	periods := ledger.LastMonths(a.now(), n, p.loc)
 	in, err := a.input(r.Context(), uid, p, periods...)

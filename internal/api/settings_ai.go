@@ -170,7 +170,7 @@ func handleAIPing(mgr *settings.Manager) http.HandlerFunc {
 		const user = "Reply with a single sentence confirming that this integration works."
 		start := time.Now()
 		// Admin-only smoke test: one tiny call, so it reserves its own unit for the operator key.
-		reply, usage, err := analyzer.Complete(ai.WithReservation(ai.WithRoute(ctx, ai.RoutePing)), system, user)
+		reply, usage, err := analyzer.Complete(ai.WithUnmetered(ai.WithRoute(ctx, ai.RoutePing)), system, user)
 		latency := time.Since(start)
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{

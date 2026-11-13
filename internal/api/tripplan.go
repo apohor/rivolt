@@ -345,6 +345,8 @@ type tripWeatherAdjustmentDTO struct {
 	Legs               []tripWeatherAdjLegDTO `json:"legs"`
 	ProfileMultiplier  float64                `json:"profile_multiplier,omitempty"`
 	ProfileReasons     []string               `json:"profile_reasons,omitempty"`
+	// RadarTeaser is the free account's view of the forecast radar (Pro): present instead of every leg's Radar. See addLegRadar.
+	RadarTeaser *radarTeaserDTO `json:"radar_teaser,omitempty"`
 }
 
 type tripWeatherAdjLegDTO struct {
@@ -587,6 +589,9 @@ func handleTripPlanAdvice(mgr *settings.Manager, settingsStore *settings.Store, 
 		}
 		result, err := tripadvice.Generate(r.Context(), mgr.Analyzer(), body.Plan, tc)
 		if err != nil {
+			if writeAITasteError(w, err) {
+				return
+			}
 			slog.WarnContext(r.Context(), "trip advice generation failed", "err", err.Error())
 			http.Error(w, "AI analysis failed: "+err.Error(), http.StatusBadGateway)
 			return

@@ -23,6 +23,7 @@ import (
 	"github.com/apohor/rivolt/internal/adminaudit"
 	"github.com/apohor/rivolt/internal/adminhealth"
 	"github.com/apohor/rivolt/internal/aibudget"
+	"github.com/apohor/rivolt/internal/aitaste"
 	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/appleid"
 	"github.com/apohor/rivolt/internal/auth"
@@ -102,6 +103,8 @@ type Deps struct {
 	FirstScreen FirstScreenSource
 	// HistoryImport serves /api/import/preview, /api/import/commit and /api/imports (RIVOLT_HISTORY_IMPORT). False: the routes do not exist.
 	HistoryImport bool
+	// DesignPreview is the parsed RIVOLT_DESIGN_PREVIEW list, served as features.design_preview.
+	DesignPreview []string
 	// StateForward and GroupOfVehicle route the one Rivian call of GET /api/state/{id} to the vehicle's group owner (single-owner M3-2b).
 	// Both nil (RIVOLT_FORWARD off): the pod calls Rivian itself, as before.
 	StateForward   StateForwarder
@@ -352,6 +355,10 @@ type Deps struct {
 	// gate — the cost backstop fails open so no-DB and test paths
 	// keep working.
 	AIBudget *aibudget.Store
+	// AITaste counts a free account's operator-key answers per UTC month (request pool); AITasteSpend is the install-wide daily
+	// ceiling on what those answers may cost (system pool). Either nil leaves a free account without the operator key.
+	AITaste      *aitaste.Store
+	AITasteSpend *aitaste.Spend
 	// Secrets is the envelope-encrypted per-user blob store
 	// (see internal/crypto, internal/secrets). Holds the
 	// sealed rivian.Session and, later, AI provider keys and
@@ -757,7 +764,7 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil, DemoRadar: demo.Enabled() && d.DemoRadar != nil, HistoryImport: d.HistoryImport}))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil, DemoRadar: demo.Enabled() && d.DemoRadar != nil, HistoryImport: d.HistoryImport, DesignPreview: d.DesignPreview}))
 		// The charging-networks comparison page's data: public reference data (plans as each
 		// network states them, typical observed prices with their label and month).
 		r.With(clLimiter.Middleware).Get("/charging-networks", handleChargingNetworks(time.Now))
@@ -1085,14 +1092,14 @@ func New(d Deps) http.Handler {
 					handleAPNsPreferences(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				apnsActivityLimiter := ls.user("apns-activity", 30)
-				r.With(proOnlyMiddleware(d.Entitlements), apnsActivityLimiter.Middleware).Post("/apns/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(apnsActivityLimiter.Middleware).Post("/apns/activity", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivity(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				r.With(apnsActivityLimiter.Middleware).Post("/apns/activity/end", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivityEnd(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				apnsActivityTestLimiter := ls.user("apns-activity-test", 3)
-				r.With(proOnlyMiddleware(d.Entitlements), apnsActivityTestLimiter.Middleware).Post("/apns/activity/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				r.With(apnsActivityTestLimiter.Middleware).Post("/apns/activity/test", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleAPNsActivityTest(d.PushService, d.Push.For(uid))(w, r)
 				}))
 				apnsTestLimiter := ls.user("apns-test", 6)
@@ -1783,7 +1790,7 @@ func New(d Deps) http.Handler {
 			// The no-commit "what if" preview of a via edit: our own Valhalla only, no Rivian call, nothing stored (trip_whatif.go).
 			r.With(requireTripPlannerEnabledMW(d.Flags), ls.user("trips-what-if", tripsWhatIfPerMin).Middleware).Post("/trips/what-if", handleTripWhatIf(d.geometryRouter(), d.Metrics))
 			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanRadar(withPlanElevation(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics), d.PlanElevation), d.PlanRadar)))
+				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanRadar(withPlanRadarPlan(withPlanElevation(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics), d.PlanElevation), d.Entitlements.Pro(r.Context(), uid)), d.PlanRadar)))
 			}))
 			// Multi-day plan is mounted in the AI-bound group below
 			// (5-minute timeout). N sequential planTrip2 calls easily
@@ -1863,17 +1870,19 @@ func New(d Deps) http.Handler {
 			// The user's own consent comes first, so a refused call is not
 			// charged to the budget.
 			aiGate := requireAIConsentMW(d.Settings)
-			r.With(historyWindowMiddleware(d.Entitlements), rowVehicleMiddleware(pv, "drives"), aiGate, aiBudgetMW).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			// The free account's taste (Pro v6) is taken by the operator key itself, just before the model call.
+			aiTaste := requireAITasteMW(d.Entitlements, d.AITaste, d.AITasteSpend)
+			r.With(historyWindowMiddleware(d.Entitlements), rowVehicleMiddleware(pv, "drives"), aiGate, aiBudgetMW, aiTaste).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
-			r.With(aiGate, aiBudgetMW).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(aiGate, aiBudgetMW, aiTaste).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanAdvice(d.SettingsMgr, d.Settings.For(uid), d.WeatherClient)(w, r)
 			}))
 			// Multi-day orchestrator: N sequential planTrip2 calls.
 			// Lives here so it inherits the 5-minute timeout — three
 			// legs at ~10s each blow the timed-group's 30s budget.
 			r.With(requireTripPlannerEnabledMW(d.Flags), multidayProMiddleware(d.Entitlements)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleTripPlanMultiday(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanRadar(withPlanElevation(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics), d.PlanElevation), d.PlanRadar)))
+				handleTripPlanMultiday(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanRadar(withPlanRadarPlan(withPlanElevation(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics), d.PlanElevation), d.Entitlements.Pro(r.Context(), uid)), d.PlanRadar)))
 			}))
 		})
 
