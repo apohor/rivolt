@@ -17,7 +17,7 @@ export function CarSketch({
     <div
       data-testid="now-car-sketch"
       data-model={isR1T ? "R1T" : "R1S"}
-      className={`relative w-full max-w-[220px] [&>svg]:h-auto [&>svg]:w-full ${className}`}
+      className={`relative w-full max-w-[220px] [&>svg:first-child]:h-auto [&>svg:first-child]:w-full ${className}`}
     >
       {isR1T ? <R1T /> : <R1S />}
       {charging && (

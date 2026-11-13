@@ -79,3 +79,40 @@ test("the Live pill has its own row: the image starts at least 8 px below it", a
     expect(car.y).toBeGreaterThanOrEqual(pill.y + pill.height + 8);
   }
 });
+
+test("desktop: the hero takes the full content width and the Live button is compact", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await open(page, {});
+  const hero = page.locator("[data-now-v2]");
+  const main = page.getByTestId("now-month");
+  const [h, m] = [await hero.boundingBox(), await main.boundingBox()];
+  expect(Math.abs(h!.width - m!.width)).toBeLessThan(4);
+  const live = await page.getByTestId("now-live-link").boundingBox();
+  expect(live!.height).toBeLessThanOrEqual(34);
+});
+
+test("touch: the Live button keeps its 44 px target", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage();
+  await open(page, {});
+  const live = await page.getByTestId("now-live-link").boundingBox();
+  expect(live!.height).toBeGreaterThanOrEqual(44);
+  await ctx.close();
+});
+
+test("charging: the bolt on the sketch stays small", async ({ page }) => {
+  await open(page, { scenario: "charging", withImages: false });
+  const sketch = await page.getByTestId("now-car-sketch").boundingBox();
+  const bolt = await page.locator("[data-testid=now-car-sketch] > svg").nth(1).boundingBox();
+  expect(bolt!.width).toBeLessThan(sketch!.width / 4);
+});
+
+test("desktop parked: the temps open the right column with no rule above them; on a phone the rule stays", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await open(page, { scenario: "parked" });
+  const temps = page.getByTestId("now-temps");
+  await expect(page.getByTestId("now-subline")).toHaveCount(0);
+  await expect(temps).toHaveCSS("border-top-width", "0px");
+  await page.setViewportSize({ width: 393, height: 852 });
+  await expect(temps).toHaveCSS("border-top-width", "1px");
+});
