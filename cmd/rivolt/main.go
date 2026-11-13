@@ -195,7 +195,7 @@ Usage:
   rivolt ai-eval [--budget USD] [--inputs N]
                   Run the recap, efficiency and advice prompts on the candidate Claude models over demo inputs
                   and print the answers side by side (reads ANTHROPIC_API_KEY; no database, no server).
-  rivolt open-charges snapshot [--out FILE | --configmap NAME [--namespace NS]] | verify --snapshot FILE [--roll-from EPOCH]
+  rivolt open-charges snapshot [--out FILE | --configmap NAME [--namespace NS]] [--roll-hash H] | verify --snapshot FILE [--roll-from EPOCH] [--roll-hash H]
                   The release roll's open-charge check (reads RIVOLT_VERIFY_DATABASE_URL, a read-only role): snapshot the open charges
                   before the roll, verify after it that each is still one row (exit 1: split, vanished, stalled).
   rivolt migrate [--check]    apply pending database migrations (or list them); for deployments that migrate in a job
