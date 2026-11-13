@@ -32,11 +32,10 @@ replay_tag() {
   done
   [ -n "$(ls "$tmp/files")" ] || { echo "migration-baseline: no migration files at $tag" >&2; exit 1; }
   cid=$(docker run -d --rm -e POSTGRES_PASSWORD=x -e POSTGRES_DB=base "$image")
-  for _ in $(seq 1 60); do docker exec "$cid" pg_isready -U postgres -d base -q 2>/dev/null && break; sleep 1; done
-  docker exec "$cid" pg_isready -U postgres -d base -q
-  # A second readiness check: the entrypoint restarts the server once after its init scripts.
-  sleep 2
-  for _ in $(seq 1 30); do docker exec "$cid" psql -U postgres -d base -qtAc 'select 1' >/dev/null 2>&1 && break; sleep 1; done
+  # The entrypoint starts a temporary server for its init scripts, stops it, and starts the real one; only the second start is ready for us.
+  for _ in $(seq 1 90); do docker logs "$cid" 2>&1 | grep -q 'init process complete; ready for start up' && break; sleep 1; done
+  for _ in $(seq 1 60); do docker exec "$cid" psql -U postgres -d base -qtAc 'select 1' >/dev/null 2>&1 && break; sleep 1; done
+  docker exec "$cid" psql -U postgres -d base -qtAc 'select 1' >/dev/null || { echo "migration-baseline: postgres did not come up" >&2; docker logs "$cid" >&2; exit 1; }
   docker cp "$tmp/files" "$cid:/files"
   # The runner creates the bookkeeping table itself before the first file (migrate.go), and later files alter it.
   docker exec "$cid" psql -U postgres -d base -q -v ON_ERROR_STOP=1 -c \
