@@ -429,7 +429,7 @@ func (m *Manager) Public() AIPublic {
 	}
 	if m.analyzer != nil {
 		out.Ready = true
-		out.Model = m.analyzer.ModelName()
+		out.Model = m.analyzer.ModelSummary()
 		// "effective_provider" is what auto-selection resolved to.
 		out.Effective = effectiveProvider(m.cfg)
 	}
@@ -621,7 +621,7 @@ func (m *Manager) Update(ctx context.Context, patch AIUpdate) (AIPublic, error) 
 	}
 	if m.analyzer != nil {
 		pub.Ready = true
-		pub.Model = m.analyzer.ModelName()
+		pub.Model = m.analyzer.ModelSummary()
 		pub.Effective = effectiveProvider(m.cfg)
 	}
 	return pub, nil

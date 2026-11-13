@@ -224,6 +224,22 @@ func (p *AnthropicProvider) Name() string { return "anthropic:" + p.model }
 // NameForRoute is Name for the model a call on this route runs on.
 func (p *AnthropicProvider) NameForRoute(r Route) string { return "anthropic:" + p.modelFor(r) }
 
+// ModelSummary is what Settings shows as the model in use: the per-route models for the
+// operator key, so users are not told the Opus default, and the plain name otherwise.
+func (p *AnthropicProvider) ModelSummary() string {
+	if !p.perRoute {
+		return p.Name()
+	}
+	var parts []string
+	for _, g := range []struct {
+		label  string
+		routes []Route
+	}{{"recaps", []Route{RouteRecap}}, {"efficiency and advice", []Route{RouteEfficiency, RouteAdvice}}} {
+		parts = append(parts, OperatorModelFor(g.routes[0])+" for "+g.label)
+	}
+	return "anthropic: " + strings.Join(parts, ", ")
+}
+
 func (p *AnthropicProvider) modelFor(r Route) string {
 	if p.perRoute {
 		return OperatorModelFor(r)

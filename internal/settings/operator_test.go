@@ -92,3 +92,23 @@ func TestOperatorKeyIsTrimmed(t *testing.T) {
 		t.Error("an operator key with a trailing newline must still enable AI")
 	}
 }
+
+// Settings must name the models the operator key really uses, not the Opus default; a user's own key shows its own model.
+func TestSettingsModelLineNamesPerRouteModels(t *testing.T) {
+	m, err := NewManager(context.Background(), memKV{}, AIConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SetOperator("sk-op", nil)
+	want := "anthropic: claude-haiku-5-5 for recaps, claude-sonnet-5-5 for efficiency and advice"
+	if got := m.Public().Model; got != want {
+		t.Errorf("operator key: %q, want %q", got, want)
+	}
+	own, err := NewManager(context.Background(), memKV{}, AIConfig{AnthropicKey: "sk-own", AnthropicModel: "claude-haiku-4-5-20251001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := own.Public().Model; got != "anthropic:claude-haiku-4-5-20251001" {
+		t.Errorf("own key: %q", got)
+	}
+}
