@@ -1868,7 +1868,8 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}   # e.g. v0.41.19-rc.1
           SHA: ${{ github.sha }}
-        run: bash ../app/.github/ci/preview-tag.sh pin "${TAG#v}" "$SHA" "rivolt-preview: pin to release candidate ${TAG} (qa gate)"
+        run: |
+          bash ../app/.github/ci/preview-tag.sh pin "${TAG#v}" "$SHA" "rivolt-preview: pin to release candidate ${TAG} (qa gate)"
 
   unpin-preview:
     name: unpin-preview
@@ -1910,4 +1911,5 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}   # e.g. v0.41.19
           SHA: ${{ github.sha }}
-        run: bash ../app/.github/ci/preview-tag.sh unpin "sha-${SHA:0:7}" "$SHA" "rivolt-preview: unpin after ${TAG}; back to main's auto-bump at sha-${SHA:0:7}"
+        run: |
+          bash ../app/.github/ci/preview-tag.sh unpin "sha-${SHA:0:7}" "$SHA" "rivolt-preview: unpin after ${TAG}; back to main's auto-bump at sha-${SHA:0:7}"
