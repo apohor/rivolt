@@ -329,3 +329,28 @@ func TestHistoryImportRefusedReasons(t *testing.T) {
 		t.Errorf("%d rejected series, want %d", got, len(metrics.ImportSources)*len(metrics.ImportRejectReasons))
 	}
 }
+
+// A first line that is a data row (a contact list: name, email, street) never reaches the log; only a count does.
+func TestHistoryImportRefusalLogDropsDataRows(t *testing.T) {
+	var logs bytes.Buffer
+	a := newHistoryImportAPI(Deps{Metrics: metrics.New(), Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	req := &importRequest{
+		source:  "tezlab",
+		formats: importSources["tezlab"],
+		files:   []importFile{{name: "x.csv", data: []byte("Maria Gonzalez,maria.g@example.com,12 Elm Street\nJohn Smith,js@example.org,4 Oak Avenue\n")}},
+	}
+	_, pf := req.parse(time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC))
+	if pf == nil || pf.code != "unknown_columns" {
+		t.Fatalf("parse = %+v", pf)
+	}
+	a.refused("tezlab", pf)
+	out := logs.String()
+	for _, banned := range []string{"Maria", "Gonzalez", "example.com", "Elm", "@"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("log carries %q: %s", banned, out)
+		}
+	}
+	if !strings.Contains(out, "3 cells, not logged") {
+		t.Errorf("log lacks the count: %s", out)
+	}
+}

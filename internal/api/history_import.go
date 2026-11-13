@@ -376,6 +376,7 @@ func (req *importRequest) parse(now time.Time) (*parsed, *parseFailure) {
 			pf.msg = unknownColumnsMessage(pf.expected)
 			if missing != nil {
 				pf.header = nameLikeCells(missing.Header)
+				pf.cells = nonEmpty(missing.Header)
 				pf.missing = missing.Missing
 			}
 			return nil, pf
@@ -434,6 +435,7 @@ type parseFailure struct {
 	code     string
 	msg      string
 	header   []string
+	cells    int // non-empty cells in the file's first line, before nameLikeCells (the log's test of whether it was a header row)
 	missing  []string
 	expected []histimport.ExpectedLayout
 	choices  []string
@@ -490,7 +492,7 @@ func (a *historyImportAPI) refused(source string, pf *parseFailure) {
 	if a.d.Metrics != nil {
 		a.d.Metrics.HistoryImportRejected.WithLabelValues(source, reason).Inc()
 	}
-	a.logr.Warn("history import refused", "source", source, "reason", reason, "header", pf.header, "missing", pf.missing)
+	a.logr.Warn("history import refused", "source", source, "reason", reason, "header", logHeader(pf), "missing", pf.missing)
 }
 
 func failureOf(err error) *parseFailure {
@@ -505,6 +507,32 @@ func failureOf(err error) *parseFailure {
 		return &parseFailure{status: http.StatusRequestEntityTooLarge, code: "too_big", msg: "That file is larger than we can read. Export a shorter range."}
 	}
 	return &parseFailure{status: http.StatusUnprocessableEntity, code: "bad_file", msg: "That file could not be read as a CSV or Excel export."}
+}
+
+// logHeader is what a refusal may put in the operator log. A file with no header row has a data row in its first line (names, emails,
+// addresses), and nameLikeCells lets words through, so the log is stricter than the response: cells with an "@" or a digit are dropped, and
+// the rest are logged only when most of the line was header-like; otherwise only the count.
+func logHeader(pf *parseFailure) any {
+	keep := []string{}
+	for _, c := range pf.header {
+		if !strings.ContainsAny(c, "@0123456789") && len(c) <= 30 {
+			keep = append(keep, c)
+		}
+	}
+	if pf.cells == 0 || len(keep)*2 <= pf.cells {
+		return fmt.Sprintf("%d cells, not logged", pf.cells)
+	}
+	return keep
+}
+
+func nonEmpty(cells []string) int {
+	n := 0
+	for _, c := range cells {
+		if strings.TrimSpace(c) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 // nameLikeCells keeps what looks like a column name from a file's first line. A file with no header row has a data row there, and the

@@ -749,7 +749,7 @@ func New() *Metrics {
 		}, []string{"source"}),
 		HistoryImportRejected: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_history_import_rejected_total",
-			Help: "History-import files refused, by source and reason: unknown_header, bad_row, size or parse.",
+			Help: "History-import files refused, by source and reason: unknown_header, bad_row, size or parse. A commit that is refused counts here but not as an attempt (only previews are attempts), so this can exceed attempts.",
 		}, []string{"source", "reason"}),
 		HistoryImportCommits: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_history_import_commits_total",
