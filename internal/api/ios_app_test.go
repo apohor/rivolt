@@ -32,7 +32,7 @@ func TestIOSAppIsHiddenUntilConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := spaHandler(fstest.MapFS{"index.html": {Data: shell}})
+	h := spaHandler(fstest.MapFS{"index.html": {Data: shell}}, nil)
 	for _, v := range []string{"", "https://evil.example/app/id1234567890", "https://apps.apple.com/app/id1234567890?utm_source=x"} {
 		t.Setenv("RIVOLT_IOS_APP_URL", v)
 		if _, ok := iosConfig(t)["ios_app_url"]; ok {
@@ -52,7 +52,7 @@ func TestIOSAppAppStoreLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := spaHandler(fstest.MapFS{"index.html": {Data: shell}})
+	h := spaHandler(fstest.MapFS{"index.html": {Data: shell}}, nil)
 	t.Setenv("RIVOLT_IOS_APP_URL", appStoreLink)
 	if got := iosConfig(t)["ios_app_url"]; got != appStoreLink {
 		t.Errorf("ios_app_url = %v", got)
@@ -81,7 +81,7 @@ func TestIOSAppTestFlightLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := spaHandler(fstest.MapFS{"index.html": {Data: shell}})
+	h := spaHandler(fstest.MapFS{"index.html": {Data: shell}}, nil)
 	const tf = "https://testflight.apple.com/join/AbCdEf12"
 	t.Setenv("RIVOLT_IOS_APP_URL", tf)
 	if got := iosConfig(t)["ios_app_url"]; got != tf {
