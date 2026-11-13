@@ -1,8 +1,8 @@
 package histimport
 
-// TezLab exports one CSV per kind (Activity tab: Drives, Charges). Nothing public documents its columns, so these aliases are assumptions
-// (design §1) to be pinned to a real export in slice 2b. Add a spelling here, never a guess in the parser. The energy basis of its charges is
-// unknown until then, so it is recorded as "unknown" and kept out of efficiency ratios.
+// TezLab exports one CSV per kind (Activity tab: Drives, Charges). Its columns are not published, so these aliases are assumptions (see
+// AliasProvenance); a spelling that turns up in a real file is added here, never guessed in the parser. The energy basis of its charges is
+// unknown, so it is recorded as "unknown" and kept out of efficiency ratios.
 var (
 	TezLabDrives = Format{
 		Source: "tezlab_import",

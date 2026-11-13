@@ -1,0 +1,3 @@
+Start Time,End Time,Start Battery (%),End Battery (%),Energy Added (kWh),Max Power (kW),Latitude,Longitude,Cost,Currency
+2026-03-01T09:00:00Z,2026-03-01T09:40:00Z,15,80,60.2,190,34.161,-118.168,18.40,USD
+2026-03-03T01:00:00Z,2026-03-03T07:00:00Z,40,90,8.0,7.2,34.161,-118.168,,

@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -258,5 +260,72 @@ func TestHistoryImportUndoSecFetchSite(t *testing.T) {
 		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "cross_site_request") {
 			t.Errorf("Sec-Fetch-Site %q: %d %s", sfs, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// A refused file is counted by source and reason, and logged with the header names it had: no value from any row.
+func TestHistoryImportRefusalCountsAndLogsHeaderNamesOnly(t *testing.T) {
+	m := metrics.New()
+	var logs bytes.Buffer
+	a := newHistoryImportAPI(Deps{Metrics: m, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	req := &importRequest{
+		source:  "tezlab",
+		formats: importSources["tezlab"],
+		files:   []importFile{{name: "x.csv", data: []byte("Date,Odometer,Notes\n2026-03-01,12345.6,Home 34.0522 -118.2437\n")}},
+	}
+	_, pf := req.parse(time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC))
+	if pf == nil || pf.code != "unknown_columns" {
+		t.Fatalf("parse = %+v", pf)
+	}
+	a.refused("tezlab", pf)
+	if got := testutil.ToFloat64(m.HistoryImportRejected.WithLabelValues("tezlab", "unknown_header")); got != 1 {
+		t.Errorf("unknown_header = %v, want 1", got)
+	}
+	out := logs.String()
+	for _, want := range []string{"Date", "Odometer", "Notes", "unknown_header"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q: %s", want, out)
+		}
+	}
+	for _, banned := range []string{"12345", "34.05", "118.24", "2026-03-01", "Home"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("log carries %q: %s", banned, out)
+		}
+	}
+	// The user-facing message names what the export needs and quotes nothing from the file.
+	rec := httptest.NewRecorder()
+	pf.write(rec)
+	body := rec.Body.String()
+	if !strings.Contains(body, `"expected"`) || !strings.Contains(body, "Nothing was imported") {
+		t.Errorf("body lacks the expected columns: %s", body)
+	}
+	for _, banned := range []string{"12345", "34.05", "Home"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("body carries %q: %s", banned, body)
+		}
+	}
+}
+
+// Each failure code lands in one of the four reasons; need_choice is a question, not a refusal, so it is not counted.
+func TestHistoryImportRefusedReasons(t *testing.T) {
+	m := metrics.New()
+	a := newHistoryImportAPI(Deps{Metrics: m, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	for code, reason := range map[string]string{"unknown_columns": "unknown_header", "too_many_bad_rows": "bad_row", "too_big": "size", "bad_file": "parse"} {
+		a.refused("abrp", &parseFailure{code: code})
+		if got := testutil.ToFloat64(m.HistoryImportRejected.WithLabelValues("abrp", reason)); got != 1 {
+			t.Errorf("%s -> %s = %v, want 1", code, reason, got)
+		}
+	}
+	a.refused("abrp", &parseFailure{code: "need_choice"})
+	total := 0.0
+	for _, r := range metrics.ImportRejectReasons {
+		total += testutil.ToFloat64(m.HistoryImportRejected.WithLabelValues("abrp", r))
+	}
+	if total != 4 {
+		t.Errorf("total refusals %v, want 4 (need_choice must not count)", total)
+	}
+	// Every source and reason exports at 0 before the first file, so a rate() has a series to start from.
+	if got := testutil.CollectAndCount(m.HistoryImportRejected); got != len(metrics.ImportSources)*len(metrics.ImportRejectReasons) {
+		t.Errorf("%d rejected series, want %d", got, len(metrics.ImportSources)*len(metrics.ImportRejectReasons))
 	}
 }

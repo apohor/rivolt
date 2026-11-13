@@ -314,6 +314,7 @@ func (a *historyImportAPI) read(w http.ResponseWriter, r *http.Request) (*import
 func (a *historyImportAPI) readFailed(w http.ResponseWriter, err error) {
 	var tooBig *http.MaxBytesError
 	if errors.As(err, &tooBig) {
+		a.refused("unknown", &parseFailure{code: "too_big"})
 		importError(w, http.StatusRequestEntityTooLarge, "too_big", "That is more than 50 MB. Export a shorter range.")
 		return
 	}
@@ -371,7 +372,8 @@ func (req *importRequest) parse(now time.Time) (*parsed, *parseFailure) {
 			return nil, failureOf(err)
 		}
 		if res == nil {
-			pf := &parseFailure{status: http.StatusUnprocessableEntity, code: "unknown_columns", msg: "This file does not look like an export we know."}
+			pf := &parseFailure{status: http.StatusUnprocessableEntity, code: "unknown_columns", expected: histimport.RequiredColumns(req.formats)}
+			pf.msg = unknownColumnsMessage(pf.expected)
 			if missing != nil {
 				pf.header = nameLikeCells(missing.Header)
 				pf.missing = missing.Missing
@@ -433,8 +435,62 @@ type parseFailure struct {
 	msg      string
 	header   []string
 	missing  []string
+	expected []histimport.ExpectedLayout
 	choices  []string
 	vehicles []string
+}
+
+// unknownColumnsMessage tells the user what a file must contain: for each layout of the source, the required columns with example
+// headers. It never carries anything from the file.
+func unknownColumnsMessage(layouts []histimport.ExpectedLayout) string {
+	var b strings.Builder
+	b.WriteString("This file is not an export we can read: its columns do not match. We need")
+	for i, l := range layouts {
+		if i > 0 {
+			b.WriteString(";")
+		}
+		b.WriteString(" for " + l.Kind + ": ")
+		for j, c := range l.Columns {
+			if j > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(c.Field)
+			if len(c.Examples) > 0 {
+				b.WriteString(` (e.g. "` + strings.Join(c.Examples, `", "`) + `")`)
+			}
+		}
+	}
+	b.WriteString(". Nothing was imported.")
+	return b.String()
+}
+
+// refusedReason maps a refusal code to the label of rivolt_history_import_rejected_total; "" for one that is not a rejection of the file
+// (the preview asking the user for a choice).
+func refusedReason(code string) string {
+	switch code {
+	case "unknown_columns":
+		return "unknown_header"
+	case "too_many_bad_rows":
+		return "bad_row"
+	case "too_big":
+		return "size"
+	case "need_choice":
+		return ""
+	}
+	return "parse"
+}
+
+// refused counts a file refused at parse and logs what the operator needs to tell the first failing real export from noise: the source, the
+// reason and the header names the file had (nameLikeCells keeps names only, never a cell that looks like data), no values.
+func (a *historyImportAPI) refused(source string, pf *parseFailure) {
+	reason := refusedReason(pf.code)
+	if reason == "" {
+		return
+	}
+	if a.d.Metrics != nil {
+		a.d.Metrics.HistoryImportRejected.WithLabelValues(source, reason).Inc()
+	}
+	a.logr.Warn("history import refused", "source", source, "reason", reason, "header", pf.header, "missing", pf.missing)
 }
 
 func failureOf(err error) *parseFailure {
@@ -496,6 +552,9 @@ func (p *parseFailure) write(w http.ResponseWriter) {
 	}
 	if len(p.missing) > 0 {
 		body["missing"] = p.missing
+	}
+	if len(p.expected) > 0 {
+		body["expected"] = p.expected
 	}
 	if len(p.choices) > 0 {
 		body["need"] = p.choices
@@ -690,8 +749,12 @@ func (a *historyImportAPI) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := histfloor.Bypass(r.Context())
+	if a.d.Metrics != nil {
+		a.d.Metrics.HistoryImportAttempts.WithLabelValues(req.source).Inc()
+	}
 	p, pf := req.parse(a.now())
 	if pf != nil {
+		a.refused(req.source, pf)
 		pf.write(w)
 		return
 	}
@@ -773,6 +836,7 @@ func (a *historyImportAPI) commit(w http.ResponseWriter, r *http.Request) {
 	}
 	p, pf := req.parse(a.now())
 	if pf != nil {
+		a.refused(req.source, pf)
 		pf.write(w)
 		return
 	}
@@ -883,6 +947,11 @@ func (a *historyImportAPI) commit(w http.ResponseWriter, r *http.Request) {
 	if err := is.Finish(ctx, id, imports.Counts{Rows: p.report.Rows, Drives: nd, Charges: nc, Skipped: skipped}); err != nil {
 		fail(err)
 		return
+	}
+	if a.d.Metrics != nil {
+		a.d.Metrics.HistoryImportCommits.WithLabelValues(req.source).Inc()
+		a.d.Metrics.HistoryImportRows.WithLabelValues(req.source, "drives").Add(float64(nd))
+		a.d.Metrics.HistoryImportRows.WithLabelValues(req.source, "charges").Add(float64(nc))
 	}
 	a.logr.Info("history import commit", "source", req.source, "rows", p.report.Rows, "drives", nd, "charges", nc, "skipped", skipped)
 	_ = enc.Encode(map[string]any{"type": "done", "id": id, "drives": nd, "charges": nc, "skipped": pl.skipped})
