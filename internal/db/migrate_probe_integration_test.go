@@ -517,39 +517,56 @@ func probeSeed(t *testing.T) string {
 	return string(b)
 }
 
-// probeSplit returns the embedded files before the first of ids (the base) and the files named by ids, in apply order.
+// probeSplit returns every embedded file that is not one of ids (the base: what main already has) and the files named by ids, in apply order.
 func probeSplit(t *testing.T, ids []string) (base, files []db.MigrationFile) {
 	t.Helper()
 	all, err := db.MigrationFilesForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{}
-	for _, id := range ids {
-		want[id] = true
-	}
-	first := ""
-	for _, m := range all {
-		if want[m.ID] {
-			files = append(files, m)
-			delete(want, m.ID)
-			if first == "" {
-				first = m.ID
-			}
-		}
-	}
-	if len(want) > 0 {
-		t.Fatalf("not embedded migrations: %v", want)
+	base, files, missing := splitProbeFiles(all, ids)
+	if len(missing) > 0 {
+		t.Fatalf("not embedded migrations: %v", missing)
 	}
 	if len(files) == 0 {
 		t.Fatal("no files to probe")
 	}
+	return base, files
+}
+
+func splitProbeFiles(all []db.MigrationFile, ids []string) (base, files []db.MigrationFile, missing []string) {
+	want := map[string]bool{}
+	for _, id := range ids {
+		want[strings.TrimSpace(id)] = true
+	}
 	for _, m := range all {
-		if m.ID < first {
+		if want[m.ID] {
+			files = append(files, m)
+			delete(want, m.ID)
+		} else {
 			base = append(base, m)
 		}
 	}
-	return base, files
+	for id := range want {
+		missing = append(missing, id)
+	}
+	sort.Strings(missing)
+	return base, files, missing
+}
+
+// A PR that adds a file numbered below one already on main is probed against everything else on main, not only the files below it.
+func TestProbeSplitBaseIsEveryOtherFile(t *testing.T) {
+	all := []db.MigrationFile{{ID: "0001_a"}, {ID: "0002_b"}, {ID: "0003_c"}, {ID: "0004_d"}}
+	base, files, missing := splitProbeFiles(all, []string{"0002_b", "0003_c"})
+	if len(missing) != 0 || len(files) != 2 || files[0].ID != "0002_b" || files[1].ID != "0003_c" {
+		t.Fatalf("files %v missing %v", files, missing)
+	}
+	if len(base) != 2 || base[0].ID != "0001_a" || base[1].ID != "0004_d" {
+		t.Fatalf("base %v: want 0001_a and 0004_d (the later file included)", base)
+	}
+	if _, _, missing := splitProbeFiles(all, []string{"0009_x"}); len(missing) != 1 {
+		t.Fatalf("an unknown id must be reported, got %v", missing)
+	}
 }
 
 func probeBoth(ctx context.Context, t *testing.T, base, files []db.MigrationFile) (a, b []*probeResult) {
@@ -580,20 +597,20 @@ func TestMigrationProbe(t *testing.T) {
 
 // The history-import files (0112 to 0118) are the reference for a clean expand: every one must pass, so a probe that flags them is wrong.
 func TestMigrationProbePassesTheImportFiles(t *testing.T) {
-	var ids []string
 	all, err := db.MigrationFilesForTest()
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The base is the files before 0112 (the tree as it was); the files after 0118, if any, did not exist then.
+	var base, files []db.MigrationFile
 	for _, m := range all {
-		if m.ID >= "0112" && m.ID < "0119" {
-			ids = append(ids, m.ID)
+		switch {
+		case m.ID < "0112":
+			base = append(base, m)
+		case m.ID < "0119":
+			files = append(files, m)
 		}
 	}
-	if len(ids) != 7 {
-		t.Fatalf("expected the 7 import files 0112-0118, found %v", ids)
-	}
-	base, files := probeSplit(t, ids)
 	a, b := probeBoth(context.Background(), t, base, files)
 	for _, rs := range [][]*probeResult{a, b} {
 		for _, r := range rs {
