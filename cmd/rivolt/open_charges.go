@@ -74,16 +74,14 @@ func runOpenCharges(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	pool, err := db.OpenNoMigrate(ctx, dsn)
+	// The timeout is a connection parameter, so it holds on every connection; one connection keeps the role under its CONNECTION LIMIT.
+	pool, err := db.OpenNoMigrateWith(ctx, dsn, map[string]string{"statement_timeout": verifyStmtTimeout})
 	if err != nil {
 		fmt.Fprintln(stderr, "open-charges: postgres:", err)
 		return 1
 	}
 	defer pool.Close()
-	if _, err := pool.ExecContext(ctx, "SET statement_timeout = '"+verifyStmtTimeout+"'"); err != nil {
-		fmt.Fprintln(stderr, "open-charges:", err)
-		return 1
-	}
+	pool.SetMaxOpenConns(1)
 	if args[0] == "snapshot" {
 		return snapshotOpenCharges(ctx, pool, *out, *cm, *ns, stdout, stderr)
 	}
@@ -158,7 +156,7 @@ type chargeNow struct {
 	Rows       int    // rows for the vehicle that started within a minute of the snapshot's start, or later
 	RowIDs     string // their short ids
 	State      string
-	AgeSeconds int64 // since the charge's last sample
+	AgeSeconds int64 // since the charge's last sample; 0 when ended_at is NULL
 }
 
 // classifyOpenCharge is the old open_charge_verify's rule set: level is "ok", "warn" or "fail".
@@ -188,12 +186,13 @@ func readChargeNow(ctx context.Context, q *sql.DB, c openCharge) (chargeNow, err
 		return n, err
 	}
 	var state sql.NullString
-	err := q.QueryRowContext(ctx, `SELECT final_state, extract(epoch FROM now() - ended_at)::bigint FROM charges WHERE id = $1::uuid`, c.ID).Scan(&state, &n.AgeSeconds)
+	var age sql.NullInt64
+	err := q.QueryRowContext(ctx, `SELECT final_state, extract(epoch FROM now() - ended_at)::bigint FROM charges WHERE id = $1::uuid`, c.ID).Scan(&state, &age)
 	if errors.Is(err, sql.ErrNoRows) {
 		n.Missing = true
 		return n, nil
 	}
-	n.State = state.String
+	n.State, n.AgeSeconds = state.String, age.Int64
 	return n, err
 }
 
