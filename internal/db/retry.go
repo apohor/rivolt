@@ -49,6 +49,10 @@ func OpenWithRetry(ctx context.Context, dsn string, wait time.Duration, log *slo
 			_ = d.Close()
 			return nil, err
 		}
+		// Read-only: sets rivolt_migration_checksum_mismatch. Never a reason not to start.
+		if _, err := CheckChecksums(ctx, d); err != nil {
+			log.Warn("migration checksums not checked", "err", err)
+		}
 		return d, nil
 	}
 	if err := Migrate(ctx, d); err != nil {
