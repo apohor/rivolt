@@ -10,9 +10,15 @@ struct NowMonthStripFigure: Equatable, Identifiable {
     /// The four, from the same tiles the six-tile grid shows (so the figures are the same ones). A tile that is missing reads as a dash.
     static func make(tiles: [KpiTile], metric: Bool) -> [NowMonthStripFigure] {
         func tile(_ id: String) -> KpiTile? { tiles.first { $0.id == id } }
+        /// Whole numbers for distance and energy, as the web's strip (1052, not 1051.6); a dash or other text stays as it is.
+        func whole(_ id: String) -> String {
+            guard let v = tile(id)?.value else { return "—" }
+            guard let n = Double(v.replacingOccurrences(of: ",", with: ".")) else { return v }
+            return NumberText.fixed(n, 0)
+        }
         return [
-            NowMonthStripFigure(value: tile("miles")?.value ?? "—", label: metric ? "km" : "miles"),
-            NowMonthStripFigure(value: tile("energy")?.value ?? "—", label: "kWh added"),
+            NowMonthStripFigure(value: whole("miles"), label: metric ? "km" : "miles"),
+            NowMonthStripFigure(value: whole("energy"), label: "kWh added"),
             NowMonthStripFigure(value: tile("efficiency")?.value ?? "—", label: metric ? "km/kWh" : "mi/kWh"),
             NowMonthStripFigure(value: tile("cost")?.value ?? "—", label: "spent"),
         ]

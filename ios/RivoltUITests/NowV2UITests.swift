@@ -1,6 +1,6 @@
 import XCTest
 
-/// With design_preview now_v2: the Now screen's new look (Live on its own row, the temperatures line, the 2x2 month, no "Live" in the status chip),
+/// With design_preview ios_now_v2: the Now screen's new look (the temperatures line, the 2x2 month, no "Live" in the status chip),
 /// driven with every call answered from fixtures (Rivolt/App/UITestFixtures.swift). The truck picture is not fetched here (no network): the hero shows no picture.
 final class NowV2UITests: XCTestCase {
     private func launch(_ arguments: [String] = []) -> XCUIApplication {
@@ -18,8 +18,8 @@ final class NowV2UITests: XCTestCase {
         a.name = name
         a.lifetime = .keepAlways
         add(a)
-        try? FileManager.default.createDirectory(atPath: "/tmp/claude-501/shots", withIntermediateDirectories: true)
-        try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/claude-501/shots/\(name).png"))
+        try? FileManager.default.createDirectory(atPath: "/tmp/rivolt-ui-shots", withIntermediateDirectories: true)
+        try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/rivolt-ui-shots/\(name).png"))
     }
 
     func testNowV2ShowsTheNewLayout() {
@@ -32,6 +32,17 @@ final class NowV2UITests: XCTestCase {
         shot(app, "now-v2-scrolled")
         app.swipeUp()
         shot(app, "now-v2-bottom")
+    }
+
+    func testASignedInRelaunchStillShowsTheNewLayout() {
+        let first = launch(["-uitest-now-v2"])
+        XCTAssertTrue(first.descendants(matching: .any)["now-month"].firstMatch.waitForExistence(timeout: 20))
+        first.terminate()
+        let again = launch(["-uitest-now-v2"])
+        XCTAssertTrue(again.descendants(matching: .any)["now-month"].firstMatch.waitForExistence(timeout: 20), "the keys are read again on a relaunch")
+        XCUIDevice.shared.press(.home)
+        again.activate()
+        XCTAssertTrue(again.descendants(matching: .any)["now-month"].firstMatch.waitForExistence(timeout: 20), "and on coming back to the front")
     }
 
     func testWithoutTheFlagTheClassicCardStays() {

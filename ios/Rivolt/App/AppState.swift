@@ -230,7 +230,7 @@ final class AppState {
             let me = try await client.me()
             phase = .loggedIn(username: me.username)
             await refreshUnits(known: me.units)
-            await refreshDesignPreview()
+            Task { await refreshDesignPreview() }
             await notifications.signedIn(server: client)
         liveActivity.attach(server: client)
         await startStoreUpdates()
@@ -329,7 +329,7 @@ final class AppState {
         guard serverURL == server else { return }
         phase = .loggedIn(username: username)
         await refreshUnits()
-        await refreshDesignPreview()
+        Task { await refreshDesignPreview() }
         // The widgets were showing "sign in"; they can fetch now.
         WidgetCenter.shared.reloadAllTimelines()
         await notifications.signedIn(server: client)
@@ -380,9 +380,16 @@ final class AppState {
     /// field, and when the call fails.
     private(set) var designPreview: Set<String> = []
 
-    func refreshDesignPreview() async {
-        let keys = (try? await client.mapsConfig())?.features?.designPreview ?? []
-        designPreview = Set(keys)
+    /// Reads the keys again. A failed call leaves the keys the screens already have (it never blanks them); `retries` waits
+    /// 2 s, then 6 s, and tries again, so one dropped call at launch doesn't leave the session on the classic screens.
+    func refreshDesignPreview(retries: Bool = true) async {
+        for wait in retries ? [0, 2, 6] : [0] {
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            if let cfg = try? await client.mapsConfig() {
+                designPreview = Set(cfg.features?.designPreview ?? [])
+                return
+            }
+        }
     }
 
     /// Bumped when the units shown change, so the screens read them again.

@@ -66,6 +66,8 @@ final class NowV2Tests: XCTestCase {
         XCTAssertEqual(NowMonthStripFigure.make(tiles: tiles, metric: false).map(\.label), ["miles", "kWh added", "mi/kWh", "spent"])
         XCTAssertEqual(NowMonthStripFigure.make(tiles: tiles, metric: true).map(\.label), ["km", "kWh added", "km/kWh", "spent"])
         XCTAssertEqual(NowMonthStripFigure.make(tiles: tiles, metric: false).map(\.value), ["812", "240", "2.6", "$61"])
+        let long = [KpiTile(id: "miles", label: "Miles", value: "1051.6", unit: "mi", hint: nil), KpiTile(id: "energy", label: "Energy", value: "471.5", unit: "kWh", hint: nil)]
+        XCTAssertEqual(NowMonthStripFigure.make(tiles: long, metric: false).map(\.value).prefix(2), ["1052", "472"], "whole numbers, as the web")
         XCTAssertEqual(NowMonthStripFigure.make(tiles: [], metric: false).map(\.value), ["—", "—", "—", "—"])
     }
 

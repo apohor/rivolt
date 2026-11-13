@@ -47,8 +47,8 @@ struct HomeView: View {
     /// A locked vehicle (a free account's non-primary) is opened only when picked in this visit.
     @State private var pickedLocked = false
 
-    /// The redesigned Now (design_preview key now_v2); off on prod, so the screen is the one it always was.
-    private var v2: Bool { state.designPreview.contains("now_v2") }
+    /// The redesigned Now (design_preview key ios_now_v2, apart from the web's now_v2); off on prod, so the screen is the one it always was.
+    private var v2: Bool { state.designPreview.contains("ios_now_v2") }
 
     private var selected: Vehicle? {
         VehicleChoice.selected(vehicles, chosen: selectedID, pickedLocked: pickedLocked)
