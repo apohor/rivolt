@@ -6,8 +6,8 @@
 # How: check out the newest final tag (and the oldest tag on the PR body's "Pinned now:" line, when older: ingest, admin and demo run their own
 # tags), replace its internal/db/migrations with this PR's, and run that tag's integration suite. go:embed picks up the overlay, so old tags need no
 # hook. The internal/db tests that test the migration files themselves (lints, counts, the runner) are skipped: they describe the old tree.
-# The newest tag is picked among the final tags reachable from the PR's base, so a tag cut on another release line is never the target.
-# The migrations are applied by the old tag's own runner in that job, not by this PR's runner.
+# The newest tag is picked among the final tags reachable from the PR's base, so a tag cut on another release line is never the target; a tag named on the "Pinned now:" line is tested even when it is not reachable (a hotfix).
+# The migrations in that job are applied by the OLD tag's own runner, so a change to the runner in this PR is not exercised here.
 # A failure here is fixed in the migration (make it expand-only, or split it over two releases with -- contract:), not by a skip list.
 #
 # Its own workflow, as contract-gate: it re-runs when the PR body is edited (the pins live there). The always-running job `migration-compat` is

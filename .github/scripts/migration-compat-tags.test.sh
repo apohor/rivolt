@@ -30,6 +30,7 @@ run "unfilled template line" 0 "v0.3.0" 0002_x.sql "Pinned now: prod vX.Y.Z, dem
 run "oldest pin is added" 0 "v0.3.0,v0.1.0" 0002_x.sql "Pinned now: prod v0.3.0, demo v0.2.0, admin v0.1.0"
 run "all pins are the newest" 0 "v0.3.0" 0002_x.sql "Pins: prod=v0.3.0 admin=v0.3.0"
 run "tag outside base ancestry is ignored" 0 "v0.3.0" 0002_x.sql ""
+run "pinned hotfix tag off the base is tested" 0 "v0.3.0,v0.9.0" 0002_x.sql "Pinned now: prod v0.9.0"
 run "pin that does not exist" 1 "v0.3.0" 0002_x.sql "Pins: prod v0.9.9"
 [ "$fails" = 0 ] || { echo "$fails failure(s)"; exit 1; }
 echo "all migration-compat-tags tests passed"
