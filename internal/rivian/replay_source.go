@@ -442,7 +442,7 @@ func ParseReplayImages(raw string) ([]VehicleImage, error) {
 		if u.RawQuery != "" || u.User != nil {
 			return nil, fmt.Errorf("replay images: %s has a query or credentials (signed URLs are refused)", u.Host)
 		}
-		if replayVINRe.MatchString(strings.ToUpper(img.URL)) {
+		if replayVINRe.MatchString(img.URL) {
 			return nil, fmt.Errorf("replay images: %s names a VIN", u.Host)
 		}
 		out = append(out, VehicleImage{URL: img.URL, Extension: img.Extension, Resolution: img.Resolution,
@@ -451,7 +451,8 @@ func ParseReplayImages(raw string) ([]VehicleImage, error) {
 	return out, nil
 }
 
-var replayVINRe = regexp.MustCompile(`[A-HJ-NPR-Z0-9]{17}`)
+// A VIN is a whole 17-character uppercase token; a longer base64url path segment that merely contains such a run is not one.
+var replayVINRe = regexp.MustCompile(`(^|[^A-Za-z0-9])[A-HJ-NPR-Z0-9]{17}([^A-Za-z0-9]|$)`)
 
 // vehicleImages is the list for uid's demo vehicle, ids rewritten to the demo vehicle and the hero chosen; nil for none.
 func (f *ReplayFeed) vehicleImages(uid uuid.UUID, vehicleID string) []VehicleImage {

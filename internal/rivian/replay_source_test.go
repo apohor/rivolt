@@ -349,3 +349,15 @@ func TestParseReplayImagesRefusals(t *testing.T) {
 		}
 	}
 }
+
+// A long base64url path segment is not a VIN, even when it holds a 17-character run of VIN letters; the real preview list carries such segments.
+func TestParseReplayImagesAcceptsOpaqueTokens(t *testing.T) {
+	tok := "ABCDEFGHJKLMNPRSTVWXYZ0123456789abcdefghij-"
+	if len(tok) != 43 {
+		t.Fatalf("fixture token is %d chars", len(tok))
+	}
+	raw := `[{"url":"https://cdn.example.test/mobile/static/img/v3/` + tok + `/vehicle/` + tok + `/front_dark_large_xxhdpi.webp","placement":"front"}]`
+	if _, err := ParseReplayImages(raw); err != nil {
+		t.Fatalf("opaque token refused: %v", err)
+	}
+}
