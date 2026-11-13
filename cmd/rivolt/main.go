@@ -411,6 +411,9 @@ func runServer() {
 	anthropicKey := flag.String("anthropic-api-key", os.Getenv("ANTHROPIC_API_KEY"), "Anthropic API key (or ANTHROPIC_API_KEY env)")
 	geminiKey := flag.String("gemini-api-key", firstNonEmpty(os.Getenv("GEMINI_API_KEY"), os.Getenv("GOOGLE_API_KEY")), "Google Gemini API key (or GEMINI_API_KEY / GOOGLE_API_KEY env)")
 	flag.Parse()
+	// Keys from env or a mounted secret often end in a newline;
+	// a whitespace-only key counts as unset.
+	*openAIKey, *anthropicKey, *geminiKey = strings.TrimSpace(*openAIKey), strings.TrimSpace(*anthropicKey), strings.TrimSpace(*geminiKey)
 	// AI provider keys are install-wide ("operator pays the bill"
 	// for all users on this rivolt). They are persisted in the
 	// app_settings table (envelope-encrypted via crypto.Sealer)
