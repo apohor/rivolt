@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { inDemo } from "../lib/demo";
+import { useDesignPreview } from "../lib/config";
+import { WeatherCredit } from "./WeatherCredit";
 
 export function Footer() {
   const health = useQuery({
@@ -9,6 +11,7 @@ export function Footer() {
     queryFn: () => backend.health(),
     staleTime: 60_000,
   });
+  const v2 = useDesignPreview("now_v2");
   return (
     <footer className="border-t border-neutral-900 bg-neutral-950/80 text-xs text-neutral-500">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-3 text-center">
@@ -47,6 +50,12 @@ export function Footer() {
         <Link to="/credits" className="hover:text-neutral-200">
           Credits
         </Link>
+        {v2 && (
+          <>
+            <span className="text-neutral-700">·</span>
+            <WeatherCredit className="text-xs" />
+          </>
+        )}
         {!inDemo() && (
           <>
             <span className="text-neutral-700">·</span>
