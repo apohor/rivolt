@@ -19,7 +19,7 @@ func fixture(t *testing.T, name string) Table {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { f.Close() })
+	t.Cleanup(func() { _ = f.Close() })
 	tb, err := OpenCSV(f)
 	if err != nil {
 		t.Fatal(err)
