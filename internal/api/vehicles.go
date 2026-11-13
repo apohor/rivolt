@@ -772,6 +772,7 @@ func writeStateError(w http.ResponseWriter, r *http.Request, err error, hasSessi
 	if status == http.StatusTooManyRequests {
 		w.Header().Set("Retry-After", strconv.Itoa(upstreamRetryAfterSec))
 	}
+	setRetryAfterIfUnheld(w, err)
 	writeJSON(w, status, body)
 }
 

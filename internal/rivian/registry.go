@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -351,8 +352,16 @@ func IsUnheld(c any) bool {
 	return ok
 }
 
+const notHeldReason = "this server does not hold the vehicle's account"
+
 func notHeld(op string) error {
-	return &UpstreamError{Class: ClassOutage, Op: op, Reason: "this server does not hold the vehicle's account"}
+	return &UpstreamError{Class: ClassOutage, Op: op, Reason: notHeldReason}
+}
+
+// IsNotHeld reports whether err is the unheld client's refusal: the account is held by another pod, so the answer is retry-able, not a Rivian failure.
+func IsNotHeld(err error) bool {
+	var ue *UpstreamError
+	return errors.As(err, &ue) && ue.Reason == notHeldReason
 }
 
 func (unheldClient) Login(context.Context, Credentials) error { return notHeld("Login") }

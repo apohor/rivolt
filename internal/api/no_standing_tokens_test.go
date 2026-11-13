@@ -237,3 +237,40 @@ func TestLiveSessionOnATokenlessPodIsNotA404(t *testing.T) {
 		t.Fatalf("live-session with no monitor = %d, want the retry-able 503", rec.Code)
 	}
 }
+
+// A refusal that is the pod's own (it holds no tokens) is never sent bare: every route that ends in it carries Retry-After. Through the real
+// router with full URLs: the state read with no forwarder to hand it to (a soft fall answered here) and the fresh read.
+func TestTokenlessPodRefusalsCarryRetryAfter(t *testing.T) {
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := New(Deps{Auth: svc, AuthEnforced: true, Accounts: gatedRegistry()})
+	for _, path := range []string{"/api/state/" + fwdVehicle, "/api/state/" + fwdVehicle + "/fresh"} {
+		req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev"+path, nil)
+		req.RemoteAddr = "203.0.113.9:4000"
+		ctx := auth.WithUser(req.Context(), uuid.New())
+		ctx = auth.WithSession(ctx, auth.SessionRef{ID: uuid.New(), Kind: "web"})
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req.WithContext(ctx))
+		if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+			t.Errorf("GET %s = %d, Retry-After %q (%s); want 503 with Retry-After", path, rec.Code, rec.Header().Get("Retry-After"), rec.Body.String())
+		}
+	}
+}
+
+// The raw probes keep their guard: an unheld client is not a live client, so they answer 404 instead of calling into one.
+func TestRawProbesRefuseAnUnheldClient(t *testing.T) {
+	for name, h := range map[string]http.HandlerFunc{
+		"charging schema":    handleChargingSchemaProbe(rivian.NewUnheldClient()),
+		"battery temp":       handleBatteryTempProbe(rivian.NewUnheldClient()),
+		"parallax raw":       handleParallaxRawProbe(rivian.NewUnheldClient()),
+		"supported features": handleSupportedFeaturesProbe(rivian.NewUnheldClient()),
+		"charging field":     handleChargingFieldProbe(rivian.NewUnheldClient()),
+		"charging frames":    handleChargingFrames(rivian.NewUnheldClient()),
+	} {
+		if rec := stateGet(h); rec.Code != http.StatusNotFound {
+			t.Errorf("%s: %d, want 404", name, rec.Code)
+		}
+	}
+}

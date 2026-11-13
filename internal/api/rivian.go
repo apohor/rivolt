@@ -96,10 +96,16 @@ func writeUpstreamError(w http.ResponseWriter, err error) {
 		// One rule for a client: a 429 says how long to wait. Rivian's throttle does not tell us, so this is the planner's own backoff.
 		w.Header().Set("Retry-After", strconv.Itoa(upstreamRetryAfterSec))
 	}
-	if errors.Is(err, errOwnerUnavailable) {
+	setRetryAfterIfUnheld(w, err)
+	writeJSON(w, status, body)
+}
+
+// setRetryAfterIfUnheld tells the client when to retry an answer that is the pod's own, not Rivian's: no owner answered, or this pod holds no
+// tokens for the account (single-owner). One place, so no route sends that 503 bare.
+func setRetryAfterIfUnheld(w http.ResponseWriter, err error) {
+	if errors.Is(err, errOwnerUnavailable) || rivian.IsNotHeld(err) {
 		w.Header().Set("Retry-After", strconv.Itoa(forward.RetryAfterSeconds))
 	}
-	writeJSON(w, status, body)
 }
 
 // upstreamRetryAfterSec is the wait suggested with a rate-limited upstream answer (Retry-After).
