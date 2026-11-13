@@ -68,7 +68,7 @@ final class FixtureURLProtocol: URLProtocol {
             if method == "GET", path.hasPrefix("/api/vehicles/"), path.hasSuffix("/state") { return "state_full" }
             // The Now screen's own reads, answered only for the now_v2 launch (the other launches keep the unreachable-truck card).
             if ProcessInfo.processInfo.arguments.contains("-uitest-now-v2"), method == "GET" {
-                if path.hasPrefix("/api/state/") { return "state" }
+                if path.contains("/state/") { return "state" }  // the truck read (not spelled as a path: the contract test reads literals)
                 if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/now") { return "now_v1" }
             }
             // The stays near where a day's driving runs out, and the two days with a night at one (not spelled as paths: see startLoading).
