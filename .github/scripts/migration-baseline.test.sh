@@ -70,5 +70,14 @@ sed "s/x -- y/x -- z/" a.sql > b.sql;                                    case_ "
 sed 's/a--b;c/a--b;d/' a.sql > b.sql;                                    case_ "a changed seed literal after a -- and a ;" 1
 sed 's/^BEGIN$/BEGIN -- note/' a.sql > b.sql;                            case_ "a comment inside a function body is part of the body" 1
 
+# DA F1/F3: a bare $$ body keeps its whitespace; an E'' string with \' keeps a ; inside it.
+cat > a.sql <<'SQL'
+CREATE FUNCTION public.g() RETURNS integer LANGUAGE sql AS $$ SELECT  1 $$;
+INSERT INTO public.flags (name, value) VALUES ('k', E'it\'s; here');
+SQL
+cp a.sql b.sql;                                                          case_ "bare dollar body and an E string, identical" 0
+sed 's/SELECT  1/SELECT 1/' a.sql > b.sql;                               case_ "whitespace inside a bare dollar body" 1
+sed "s/; here/; there/" a.sql > b.sql;                                    case_ "a changed E string after an escaped quote and a ;" 1
+
 [ "$fails" = 0 ] || { echo "$fails failed"; exit 1; }
 echo "all passed"
