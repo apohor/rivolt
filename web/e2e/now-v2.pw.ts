@@ -45,6 +45,8 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
   await expect(page.getByTestId("now-freshness")).toHaveCount(0);
   await expect(hero.getByRole("link", { name: "Full telemetry" })).toHaveAttribute("href", "/live");
   await expect(hero.getByTestId("now-live-link")).toHaveText(/^Live/);
+  // The only "Live" on the card is the button; the chip names the state.
+  await expect(page.locator("[data-now-chip]")).not.toHaveText(/\bLive\b/);
   await expect(hero.getByTestId("now-live-link")).toHaveAttribute("href", "/live");
   await expect(page.getByTestId("now-temps")).not.toContainText("estimate");
   await page.getByRole("button", { name: "About the outside temperature" }).click();
