@@ -1,5 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { stubApi, VEHICLE_ID } from "./stub";
+import { stubApi, VEHICLE_ID, vehicleState } from "./stub";
 
 // The Now hero shows the vehicle's Rivian image: three-quarter when parked, side-charging while charging, the design
 // that matches the theme. Without images the drawn truck stays. Image URLs here are made up and served by the test.
@@ -41,4 +43,28 @@ test("no images: no broken picture, the drawn truck stays", async ({ page }) => 
   await open(page, { withImages: false });
   await expect(page.getByTestId("now-car")).toHaveCount(0);
   await expect(page.locator("[data-now-v2] svg").first()).toBeVisible();
+});
+
+test("an image that 404s gives way to the drawn truck on Now, and is dropped on Live; a good one shows on both", async ({ page }) => {
+  const FULL = { ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "..", "ios", "RivoltTests", "Fixtures", "state_full.json"), "utf8")), ...vehicleState("parked") };
+  await open(page, {});
+  await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FULL) }));
+  await page.goto("/live");
+  await expect(page.getByRole("img", { name: "Sample R1S" })).toHaveCount(1);
+  await page.route("**/img.example/**", (r) => r.fulfill({ status: 404, body: "" }));
+  await page.reload();
+  await expect(page.getByRole("img", { name: "Sample R1S" })).toHaveCount(0);
+  await page.goto("/");
+  await expect(page.getByTestId("now-car")).toHaveCount(0);
+  await expect(page.locator("[data-now-v2] svg").first()).toBeVisible();
+});
+
+test("the Live pill has its own row: the image starts at least 8 px below it", async ({ page }) => {
+  for (const [w, theme] of [[393, "dark"], [393, "light"], [1280, "dark"]] as const) {
+    await page.setViewportSize({ width: w, height: 900 });
+    await open(page, { theme });
+    const pill = (await page.getByTestId("now-live-link").boundingBox())!;
+    const car = (await page.getByTestId("now-car").boundingBox())!;
+    expect(car.y).toBeGreaterThanOrEqual(pill.y + pill.height + 8);
+  }
 });
