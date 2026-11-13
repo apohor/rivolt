@@ -134,9 +134,14 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
     },
     onSuccess: (r) => {
       invalidate();
+      // 429: the owner looked moments ago, so a watch already running keeps going (its re-reads are what show a found vehicle).
+      if (r.recent) {
+        setRecent(true);
+        return;
+      }
       // A "none" read during an earlier watch must not end this one before it is read again.
       qc.removeQueries({ queryKey: ["vehicles", "discovery", "recheck"] });
-      setRecent(r.recent);
+      setRecent(false);
       setWatch(r.looking ? { count: owned.data?.vehicles?.length ?? 0, after: Math.max(r.after, 5) } : null);
     },
   });
@@ -559,7 +564,7 @@ function ConnectedVehicles({
             <p className="mt-1 text-xs text-neutral-400" role="status">{discoveryView("looking")!.body}</p>
           )}
           {recheckError && <p className="mt-1 text-xs text-rose-300">{recheckError}</p>}
-          {recheckNote && !recheckError && (
+          {recheckNote && !recheckError && !looking && (
             <p className="mt-1 text-xs text-neutral-400" role="status">{recheckNote}</p>
           )}
         </li>
@@ -609,7 +614,7 @@ function ConnectedVehicles({
         {rechecking ? "Checking…" : "Check again"}
       </button>
       {recheckError && <p className="mt-2 text-xs text-rose-300">{recheckError}</p>}
-      {recheckNote && !recheckError && (
+      {recheckNote && !recheckError && !looking && (
         <p className="mt-2 text-xs text-neutral-400" role="status">{recheckNote}</p>
       )}
     </div>
