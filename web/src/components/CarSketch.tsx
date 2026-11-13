@@ -1,9 +1,8 @@
-import r1s from "../assets/car/r1s.svg?raw";
-import r1t from "../assets/car/r1t.svg?raw";
+import { R1S, R1T } from "./carSketchArt";
 
 // Side-view line drawing shown when a vehicle has no Rivian picture, or the picture fails to load.
 // R1T for model R1T, R1S for R1S and anything else. The drawing reads --car-* variables (see index.css),
-// so one file serves both themes. The SVG files are our own static assets.
+// so one file serves both themes. The drawings are JSX in carSketchArt.tsx.
 export function CarSketch({
   model,
   charging = false,
@@ -13,14 +12,14 @@ export function CarSketch({
   charging?: boolean;
   className?: string;
 }) {
-  const svg = model?.trim().toUpperCase() === "R1T" ? r1t : r1s;
+  const isR1T = model?.trim().toUpperCase() === "R1T";
   return (
     <div
       data-testid="now-car-sketch"
-      data-model={svg === r1t ? "R1T" : "R1S"}
+      data-model={isR1T ? "R1T" : "R1S"}
       className={`relative w-full max-w-[220px] [&>svg]:h-auto [&>svg]:w-full ${className}`}
     >
-      <div dangerouslySetInnerHTML={{ __html: svg }} />
+      {isR1T ? <R1T /> : <R1S />}
       {charging && (
         <svg
           viewBox="-12 -12 24 24"
