@@ -4,7 +4,7 @@
 # SHA, no contract (destructive) migration in a final, and for a final the gated rc (same commit, qa/rc-gate success, preview values on the
 # rc image) or a real no_rc_reason. Not checked here: the running preview images and the open-charge/Rivian after-checks (they need the
 # cluster; the scripts and, later, the Rollouts analysis do them). Always exits 0 unless it cannot run; the verdict is in the output and
-# in the step summary.
+# in the step summary and in the step outputs tag, sha, refused (release.yml's tag job reads them).
 # Inputs (env): VERSION (vX.Y.Z), RC (rc number to cut, empty = final), GATED_RC (final: the rc number qa gated), SHA (empty = origin/main),
 # NO_RC_REASON, GH_REPO, INFRA_DIR (checkout of rivolt-infra with ops/release/releasectl.py and the two preview values files), GH_TOKEN.
 set -uo pipefail
@@ -19,8 +19,12 @@ note() { notes+=("$1"); }
 finish() {
   local out
   if [ ${#problems[@]} -eq 0 ]; then out="WOULD TAG ${TAG:-?} at ${FULL:0:7}"; else out="WOULD REFUSE ${TAG:-$VERSION}"; fi
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    # What release.yml's tag job acts on: the verdict itself never tags.
+    { echo "tag=${TAG:-}"; echo "sha=${FULL:-}"; [ ${#problems[@]} -eq 0 ] && echo "refused=false" || echo "refused=true"; } >> "$GITHUB_OUTPUT"
+  fi
   {
-    echo "### release verdict (report-only: nothing is tagged)"
+    echo "### release verdict (nothing is tagged here)"
     echo "**$out**"
     for p in ${problems[@]+"${problems[@]}"}; do echo "- refuse: $p"; done
     for n in ${notes[@]+"${notes[@]}"}; do echo "- note: $n"; done
@@ -33,6 +37,8 @@ if [ -n "$RC" ]; then
   [[ $RC =~ ^[1-9][0-9]*$ ]] || { refuse "rc '$RC' is not a positive number"; finish; }
   TAG="$VERSION-rc.$RC"
 else TAG=$VERSION; fi
+# The workflow cuts release candidates only. A final also needs prod's sync, which is still ship-release.sh until prod is an autosync app.
+if [ -z "$RC" ] && [ "${FINAL_BY_WORKFLOW:-}" != true ]; then refuse "a final tag is not cut by this workflow yet (prod is not an autosync app): use ship-release.sh $VERSION"; fi
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then refuse "tag $TAG already exists (v* tags are immutable)"; fi
 
 FULL=$(git rev-parse -q --verify "${SHA:-origin/main}^{commit}") || { refuse "sha '${SHA:-origin/main}' is not a commit"; finish; }
