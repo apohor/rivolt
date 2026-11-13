@@ -440,7 +440,7 @@ func runServer() {
 
 	memLimit := applyMemoryLimit()
 	logger.Info("rivolt starting",
-		"version", version,
+		"version", api.RunningVersion(version),
 		"addr", *addr,
 		"data_dir", *dataDir,
 		"tz", time.Now().Location().String(),
