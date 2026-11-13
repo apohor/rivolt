@@ -1,0 +1,23 @@
+name: probe-app-token
+on:
+  pull_request:
+    paths: [".github/workflows/probe-app-token.yml"]
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - id: t
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RIVOLT_INFRA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RIVOLT_INFRA_APP_KEY }}
+          owner: apohor
+          repositories: rivolt
+          permission-contents: write
+      - env:
+          GH_TOKEN: ${{ steps.t.outputs.token }}
+        run: |
+          echo "token for rivolt minted with contents:write"
+          gh api /installation/repositories --jq '.repositories[].full_name'
