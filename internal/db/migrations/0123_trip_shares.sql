@@ -1,4 +1,4 @@
--- 0121_trip_shares.sql
+-- 0123_trip_shares.sql
 --
 -- Public read-only trip links (Share a trip 1). A row is one link: a frozen, sanitized copy of a saved trip's plan (snapshot) and
 -- the SHA-256 of the link's token. The token itself is never stored. Design: _shared/share-trip-design.md, approved by DA with
