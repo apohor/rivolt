@@ -50,6 +50,24 @@ func TestSecondsSinceRollStart(t *testing.T) {
 	}
 }
 
+func TestCheckSnapshotRoll(t *testing.T) {
+	cases := []struct {
+		name, snap, want string
+		fail             bool
+	}{
+		{"same roll", "abc", "abc", false},
+		{"stale snapshot from an earlier roll", "old", "new", true},
+		{"snapshot without a hash", "", "new", true},
+		{"no hash asked for", "old", "", false},
+	}
+	for _, c := range cases {
+		err := checkSnapshotRoll(openChargeSnapshot{RollHash: c.snap}, c.want)
+		if (err != nil) != c.fail {
+			t.Errorf("%s: err = %v, want failure %v", c.name, err, c.fail)
+		}
+	}
+}
+
 func TestOpenChargesUsageExits2(t *testing.T) {
 	for _, args := range [][]string{nil, {"bogus"}, {"snapshot", "extra"}, {"verify", "--nope"}} {
 		if code := runOpenCharges(args, io.Discard, io.Discard); code != 2 {

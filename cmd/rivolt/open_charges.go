@@ -44,13 +44,14 @@ type openCharge struct {
 }
 
 type openChargeSnapshot struct {
-	TakenAt time.Time    `json:"taken_at"`
-	Charges []openCharge `json:"charges"`
+	TakenAt  time.Time    `json:"taken_at"`
+	RollHash string       `json:"roll_hash,omitempty"` // the roll's pod-template hash (--roll-hash): a snapshot from an earlier roll is refused
+	Charges  []openCharge `json:"charges"`
 }
 
 func runOpenCharges(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || (args[0] != "snapshot" && args[0] != "verify") {
-		fmt.Fprintln(stderr, "usage: rivolt open-charges snapshot [--out FILE] [--configmap NAME [--namespace NS]] | verify --snapshot FILE [--roll-from EPOCH]")
+		fmt.Fprintln(stderr, "usage: rivolt open-charges snapshot [--out FILE] [--configmap NAME [--namespace NS]] [--roll-hash H] | verify --snapshot FILE [--roll-from EPOCH] [--roll-hash H]")
 		return 2
 	}
 	fs := flag.NewFlagSet("open-charges "+args[0], flag.ContinueOnError)
@@ -59,6 +60,7 @@ func runOpenCharges(args []string, stdout, stderr io.Writer) int {
 	cm := fs.String("configmap", "", "snapshot: write the JSON to this ConfigMap, key "+openChargesKey)
 	ns := fs.String("namespace", "", "snapshot: the ConfigMap's namespace (default: the pod's own)")
 	snap := fs.String("snapshot", "", "verify: the snapshot JSON file")
+	rollHash := fs.String("roll-hash", "", "the roll's pod-template hash: snapshot stores it, verify refuses a snapshot with another (or none)")
 	rollFrom := fs.String("roll-from", os.Getenv("ROLL_FROM"), "verify: epoch seconds the roll began (default env ROLL_FROM)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
@@ -83,7 +85,7 @@ func runOpenCharges(args []string, stdout, stderr io.Writer) int {
 	defer pool.Close()
 	pool.SetMaxOpenConns(1)
 	if args[0] == "snapshot" {
-		return snapshotOpenCharges(ctx, pool, *out, *cm, *ns, stdout, stderr)
+		return snapshotOpenCharges(ctx, pool, *out, *cm, *ns, *rollHash, stdout, stderr)
 	}
 	if *snap == "" {
 		fmt.Fprintln(stderr, "open-charges verify: --snapshot FILE is required")
@@ -96,7 +98,7 @@ func runOpenCharges(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	return verifyOpenCharges(ctx, pool, *snap, rf, stdout, stderr)
+	return verifyOpenCharges(ctx, pool, *snap, rf, *rollHash, stdout, stderr)
 }
 
 func listOpenCharges(ctx context.Context, q *sql.DB) ([]openCharge, error) {
@@ -117,7 +119,7 @@ func listOpenCharges(ctx context.Context, q *sql.DB) ([]openCharge, error) {
 	return list, rows.Err()
 }
 
-func snapshotOpenCharges(ctx context.Context, q *sql.DB, outFile, cmName, ns string, stdout, stderr io.Writer) int {
+func snapshotOpenCharges(ctx context.Context, q *sql.DB, outFile, cmName, ns, rollHash string, stdout, stderr io.Writer) int {
 	list, err := listOpenCharges(ctx, q)
 	if err != nil {
 		fmt.Fprintln(stderr, "open-charges snapshot: can't read the open charges:", err)
@@ -126,7 +128,7 @@ func snapshotOpenCharges(ctx context.Context, q *sql.DB, outFile, cmName, ns str
 	if list == nil {
 		list = []openCharge{}
 	}
-	body, _ := json.Marshal(openChargeSnapshot{TakenAt: time.Now().UTC(), Charges: list})
+	body, _ := json.Marshal(openChargeSnapshot{TakenAt: time.Now().UTC(), RollHash: rollHash, Charges: list})
 	switch {
 	case cmName != "":
 		kc, err := inClusterKube(ns)
@@ -196,6 +198,19 @@ func readChargeNow(ctx context.Context, q *sql.DB, c openCharge) (chargeNow, err
 	return n, err
 }
 
+// checkSnapshotRoll refuses a snapshot left by an earlier roll (the ConfigMap is never pruned): with a roll hash given, the snapshot must carry the same one.
+func checkSnapshotRoll(snap openChargeSnapshot, rollHash string) error {
+	switch {
+	case rollHash == "":
+		return nil
+	case snap.RollHash == "":
+		return fmt.Errorf("the snapshot carries no roll hash, so it can't be from this roll (%s)", rollHash)
+	case snap.RollHash != rollHash:
+		return fmt.Errorf("the snapshot is from another roll (%s, this roll is %s)", snap.RollHash, rollHash)
+	}
+	return nil
+}
+
 // secondsSinceRollStart is how long ago the roll began: --roll-from when given, else the snapshot's own time (the snapshot Job runs at roll step 0).
 func secondsSinceRollStart(rollFrom int64, takenAt, now time.Time) int64 {
 	if rollFrom > 0 {
@@ -207,7 +222,7 @@ func secondsSinceRollStart(rollFrom int64, takenAt, now time.Time) int64 {
 	return now.Unix() - takenAt.Unix()
 }
 
-func verifyOpenCharges(ctx context.Context, q *sql.DB, snapFile string, rollFrom int64, stdout, stderr io.Writer) int {
+func verifyOpenCharges(ctx context.Context, q *sql.DB, snapFile string, rollFrom int64, rollHash string, stdout, stderr io.Writer) int {
 	raw, err := os.ReadFile(snapFile)
 	if err != nil {
 		fmt.Fprintln(stderr, "FAIL open charges: can't read the snapshot:", err)
@@ -216,6 +231,10 @@ func verifyOpenCharges(ctx context.Context, q *sql.DB, snapFile string, rollFrom
 	var snap openChargeSnapshot
 	if err := json.Unmarshal(raw, &snap); err != nil {
 		fmt.Fprintln(stderr, "FAIL open charges: the snapshot is not valid:", err)
+		return 1
+	}
+	if err := checkSnapshotRoll(snap, rollHash); err != nil {
+		fmt.Fprintln(stderr, "FAIL open charges:", err)
 		return 1
 	}
 	if len(snap.Charges) == 0 {

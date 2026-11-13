@@ -84,6 +84,10 @@ func TestOpenChargesThroughVerifyRole(t *testing.T) {
 	if code := runOpenCharges([]string{"verify", "--snapshot", snap}, &out, &errb); code != 0 || strings.Count(out.String(), "one row") != 2 {
 		t.Fatalf("verify exit %d: %s %s", code, out.String(), errb.String())
 	}
+	out.Reset()
+	if code := runOpenCharges([]string{"verify", "--snapshot", snap, "--roll-hash", "h2"}, &out, &errb); code != 1 {
+		t.Errorf("a snapshot without this roll's hash: exit %d, want 1", code)
+	}
 	if _, err := admin.ExecContext(ctx, `DELETE FROM charges WHERE id = $1::uuid`, ids[0]); err != nil {
 		t.Fatal(err)
 	}
