@@ -361,9 +361,12 @@ Respond ONLY with a JSON object matching this shape, no prose outside the JSON:
 		if w.HasHeadwind {
 			// Signed against the drive's bearing in Go; the model reads the label and never works out directions.
 			label, kph := weather.WindRelation(w.HeadwindKPH, w.WindKPH)
-			if label == "crosswind" {
+			switch label {
+			case "crosswind":
 				parts = append(parts, "crosswind")
-			} else {
+			case "light":
+				// The "N mph wind" part above already says so; no direction is claimed for a breeze.
+			default:
 				parts = append(parts, fmt.Sprintf("%.0f mph %s", kph*0.621371, label))
 			}
 		}

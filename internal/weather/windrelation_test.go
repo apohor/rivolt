@@ -26,7 +26,9 @@ func TestWindRelation(t *testing.T) {
 		{"south wind south-bound", Headwind(30, 180, 180), 30, "headwind", 30},
 		{"east wind north-bound", Headwind(30, 90, 0), 30, "crosswind", 0},
 		{"slightly off square", Headwind(30, 100, 0), 30, "crosswind", 0},
-		{"light breeze along track", 2, 2, "crosswind", 0},
+		{"light breeze along track", 2, 2, "light", 0},
+		{"light breeze across", 0, 4, "light", 0},
+		{"5 kph across", 0, 5, "crosswind", 0},
 		{"45 degrees", Headwind(30, 45, 0), 30, "headwind", 21.2},
 	} {
 		label, kph := WindRelation(tc.hw, tc.wind)

@@ -31,3 +31,16 @@ func TestPromptsLabelWindAgainstTheDrive(t *testing.T) {
 		}
 	}
 }
+
+// Calm air names no direction, even when it lies along the road.
+func TestPromptsCallLightWindLight(t *testing.T) {
+	w := &Weather{WindKPH: 2, HasWind: true, HeadwindKPH: 2, HasHeadwind: true}
+	_, user := buildPrompt(Inputs{Weather: w})
+	if !strings.Contains(user, "wind_vs_drive: light") || strings.Contains(user, "crosswind") || strings.Contains(user, "headwind") {
+		t.Errorf("recap:\n%s", user)
+	}
+	_, user = buildEfficiencyPrompt(EfficiencyInputs{Weather: w})
+	if strings.Contains(user, "crosswind") || strings.Contains(user, "headwind") || strings.Contains(user, "tailwind") {
+		t.Errorf("efficiency:\n%s", user)
+	}
+}

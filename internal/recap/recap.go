@@ -336,8 +336,8 @@ func buildPrompt(in Inputs) (string, string) {
 			// Signed against the drive's bearing in Go; the model reads the label and never works out directions.
 			label, val := weather.WindRelation(w.HeadwindKPH, w.WindKPH)
 			switch {
-			case label == "crosswind":
-				fmt.Fprintf(&sb, "  wind_vs_drive: crosswind\n")
+			case label == "crosswind" || label == "light":
+				fmt.Fprintf(&sb, "  wind_vs_drive: %s\n", label)
 			case in.UseFahrenheit:
 				fmt.Fprintf(&sb, "  %s_mph: %.0f\n", label, val*0.621371)
 			default:

@@ -118,10 +118,14 @@ func Headwind(windKPH, windFromDeg, tripBearingDeg float64) float64 {
 // WindRelation names the wind against the direction of travel for a prompt, so a
 // model reads the label instead of doing bearing arithmetic (Sonnet called a north
 // wind on a southbound drive a headwind). headwindKPH is the signed value from
-// Headwind; windKPH the raw speed. The wind is a crosswind when its along-track
-// component is under 3 kph or under 30% of its speed (within about 17 degrees of
-// square on); kph is then 0. Otherwise kph is the size of the component.
+// Headwind; windKPH the raw speed. Wind under 5 kph is "light" whatever its direction.
+// A real wind is a crosswind when its along-track component is under 3 kph or under
+// 30% of its speed (within about 17 degrees of square on); kph is then 0. Otherwise
+// kph is the size of the component.
 func WindRelation(headwindKPH, windKPH float64) (label string, kph float64) {
+	if math.Abs(windKPH) < 5 {
+		return "light", 0
+	}
 	mag := math.Abs(headwindKPH)
 	if mag < 3 || mag < 0.3*math.Abs(windKPH) {
 		return "crosswind", 0

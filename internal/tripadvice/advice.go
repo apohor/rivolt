@@ -414,9 +414,12 @@ func buildPrompt(plan *rivian.TripPlan, tc Context, cost CostEstimate) (system, 
 			fmt.Fprintf(&sb, "Wind: %.0f kph from %.0f°", w.WindKPH, w.WindDirDeg)
 			if w.HasHeadwind {
 				// Signed against the first leg's bearing in Go; the model reads the label and never works out directions.
-				if label, kph := weather.WindRelation(w.HeadwindKPH, w.WindKPH); label == "crosswind" {
+				switch label, kph := weather.WindRelation(w.HeadwindKPH, w.WindKPH); label {
+				case "crosswind":
 					fmt.Fprint(&sb, " (crosswind on the first leg)")
-				} else {
+				case "light":
+					fmt.Fprint(&sb, " (light wind)")
+				default:
 					fmt.Fprintf(&sb, " (%.0f kph %s on the first leg)", kph, label)
 				}
 			}

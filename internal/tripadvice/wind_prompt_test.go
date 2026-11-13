@@ -17,10 +17,15 @@ func TestPromptLabelsWindAgainstTheFirstLeg(t *testing.T) {
 		{-30, "(30 kph tailwind on the first leg)"},
 		{20, "(20 kph headwind on the first leg)"},
 		{1, "(crosswind on the first leg)"},
+		{0, "(light wind)"},
 	} {
-		snap := &weather.Snapshot{WindKPH: 30, HasWind: true, WindDirDeg: 0, HeadwindKPH: tc.hw, HasHeadwind: true}
+		wind := 30.0
+		if tc.hw == 0 {
+			wind = 3
+		}
+		snap := &weather.Snapshot{WindKPH: wind, HasWind: true, WindDirDeg: 0, HeadwindKPH: tc.hw, HasHeadwind: true}
 		_, prompt := buildPrompt(plan, Context{StartingSoC: 90, Weather: snap}, CostEstimate{})
-		if !strings.Contains(prompt, "Wind: 30 kph from 0° "+tc.want) {
+		if !strings.Contains(prompt, "from 0° "+tc.want) {
 			t.Errorf("hw %v: want %q in:\n%s", tc.hw, tc.want, prompt)
 		}
 	}
