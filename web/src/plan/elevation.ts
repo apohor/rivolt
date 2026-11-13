@@ -67,9 +67,9 @@ export function cumulative(path: LatLng[]): number[] {
 }
 
 // pointAtShare is the map position a share of the way along the line, or null for a line too short to have one.
-export function pointAtShare(path: LatLng[], share: number): LatLng | null {
+// cum is the line's cumulative metres when the caller has them already (one pointer move after another asks again and again).
+export function pointAtShare(path: LatLng[], share: number, cum: number[] = cumulative(path)): LatLng | null {
   if (path.length < 2) return null;
-  const cum = cumulative(path);
   const len = cum[cum.length - 1];
   if (!(len > 0)) return null;
   const d = Math.min(1, Math.max(0, share)) * len;
