@@ -1824,3 +1824,92 @@ jobs:
           git add "${apps[@]}" "${vals[@]}"
           git commit -m "rivolt: promote ${VERSION} to prod"
           git push origin main
+
+  # Preview pin and unpin as tag-run jobs (release-gitops PR 3; replaces `preview-pin.sh pin|unpin`, which stays until both have run on a real
+  # rc and final). Each is one commit to rivolt-infra main made by .github/ci/preview-tag.sh with the same App token bump-prod uses; Argo
+  # syncs preview by itself. They share the `release` concurrency group with release.yml, so a pin never lands in the middle of a release
+  # verdict or another pin, and the script re-reads main after its push and fails the job if its commit is not there.
+  pin-preview:
+    name: pin-preview
+    needs: [tag-validate, retag]
+    # A release candidate only: the qa gate runs against the rc's own image on preview.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.tag-validate.outputs.kind == 'rc'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Token for rivolt-infra (GitHub App)
+        id: infra-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RIVOLT_INFRA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RIVOLT_INFRA_APP_KEY }}
+          owner: apohor
+          repositories: rivolt-infra
+          permission-contents: write
+      - name: Checkout the tag scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/ci
+          path: app
+      - name: Checkout rivolt-infra
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: apohor/rivolt-infra
+          token: ${{ steps.infra-token.outputs.token }}
+          fetch-depth: 0
+          path: infra
+      - name: Pin preview and admin-preview to the rc image
+        working-directory: infra
+        env:
+          TAG: ${{ github.ref_name }}   # e.g. v0.41.19-rc.1
+          SHA: ${{ github.sha }}
+        run: |
+          bash ../app/.github/ci/preview-tag.sh pin "${TAG#v}" "$SHA" "rivolt-preview: pin to release candidate ${TAG} (qa gate)"
+
+  unpin-preview:
+    name: unpin-preview
+    needs: [tag-validate, retag, bump-prod]
+    # A final tag, after prod's values moved: preview goes back to main's auto-bump, at the release commit (its image exists: retag waited
+    # for it, and tag-validate refused a SHA without a green main build). The next main build's bump-preview moves it forward.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.tag-validate.outputs.kind == 'final'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    steps:
+      - name: Token for rivolt-infra (GitHub App)
+        id: infra-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RIVOLT_INFRA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RIVOLT_INFRA_APP_KEY }}
+          owner: apohor
+          repositories: rivolt-infra
+          permission-contents: write
+      - name: Checkout the tag scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/ci
+          path: app
+      - name: Checkout rivolt-infra
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: apohor/rivolt-infra
+          token: ${{ steps.infra-token.outputs.token }}
+          fetch-depth: 0
+          path: infra
+      - name: Unpin preview and admin-preview
+        working-directory: infra
+        env:
+          TAG: ${{ github.ref_name }}   # e.g. v0.41.19
+          SHA: ${{ github.sha }}
+        run: |
+          bash ../app/.github/ci/preview-tag.sh unpin "sha-${SHA:0:7}" "$SHA" "rivolt-preview: unpin after ${TAG}; back to main's auto-bump at sha-${SHA:0:7}"
