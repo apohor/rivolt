@@ -69,6 +69,26 @@ test("flag on: the (i) has a 44 px target, a tap beside it stays on the page, an
   expect(credit.y).toBeGreaterThan(strip.y + strip.height - 1);
 });
 
+for (const width of [393, 440, 519, 520, 639, 640, 700, 768, 900, 1024, 1280]) test(`@webkit flag on: no month-strip cell clips at ${width} px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 852 });
+  await open(page, true);
+  const strip = page.getByTestId("now-month");
+  await expect(strip).toBeVisible();
+  // The widest plausible figure, so the check does not depend on the stub's totals.
+  await strip.evaluate((el) => {
+    const nums = el.querySelectorAll("div > div > span:first-child");
+    nums[nums.length - 1].textContent = "$1,135.99";
+  });
+  const clipped = await strip.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return [...el.querySelectorAll("div > div > span")].filter((s) => {
+      const r = s.getBoundingClientRect();
+      return r.right > box.right + 0.5 || s.scrollWidth > s.clientWidth + 0.5;
+    }).length;
+  });
+  expect(clipped).toBe(0);
+});
+
 test("flag on, charging: the chip says power and the subline says what the limit buys", async ({ page }) => {
   await open(page, true, "charging");
   await expect(page.locator("[data-now-chip]")).toContainText(/Charging · .* kW · (done|full) by \d/);
