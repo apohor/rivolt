@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/apohor/rivolt/internal/maps"
-	"github.com/apohor/rivolt/internal/rivian"
 )
 
 // Snapshot is what a shared link serves: built field by field from the saved plan (an allowlist, never the stored JSON passed through), so
@@ -110,10 +109,37 @@ func EffectiveCut(cutM float64, home *Circle) float64 {
 
 func roundArea(v float64) float64 { return math.Round(v/areaStepDeg) * areaStepDeg }
 
+// planRoute and planWaypoint are the fields of the stored plan that are read, by the names the plan envelope uses (rivian.TripRoute and
+// rivian.PlannedWaypoint). They are declared here, so a field the snapshot does not name is never decoded, and this package stays out of
+// the rivian module.
+type planRoute struct {
+	TotalChargingDurationSec int
+	TotalDriveDurationSec    int
+	TotalDriveDistanceMeters float64
+	ArrivalSoC               float64
+	Waypoints                []planWaypoint
+	Geometry                 string
+	GeometryPrecision        int
+}
+
+type planWaypoint struct {
+	WaypointType      string
+	Name              string
+	Latitude          float64
+	Longitude         float64
+	MaxPowerKW        float64
+	ChargeDurationSec int
+	ArrivalSoC        float64
+	DepartureSoC      float64
+	ArrivalTimeUTC    string
+	DepartureTimeUTC  string
+	Source            string
+}
+
 // plan is the part of the stored plan envelope that is read.
 type plan struct {
-	Routes        []rivian.TripRoute `json:"Routes"`
-	DestinationTZ string             `json:"destination_tz"`
+	Routes        []planRoute `json:"Routes"`
+	DestinationTZ string      `json:"destination_tz"`
 	Elevation     *struct {
 		Points [][2]int `json:"points"`
 	} `json:"elevation_profile"`
@@ -139,7 +165,7 @@ func Build(in Input) (*Snapshot, error) {
 	var circles []Circle
 	startLat, startLon := line[0][0], line[0][1]
 	endLat, endLon := line[len(line)-1][0], line[len(line)-1][1]
-	var wps []rivian.PlannedWaypoint
+	var wps []planWaypoint
 	for _, w := range rt.Waypoints {
 		switch {
 		case w.Source == "origin" || w.WaypointType == "origin":
