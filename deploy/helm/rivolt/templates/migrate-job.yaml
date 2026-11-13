@@ -16,9 +16,9 @@
 # One Job per release and Job spec: the name is <fullname>-migrate-<version>-<hash
 # of this Job's spec>, so it runs once per new image or spec, and a changed Job is
 # never patched in place (a Job's template is immutable). The previous Job is no
-# longer rendered; IgnoreExtraneous keeps it from making the app OutOfSync (our
-# syncs don't prune), and ttlSecondsAfterFinished removes it 7 days after it
-# finished. A failed Job stays failed, and retries fail fast on it, until it's
+# longer rendered; Prune=false keeps an automated prune from deleting it (a
+# failed one stays for diagnosis), IgnoreExtraneous keeps it from making the app
+# OutOfSync, and ttlSecondsAfterFinished removes it 7 days after it finished. A failed Job stays failed, and retries fail fast on it, until it's
 # deleted (then the next sync runs it again) or its TTL expires: after 7 days the
 # next sync reruns a failed migration on its own. Every Job carries
 # rivolt.dev/version (ship-release.sh waits on it).
@@ -38,6 +38,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/compare-options: IgnoreExtraneous
+    argocd.argoproj.io/sync-options: Prune=false
 spec:
   {{- $spec | nindent 2 }}
 {{- end }}

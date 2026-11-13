@@ -6,6 +6,10 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
+	"github.com/apohor/rivolt/internal/metrics"
 )
 
 func TestSPAHandler(t *testing.T) {
@@ -15,7 +19,7 @@ func TestSPAHandler(t *testing.T) {
 		"sw.js":                {Data: []byte("//sw")},
 		"assets/app-abc.js":    {Data: []byte("//js")},
 	}
-	h := spaHandler(fsys)
+	h := spaHandler(fsys, nil)
 	cases := []struct {
 		path   string
 		status int
@@ -60,7 +64,7 @@ func TestMissingAssetNotCached(t *testing.T) {
 	h := spaHandler(fstest.MapFS{
 		"index.html":        {Data: []byte("<html>shell</html>")},
 		"assets/app-abc.js": {Data: []byte("//js")},
-	})
+	}, nil)
 	for _, p := range []string{"/assets/index-NEW123.js", "/assets/index-NEW123.css", "/.well-known/nothing"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, p, nil))
@@ -85,7 +89,7 @@ func TestRootStaticFilesShortCache(t *testing.T) {
 		"sw.js":             {Data: []byte("//sw")},
 		"favicon.svg":       {Data: []byte("<svg/>")},
 		"assets/app-abc.js": {Data: []byte("//js")},
-	})
+	}, nil)
 	for p, want := range map[string]string{
 		"/asset-guard.js?v=1": "public, max-age=300",
 		"/theme-init.js":      "public, max-age=300",
@@ -133,7 +137,7 @@ func TestHashedAssetsImmutable(t *testing.T) {
 // The public sample-trip pages were removed: the hub and every slug under it answer a permanent redirect to the demo's Plan tab on the
 // app host (so shared links and crawlers land somewhere real), and nothing else changes.
 func TestRemovedSampleTripPagesRedirectToTheDemoPlanTab(t *testing.T) {
-	h := spaHandler(fstest.MapFS{"index.html": {Data: []byte("<html>shell</html>")}})
+	h := spaHandler(fstest.MapFS{"index.html": {Data: []byte("<html>shell</html>")}}, nil)
 	for _, p := range []string{"/sample-trips", "/sample-trips/", "/sample-trips/la-las-vegas-two-days", "/sample-trips/anything-else", "/sample-trips/x/"} {
 		for _, m := range []string{http.MethodGet, http.MethodHead} {
 			r := httptest.NewRequest(m, "http://rivolt.dev"+p, nil)
@@ -186,5 +190,33 @@ func TestRemovedSampleTripPagesRedirectThroughTheRealRouter(t *testing.T) {
 	}
 	if w := get("https://demo.rivolt.dev/sample-trips"); w.Code == http.StatusMovedPermanently {
 		t.Errorf("the demo host redirected /sample-trips: %q", w.Header().Get("Location"))
+	}
+}
+
+// rivolt_spa_asset_404_total counts only misses under /assets/ (stale web chunks after a deploy), through the real router.
+func TestSPAAsset404Counter(t *testing.T) {
+	m := metrics.New()
+	r := New(Deps{Metrics: m, WebFS: fstest.MapFS{
+		"index.html":        {Data: []byte("<html>shell</html>")},
+		"assets/app-abc.js": {Data: []byte("//js")},
+	}})
+	if got := testutil.ToFloat64(m.SPAAsset404); got != 0 {
+		t.Fatalf("starts at %v, want 0", got)
+	}
+	for _, c := range []struct {
+		path string
+		want float64
+	}{
+		{"/assets/app-abc.js", 0},    // present
+		{"/assets/index-NEW1.js", 1}, // missing chunk
+		{"/assets/index-NEW1.css", 2},
+		{"/missing.png", 2}, // not under /assets/
+		{"/.well-known/nothing", 2},
+		{"/some/spa/route", 2}, // shell, not a 404
+	} {
+		r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, c.path, nil))
+		if got := testutil.ToFloat64(m.SPAAsset404); got != c.want {
+			t.Errorf("after %s: %v, want %v", c.path, got, c.want)
+		}
 	}
 }
