@@ -20,7 +20,10 @@ import (
 //  3. The previous release keeps running on the new schema (a rollout, a canary, a rollback, ingest/admin/demo on their own tags), so whatever
 //     makes its writes fail needs a "-- contract: <why no running version needs this>" line, like a drop does: ADD COLUMN ... NOT NULL with no
 //     DEFAULT, SET NOT NULL, and a new CHECK, UNIQUE or PRIMARY KEY on an existing table.
-//  4. lock_timeout above 2 s (DA M2: the longest an ACCESS EXCLUSIVE request may queue writes) and statement_timeout above 60 s or 0 (no limit) need
+//  4. DROP INDEX without CONCURRENTLY takes ACCESS EXCLUSIVE on the table while it runs (and queues behind every open transaction on it). A no-transaction
+//     file may only create an index, so a drop in a transaction file needs "-- da-ack: rewrite <reason>" (DA reviews the table's size on the PR);
+//     an index created in the same file is exempt.
+//  5. lock_timeout above 2 s (DA M2: the longest an ACCESS EXCLUSIVE request may queue writes) and statement_timeout above 60 s or 0 (no limit) need
 //     "-- da-ack: rewrite <reason>". The runner already sets 2 s and 60 s; a file asks for more only with the ack.
 const lintV2From = runnerLimitsFrom
 
@@ -36,6 +39,8 @@ var (
 	reNotNull              = regexp.MustCompile(`(?is)\bnot\s+null\b`)
 	reHasDefault           = regexp.MustCompile(`(?is)\bdefault\b|\bgenerated\b|\bserial\b`)
 	reCreateUniqueIndex    = regexp.MustCompile(`(?is)^create\s+unique\s+index\s+(?:concurrently\s+)?(?:if\s+not\s+exists\s+)?\S*\s*on\s+(?:only\s+)?(\S+)`)
+	reCreateIndexName      = regexp.MustCompile(`(?is)^create\s+(?:unique\s+)?index\s+(?:concurrently\s+)?(?:if\s+not\s+exists\s+)?("?[A-Za-z_][A-Za-z0-9_]*"?)`)
+	reDropIndexList        = regexp.MustCompile(`(?is)^drop\s+index\s+(concurrently\s+)?(?:if\s+exists\s+)?(.+)$`)
 	reStatementTimeoutSet  = regexp.MustCompile(`(?is)^set\s+(?:local\s+)?statement_timeout\s*(?:=|to)\s*'?\s*(\d+(?:\.\d+)?)\s*(ms|s|min|h|d)?\s*'?\s*$`)
 	reLockTimeoutSetAny    = regexp.MustCompile(`(?is)^set\s+(?:local\s+)?lock_timeout\s*(?:=|to)\s*'?\s*(\d+(?:\.\d+)?)\s*(ms|s|min|h|d)?\s*'?\s*$`)
 )
@@ -46,7 +51,7 @@ func timeoutValue(n, unit string) time.Duration {
 	return time.Duration(v * float64(units[strings.ToLower(unit)]))
 }
 
-// v2LockFindings is lint 1 and 2, and 4's timeouts; a file with the rewrite ack skips the timeout part only.
+// v2LockFindings is lints 1 and 2.
 func v2LockFindings(src string) []string {
 	var bad []string
 	created := map[string]bool{}
@@ -118,7 +123,7 @@ func v2CompatFindings(src string) []string {
 	return bad
 }
 
-// v2TimeoutFindings is lint 4.
+// v2TimeoutFindings is lint 5.
 func v2TimeoutFindings(src string) []string {
 	if reDaAckRewrite.MatchString(src) {
 		return nil
@@ -131,6 +136,39 @@ func v2TimeoutFindings(src string) []string {
 		if m := reStatementTimeoutSet.FindStringSubmatch(st.text); m != nil {
 			if d := timeoutValue(m[1], m[2]); d == 0 || d > 60*time.Second {
 				bad = append(bad, "statement_timeout above 60s or unlimited")
+			}
+		}
+	}
+	return bad
+}
+
+// v2DropIndexFindings is lint 4: DROP INDEX without CONCURRENTLY on an index this file did not create. The rewrite ack waives it.
+func v2DropIndexFindings(src string) []string {
+	if reDaAckRewrite.MatchString(src) {
+		return nil
+	}
+	var bad []string
+	created := map[string]bool{}
+	for _, st := range sqlStatements(src) {
+		if m := reCreateIndexName.FindStringSubmatch(st.text); m != nil {
+			created[strings.Trim(m[1], `"`)] = true
+			continue
+		}
+		m := reDropIndexList.FindStringSubmatch(st.text)
+		if m == nil || m[1] != "" {
+			continue
+		}
+		for _, name := range strings.Split(m[2], ",") {
+			name = strings.TrimSpace(name)
+			if i := strings.IndexAny(name, " \t\n"); i >= 0 { // CASCADE / RESTRICT
+				name = name[:i]
+			}
+			name = strings.Trim(name, `"`)
+			if i := strings.LastIndex(name, "."); i >= 0 {
+				name = name[i+1:]
+			}
+			if name != "" && !created[name] {
+				bad = append(bad, "DROP INDEX "+name+" without CONCURRENTLY takes ACCESS EXCLUSIVE on its table")
 			}
 		}
 	}
@@ -159,6 +197,9 @@ func TestEveryNewMigrationPassesV2Lints(t *testing.T) {
 		}
 		if bad := v2CompatFindings(src); len(bad) > 0 && !contractMarker.MatchString(src) {
 			t.Errorf("%s: %s would make the previous release's writes fail while it still runs; add a line \"-- contract: <why no running version needs this>\" and get the devils-advocate's ack (the two-release rule then applies)", base, strings.Join(bad, "; "))
+		}
+		if bad := v2DropIndexFindings(src); len(bad) > 0 {
+			t.Errorf("%s: %s; add \"-- da-ack: rewrite <reason>\" once DA has acked the table's size on the PR", base, strings.Join(bad, "; "))
 		}
 		if bad := v2TimeoutFindings(src); len(bad) > 0 {
 			t.Errorf("%s: %s; add \"-- da-ack: rewrite <reason>\" once DA has acked it on the PR", base, strings.Join(bad, "; "))
@@ -193,6 +234,34 @@ func TestV2LockFindings(t *testing.T) {
 		if bad := v2LockFindings(fine); len(bad) > 0 {
 			t.Errorf("lock lint wrongly flags %q: %v", fine, bad)
 		}
+	}
+}
+
+func TestV2DropIndexFindings(t *testing.T) {
+	for _, bad := range []string{
+		"DROP INDEX imports_user_sha;",
+		"DROP INDEX IF EXISTS imports_user_sha;",
+		"DROP INDEX IF EXISTS public.imports_user_sha CASCADE;",
+		"DROP INDEX a, b;\n",
+		"CREATE INDEX x ON t (a);\nDROP INDEX y;",
+	} {
+		if len(v2DropIndexFindings(bad)) == 0 {
+			t.Errorf("drop-index lint misses %q", bad)
+		}
+	}
+	for _, fine := range []string{
+		"DROP INDEX CONCURRENTLY IF EXISTS imports_user_sha;",
+		"CREATE INDEX t_a ON t (a);\nDROP INDEX t_a;",
+		"CREATE UNIQUE INDEX IF NOT EXISTS t_a ON t (a);\nDROP INDEX IF EXISTS t_a;",
+		"-- da-ack: rewrite 14 rows, index unused\nDROP INDEX imports_user_sha;",
+		"DROP TRIGGER x ON t;",
+	} {
+		if bad := v2DropIndexFindings(fine); len(bad) > 0 {
+			t.Errorf("drop-index lint wrongly flags %q: %v", fine, bad)
+		}
+	}
+	if got := v2DropIndexFindings("DROP INDEX a, b;"); len(got) != 2 {
+		t.Errorf("a two-index drop should give two findings, got %v", got)
 	}
 }
 
@@ -263,6 +332,7 @@ func TestV2LintsOverHistory(t *testing.T) {
 		src := string(body)
 		var all []string
 		all = append(all, v2LockFindings(src)...)
+		all = append(all, v2DropIndexFindings(src)...)
 		if !contractMarker.MatchString(src) {
 			all = append(all, v2CompatFindings(src)...)
 		}

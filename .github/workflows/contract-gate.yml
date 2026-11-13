@@ -5,6 +5,11 @@
 # migration-immutable (migrations v2, step 1) lives here too: an applied migration file must not change, unless the PR carries the label
 # migration-amend (re-run when labels change). See .github/scripts/migration-immutable.sh.
 #
+# migration-baseline (step 5) lives here as well: the squashed baseline must equal the replay of the release tag it names. See
+# .github/scripts/migration-baseline.sh.
+#
+# migration-number: a migration the PR adds is numbered above the base branch's highest, and never 0121. See .github/scripts/migration-number.sh.
+#
 # Its own workflow, and not a job of build.yml, because it must re-run when the PR BODY is edited (the pins live there) and build.yml's pull_request
 # types stop at opened/synchronize/reopened: adding `edited` there would re-run the whole build and e2e on every body edit.
 name: contract-gate
@@ -37,6 +42,23 @@ jobs:
           if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
           bash .github/scripts/contract-check.sh "$base" HEAD
 
+  migration-number:
+    name: migration-number
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: The check's own tests
+        run: bash .github/scripts/migration-number.test.sh
+      - name: Added migrations sit above the base branch's highest number
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
+          bash .github/scripts/migration-number.sh "$base" HEAD
+
   migration-immutable:
     name: migration-immutable
     runs-on: ubuntu-latest
@@ -54,3 +76,19 @@ jobs:
         run: |
           if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
           bash .github/scripts/migration-immutable.sh "$base" HEAD
+
+  migration-baseline:
+    name: migration-baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # the release tags
+      - name: The normaliser's own tests
+        run: bash .github/scripts/migration-baseline.test.sh
+      - name: The baseline equals a replay of the tag it names
+        run: |
+          # Docker Hub's CDN drops a fetch now and then (main 8719590); retry.
+          for i in 1 2 3; do docker pull postgres:16-alpine && break; sleep 10; done
+          bash .github/scripts/migration-baseline.sh check

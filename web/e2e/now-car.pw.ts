@@ -4,18 +4,18 @@ import { expect, test, type Page } from "@playwright/test";
 import { stubApi, VEHICLE_ID, vehicleState } from "./stub";
 
 // The Now hero shows the vehicle's Rivian image: three-quarter when parked, side-charging while charging, the design
-// that matches the theme. Without images the drawn truck stays. Image URLs here are made up and served by the test.
+// that matches the theme. Without images, or when one fails to load, the sketch of the model shows. Image URLs here are made up and served by the test.
 const names = ["front", "in-use", "overhead", "rear", "side-charging", "side-rear", "side", "three-quarter"];
 const images = names.flatMap((placement) =>
   ["dark", "light"].map((design) => ({ vehicle_id: VEHICLE_ID, url: `https://img.example/${placement}-${design}.png`, placement, design, size: "large", resolution: "xxhdpi" })),
 );
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 
-async function open(page: Page, o: { scenario?: "parked" | "charging"; theme?: "dark" | "light"; withImages?: boolean }) {
+async function open(page: Page, o: { scenario?: "parked" | "charging"; theme?: "dark" | "light"; withImages?: boolean; model?: string }) {
   await stubApi(page, { scenario: o.scenario ?? "parked", designPreview: ["now_v2"] });
   await page.route("**/img.example/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: PNG }));
   await page.route("**/api/vehicles", (r) =>
-    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ id: VEHICLE_ID, vin: "SAMPLE0000000001", name: "Sample R1S", model: "R1S", pack_kwh: 135, images: o.withImages === false ? [] : images }]) }),
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ id: VEHICLE_ID, vin: "SAMPLE0000000001", name: "Sample R1S", model: o.model ?? "R1S", pack_kwh: 135, images: o.withImages === false ? [] : images }]) }),
   );
   await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), o.theme ?? "dark");
   await page.goto("/");
@@ -39,13 +39,24 @@ test("charging shows the side-charging image", async ({ page }) => {
   await expect(page.getByTestId("now-car")).toHaveAttribute("src", "https://img.example/side-charging-dark.png");
 });
 
-test("no images: no broken picture, the drawn truck stays", async ({ page }) => {
+test("no images: no broken picture, the sketch of the model shows (R1T, R1S, anything else is R1S), in both themes", async ({ page }) => {
   await open(page, { withImages: false });
   await expect(page.getByTestId("now-car")).toHaveCount(0);
-  await expect(page.locator("[data-now-v2] svg").first()).toBeVisible();
+  const sketch = page.getByTestId("now-car-sketch");
+  await expect(sketch).toHaveAttribute("data-model", "R1S");
+  await expect(sketch.getByRole("img", { name: "Rivian R1S" })).toBeVisible();
+  for (const [model, want] of [["R1T", "R1T"], ["R2", "R1S"]] as const) {
+    await open(page, { withImages: false, model });
+    await expect(page.getByTestId("now-car-sketch")).toHaveAttribute("data-model", want);
+  }
+  // The body colour comes from --car-body and differs between the themes.
+  const body = async () => page.getByTestId("now-car-sketch").locator("path[fill*='car-body']").first().evaluate((e) => getComputedStyle(e).fill);
+  const dark = await body();
+  await open(page, { withImages: false, theme: "light" });
+  expect(await body()).not.toBe(dark);
 });
 
-test("an image that 404s gives way to the drawn truck on Now, and is dropped on Live; a good one shows on both", async ({ page }) => {
+test("an image that 404s gives way to the sketch on Now, and is dropped on Live; a good one shows on both", async ({ page }) => {
   const FULL = { ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "..", "ios", "RivoltTests", "Fixtures", "state_full.json"), "utf8")), ...vehicleState("parked") };
   await open(page, {});
   await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FULL) }));
@@ -56,7 +67,7 @@ test("an image that 404s gives way to the drawn truck on Now, and is dropped on 
   await expect(page.getByRole("img", { name: "Sample R1S" })).toHaveCount(0);
   await page.goto("/");
   await expect(page.getByTestId("now-car")).toHaveCount(0);
-  await expect(page.locator("[data-now-v2] svg").first()).toBeVisible();
+  await expect(page.getByTestId("now-car-sketch")).toBeVisible();
 });
 
 test("the Live pill has its own row: the image starts at least 8 px below it", async ({ page }) => {
