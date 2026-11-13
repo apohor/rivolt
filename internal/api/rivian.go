@@ -805,7 +805,7 @@ func handleRivianRefreshVehicles(reg rivian.AccountRegistry, store *secrets.Stor
 				writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "limited", "retry_after": after})
 				return
 			}
-			if nudge := signInNudgeFrom(r.Context()); nudge != nil {
+			if nudge := refreshNudgeFrom(r.Context()); nudge != nil {
 				nudge(r.Context(), uid)
 			}
 			writeUnheld(w)

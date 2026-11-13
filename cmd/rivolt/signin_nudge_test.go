@@ -59,3 +59,20 @@ func TestSignInNudgeRetriesUntilTheGroupHasAnOwner(t *testing.T) {
 		t.Errorf("without an owner it asked %d times, want the 3 tries and no more", asks.Load())
 	}
 }
+
+// run reports a nudge that never reached an owner (NudgeNotify turns that into the lost callback).
+func TestSignInNudgeRunReportsALostNudge(t *testing.T) {
+	var hasGroup, held atomic.Bool
+	var local, peer atomic.Int32
+	hasGroup.Store(true)
+	n := nudgeFor("g1", &hasGroup, &held, &local, &peer)
+	n.tries, n.every = 2, time.Millisecond
+	n.peer = func(context.Context, string, string) bool { return false }
+	if n.run(uuid.New()) {
+		t.Fatal("run reported delivery without an owner")
+	}
+	n.peer = func(context.Context, string, string) bool { return true }
+	if !n.run(uuid.New()) {
+		t.Fatal("run reported no delivery with an owner")
+	}
+}

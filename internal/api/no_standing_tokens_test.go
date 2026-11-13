@@ -347,3 +347,40 @@ func TestRefreshVehiclesOnATokenlessPodIsLimitedAfterTheFirstLookup(t *testing.T
 		t.Fatalf("nudged %d times, want once", nudged)
 	}
 }
+
+// A nudge that reached no owner must not cost the user ten minutes of 429 with no lookup made.
+func TestRefreshVehiclesOnATokenlessPodHandsTheSlotBackWhenTheNudgeIsLost(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mr.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := uuid.New()
+	var nudged int
+	router := New(Deps{Auth: svc, AuthEnforced: true, Accounts: gatedRegistry(), Redis: rdb, RedisPrefix: "t", FailLimiterKey: []byte("0123456789abcdef0123456789abcdef"),
+		RefreshNudge: func(_ context.Context, _ uuid.UUID, lost func()) { nudged++; lost() }})
+	tap := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "https://rivolt.dev/api/settings/rivian/refresh-vehicles", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "203.0.113.9:4000"
+		ctx := auth.WithUser(req.Context(), uid)
+		ctx = auth.WithSession(ctx, auth.SessionRef{ID: uuid.New(), Kind: "web"})
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req.WithContext(ctx))
+		return rec
+	}
+	for i := 0; i < 2; i++ {
+		if rec := tap(); rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("tap %d after a lost nudge = %d (%s), want 503: the slot was handed back", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	if nudged != 2 {
+		t.Fatalf("nudged %d times, want 2", nudged)
+	}
+}

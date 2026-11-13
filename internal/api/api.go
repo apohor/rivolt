@@ -112,6 +112,9 @@ type Deps struct {
 	// SignInNudge is called after a successful Rivian sign-in (password or MFA leg) of a user with no vehicle yet, so the owner of their group
 	// looks them up now (single-owner M4-2b). It must not block. Nil without owner discovery.
 	SignInNudge func(ctx context.Context, uid uuid.UUID)
+	// RefreshNudge is SignInNudge for a "Check again" tap on a pod that does not hold the account: lost is called when the nudge never reached an
+	// owner, so the tap's slot in the cross-pod 10-minute window is handed back. It must not block. Nil without owner discovery.
+	RefreshNudge func(ctx context.Context, uid uuid.UUID, lost func())
 	// ReceiptsSyncNow, when set (RIVOLT_FIRST_SCREEN), is called after a user opts in to Rivian receipts to queue one summaries pass at the owner of
 	// their group. It must only queue; the handler never calls Rivian.
 	ReceiptsSyncNow func(uid uuid.UUID)
@@ -1259,7 +1262,7 @@ func New(d Deps) http.Handler {
 				if d.ReceiptsSignedIn != nil {
 					r.Use(withReceiptsSignIn(d.ReceiptsSignedIn))
 				}
-				r.Use(withRefreshLookupGate(newRefreshLookupGate(d.Redis, d.RedisPrefix, RateLimiterKey(d.FailLimiterKey))))
+				r.Use(withRefreshLookupGate(newRefreshLookupGate(d.Redis, d.RedisPrefix, RateLimiterKey(d.FailLimiterKey)), d.RefreshNudge))
 				r.Get("/", handleRivianStatus(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger, func() bool {
 					return d.Flags != nil && d.Flags.KillSwitch().Paused
 				}))
