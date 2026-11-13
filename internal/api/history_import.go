@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -519,10 +520,27 @@ func logHeader(pf *parseFailure) any {
 			keep = append(keep, c)
 		}
 	}
-	if pf.cells == 0 || len(keep)*2 <= pf.cells {
+	if pf.cells == 0 || len(keep)*2 <= pf.cells || !hasExportWord(keep) {
 		return fmt.Sprintf("%d cells, not logged", pf.cells)
 	}
 	return keep
+}
+
+var exportWords = []string{"time", "date", "start", "end", "battery", "soc", "distance", "km", "mi", "energy", "kwh", "speed", "odometer", "lat", "lon", "cost", "power", "charge", "drive"}
+
+// hasExportWord is whether any cell holds a word an EV export uses; a line with none (a name, a city, a country) is not a header. Short
+// words (mi, km, end, lat) must be a whole word, so "Smith" or "Brenda" does not pass; longer ones also match as a prefix ("charging").
+func hasExportWord(cells []string) bool {
+	for _, c := range cells {
+		for _, tok := range strings.FieldsFunc(strings.ToLower(c), func(r rune) bool { return !unicode.IsLetter(r) }) {
+			for _, w := range exportWords {
+				if tok == w || (len(w) >= 4 && strings.HasPrefix(tok, w)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func nonEmpty(cells []string) int {
