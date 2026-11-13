@@ -26,7 +26,8 @@ import (
 func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *settings.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
-		if !ok || lc == nil {
+		unheld := rivian.IsUnheld(c) // single-owner M4-5: no tokens here, so only this pod's monitor can answer, as before the tokens were dropped
+		if (!ok || lc == nil) && !unheld {
 			http.Error(w, "no live rivian client configured", http.StatusNotFound)
 			return
 		}
@@ -42,6 +43,10 @@ func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *setting
 			// whole earlier charge's cost (and whose power would beat the truck's own).
 			sess, now := mon.LiveSessionForCharge(id)
 			writeJSON(w, http.StatusOK, decorateLiveSessionFor(id, sess, now, cfg))
+			return
+		}
+		if unheld {
+			writeUnheld(w)
 			return
 		}
 		sess, err := lc.LiveSession(r.Context(), id)
@@ -129,7 +134,8 @@ func decorateLiveSession(sess *rivian.LiveSession, cfg settings.ChargingConfig) 
 func handleChargingSchemaProbe(c rivian.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
-		if !ok || lc == nil {
+		unheld := rivian.IsUnheld(c) // single-owner M4-5: no tokens here, so only this pod's monitor can answer, as before the tokens were dropped
+		if (!ok || lc == nil) && !unheld {
 			http.Error(w, "no live rivian client configured", http.StatusNotFound)
 			return
 		}
@@ -150,7 +156,8 @@ func handleChargingSchemaProbe(c rivian.Client) http.HandlerFunc {
 func handleBatteryTempProbe(c rivian.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
-		if !ok || lc == nil {
+		unheld := rivian.IsUnheld(c) // single-owner M4-5: no tokens here, so only this pod's monitor can answer, as before the tokens were dropped
+		if (!ok || lc == nil) && !unheld {
 			http.Error(w, "no live rivian client configured", http.StatusNotFound)
 			return
 		}
@@ -170,7 +177,8 @@ func handleBatteryTempProbe(c rivian.Client) http.HandlerFunc {
 func handleParallaxRawProbe(c rivian.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
-		if !ok || lc == nil {
+		unheld := rivian.IsUnheld(c) // single-owner M4-5: no tokens here, so only this pod's monitor can answer, as before the tokens were dropped
+		if (!ok || lc == nil) && !unheld {
 			http.Error(w, "no live rivian client configured", http.StatusNotFound)
 			return
 		}
@@ -201,7 +209,8 @@ func handleParallaxRawProbe(c rivian.Client) http.HandlerFunc {
 func handleSupportedFeaturesProbe(c rivian.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
-		if !ok || lc == nil {
+		unheld := rivian.IsUnheld(c) // single-owner M4-5: no tokens here, so only this pod's monitor can answer, as before the tokens were dropped
+		if (!ok || lc == nil) && !unheld {
 			http.Error(w, "no live rivian client configured", http.StatusNotFound)
 			return
 		}
@@ -221,7 +230,8 @@ func handleSupportedFeaturesProbe(c rivian.Client) http.HandlerFunc {
 func handleChargingFieldProbe(c rivian.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
-		if !ok || lc == nil {
+		unheld := rivian.IsUnheld(c) // single-owner M4-5: no tokens here, so only this pod's monitor can answer, as before the tokens were dropped
+		if (!ok || lc == nil) && !unheld {
 			http.Error(w, "no live rivian client configured", http.StatusNotFound)
 			return
 		}
@@ -243,7 +253,8 @@ func handleChargingFieldProbe(c rivian.Client) http.HandlerFunc {
 func handleChargingFrames(c rivian.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
-		if !ok || lc == nil {
+		unheld := rivian.IsUnheld(c) // single-owner M4-5: no tokens here, so only this pod's monitor can answer, as before the tokens were dropped
+		if (!ok || lc == nil) && !unheld {
 			http.Error(w, "no live rivian client configured", http.StatusNotFound)
 			return
 		}

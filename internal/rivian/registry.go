@@ -360,3 +360,17 @@ func (unheldClient) Vehicles(context.Context) ([]Vehicle, error) {
 	return nil, notHeld("Vehicles")
 }
 func (unheldClient) State(context.Context, string) (*State, error) { return nil, notHeld("State") }
+
+// The two other Rivian reads a data-plane route makes. Having them lets the route's capability check pass, so the forwarding layer in front of
+// it (trip legs, release notes) hands the call to the group owner; answered here, they are the same retry-able outage as the rest.
+func (unheldClient) PlanTrip(context.Context, PlanTripInput) (*TripPlan, error) {
+	return nil, notHeld("PlanTrip")
+}
+func (unheldClient) OTAUpdateDetails(context.Context, string) (*OTAInfo, error) {
+	return nil, notHeld("OTAUpdateDetails")
+}
+
+var (
+	_ TripPlanner = unheldClient{}
+	_ OTASource   = unheldClient{}
+)

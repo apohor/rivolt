@@ -3,6 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/apohor/rivolt/internal/planleg"
+	"github.com/redis/go-redis/v9"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -170,5 +173,67 @@ func TestStateOnATokenlessPodIsForwardedThroughTheRouter(t *testing.T) {
 	}
 	if len(fw.calls) != 1 || fw.calls[0].Kind != forward.KindFreshState {
 		t.Fatalf("forwarder calls %+v, want one fresh_state", fw.calls)
+	}
+}
+
+func gatedRegistry() rivian.AccountRegistry {
+	reg := rivian.NewLiveAccountRegistry(func(uuid.UUID) *rivian.LiveClient { return rivian.NewLive() })
+	reg.(interface {
+		SetNoStandingTokens(func(context.Context, uuid.UUID) (bool, bool), func(uuid.UUID) *rivian.LiveClient)
+	}).SetNoStandingTokens(func(context.Context, uuid.UUID) (bool, bool) { return false, true }, func(uuid.UUID) *rivian.LiveClient { return rivian.NewLive() })
+	return reg
+}
+
+// Trip planning on a token-less pod: the client clientFor hands the route is a planner (no "live rivian client required" 404), and the leg a
+// cache miss needs goes to the group owner.
+func TestTripLegOnATokenlessPodIsForwardedToTheOwner(t *testing.T) {
+	d := Deps{Accounts: gatedRegistry(), GroupOfVehicle: func(string) (string, bool) { return fwdGroup, true }}
+	c := clientFor(d, uuid.New())
+	if _, ok := tripPlannerOf(c); !ok {
+		t.Fatal("the token-less pod's client is not a trip planner: the route answers 404")
+	}
+	fw := &planForwarder{res: ServePlanLegs(context.Background(), plannerClient{Client: rivian.NewStub(), TripPlanner: planFuncAPI(func(context.Context, rivian.PlanTripInput) (*rivian.TripPlan, error) { return samplePlan(), nil })}, sampleInput())}
+	mr := miniredis.RunT(t)
+	d.PlanLegs = planleg.New(redis.NewClient(&redis.Options{Addr: mr.Addr()}), "t", nil)
+	d.StateForward = fw
+	planner, ok := tripPlannerOf(withLegCache(d, uuid.New(), c))
+	if !ok {
+		t.Fatal("no planner behind the leg cache")
+	}
+	plan, err := planner.PlanTrip(context.Background(), sampleInput())
+	if err != nil || plan == nil || plan.Status != "OK" {
+		t.Fatalf("plan %+v, err %v; want the owner's plan", plan, err)
+	}
+	if fw.count() != 1 {
+		t.Errorf("%d forwards, want 1", fw.count())
+	}
+}
+
+// Release notes on a token-less pod: the source is an OTASource, so the read is forwarded rather than skipped.
+func TestOTANotesOnATokenlessPodAreForwardedToTheOwner(t *testing.T) {
+	d := Deps{Accounts: gatedRegistry()}
+	src, ok := clientFor(d, uuid.New()).(rivian.OTASource)
+	if !ok {
+		t.Fatal("the token-less pod's client is not an OTA source: notes are never asked of the owner")
+	}
+	body, _ := json.Marshal(otaNotesLinks{})
+	fw := &fakeStateForwarder{res: forward.Result{Status: 200, Body: body}}
+	sf := &stateForward{fw: fw, user: uuid.New(), groupOf: func(string) (string, bool) { return fwdGroup, true }}
+	if _, err := sf.forwardOTANotes(context.Background(), src, fwdVehicle); err != nil {
+		t.Fatal(err)
+	}
+	if len(fw.calls) != 1 || fw.calls[0].Kind != forward.KindOTANotes {
+		t.Fatalf("forwarder calls %+v, want one ota_notes", fw.calls)
+	}
+}
+
+// The web polls live-session every 10 s: on a token-less pod it is served from the pod's monitor (a zeroed payload when it has none), not a 404.
+func TestLiveSessionOnATokenlessPodIsNotA404(t *testing.T) {
+	h := handleLiveSession(rivian.NewUnheldClient(), rivian.NewStateMonitor(nil, nil), nil)
+	if rec := stateGet(h); rec.Code != http.StatusOK {
+		t.Fatalf("live-session with a monitor = %d %q, want 200", rec.Code, rec.Body.String())
+	}
+	if rec := stateGet(handleLiveSession(rivian.NewUnheldClient(), nil, nil)); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("live-session with no monitor = %d, want the retry-able 503", rec.Code)
 	}
 }
