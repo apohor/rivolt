@@ -81,6 +81,7 @@ export function TripPlanResult({
               departureAt={departureAt}
               cost={plan.costs?.[i]}
               primaryCost={plan.costs?.[0]}
+              elevation={i === 0 ? plan.elevation_profile : undefined}
               adjustment={i === 0 ? plan.weather_adjustment : undefined}
               credit={i === 0 && plan.weather_adjustment ? <WeatherCredit className="mt-3 text-xs text-neutral-500" /> : undefined}
               chooser={

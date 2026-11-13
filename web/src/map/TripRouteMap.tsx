@@ -23,6 +23,7 @@ import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
 import { firstLabelLayer, setDriveRoute, type LatLng } from "./route";
 import { RAMPS } from "./metrics";
 import { chargingStopCount, isChargingWaypoint } from "../plan/waypoints";
+import { pointAtShare, shareOfPoint } from "../plan/elevation";
 import { measurePill, pillAwayFromLine, pillBox, pillSide, placeStopPill, setPills, type Box, type PillSpec } from "./pills";
 import { watchDrawn } from "./drawn";
 import { localUnits, usePreferences } from "../lib/preferences";
@@ -117,6 +118,8 @@ export function TripRouteMap({
   destLabel,
   legWeather,
   sheetSnap,
+  cursorShare = null,
+  onCursorShare,
 }: {
   route: TripRoute;
   height?: number;
@@ -144,6 +147,9 @@ export function TripRouteMap({
   legWeather?: (LegWeatherInfo | null)[];
   // The phone's bottom sheet height (peek, half, full): once it settles, the map's fit and its credits follow the sheet's edge.
   sheetSnap?: "min" | "peek" | "half" | "full";
+  // The elevation chart's cursor, as a share (0 to 1) of the way along the route: drawn as a dot on the line. A tap on the line reports its share.
+  cursorShare?: number | null;
+  onCursorShare?: (share: number) => void;
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -162,6 +168,8 @@ export function TripRouteMap({
   const departureAtRef = useRef(departureAt);
   departureAtRef.current = departureAt;
   const [routePath, setRoutePath] = useState<LatLng[]>([]);
+  const onCursorShareRef = useRef(onCursorShare);
+  onCursorShareRef.current = onCursorShare;
   // The Trip planner settings: what the map starts with (layers, preferred only, weather) and how the charger query is shaped. The map waits for
   // them so it does not ask once with the defaults and again with the user's choices.
   const { prefs, settled: prefsSettled, loaded: prefsLoaded } = usePlannerPrefs();
@@ -1034,6 +1042,43 @@ export function TripRouteMap({
       });
     }
   }
+
+  // Effect: the elevation chart's cursor, a dot on the route line.
+  useEffect(() => {
+    const map = mapReady;
+    if (!map || cursorShare == null) return;
+    const at = pointAtShare(routePath, cursorShare);
+    if (!at) return;
+    let alive = true;
+    let marker: Marker | null = null;
+    void loadMapLibre().then((ml) => {
+      if (!alive || mapRef.current !== map) return;
+      const el = document.createElement("span");
+      el.setAttribute("data-elevation-dot", "");
+      el.style.cssText = "display:block;width:16px;height:16px;border-radius:9999px;background:#fafafa;border:3px solid #0a0a0a;box-shadow:0 0 0 2px #34d399;pointer-events:none;";
+      marker = new ml.Marker({ element: el }).setLngLat([at[1], at[0]]).addTo(map);
+    });
+    return () => { alive = false; marker?.remove(); };
+  }, [mapReady, routePath, cursorShare]);
+
+  // Effect: a tap on the route line (not on a charger, marker or popup) tells the chart where it is.
+  useEffect(() => {
+    const map = mapReady;
+    if (!map || routePath.length < 2 || !onCursorShareRef.current) return;
+    const onClick = (e: { point: { x: number; y: number }; lngLat: { lat: number; lng: number }; originalEvent?: Event }) => {
+      const target = e.originalEvent?.target as Element | null | undefined;
+      if (target?.closest?.(".maplibregl-marker, .maplibregl-popup, [data-leg-badge]")) return;
+      if (map.getLayer(CHARGERS_LAYER) && map.queryRenderedFeatures([e.point.x, e.point.y], { layers: [CHARGERS_LAYER] }).length > 0) return;
+      const hit = shareOfPoint(routePath, [e.lngLat.lat, e.lngLat.lng]);
+      const near = hit && pointAtShare(routePath, hit.share);
+      if (!hit || !near) return;
+      const px = map.project([near[1], near[0]]);
+      // 20 px is a finger's width on either side of the line.
+      if (Math.hypot(px.x - e.point.x, px.y - e.point.y) <= 20) onCursorShareRef.current?.(hit.share);
+    };
+    map.on("click", onClick as never);
+    return () => { map.off("click", onClick as never); };
+  }, [mapReady, routePath]);
 
   // Effect: external selection. A table-row click makes the matching marker larger and ringed and pans onto it; the previous one reverts.
   useEffect(() => {
