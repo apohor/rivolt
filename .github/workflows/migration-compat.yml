@@ -1,0 +1,123 @@
+# The old binary on the new schema (migrations v2, step 3). Every deploy runs the migration Job before the rollout, and a rollback or a canary
+# step puts the previous image on the newer schema, so for any PR that ADDS a migration file the previous release's integration suite must pass
+# against this PR's migrations. A new CHECK, a UNIQUE, or ADD COLUMN ... NOT NULL without a default breaks the old pods' writes, and no lint of the
+# new file sees that.
+#
+# How: check out the newest final tag (and the oldest tag on the PR body's "Pinned now:" line, when older: ingest, admin and demo run their own
+# tags), replace its internal/db/migrations with this PR's, and run that tag's integration suite. go:embed picks up the overlay, so old tags need no
+# hook. The internal/db tests that test the migration files themselves (lints, counts, the runner) are skipped: they describe the old tree.
+# A failure here is fixed in the migration (make it expand-only, or split it over two releases with -- contract:), not by a skip list.
+#
+# Its own workflow, as contract-gate: it re-runs when the PR body is edited (the pins live there). The always-running job `migration-compat` is
+# the one to require: it passes when the PR adds no migration.
+name: migration-compat
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches: [main, "release/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-compat-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pick:
+    name: pick
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tags: ${{ steps.p.outputs.tags }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # the release tags
+      - name: The picker's own tests
+        run: bash .github/scripts/migration-compat-tags.test.sh
+      - id: p
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
+          tags=$(bash .github/scripts/migration-compat-tags.sh "$base" HEAD)
+          echo "tags to test: ${tags:-none (no migration added)}"
+          json=$(printf '%s\n' "$tags" | grep -E '^v' | jq -R . | jq -sc .)
+          echo "tags=${json:-[]}" >> "$GITHUB_OUTPUT"
+
+  compat-shard:
+    name: compat (${{ matrix.tag }}, ${{ matrix.shard }})
+    needs: pick
+    if: needs.pick.outputs.tags != '[]' && needs.pick.outputs.tags != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJSON(needs.pick.outputs.tags) }}
+        shard: [0, 1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: head
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ matrix.tag }}
+          path: old
+      - name: This PR's migrations replace the old tag's
+        run: |
+          rm -rf old/internal/db/migrations
+          cp -r head/internal/db/migrations old/internal/db/migrations
+          echo "old tree: ${{ matrix.tag }}; migrations: $(ls old/internal/db/migrations | wc -l) files from the PR"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: old/go.mod
+          cache-dependency-path: old/go.sum
+      - name: Pull the images the old suite uses
+        run: |
+          docker pull postgres:16-alpine
+          # Digests of the tag under test, read from its own workflow so a Hydra/Kratos bump in an old tag is followed.
+          grep -ohE 'docker pull (oryd/(hydra|kratos):[^ ]+)' old/.github/workflows/build.yml | sort -u | sed 's/^docker pull //' | while read -r img; do docker pull "$img"; done
+      - name: Stub web assets for embed
+        run: |
+          mkdir -p old/internal/web/dist
+          touch old/internal/web/dist/.keep
+      - name: The old tag's integration suite on the new schema
+        working-directory: old
+        run: |
+          pkgs=$(grep -rl --include='*_test.go' '^//go:build integration' internal cmd 2>/dev/null | xargs -n1 dirname | sort -u | sed 's#^#./#')
+          [ -n "$pkgs" ] || { echo "no integration packages found" >&2; exit 1; }
+          mine=$(echo "$pkgs" | awk -v s=${{ matrix.shard }} 'NR % 3 == s')
+          echo "packages (shard ${{ matrix.shard }}):"; echo "$mine"
+          # The tests of the migration files themselves describe the old tree: skip those names in internal/db only.
+          skip=$(grep -ho '^func \(Test[A-Za-z0-9_]*\)' internal/db/migrate*_test.go internal/db/retry*_test.go 2>/dev/null | sed 's/^func //' | paste -sd'|' -)
+          rest=$(echo "$mine" | grep -vx './internal/db' || true)
+          status=0
+          if [ -n "$rest" ]; then
+            RIVOLT_TEST_REQUEST_POOL=1 go test -tags=integration -count=1 -timeout=15m $rest || status=1
+          fi
+          if echo "$mine" | grep -qx './internal/db'; then
+            go test -tags=integration -count=1 -timeout=15m -skip "^(${skip})\$" ./internal/db || status=1
+          fi
+          exit $status
+
+  migration-compat:
+    name: migration-compat
+    needs: [pick, compat-shard]
+    if: "!cancelled()"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Result
+        env:
+          TAGS: ${{ needs.pick.outputs.tags }}
+          PICK: ${{ needs.pick.result }}
+          SHARDS: ${{ needs.compat-shard.result }}
+        run: |
+          echo "pick: $PICK; tags: ${TAGS:-[]}; compat-shard: $SHARDS"
+          [ "$PICK" = success ] || exit 1
+          if [ -z "$TAGS" ] || [ "$TAGS" = "[]" ]; then echo "no migration added: nothing to test"; exit 0; fi
+          [ "$SHARDS" = success ]
