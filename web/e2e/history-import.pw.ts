@@ -90,13 +90,13 @@ for (const w of [390, 1280] as const) {
 
 test("unrecognized columns show header names and a mail link", async ({ page }) => {
   await setup(page);
-  await page.route("**/api/import/preview", (r) => r.fulfill({ status: 422, json: { error: "no", code: "unknown_columns", header: ["foo", "bar"] } }));
+  await page.route("**/api/import/preview", (r) => r.fulfill({ status: 422, json: { error: "This file is not an export we can read: its columns do not match. We need for drives: start time (e.g. \"Started At\"). Nothing was imported.", code: "unknown_columns", header: ["foo", "bar"] } }));
   await page.goto("/settings?tab=data#import-history");
   const card = page.locator("[data-history-import]");
   await card.getByRole("button", { name: "Continue" }).click();
   await card.locator('input[type="file"]').setInputFiles({ name: "x.csv", mimeType: "text/csv", buffer: Buffer.from("foo,bar\n") });
   await card.getByRole("button", { name: "Check file" }).click();
-  await expect(card.getByText("We don't recognize this file's columns.")).toBeVisible();
+  await expect(card.getByText("We need for drives: start time", { exact: false })).toBeVisible();
   await expect(card.getByText("foo, bar")).toBeVisible();
   await expect(card.getByRole("link", { name: "Send us this header line" })).toBeVisible();
 });
