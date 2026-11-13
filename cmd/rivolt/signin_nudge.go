@@ -53,7 +53,18 @@ func (n *signInNudge) Nudge(_ context.Context, uid uuid.UUID) {
 	n.role.start("signin_nudge", func() { n.run(uid) })
 }
 
-func (n *signInNudge) run(uid uuid.UUID) {
+// NudgeNotify is Nudge that calls lost when the nudge never reached an owner (after the retries), so a caller that rate-limits on "the owner was
+// asked" can hand the tap back.
+func (n *signInNudge) NudgeNotify(_ context.Context, uid uuid.UUID, lost func()) {
+	n.role.start("signin_nudge", func() {
+		if !n.run(uid) && lost != nil {
+			lost()
+		}
+	})
+}
+
+// run reports whether the nudge reached an owner.
+func (n *signInNudge) run(uid uuid.UUID) bool {
 	tries, every := n.tries, n.every
 	if tries <= 0 {
 		tries = signInNudgeTries
@@ -69,12 +80,13 @@ func (n *signInNudge) run(uid uuid.UUID) {
 		done := n.once(ctx, uid)
 		cancel()
 		if done {
-			return
+			return true
 		}
 	}
 	if n.log != nil {
 		n.log.Debug("sign-in nudge: no owner for the user's group yet; the owner's own pass will look them up")
 	}
+	return false
 }
 
 // once reports whether the nudge reached an owner (this pod's job or a peer).

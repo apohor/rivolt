@@ -15,7 +15,7 @@ import (
 // refreshLookupOpTimeout bounds the Redis calls of the gate: a slow Redis must not hold a "Check again" tap.
 const refreshLookupOpTimeout = 300 * time.Millisecond
 
-// refreshLookupWindow mirrors refreshLookupWindow (the owner's shortest time between two lookups of one user); internal/api may not
+// refreshLookupWindow mirrors vehiclediscovery.ForceEvery (the owner's shortest time between two lookups of one user); internal/api may not
 // import that module, and a shorter window here only means one more nudge the owner then refuses itself.
 const refreshLookupWindow = 10 * time.Minute
 
@@ -63,12 +63,36 @@ func (g *refreshLookupGate) claim(ctx context.Context, uid uuid.UUID) (ok bool, 
 	return false, int((left + time.Second - 1) / time.Second)
 }
 
-func withRefreshLookupGate(g *refreshLookupGate) func(http.Handler) http.Handler {
+// release gives the user's slot back, for a nudge that never reached an owner. It runs detached from the request, so it has its own deadline.
+func (g *refreshLookupGate) release(uid uuid.UUID) {
+	if g == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), refreshLookupOpTimeout)
+	defer cancel()
+	_ = g.rdb.Del(ctx, g.redisKey(uid)).Err()
+}
+
+type refreshNudgeKey struct{}
+
+func withRefreshLookupGate(g *refreshLookupGate, nudge func(context.Context, uuid.UUID, func())) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), refreshLookupGateKey{}, g)))
+			ctx := context.WithValue(r.Context(), refreshLookupGateKey{}, g)
+			if nudge != nil {
+				ctx = context.WithValue(ctx, refreshNudgeKey{}, func(c context.Context, uid uuid.UUID) { nudge(c, uid, func() { g.release(uid) }) })
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// refreshNudgeFrom is the nudge the refresh handler calls: the one that hands the gate's slot back when it is lost, else the plain sign-in nudge.
+func refreshNudgeFrom(ctx context.Context) func(context.Context, uuid.UUID) {
+	if fn, _ := ctx.Value(refreshNudgeKey{}).(func(context.Context, uuid.UUID)); fn != nil {
+		return fn
+	}
+	return signInNudgeFrom(ctx)
 }
 
 func refreshLookupGateFrom(ctx context.Context) *refreshLookupGate {
