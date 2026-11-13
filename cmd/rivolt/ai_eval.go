@@ -192,12 +192,10 @@ func evalDrives() []evalDrive {
 }
 
 // servedCost prices a call by the model the responses report, not the one requested, so a silent alias change cannot hide
-// in the total. With several requests in one call it takes the dearest; with no report it falls back to the requested model.
+// in the total. With several requests in one call it takes the dearest; never below the requested model.
 func servedCost(requested string, served []string, usage ai.TokenUsage) float64 {
-	if len(served) == 0 {
-		return ai.ComputeCost("anthropic", requested, usage.InputTokens, usage.OutputTokens)
-	}
-	var cost float64
+	// The requested model is the floor: an unknown served id prices on the fallback rate and must not come out below it.
+	cost := ai.ComputeCost("anthropic", requested, usage.InputTokens, usage.OutputTokens)
 	for _, m := range served {
 		cost = max(cost, ai.ComputeCost("anthropic", m, usage.InputTokens, usage.OutputTokens))
 	}
