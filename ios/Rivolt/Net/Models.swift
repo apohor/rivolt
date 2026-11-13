@@ -58,6 +58,15 @@ struct AppToken: Decodable, Equatable {
     let user: AuthUser
 }
 
+/// One of Rivian's pictures of a vehicle (`images` on `GET /api/vehicles`): a placement (front, side, three-quarter, rear,
+/// side-charging, side-rear, overhead, in-use) and a design (dark or light, to sit on a dark or light page).
+struct VehicleImage: Decodable, Equatable {
+    let url: String
+    var placement: String? = nil
+    var design: String? = nil
+    var size: String? = nil
+}
+
 /// Vehicle metadata returned by `GET /api/vehicles`. We mirror only
 /// the fields the home screen needs; the full struct (trim, images,
 /// pack_kwh, ...) can be added as views start consuming it.
@@ -74,6 +83,8 @@ struct Vehicle: Decodable, Identifiable, Equatable {
     /// On a free account with several vehicles, every vehicle but its primary: listed, recording and alerting, but its history and
     /// detail are Pro (HTTP 402). Absent otherwise.
     var proLocked: Bool? = nil
+    /// Rivian's pictures of the vehicle, by placement and design (see VehiclePicture). Absent on a server that doesn't send them.
+    var images: [VehicleImage]? = nil
 
     struct OTA: Decodable, Equatable {
         struct Version: Decodable, Equatable {

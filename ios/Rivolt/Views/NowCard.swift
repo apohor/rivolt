@@ -16,9 +16,17 @@ struct NowCard: View {
     var liveDrive: LiveDrive?
     /// The server's row for the charge in progress, for its cost so far.
     var charge: ChargeBrief?
+    /// The redesigned hero (design_preview key now_v2): the Live button on its own row, Rivian's picture of the truck beside
+    /// the range, one line for the cabin and outside temperatures. Without the key the card is the one it always was.
+    var v2 = false
+    var images: [VehicleImage]?
+    /// Where the Live button goes (the web's live view); nil hides it (the demo has no live view).
+    var liveURL: URL?
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .largeTitle) private var gaugeWidth = CGFloat(ThemeTokens.gaugeSize)
+    @State private var outsideInfo = false
 
     private var offline: Bool { summary.presence == .offline }
     private var charging: Bool { summary.kind == .charging && !offline }
@@ -39,6 +47,10 @@ struct NowCard: View {
     }
 
     var body: some View {
+        if v2 { heroV2 } else { classic }
+    }
+
+    private var classic: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             gaugeRow
@@ -48,6 +60,96 @@ struct NowCard: View {
         .themeHero(live: liveKind, critical: critical)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
+    }
+
+    // MARK: The redesigned hero (now_v2)
+
+    private var heroV2: some View {
+        let showRows = charging || driving || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true)
+        return VStack(alignment: .leading, spacing: 12) {
+            // The Live button has its own row above the gauge and the picture, so nothing overlaps it.
+            if let liveURL { HStack { Spacer(minLength: 0); NowLiveButton(url: liveURL, pulsing: (charging || driving) && isLive) } }
+            VStack(alignment: .leading, spacing: 12) {
+                heroGaugeV2
+                if showRows { detailRows }
+                if temperaturesLine != nil { temperatures }
+                Text(footer).themeText(.subline)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(spoken)
+        }
+        .themeHero(live: liveKind, critical: critical)
+    }
+
+    private var carURL: URL? { VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, light: colorScheme == .light) }
+
+    /// Rivian's picture; one that fails to load leaves nothing (no broken image), and the range stays beside the gauge.
+    private func car(maxHeight: CGFloat) -> some View {
+        AsyncImage(url: carURL) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var heroGaugeV2: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                if carURL != nil { car(maxHeight: 72) }
+                compactGaugeColumn
+            }
+        } else {
+            HStack(alignment: .center, spacing: 16) {
+                ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
+                            .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
+                        Text("%").themeText(.value, color: Theme.textSecondary)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    if carURL != nil { car(maxHeight: 96) }
+                    if let km = summary.rangeKm {
+                        let range = NowFormat.usesMetric ? km : km / 1.609344
+                        (Text(NumberText.fixed(range, 0)).font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title2)).foregroundColor(Theme.textPrimary)
+                            + Text(" \(NowFormat.usesMetric ? "km" : "mi") range").font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote)).foregroundColor(Theme.textSecondary))
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Cabin 72° · Outside 64°", under a rule; the outside figure is looked up, not measured, and says so on a tap.
+    private var temperaturesLine: String? {
+        var parts: [String] = []
+        if let cabin = summary.liveComfort?.cabinValue { parts.append("Cabin \(cabin)") }
+        if let t = summary.outsideTempC { parts.append("Outside \(NowComfort.wholeDegrees(celsius: t))") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private var temperatures: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Rectangle().fill(Theme.border).frame(height: 1)
+            HStack(spacing: 0) {
+                Text(temperaturesLine ?? "").themeText(.value, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                if summary.outsideTempC != nil {
+                    Button { outsideInfo.toggle() } label: {
+                        Image(systemName: "info.circle").font(.body).foregroundStyle(Theme.textTertiary).frame(width: 44, height: 44)
+                    }
+                    .padding(.vertical, -12)
+                    .accessibilityLabel("About the outside temperature")
+                    .accessibilityHint(outsideInfo ? "Hides the note" : "Shows how it is worked out")
+                }
+            }
+            if outsideInfo, summary.outsideTempC != nil {
+                Text("Outside is an estimate, looked up from Open-Meteo for your truck's location.").themeText(.caption, color: Theme.textSecondary)
+            }
+        }
     }
 
     // MARK: Header
@@ -156,10 +258,10 @@ struct NowCard: View {
         VStack(alignment: .leading, spacing: 8) {
             if charging { chargingRows }
             if driving { drivingRows }
-            if let temp = summary.outsideTempC {
+            if !v2, let temp = summary.outsideTempC {
                 readout("Outside", NowComfort.wholeDegrees(celsius: temp))
             }
-            if let cabin = summary.liveComfort?.cabinValue {
+            if !v2, let cabin = summary.liveComfort?.cabinValue {
                 readout("Cabin", cabin)
             }
             if let install = summary.liveInstall {
@@ -400,5 +502,46 @@ struct NoDataCard: View {
         }
         .themeCard(padding: 5 * Theme.unit)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The Live button: a pill that looks pressable (a rim, a chevron, a press state), at least 44 pt, with a pulsing dot while the truck
+/// is charging or driving. It opens the web's live view.
+struct NowLiveButton: View {
+    let url: URL
+    var pulsing = false
+    @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        Button { openURL(url) } label: {
+            HStack(spacing: 8) {
+                if pulsing {
+                    Circle().fill(Theme.accentFill).frame(width: 8, height: 8)
+                        .opacity(pulse && !reduceMotion ? 0.35 : 1)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 1).repeatForever(autoreverses: true), value: pulse)
+                        .onAppear { pulse = true }
+                }
+                Text("Live").themeText(.value, color: Theme.textPrimary).fontWeight(.medium)
+                Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.textSecondary)
+            }
+            .padding(.horizontal, 16)
+            .frame(minWidth: 44, minHeight: 44)
+        }
+        .buttonStyle(NowLiveButtonStyle())
+        .accessibilityLabel("Live")
+        .accessibilityHint("Opens the live view on the web")
+        .accessibilityIdentifier("now-live-button")
+    }
+}
+
+private struct NowLiveButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(configuration.isPressed ? Theme.borderStrong : Theme.card, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.borderStrong, lineWidth: 1))
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .contentShape(Capsule())
     }
 }
