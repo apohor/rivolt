@@ -74,6 +74,7 @@ var starters = map[string]starter{
 	"tokens_unheld_gauge": {kind: startAlways, single: singleEveryPod, by: "this pod's own clients"},
 	"group_map_follow":    {kind: startAlways, single: singleEveryPod, by: "this pod's map of the groups"},                                                                                // the leaseless branch's fence source; the leased branch has the coordinator instead
 	"signin_nudge":        {kind: startAlways, single: singleOwned, by: "a non-owner forwards the nudge to the group's owner"},                                                            // one per sign-in
+	"refresh_nudge":       {kind: startAlways, single: singleOwned, by: "a non-owner forwards the nudge to the group's owner"},                                                            // one per "Check again" tap that passes the gate
 	"receipts_sync_push":  {kind: startAlways, single: singleOwned, by: "a non-owner forwards receipts_sync to the group's owner; the claim caps Rivian at one call per user per 30 min"}, // one per opt-in, RIVOLT_FIRST_SCREEN only
 
 	"chargers_warm":   {kind: startRoutes, single: singleEveryPod, by: "an in-memory cache of the chargers file", onAdmin: true},

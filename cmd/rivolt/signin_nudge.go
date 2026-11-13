@@ -56,7 +56,7 @@ func (n *signInNudge) Nudge(_ context.Context, uid uuid.UUID) {
 // NudgeNotify is Nudge that calls lost when the nudge never reached an owner (after the retries), so a caller that rate-limits on "the owner was
 // asked" can hand the tap back.
 func (n *signInNudge) NudgeNotify(_ context.Context, uid uuid.UUID, lost func()) {
-	n.role.start("signin_nudge", func() {
+	n.role.start("refresh_nudge", func() {
 		if !n.run(uid) && lost != nil {
 			lost()
 		}
