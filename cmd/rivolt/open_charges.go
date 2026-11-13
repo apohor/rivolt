@@ -39,7 +39,6 @@ const (
 
 type openCharge struct {
 	ID        string    `json:"id"`
-	VehicleID string    `json:"vehicle_id"`
 	StartedAt time.Time `json:"started_at"`
 }
 
@@ -102,7 +101,7 @@ func runOpenCharges(args []string, stdout, stderr io.Writer) int {
 }
 
 func listOpenCharges(ctx context.Context, q *sql.DB) ([]openCharge, error) {
-	rows, err := q.QueryContext(ctx, `SELECT id::text, vehicle_id::text, started_at FROM charges
+	rows, err := q.QueryContext(ctx, `SELECT id::text, started_at FROM charges
 		WHERE final_state LIKE 'charging\_active%' AND ended_at > now() - interval '10 minutes' ORDER BY started_at`)
 	if err != nil {
 		return nil, err
@@ -111,7 +110,7 @@ func listOpenCharges(ctx context.Context, q *sql.DB) ([]openCharge, error) {
 	var list []openCharge
 	for rows.Next() {
 		var c openCharge
-		if err := rows.Scan(&c.ID, &c.VehicleID, &c.StartedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.StartedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, c)
@@ -158,7 +157,8 @@ type chargeNow struct {
 	Rows       int    // rows for the vehicle that started within a minute of the snapshot's start, or later
 	RowIDs     string // their short ids
 	State      string
-	AgeSeconds int64 // since the charge's last sample; 0 when ended_at is NULL
+	AgeSeconds int64 // since the charge's last sample
+	NoEnd      bool  // the row has no end time, so there is no last sample to age
 }
 
 // classifyOpenCharge is the old open_charge_verify's rule set: level is "ok", "warn" or "fail".
@@ -171,6 +171,8 @@ func classifyOpenCharge(id string, n chargeNow, sinceRoll int64) (level, msg str
 	switch {
 	case n.Missing:
 		return "fail", fmt.Sprintf("FAIL open charge %s: its row is gone after the roll", short)
+	case n.NoEnd:
+		return "fail", fmt.Sprintf("FAIL open charge %s: the row has no end time, so its last sample can't be checked", short)
 	case n.Rows != 1:
 		return "fail", fmt.Sprintf("FAIL open charge %s: %d rows for the vehicle since it started (it split, or a new charge began): %s", short, n.Rows, strings.ReplaceAll(n.RowIDs, ",", ", "))
 	case active && n.AgeSeconds > int64(openChargeWindow/time.Second):
@@ -184,7 +186,7 @@ func classifyOpenCharge(id string, n chargeNow, sinceRoll int64) (level, msg str
 func readChargeNow(ctx context.Context, q *sql.DB, c openCharge) (chargeNow, error) {
 	var n chargeNow
 	if err := q.QueryRowContext(ctx, `SELECT count(*), coalesce(string_agg(substr(id::text, 1, 8), ','), '') FROM charges
-		WHERE vehicle_id = $1::uuid AND started_at >= $2::timestamptz - interval '1 minute'`, c.VehicleID, c.StartedAt).Scan(&n.Rows, &n.RowIDs); err != nil {
+		WHERE vehicle_id = (SELECT vehicle_id FROM charges WHERE id = $1::uuid) AND started_at >= $2::timestamptz - interval '1 minute'`, c.ID, c.StartedAt).Scan(&n.Rows, &n.RowIDs); err != nil {
 		return n, err
 	}
 	var state sql.NullString
@@ -194,7 +196,7 @@ func readChargeNow(ctx context.Context, q *sql.DB, c openCharge) (chargeNow, err
 		n.Missing = true
 		return n, nil
 	}
-	n.State, n.AgeSeconds = state.String, age.Int64
+	n.State, n.AgeSeconds, n.NoEnd = state.String, age.Int64, !age.Valid
 	return n, err
 }
 

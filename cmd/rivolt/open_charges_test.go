@@ -22,6 +22,7 @@ func TestClassifyOpenCharge(t *testing.T) {
 		has   string
 	}{
 		{"still charging", chargeNow{Rows: 1, State: "charging_active", AgeSeconds: 30}, 600, "ok", "one row"},
+		{"no end time", chargeNow{Rows: 1, State: "charging_active", NoEnd: true}, 600, "fail", "no end time"},
 		{"gone", chargeNow{Missing: true}, 600, "fail", "gone"},
 		{"split", chargeNow{Rows: 2, RowIDs: "01234567,89abcdef", State: "charging_active", AgeSeconds: 5}, 600, "fail", "2 rows"},
 		{"stalled", chargeNow{Rows: 1, State: "charging_active", AgeSeconds: 700}, 600, "fail", "stalled"},
