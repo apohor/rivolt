@@ -125,12 +125,18 @@ func effectiveVersion(build, podTag string) string {
 	}
 }
 
-func handleHealth(version string) http.HandlerFunc {
+// RunningVersion is the version this pod reports: effectiveVersion of the compile-time stamp and the deployed image tag. The startup log
+// line and /api/health use it, so a retagged release logs vX.Y.Z and not the main build's dev stamp.
+func RunningVersion(build string) string {
 	podTag := ""
 	if b, err := os.ReadFile("/etc/podinfo/image-tag"); err == nil {
 		podTag = string(b)
 	}
-	effective := effectiveVersion(version, podTag)
+	return effectiveVersion(build, podTag)
+}
+
+func handleHealth(version string) http.HandlerFunc {
+	effective := RunningVersion(version)
 	return func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":      true,
