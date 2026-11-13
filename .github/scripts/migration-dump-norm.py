@@ -12,6 +12,38 @@ import re
 import sys
 
 
+DOLLAR = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$")
+
+
+def quoted_end(text, i):
+    """Index just past the quoted run that starts at text[i] (a ' or "). A doubled quote is a literal quote; inside an E'...' string a
+    backslash also escapes the next character."""
+    c, n = text[i], len(text)
+    escapes = c == "'" and i > 0 and text[i - 1] in "eE" and (i < 2 or not (text[i - 2].isalnum() or text[i - 2] == "_"))
+    j = i + 1
+    while j < n:
+        if escapes and text[j] == "\\":
+            j += 2
+            continue
+        if text[j] == c:
+            if text.startswith(c * 2, j):
+                j += 2
+                continue
+            return j + 1
+        j += 1
+    return n
+
+
+def dollar_end(text, i):
+    """Index just past the $tag$...$tag$ body that starts at text[i], or None when text[i] does not open one."""
+    m = DOLLAR.match(text, i)
+    if not m:
+        return None
+    tag = m.group(0)
+    j = text.find(tag, m.end())
+    return len(text) if j < 0 else j + len(tag)
+
+
 def statements(text):
     """Split a dump into statements, reading quotes the way psql does: a `--` inside a string is text, a `;` inside a string or a $$ body does
     not end the statement, and quoted text is kept byte for byte (whitespace is collapsed outside quotes only)."""
@@ -25,35 +57,26 @@ def statements(text):
                 i += 1
             continue
         line_start = c == "\n"
-        if text.startswith("--", i):
+        if c == "-" and text.startswith("--", i):
             while i < n and text[i] != "\n":
                 i += 1
             continue
-        if text.startswith("/*", i):
+        if c == "/" and text.startswith("/*", i):
             j = text.find("*/", i + 2)
             i = n if j < 0 else j + 2
             cur.append(" ")
             continue
         if c == "'" or c == '"':
-            j = i + 1
-            while j < n:
-                if text[j] == c:
-                    if text.startswith(c * 2, j):
-                        j += 2
-                        continue
-                    break
-                j += 1
-            cur.append(text[i : j + 1])
-            i = j + 1
-            continue
-        m = re.match(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$", text[i:])
-        if c == "$" and m:
-            tag = m.group(0)
-            j = text.find(tag, i + len(tag))
-            j = n if j < 0 else j + len(tag)
+            j = quoted_end(text, i)
             cur.append(text[i:j])
             i = j
             continue
+        if c == "$":
+            j = dollar_end(text, i)
+            if j is not None:
+                cur.append(text[i:j])
+                i = j
+                continue
         if c == ";":
             out.append("".join(cur))
             cur = []
@@ -67,14 +90,22 @@ def statements(text):
 
 
 def squeeze(st):
-    """Collapse whitespace outside quotes and dollar quotes."""
-    parts = re.split(r"('(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|\$([A-Za-z_][A-Za-z0-9_]*)?\$.*?\$\2\$)", st, flags=re.S)
-    # re.split with two groups yields (text, quoted, tag) triples.
-    res = []
-    for k in range(0, len(parts), 3):
-        res.append(re.sub(r"\s+", " ", parts[k]))
-        if k + 1 < len(parts):
-            res.append(parts[k + 1])
+    """Collapse whitespace outside quotes and dollar quotes (tagged or bare)."""
+    res, i, n, start = [], 0, len(st), 0
+    while i < n:
+        c = st[i]
+        j = None
+        if c == "'" or c == '"':
+            j = quoted_end(st, i)
+        elif c == "$":
+            j = dollar_end(st, i)
+        if j is None:
+            i += 1
+            continue
+        res.append(re.sub(r"\s+", " ", st[start:i]))
+        res.append(st[i:j])
+        i = start = j
+    res.append(re.sub(r"\s+", " ", st[start:]))
     return "".join(res).strip()
 
 
