@@ -15,6 +15,7 @@ func TestParseDesignPreview(t *testing.T) {
 		"theme_switch":              {"theme_switch"},
 		"theme_switch, now_v2 ,":    {"theme_switch", "now_v2"},
 		"now_v2,now_v2,unknown_key": {"now_v2", "unknown_key"},
+		"Theme_Switch,theme_switch": {"Theme_Switch", "theme_switch"},
 	} {
 		if got := ParseDesignPreview(in); !reflect.DeepEqual(got, want) {
 			t.Errorf("ParseDesignPreview(%q) = %#v, want %#v", in, got, want)
