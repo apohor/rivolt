@@ -82,7 +82,7 @@ struct PlannerMapSettings: Equatable, Hashable {
     var corridor = "normal"
     var startExcludeMi = 0
     var minFastKw = 0
-    var layersOn: Set<String> = ["dcfc"]
+    var layersOn: Set<String> = []
     var preferredOnly = false
     var weatherOn = true
     var radarOn = true
@@ -95,7 +95,7 @@ struct PlannerMapSettings: Equatable, Hashable {
         corridor = p.corridor ?? "normal"
         startExcludeMi = p.startExcludeMi ?? 0
         minFastKw = p.minFastKw ?? 0
-        layersOn = Set(p.layersOn ?? ["dcfc"])
+        layersOn = Set(p.layersOn ?? [])
         preferredOnly = p.preferredOnly ?? false
         weatherOn = p.weatherOn ?? true
         radarOn = p.radarOn ?? true

@@ -65,7 +65,9 @@ final class PlannerSettingsTests: XCTestCase {
     }
 
     func testAllLayersOffIsASetting() throws {
-        let s = saved()
+        var on = PlannerMapSettings()
+        on.layersOn = ["dcfc"]
+        let s = saved(map: on)
         var d = PlannerDefaultsForm.draft(s)
         d.map?.layersOn = []
         XCTAssertEqual(try XCTUnwrap(PlannerDefaultsForm.prefsPatch(d, saved: s)).layersOn, [], "an empty list, not an absent one")

@@ -90,6 +90,7 @@ struct TripPlanView: View {
 }
 
 struct TripPlanForm: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Bindable var model: TripPlanModel
     let onPick: (TripPlanView.Picking) -> Void
     let onPlan: () -> Void
@@ -134,8 +135,10 @@ struct TripPlanForm: View {
     }
 
     private func placeRow(label: String, value: String, action: @escaping () -> Void, clear: (() -> Void)?, placeholder: Bool = false) -> some View {
-        HStack(spacing: 3 * Theme.unit) {
-            Text(label).themeText(.label).frame(width: 44, alignment: .leading)
+        // At accessibility text sizes the label sits above the place (a 44 pt column would break "FROM" one letter per line).
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: Theme.unit)) : AnyLayout(HStackLayout(spacing: 3 * Theme.unit))
+        return layout {
+            Text(label).themeText(.label).frame(width: typeSize.isAccessibilitySize ? nil : 44, alignment: .leading)
             Button(action: action) {
                 Text(value).themeText(.value, color: placeholder ? Theme.textTertiary : Theme.textPrimary)
                     .multilineTextAlignment(.leading).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)

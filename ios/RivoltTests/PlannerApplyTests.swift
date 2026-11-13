@@ -37,7 +37,7 @@ final class PlannerApplyTests: XCTestCase {
     /// (`alongTheLine`: the search's path is the line, as on the one-route map; the days map's line is searched along only once a trip is planned over
     /// nights, which this model has not.)
     private func expectTheLineWins(alongTheLine: Bool, _ arrive: (TripPlanModel, [RouteSnap.Coord], Slow) async -> Void) async throws {
-        let m = try plannedModel(), src = Slow()
+        let m = try await plannedModel(fastOn: true), src = Slow()
         src.answers = [pois("Along the stops"), pois("Along the road")]
         let first = Task { await m.reloadLayers(source: src) }
         for _ in 0..<1000 where !src.holding { await Task.yield() }
@@ -64,7 +64,7 @@ final class PlannerApplyTests: XCTestCase {
     }
 
     func testASearchOutWhenThePlanGoesAwayEndsWithNoPinsAndNoSpinner() async throws {
-        let m = try plannedModel(), src = Slow()
+        let m = try await plannedModel(fastOn: true), src = Slow()
         src.answers = [pois("For the old plan")]
         let first = Task { await m.reloadLayers(source: src) }
         for _ in 0..<1000 where !src.holding { await Task.yield() }
@@ -85,11 +85,13 @@ final class PlannerApplyTests: XCTestCase {
         PlannerPrefs(driveMode: "EVERYDAY", hasAdapter: true, corridor: corridor, startExcludeMi: start, minFastKw: kw, layersOn: layers, preferredOnly: preferred, weatherOn: true, radarOn: false)
     }
 
-    private func plannedModel() throws -> TripPlanModel {
+    /// `fastOn`: the Fast chip switched on first (every layer starts off, as on the web), its own search going to a throwaway source.
+    private func plannedModel(fastOn: Bool = false) async throws -> TripPlanModel {
         let m = TripPlanModel()
         let from = PlaceMatch(name: "Example Origin", latitude: 45.52, longitude: -122.68, admin1: nil, country: nil)
         let to = PlaceMatch(name: "Example Destination", latitude: 38.58, longitude: -121.49, admin1: nil, country: nil)
         m.open(SavedTripLogic.Restored(origin: from, destination: to, plan: try Fixture.decode(TripPlan.self, "trip_plan_rivian_shape"), multiday: nil, stay: nil))
+        if fastOn { await m.setLayer(.chargers, on: true, source: Fake()) }
         return m
     }
 
@@ -127,7 +129,7 @@ final class PlannerApplyTests: XCTestCase {
     }
 
     func testTheModelAsksForTheSettingsOnceAndSendsThemOnTheSearch() async throws {
-        let m = try plannedModel(), src = Fake()
+        let m = try await plannedModel(), src = Fake()
         src.prefs = .success(prefs(corridor: "close", start: 25, kw: 50, layers: ["dcfc", "hotels"]))
         await m.prepareLayers(source: src)
         await m.prepareLayers(source: src)
@@ -141,21 +143,21 @@ final class PlannerApplyTests: XCTestCase {
     }
 
     func testTheWeatherDefaultComesFromTheSettings() async throws {
-        let m = try plannedModel(), src = Fake()
+        let m = try await plannedModel(), src = Fake()
         XCTAssertTrue(m.weatherOn, "on to begin with, and where there are no settings")
         var p = prefs()
         p.weatherOn = false
         src.prefs = .success(p)
         await m.prepareLayers(source: src)
         XCTAssertFalse(m.weatherOn, "the setting says weather is off on the map to begin with")
-        let on = try plannedModel(), src2 = Fake()
+        let on = try await plannedModel(), src2 = Fake()
         src2.prefs = .success(prefs())
         await on.prepareLayers(source: src2)
         XCTAssertTrue(on.weatherOn)
     }
 
     func testAnEmptyChoiceOfLayersMeansNoPinsAndNoSearch() async throws {
-        let m = try plannedModel(), src = Fake()
+        let m = try await plannedModel(), src = Fake()
         src.prefs = .success(prefs(layers: []))
         await m.prepareLayers(source: src)
         XCTAssertTrue(m.layers.isEmpty)
@@ -163,19 +165,19 @@ final class PlannerApplyTests: XCTestCase {
         XCTAssertTrue(m.markers.isEmpty)
     }
 
-    func testWithoutTheSettingsFastIsOnAndTheSearchCarriesNothingExtra() async throws {
+    func testWithoutTheSettingsNoLayerIsOnAndNothingIsAsked() async throws {
         for failure: Result<PlannerPrefs, Error> in [.failure(APIError.server(status: 404, message: "")), .failure(URLError(.notConnectedToInternet)), .success(PlannerPrefs(driveMode: "EVERYDAY", hasAdapter: nil))] {
-            let m = try plannedModel(), src = Fake()
+            let m = try await plannedModel(), src = Fake()
             src.prefs = failure
             await m.prepareLayers(source: src)
-            XCTAssertEqual(m.layers, [.chargers])
-            let r = try XCTUnwrap(src.requests.first)
-            XCTAssertNil(r.preset); XCTAssertNil(r.startExcludeMi); XCTAssertNil(r.minFastKw)
+            XCTAssertTrue(m.layers.isEmpty, "all layers start off, as on the web")
+            XCTAssertTrue(src.requests.isEmpty)
+            XCTAssertTrue(m.markers.isEmpty, "no charger pins until a chip is turned on")
         }
     }
 
     func testPreferredOnlyFromTheSettingsTakesHoldOnceTheNetworksAreKnownAndOnlyOnce() async throws {
-        let m = try plannedModel(), src = Fake()
+        let m = try await plannedModel(), src = Fake()
         src.prefs = .success(prefs(preferred: true))
         await m.prepareLayers(source: src)
         XCTAssertFalse(m.preferredOnly, "no networks known yet: nothing to prefer")
@@ -187,7 +189,7 @@ final class PlannerApplyTests: XCTestCase {
     }
 
     func testADaysLineSearchDoesNotHideItsFirstMiles() async throws {
-        let m = try plannedModel(), src = Fake()
+        let m = try await plannedModel(), src = Fake()
         src.prefs = .success(prefs(start: 50))
         await m.prepareLayers(source: src)
         XCTAssertEqual(src.requests.last?.startExcludeMi, 50, "the plan's own line starts at the origin")

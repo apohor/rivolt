@@ -921,7 +921,8 @@ struct RouteMapView: UIViewRepresentable {
             }
             // The margins go in as the content inset, not as edge padding: MapLibre keeps edge padding only until the view next lays out, so a
             // fit above a sheet that settled lower would otherwise be undone at once.
-            let inset = UIEdgeInsets(top: max(24, topInset), left: 24, bottom: max(32, bottomInset), right: 24)
+            // A leg's weather label sits to the right of its point (about 120 pt of text), so the route's far end keeps room for it.
+            let inset = UIEdgeInsets(top: max(24, topInset), left: 24, bottom: max(32, bottomInset), right: drawing.legTags.isEmpty ? 24 : 124)
             if map.contentInset != inset { map.setContentInset(inset, animated: false, completionHandler: nil) }
             map.setVisibleCoordinates(&coords, count: UInt(coords.count), edgePadding: .zero, animated: animated)
         }
