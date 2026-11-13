@@ -104,7 +104,11 @@ export default function NowHeroV2({
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
   const [info, setInfo] = useState(false);
   const [slot, setSlot] = useState<Element | null>(null);
-  useEffect(() => setSlot(document.querySelector("[data-now-chip-slot]")), []);
+  const [creditSlot, setCreditSlot] = useState<Element | null>(null);
+  useEffect(() => {
+    setSlot(document.querySelector("[data-now-chip-slot]"));
+    setCreditSlot(document.querySelector("[data-now-credit-slot]"));
+  }, []);
   const chipEl = (
     <span
       data-testid="now-pill"
@@ -246,7 +250,7 @@ export default function NowHeroV2({
                 aria-label="About the outside temperature"
                 aria-expanded={info}
                 onClick={() => setInfo((o) => !o)}
-                className="pointer-events-auto ml-2 inline-flex align-middle text-neutral-500 hover:text-neutral-300"
+                className="pointer-events-auto -my-3.5 -mr-3.5 ml-0 inline-flex p-3.5 align-middle text-neutral-500 hover:text-neutral-300"
               >
                 <svg
                   width="18"
@@ -279,9 +283,12 @@ export default function NowHeroV2({
         </div>
         {footer}
       </div>
-      {outside && (
-        <WeatherCredit className="text-center text-sm text-neutral-500" />
-      )}
+      {outside && creditSlot
+        ? createPortal(
+            <WeatherCredit className="text-center text-sm text-neutral-500" />,
+            creditSlot,
+          )
+        : null}
     </>
   );
 }

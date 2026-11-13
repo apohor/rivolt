@@ -53,6 +53,22 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
   await expect(page.locator("[data-weather-credit]")).toBeVisible();
 });
 
+test("flag on: the (i) has a 44 px target, a tap beside it stays on the page, and the credit sits under the strip", async ({ page }) => {
+  await open(page, true);
+  const btn = page.getByRole("button", { name: "About the outside temperature" });
+  const box = (await btn.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(44);
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  // 18 px icon, so 18 px off its centre is a near miss that must still hit the button, not the card link.
+  const url = page.url();
+  await page.mouse.click(box.x + box.width / 2 + 18, box.y + box.height / 2);
+  await expect(page.getByTestId("now-temps")).toContainText("estimate");
+  expect(page.url()).toBe(url);
+  const strip = (await page.getByTestId("now-month").boundingBox())!;
+  const credit = (await page.locator("[data-weather-credit]").boundingBox())!;
+  expect(credit.y).toBeGreaterThan(strip.y + strip.height - 1);
+});
+
 test("flag on, charging: the chip says power and the subline says what the limit buys", async ({ page }) => {
   await open(page, true, "charging");
   await expect(page.locator("[data-now-chip]")).toContainText(/Charging · .* kW · (done|full) by \d/);
@@ -90,4 +106,6 @@ test("flag on: every distance on the hero is in the user's unit (km)", async ({ 
   const hero = page.locator("[data-now-v2]");
   await expect(hero).toContainText("km");
   await expect(hero).not.toContainText(/\d mi\b/);
+  await expect(page.getByTestId("now-month")).toContainText("km/kWh");
+  await expect(page.getByTestId("now-month")).not.toContainText("mi/kWh");
 });

@@ -309,6 +309,7 @@ export default function HomePage() {
               spent={chargingSpend != null ? formatMoney(chargingSpend.total, chargingSpend.currency) : "—"}
             />
       )}
+      {v2 && <div data-now-credit-slot className="mt-3" />}
       {early && <EarlyMonthNote />}
       {/* The truck first (the Now card); the first-charge note, the milestone and the asks follow
           it, so they never push it down (the iPhone does the same). */}
@@ -626,12 +627,14 @@ function MonthStrip({
   eff: number | null;
   spent: string;
 }) {
+  const { distanceUnit } = usePreferences();
+  const k = distanceUnit === "km" ? 1.609344 : 1;
   const thisMonth = scope.kind === "month" && scope.offset === 0;
   const title = thisMonth ? "This month" : periodLabel(scope);
   const items: [string, string][] = [
-    [num(miles, 0), "miles"],
+    [num(miles * k, 0), distanceUnit === "km" ? "km" : "miles"],
     [num(kwh, 0), "kWh added"],
-    [eff != null ? eff.toFixed(2) : "—", "mi/kWh"],
+    [eff != null ? (eff * k).toFixed(2) : "—", `${distanceUnit}/kWh`],
     [spent, "spent"],
   ];
   return (
@@ -640,9 +643,9 @@ function MonthStrip({
         <h2 className="text-sm font-semibold text-neutral-200">{title}</h2>
         <PeriodPicker value={period} onChange={onPeriod} />
       </div>
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] rounded-2xl border border-neutral-800 bg-neutral-900/60">
-        {items.map(([v, l], i) => (
-          <div key={l} className={`flex flex-col gap-0.5 whitespace-nowrap px-3 py-3 ${i > 0 ? "border-l border-neutral-800" : ""}`}>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] gap-px overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-800">
+        {items.map(([v, l]) => (
+          <div key={l} className="flex flex-col gap-0.5 whitespace-nowrap bg-neutral-900 px-3 py-3">
             <span className="text-xl font-semibold tabular-nums text-neutral-100">{v}</span>
             <span className="text-sm text-neutral-400">{l}</span>
           </div>
