@@ -4,13 +4,14 @@ import XCTest
 /// answered from fixtures (Rivolt/App/UITestFixtures.swift, RIVOLT_UITEST_NO_TRUCK): each says its own words, and only the ones with something to do have the
 /// way to do it.
 final class MyVehiclesUITests: XCTestCase {
-    private func launch(_ state: String, refreshUnheld: Bool = false) -> XCUIApplication {
+    private func launch(_ state: String, refreshUnheld: Bool = false, refreshLimited: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = [here.appendingPathComponent("Fixtures").path,
                                                           here.deletingLastPathComponent().appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
         app.launchEnvironment["RIVOLT_UITEST_NO_TRUCK"] = state
         if refreshUnheld { app.launchEnvironment["RIVOLT_UITEST_REFRESH_UNHELD"] = "1" }
+        if refreshLimited { app.launchEnvironment["RIVOLT_UITEST_REFRESH_LIMITED"] = "1" }
         app.launch()
         return app
     }
@@ -42,6 +43,15 @@ final class MyVehiclesUITests: XCTestCase {
         XCTAssertTrue(text("No vehicles on this Rivian account yet", in: app).waitForExistence(timeout: 20))
         app.buttons["Check again"].tap()
         XCTAssertTrue(text("Looking for your vehicles", in: app).waitForExistence(timeout: 10))
+    }
+
+    // Check again refused by the server (429) on a tap whose re-read also moves the card from none to looking: the card changes and the plain-words notice stays.
+    func testRefusedCheckAgainSaysSoAndKeepsSayingItWhenTheCardMoves() {
+        let app = launch("none", refreshLimited: true)
+        XCTAssertTrue(text("No vehicles on this Rivian account yet", in: app).waitForExistence(timeout: 20))
+        app.buttons["Check again"].tap()
+        XCTAssertTrue(text("Looking for your vehicles", in: app).waitForExistence(timeout: 10))
+        XCTAssertTrue(text("Checked a moment ago. We'll keep looking.", in: app).waitForExistence(timeout: 5))
     }
 
     func testReauthAsksToReconnect() {
