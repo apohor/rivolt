@@ -40,10 +40,13 @@ type stateForward struct {
 }
 
 // forwardable reports whether c is a client whose calls reach Rivian and so go through the forwarder: the live client, or, with the replay
-// test switch, the replay client.
+// test switch, the replay client; and the unheld client of a pod that keeps no tokens for the account (its only answer is the owner's).
 func (sf *stateForward) forwardable(c any) bool {
 	if sf != nil && sf.forwardClient != nil {
 		return sf.forwardClient(c)
+	}
+	if rivian.IsUnheld(c) {
+		return sf != nil // single-owner M4-5: the pod holds no tokens, so the group owner is the only one that can answer
 	}
 	switch v := c.(type) {
 	case *rivian.LiveClient:

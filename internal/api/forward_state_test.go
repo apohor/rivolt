@@ -284,16 +284,18 @@ func TestForwardableClients(t *testing.T) {
 		c    any
 		want bool
 	}{
-		"live":                 {&stateForward{}, rivian.NewLive(), true},
-		"nil live":             {&stateForward{}, nilLive, false},
-		"replay, no switch":    {&stateForward{}, replay, false},
-		"replay, switch":       {&stateForward{replayTest: true}, replay, true},
-		"live, switch":         {&stateForward{replayTest: true}, rivian.NewLive(), true},
-		"stub, switch":         {&stateForward{replayTest: true}, rivian.NewStub(), false},
-		"mock, switch":         {&stateForward{replayTest: true}, rivian.NewMock(), false},
-		"nil requester":        {nil, replay, false},
-		"deps wiring, switch":  {Deps{StateForward: &fakeStateForwarder{}, GroupOfVehicle: func(string) (string, bool) { return "g", true }, ForwardReplayTest: true}.stateForward(uuid.New()), replay, true},
-		"deps wiring, no flag": {Deps{StateForward: &fakeStateForwarder{}, GroupOfVehicle: func(string) (string, bool) { return "g", true }}.stateForward(uuid.New()), replay, false},
+		"live":                  {&stateForward{}, rivian.NewLive(), true},
+		"nil live":              {&stateForward{}, nilLive, false},
+		"replay, no switch":     {&stateForward{}, replay, false},
+		"replay, switch":        {&stateForward{replayTest: true}, replay, true},
+		"live, switch":          {&stateForward{replayTest: true}, rivian.NewLive(), true},
+		"stub, switch":          {&stateForward{replayTest: true}, rivian.NewStub(), false},
+		"mock, switch":          {&stateForward{replayTest: true}, rivian.NewMock(), false},
+		"nil requester":         {nil, replay, false},
+		"unheld":                {&stateForward{}, rivian.NewUnheldClient(), true},
+		"unheld, nil requester": {nil, rivian.NewUnheldClient(), false},
+		"deps wiring, switch":   {Deps{StateForward: &fakeStateForwarder{}, GroupOfVehicle: func(string) (string, bool) { return "g", true }, ForwardReplayTest: true}.stateForward(uuid.New()), replay, true},
+		"deps wiring, no flag":  {Deps{StateForward: &fakeStateForwarder{}, GroupOfVehicle: func(string) (string, bool) { return "g", true }}.stateForward(uuid.New()), replay, false},
 	} {
 		if got := tc.sf.forwardable(tc.c); got != tc.want {
 			t.Errorf("%s: %v, want %v", name, got, tc.want)
@@ -359,5 +361,66 @@ func TestForwardedStateNoGroupOnANoLocalPodIs503(t *testing.T) {
 	}
 	if len(fw.noGroup) != 1 || len(fw.calls) != 0 {
 		t.Errorf("NoGroup asked %d times, forwards %d; want 1 and 0", len(fw.noGroup), len(fw.calls))
+	}
+}
+
+// Single-owner M4-5: a pod that holds no tokens for the account gets the unheld client. /api/state on it must be answered by the group owner
+// through the forwarder, not by the unheld client's own refusal (the prod 503 of Nov 12). The requester here is built the way Deps builds it,
+// with no client-type override, so the real forwardable check is exercised.
+func TestUnheldPodStateIsForwardedToTheOwner(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr(), ContextTimeoutEnabled: true})
+	t.Cleanup(func() { _ = rdb.Close() })
+	signer, _ := forward.NewSigner(bytes.Repeat([]byte{7}, forward.KeyLen))
+	keys := forward.Keys{}
+	m := forward.NewMetrics(prometheus.NewRegistry())
+
+	ownerClient := &restStateClient{st: rivian.State{VehicleID: fwdVehicle, PowerState: "ready", BatteryLevelPct: 55}}
+	o, err := forward.NewOwner(forward.OwnerConfig{Pod: "pod-a", Keys: keys, Signer: signer, Redis: rdb,
+		Leases: &forwardtest.LeaseView{
+			Owners: map[string]forward.LeaseOwner{fwdGroup: {Found: true, Pod: "pod-a", Epoch: 3}},
+			HeldAt: map[string]int64{fwdGroup: 3},
+		},
+		Runner: &ownerRunner{client: ownerClient, mon: rivian.NewStateMonitor(nil, nil)}, Metrics: m, BlockFor: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); o.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	for dl := time.Now().Add(2 * time.Second); !mr.Exists(keys.Ready("pod-a")) && time.Now().Before(dl); {
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	fw, err := forward.NewForwarder(forward.RequesterConfig{Pod: "pod-b", Keys: keys, Signer: signer, Redis: rdb, Metrics: m,
+		Leases: &forwardtest.LeaseView{Owners: map[string]forward.LeaseOwner{fwdGroup: {Found: true, Pod: "pod-a", Epoch: 3}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := Deps{StateForward: fw, GroupOfVehicle: func(string) (string, bool) { return fwdGroup, true }}
+	w := stateGet(handleVehicleStateForwarded(rivian.NewUnheldClient(), rivian.NewStateMonitor(nil, nil), nil, d.stateForward(uuid.New())))
+	if w.Code != 200 {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	var st rivian.State
+	if err := json.Unmarshal(w.Body.Bytes(), &st); err != nil || st.BatteryLevelPct != 55 {
+		t.Errorf("state %+v (%v)", st, err)
+	}
+	if ownerClient.count() != 1 {
+		t.Errorf("owner Rivian calls %d, want 1", ownerClient.count())
+	}
+}
+
+// The same pod when no owner answers: a retry-able 503, never a 200 and never a panic.
+func TestUnheldPodStateWithoutAnOwnerIsRetryable(t *testing.T) {
+	fw := &fakeStateForwarder{res: forward.UnavailableResult()}
+	d := Deps{StateForward: fw, GroupOfVehicle: func(string) (string, bool) { return fwdGroup, true }}
+	w := stateGet(handleVehicleStateForwarded(rivian.NewUnheldClient(), rivian.NewStateMonitor(nil, nil), nil, d.stateForward(uuid.New())))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if len(fw.calls) != 1 {
+		t.Errorf("forwards %d, want 1", len(fw.calls))
 	}
 }

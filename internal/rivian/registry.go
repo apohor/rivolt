@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -344,8 +345,23 @@ type unheldClient struct{}
 // NewUnheldClient returns the Client a data-plane handler uses for a user whose group this pod does not hold.
 func NewUnheldClient() Client { return unheldClient{} }
 
+// IsUnheld reports whether c is the client NewUnheldClient returns: a pod holding no tokens for the account, whose Rivian calls belong to the
+// group's owner.
+func IsUnheld(c any) bool {
+	_, ok := c.(unheldClient)
+	return ok
+}
+
+const notHeldReason = "this server does not hold the vehicle's account"
+
 func notHeld(op string) error {
-	return &UpstreamError{Class: ClassOutage, Op: op, Reason: "this server does not hold the vehicle's account"}
+	return &UpstreamError{Class: ClassOutage, Op: op, Reason: notHeldReason}
+}
+
+// IsNotHeld reports whether err is the unheld client's refusal: the account is held by another pod, so the answer is retry-able, not a Rivian failure.
+func IsNotHeld(err error) bool {
+	var ue *UpstreamError
+	return errors.As(err, &ue) && ue.Reason == notHeldReason
 }
 
 func (unheldClient) Login(context.Context, Credentials) error { return notHeld("Login") }
@@ -353,3 +369,17 @@ func (unheldClient) Vehicles(context.Context) ([]Vehicle, error) {
 	return nil, notHeld("Vehicles")
 }
 func (unheldClient) State(context.Context, string) (*State, error) { return nil, notHeld("State") }
+
+// The two other Rivian reads a data-plane route makes. Having them lets the route's capability check pass, so the forwarding layer in front of
+// it (trip legs, release notes) hands the call to the group owner; answered here, they are the same retry-able outage as the rest.
+func (unheldClient) PlanTrip(context.Context, PlanTripInput) (*TripPlan, error) {
+	return nil, notHeld("PlanTrip")
+}
+func (unheldClient) OTAUpdateDetails(context.Context, string) (*OTAInfo, error) {
+	return nil, notHeld("OTAUpdateDetails")
+}
+
+var (
+	_ TripPlanner = unheldClient{}
+	_ OTASource   = unheldClient{}
+)

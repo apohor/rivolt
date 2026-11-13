@@ -34,6 +34,9 @@ var (
 func otaNotesLinksOf(ctx context.Context, src rivian.OTASource, vehicleID string) (otaNotesLinks, error) {
 	info, err := src.OTAUpdateDetails(ctx, vehicleID)
 	if err != nil {
+		if rivian.IsUnheld(src) {
+			return otaNotesLinks{}, errOwnerUnavailable // this pod holds no tokens and no owner answered: retry-able, not a Rivian failure
+		}
 		return otaNotesLinks{}, err
 	}
 	var l otaNotesLinks
