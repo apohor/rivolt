@@ -142,6 +142,8 @@ type AnthropicProvider struct {
 	client   anthropic.Client
 	operator bool
 	observe  OperatorObserver
+	// forceEffort sends output_config.effort for a model modelFeatures does not list (model evaluation only).
+	forceEffort bool
 }
 
 // AnthropicConfig configures the provider.
@@ -153,6 +155,9 @@ type AnthropicConfig struct {
 	// unit, the system prompt is cached, and Observe sees every hop's usage.
 	Operator bool
 	Observe  OperatorObserver
+	// ForceEffort sends the route's effort even for a model outside the modelFeatures allowlist. For the
+	// `rivolt ai-eval` side-by-side run only: a model that rejects the parameter answers 400.
+	ForceEffort bool
 }
 
 // NewAnthropic constructs a provider. Returns an error if no API key is set.
@@ -179,6 +184,8 @@ func NewAnthropic(cfg AnthropicConfig) (*AnthropicProvider, error) {
 		client:   anthropic.NewClient(opts...),
 		operator: cfg.Operator,
 		observe:  cfg.Observe,
+
+		forceEffort: cfg.ForceEffort,
 	}, nil
 }
 
@@ -200,6 +207,7 @@ func (p *AnthropicProvider) Complete(ctx context.Context, system, user string) (
 	defer cancel()
 
 	useEffort, useFallback := modelFeatures(p.model)
+	useEffort = useEffort || p.forceEffort
 	params := anthropic.BetaMessageNewParams{
 		Model:     p.model,
 		MaxTokens: rp.maxTokens,

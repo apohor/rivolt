@@ -271,6 +271,8 @@ var pricePer1MTokens = map[string]struct{ In, Out float64 }{
 	"anthropic:claude-sonnet-4-5-20250929": {3.0, 15.0},
 	"anthropic:claude-opus-4-1":            {15.0, 75.0},
 	"anthropic:claude-opus-5-5":            {4.0, 20.0},
+	"anthropic:claude-sonnet-5-5":          {2.0, 10.0},
+	"anthropic:claude-haiku-5-5":           {0.10, 0.50}, // 0.50 / 2.50 above 100K-token prompts; none of ours is that long
 	"anthropic:claude-opus-5":              {5.0, 25.0},
 	"anthropic:claude-opus-4-8":            {5.0, 25.0},
 	// OpenAI
