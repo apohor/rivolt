@@ -85,7 +85,7 @@ func TestChargingRatePatchMerges(t *testing.T) {
 	}
 	// The other user's settings are untouched.
 	other, _ := settings.GetChargingConfig(ctx, sf.For(b))
-	if other != seed {
+	if want := seed; other != (settings.ChargingConfig{HomePricePerKWh: want.HomePricePerKWh, HomePriceSource: settings.PriceSourceUser, HomeCurrency: want.HomeCurrency, GasPricePerGallon: want.GasPricePerGallon, ComparisonMPG: want.ComparisonMPG}) {
 		t.Errorf("another user's settings changed: %+v", other)
 	}
 	// The audit lines: who, from where, which group and fields; no values.

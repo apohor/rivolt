@@ -206,7 +206,10 @@ func handleChargingSettingsPatch(store *settings.Store) http.HandlerFunc {
 		}
 		fields := []string{}
 		if p.HomePricePerKWh != nil {
-			fields = append(fields, "home_price_per_kwh", "home_price_source")
+			fields = append(fields, "home_price_per_kwh")
+			if p.HomePriceSource != nil {
+				fields = append(fields, "home_price_source")
+			}
 		}
 		if p.HomeCurrency != nil {
 			fields = append(fields, "home_currency")
