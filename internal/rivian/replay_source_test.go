@@ -294,3 +294,36 @@ func TestPlugTrackerStickyThroughChargingReady(t *testing.T) {
 		}
 	}
 }
+
+// A feed given Rivian pictures hands them to every demo vehicle with the hero chosen; one without any leaves the vehicle bare.
+func TestReplayClient_VehicleCarriesSourceImages(t *testing.T) {
+	f, _ := testFeed(replayEpoch, time.Hour)
+	uid := uuid.New()
+	ctx := context.Background()
+	login := func(c *ReplayClient) []Vehicle {
+		t.Helper()
+		if err := c.Login(ctx, Credentials{Email: "x@y", Password: "p"}); err != nil {
+			t.Fatal(err)
+		}
+		vs, err := c.Vehicles(ctx)
+		if err != nil || len(vs) != 1 {
+			t.Fatalf("vehicles: %v %v", vs, err)
+		}
+		return vs
+	}
+	if v := login(NewReplayClient(f, uid))[0]; v.ImageURL != "" || len(v.Images) != 0 {
+		t.Fatalf("bare feed gave images: %+v", v)
+	}
+	f.SetSourceImages(nil)
+	if v := login(NewReplayClient(f, uid))[0]; v.ImageURL != "" {
+		t.Fatalf("empty list changed the feed: %+v", v)
+	}
+	f.SetSourceImages([]VehicleImage{
+		{VehicleID: "src", URL: "https://example.test/int.webp", Placement: "interior"},
+		{VehicleID: "src", URL: "https://example.test/3q.webp", Placement: "exterior-3qfront-driver"},
+	})
+	v := login(NewReplayClient(f, uid))[0]
+	if v.ImageURL != "https://example.test/3q.webp" || len(v.Images) != 2 {
+		t.Fatalf("vehicle images = %q, %d", v.ImageURL, len(v.Images))
+	}
+}

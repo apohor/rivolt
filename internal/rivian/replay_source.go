@@ -371,6 +371,18 @@ func NewDBReplayFeed(ctx context.Context, pool *sql.DB, sourceVehicleID string, 
 	}
 	src = Vehicle{ID: sourceVehicleID, VIN: vin.String, Name: name.String,
 		Model: model.String, ModelYear: int(year.Int64), PackKWh: pack.Float64}
+	// The recorded vehicle's Rivian pictures (best effort: a row without them just leaves the demo vehicle bare). Only a db-backed corpus reaches
+	// here; the generated sample feed carries none, so the public demo never shows Rivian images.
+	var heroURL sql.NullString
+	var info []byte
+	if err := pool.QueryRowContext(ctx, `
+		SELECT image_url, metadata->'vehicle_info' FROM vehicles WHERE id = $1`, vid).Scan(&heroURL, &info); err == nil {
+		src.ApplyStoredInfo(info)
+		src.ImageURL = heroURL.String
+	}
+	if src.ImageURL == "" && len(src.Images) > 0 {
+		src.ImageURL = pickHeroImage(src.Images)
+	}
 	err = pool.QueryRowContext(ctx, `
 		SELECT min(at), max(at), min(odometer_mi) FILTER (WHERE odometer_mi > 0),
 		       max(odometer_mi)
@@ -414,6 +426,16 @@ func NewDBReplayFeed(ctx context.Context, pool *sql.DB, sourceVehicleID string, 
 // SetAllowedUsers restricts demo vehicles to the given users. nil
 // (the default) allows everyone.
 func (f *ReplayFeed) SetAllowedUsers(allow func(uid uuid.UUID) bool) { f.allow = allow }
+
+// SetSourceImages replaces the Rivian pictures the demo vehicles carry (RIVOLT_REPLAY_VEHICLE_IMAGES), for a corpus whose recorded vehicle has
+// none stored. Empty keeps what the corpus gave.
+func (f *ReplayFeed) SetSourceImages(images []VehicleImage) {
+	if len(images) == 0 {
+		return
+	}
+	f.source.Images = images
+	f.source.ImageURL = pickHeroImage(images)
+}
 
 // SetEmptyUsers names the users whose sign-in succeeds with no vehicle on the account. nil (the default) names nobody.
 func (f *ReplayFeed) SetEmptyUsers(empty func(uid uuid.UUID) bool) { f.empty = empty }
@@ -467,6 +489,8 @@ func NewReplayClient(feed *ReplayFeed, uid uuid.UUID) *ReplayClient {
 			ModelYear: feed.source.ModelYear,
 			Make:      "Rivian",
 			PackKWh:   feed.source.PackKWh,
+			ImageURL:  feed.source.ImageURL,
+			Images:    feed.source.Images,
 		},
 		allowed:   feed.allow == nil || feed.allow(uid),
 		noVehicle: feed.empty != nil && feed.empty(uid),
