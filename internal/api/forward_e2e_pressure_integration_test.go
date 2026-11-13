@@ -21,11 +21,11 @@ func (e *e2eEnv) silentOwner(t *testing.T) {
 	ready := forward.Keys{Prefix: "e2e"}.Ready(e.a.name)
 	e.a.stop()
 	for i := 0; ; i++ {
-		if n, _ := e.rdb.Exists(context.Background(), ready).Result(); n == 0 {
+		if v, _ := e.rdb.Get(context.Background(), ready).Result(); v == "draining" {
 			break
 		}
 		if i > 100 {
-			t.Fatal("the owner's readiness marker never went away")
+			t.Fatal("the owner's readiness marker never went to draining")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

@@ -98,8 +98,8 @@ func (o *Owner) countRejected() {
 	}
 }
 
-// Run blocks until ctx is cancelled. It keeps the readiness marker fresh while it dequeues, and removes the marker on the way out so
-// requesters stop forwarding here at once.
+// Run blocks until ctx is cancelled. It keeps the readiness marker fresh while it dequeues, and marks it draining on the way out so
+// requesters stop forwarding here at once and know to wait, not to serve locally.
 func (o *Owner) Run(ctx context.Context) {
 	ready := o.cfg.Keys.Ready(o.cfg.Pod)
 	queue := o.cfg.Keys.Queue(o.cfg.Pod)
@@ -115,7 +115,9 @@ func (o *Owner) Run(ctx context.Context) {
 		markers.Wait()
 		dctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = o.cfg.Redis.Del(dctx, ready).Err()
+		// "draining", not a delete: the lease rows outlive this loop until the subscriptions are released, and a requester must be able to tell
+		// that from a crash (no marker). The TTL ends it if the release never comes.
+		_ = o.cfg.Redis.Set(dctx, ready, markerDraining, ReadyTTL*time.Second).Err()
 		if o.cfg.Metrics != nil {
 			o.cfg.Metrics.OwnerReady.Set(0)
 		}
@@ -145,7 +147,7 @@ func (o *Owner) Run(ctx context.Context) {
 	}
 }
 
-// SetDraining stops advertising this pod as ready (the marker is deleted now and not refreshed). In-flight and queued work finishes.
+// SetDraining stops advertising this pod as ready (the marker now says "draining", refreshed each tick until the pod is gone). In-flight and queued work finishes.
 func (o *Owner) SetDraining() {
 	if o.draining.Swap(true) {
 		return
@@ -161,7 +163,7 @@ func (o *Owner) markReady(ctx context.Context, key string) {
 		if o.draining.Load() {
 			dctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
-			_ = o.cfg.Redis.Del(dctx, key).Err()
+			_ = o.cfg.Redis.Set(dctx, key, markerDraining, ReadyTTL*time.Second).Err()
 			if o.cfg.Metrics != nil {
 				o.cfg.Metrics.OwnerReady.Set(0)
 			}
@@ -169,7 +171,7 @@ func (o *Owner) markReady(ctx context.Context, key string) {
 		}
 		sctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		ok := o.cfg.Redis.Set(sctx, key, "1", ReadyTTL*time.Second).Err() == nil
+		ok := o.cfg.Redis.Set(sctx, key, markerReady, ReadyTTL*time.Second).Err() == nil
 		if o.cfg.Metrics != nil {
 			if ok {
 				o.cfg.Metrics.OwnerReady.Set(1)

@@ -177,9 +177,10 @@ type e2eEnv struct {
 
 // e2eOpts tunes an environment: Timeouts shortens a kind's wait so a silent owner is a quick test.
 type e2eOpts struct {
-	Timeouts map[forward.Kind]time.Duration
-	PerUser  int           // owner: concurrent kinds for one user (0: the default)
-	Jitter   time.Duration // requester: the pause before the one retry after busy (0: the default)
+	Timeouts  map[forward.Kind]time.Duration
+	PerUser   int           // owner: concurrent kinds for one user (0: the default)
+	Jitter    time.Duration // requester: the pause before the one retry after busy (0: the default)
+	DrainWait time.Duration // requester: serve nothing locally (an api pod) and wait this long for a draining owner's successor (0: no wait)
 }
 
 func newE2EEnv(t *testing.T, opts ...e2eOpts) *e2eEnv {
@@ -250,7 +251,8 @@ func (e *e2eEnv) pod(t *testing.T, name string, uid uuid.UUID) *e2ePod {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.fwd, err = forward.NewForwarder(forward.RequesterConfig{Pod: name, Keys: keys, Signer: signer, Redis: e.rdb, Leases: view, Metrics: p.metrics, Timeouts: e.opts.Timeouts, Jitter: jitterOf(e.opts.Jitter)})
+	p.fwd, err = forward.NewForwarder(forward.RequesterConfig{Pod: name, Keys: keys, Signer: signer, Redis: e.rdb, Leases: view, Metrics: p.metrics, Timeouts: e.opts.Timeouts, Jitter: jitterOf(e.opts.Jitter),
+		NoLocal: e.opts.DrainWait > 0, OwnerWait: e.opts.DrainWait, OwnerPoll: 50 * time.Millisecond, OwnerLeaseEvery: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}

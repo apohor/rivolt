@@ -38,6 +38,9 @@ type Spec struct {
 	Validate func(args json.RawMessage) (any, error)
 	// NoReply says no requester waits for an answer, so the owner writes none (adopt, receipts_sync).
 	NoReply bool
+	// DrainWait caps how long a call of this kind waits for a draining owner's successor (0: the requester's own ceiling). A kind whose
+	// caller polls soon again keeps it short so the waits do not stack.
+	DrainWait time.Duration
 }
 
 // Kinds is the allowlist.
@@ -47,7 +50,7 @@ var Kinds = map[Kind]Spec{
 	KindAdopt:        {Timeout: 5 * time.Second, Retry: false, NoReply: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[AdoptArgs](a) }},
 	KindReceiptsSync: {Timeout: 25 * time.Second, Retry: false, NoReply: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[ReceiptsSyncArgs](a) }},
 	KindOTANotes:     {Timeout: 15 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[OTANotesArgs](a) }},
-	KindLiveSession:  {Timeout: 4 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[LiveSessionArgs](a) }},
+	KindLiveSession:  {Timeout: 4 * time.Second, DrainWait: 4 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[LiveSessionArgs](a) }},
 }
 
 // ErrBadArgs: args that fail the kind's schema.

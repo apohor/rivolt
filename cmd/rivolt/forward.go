@@ -260,7 +260,10 @@ func startForward(ctx context.Context, logger *slog.Logger, appMetrics *metrics.
 		// draining pod acquires nothing), so a live lease is never taken.
 		AcquireOnRequest: acquireOnRequest,
 		NoLocal:          !plan.LocalFallback,
-		Acquire:          func(ctx context.Context, group string) (bool, error) { return acquireGroup(ctx, store, group) },
+		// A draining ingest pod drops its readiness marker at once but keeps its lease rows until it has stopped its subscriptions (about
+		// the preStop sleep): a call in that gap waits for the successor instead of being refused.
+		OwnerWait: forwardOwnerWait,
+		Acquire:   func(ctx context.Context, group string) (bool, error) { return acquireGroup(ctx, store, group) },
 		Token: func(group string) (fence.Token, bool) {
 			for _, t := range store.GroupTokens() {
 				if t.Group == group {
@@ -318,3 +321,6 @@ func syncerOrNil(s *receipts.Syncer) receiptsSyncer {
 	}
 	return s
 }
+
+// forwardOwnerWait bounds that wait: the preStop sleep plus the stream stop and the hand-over, with room, under the 30 s route deadline.
+const forwardOwnerWait = 12 * time.Second

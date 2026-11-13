@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/apohor/rivolt/internal/forward"
 )
 
@@ -109,5 +111,49 @@ func TestForwardE2EOwnerKilledMidFlight(t *testing.T) {
 	}
 	if got := env.a.gw.count(opState); got != 0 {
 		t.Errorf("dead owner Rivian calls %d, want 0 (it never got to call)", got)
+	}
+}
+
+// (c3) The owner drains (SIGUSR1): its marker says "draining" and it still holds the lease row until it releases. A state read on a pod that
+// holds nothing waits through that gap and is answered by the next owner: no 503, and the old owner is never asked.
+func TestForwardE2EDrainingOwnerIsNot503(t *testing.T) {
+	env := newE2EEnv(t, e2eOpts{DrainWait: 8 * time.Second})
+	ctx := context.Background()
+	key := forward.Keys{Prefix: "e2e"}.Ready(env.a.name)
+	if err := env.rdb.Set(ctx, key, "draining", 15*time.Second).Err(); err != nil {
+		t.Fatal(err)
+	}
+	type out struct {
+		code int
+		body string
+	}
+	done := make(chan out, 1)
+	go func() {
+		w := env.b.getState(t)
+		done <- out{w.Code, w.Body.String()}
+	}()
+	time.Sleep(600 * time.Millisecond) // the read is waiting: the old owner still holds the row
+	select {
+	case o := <-done:
+		t.Fatalf("the read ended while the owner still held the lease: %d %s", o.code, o.body)
+	default:
+	}
+	c := env.takeOver(t, env.a, "pod-c")
+	select {
+	case o := <-done:
+		if o.code != 200 {
+			t.Fatalf("read across the drain: %d %s, want 200", o.code, o.body)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("the read never finished")
+	}
+	if got := c.gw.count(opState); got != 1 {
+		t.Errorf("new owner Rivian calls %d, want 1", got)
+	}
+	if got := env.a.gw.count(opState) + env.b.gw.count(opState); got != 0 {
+		t.Errorf("old owner and requester Rivian calls %d, want 0", got)
+	}
+	if got := testutil.ToFloat64(env.b.metrics.DrainWait.WithLabelValues("forwarded")); got != 1 {
+		t.Errorf("drain wait forwarded = %v, want 1", got)
 	}
 }
