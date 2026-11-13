@@ -506,16 +506,16 @@ struct NoDataCard: View {
 }
 
 /// The Live button: a pill that looks pressable (a rim, a chevron, a press state), at least 44 pt, with a pulsing dot while the truck
-/// is charging or driving. It opens the web's live view.
+/// is charging or driving. It opens the web's live view in an in-app browser sheet.
 struct NowLiveButton: View {
     let url: URL
     var pulsing = false
-    @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
+    @State private var showing = false
 
     var body: some View {
-        Button { openURL(url) } label: {
+        Button { showing = true } label: {
             HStack(spacing: 8) {
                 if pulsing {
                     Circle().fill(Theme.accentFill).frame(width: 8, height: 8)
@@ -530,8 +530,9 @@ struct NowLiveButton: View {
             .frame(minWidth: 44, minHeight: 44)
         }
         .buttonStyle(NowLiveButtonStyle())
+        .sheet(isPresented: $showing) { SafariSheet(url: url).ignoresSafeArea() }
         .accessibilityLabel("Live")
-        .accessibilityHint("Opens the live view on the web")
+        .accessibilityHint("Opens the live view in a sheet")
         .accessibilityIdentifier("now-live-button")
     }
 }

@@ -34,6 +34,17 @@ final class NowV2UITests: XCTestCase {
         shot(app, "now-v2-bottom")
     }
 
+    /// Live opens in a sheet over the app, not by leaving it for Safari.
+    func testLiveOpensInASheetAndTheAppStaysInFront() {
+        let app = launch(["-uitest-now-v2"])
+        let live = app.buttons["now-live-button"].firstMatch
+        XCTAssertTrue(live.waitForExistence(timeout: 20))
+        live.tap()
+        sleep(2)
+        XCTAssertEqual(app.state, .runningForeground, "the app is still the front app")
+        shot(app, "now-v2-live-sheet")
+    }
+
     func testWithoutTheFlagTheClassicCardStays() {
         let app = launch()
         XCTAssertTrue(app.buttons["settings-button"].firstMatch.waitForExistence(timeout: 20))
