@@ -520,27 +520,34 @@ func logHeader(pf *parseFailure) any {
 			keep = append(keep, c)
 		}
 	}
-	if pf.cells == 0 || len(keep)*2 <= pf.cells || !hasExportWord(keep) {
+	if pf.cells == 0 || len(keep)*2 <= pf.cells || !looksLikeHeader(keep) {
 		return fmt.Sprintf("%d cells, not logged", pf.cells)
 	}
 	return keep
 }
 
-var exportWords = []string{"time", "date", "start", "end", "battery", "soc", "distance", "km", "mi", "energy", "kwh", "speed", "odometer", "lat", "lon", "cost", "power", "charge", "drive"}
+// exportWords are whole tokens a real export header uses. Bare "mi" and "lon" are left out (they are given names); a real header has
+// another word beside them (distance, lat, time).
+var exportWords = map[string]bool{
+	"time": true, "timestamp": true, "date": true, "datetime": true, "start": true, "started": true, "end": true, "ended": true,
+	"battery": true, "soc": true, "distance": true, "km": true, "mph": true, "energy": true, "kwh": true, "speed": true, "odometer": true,
+	"lat": true, "latitude": true, "longitude": true, "cost": true, "power": true, "charge": true, "charges": true, "charging": true,
+	"charged": true, "drive": true, "drives": true, "driving": true,
+}
 
-// hasExportWord is whether any cell holds a word an EV export uses; a line with none (a name, a city, a country) is not a header. Short
-// words (mi, km, end, lat) must be a whole word, so "Smith" or "Brenda" does not pass; longer ones also match as a prefix ("charging").
-func hasExportWord(cells []string) bool {
+// looksLikeHeader is whether at least two cells each hold a whole export word. One is not enough: a surname or a place can be a whole
+// word too ("Power", "Times Square"), but a data row does not have two such cells.
+func looksLikeHeader(cells []string) bool {
+	n := 0
 	for _, c := range cells {
 		for _, tok := range strings.FieldsFunc(strings.ToLower(c), func(r rune) bool { return !unicode.IsLetter(r) }) {
-			for _, w := range exportWords {
-				if tok == w || (len(w) >= 4 && strings.HasPrefix(tok, w)) {
-					return true
-				}
+			if exportWords[tok] {
+				n++
+				break
 			}
 		}
 	}
-	return false
+	return n >= 2
 }
 
 func nonEmpty(cells []string) int {
