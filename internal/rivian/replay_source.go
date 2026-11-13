@@ -517,15 +517,17 @@ func NewReplayClient(feed *ReplayFeed, uid uuid.UUID) *ReplayClient {
 	return &ReplayClient{
 		feed: feed,
 		vehicle: Vehicle{
-			ID:        DemoVehicleID(uid),
-			ImageURL:  hero,
-			Images:    imgs,
-			VIN:       "DEMO" + hex[:13],
-			Name:      "Demo " + model,
-			Model:     model,
-			ModelYear: feed.source.ModelYear,
-			Make:      "Rivian",
-			PackKWh:   feed.source.PackKWh,
+			ID:       DemoVehicleID(uid),
+			ImageURL: hero,
+			Images:   imgs,
+			// Pictures set means the gallery is complete, as the owner's refresh marks a live vehicle.
+			InfoSynced: len(imgs) > 0,
+			VIN:        "DEMO" + hex[:13],
+			Name:       "Demo " + model,
+			Model:      model,
+			ModelYear:  feed.source.ModelYear,
+			Make:       "Rivian",
+			PackKWh:    feed.source.PackKWh,
 		},
 		allowed:   feed.allow == nil || feed.allow(uid),
 		noVehicle: feed.empty != nil && feed.empty(uid),
@@ -611,6 +613,9 @@ func (c *ReplayClient) signalAuthReadyLocked() {
 		close(c.authReady)
 	}
 }
+
+// HasImages reports whether this user's demo vehicle carries Rivian pictures (see ReplayFeed.SetImages).
+func (c *ReplayClient) HasImages() bool { return len(c.vehicle.Images) > 0 }
 
 // Vehicles returns the user's demo vehicle.
 func (c *ReplayClient) Vehicles(context.Context) ([]Vehicle, error) {
