@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { ArcGauge } from "./ArcGauge";
-import { AmbientTempLine, useColdRange } from "./AmbientTempLine";
-import { WeatherCredit } from "./WeatherCredit";
+import { useColdRange } from "./AmbientTempLine";
 import { useAmbientTemp } from "../lib/ambientTemp";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { clock, type NowView } from "../lib/nowState";
@@ -104,10 +103,8 @@ export default function NowHeroV2({
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
   const [info, setInfo] = useState(false);
   const [slot, setSlot] = useState<Element | null>(null);
-  const [creditSlot, setCreditSlot] = useState<Element | null>(null);
   useEffect(() => {
     setSlot(document.querySelector("[data-now-chip-slot]"));
-    setCreditSlot(document.querySelector("[data-now-credit-slot]"));
   }, []);
   const chipEl = (
     <span
@@ -155,23 +152,16 @@ export default function NowHeroV2({
               aria-label="Full telemetry"
               className="absolute inset-0 z-0 rounded-2xl"
             />
-            <span
-              aria-hidden
-              className="pointer-events-none absolute right-4 top-4 text-neutral-500"
+            <Link
+              to="/live"
+              data-testid="now-live-link"
+              className="absolute right-2 top-2 z-10 inline-flex min-h-11 items-center gap-2 rounded-full border border-neutral-700 px-4 text-sm font-medium text-neutral-100 hover:border-neutral-500"
             >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="m9 5 7 7-7 7" />
-              </svg>
-            </span>
+              {(charging || view.kind === "driving") && (
+                <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />
+              )}
+              Live
+            </Link>
           </>
         )}
         <div className="pointer-events-none relative flex items-center gap-4">
@@ -199,7 +189,7 @@ export default function NowHeroV2({
               </span>
             )}
           </ArcGauge>
-          <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+          <div className={`flex min-w-0 flex-1 flex-col items-start gap-1 ${telemetryLink ? "pt-10" : ""}`}>
             <Truck charging={charging} />
             {view.rangeMi != null && (
               <p className="min-w-0">
@@ -273,22 +263,11 @@ export default function NowHeroV2({
             )}
           </div>
         )}
-        {amb.enabled === false && (
-          <div className="relative">
-            <AmbientTempLine ambient={ambient} vehicleID={vehicleID} />
-          </div>
-        )}
         <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
           {extra}
         </div>
         {footer}
       </div>
-      {outside && creditSlot
-        ? createPortal(
-            <WeatherCredit className="text-center text-sm text-neutral-500" />,
-            creditSlot,
-          )
-        : null}
     </>
   );
 }

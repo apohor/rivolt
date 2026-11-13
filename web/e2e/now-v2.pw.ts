@@ -5,9 +5,12 @@ import { e2eNow } from "./clock";
 // Design 1 (design_preview "now_v2"): the redesigned Now. Off, the screen is the one users have today.
 const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
 
-async function open(page: Page, flag: boolean, scenario: "parked" | "charging" = "parked") {
+async function open(page: Page, flag: boolean, scenario: "parked" | "charging" = "parked", ambientOn = true) {
   await stubApi(page, { scenario, nowEndpoint: true, designPreview: flag ? ["now_v2"] : [] });
-  await page.route("**/api/settings/ambient-temp", (r) => r.fulfill(j({ enabled: true })));
+  await page.route("**/api/settings/ambient-temp", (r) => r.fulfill(j({ enabled: ambientOn })));
+  // The "Three things" card has something to offer.
+  await page.route("**/api/push/status", (r) => r.fulfill(j({ enabled: true, subscription_count: 0 })));
+  await page.route("**/api/settings/statement-email", (r) => r.fulfill(j({ enabled: false, available: true })));
   await page.route(new RegExp(`/api/vehicles/${VEHICLE_ID}/now`), (r) => {
     const iso = (ago: number) => new Date(e2eNow() - ago).toISOString();
     return r.fulfill(
@@ -41,6 +44,8 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
   await expect(page.locator("[data-now-chip]")).toHaveText(/(Parked|Plugged in|Asleep) · since \d/);
   await expect(page.getByTestId("now-freshness")).toHaveCount(0);
   await expect(hero.getByRole("link", { name: "Full telemetry" })).toHaveAttribute("href", "/live");
+  await expect(hero.getByTestId("now-live-link")).toHaveText("Live");
+  await expect(hero.getByTestId("now-live-link")).toHaveAttribute("href", "/live");
   await expect(page.getByTestId("now-temps")).not.toContainText("estimate");
   await page.getByRole("button", { name: "About the outside temperature" }).click();
   await expect(page.getByTestId("now-temps")).toContainText("estimate");
@@ -50,10 +55,46 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
   await expect(page.getByTestId("now-month")).toContainText("mi/kWh");
   await expect(page.getByTestId("now-month")).toContainText("spent");
   await expect(page.getByText("Since last charge")).toHaveCount(0);
-  await expect(page.locator("[data-weather-credit]")).toBeVisible();
+  // The Open-Meteo credit is in the page footer, next to Credits, not in the Now body.
+  await expect(page.locator("footer [data-weather-credit]")).toBeVisible();
+  await expect(page.locator("main [data-weather-credit]")).toHaveCount(0);
 });
 
-test("flag on: the (i) has a 44 px target, a tap beside it stays on the page, and the credit sits under the strip", async ({ page }) => {
+test("flag on: the Live pill has a 44 px target, no pulse while parked, a pulse while charging, and opens /live", async ({ page }) => {
+  await open(page, true);
+  const live = page.getByTestId("now-live-link");
+  const box = (await live.boundingBox())!;
+  expect(box.width).toBeGreaterThanOrEqual(44);
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  await expect(live.locator(".animate-pulse")).toHaveCount(0);
+  await live.click();
+  await expect(page).toHaveURL(/\/live$/);
+});
+
+test("flag on, charging: the Live pill pulses", async ({ page }) => {
+  await open(page, true, "charging");
+  await expect(page.getByTestId("now-live-link").locator(".animate-pulse")).toHaveCount(1);
+});
+
+test("flag on, outside temperature setting off: Cabin only, and no offer to turn it on", async ({ page }) => {
+  await open(page, true, "parked", false);
+  await expect(page.getByTestId("now-temps")).not.toContainText("Outside");
+  await expect(page.getByText("Show outside temperature")).toHaveCount(0);
+  await expect(page.locator("[data-weather-credit]")).toHaveCount(1);
+});
+
+test("flag on: the Three things card is last on Now, below the Battery trend and above the footer", async ({ page }) => {
+  await open(page, true);
+  const card = page.locator("[data-three-things]");
+  await expect(card).toBeVisible();
+  const trend = (await page.getByRole("heading", { name: "Battery (SoC) trend" }).boundingBox())!;
+  const c = (await card.boundingBox())!;
+  const foot = (await page.locator("footer").boundingBox())!;
+  expect(c.y).toBeGreaterThan(trend.y);
+  expect(c.y + c.height).toBeLessThanOrEqual(foot.y + 1);
+});
+
+test("flag on: the (i) has a 44 px target and a tap beside it stays on the page", async ({ page }) => {
   await open(page, true);
   const btn = page.getByRole("button", { name: "About the outside temperature" });
   const box = (await btn.boundingBox())!;
@@ -64,9 +105,6 @@ test("flag on: the (i) has a 44 px target, a tap beside it stays on the page, an
   await page.mouse.click(box.x + box.width / 2 + 18, box.y + box.height / 2);
   await expect(page.getByTestId("now-temps")).toContainText("estimate");
   expect(page.url()).toBe(url);
-  const strip = (await page.getByTestId("now-month").boundingBox())!;
-  const credit = (await page.locator("[data-weather-credit]").boundingBox())!;
-  expect(credit.y).toBeGreaterThan(strip.y + strip.height - 1);
 });
 
 test("flag on, charging: the chip says power and the subline says what the limit buys", async ({ page }) => {

@@ -260,6 +260,7 @@ export default function HomePage() {
     );
   }
 
+  const threeThings = !historyEmpty && activeVehicleID && (inDemo() || !!rivianStatus.data?.authenticated) ? <ThreeThingsCard vehicleID={activeVehicleID} demo={inDemo()} /> : null;
   return (
     <div className="space-y-4" data-ui-grid="now">
       <ConnectRivianPrompt
@@ -309,7 +310,6 @@ export default function HomePage() {
               spent={chargingSpend != null ? formatMoney(chargingSpend.total, chargingSpend.currency) : "—"}
             />
       )}
-      {v2 && <div data-now-credit-slot className="mt-3" />}
       {early && <EarlyMonthNote />}
       {/* The truck first (the Now card); the first-charge note, the milestone and the asks follow
           it, so they never push it down (the iPhone does the same). */}
@@ -317,7 +317,7 @@ export default function HomePage() {
         <FirstChargeCard vehicleID={activeVehicleID} charges={charges.data ?? []} drives={all} demo={inDemo()} />
       )}
       {!inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
-      {!historyEmpty && activeVehicleID && (inDemo() || !!rivianStatus.data?.authenticated) && <ThreeThingsCard vehicleID={activeVehicleID} demo={inDemo()} />}
+      {!v2 && threeThings}
 
 
       {/* KPI row (Battery / Miles / Energy added / Efficiency) sits
@@ -433,7 +433,8 @@ export default function HomePage() {
                 limit={liveState.data && liveState.data.charge_target_pct > 0 ? liveState.data.charge_target_pct : null}
               />
           </Card>
-
+          {/* now_v2: the setup nudges close the page, below the trend and above the footer. */}
+          {v2 && threeThings}
         </>
       )}
     </div>
