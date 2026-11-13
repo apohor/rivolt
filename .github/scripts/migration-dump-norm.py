@@ -5,26 +5,91 @@ Why sets of normalised statements and not diff: pg_dump orders objects by depend
 different route (CREATE then ALTER versus one CREATE). What must be equal is the schema, the seed rows and the grants, not the order they
 are written in. A CREATE TABLE is split into one item per column and constraint, so a column order or a default shows as a single line.
 
-Skipped: comments, psql meta lines, the clock in seed rows (read as <ts>), SET/set_config/SELECT preamble lines, and the vehicle_state_yYYYY_MM partitions, which the migration that creates
+Skipped: comments (outside quotes only), psql meta lines, the clock in seed rows (read as <ts>), SET/set_config/SELECT preamble lines, and the vehicle_state_yYYYY_MM partitions, which the migration that creates
 the partitioned table makes relative to the day it runs (a dump on another day names other months).
 """
 import re
 import sys
 
 
+def statements(text):
+    """Split a dump into statements, reading quotes the way psql does: a `--` inside a string is text, a `;` inside a string or a $$ body does
+    not end the statement, and quoted text is kept byte for byte (whitespace is collapsed outside quotes only)."""
+    out, cur = [], []
+    i, n = 0, len(text)
+    line_start = True
+    while i < n:
+        c = text[i]
+        if line_start and c == "\\":  # a psql meta line (\restrict TOKEN): random per dump
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        line_start = c == "\n"
+        if text.startswith("--", i):
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            cur.append(" ")
+            continue
+        if c == "'" or c == '"':
+            j = i + 1
+            while j < n:
+                if text[j] == c:
+                    if text.startswith(c * 2, j):
+                        j += 2
+                        continue
+                    break
+                j += 1
+            cur.append(text[i : j + 1])
+            i = j + 1
+            continue
+        m = re.match(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$", text[i:])
+        if c == "$" and m:
+            tag = m.group(0)
+            j = text.find(tag, i + len(tag))
+            j = n if j < 0 else j + len(tag)
+            cur.append(text[i:j])
+            i = j
+            continue
+        if c == ";":
+            out.append("".join(cur))
+            cur = []
+            i += 1
+            continue
+        cur.append(c)
+        i += 1
+    if "".join(cur).strip():
+        out.append("".join(cur))
+    return out
+
+
+def squeeze(st):
+    """Collapse whitespace outside quotes and dollar quotes."""
+    parts = re.split(r"('(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|\$([A-Za-z_][A-Za-z0-9_]*)?\$.*?\$\2\$)", st, flags=re.S)
+    # re.split with two groups yields (text, quoted, tag) triples.
+    res = []
+    for k in range(0, len(parts), 3):
+        res.append(re.sub(r"\s+", " ", parts[k]))
+        if k + 1 < len(parts):
+            res.append(parts[k + 1])
+    return "".join(res).strip()
+
+
 def load(path):
-    text = re.sub(r"--[^\n]*", "", open(path).read())
-    text = re.sub(r"(?m)^\\[^\n]*\n", "", text)  # psql meta lines (\restrict TOKEN): random per dump
-    text = re.sub(r"'\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(\.\d+)?\+00'", "'<ts>'", text)  # a seed row's updated_at is the replay's clock
     items = set()
-    for st in (x.strip() for x in re.split(r";\n", text)):
+    for raw in statements(open(path).read()):
+        st = squeeze(raw)
         if not st:
             continue
-        st = re.sub(r"\s+", " ", st)
         if st.startswith("SET ") or "pg_catalog.set_config" in st or st.startswith("SELECT"):
             continue
         if re.search(r"vehicle_state_y\d{4}_\d{2}", st):
             continue
+        if st.startswith("INSERT INTO"):  # a seed row's updated_at is the replay's clock
+            st = re.sub(r"'\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(\.\d+)?\+00'", "'<ts>'", st)
         m = re.match(r"CREATE TABLE (\S+) \((.*)\)(.*)$", st)
         if not m:
             items.add(st)
