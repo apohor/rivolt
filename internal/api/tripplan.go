@@ -345,6 +345,8 @@ type tripWeatherAdjustmentDTO struct {
 	Legs               []tripWeatherAdjLegDTO `json:"legs"`
 	ProfileMultiplier  float64                `json:"profile_multiplier,omitempty"`
 	ProfileReasons     []string               `json:"profile_reasons,omitempty"`
+	// RadarTeaser is the free account's view of the forecast radar (Pro): present instead of every leg's Radar. See addLegRadar.
+	RadarTeaser *radarTeaserDTO `json:"radar_teaser,omitempty"`
 }
 
 type tripWeatherAdjLegDTO struct {
