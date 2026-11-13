@@ -3472,6 +3472,7 @@ func runServer() {
 		SystemSettings:        settingsFactory, // the sweeps started in api.New (statement and weekly emails) run with no user in context
 		Push:                  reqStores.Push,
 		Trips:                 reqStores.Trips,
+		TripShare:             os.Getenv("RIVOLT_TRIP_SHARE") == "1",
 		PackHealth:            reqStores.PackHealth, // request pool: per-vehicle samples reached through the vehicle's owner (the monitor's own store stays on the system pool)
 		Monitors:              monitorRegistry,
 		SettingsMgr:           settingsMgr,
