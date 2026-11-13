@@ -87,11 +87,13 @@ export type ImportFailure = {
 // importFailure turns a preview or commit failure into one plain sentence, keyed on the server's code.
 export function importFailure(err: unknown): ImportFailure {
   if (!(err instanceof ApiError)) return { text: "Something went wrong. Try again." };
-  const b = (err.body && typeof err.body === "object" ? err.body : {}) as { id?: string; code?: string; header?: string[]; need?: string[]; vehicles?: string[] };
+  const b = (err.body && typeof err.body === "object" ? err.body : {}) as { id?: string; code?: string; error?: string; header?: string[]; need?: string[]; vehicles?: string[] };
   switch (b.code) {
     case "need_choice":
       return { text: "The file does not say everything we need. Choose below.", need: b.need ?? [], vehicles: b.vehicles };
     case "unknown_columns":
+      // The server's sentence names the columns the file needs, with example headers.
+      return { text: b.error || "We don't recognize this file's columns.", header: b.header };
     case "bad_file":
       return { text: "We don't recognize this file's columns.", header: b.header };
     case "too_many_bad_rows":

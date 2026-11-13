@@ -17,6 +17,11 @@ describe("history import copy", () => {
     const f = importFailure(new ApiError(422, { error: "x", code: "unknown_columns", header: ["a", "b"] }));
     expect(f.header).toEqual(["a", "b"]);
   });
+  it("names the expected columns when the server does", () => {
+    const f = importFailure(new ApiError(422, { error: "We need for drives: start time", code: "unknown_columns", header: ["a"] }));
+    expect(f.text).toBe("We need for drives: start time");
+    expect(importFailure(new ApiError(422, { code: "unknown_columns" })).text).toMatch(/don't recognize/);
+  });
   it("a stopped commit carries its import id", () => {
     expect(importFailure(new ApiError(500, { error: "x", code: "stopped", id: "i1" })).importID).toBe("i1");
   });

@@ -102,6 +102,13 @@ type Metrics struct {
 	RivianCallRefused *prometheus.CounterVec
 	// ImportParseRejected counts history-import previews and commits refused (503) because this pod already runs its limit of parses.
 	ImportParseRejected prometheus.Counter
+	// HistoryImportAttempts counts previews of an upload, by source (ImportSources). HistoryImportRejected counts files refused, by source and
+	// reason (ImportRejectReasons). HistoryImportCommits counts finished imports and HistoryImportRows the sessions they wrote, by source and
+	// kind (drives, charges). Labels are fixed sets, never a user, a vehicle or a file name.
+	HistoryImportAttempts *prometheus.CounterVec
+	HistoryImportRejected *prometheus.CounterVec
+	HistoryImportCommits  *prometheus.CounterVec
+	HistoryImportRows     *prometheus.CounterVec
 	// SPAAsset404 counts requests under /assets/ answered 404: a browser holding an older (or newer) web build asks for a hashed file this pod
 	// does not ship. No path label. It measures stale chunks after a deploy.
 	SPAAsset404 prometheus.Counter
@@ -736,6 +743,22 @@ func New() *Metrics {
 			Name: "rivolt_import_parse_rejected_total",
 			Help: "History-import requests answered 503 because the pod was already parsing its limit of files.",
 		}),
+		HistoryImportAttempts: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_history_import_attempts_total",
+			Help: "History-import previews of an upload, by source (tezlab, abrp).",
+		}, []string{"source"}),
+		HistoryImportRejected: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_history_import_rejected_total",
+			Help: "History-import files refused, by source and reason: unknown_header, bad_row, size or parse. A commit that is refused counts here but not as an attempt (only previews are attempts), so this can exceed attempts.",
+		}, []string{"source", "reason"}),
+		HistoryImportCommits: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_history_import_commits_total",
+			Help: "History imports that finished, by source.",
+		}, []string{"source"}),
+		HistoryImportRows: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_history_import_rows_total",
+			Help: "Sessions written by finished history imports, by source and kind (drives, charges).",
+		}, []string{"source", "kind"}),
 		SPAAsset404: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "rivolt_spa_asset_404_total",
 			Help: "Requests under /assets/ answered 404 (a browser asking for a web build file this pod does not have).",
@@ -1176,6 +1199,10 @@ func New() *Metrics {
 		m.LeaseFenced,
 		m.RivianCallRefused,
 		m.ImportParseRejected,
+		m.HistoryImportAttempts,
+		m.HistoryImportRejected,
+		m.HistoryImportCommits,
+		m.HistoryImportRows,
 		m.SPAAsset404,
 		m.RivianRequestSeconds,
 		m.ReauthRaiseRefused,
@@ -1329,6 +1356,16 @@ func New() *Metrics {
 	for _, class := range []string{"priority", "main", "background"} {
 		m.RivianRateLimitBlocked.WithLabelValues(class).Add(0) // exported at 0 so the first refusal is an increase
 	}
+	for _, src := range ImportSources {
+		m.HistoryImportAttempts.WithLabelValues(src).Add(0)
+		m.HistoryImportCommits.WithLabelValues(src).Add(0)
+		for _, kind := range []string{"drives", "charges"} {
+			m.HistoryImportRows.WithLabelValues(src, kind).Add(0)
+		}
+		for _, reason := range ImportRejectReasons {
+			m.HistoryImportRejected.WithLabelValues(src, reason).Add(0)
+		}
+	}
 	for _, outcome := range []string{"ok", "retried_ok", "dropped", "error"} {
 		m.RivianScheduleReadTotal.WithLabelValues(outcome).Add(0)
 	}
@@ -1365,6 +1402,12 @@ func New() *Metrics {
 
 // LeaseShedChoices are the shed decisions rivolt_lease_shed_total counts (leases.Coordinator.chooseShed).
 var LeaseShedChoices = []string{"idle", "awake", "deferred"}
+
+// ImportSources are the source label values of the rivolt_history_import_* counters; "unknown" is a refusal before the form named a source.
+var ImportSources = []string{"tezlab", "abrp", "unknown"}
+
+// ImportRejectReasons are the reason label values of rivolt_history_import_rejected_total.
+var ImportRejectReasons = []string{"unknown_header", "bad_row", "size", "parse"}
 
 // LeaseFencedKinds are the write classes rivolt_lease_fenced_total counts.
 // RivianCallSites are the label values of rivolt_rivian_call_refused_total; rivian.CallSites must list the same (a test in cmd/rivolt).

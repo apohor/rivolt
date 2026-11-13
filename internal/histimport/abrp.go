@@ -1,7 +1,7 @@
 package histimport
 
 // ABRP's Drive & charge history export is an .xlsx of recorded points (design §1; the format is reported by users, not documented). The
-// aliases are assumptions to be pinned in slice 2b. Drives and charges are derived from the points (points.go); points do not go into
+// aliases are assumptions (see AliasProvenance). Drives and charges are derived from the points (points.go); points do not go into
 // vehicle_state. SoC on a Rivian is whole percent only, so energy from SoC steps is coarse by about 1.3 kWh.
 var ABRPPoints = Format{
 	Source: "abrp_import",
