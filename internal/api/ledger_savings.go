@@ -110,7 +110,7 @@ func (a ledgerAPI) savings(uid uuid.UUID, w http.ResponseWriter, r *http.Request
 			}
 		}
 		if len(keep) == 0 {
-			writeOutsideFreeWindow(w)
+			writeOutsideFreeWindow(w, r)
 			return
 		}
 		periods, names = keep, keepNames

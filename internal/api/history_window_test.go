@@ -59,9 +59,9 @@ var routeClasses = map[string]windowClass{
 	"GET /api/sleep-activity":                    {"windowed", ""},
 	"GET /api/insights/efficiency":               {"windowed", ""},
 	"GET /api/milestones":                        {"exempt", "milestones are free (the milestone share card is a free feature): cumulative achievements the user earned, not browsable history"},
-	"GET /api/vehicles/{vehicleID}/drain":        {"exempt", "a fixed 30-day range, inside the free 90-day window; computed per request, cached for a few minutes under a key that is the same for every plan"},
+	"GET /api/vehicles/{vehicleID}/drain":        {"exempt", "a fixed 30-day range, inside the free window (twelve months); computed per request, cached for a few minutes under a key that is the same for every plan"},
 	"GET /api/vehicles/{vehicleID}/pack-health":  {"proOnly", ""},
-	"GET /api/vehicles/{vehicleID}/sleep-health": {"exempt", "a fixed 37-day range (this week and the 30 days before), inside the free 90-day window"},
+	"GET /api/vehicles/{vehicleID}/sleep-health": {"exempt", "a fixed 37-day range (this week and the 30 days before), inside the free window (twelve months)"},
 	"GET /api/vehicles/{vehicleID}/trends":       {"proOnly", ""},
 	"GET /api/vehicles/{vehicleID}/cold-range":   {"proOnly", ""},
 	"GET /api/trips/saved/{id}/actual":           {"proOnly", ""},
@@ -69,8 +69,8 @@ var routeClasses = map[string]windowClass{
 	"POST /api/trips/saved/{id}/link":            {"proOnly", ""},
 	"POST /api/trips/saved/{id}/unlink":          {"proOnly", ""},
 	"POST /api/trips/overnight-candidates":       {"proOnly", ""},
-	"POST /api/push/apns/activity":               {"proOnly", ""},
-	"POST /api/push/apns/activity/test":          {"proOnly", ""},
+	"POST /api/push/apns/activity":               {"exempt", "registers the push token of the caller's own running Live Activity; Live Activities are free"},
+	"POST /api/push/apns/activity/test":          {"exempt", "sends fixed figures to the caller's own Live Activities; Live Activities are free"},
 
 	// The free account's delete-by-range (a privacy control for rows outside its window): a gate item for billing.
 	"POST /api/billing/checkout":       {"exempt", "creates a Stripe Checkout session for the signed-in account; returns no history"},
@@ -342,15 +342,15 @@ func TestChartWindowIsClampedToTheFreeWindow(t *testing.T) {
 		}
 		return since
 	}
-	old := now.Add(-300 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	old := now.Add(-395 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	if got := ask(ctx, "?since="+old); !got.Equal(win.Since) {
-		t.Errorf("a range starting 300 days ago was served from %v, want the window start %v", got, win.Since)
+		t.Errorf("a range starting 395 days ago was served from %v, want the window start %v", got, win.Since)
 	}
 	recent := now.Add(-10 * 24 * time.Hour).UTC().Truncate(time.Second)
 	if got := ask(ctx, "?since="+recent.Format(time.RFC3339)); !got.Equal(recent) {
 		t.Errorf("a range inside the window was moved to %v", got)
 	}
-	if got := ask(context.Background(), "?since="+old); got.After(now.Add(-299 * 24 * time.Hour)) {
+	if got := ask(context.Background(), "?since="+old); got.After(now.Add(-394 * 24 * time.Hour)) {
 		t.Errorf("with no window the range was clamped: %v", got)
 	}
 }
@@ -363,19 +363,19 @@ func TestMoneyWindowStart(t *testing.T) {
 		t.Error("no window in the context, but the Money window is on")
 	}
 	from, on := moneyWindowStart(win, now, time.UTC)
-	if !on || !from.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("UTC: %v %v, want 2026-09-01 (November, October, September)", from, on)
+	if !on || !from.Equal(time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("UTC: %v %v, want 2025-11-01 (November 2026 and the twelve months before)", from, on)
 	}
 	// The month is cut in the zone the request asked for: just after midnight UTC on 1 December it is still 30 November in Chicago.
 	edge := time.Date(2026, 12, 1, 0, 30, 0, 0, time.UTC)
-	if from, _ := moneyWindowStart(win, edge, chi); !from.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, chi)) {
-		t.Errorf("Chicago at the month edge: %v, want 2026-09-01 local (it is still November there)", from)
+	if from, _ := moneyWindowStart(win, edge, chi); !from.Equal(time.Date(2025, 11, 1, 0, 0, 0, 0, chi)) {
+		t.Errorf("Chicago at the month edge: %v, want 2025-11-01 local (it is still November there)", from)
 	}
-	if from, _ := moneyWindowStart(win, edge, time.UTC); !from.Equal(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("UTC at the month edge: %v, want 2026-10-01 (December, November, October)", from)
+	if from, _ := moneyWindowStart(win, edge, time.UTC); !from.Equal(time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("UTC at the month edge: %v, want 2025-12-01 (December 2026 and the twelve before)", from)
 	}
 	// January reaches back across the year.
-	if from, _ := moneyWindowStart(win, time.Date(2027, 1, 10, 0, 0, 0, 0, time.UTC), time.UTC); !from.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("January: %v, want 2026-11-01", from)
+	if from, _ := moneyWindowStart(win, time.Date(2027, 1, 10, 0, 0, 0, 0, time.UTC), time.UTC); !from.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("January: %v, want 2026-01-01", from)
 	}
 }

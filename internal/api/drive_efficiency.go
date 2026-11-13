@@ -110,7 +110,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			return
 		}
 		if !histwin.Allows(r.Context(), drv.StartedAt) {
-			writeOutsideFreeWindow(w)
+			writeOutsideFreeWindow(w, r)
 			return
 		}
 
@@ -227,6 +227,9 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			Towing:           detectTowingFromSamples(windowed),
 		})
 		if err != nil {
+			if writeAITasteError(w, err) {
+				return
+			}
 			writeJSON(w, http.StatusBadGateway, map[string]any{
 				"error": err.Error(),
 				"model": analyzer.ModelName(),
