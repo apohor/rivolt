@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The elevation along the route, under the plan's summary and linked to the map: touching or dragging along the chart moves a dot on the route, and a
+/// The elevation along the route, under the plan's summary and linked to the map: tapping the chart moves a dot on the route, and a
 /// tap on the route puts the chart's marker there (the web's ElevationChart). VoiceOver gets an adjustable value (swipe up and down to move along).
 /// Terrain as context only: no energy figure comes from it.
 struct ElevationChartView: View {
@@ -85,19 +85,9 @@ struct ElevationChartView: View {
                 .allowsHitTesting(false)
             }
             .contentShape(Rectangle())
-            // A mostly sideways drag follows the finger at once, the way the web's pointer does; a vertical swipe starting here is left to the
-            // scrolling details (the gesture runs alongside the ScrollView's own), and a tap sets the cursor when it lifts.
-            .simultaneousGesture(
-                // The translation is read on the screen: the details scroll under a vertical swipe, which would hide it in the chart's own space.
-                DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                    .onChanged { v in
-                        let dx = abs(v.translation.width), dy = abs(v.translation.height)
-                        if dx >= 3, dx > dy { share = g.share(atX: v.location.x - geo.frame(in: .global).minX) }
-                    }
-                    .onEnded { v in
-                        if abs(v.translation.width) < 6, abs(v.translation.height) < 6 { share = g.share(atX: v.location.x - geo.frame(in: .global).minX) }
-                    }
-            )
+            // A tap sets the cursor. There is no drag: any drag gesture on the chart, even one running alongside, holds back the details'
+            // scroll under a vertical swipe that starts here, so scrubbing waits for a handle outside the scrolling area.
+            .simultaneousGesture(SpatialTapGesture(coordinateSpace: .local).onEnded { tap in share = g.share(atX: tap.location.x) })
         }
     }
 

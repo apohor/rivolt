@@ -156,43 +156,52 @@ final class PlanSheetUITests: XCTestCase {
         let chart = app.descendants(matching: .any)["plan-elevation-chart"].firstMatch
         if grabber.value as? String != "full" { grabber.tap(); if grabber.value as? String != "full" { grabber.tap() } }
         let window = app.windows.firstMatch
-        for _ in 0..<8 where !chart.exists || !chart.isHittable || chart.frame.maxY > window.frame.maxY - 120 {
-            let low = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
-            low.press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)), withVelocity: .slow, thenHoldForDuration: 0.2)
+        // In view means below the pinned header and above the tab bar, not just on screen. Drags stay inside the details (under the header).
+        for _ in 0..<12 {
+            if grabber.value as? String != "full" { grabber.tap() }
+            let high = chart.exists && chart.frame.minY < 420
+            if chart.exists && !high && chart.frame.maxY <= window.frame.maxY - 120 { break }
+            let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: high ? 0.55 : 0.85))
+            let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: high ? 0.7 : 0.6))
+            from.press(forDuration: 0.1, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.2)
         }
+        Thread.sleep(forTimeInterval: 1)   // let the scroll settle before anything is aimed at it
         XCTAssertTrue(chart.exists && chart.isHittable, "the plan has an elevation chart in view")
         return chart
     }
 
-    /// A drag along the elevation chart moves its cursor (the value says where) and does not move the sheet.
-    func testDraggingAlongTheElevationChartMovesItsCursorAndLeavesTheSheet() throws {
+    /// A tap on the elevation chart sets its cursor (the value says where) and does not move the sheet.
+    func testTappingTheElevationChartSetsItsCursorAndLeavesTheSheet() throws {
         let app = launch()
         let grabber = open("Seattle to Spokane", in: app)
         let chart = chart(in: app, grabber: grabber)
         let sheet = grabber.value as? String ?? "?"
-        // The scroll that brought the chart into view may have touched it, so read the cursor where a first touch puts it, then drag on.
-        let from = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
-        from.tap()
-        let before = chart.value as? String ?? ""
-        from.press(forDuration: 0.05, thenDragTo: chart.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)))
-        let value = chart.value as? String ?? ""
-        XCTAssertNotEqual(value, before, "the drag moved the cursor")
-        XCTAssertTrue(value.range(of: #"^[\d,]+ (mi|km) · [\d,]+ (ft|m)$"#, options: .regularExpression) != nil, "the cursor has a place and a height: \(value)")
-        expect(grabber, sheet, "a sideways drag on the chart leaves the sheet")
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+        let first = chart.value as? String ?? ""
+        XCTAssertTrue(first.range(of: #"^[\d,]+ (mi|km) · [\d,]+ (ft|m)$"#, options: .regularExpression) != nil, "the cursor has a place and a height: \(first)")
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
+        XCTAssertNotEqual(chart.value as? String ?? "", first, "a second tap moved the cursor")
+        expect(grabber, sheet, "a tap on the chart leaves the sheet")
     }
 
-    /// A vertical swipe that starts on the chart scrolls the details and leaves the cursor where it was.
+    /// A vertical swipe that starts on the chart scrolls the details (a row below the chart moves, the sheet stays) and leaves the cursor.
     func testAVerticalSwipeStartingOnTheChartScrollsTheDetailsAndLeavesTheCursor() throws {
         let app = launch()
         let grabber = open("Seattle to Spokane", in: app)
         let chart = chart(in: app, grabber: grabber)
         chart.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
         let cursor = chart.value as? String ?? ""
-        let top = chart.frame.minY
+        let sheet = grabber.value as? String ?? "?"
+        let grabberTop = grabber.frame.minY
+        let note = app.staticTexts["Elevation shown for context; Rivian's estimate decides the energy."].firstMatch
+        XCTAssertTrue(note.exists, "a row below the chart")
+        let noteTop = note.frame.minY
         let start = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 160)), withVelocity: .slow, thenHoldForDuration: 0.1)
         XCTAssertEqual(chart.value as? String ?? "", cursor, "a vertical swipe leaves the cursor")
-        XCTAssertNotEqual(chart.frame.minY, top, "the swipe scrolled the details")
+        XCTAssertNotEqual(note.frame.minY, noteTop, "the swipe scrolled the details")
+        XCTAssertEqual(grabber.frame.minY, grabberTop, accuracy: 1, "the sheet stayed put")
+        expect(grabber, sheet, "the sheet keeps its detent")
     }
 
     /// At accessibility text the chart is still whole: on the screen's width, with its words.
