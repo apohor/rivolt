@@ -170,9 +170,19 @@ final class PlanSheetUITests: XCTestCase {
         return chart
     }
 
+    /// Without the design_preview key ios_elevation the plan has no chart (prod's screen is unchanged).
+    func testWithoutTheFlagThePlanHasNoElevationChart() throws {
+        let app = launch()
+        let grabber = open("Seattle to Spokane", in: app)
+        if grabber.value as? String != "full" { grabber.tap() }
+        XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 10))
+        for _ in 0..<3 { app.windows.firstMatch.swipeUp() }
+        XCTAssertFalse(app.descendants(matching: .any)["plan-elevation-chart"].firstMatch.exists)
+    }
+
     /// A tap on the elevation chart sets its cursor (the value says where) and does not move the sheet.
     func testTappingTheElevationChartSetsItsCursorAndLeavesTheSheet() throws {
-        let app = launch()
+        let app = launch(["-uitest-ios-elevation"])
         let grabber = open("Seattle to Spokane", in: app)
         let chart = chart(in: app, grabber: grabber)
         let sheet = grabber.value as? String ?? "?"
@@ -186,7 +196,7 @@ final class PlanSheetUITests: XCTestCase {
 
     /// A vertical swipe that starts on the chart scrolls the details (a row below the chart moves, the sheet stays) and leaves the cursor.
     func testAVerticalSwipeStartingOnTheChartScrollsTheDetailsAndLeavesTheCursor() throws {
-        let app = launch()
+        let app = launch(["-uitest-ios-elevation"])
         let grabber = open("Seattle to Spokane", in: app)
         let chart = chart(in: app, grabber: grabber)
         chart.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()

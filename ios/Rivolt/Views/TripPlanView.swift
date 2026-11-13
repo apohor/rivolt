@@ -191,7 +191,7 @@ struct TripPlanResult: View {
                     Text(warning).themeText(.value, color: Theme.estimate).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if let profile = PlanElevation.usable(plan.elevationProfile) {
+            if state.designPreview.contains("ios_elevation"), let profile = PlanElevation.usable(plan.elevationProfile) {
                 ElevationChartView(profile: profile, metric: metric, share: Binding(get: { model.elevationCursor }, set: { model.elevationCursor = $0 }))
             }
             if TripPlanLogic.offersDrivingPerDay(route), !state.isDemo { DrivingPerDayRow(model: model) }
