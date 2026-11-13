@@ -112,6 +112,17 @@ IF current_setting('lock_timeout') <> '2s' THEN RAISE EXCEPTION 'lock_timeout is
 	check("9105_override", "SET LOCAL statement_timeout = '30s';\n", "30s")
 }
 
+// Files before 0120 are history and run without the runner's limits: a self-hoster that is behind meets the old long backfills at the
+// session's own limits, not at 60 s (a 57014 is never retried, so a limit there would brick the boot).
+func TestHistoricFileRunsWithoutRunnerLimits(t *testing.T) {
+	ctx, d := openMigrated(t)
+	body := `DO $$ BEGIN IF current_setting('statement_timeout') = '1min' OR current_setting('lock_timeout') = '2s' THEN
+RAISE EXCEPTION 'runner limits applied: %, %', current_setting('statement_timeout'), current_setting('lock_timeout'); END IF; END $$;`
+	if err := db.RunMigrationForTest(ctx, d, "0000_legacy_limits", body); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Checksums: filled by Migrate, a changed row is counted and logged but never fails Migrate, and a NULL one is filled again.
 func TestChecksumsFilledMismatchCountedNeverFatal(t *testing.T) {
 	ctx, d := openMigrated(t) // Open migrates

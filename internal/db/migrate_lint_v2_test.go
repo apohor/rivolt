@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ import (
 //     DEFAULT, SET NOT NULL, and a new CHECK, UNIQUE or PRIMARY KEY on an existing table.
 //  4. lock_timeout above 2 s (DA M2: the longest an ACCESS EXCLUSIVE request may queue writes) and statement_timeout above 60 s or 0 (no limit) need
 //     "-- da-ack: rewrite <reason>". The runner already sets 2 s and 60 s; a file asks for more only with the ack.
-const lintV2From = 120
+const lintV2From = runnerLimitsFrom
 
 const maxLockTimeoutV2 = 2 * time.Second
 
@@ -35,17 +36,14 @@ var (
 	reNotNull              = regexp.MustCompile(`(?is)\bnot\s+null\b`)
 	reHasDefault           = regexp.MustCompile(`(?is)\bdefault\b|\bgenerated\b|\bserial\b`)
 	reCreateUniqueIndex    = regexp.MustCompile(`(?is)^create\s+unique\s+index\s+(?:concurrently\s+)?(?:if\s+not\s+exists\s+)?\S*\s*on\s+(?:only\s+)?(\S+)`)
-	reStatementTimeoutSet  = regexp.MustCompile(`(?is)^set\s+(?:local\s+)?statement_timeout\s*(?:=|to)\s*'?\s*(\d+)\s*(ms|s|min|h|d)?\s*'?\s*$`)
-	reLockTimeoutSetAny    = regexp.MustCompile(`(?is)^set\s+(?:local\s+)?lock_timeout\s*(?:=|to)\s*'?\s*(\d+)\s*(ms|s|min|h|d)?\s*'?\s*$`)
+	reStatementTimeoutSet  = regexp.MustCompile(`(?is)^set\s+(?:local\s+)?statement_timeout\s*(?:=|to)\s*'?\s*(\d+(?:\.\d+)?)\s*(ms|s|min|h|d)?\s*'?\s*$`)
+	reLockTimeoutSetAny    = regexp.MustCompile(`(?is)^set\s+(?:local\s+)?lock_timeout\s*(?:=|to)\s*'?\s*(\d+(?:\.\d+)?)\s*(ms|s|min|h|d)?\s*'?\s*$`)
 )
 
 func timeoutValue(n, unit string) time.Duration {
 	units := map[string]time.Duration{"": time.Millisecond, "ms": time.Millisecond, "s": time.Second, "min": time.Minute, "h": time.Hour, "d": 24 * time.Hour}
-	var v int64
-	for _, c := range n {
-		v = v*10 + int64(c-'0')
-	}
-	return time.Duration(v) * units[strings.ToLower(unit)]
+	v, _ := strconv.ParseFloat(n, 64)
+	return time.Duration(v * float64(units[strings.ToLower(unit)]))
 }
 
 // v2LockFindings is lint 1 and 2, and 4's timeouts; a file with the rewrite ack skips the timeout part only.
@@ -229,6 +227,8 @@ func TestV2TimeoutFindings(t *testing.T) {
 	for _, bad := range []string{
 		"SET LOCAL lock_timeout = '5s';",
 		"SET LOCAL lock_timeout = '3000ms';",
+		"SET LOCAL lock_timeout = '2.5s';",
+		"SET LOCAL statement_timeout = '60.5s';",
 		"SET LOCAL statement_timeout = 0;",
 		"SET LOCAL statement_timeout = '2min';",
 	} {
@@ -239,6 +239,7 @@ func TestV2TimeoutFindings(t *testing.T) {
 	for _, fine := range []string{
 		"SET LOCAL lock_timeout = '2s';",
 		"SET LOCAL lock_timeout = '500ms';",
+		"SET LOCAL lock_timeout = '1.5s';",
 		"SET LOCAL statement_timeout = '30s';",
 		"-- da-ack: rewrite the table is tiny and the statement is slow once\nSET LOCAL statement_timeout = '5min';",
 	} {

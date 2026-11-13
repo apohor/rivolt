@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -23,6 +25,17 @@ import (
 // a fresh transaction after a jittered pause. The whole file gets lockRetryBudget (30 s) of retrying; then it fails as before (the Job fails, old
 // pods keep serving). Nobody has to delete a Job by hand for a busy second.
 const runnerSettings = `SET LOCAL lock_timeout = '2s'; SET LOCAL statement_timeout = '60s'; SET LOCAL idle_in_transaction_session_timeout = '30s'`
+
+// runnerLimitsFrom is the first migration the runner's limits apply to. Earlier files are history: an install that is behind runs them
+// as they always ran (the 0007/0014-style vehicle_state backfills take longer than 60 s, and a 57014 is never retried, so a limit there
+// would brick the upgrade).
+const runnerLimitsFrom = 120
+
+// appliesRunnerLimits reports whether the runner's limits wrap this migration: its leading number is runnerLimitsFrom or more.
+func appliesRunnerLimits(id string) bool {
+	n, err := strconv.Atoi(strings.SplitN(id, "_", 2)[0])
+	return err == nil && n >= runnerLimitsFrom
+}
 
 var (
 	lockRetryBudget = 30 * time.Second

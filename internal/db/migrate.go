@@ -284,10 +284,12 @@ func run(ctx context.Context, db *sql.DB, m migration) error {
 	if body == "" {
 		return fmt.Errorf("empty migration body")
 	}
-	// The runner's own limits, before the file's statements. A file may set its own (SET LOCAL replaces these inside the transaction); the
-	// lint caps what it may ask for (migrate_lint_test.go).
-	if _, err := tx.ExecContext(ctx, runnerSettings); err != nil {
-		return fmt.Errorf("set runner timeouts: %w", err)
+	// The runner's own limits, before the file's statements, for files from runnerLimitsFrom on. A file may set its own (SET LOCAL replaces
+	// these inside the transaction); the lint caps what it may ask for (migrate_lint_v2_test.go).
+	if appliesRunnerLimits(m.id) {
+		if _, err := tx.ExecContext(ctx, runnerSettings); err != nil {
+			return fmt.Errorf("set runner timeouts: %w", err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, body); err != nil {
 		return fmt.Errorf("exec: %w", err)
