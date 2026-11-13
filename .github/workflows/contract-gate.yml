@@ -2,13 +2,16 @@
 # "-- contract-after: vX.Y.Z", a final release older than the newest one and not newer than the oldest deployment's pin (the PR body's
 # "Pinned now:" line). See .github/scripts/contract-check.sh.
 #
+# migration-immutable (migrations v2, step 1) lives here too: an applied migration file must not change, unless the PR carries the label
+# migration-amend (re-run when labels change). See .github/scripts/migration-immutable.sh.
+#
 # Its own workflow, and not a job of build.yml, because it must re-run when the PR BODY is edited (the pins live there) and build.yml's pull_request
 # types stop at opened/synchronize/reopened: adding `edited` there would re-run the whole build and e2e on every body edit.
 name: contract-gate
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
     branches: [main, "release/**"]
 
 permissions:
@@ -33,3 +36,21 @@ jobs:
           # As in policy-dates: a PR checks out its merge into the base, so HEAD^1..HEAD is exactly what the PR changes.
           if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
           bash .github/scripts/contract-check.sh "$base" HEAD
+
+  migration-immutable:
+    name: migration-immutable
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: The check's own tests
+        run: bash .github/scripts/migration-immutable.test.sh
+      - name: No migration already on the base branch is modified, renamed or deleted
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
+          bash .github/scripts/migration-immutable.sh "$base" HEAD

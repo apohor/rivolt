@@ -51,6 +51,8 @@ func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group 
 		return r.planLegs(ctx, user, group, args)
 	case forward.KindOTANotes:
 		return r.otaNotes(ctx, user, group, args)
+	case forward.KindLiveSession:
+		return r.liveSession(ctx, user, group, args)
 	case forward.KindReceiptsSync:
 		return r.receiptsSync(ctx, user)
 	}
@@ -91,6 +93,20 @@ func (r *forwardRunner) otaNotes(ctx context.Context, user, group string, args a
 		c, _ = acct.(rivian.Client)
 	}
 	return api.ServeOTANotes(ctx, c, a.VehicleID), nil
+}
+
+// liveSession serves one live-session read for a requester that does not hold the group: this pod's monitor answers, no Rivian call is made.
+// The vehicle must belong to the named group, as for fresh_state.
+func (r *forwardRunner) liveSession(_ context.Context, user, group string, args any) (forward.Result, error) {
+	a, ok := args.(*forward.LiveSessionArgs)
+	uid, err := uuid.Parse(user)
+	if !ok || err != nil || r.monitors == nil || r.store == nil {
+		return forward.Result{Status: 400, Class: "bad_request"}, nil
+	}
+	if g, known := r.store.GroupOfVehicle(a.VehicleID); !known || g != group {
+		return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
+	}
+	return api.ServeLiveSession(r.monitors.For(uid), a.VehicleID), nil
 }
 
 // planLegs serves one planner call for a requester that does not hold the group, against the user's own client. The vehicle must belong
@@ -244,7 +260,10 @@ func startForward(ctx context.Context, logger *slog.Logger, appMetrics *metrics.
 		// draining pod acquires nothing), so a live lease is never taken.
 		AcquireOnRequest: acquireOnRequest,
 		NoLocal:          !plan.LocalFallback,
-		Acquire:          func(ctx context.Context, group string) (bool, error) { return acquireGroup(ctx, store, group) },
+		// A draining ingest pod drops its readiness marker at once but keeps its lease rows until it has stopped its subscriptions (about
+		// the preStop sleep): a call in that gap waits for the successor instead of being refused.
+		OwnerWait: forwardOwnerWait,
+		Acquire:   func(ctx context.Context, group string) (bool, error) { return acquireGroup(ctx, store, group) },
 		Token: func(group string) (fence.Token, bool) {
 			for _, t := range store.GroupTokens() {
 				if t.Group == group {
@@ -302,3 +321,6 @@ func syncerOrNil(s *receipts.Syncer) receiptsSyncer {
 	}
 	return s
 }
+
+// forwardOwnerWait bounds that wait: the preStop sleep plus the stream stop and the hand-over, with room, under the 30 s route deadline.
+const forwardOwnerWait = 12 * time.Second

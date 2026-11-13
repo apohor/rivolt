@@ -1222,7 +1222,7 @@ func New(d Deps) http.Handler {
 				handleVehicleStateFresh(clientFor(d, uid), d.rivianSessionCheck(uid))(w, r)
 			}))
 			r.With(vehicleScoped, vehicleGate).Get("/live-session/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleLiveSession(clientFor(d, uid), monitorFor(d, uid), d.Settings.For(uid))(w, r)
+				handleLiveSessionForwarded(clientFor(d, uid), monitorFor(d, uid), d.Settings.For(uid), d.stateForward(uid))(w, r)
 			}))
 			r.With(vehicleScoped, vehicleGate).Get("/live-drive/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleLiveDrive(monitorFor(d, uid))(w, r)
@@ -1914,7 +1914,11 @@ func New(d Deps) http.Handler {
 		r.Get("/.well-known/apple-app-site-association", handleAASA(d.IOSAppIDs))
 		r.Get(appCallbackPath, handleAppCallbackPage())
 	}
-	r.Handle("/*", spaHandler(d.WebFS))
+	var assetMiss func()
+	if d.Metrics != nil {
+		assetMiss = d.Metrics.SPAAsset404.Inc
+	}
+	r.Handle("/*", spaHandler(d.WebFS, assetMiss))
 
 	return r
 }

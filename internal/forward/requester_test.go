@@ -772,3 +772,184 @@ func TestNoGroupOnANoLocalPod(t *testing.T) {
 		t.Error("NoGroup refused on an all pod")
 	}
 }
+
+func (f *fleet) drain(outcome string) float64 {
+	return testutil.ToFloat64(f.m.DrainWait.WithLabelValues(outcome))
+}
+
+// drainingFleet has pod-a holding the group with the marker saying "draining": it stopped taking work and still holds the lease row.
+func drainingFleet(t *testing.T) *fleet {
+	f := newFleet(t)
+	f.owner("pod-a", 7, true, nil)
+	if err := f.mr.Set(f.keys.Ready("pod-a"), "draining"); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func waitingRequester(f *fleet, acquire bool, wait time.Duration) *forward.Forwarder {
+	return f.requester(func(cfg *forward.RequesterConfig) {
+		cfg.NoLocal = true
+		cfg.AcquireOnRequest = acquire
+		cfg.OwnerWait = wait
+		cfg.OwnerPoll = 20 * time.Millisecond
+		cfg.OwnerLeaseEvery = 20 * time.Millisecond
+	})
+}
+
+// A draining owner keeps its lease row until it has released: a call in that gap on a no-local pod waits for the successor and is served
+// by it, never a 503, and nothing is sent to the old owner (the kind runs once).
+func TestRequesterWaitsThroughADrainingOwner(t *testing.T) {
+	for _, acquire := range []bool{false, true} {
+		t.Run(fmt.Sprintf("acquire=%v", acquire), func(t *testing.T) {
+			f := drainingFleet(t)
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				f.owner("pod-b", 8, true, nil)
+				f.view.SetOwner(group, forward.LeaseOwner{Found: true, Pod: "pod-b", Epoch: 8})
+			}()
+			var local localCounter
+			res, outcome, err := waitingRequester(f, acquire, 5*time.Second).Do(context.Background(), callFresh, local.fn)
+			if err != nil || outcome != "ok" || string(res.Body) != `{"served_by":"pod-b"}` || local.n.Load() != 0 {
+				t.Fatalf("outcome=%q res=%+v local=%d err=%v, want ok from pod-b", outcome, res, local.n.Load(), err)
+			}
+			if got := len(f.runners["pod-a"].Calls()); got != 0 {
+				t.Errorf("the draining owner ran %d calls, want 0", got)
+			}
+			if f.drain("forwarded") != 1 || f.drain("timeout") != 0 || f.drain("canceled") != 0 {
+				t.Errorf("drain wait forwarded=%v timeout=%v canceled=%v, want 1 0 0", f.drain("forwarded"), f.drain("timeout"), f.drain("canceled"))
+			}
+		})
+	}
+}
+
+// A crashed owner leaves no marker: the call takes today's immediate path (503 on a no-local pod), no wait.
+func TestRequesterCrashedOwnerIsImmediate(t *testing.T) {
+	f := newFleet(t) // the row names pod-a, which runs no loop: no marker
+	start := time.Now()
+	res, outcome, _ := waitingRequester(f, false, 5*time.Second).Do(context.Background(), callFresh, (&localCounter{}).fn)
+	if outcome != "no_local" || res.Status != forward.StatusUnavailable || time.Since(start) > time.Second {
+		t.Fatalf("outcome=%q status=%d after %v, want an immediate no_local 503", outcome, res.Status, time.Since(start))
+	}
+	if f.drain("forwarded")+f.drain("timeout")+f.drain("canceled") != 0 {
+		t.Error("a crash must not count as a drain wait")
+	}
+}
+
+// A draining owner whose successor never appears is a 503 after the cap, not a hang, and the cap is the kind's own when it is shorter.
+func TestRequesterDrainWaitCapIs503(t *testing.T) {
+	f := drainingFleet(t)
+	start := time.Now()
+	res, outcome, _ := waitingRequester(f, false, 300*time.Millisecond).Do(context.Background(), callFresh, (&localCounter{}).fn)
+	if outcome != "no_local" || res.Status != forward.StatusUnavailable || time.Since(start) < 250*time.Millisecond {
+		t.Fatalf("outcome=%q status=%d after %v, want no_local 503 after the wait", outcome, res.Status, time.Since(start))
+	}
+	if f.drain("timeout") != 1 {
+		t.Errorf("drain timeout = %v, want 1", f.drain("timeout"))
+	}
+}
+
+// A request that ends during the wait stops waiting at once.
+func TestRequesterDrainWaitCanceled(t *testing.T) {
+	f := drainingFleet(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	start := time.Now()
+	_, _, _ = waitingRequester(f, false, 5*time.Second).Do(ctx, callFresh, (&localCounter{}).fn)
+	if time.Since(start) > time.Second {
+		t.Errorf("a canceled request waited %v", time.Since(start))
+	}
+	if f.drain("canceled") != 1 {
+		t.Errorf("drain canceled = %v, want 1", f.drain("canceled"))
+	}
+}
+
+// The wait never eats the route's budget: it is capped by what the deadline leaves after the kind's timeout and 2 s, and live_session's own
+// cap keeps it near 4 s.
+func TestWaitBudget(t *testing.T) {
+	cases := []struct {
+		kind      forward.Kind
+		remaining time.Duration
+		want      time.Duration
+	}{
+		{forward.KindFreshState, 0, 12 * time.Second},
+		{forward.KindFreshState, 30 * time.Second, 12 * time.Second},
+		{forward.KindFreshState, 20 * time.Second, 20*time.Second - forward.Kinds[forward.KindFreshState].Timeout - 2*time.Second},
+		{forward.KindLiveSession, 30 * time.Second, 4 * time.Second},
+		{forward.KindFreshState, time.Second, 0},
+	}
+	for _, c := range cases {
+		if got := forward.WaitBudget(c.kind, c.remaining, 12*time.Second); got != c.want {
+			t.Errorf("WaitBudget(%s, %v) = %v, want %v", c.kind, c.remaining, got, c.want)
+		}
+	}
+}
+
+// countView counts the lease-row reads.
+type countView struct {
+	*switchView
+	n atomic.Int32
+}
+
+func (c *countView) Owner(ctx context.Context, group string) (forward.LeaseOwner, error) {
+	c.n.Add(1)
+	return c.switchView.Owner(ctx, group)
+}
+
+// N waiters on one draining owner share one poller: the lease row is read about once per OwnerLeaseEvery, not once per waiter per poll.
+func TestRequesterWaitersShareOnePoller(t *testing.T) {
+	f := drainingFleet(t)
+	cv := &countView{switchView: f.view}
+	fw := f.requester(func(cfg *forward.RequesterConfig) {
+		cfg.NoLocal = true
+		cfg.Leases = cv
+		cfg.OwnerWait = 1200 * time.Millisecond
+		cfg.OwnerPoll = 20 * time.Millisecond
+		cfg.OwnerLeaseEvery = 400 * time.Millisecond
+	})
+	const waiters = 20
+	var wg sync.WaitGroup
+	for range waiters {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, _ = fw.Do(context.Background(), callFresh, (&localCounter{}).fn)
+		}()
+	}
+	wg.Wait()
+	// Each waiter reads the row once to find the owner; the poller adds at most one read per OwnerLeaseEvery (about 3 in 1.2 s).
+	if got := cv.n.Load(); got > waiters+5 {
+		t.Errorf("%d lease reads for %d waiters, want at most %d: the waiters must share one poller", got, waiters, waiters+5)
+	}
+}
+
+// heldView reports the group as held once held is set.
+type heldView struct {
+	*switchView
+	held atomic.Bool
+}
+
+func (h *heldView) Held(string) (int64, bool) { return 9, h.held.Load() }
+
+// If the wait ends because this pod took the group, the call is served here as the owner, not refused.
+func TestRequesterServesWhenItBecomesTheOwnerDuringTheWait(t *testing.T) {
+	f := drainingFleet(t)
+	hv := &heldView{switchView: f.view}
+	fw := f.requester(func(cfg *forward.RequesterConfig) {
+		cfg.AcquireOnRequest = true
+		cfg.Leases = hv
+		cfg.OwnerWait = 5 * time.Second
+		cfg.OwnerPoll = 20 * time.Millisecond
+		cfg.OwnerLeaseEvery = 20 * time.Millisecond
+	})
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		hv.held.Store(true)
+		f.view.SetOwner(group, forward.LeaseOwner{Found: true, Pod: "pod-c", Epoch: 9})
+	}()
+	var local localCounter
+	_, outcome, err := fw.Do(context.Background(), callFresh, local.fn)
+	if err != nil || outcome != "held" || local.n.Load() != 1 {
+		t.Fatalf("outcome=%q local=%d err=%v, want held and one local run", outcome, local.n.Load(), err)
+	}
+}

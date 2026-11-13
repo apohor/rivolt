@@ -24,6 +24,12 @@ import (
 // reports as free (home AC, L2 on non-RAN chargers) this is the
 // only signal of what the charge cost.
 func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *settings.Store) http.HandlerFunc {
+	return handleLiveSessionForwarded(c, mon, store, nil)
+}
+
+// handleLiveSessionForwarded is handleLiveSession with the read routed to the group owner's monitor when this pod holds no tokens for the
+// account (RIVOLT_NO_STANDING_TOKENS): every api pod is such a pod, and without the forward the live panel's session totals would be blank.
+func handleLiveSessionForwarded(c rivian.Client, mon *rivian.StateMonitor, store *settings.Store, sf *stateForward) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		lc, ok := c.(*rivian.LiveClient)
 		unheld := rivian.IsUnheld(c) // single-owner M4-5: no tokens here, so only this pod's monitor can answer, as before the tokens were dropped
@@ -37,6 +43,21 @@ func handleLiveSession(c rivian.Client, mon *rivian.StateMonitor, store *setting
 			return
 		}
 		cfg, _ := settings.GetChargingConfig(r.Context(), store)
+		if unheld && sf != nil {
+			wire, err := sf.forwardLiveSession(r.Context(), c, id, func() (liveSessionWire, error) {
+				if mon == nil {
+					return liveSessionWire{}, errOwnerUnavailable
+				}
+				sess, now := mon.LiveSessionForCharge(id)
+				return wireOf(sess, now), nil
+			})
+			if err != nil {
+				writeUnheld(w)
+				return
+			}
+			writeJSON(w, http.StatusOK, wire.response(id, cfg))
+			return
+		}
 		if mon != nil {
 			// Only a session that belongs to the open charge, and the charge's own recorded energy for the estimate: the
 			// cache can hold the previous plug-in's session, whose total would price a charge that has just begun at a

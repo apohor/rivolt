@@ -22,6 +22,7 @@ const (
 	KindAdopt        Kind = "adopt"         // best-effort nudge after a login: user and group only, never credentials
 	KindReceiptsSync Kind = "receipts_sync" // one receipts summaries pass after a user opts in: user and group only, no reply (owner runs Sync, the 30 min claim caps it)
 	KindOTANotes     Kind = "ota_notes"     // one OTA release-notes URL lookup (not stored, not cached by the requester)
+	KindLiveSession  Kind = "live_session"  // one read of the owner's live charging session for a vehicle (no Rivian call: the owner's monitor answers)
 )
 
 // Spec is what the allowlist holds for a kind.
@@ -37,6 +38,9 @@ type Spec struct {
 	Validate func(args json.RawMessage) (any, error)
 	// NoReply says no requester waits for an answer, so the owner writes none (adopt, receipts_sync).
 	NoReply bool
+	// DrainWait caps how long a call of this kind waits for a draining owner's successor (0: the requester's own ceiling). A kind whose
+	// caller polls soon again keeps it short so the waits do not stack.
+	DrainWait time.Duration
 }
 
 // Kinds is the allowlist.
@@ -46,6 +50,7 @@ var Kinds = map[Kind]Spec{
 	KindAdopt:        {Timeout: 5 * time.Second, Retry: false, NoReply: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[AdoptArgs](a) }},
 	KindReceiptsSync: {Timeout: 25 * time.Second, Retry: false, NoReply: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[ReceiptsSyncArgs](a) }},
 	KindOTANotes:     {Timeout: 15 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[OTANotesArgs](a) }},
+	KindLiveSession:  {Timeout: 4 * time.Second, DrainWait: 4 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[LiveSessionArgs](a) }},
 }
 
 // ErrBadArgs: args that fail the kind's schema.
@@ -222,6 +227,13 @@ func (a *OTANotesArgs) validate() error {
 	}
 	return nil
 }
+
+// LiveSessionArgs: one live-session read.
+type LiveSessionArgs struct {
+	VehicleID string `json:"vehicle_id"`
+}
+
+func (a *LiveSessionArgs) validate() error { return checkVehicle(a.VehicleID) }
 
 // Check is the owner's whole admission test for a decoded request, in order: the signature, then the kind, then the args. It
 // returns the decoded args on success. Nothing before the signature touches the message's content.

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"math/rand/v2"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -21,6 +23,21 @@ const (
 	ClassBadReply     = "bad_reply"
 	RetryAfterSeconds = 5 // the Retry-After a handler sends with a 503 from here
 )
+
+// runHeld runs the call here when this pod holds the group's lease (ok true): the owner's own calls, with no forwarding.
+func (f *Forwarder) runHeld(ctx context.Context, c Call, local func(context.Context) (Result, error)) (Result, bool, error) {
+	if epoch, ok := f.cfg.Leases.Held(c.Group); !ok || f.cfg.Leases.PastDeadline() || epoch <= 0 {
+		return Result{}, false, nil
+	}
+	f.count(c.Kind, "held") // the normal case on the owner: not a fail-soft path (left out of the local share), but counted for volume
+	if f.cfg.Token != nil {
+		if tok, has := f.cfg.Token(c.Group); has {
+			ctx = fence.With(ctx, tok) // the call is the group's own, so it carries the permit like an acquired one does
+		}
+	}
+	res, err := local(ctx)
+	return res, true, err
+}
 
 // LeaseForgetter is implemented by a LeaseView that caches: Forget drops a group's cached row so the next Owner call reads it fresh.
 type LeaseForgetter interface{ Forget(group string) }
@@ -48,6 +65,16 @@ type RequesterConfig struct {
 	// case, and an acquire, is a 503 Retry-After counted `no_local`. Such a pod holds no group, so a call it ran itself would be a
 	// non-owner Rivian call.
 	NoLocal bool
+	// OwnerWait is the longest a call waits for a draining owner's successor: the owner has written "draining" in its readiness marker
+	// (it stops taking new work at SIGUSR1 but keeps its lease rows until its subscriptions are stopped and released), so the call waits,
+	// before anything is sent, for a ready owner to appear, and goes to it. A missing marker (a crash, an old image) never waits. Each wait is
+	// also capped by what the request's deadline leaves after the kind's own timeout (WaitBudget). Zero: no wait. Only a pod that could not
+	// serve the call itself (NoLocal, or AcquireOnRequest) waits; anything else keeps the fail-soft path.
+	OwnerWait time.Duration
+	// OwnerPoll is the pause between the poller's Redis reads (default 250 ms); the lease row is read at most once per OwnerLeaseEvery.
+	OwnerPoll time.Duration
+	// OwnerLeaseEvery is the least time between two reads of a group's lease row while waiting (default 1 s: the request pool is small).
+	OwnerLeaseEvery time.Duration
 	// Token returns this pod's fence token for the group, after an acquire (the lease store's view). The call that runs as the new owner carries
 	// it in its context, so the owner guard and the permit see the new epoch. Nil: the context is unchanged.
 	Token func(group string) (fence.Token, bool)
@@ -55,7 +82,11 @@ type RequesterConfig struct {
 
 // Forwarder is the requester side: it decides whether a call that needs Rivian is served here or by the group's owner, and if by the
 // owner pushes it, waits for the signed reply and verifies it. Nothing is acquired (C2): no owner means the call is served here.
-type Forwarder struct{ cfg RequesterConfig }
+type Forwarder struct {
+	cfg   RequesterConfig
+	mu    sync.Mutex
+	polls map[string]*drainPoll // one poller per (group, old owner, epoch) on this pod: its waiters share the result
+}
 
 // NewForwarder validates cfg.
 func NewForwarder(cfg RequesterConfig) (*Forwarder, error) {
@@ -70,7 +101,7 @@ func NewForwarder(cfg RequesterConfig) (*Forwarder, error) {
 			return 200*time.Millisecond + time.Duration(rand.Int64N(int64(300*time.Millisecond)))
 		}
 	}
-	return &Forwarder{cfg: cfg}, nil
+	return &Forwarder{cfg: cfg, polls: map[string]*drainPoll{}}, nil
 }
 
 // UnavailableResult is the 503 a handler answers with Retry-After RetryAfterSeconds: the reply of a call nobody could serve.
@@ -126,14 +157,7 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 	if _, ok := Kinds[c.Kind]; !ok {
 		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "rejected", errors.New("forward: not an allowlisted kind")
 	}
-	if epoch, ok := f.cfg.Leases.Held(c.Group); ok && !f.cfg.Leases.PastDeadline() && epoch > 0 {
-		f.count(c.Kind, "held") // the normal case on the owner: not a fail-soft path (left out of the local share), but counted for volume
-		if f.cfg.Token != nil {
-			if tok, has := f.cfg.Token(c.Group); has {
-				ctx = fence.With(ctx, tok) // the call is the group's own, so it carries the permit like an acquired one does
-			}
-		}
-		res, err := local(ctx)
+	if res, ok, err := f.runHeld(ctx, c, local); ok {
 		return res, "held", err
 	}
 	owner, err := f.cfg.Leases.Owner(ctx, c.Group)
@@ -146,7 +170,7 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 		return f.fallback(ctx, c, "local", !owner.Found, local)
 	}
 	attempts := 0
-	var sawBusy bool
+	var sawBusy, waited bool
 	for {
 		attempts++
 		res, outcome := f.attempt(ctx, c, owner)
@@ -163,6 +187,22 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 			return f.fallback(ctx, c, "rejected", false, local)
 		case "redis":
 			return f.fallback(ctx, c, "local", false, local) // the lease is live: not ready, or Redis is down
+		case "draining":
+			// One wait per call: a successor that is also draining (a sequential roll) is not waited for a second time.
+			if waited || f.cfg.OwnerWait <= 0 || !(f.cfg.NoLocal || f.cfg.AcquireOnRequest) {
+				return f.fallback(ctx, c, "local", false, local)
+			}
+			waited = true
+			next, found := f.waitForOwner(ctx, c, owner)
+			if next.Pod == "" {
+				// The wait may have ended because this pod took the group: serve it as the owner rather than refuse.
+				if res, ok, err := f.runHeld(ctx, c, local); ok {
+					return res, "held", err
+				}
+				return f.fallback(ctx, c, "local", !found, local) // out of time, or the row is gone and this pod may take it
+			}
+			owner = next
+			continue
 		case "busy":
 			if sawBusy {
 				return f.fallback(ctx, c, "local_busy", false, local)
@@ -256,8 +296,13 @@ func (f *Forwarder) soft(ctx context.Context, c Call, outcome string, local func
 // (Redis failed or the owner is not ready: the caller falls soft).
 func (f *Forwarder) attempt(ctx context.Context, c Call, owner LeaseOwner) (Result, string) {
 	rdb := f.cfg.Redis
-	if n, err := rdb.Exists(ctx, f.cfg.Keys.Ready(owner.Pod)).Result(); err != nil || n == 0 {
-		return Result{}, "redis" // not ready (an old image, a crashed loop, the flag off there) or Redis is down: serve here
+	switch st, err := f.readiness(ctx, owner.Pod); {
+	case err != nil:
+		return Result{}, "redis" // Redis is down: serve here
+	case st == markerDraining:
+		return Result{}, "draining" // the owner has stopped taking work and still holds the lease: wait for its successor, nothing sent
+	case st == markerAbsent:
+		return Result{}, "redis" // not ready (an old image, a crashed loop, the flag off there): serve here
 	}
 	if n, err := rdb.LLen(ctx, f.cfg.Keys.Queue(owner.Pod)).Result(); err != nil {
 		return Result{}, "redis"
@@ -357,7 +402,7 @@ func (f *Forwarder) push(ctx context.Context, user, group string, kind Kind) boo
 		return false
 	}
 	rdb := f.cfg.Redis
-	if n, err := rdb.Exists(ctx, f.cfg.Keys.Ready(owner.Pod)).Result(); err != nil || n == 0 {
+	if st, err := f.readiness(ctx, owner.Pod); err != nil || st != markerReady {
 		return false
 	}
 	// A no-reply push never fills the owner's queue past what attempt() accepts: past MaxQueue every requester refuses this pod, so the
@@ -383,4 +428,175 @@ func (f *Forwarder) push(ctx context.Context, user, group string, kind Kind) boo
 	pipe.Expire(ctx, queue, RequestListTTL*time.Second)
 	_, err = pipe.Exec(ctx)
 	return err == nil
+}
+
+// Readiness marker values: the owner writes markerReady while it takes work and markerDraining from SIGUSR1 until its lease is released.
+const (
+	markerReady    = "1"
+	markerDraining = "draining"
+	markerAbsent   = ""
+)
+
+// readiness reads a pod's marker: markerReady, markerDraining, or markerAbsent (never set, expired or deleted: not ready, or crashed).
+func (f *Forwarder) readiness(ctx context.Context, pod string) (string, error) {
+	v, err := f.cfg.Redis.Get(ctx, f.cfg.Keys.Ready(pod)).Result()
+	if errors.Is(err, redis.Nil) {
+		return markerAbsent, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if v == markerDraining {
+		return markerDraining, nil
+	}
+	return markerReady, nil // any other value is a marker an older image wrote: ready
+}
+
+// WaitBudget is how long a call of kind may wait for a draining owner, given what is left of the request's deadline (0: none is known) and
+// the configured ceiling: the ceiling, less than what the deadline leaves after the kind's own timeout and 2 s of slack, and less than the
+// kind's own cap (live_session: its 10 s poll must not stack). Never negative.
+func WaitBudget(kind Kind, remaining, ceiling time.Duration) time.Duration {
+	spec := Kinds[kind]
+	wait := ceiling
+	if spec.DrainWait > 0 && spec.DrainWait < wait {
+		wait = spec.DrainWait
+	}
+	if remaining > 0 {
+		if room := remaining - spec.Timeout - 2*time.Second; room < wait {
+			wait = room
+		}
+	}
+	if wait < 0 {
+		return 0
+	}
+	return wait
+}
+
+// drainPoll is the shared wait for one draining owner: one goroutine watches, every waiter reads the result.
+type drainPoll struct {
+	done  chan struct{}
+	owner LeaseOwner // set before done closes: the owner to ask now, zero Pod when there is none
+	found bool       // the lease row still exists (false: absent or expired, so a pod that may acquire can)
+}
+
+// waitForOwner waits for the group's draining owner to be replaced by one that is ready to be asked, and returns it; a zero Pod means none
+// in time (and found says whether the lease row is still there). The wait is capped by WaitBudget, ends when ctx does, and is over before
+// anything is sent, so a call never runs twice for it.
+func (f *Forwarder) waitForOwner(ctx context.Context, c Call, old LeaseOwner) (LeaseOwner, bool) {
+	start := time.Now()
+	var remaining time.Duration
+	if dl, ok := ctx.Deadline(); ok {
+		remaining = time.Until(dl)
+		if remaining <= 0 {
+			remaining = time.Nanosecond
+		}
+	}
+	budget := WaitBudget(c.Kind, remaining, f.cfg.OwnerWait)
+	if budget <= 0 {
+		f.drainOutcome("timeout", start)
+		return LeaseOwner{}, true
+	}
+	p := f.pollFor(c.Group, old)
+	timer := time.NewTimer(budget)
+	defer timer.Stop()
+	select {
+	case <-p.done:
+		if p.owner.Pod != "" {
+			f.drainOutcome("forwarded", start)
+		} else {
+			f.drainOutcome("timeout", start)
+		}
+		return p.owner, p.found
+	case <-ctx.Done():
+		f.drainOutcome("canceled", start)
+		return LeaseOwner{}, true
+	case <-timer.C:
+		f.drainOutcome("timeout", start)
+		return LeaseOwner{}, true
+	}
+}
+
+func (f *Forwarder) drainOutcome(outcome string, start time.Time) {
+	if f.cfg.Metrics != nil {
+		f.cfg.Metrics.DrainWait.WithLabelValues(outcome).Inc()
+		f.cfg.Metrics.DrainWaitSeconds.Observe(time.Since(start).Seconds())
+	}
+}
+
+// pollFor returns the poller for the draining owner, starting it for the first waiter.
+func (f *Forwarder) pollFor(group string, old LeaseOwner) *drainPoll {
+	key := group + "|" + old.Pod + "|" + strconv.FormatInt(old.Epoch, 10)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p, ok := f.polls[key]; ok {
+		return p
+	}
+	p := &drainPoll{done: make(chan struct{})}
+	f.polls[key] = p
+	go f.poll(key, group, old, p)
+	return p
+}
+
+// poll watches until a ready owner is there, the old owner's marker is gone (it died: the old path), the old owner is ready again, or
+// OwnerWait runs out. Redis is read every OwnerPoll; the lease row at most once per OwnerLeaseEvery (the request pool is small), and by this
+// one goroutine for every waiter. It belongs to no request: its own deadline ends it.
+func (f *Forwarder) poll(key, group string, old LeaseOwner, p *drainPoll) {
+	defer func() {
+		f.mu.Lock()
+		delete(f.polls, key)
+		f.mu.Unlock()
+		close(p.done)
+	}()
+	pause, leaseEvery := f.cfg.OwnerPoll, f.cfg.OwnerLeaseEvery
+	if pause <= 0 {
+		pause = 250 * time.Millisecond
+	}
+	if leaseEvery <= 0 {
+		leaseEvery = time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), f.cfg.OwnerWait)
+	defer cancel()
+	p.found = true
+	var lastLease time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(pause):
+		}
+		switch st, err := f.readiness(ctx, old.Pod); {
+		case err != nil:
+			continue
+		case st == markerReady:
+			p.owner = old // it is taking work again
+			return
+		case st == markerAbsent:
+			return // it died (or finished): nobody to wait for, the caller takes the no-marker path
+		}
+		if time.Since(lastLease) < leaseEvery {
+			continue
+		}
+		lastLease = time.Now()
+		if lf, ok := f.cfg.Leases.(LeaseForgetter); ok {
+			lf.Forget(group)
+		}
+		o, err := f.cfg.Leases.Owner(ctx, group)
+		if err != nil {
+			continue
+		}
+		p.found = o.Found
+		switch {
+		case !o.Found:
+			if !f.cfg.NoLocal {
+				return // a pod that may acquire the free row does so
+			}
+		case o.Pod == f.cfg.Pod || !ValidPod(o.Pod):
+			return
+		case o.Pod != old.Pod || o.Epoch != old.Epoch:
+			if st, err := f.readiness(ctx, o.Pod); err == nil && st == markerReady {
+				p.owner = o
+				return
+			}
+		}
+	}
 }

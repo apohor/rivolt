@@ -39,7 +39,14 @@ type Metrics struct {
 	Seconds    *prometheus.HistogramVec // rivolt_rivian_forward_seconds{kind}
 	QueueDepth prometheus.Gauge         // rivolt_forward_queue_depth (this pod's owner list, owner loop)
 	OwnerReady prometheus.Gauge         // rivolt_forward_owner_ready (1 while this pod's owner loop is running and marked ready)
+	// DrainWait counts calls that waited for a draining owner's successor before sending anything: forwarded (a ready owner appeared and
+	// the call went to it), timeout (the cap ran out: 503 Retry-After), canceled (the request ended first).
+	DrainWait        *prometheus.CounterVec // rivolt_forward_drain_wait_total{outcome}
+	DrainWaitSeconds prometheus.Histogram   // rivolt_forward_drain_wait_seconds
 }
+
+// DrainWaitOutcomes are the drain-wait outcome label values.
+var DrainWaitOutcomes = []string{"forwarded", "timeout", "canceled"}
 
 // NewMetrics creates the instruments, registers them on reg and creates every (kind, outcome) series at 0.
 func NewMetrics(reg prometheus.Registerer) *Metrics {
@@ -61,9 +68,21 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "rivolt_forward_owner_ready",
 			Help: "1 while this pod's owner loop is running and has set its readiness marker, else 0.",
 		}),
+		DrainWait: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_forward_drain_wait_total",
+			Help: "Calls that waited for a draining owner's successor, by outcome (forwarded, timeout, canceled).",
+		}, []string{"outcome"}),
+		DrainWaitSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "rivolt_forward_drain_wait_seconds",
+			Help:    "Time a call waited for a draining owner's successor.",
+			Buckets: []float64{0.25, 0.5, 1, 2, 4, 6, 8, 12},
+		}),
 	}
 	if reg != nil {
-		reg.MustRegister(m.Total, m.Seconds, m.QueueDepth, m.OwnerReady)
+		reg.MustRegister(m.Total, m.Seconds, m.QueueDepth, m.OwnerReady, m.DrainWait, m.DrainWaitSeconds)
+	}
+	for _, o := range DrainWaitOutcomes {
+		m.DrainWait.WithLabelValues(o)
 	}
 	for _, k := range MetricKinds() {
 		for _, o := range Outcomes {

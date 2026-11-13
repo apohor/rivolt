@@ -48,6 +48,7 @@ func TestAllowlistAndSchemas(t *testing.T) {
 		{"fresh_state", KindFreshState, `{"vehicle_id":"v-1","max_age_ms":30000}`, true},
 		{"adopt", KindAdopt, `{}`, true},
 		{"ota_notes", KindOTANotes, `{"vehicle_id":"v-1","release_id":"r.2026.40"}`, true},
+		{"live_session", KindLiveSession, `{"vehicle_id":"v-1"}`, true},
 		{"receipts_sync", KindReceiptsSync, `{}`, true},
 		{"receipts_sync may not carry a credential", KindReceiptsSync, `{"token":"x"}`, false},
 		{"receipts_sync takes no user in its args", KindReceiptsSync, `{"user":"x"}`, false},

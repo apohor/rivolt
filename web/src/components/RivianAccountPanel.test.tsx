@@ -213,6 +213,29 @@ describe("connect step: driver account first", () => {
       expect(ownedCalls(fn)).toBe(before);
     });
 
+    it("a 429 on a second Check again keeps the watch, so a vehicle that lands still shows", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      stubFetchRoutes({ ...connected, ...unheld, "/api/vehicles/owned": { body: { vehicles: [truck] } } });
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: "Added a vehicle? Check again" }));
+      expect(await screen.findByRole("status")).toHaveTextContent("Rivolt is checking your Rivian account.");
+      const two = { ...truck, id: "v-test-2", vin: "TESTVIN0000000002", display_name: "Two" };
+      const fn = stubFetchRoutes({
+        ...connected,
+        "/api/settings/rivian/refresh-vehicles": { status: 429, body: { error: "limited" } },
+        "/api/vehicles/owned": { body: { vehicles: [truck] } },
+      });
+      await wait(1_000);
+      fireEvent.click(await screen.findByRole("button", { name: "Added a vehicle? Check again" }));
+      await wait(1_000);
+      expect(screen.queryByText(/limited/)).toBeNull();
+      const before = ownedCalls(fn);
+      stubFetchRoutes({ ...connected, "/api/vehicles/owned": { body: { vehicles: [truck, two] } }, "/api/vehicles/discovery": { body: { state: "found" } } });
+      await wait(6_000);
+      expect(await screen.findByText(/“Two”/)).toBeInTheDocument();
+      expect(before).toBeGreaterThan(0);
+    });
+
     it("shows a second truck once it lands and clears the line", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       stubFetchRoutes({ ...connected, ...unheld, "/api/vehicles/owned": { body: { vehicles: [truck] } } });
@@ -239,8 +262,35 @@ describe("connect step: driver account first", () => {
     });
     renderPanel();
     fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
-    expect(await screen.findByText(/unavailable/)).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't check right now. Try again in a minute.")).toBeInTheDocument();
+    expect(screen.queryByText(/unavailable/)).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("Check again answered 429 says it checked a moment ago, as a quiet note, not an error", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/settings/rivian/refresh-vehicles": { status: 429, body: { error: "limited" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    const note = await screen.findByText("Checked a moment ago. We'll keep looking.");
+    expect(note).toHaveAttribute("role", "status");
+    expect(note.className).not.toMatch(/rose/);
+    expect(screen.queryByText(/limited/)).toBeNull();
+  });
+
+  it("Check again failing any other way says it could not check, never the raw error", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian": { body: { enabled: true, authenticated: true, mfa_pending: false, email: "d@example.com" } },
+      "/api/settings/rivian/refresh-vehicles": { status: 500, body: { error: "boom" } },
+      "/api/vehicles/owned": { body: { vehicles: [] } },
+    });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Couldn't check right now. Try again in a minute.")).toBeInTheDocument();
+    expect(screen.queryByText(/boom|Error:/)).toBeNull();
   });
 });
 

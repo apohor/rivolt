@@ -293,3 +293,23 @@ func TestOperatorCostIgnoresDateSuffix(t *testing.T) {
 		t.Errorf("dated opus-5-5 = %v, want 24", got)
 	}
 }
+
+// A key pasted or mounted with a trailing newline must reach the wire clean.
+func TestKeyWhitespaceIsTrimmed(t *testing.T) {
+	f := &fakeAnthropic{replies: []fakeReply{ok("claude-opus-5-5", "end_turn", textAndThinking, `{"input_tokens":1,"output_tokens":1}`)}}
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	p, err := NewAnthropic(AnthropicConfig{APIKey: "  sk-test-secret\n", Model: OperatorModel, BaseURL: srv.URL, Operator: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := p.Complete(WithReservation(WithRoute(context.Background(), RouteRecap)), "s", "u"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.headers[0].Get("Authorization"); got != "Bearer sk-test-secret" {
+		t.Fatalf("Authorization = %q, want the trimmed key", got)
+	}
+	if _, err := NewAnthropic(AnthropicConfig{APIKey: " \n"}); err == nil {
+		t.Error("a whitespace-only key must count as no key")
+	}
+}

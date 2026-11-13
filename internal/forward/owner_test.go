@@ -423,8 +423,8 @@ func TestOwnerReadinessMarker(t *testing.T) {
 		t.Error("owner_ready gauge is 1 while running")
 	}
 	r.shutdown()
-	if r.mr.Exists(key) {
-		t.Error("the marker must be removed when the loop stops, so requesters stop forwarding here")
+	if v, _ := r.mr.Get(key); v != "draining" {
+		t.Errorf("marker = %q after the loop stops, want \"draining\" (not ready, and not a crash)", v)
 	}
 	if testutil.ToFloat64(r.m.OwnerReady) != 0 {
 		t.Error("owner_ready gauge is 0 after stopping")
@@ -461,5 +461,30 @@ func TestOwnerOversizeAnswerIsItsOwnOutcome(t *testing.T) {
 	}
 	if count(r, forward.KindPlanLegs, "too_big") != 1 || count(r, forward.KindPlanLegs, "ok") != 0 {
 		t.Errorf("too_big=%v ok=%v, want 1 and 0", count(r, forward.KindPlanLegs, "too_big"), count(r, forward.KindPlanLegs, "ok"))
+	}
+}
+
+// SetDraining turns the marker to "draining" at once (the lease row outlives it), so a requester waits for the successor instead of serving.
+func TestOwnerDrainingMarker(t *testing.T) {
+	r := newRig(t, nil)
+	key := r.keys.Ready(pod)
+	r.start()
+	deadline := time.Now().Add(2 * time.Second)
+	for !r.mr.Exists(key) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	r.owner.SetDraining()
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if v, _ := r.mr.Get(key); v == "draining" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if v, _ := r.mr.Get(key); v != "draining" {
+		t.Errorf("marker = %q after SetDraining, want \"draining\"", v)
+	}
+	if testutil.ToFloat64(r.m.OwnerReady) != 0 {
+		t.Error("owner_ready gauge is 0 while draining")
 	}
 }

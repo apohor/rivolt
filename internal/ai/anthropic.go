@@ -157,6 +157,8 @@ type AnthropicConfig struct {
 
 // NewAnthropic constructs a provider. Returns an error if no API key is set.
 func NewAnthropic(cfg AnthropicConfig) (*AnthropicProvider, error) {
+	// A key from a mounted secret or a paste often ends in a newline, which Go refuses in a header.
+	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("anthropic: api key is required")
 	}

@@ -118,20 +118,30 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
   // current as soon as the login mutation invalidates it.
   // Check again on a server that does not hold the account: it asks the one that does (which looks at most once per user per 10 min) and
   // answers 503 with Retry-After. That is "checking", not an error.
+  const [recent, setRecent] = useState(false);
   const recheck = useMutation({
     mutationFn: async () => {
+      setRecent(false);
       try {
         await backend.rivianRefreshVehicles();
-        return { looking: false, after: 0 };
+        return { looking: false, after: 0, recent: false };
       } catch (e) {
-        if (e instanceof ApiError && e.status === 503 && e.retryAfter !== null) return { looking: true, after: e.retryAfter };
+        if (e instanceof ApiError && e.status === 503 && e.retryAfter !== null) return { looking: true, after: e.retryAfter, recent: false };
+        // 429: the server looked a moment ago. A quiet note, not an error.
+        if (e instanceof ApiError && e.status === 429) return { looking: false, after: 0, recent: true };
         throw e;
       }
     },
     onSuccess: (r) => {
       invalidate();
+      // 429: the owner looked moments ago, so a watch already running keeps going (its re-reads are what show a found vehicle).
+      if (r.recent) {
+        setRecent(true);
+        return;
+      }
       // A "none" read during an earlier watch must not end this one before it is read again.
       qc.removeQueries({ queryKey: ["vehicles", "discovery", "recheck"] });
+      setRecent(false);
       setWatch(r.looking ? { count: owned.data?.vehicles?.length ?? 0, after: Math.max(r.after, 5) } : null);
     },
   });
@@ -289,7 +299,8 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
           ownerSaidNone={ownerSaidNone && !grown}
           discovery={dstate}
           onRecheck={() => recheck.mutate()}
-          recheckError={recheck.isError ? String(recheck.error) : null}
+          recheckError={recheck.isError ? RECHECK_ERROR : null}
+          recheckNote={recent && !recheck.isError ? RECHECK_RECENT : null}
         />
       </div>
     );
@@ -516,6 +527,7 @@ function ConnectedVehicles({
   discovery,
   onRecheck,
   recheckError,
+  recheckNote,
 }: {
   vehicles: OwnedVehicle[] | undefined;
   loading: boolean;
@@ -525,6 +537,7 @@ function ConnectedVehicles({
   discovery: DiscoveryState | null;
   onRecheck: () => void;
   recheckError: string | null;
+  recheckNote: string | null;
 }) {
   if (loading || !vehicles) return null;
   if (vehicles.length > 0) {
@@ -551,6 +564,9 @@ function ConnectedVehicles({
             <p className="mt-1 text-xs text-neutral-400" role="status">{discoveryView("looking")!.body}</p>
           )}
           {recheckError && <p className="mt-1 text-xs text-rose-300">{recheckError}</p>}
+          {recheckNote && !recheckError && !looking && (
+            <p className="mt-1 text-xs text-neutral-400" role="status">{recheckNote}</p>
+          )}
         </li>
       </ul>
     );
@@ -598,9 +614,16 @@ function ConnectedVehicles({
         {rechecking ? "Checking…" : "Check again"}
       </button>
       {recheckError && <p className="mt-2 text-xs text-rose-300">{recheckError}</p>}
+      {recheckNote && !recheckError && !looking && (
+        <p className="mt-2 text-xs text-neutral-400" role="status">{recheckNote}</p>
+      )}
     </div>
   );
 }
+
+// What Check again says for a 429 (the server looked a moment ago) and for any other failure; never the raw error text (the iOS app says the same).
+const RECHECK_RECENT = "Checked a moment ago. We'll keep looking.";
+const RECHECK_ERROR = "Couldn't check right now. Try again in a minute.";
 
 // RECHECK_WATCH_MS bounds the re-reads after a Check again the owner took: vehiclediscovery.ForceEvery, the owner's limit between two lookups.
 const RECHECK_WATCH_MS = 10 * 60_000;

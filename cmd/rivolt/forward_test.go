@@ -156,6 +156,34 @@ func TestForwardRunnerPlanLegsGroupGuard(t *testing.T) {
 	}
 }
 
+// live_session has the same guard, and the read is the forwarded user's own monitor: a vehicle outside the named group, or unknown, is 404; a
+// user with no monitor on this pod (another user's vehicle) gets no data, a 503, never a session.
+func TestForwardRunnerLiveSessionGuards(t *testing.T) {
+	store, err := leases.NewStore(new(sql.DB), "pod-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetVehicleGroups(map[string]string{"v-fake-1": "grp-1"})
+	r := &forwardRunner{store: store, monitors: &rivian.MonitorRegistry{}, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	const user = "11111111-2222-3333-4444-555555555555"
+	for _, tc := range []struct {
+		vehicle, group string
+		status         int
+	}{
+		{"v-fake-1", "grp-2", 404},
+		{"v-fake-9", "grp-1", 404},
+		{"v-fake-1", "grp-1", 503},
+	} {
+		res, err := r.Run(context.Background(), forward.KindLiveSession, user, tc.group, &forward.LiveSessionArgs{VehicleID: tc.vehicle})
+		if err != nil || res.Status != tc.status {
+			t.Errorf("%s in %s: %d %v, want %d", tc.vehicle, tc.group, res.Status, err, tc.status)
+		}
+	}
+	if res, _ := r.Run(context.Background(), forward.KindLiveSession, user, "grp-1", "not args"); res.Status != 400 {
+		t.Errorf("wrong args type: %d, want 400", res.Status)
+	}
+}
+
 // The replay test switch is refused anywhere that could reach Rivian, and is off unless asked for.
 func TestForwardReplayTestSwitchIsGuarded(t *testing.T) {
 	env := func(kv ...string) func(string) string {
