@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -147,6 +149,9 @@ type ReplayFeed struct {
 	allow func(uid uuid.UUID) bool
 	// empty names the users whose replay sign-in works but whose account has no vehicle (preview's way to show the no-vehicle states).
 	empty func(uid uuid.UUID) bool
+	// images are the Rivian pictures the demo vehicles carry (SetImages); noImages names the users who get none (the public demo account).
+	images   []VehicleImage
+	noImages func(uid uuid.UUID) bool
 	// lastRecorded returns the newest persisted sample for a demo
 	// vehicle (zero time when none), which is where Stream resumes.
 	lastRecorded func(ctx context.Context, vehicleID string) (time.Time, error)
@@ -371,18 +376,6 @@ func NewDBReplayFeed(ctx context.Context, pool *sql.DB, sourceVehicleID string, 
 	}
 	src = Vehicle{ID: sourceVehicleID, VIN: vin.String, Name: name.String,
 		Model: model.String, ModelYear: int(year.Int64), PackKWh: pack.Float64}
-	// The recorded vehicle's Rivian pictures (best effort: a row without them just leaves the demo vehicle bare). Only a db-backed corpus reaches
-	// here; the generated sample feed carries none, so the public demo never shows Rivian images.
-	var heroURL sql.NullString
-	var info []byte
-	if err := pool.QueryRowContext(ctx, `
-		SELECT image_url, metadata->'vehicle_info' FROM vehicles WHERE id = $1`, vid).Scan(&heroURL, &info); err == nil {
-		src.ApplyStoredInfo(info)
-		src.ImageURL = heroURL.String
-	}
-	if src.ImageURL == "" && len(src.Images) > 0 {
-		src.ImageURL = pickHeroImage(src.Images)
-	}
 	err = pool.QueryRowContext(ctx, `
 		SELECT min(at), max(at), min(odometer_mi) FILTER (WHERE odometer_mi > 0),
 		       max(odometer_mi)
@@ -427,6 +420,52 @@ func NewDBReplayFeed(ctx context.Context, pool *sql.DB, sourceVehicleID string, 
 // (the default) allows everyone.
 func (f *ReplayFeed) SetAllowedUsers(allow func(uid uuid.UUID) bool) { f.allow = allow }
 
+// SetImages gives every demo vehicle these Rivian pictures (preview only, from RIVOLT_REPLAY_VEHICLE_IMAGES), except for users noImages names.
+// The list's own vehicle and order ids are never used: each client rewrites them to its demo vehicle.
+func (f *ReplayFeed) SetImages(images []VehicleImage, noImages func(uid uuid.UUID) bool) {
+	f.images, f.noImages = images, noImages
+}
+
+// ParseReplayImages reads the RIVOLT_REPLAY_VEHICLE_IMAGES JSON list. Only plain https URLs pass: a signed URL expires and carries the account
+// it was signed for, and a URL naming a VIN would publish one.
+func ParseReplayImages(raw string) ([]VehicleImage, error) {
+	var in []VehicleImage
+	if err := json.Unmarshal([]byte(raw), &in); err != nil {
+		return nil, fmt.Errorf("replay images: %w", err)
+	}
+	out := make([]VehicleImage, 0, len(in))
+	for _, img := range in {
+		u, err := url.Parse(img.URL)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return nil, fmt.Errorf("replay images: %q is not an https URL", img.URL)
+		}
+		if u.RawQuery != "" || u.User != nil {
+			return nil, fmt.Errorf("replay images: %s has a query or credentials (signed URLs are refused)", u.Host)
+		}
+		if replayVINRe.MatchString(strings.ToUpper(img.URL)) {
+			return nil, fmt.Errorf("replay images: %s names a VIN", u.Host)
+		}
+		out = append(out, VehicleImage{URL: img.URL, Extension: img.Extension, Resolution: img.Resolution,
+			Size: img.Size, Design: img.Design, Placement: img.Placement})
+	}
+	return out, nil
+}
+
+var replayVINRe = regexp.MustCompile(`[A-HJ-NPR-Z0-9]{17}`)
+
+// vehicleImages is the list for uid's demo vehicle, ids rewritten to the demo vehicle and the hero chosen; nil for none.
+func (f *ReplayFeed) vehicleImages(uid uuid.UUID, vehicleID string) []VehicleImage {
+	if len(f.images) == 0 || (f.noImages != nil && f.noImages(uid)) {
+		return nil
+	}
+	out := make([]VehicleImage, len(f.images))
+	for i, img := range f.images {
+		img.VehicleID, img.OrderID = vehicleID, ""
+		out[i] = img
+	}
+	return out
+}
+
 // SetEmptyUsers names the users whose sign-in succeeds with no vehicle on the account. nil (the default) names nobody.
 func (f *ReplayFeed) SetEmptyUsers(empty func(uid uuid.UUID) bool) { f.empty = empty }
 
@@ -469,18 +508,23 @@ func NewReplayClient(feed *ReplayFeed, uid uuid.UUID) *ReplayClient {
 		model = "R1S"
 	}
 	hex := strings.ToUpper(strings.ReplaceAll(uid.String(), "-", ""))
+	imgs := feed.vehicleImages(uid, DemoVehicleID(uid))
+	hero := ""
+	if len(imgs) > 0 {
+		hero = pickHeroImage(imgs)
+	}
 	return &ReplayClient{
 		feed: feed,
 		vehicle: Vehicle{
 			ID:        DemoVehicleID(uid),
+			ImageURL:  hero,
+			Images:    imgs,
 			VIN:       "DEMO" + hex[:13],
 			Name:      "Demo " + model,
 			Model:     model,
 			ModelYear: feed.source.ModelYear,
 			Make:      "Rivian",
 			PackKWh:   feed.source.PackKWh,
-			ImageURL:  feed.source.ImageURL,
-			Images:    feed.source.Images,
 		},
 		allowed:   feed.allow == nil || feed.allow(uid),
 		noVehicle: feed.empty != nil && feed.empty(uid),

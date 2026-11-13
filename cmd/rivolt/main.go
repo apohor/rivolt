@@ -283,6 +283,8 @@ Environment:
                                  or YYYY-MM-DD).
   RIVOLT_REPLAY_BACKFILL         replay: history recorded on first connect
                                  (Go duration, default 720h).
+  RIVOLT_REPLAY_VEHICLE_IMAGES   replay (preview only): JSON list of plain https Rivian
+                                 image URLs for the replay vehicles
   RIVOLT_REPLAY_ALLOWED_USERS    replay: comma-separated usernames allowed a
                                  demo vehicle; "*" for everyone (default:
                                  nobody).
@@ -1058,6 +1060,15 @@ func runServer() {
 				}
 			}
 			feed.SetAllowedUsers(func(uid uuid.UUID) bool { return allowed[uid] })
+		}
+		// Preview only: Rivian pictures for the replay vehicles (any source). Never the public demo account, and never set in demo or prod values.
+		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_VEHICLE_IMAGES")); v != "" {
+			imgs, err := rivian.ParseReplayImages(v)
+			if err != nil {
+				logger.Error("bad RIVOLT_REPLAY_VEHICLE_IMAGES", "err", err.Error())
+				os.Exit(1)
+			}
+			feed.SetImages(imgs, func(uid uuid.UUID) bool { return demo.Enabled() && uid == demo.UserID() })
 		}
 		// Preview only: usernames whose replay sign-in works but whose account lists no vehicle, so the no-vehicle states can be seen.
 		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_EMPTY_USERS")); v != "" {
