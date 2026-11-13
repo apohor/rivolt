@@ -181,6 +181,20 @@ final class PlanSheetUITests: XCTestCase {
         expect(grabber, sheet, "a sideways drag on the chart leaves the sheet")
     }
 
+    /// A vertical swipe that starts on the chart scrolls the details and leaves the cursor where it was.
+    func testAVerticalSwipeStartingOnTheChartScrollsTheDetailsAndLeavesTheCursor() throws {
+        let app = launch()
+        let grabber = open("Seattle to Spokane", in: app)
+        let chart = chart(in: app, grabber: grabber)
+        chart.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+        let cursor = chart.value as? String ?? ""
+        let top = chart.frame.minY
+        let start = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 160)), withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertEqual(chart.value as? String ?? "", cursor, "a vertical swipe leaves the cursor")
+        XCTAssertNotEqual(chart.frame.minY, top, "the swipe scrolled the details")
+    }
+
     /// At accessibility text the chart is still whole: on the screen's width, with its words.
     func testTheElevationChartFitsAtAX3() throws {
         let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])

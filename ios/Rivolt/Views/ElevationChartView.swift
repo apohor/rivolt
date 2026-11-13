@@ -85,8 +85,19 @@ struct ElevationChartView: View {
                 .allowsHitTesting(false)
             }
             .contentShape(Rectangle())
-            // A drag follows the finger at once (no slop), the way the web's pointer does; the sheet's own drag sits on its grabber and header.
-            .gesture(DragGesture(minimumDistance: 0).onChanged { v in share = g.share(atX: v.location.x) })
+            // A mostly sideways drag follows the finger at once, the way the web's pointer does; a vertical swipe starting here is left to the
+            // scrolling details (the gesture runs alongside the ScrollView's own), and a tap sets the cursor when it lifts.
+            .simultaneousGesture(
+                // The translation is read on the screen: the details scroll under a vertical swipe, which would hide it in the chart's own space.
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { v in
+                        let dx = abs(v.translation.width), dy = abs(v.translation.height)
+                        if dx >= 3, dx > dy { share = g.share(atX: v.location.x - geo.frame(in: .global).minX) }
+                    }
+                    .onEnded { v in
+                        if abs(v.translation.width) < 6, abs(v.translation.height) < 6 { share = g.share(atX: v.location.x - geo.frame(in: .global).minX) }
+                    }
+            )
         }
     }
 

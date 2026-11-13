@@ -72,12 +72,16 @@ enum PlanElevation {
         return "Elevation along the route, \(number(metric ? lo : lo * feetPerMeter)) to \(elevation(hi, metric: metric)), over \(distance(total(p), metric: metric))"
     }
 
-    private static func number(_ v: Double) -> String {
+    private static let numberFormat: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
         f.locale = Locale(identifier: "en_US")
         f.maximumFractionDigits = 0
-        return f.string(from: NSNumber(value: v.rounded())) ?? "\(Int(v.rounded()))"
+        return f
+    }()
+
+    private static func number(_ v: Double) -> String {
+        numberFormat.string(from: NSNumber(value: v.rounded())) ?? "\(Int(v.rounded()))"
     }
 
     // MARK: On the map's line
