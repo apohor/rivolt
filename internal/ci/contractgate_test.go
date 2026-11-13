@@ -94,3 +94,13 @@ func TestBumpProdNeedsContractGate(t *testing.T) {
 		t.Errorf("bump-prod does not need the contract-gate job")
 	}
 }
+
+// Prod's pin (argocd/autosync-prod.yaml once prod is a plain Application) moves in the same commit as the demo's.
+func TestBumpProdWritesBothPins(t *testing.T) {
+	b := job(t, "bump-prod")
+	for _, want := range []string{"argocd/autosync-demo.yaml", "argocd/autosync-prod.yaml"} {
+		if !strings.Contains(b, want) {
+			t.Errorf("bump-prod does not bump %s", want)
+		}
+	}
+}
