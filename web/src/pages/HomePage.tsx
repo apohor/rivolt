@@ -643,10 +643,10 @@ function MonthStrip({
         <h2 className="text-sm font-semibold text-neutral-200">{title}</h2>
         <PeriodPicker value={period} onChange={onPeriod} />
       </div>
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] gap-px overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-800">
+      <div className="flex flex-wrap gap-px overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-800">
         {items.map(([v, l]) => (
-          <div key={l} className="flex flex-col gap-0.5 whitespace-nowrap bg-neutral-900 px-3 py-3">
-            <span className="text-xl font-semibold tabular-nums text-neutral-100">{v}</span>
+          <div key={l} className="flex min-w-fit flex-1 basis-20 flex-col gap-0.5 whitespace-nowrap bg-neutral-900 px-2.5 py-3">
+            <span className="text-lg font-semibold tabular-nums text-neutral-100">{v}</span>
             <span className="text-sm text-neutral-400">{l}</span>
           </div>
         ))}
