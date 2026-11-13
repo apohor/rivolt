@@ -611,9 +611,6 @@ func (c *ReplayClient) signalAuthReadyLocked() {
 	}
 }
 
-// HasImages reports whether this user's demo vehicle carries Rivian pictures (see ReplayFeed.SetImages).
-func (c *ReplayClient) HasImages() bool { return len(c.vehicle.Images) > 0 }
-
 // Vehicles returns the user's demo vehicle.
 func (c *ReplayClient) Vehicles(context.Context) ([]Vehicle, error) {
 	if !c.Authenticated() {
@@ -730,6 +727,16 @@ func (r *replayAccountRegistry) SetNoStandingTokens(hold func(context.Context, u
 
 // NoStandingTokens reports whether the gate is on.
 func (r *replayAccountRegistry) NoStandingTokens() bool { return r.gate.Load() != nil }
+
+// ReplayVehicle is the vehicle uid's replay client lists, pictures included, without a client: a pod that does not hold the account (the
+// registry gate) has none, but still keeps that account's stored row in step with the feed. false when the account lists no vehicle.
+func (r *replayAccountRegistry) ReplayVehicle(uid uuid.UUID) (Vehicle, bool) {
+	c := NewReplayClient(r.feed, uid)
+	if !c.allowed || c.noVehicle {
+		return Vehicle{}, false
+	}
+	return c.vehicle, true
+}
 
 // ForLogin is For for a user this pod holds; any other user's sign-in works on a throwaway client that is not registered.
 func (r *replayAccountRegistry) ForLogin(uid uuid.UUID) (Account, func()) {
