@@ -564,7 +564,9 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
-	appMetrics.SetBuildInfo(os.Getenv("RIVOLT_IMAGE_TAG"), version)
+	// The chart's image tag, projected by the chart (the file /api/health reads); empty off-cluster, then the stamp stands in.
+	podTag, _ := os.ReadFile("/etc/podinfo/image-tag")
+	appMetrics.SetBuildInfo(strings.TrimSpace(string(podTag)), version)
 	rivian.SetCloseHookObserver(func(typ string) { appMetrics.CloseHooksFiredTotal.WithLabelValues(typ).Inc() })
 	registerProcessRole(appMetrics.Registry(), role.Role)
 	secrets.SetSessionDecryptObserver(func(site string) {

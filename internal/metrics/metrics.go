@@ -226,7 +226,7 @@ type Metrics struct {
 	// hold (single-owner M4-5 baseline: flag-off prod shows what the flag would remove; 0 with lead mode off, where the notion does not apply).
 	SessionDecrypts    *prometheus.CounterVec
 	TokensLoadedUnheld prometheus.Gauge
-	// BuildInfo is 1 with the pod's release identity (SetBuildInfo): version is the chart's image tag (RIVOLT_IMAGE_TAG, so a roll check compares
+	// BuildInfo is 1 with the pod's release identity (SetBuildInfo): version is the chart's image tag (/etc/podinfo/image-tag, so a roll check compares
 	// it with the chart's own value), build the binary's stamp. Release gitops reads it to see that every pod runs the promoted image.
 	BuildInfo *prometheus.GaugeVec
 	// LeaseReconcileTotal counts the coordinator's reconcile passes by what started them: start (boot), tick (the timer), signal (a peer released
