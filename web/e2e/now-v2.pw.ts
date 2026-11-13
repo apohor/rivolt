@@ -69,8 +69,8 @@ test("flag on: the (i) has a 44 px target, a tap beside it stays on the page, an
   expect(credit.y).toBeGreaterThan(strip.y + strip.height - 1);
 });
 
-test("@webkit flag on: no month-strip cell clips at 393 px", async ({ page }) => {
-  await page.setViewportSize({ width: 393, height: 852 });
+for (const width of [393, 440, 519]) test(`@webkit flag on: no month-strip cell clips at ${width} px`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 852 });
   await open(page, true);
   const strip = page.getByTestId("now-month");
   await expect(strip).toBeVisible();
