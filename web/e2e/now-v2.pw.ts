@@ -62,7 +62,14 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
   await expect(page.locator("main [data-weather-credit]")).toHaveCount(0);
 });
 
-test("flag on: the Live pill has a 44 px target, no pulse while parked, a pulse while charging, and opens /live", async ({ page }) => {
+test.describe("touch", () => {
+  test.use({ hasTouch: true, isMobile: true });
+  test("flag on: the Live pill has a 44 px target, no pulse while parked, and opens /live", async ({ page }) => {
+    await live44(page);
+  });
+});
+
+async function live44(page: Page) {
   await open(page, true);
   const live = page.getByTestId("now-live-link");
   const box = (await live.boundingBox())!;
@@ -71,7 +78,7 @@ test("flag on: the Live pill has a 44 px target, no pulse while parked, a pulse 
   await expect(live.locator(".animate-pulse")).toHaveCount(0);
   await live.click();
   await expect(page).toHaveURL(/\/live$/);
-});
+}
 
 test("flag on, charging: the Live pill pulses", async ({ page }) => {
   await open(page, true, "charging");
