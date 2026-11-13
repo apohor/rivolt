@@ -2,7 +2,7 @@
 # migration-compat-tags.sh BASE HEAD: which old releases the old-binary-on-new-schema suite runs (migrations v2, step 3).
 #
 # Prints, one per line, the tags to test and sets nothing else:
-#   - the newest final v* tag (the rollback and canary target), and
+#   - the newest final v* tag reachable from BASE (the rollback and canary target), and
 #   - the oldest tag on the PR body's "Pinned now:" / "Pins:" line when it is a final tag older than that (ingest, admin and demo run their
 #     own tags, so the schema must also serve the oldest pinned image). Absent or unfilled means only the newest is tested.
 # Prints nothing when the PR adds no migration file (the suite is not needed). Exit 1 for a pin that is not an existing final tag.
@@ -16,7 +16,7 @@ dir="internal/db/migrations"
 if [ -z "$(git diff --name-only --diff-filter=A "$base" "$head" -- "$dir" | grep -E '\.sql$' || true)" ]; then
   exit 0
 fi
-finals=$(git tag -l 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V || true)
+finals=$(git tag -l 'v[0-9]*' --merged "$base" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V || true)
 newest=$(printf '%s\n' "$finals" | tail -1)
 [ -n "$newest" ] || { echo "migration-compat: no final release tag to test against" >&2; exit 1; }
 echo "$newest"
