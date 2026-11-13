@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { ApiError, backend, isReconnecting, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
+import { formatMoney } from "../lib/ledger";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 
 // Unit conversions. Backend speaks SI at the wire.
@@ -637,6 +638,16 @@ function ChargingDetail({
             {formatChargerState(state.charger_state)}
           </span>
           {" · "}waiting for first frame…
+          {/* A home charge has no Rivian frames or price, but the server still estimates its cost from the energy recorded so far. */}
+          {ls && ls.estimated_cost && ls.estimated_cost > 0 ? (
+            <div data-testid="live-est-cost" className="mt-1">
+              Cost so far{" "}
+              <span className="font-medium text-neutral-300">
+                ~{formatMoney(ls.estimated_cost, ls.estimated_currency || "USD")}
+              </span>{" "}
+              at your home rate
+            </div>
+          ) : null}
         </div>
       )}
       {sess.isError ? (
