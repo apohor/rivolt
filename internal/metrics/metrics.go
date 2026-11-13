@@ -1377,7 +1377,7 @@ var RivianPermitOps = []string{"__Introspect", "CreateCSRFToken", "GetChargingSc
 // RivianWSReconnectReasons are the label values of rivolt_rivian_ws_reconnects_total; rivian.WSReconnectReasons must list the same (a test in cmd/rivolt).
 var RivianWSReconnectReasons = []string{"nudge", "watchdog", "no_frames", "error", "clean"}
 
-var LeaseFencedKinds = []string{"samples", "drives", "charges", "sends", "redis", "rivian", "vehicle_info"}
+var LeaseFencedKinds = []string{"samples", "drives", "charges", "sends", "redis", "rivian", "vehicle_info", "vehicle_info_deferred"}
 
 // Handler returns the http.Handler for /metrics scoped to this
 // Metrics' private registry. Mount under /metrics with no auth — the
