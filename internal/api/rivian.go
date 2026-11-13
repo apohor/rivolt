@@ -799,6 +799,12 @@ func handleRivianRefreshVehicles(reg rivian.AccountRegistry, store *secrets.Stor
 		if lc == nil && rivian.NoStandingTokens(reg) {
 			// Check again on a pod that does not hold the account: ask the owner to look (it keeps its own ForceEvery limit), and answer 503 so
 			// the client polls the stored answer.
+			if ok, after := refreshLookupGateFrom(r.Context()).claim(r.Context(), uid); !ok {
+				// The account was looked up in the last ForceEvery: say so (no class field, the app reads class "plan_quota" as the planner quota).
+				w.Header().Set("Retry-After", strconv.Itoa(after))
+				writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "limited", "retry_after": after})
+				return
+			}
 			if nudge := signInNudgeFrom(r.Context()); nudge != nil {
 				nudge(r.Context(), uid)
 			}
