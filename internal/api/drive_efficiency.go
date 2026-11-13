@@ -110,7 +110,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			return
 		}
 		if !histwin.Allows(r.Context(), drv.StartedAt) {
-			writeOutsideFreeWindow(w)
+			writeOutsideFreeWindow(w, r)
 			return
 		}
 
