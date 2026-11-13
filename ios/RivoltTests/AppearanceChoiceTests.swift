@@ -12,6 +12,6 @@ final class AppearanceChoiceTests: XCTestCase {
     func testTheSavedValueRoundTripsAndAnUnknownOneIsNotAChoice() {
         for c in AppearanceChoice.allCases { XCTAssertEqual(AppearanceChoice(rawValue: c.rawValue), c) }
         XCTAssertNil(AppearanceChoice(rawValue: "sepia"))
-        XCTAssertEqual(AppearanceChoice.allCases.map(\.title), ["System", "Light", "Dark"])
+        XCTAssertEqual(AppearanceChoice.allCases.map(\.title), ["Auto", "Light", "Dark"])
     }
 }

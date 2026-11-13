@@ -2844,11 +2844,11 @@ export function DeleteAccountBlock() {
   );
 }
 
-// AppearanceCard: System / Light / Dark, per device (localStorage).
+// AppearanceCard: Auto / Light / Dark, per device (localStorage).
 export function AppearanceCard() {
   const [choice, setChoice] = useThemeChoice();
   const opts: { key: ThemeChoice; label: string }[] = [
-    { key: "system", label: "System" },
+    { key: "system", label: "Auto" },
     { key: "light", label: "Light" },
     { key: "dark", label: "Dark" },
   ];
@@ -2868,7 +2868,7 @@ export function AppearanceCard() {
           </button>
         ))}
       </div>
-      <p className="mt-2 text-xs text-neutral-500">System follows your device. Saved on this device only.</p>
+      <p className="mt-2 text-xs text-neutral-500">Auto follows your device. Saved on this device only.</p>
     </Card>
   );
 }

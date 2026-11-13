@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { useSystemTheme } from "../lib/theme";
+import { ThemeSwitch } from "../components/ThemeSwitch";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
 import Logo from "../components/Logo";
 import { ConnectLink, DemoBanner } from "../components/DemoBanner";
@@ -56,6 +57,7 @@ export default function DemoLayout() {
             <span className="max-[200px]:sr-only">Rivolt demo</span>
           </Link>
           <h1 className="sr-only">Rivolt demo</h1>
+          <ThemeSwitch />
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4 max-[200px]:px-3">
