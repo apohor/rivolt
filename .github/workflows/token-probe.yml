@@ -1,0 +1,21 @@
+name: token-probe
+on: pull_request
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - id: t
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RIVOLT_INFRA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RIVOLT_INFRA_APP_KEY }}
+          owner: apohor
+          repositories: rivolt
+          permission-contents: write
+      - env:
+          GH_TOKEN: ${{ steps.t.outputs.token }}
+        run: |
+          sha=$(gh api repos/apohor/rivolt/commits/main --jq .sha)
+          gh api -X POST repos/apohor/rivolt/git/refs -f ref=refs/tags/probe-n66-tmp -f sha=$sha --jq .ref
+          gh api -X DELETE repos/apohor/rivolt/git/refs/tags/probe-n66-tmp && echo deleted
