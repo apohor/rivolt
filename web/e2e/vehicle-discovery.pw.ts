@@ -68,3 +68,24 @@ for (const w of [390, 1280] as const) {
     await ctx.close();
   });
 }
+
+// Check again on a 429 (the server looked a moment ago) is a quiet note, not red text and never the raw error.
+for (const w of [390, 1280] as const) {
+  test(`@webkit Settings Rivian card: Check again answered 429 · ${w}px`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await stubApi(page, { rivian: "ok" });
+    await page.route("**/api/vehicles/owned", (r) => r.fulfill(j(200, { vehicles: [] })));
+    await page.route("**/api/vehicles/discovery", (r) => r.fulfill(j(200, { state: "none" })));
+    await page.route("**/api/settings/rivian/refresh-vehicles", (r) => r.fulfill(j(429, { error: "limited" })));
+    await page.goto("/settings?tab=account");
+    const card = page.locator("#rivian [data-discovery]");
+    await card.getByRole("button", { name: "Check again" }).click();
+    const note = card.getByText("Checked a moment ago. We'll keep looking.");
+    await expect(note).toBeVisible();
+    await expect(card.getByText(/limited|Error:/)).toHaveCount(0);
+    await expect(note).not.toHaveClass(/rose/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await ctx.close();
+  });
+}
