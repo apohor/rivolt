@@ -158,6 +158,9 @@ type Deps struct {
 	Settings *settings.Factory
 	Push     *push.Factory
 	Trips    *trips.Factory
+	// TripShare turns on shared trip links (RIVOLT_TRIP_SHARE=1; default off): with it false none of the share routes exist.
+	TripShare bool
+	tripShare *tripShareAPI // set by New when TripShare is on
 	// Entitlements answers the Pro plan (internal/entitlements): the plan fields of GET /api/auth/me. Nil: no plan fields.
 	Entitlements *entitlements.Service
 	// PackHealth is the per-vehicle derived-pack-capacity store.
@@ -665,7 +668,8 @@ func New(d Deps) http.Handler {
 	// auth is enforced. With auth unconfigured (nil Service) the
 	// middleware is a no-op — the single-tenant legacy UX stays.
 	if d.Auth != nil {
-		r.Use(d.Auth.Middleware)
+		// The public shared-trip lookup bypasses it (trip_share.go): a cookie or token sent with it is neither read nor cleared.
+		r.Use(skipAuthFor(isPublicSharePath, d.Auth.Middleware))
 		// An iPhone app session may write only to a short list (app_write_allowlist.go);
 		// it must run once the session is known and before any route.
 		r.Use(appWriteAllowlistMW)
@@ -736,6 +740,19 @@ func New(d Deps) http.Handler {
 		// kept as a stable alias of /healthz for the preview-version
 		// poller, external monitoring, and any docs that reference it.
 		r.Get("/health", handleHealth(d.Version))
+		// Public shared trip links (RIVOLT_TRIP_SHARE, default off; not on the admin site): one POST, no session, per-IP and global limits.
+		if d.TripShare && d.DB != nil && d.Trips != nil && !d.AdminOnly {
+			ts := newTripShareAPI(d)
+			startTripShareSweep(ts)
+			viewIP := ls.ip("trip-share-view", 60, time.Minute, time.Hour)
+			viewIP.key = demoClientKey // the trusted CF-Connecting-IP, not the ingress address
+			viewIP.onDeny = func() { ts.count("rate_limited") }
+			viewAll := ls.ip("trip-share-view-global", 1200, time.Minute, time.Hour)
+			viewAll.key = func(*http.Request) string { return "global" }
+			viewAll.onDeny = func() { ts.count("rate_limited") }
+			r.With(viewIP.Middleware, viewAll.Middleware, maxBodyBytes(512)).Post("/public/trips/share", ts.view)
+			d.tripShare = ts
+		}
 		// /api/config advertises optional runtime knobs to the SPA
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
@@ -1790,6 +1807,13 @@ func New(d Deps) http.Handler {
 			// the truck is), for "re-plan from here". Reads only.
 			if d.DB != nil && d.Trips != nil {
 				r.With(requireTripPlannerEnabledMW(d.Flags), proOnlyMiddleware(d.Entitlements)).Get("/trips/saved/{id}/active", withUser(handleSavedTripActive(d.Trips, func(u uuid.UUID) *rivian.StateMonitor { return monitorFor(d, u) }, d.DB)))
+			}
+			if ts := d.tripShare; ts != nil {
+				// 10 a minute per account on top of the 20 an hour and 25 live the store enforces.
+				shareWrite := ls.user("trip-share-write", 10)
+				r.With(shareWrite.Middleware, maxBodyBytes(4096)).Post("/trips/saved/{id}/share", withUser(ts.create))
+				r.Get("/trips/saved/{id}/shares", withUser(ts.list))
+				r.With(shareWrite.Middleware).Delete("/trips/shares/{id}", withUser(ts.revoke))
 			}
 			r.Get("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripsList(d.Trips.For(uid), d.Entitlements, uid)(w, r)

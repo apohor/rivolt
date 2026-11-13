@@ -6,6 +6,10 @@
 --
 -- cut_radius_m is the per-link random radius (3 to 6 km) the route was cut by around the start, the destination and every via; it is
 -- stored for the record and never returned to anyone.
+-- A bounded lock_timeout (SET LOCAL: each migration runs in its own transaction) makes a busy users or saved_trips fail the migration, which
+-- retries, instead of queueing behind a long query and blocking every reader of the table behind it.
+SET LOCAL lock_timeout = '5s';
+
 CREATE TABLE IF NOT EXISTS trip_shares (
     id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id       UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
