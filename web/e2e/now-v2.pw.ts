@@ -18,18 +18,19 @@ async function open(page: Page, flag: boolean, scenario: "parked" | "charging" =
       }),
     );
   });
-  await page.route(`**/api/vehicles/${VEHICLE_ID}/cold-range*`, (r) =>
-    r.fulfill(
+  await page.route(`**/api/vehicles/${VEHICLE_ID}/cold-range*`, (r) => {
+    const metric = new URL(r.request().url()).searchParams.get("units") === "metric";
+    return r.fulfill(
       j({
-        units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", temp_c: 15, efficiency_low: 2.3, efficiency_high: 2.7, range_low: 260, range_high: 272,
+        units: metric ? "metric" : "imperial", distance_unit: metric ? "km" : "mi", efficiency_unit: metric ? "km/kWh" : "mi/kWh", temp_c: 15, efficiency_low: 2.3, efficiency_high: 2.7, range_low: metric ? 418 : 260, range_high: metric ? 438 : 272,
         based_on: { drives: 9, miles: 240, temp_lo_c: 11, temp_hi_c: 19 }, available: [15], min_drives: 5, min_miles: 50,
       }),
-    ),
-  );
+    );
+  });
   await page.goto("/");
 }
 
-test("flag on: the new hero shows the chip, the full-charge estimate and the month strip", async ({ page }) => {
+test("@webkit flag on: the new hero shows the chip, the full-charge estimate and the month strip", async ({ page }) => {
   await open(page, true);
   const hero = page.locator("[data-now-v2]");
   await expect(hero).toBeVisible();
@@ -54,8 +55,11 @@ test("flag on, charging: the chip says power and the subline says what the limit
 test("flag on: stepping the period (picker above) renames the strip", async ({ page }) => {
   await open(page, true);
   await expect(page.getByTestId("now-month").getByRole("heading")).toHaveText("This month");
-  await page.getByRole("button", { name: "Previous period" }).click();
+  // The picker is in the strip, not the page header.
+  await expect(page.locator('[data-ui-area="scope"]').getByRole("button", { name: "Previous period" })).toHaveCount(0);
+  await page.getByTestId("now-month").getByRole("button", { name: "Previous period" }).click();
   await expect(page.getByTestId("now-month").getByRole("heading")).not.toHaveText("This month");
+  await expect(page.getByRole("region", { name: await page.getByTestId("now-month").getByRole("heading").innerText() })).toBeVisible();
 });
 
 test("flag off: the screen is today's (no new hero, the KPI tiles are there)", async ({ page }) => {
@@ -71,4 +75,12 @@ test("flag missing from /api/config: also today's screen", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("now-headline")).toBeVisible();
   await expect(page.locator("[data-now-v2]")).toHaveCount(0);
+});
+
+test("flag on: every distance on the hero is in the user's unit (km)", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: "km" })));
+  await open(page, true);
+  const hero = page.locator("[data-now-v2]");
+  await expect(hero).toContainText("km");
+  await expect(hero).not.toContainText(/\d mi\b/);
 });

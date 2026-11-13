@@ -272,15 +272,19 @@ export default function HomePage() {
       <PageHeader
         title="Now"
         actions={
+          <>
+          {v2 && <div data-now-chip-slot />}
           <ScopeBar
             win={win}
             onWinChange={setWin}
             period={period}
             onPeriodChange={setPeriod}
+            hidePeriod={v2}
             vehicles={vehicles.data ?? []}
             selectedVehicleID={activeVehicleID}
             onSelectVehicle={selectVehicle}
           />
+          </>
         }
       />
       {activeVehicleID && (
@@ -297,6 +301,8 @@ export default function HomePage() {
       {v2 && !isError && (
         <MonthStrip
               scope={scope}
+              period={period}
+              onPeriod={setPeriod}
               miles={ds.miles}
               kwh={cs.energyKWh}
               eff={ds.miPerKWh > 0 ? ds.miPerKWh : cs.energyKWh > 0 && ds.miles > 0 ? ds.miles / cs.energyKWh : null}
@@ -578,6 +584,7 @@ function ScopeBar({
   onWinChange,
   period,
   onPeriodChange,
+  hidePeriod,
   vehicles,
   selectedVehicleID,
   onSelectVehicle,
@@ -587,6 +594,8 @@ function ScopeBar({
   // Set in the app: calendar scope instead of the windows.
   period: Period | null;
   onPeriodChange: (p: Period) => void;
+  // now_v2: the period picker lives in the "This month" strip instead.
+  hidePeriod?: boolean;
   vehicles: import("../lib/api").Vehicle[];
   selectedVehicleID: string | undefined;
   onSelectVehicle: (id: string) => void;
@@ -594,7 +603,7 @@ function ScopeBar({
   return (
     <div data-ui-area="scope" className="flex flex-wrap items-center justify-end gap-2">
       <VehiclePicker vehicles={vehicles} selectedID={selectedVehicleID} onChange={onSelectVehicle} />
-      {period ? <PeriodPicker value={period} onChange={onPeriodChange} /> : <WindowPicker value={win} onChange={onWinChange} />}
+      {hidePeriod ? null : period ? <PeriodPicker value={period} onChange={onPeriodChange} /> : <WindowPicker value={win} onChange={onWinChange} />}
     </div>
   );
 }
@@ -602,18 +611,23 @@ function ScopeBar({
 // "This month" in the redesigned Now: the period's four headline numbers in one strip, the period picker above steps it.
 function MonthStrip({
   scope,
+  period,
+  onPeriod,
   miles,
   kwh,
   eff,
   spent,
 }: {
   scope: Period;
+  period: Period;
+  onPeriod: (p: Period) => void;
   miles: number;
   kwh: number;
   eff: number | null;
   spent: string;
 }) {
   const thisMonth = scope.kind === "month" && scope.offset === 0;
+  const title = thisMonth ? "This month" : periodLabel(scope);
   const items: [string, string][] = [
     [num(miles, 0), "miles"],
     [num(kwh, 0), "kWh added"],
@@ -621,14 +635,14 @@ function MonthStrip({
     [spent, "spent"],
   ];
   return (
-    <section data-testid="now-month" aria-label="This month">
+    <section data-testid="now-month" aria-label={title}>
       <div className="mb-2 mt-2 flex items-center justify-between px-0.5">
-        <h2 className="text-sm font-semibold text-neutral-200">{thisMonth ? "This month" : periodLabel(scope)}</h2>
-        <span className="text-sm text-neutral-400">{periodLabel(scope)}</span>
+        <h2 className="text-sm font-semibold text-neutral-200">{title}</h2>
+        <PeriodPicker value={period} onChange={onPeriod} />
       </div>
-      <div className="grid grid-cols-2 rounded-2xl border border-neutral-800 bg-neutral-900/60 sm:grid-cols-4">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] rounded-2xl border border-neutral-800 bg-neutral-900/60">
         {items.map(([v, l], i) => (
-          <div key={l} className={`flex flex-col gap-0.5 whitespace-nowrap px-3 py-3 ${i > 0 ? "sm:border-l sm:border-neutral-800" : ""}`}>
+          <div key={l} className={`flex flex-col gap-0.5 whitespace-nowrap px-3 py-3 ${i > 0 ? "border-l border-neutral-800" : ""}`}>
             <span className="text-xl font-semibold tabular-nums text-neutral-100">{v}</span>
             <span className="text-sm text-neutral-400">{l}</span>
           </div>
