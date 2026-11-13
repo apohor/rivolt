@@ -17,7 +17,7 @@ func (p evalFakeProvider) Complete(_ context.Context, system, user string) (stri
 	return `{"ok":true}`, ai.TokenUsage{InputTokens: 10, OutputTokens: 5}, nil
 }
 
-// Every built-in input must build a prompt on all three routes, five of each, and carry no real place name.
+// Every built-in input must build a prompt on all three routes, five of each.
 func TestAIEvalCasesBuildPrompts(t *testing.T) {
 	cases, err := aiEvalCases(5)
 	if err != nil {
