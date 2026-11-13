@@ -1,0 +1,49 @@
+# The scale and lock probe (migrations v2, step 4). The lints read a migration file's text; this runs the PR's added files against a seeded
+# schema (10^5 rows in each growable table) while a writer inserts every 50 ms, and fails on a rewrite, a sequential scan under a
+# write-blocking lock, a writer stall over 1 s, a transaction file over 2 s, or a write shape the new schema rejects. Details and the rules:
+# internal/db/migrate_probe_integration_test.go. The per-file table lands in the job summary.
+#
+# The always-running job `migration-probe` is the one to require: it passes when the PR adds no migration file.
+name: migration-probe
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, "release/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-probe-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  migration-probe:
+    name: migration-probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Which migration files this PR adds
+        id: added
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git rev-parse -q --verify HEAD^2 >/dev/null; then base=HEAD^1; else base="$BASE"; fi
+          ids=$(git diff --name-only --diff-filter=A "$base" HEAD -- 'internal/db/migrations/*.sql' | xargs -r -n1 basename | sed 's/\.sql$//' | sort | paste -sd, -)
+          echo "added: ${ids:-none}"
+          echo "ids=$ids" >> "$GITHUB_OUTPUT"
+      - if: steps.added.outputs.ids != ''
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - if: steps.added.outputs.ids != ''
+        name: Probe
+        env:
+          MIGRATION_PROBE_NEW: ${{ steps.added.outputs.ids }}
+        run: |
+          docker pull postgres:16-alpine
+          go test -tags=integration -count=1 -timeout=15m -run '^TestMigrationProbe$' -v ./internal/db

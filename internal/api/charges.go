@@ -424,7 +424,7 @@ func handleGetCharge(store networkConfirmer, settingsStore *settings.Store, bill
 			return
 		}
 		if !histwin.Allows(r.Context(), c.StartedAt) {
-			writeOutsideFreeWindow(w)
+			writeOutsideFreeWindow(w, r)
 			return
 		}
 		writeJSON(w, http.StatusOK, decorateCharges(r.Context(), []charges.Charge{*c}, settingsStore, billed != nil && billed(r.Context()))[0])
