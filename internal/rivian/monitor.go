@@ -4333,8 +4333,8 @@ func (m *StateMonitor) refreshVehicleInfoIfStale(ctx context.Context) {
 }
 
 // persistVehicleInfo hands the refreshed vehicles to the hook under each
-// vehicle's group fence: a vehicle whose group this pod does not hold (or is
-// still warming up) is left to the owner's next refresh. One call per token
+// vehicle's group fence: a vehicle whose group this pod does not hold is left
+// to the owner's next refresh, and one still warming up is written after the warm-up. One call per token
 // (a user's vehicles share a group, so normally one).
 func (m *StateMonitor) persistVehicleInfo(hook func(context.Context, []Vehicle), refreshed []Vehicle) {
 	type batch struct {
@@ -4344,8 +4344,19 @@ func (m *StateMonitor) persistVehicleInfo(hook func(context.Context, []Vehicle),
 	var batches []batch
 	byTok := map[fence.Token]int{}
 	for _, v := range refreshed {
-		wctx, ok := m.fenceCtx(context.Background(), v.ID, "vehicle_info")
-		if !ok {
+		wctx, st := m.fenceState(context.Background(), v.ID, "vehicle_info")
+		if st == fence.Warming {
+			// A subscription start often follows a takeover at once, inside the warm-up, and the day's refresh is spent: dropping the
+			// write here left the stored gallery empty for a day, and the next start could land in a warm-up again. Write it after the
+			// warm-up, from what was just fetched (no Rivian call).
+			v := v
+			m.afterWarmUp(v.ID, func(fc context.Context) error {
+				hook(fc, []Vehicle{v})
+				return nil
+			}, "vehicle_info")
+			continue
+		}
+		if st != fence.Off && st != fence.Held {
 			continue
 		}
 		tok, _ := fence.From(wctx)
