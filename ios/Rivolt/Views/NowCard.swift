@@ -16,9 +16,17 @@ struct NowCard: View {
     var liveDrive: LiveDrive?
     /// The server's row for the charge in progress, for its cost so far.
     var charge: ChargeBrief?
+    /// The redesigned hero (design_preview key now_v2): Rivian's picture of the truck beside
+    /// the range, one line for the cabin and outside temperatures. Without the key the card is the one it always was.
+    var v2 = false
+    var images: [VehicleImage]?
+    /// "Full charge today ≈ X", the user's own range at today's temperature (the server's cold-range answer), in the display unit.
+    var fullChargeRange: Int?
 
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .largeTitle) private var gaugeWidth = CGFloat(ThemeTokens.gaugeSize)
+    @State private var outsideInfo = false
 
     private var offline: Bool { summary.presence == .offline }
     private var charging: Bool { summary.kind == .charging && !offline }
@@ -39,6 +47,10 @@ struct NowCard: View {
     }
 
     var body: some View {
+        if v2 { heroV2 } else { classic }
+    }
+
+    private var classic: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             gaugeRow
@@ -48,6 +60,121 @@ struct NowCard: View {
         .themeHero(live: liveKind, critical: critical)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
+    }
+
+    // MARK: The redesigned hero (now_v2)
+
+    private var heroV2: some View {
+        let showRows = driving || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || chargingRowsV2
+        return VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 12) {
+                heroGaugeV2
+                if let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
+                if showRows { detailRows }
+                if let note = freshnessNote { Text(note).themeText(.subline) }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(spoken)
+            // Outside the combined element above, so VoiceOver reaches the (i) button and the note it opens.
+            if temperaturesLine != nil { temperatures }
+        }
+        .themeHero(live: liveKind, critical: critical)
+    }
+
+    /// Charging to the limit and what that buys, or the user's own full-charge range; as the web's hero.
+    var subline: String? {
+        if charging {
+            guard let limit = summary.chargeTargetPct else { return nil }
+            var text = "Charging to \(Int(limit.rounded()))%"
+            if let soc = summary.socPct, soc > 0, let km = summary.rangeKm {
+                let atLimit = km / soc * limit
+                text += " · ≈ \(Int((NowFormat.usesMetric ? atLimit : atLimit / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi") when done"
+            }
+            return text
+        }
+        guard let full = fullChargeRange else { return nil }
+        return "Full charge today ≈ \(full) \(NowFormat.usesMetric ? "km" : "mi")"
+    }
+
+    /// The chip already says the state and since when, so the footer shows only when the picture is old or the link is down.
+    private var freshnessNote: String? {
+        (offline || summary.presence == .stale || summary.freshness == .needsReconnect || summary.freshness == .paused) ? footer : nil
+    }
+
+    /// Added and Cost so far remain while charging; Power and Time left repeat the chip.
+    private var chargingRowsV2: Bool {
+        charging && (summary.chargeAddedPct != nil || ChargingDetail.make(summary: summary, session: session, charge: charge)?.cost != nil)
+    }
+
+    private var carURL: URL? { VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, light: colorScheme == .light) }
+
+    /// Rivian's picture; one that fails to load leaves nothing (no broken image), and the range stays beside the gauge.
+    private func car(maxHeight: CGFloat) -> some View {
+        AsyncImage(url: carURL) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var heroGaugeV2: some View {
+        if typeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                if carURL != nil { car(maxHeight: 72) }
+                compactGaugeColumn
+            }
+        } else {
+            HStack(alignment: .center, spacing: 16) {
+                ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
+                            .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
+                        Text("%").themeText(.value, color: Theme.textSecondary)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    if carURL != nil { car(maxHeight: 96) }
+                    if let km = summary.rangeKm {
+                        let range = NowFormat.usesMetric ? km : km / 1.609344
+                        (Text(NumberText.fixed(range, 0)).font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title2)).foregroundColor(Theme.textPrimary)
+                            + Text(" \(NowFormat.usesMetric ? "km" : "mi") range").font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote)).foregroundColor(Theme.textSecondary))
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Cabin 72° · Outside 64°", under a rule; the outside figure is looked up, not measured, and says so on a tap.
+    private var temperaturesLine: String? {
+        var parts: [String] = []
+        if let cabin = summary.liveComfort?.cabinValue { parts.append("Cabin \(cabin)") }
+        if let t = summary.outsideTempC { parts.append("Outside \(NowComfort.wholeDegrees(celsius: t))") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private var temperatures: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Rectangle().fill(Theme.border).frame(height: 1)
+            HStack(spacing: 0) {
+                Text(temperaturesLine ?? "").themeText(.value, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                if summary.outsideTempC != nil {
+                    Button { outsideInfo.toggle() } label: {
+                        Image(systemName: "info.circle").font(.body).foregroundStyle(Theme.textTertiary).frame(width: 44, height: 44)
+                    }
+                    .padding(.vertical, -12)
+                    .accessibilityLabel("About the outside temperature")
+                    .accessibilityHint(outsideInfo ? "Hides the note" : "Shows how it is worked out")
+                }
+            }
+            if outsideInfo, summary.outsideTempC != nil {
+                Text("Outside is an estimate, looked up from Open-Meteo for your truck's location.").themeText(.caption, color: Theme.textSecondary)
+            }
+        }
     }
 
     // MARK: Header
@@ -156,10 +283,10 @@ struct NowCard: View {
         VStack(alignment: .leading, spacing: 8) {
             if charging { chargingRows }
             if driving { drivingRows }
-            if let temp = summary.outsideTempC {
+            if !v2, let temp = summary.outsideTempC {
                 readout("Outside", NowComfort.wholeDegrees(celsius: temp))
             }
-            if let cabin = summary.liveComfort?.cabinValue {
+            if !v2, let cabin = summary.liveComfort?.cabinValue {
                 readout("Cabin", cabin)
             }
             if let install = summary.liveInstall {
@@ -185,8 +312,8 @@ struct NowCard: View {
     @ViewBuilder
     private var chargingRows: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
-            if let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", t) }
+            if !v2, let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
+            if !v2, let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", t) }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
                 readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
             }

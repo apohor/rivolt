@@ -66,7 +66,12 @@ struct AppShell: View {
             plannerOn = (try? await state.client.savedTrips()) != nil
         }
         // Back in front after the account-deletion page: has the account gone? (Nothing happens unless the person went there.)
-        .onChange(of: scenePhase) { _, new in if new == .active { Task { await state.recheckAfterDeletion() } } }
+        .onChange(of: scenePhase) { _, new in
+            guard new == .active else { return }
+            Task { await state.recheckAfterDeletion() }
+            // Back in front: the preview keys again (one call), so a session that missed them at launch catches up.
+            Task { await state.refreshDesignPreview(retries: false) }
+        }
     }
 
     @ViewBuilder

@@ -18,6 +18,8 @@ struct HomeView: View {
     /// The truck `vehicleState` was read for.
     @State private var stateVehicleID: String?
     @State private var now: NowSnapshot?
+    /// The user's own range at today's temperature, for the redesigned hero's "Full charge today" line.
+    @State private var coldRange: ColdRange?
     @State private var loadError: String?
     @State private var isLoading = false
     @State private var showNotifications = false
@@ -45,6 +47,9 @@ struct HomeView: View {
     /// A locked vehicle (a free account's non-primary) is opened only when picked in this visit.
     @State private var pickedLocked = false
 
+    /// The redesigned Now (design_preview key ios_now_v2, apart from the web's now_v2); off on prod, so the screen is the one it always was.
+    private var v2: Bool { state.designPreview.contains("ios_now_v2") }
+
     private var selected: Vehicle? {
         VehicleChoice.selected(vehicles, chosen: selectedID, pickedLocked: pickedLocked)
     }
@@ -69,7 +74,8 @@ struct HomeView: View {
                             VehicleScopeNote(vehicles: vehicles)
                             if haveData {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
-                                        session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil)
+                                        session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil,
+                                        v2: v2, images: vehicle.images, fullChargeRange: v2 ? coldRange?.fullChargeRange : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -85,14 +91,20 @@ struct HomeView: View {
                                     Task { await extras.dismiss(m, source: state.client) }
                                 }
                             }
-                            if !state.isDemo { threeThings }
-                            KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
-                                    idleLoading: charts.isLoading)
+                            if !state.isDemo, !v2 { threeThings }
+                            if v2 {
+                                NowMonthStrip(figures: NowMonthStripFigure.make(tiles: kpiTiles(summary), metric: NowFormat.usesMetric))
+                            } else {
+                                KpiGrid(tiles: kpiTiles(summary), idle: IdleAwakeTile.make(sleep: charts.sleep, now: .now, calendar: .current),
+                                        idleLoading: charts.isLoading)
+                            }
                             // The web's order after the tiles: where it charges, then the two charts.
                             if let split = places.split, split.total > 0 {
                                 PlacesCard(split: split, periodTitle: month.title(calendar: .current))
                             }
                             ChartsSection(model: charts, month: month, limit: vehicleState?.chargeTargetPct)
+                            // The redesign puts the three things last, after the figures and charts.
+                            if !state.isDemo, v2 { threeThings }
                         }
                     } else if isLoading {
                         ProgressView().controlSize(.large).padding(.top, 80)
@@ -189,8 +201,22 @@ struct HomeView: View {
                 }
                 .accessibilityLabel("Switch vehicle")
             }
-            PeriodControl()
+            if v2, let chip = chipText { ThemePill(text: chip, tone: chipTone) }
+            // With the redesign the period stepper sits above the month's figures instead.
+            if !v2 { PeriodControl() }
         }
+    }
+
+    /// The truck's state beside the title, once there is something to say (never "Live": that is the hero's button).
+    private var chipText: String? {
+        guard vehicleState != nil || now != nil else { return nil }
+        return NowChip.text(for: freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now), clock: .now)
+    }
+
+    private var chipTone: ThemePill.Tone {
+        let s = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
+        if s.kind == .charging, s.presence != .offline { return .live }
+        return NowCard.pill(for: s, clock: .now).tone
     }
 
     /// When the newest finished charge ended (the one in progress doesn't count), for "Since last charge".
@@ -259,6 +285,7 @@ struct HomeView: View {
         vehicleState = NowReads.stateToShow(fresh: s, last: vehicleState, lastID: stateVehicleID, id: id)
         stateVehicleID = vehicleState == nil ? nil : id
         now = n ?? nil
+        if v2, let t = now?.ambient?.tempC { coldRange = try? await client.coldRange(vehicleID: id, tempC: t.rounded(), grid: [], metric: NowFormat.usesMetric) } else { coldRange = nil }
         if s != nil || n != nil { freshness.fetched(at: .now) }
         publishConnection()
         recentCharges = c ?? []

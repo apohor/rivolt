@@ -62,11 +62,18 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/settings/planner"): return "settings_planner"
         case ("GET", "/api/app/config"): return "app_config"
         // The preview-only designs: off unless the UI test asks for the theme switch.
-        case ("GET", "/api/config"): return ProcessInfo.processInfo.arguments.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
+        case ("GET", "/api/config"): let args = ProcessInfo.processInfo.arguments
+            return args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
         case ("GET", "/api/activity"): return "activity"
         case ("POST", "/api/maps/valhalla/route"): return "valhalla_route"
         default:
             if method == "GET", path.hasPrefix("/api/vehicles/"), path.hasSuffix("/state") { return "state_full" }
+            // The Now screen's own reads, answered only for the now_v2 launch (the other launches keep the unreachable-truck card).
+            if ProcessInfo.processInfo.arguments.contains("-uitest-now-v2"), method == "GET" {
+                if path.contains("/state/") { return "state" }  // the truck read (not spelled as a path: the contract test reads literals)
+                if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/now") { return "now_v1" }
+                if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/cold-range") { return "cold_range" }
+            }
             // The stays near where a day's driving runs out, and the two days with a night at one (not spelled as paths: see startLoading).
             if method == "POST", path.hasSuffix("/trips/overnight-candidates") { return "trip_overnight_candidates" }
             if method == "POST", path.hasSuffix("/trips/plan-multiday") { return "trip_plan_multiday_apart" }
