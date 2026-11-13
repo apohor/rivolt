@@ -162,6 +162,8 @@ func main() {
 			os.Exit(runArchive(os.Args[2:]))
 		case "ai-eval":
 			os.Exit(runAIEval(os.Args[2:], os.Stdout, os.Stderr))
+		case "open-charges":
+			os.Exit(runOpenCharges(os.Args[2:], os.Stdout, os.Stderr))
 		default:
 			// Anything that is not a flag is a subcommand this binary does not have. Starting the
 			// server for it would boot a second Rivolt in a pod whose chart execs a subcommand the
@@ -193,6 +195,9 @@ Usage:
   rivolt ai-eval [--budget USD] [--inputs N]
                   Run the recap, efficiency and advice prompts on the candidate Claude models over demo inputs
                   and print the answers side by side (reads ANTHROPIC_API_KEY; no database, no server).
+  rivolt open-charges snapshot [--out FILE | --configmap NAME [--namespace NS]] | verify --snapshot FILE [--roll-from EPOCH]
+                  The release roll's open-charge check (reads RIVOLT_VERIFY_DATABASE_URL, a read-only role): snapshot the open charges
+                  before the roll, verify after it that each is still one row (exit 1: split, vanished, stalled).
   rivolt migrate [--check]    apply pending database migrations (or list them); for deployments that migrate in a job
   rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE] | --restore-csv FILE
                   Classify legacy charge prices and re-price DC fast
