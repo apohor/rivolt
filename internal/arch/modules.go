@@ -34,7 +34,7 @@ var modules = map[string]string{
 	"internal/receipts": "recorder", "internal/imports": "recorder", "internal/ledger": "recorder", "internal/firstscreen": "recorder", // the money statement: a read model of the recorded charges and drives
 
 	// planner: trips, routing and the map services.
-	"internal/trips": "planner", "internal/planleg": "planner", "internal/tripadvice": "planner", "internal/tripmultiday": "planner",
+	"internal/trips": "planner", "internal/tripshare": "planner", "internal/planleg": "planner", "internal/tripadvice": "planner", "internal/tripmultiday": "planner",
 	"internal/tripprofile": "planner", "internal/tripweather": "planner", "internal/syntheticplan": "planner", "internal/chargers": "planner",
 	"internal/dcfcrates": "planner", "internal/maps": "planner", "internal/elevation": "planner", "internal/geocoding": "planner",
 	"internal/weather": "planner", "internal/zonelookup": "planner", "internal/radar": "planner",

@@ -20,6 +20,21 @@ struct MapsConfig: Decodable, Equatable {
         var radarMaxzoom: Int?
     }
     var tiles: Tiles?
+    var features: Features?
+
+    /// Preview-only designs the server shows (`features.design_preview`, a list of keys). Absent, or anything but strings, means none.
+    struct Features: Decodable, Equatable {
+        var designPreview: [String]?
+
+        init(designPreview: [String]? = nil) { self.designPreview = designPreview }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            designPreview = try? c.decode([String].self, forKey: .designPreview)
+        }
+
+        private enum CodingKeys: String, CodingKey { case designPreview }
+    }
 
     var hasRadar: Bool { !(tiles?.radarUrl ?? "").isEmpty && !(tiles?.radarFrameUrl ?? "").isEmpty }
 }

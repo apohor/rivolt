@@ -1,11 +1,14 @@
 import { fieldHidden, fieldLabel } from "../lib/fieldSupport";
 import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE, isEnergyEstimated } from "../lib/energyEstimated";
 import { detailPath } from "../lib/demo";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ApiError, backend, isReconnecting, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
+import { formatMoney } from "../lib/ledger";
+import { pickImageForState, useIsLight } from "../lib/vehicleImage";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 
 // Unit conversions. Backend speaks SI at the wire.
@@ -129,6 +132,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
     retry: 1,
   });
   const { temperatureUnit: tempUnit } = usePreferences();
+  const light = useIsLight();
 
   const name = vehicle.name || vehicle.model || vehicle.id;
   const s = state.data;
@@ -139,7 +143,9 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   // Pick the configurator image that matches the current vehicle
   // state — charging shows side-charging, driving shows in-use,
   // frunk open shows front, liftgate/tonneau shows rear, etc.
-  const heroUrl = pickImageForState(vehicle.images, s) || vehicle.image_url || "";
+  // An image that fails to load (moved or blocked) is dropped, no broken picture; the image_url fallback gets its turn.
+  const [badUrls, setBadUrls] = useState<string[]>([]);
+  const heroUrl = [pickImageForState(vehicle.images, s, light), vehicle.image_url || ""].find((u) => u && !badUrls.includes(u)) || "";
 
   return (
     <Card
@@ -171,6 +177,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
                 without the left column dwarfing the status panel. */}
             <img
               src={heroUrl}
+              onError={() => setBadUrls((f) => [...f, heroUrl])}
               alt={name}
               loading="lazy"
               className="max-h-40 w-full max-w-sm rounded-md object-contain"
@@ -637,6 +644,16 @@ function ChargingDetail({
             {formatChargerState(state.charger_state)}
           </span>
           {" · "}waiting for first frame…
+          {/* A home charge has no Rivian frames or price, but the server still estimates its cost from the energy recorded so far. */}
+          {ls && ls.estimated_cost && ls.estimated_cost > 0 ? (
+            <div data-testid="live-est-cost" className="mt-1">
+              Cost so far{" "}
+              <span className="font-medium text-neutral-300">
+                ~{formatMoney(ls.estimated_cost, ls.estimated_currency || "USD")}
+              </span>{" "}
+              at your home rate
+            </div>
+          ) : null}
         </div>
       )}
       {sess.isError ? (
@@ -884,76 +901,6 @@ function DrivingDetail({
       ) : null}
     </div>
   );
-}
-
-// pickImageForState chooses which configurator angle best
-// illustrates the current vehicle state. Rivian's real placement
-// strings look like `side-exterior-3qfront-driver`,
-// `side-exterior-3qrear-driver`, `side-exterior-driver`,
-// `front-exterior`, `rear-exterior`, `interior-cabin-driver`,
-// `overhead-exterior`, etc. — NOT the short single-word tags we
-// used earlier. Match by substring tokens so we actually hit
-// something instead of silently falling through to images[0].
-//
-// State → preferred order:
-//
-//   charging      → 3qfront (full vehicle, plugged look) → side
-//   driving       → side profile → 3qfront
-//   frunk open    → front
-//   liftgate/tonneau → rear → 3qrear
-//   doors open    → side
-//   default       → 3qfront (marketing hero), then side, 3qrear, front, rear
-//
-// Interior / overhead / side-charging are deliberately NOT in any
-// preferred list — they look truncated at card size. They only
-// appear as last-resort fallbacks.
-function pickImageForState(
-  images: readonly { url: string; placement?: string }[] | undefined,
-  state: VehicleState | undefined,
-): string {
-  if (!images || images.length === 0) return "";
-
-  // Tokens to try in order. Each entry matches any placement that
-  // contains the substring *and* is an exterior shot (skips
-  // `interior-cabin-*`). First match wins.
-  const wants: string[] = [];
-  if (state) {
-    // Gate charging imagery on the real plug indicator: charger_state
-    // sticks at 'charging_ready' for hours after unplug (see v0.3.48),
-    // which would otherwise keep the side-charging / 3qfront crop
-    // pinned on a parked unplugged car.
-    const plugSt = (state.charger_status || "").toLowerCase();
-    const plugged = plugSt.startsWith("chrgr_sts_connected");
-    const cs = (state.charger_state || "").toLowerCase();
-    const charging = plugged && (cs.startsWith("charging_") || cs === "waiting_on_charger");
-    const driving = ["D", "R", "N"].includes((state.gear || "").toUpperCase());
-
-    if (charging) wants.push("charging", "3qfront", "side-exterior", "3qrear");
-    else if (driving) wants.push("side-exterior", "3qfront");
-    if (!state.frunk_closed) wants.push("front-exterior", "3qfront");
-    if (!state.liftgate_closed || !state.tonneau_closed) {
-      wants.push("rear-exterior", "3qrear");
-    }
-    if (!state.doors_closed) wants.push("side-exterior");
-  }
-  // Universal fallback chain: marketing hero first, then progressively
-  // wider angles, then anything exterior, then anything at all.
-  wants.push("3qfront", "side-exterior", "3qrear", "front-exterior", "rear-exterior");
-
-  for (const want of wants) {
-    const hit = images.find((img) => {
-      const p = (img.placement || "").toLowerCase();
-      return p.includes(want) && !p.includes("interior");
-    });
-    if (hit) return hit.url;
-  }
-  // Last resort: any exterior shot.
-  const anyExt = images.find((img) =>
-    (img.placement || "").toLowerCase().includes("exterior") &&
-    !(img.placement || "").toLowerCase().includes("interior"),
-  );
-  if (anyExt) return anyExt.url;
-  return images[0].url;
 }
 
 function formatDuration(totalSeconds: number): string {

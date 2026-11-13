@@ -45,6 +45,9 @@ var notYetGuarded = map[string]string{}
 
 // notOwnerSide is permanent. Each entry names who calls it.
 var notOwnerSide = map[string]string{
+	"tripshare.Store.Create":               "user action (share link): an account's own link row, not vehicle owner state",
+	"tripshare.Store.Revoke":               "user action (share link): an account's own link row, not vehicle owner state",
+	"tripshare.Store.Sweep":                "singleton maintenance job (daily): deletes link rows that ended over 30 days ago; idempotent on every replica",
 	"launchnotice.PGDated.PrepareFounding": "singleton maintenance job (the hourly dated-notice sweep, replica-safe by a row claim): extends a founding year that is under 30 days from its end and claims the notice email in one transaction; an account's plan is not a vehicle group's owner state",
 	"launchnotice.Store.EnsureAny":         "singleton maintenance job (the hourly dated-notice sweep): the in-app row of a renewal reminder",
 	"launchnotice.Store.ClaimEmailAny":     "singleton maintenance job (the hourly dated-notice sweep): the email claim of a renewal reminder",
@@ -180,6 +183,7 @@ var notOwnerSide = map[string]string{
 	"db.ClearR2ArrivalMonth":                  "user action (the reminder email's one-click delete)",
 	"db.SetRivianExpiryEmailsOff":             "user action (unsubscribe)",
 	"db.SetVehicleImageURL":                   "user request (/api/vehicles)",
+	"db.ClearVehiclePictures":                 "user request (/api/vehicles, replay installs only)",
 	"db.SetVehicleProfile":                    "user action (vehicle profile)",
 	"db.ResetUserArchive":                     "user action (reset data)",
 	"db.DeleteUserArchiveBefore":              "user action (delete history before a month)",

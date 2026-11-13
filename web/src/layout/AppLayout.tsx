@@ -6,7 +6,7 @@ import { useEffect } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
-import { useAdminOnly, useTripPlannerEnabled } from "../lib/config";
+import { useAdminOnly, useDesignPreview, useTripPlannerEnabled } from "../lib/config";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
 import { useImpersonationTarget } from "../lib/impersonation";
 import { ImpersonationBanner } from "../components/ImpersonationBanner";
@@ -18,6 +18,7 @@ import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
 import DegradedBanner from "./DegradedBanner";
 import { PlanNotice } from "../components/PlanNotice";
+import { ThemeSwitch } from "../components/ThemeSwitch";
 
 // Warm a route's lazy chunk before the user clicks. The dynamic
 // import is module-cached, so repeat calls are cheap no-ops; firing on
@@ -63,6 +64,7 @@ function UserLayout() {
     liveAvailable: !impersonating,
   });
   const current = activeTab(tabs, location.pathname);
+  const themeSwitch = useDesignPreview("theme_switch");
   return (
     <div className="min-h-full flex flex-col">
       <ImpersonationBanner />
@@ -75,8 +77,10 @@ function UserLayout() {
             className="flex items-center gap-2 font-semibold tracking-tight text-neutral-100 hover:text-emerald-300 transition-colors shrink-0"
           >
             <Logo size={22} className="text-emerald-400" />
-            <span className="max-[200px]:sr-only">Rivolt</span>
+            <span className={themeSwitch ? "max-[359px]:sr-only" : "max-[200px]:sr-only"}>Rivolt</span>
           </NavLink>
+          <div className="flex items-center gap-2 max-[200px]:gap-1">
+          {themeSwitch && <ThemeSwitch />}
           {/* Settings, one tap from every screen (the person icon, as on the iPhone). The Settings sub-link under Truck stays. */}
           <NavLink
             to="/settings"
@@ -97,6 +101,7 @@ function UserLayout() {
               </span>
             )}
           </NavLink>
+          </div>
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4 max-[200px]:px-3">

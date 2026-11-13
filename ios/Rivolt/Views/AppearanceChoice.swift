@@ -9,6 +9,15 @@ enum AppearanceChoice: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// "Auto" with the theme switch (design_preview key theme_switch), "System" without.
+    func title(themeSwitch: Bool) -> String {
+        switch self {
+        case .system: return themeSwitch ? "Auto" : "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
     var title: String {
         switch self {
         case .system: return "System"
@@ -23,6 +32,30 @@ enum AppearanceChoice: String, CaseIterable, Identifiable {
         case .system: return nil
         case .light: return .light
         case .dark: return .dark
+        }
+    }
+}
+
+/// Auto / Light / Dark as one segmented control, shown only with the theme switch (design_preview key theme_switch); where the text is too large for three segments it becomes a menu.
+struct AppearancePicker: View {
+    @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if typeSize.isAccessibilitySize {
+            Picker("Appearance", selection: $appearance) {
+                ForEach(AppearanceChoice.allCases) { Text($0.title(themeSwitch: true)).tag($0) }
+            }
+            .pickerStyle(.menu)
+            .tint(Theme.textSecondary)
+            .accessibilityIdentifier("appearance-picker")
+        } else {
+            Picker("Appearance", selection: $appearance) {
+                ForEach(AppearanceChoice.allCases) { Text($0.title(themeSwitch: true)).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Appearance")
+            .accessibilityIdentifier("appearance-picker")
         }
     }
 }

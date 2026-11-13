@@ -272,3 +272,24 @@ func TestSessionDecryptSeriesExistFromBoot(t *testing.T) {
 		t.Error("rivolt_tokens_loaded_unheld is not exported at 0 from boot")
 	}
 }
+
+func TestBuildInfo(t *testing.T) {
+	m := New()
+	m.SetBuildInfo("sha-abc1234", "v0.42.0-dev.3+sha-abc1234")
+	m.SetBuildInfo("", "dev")
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+	if !strings.Contains(body, `rivolt_build_info{build="dev",version="dev"} 1`) {
+		t.Errorf("no build info with the stamp as version:\n%s", body)
+	}
+	if strings.Contains(body, "sha-abc1234") {
+		t.Error("an earlier build info series lingers")
+	}
+	m.SetBuildInfo("v0.42.0", "v0.42.0-dev.3+sha-abc1234")
+	rec = httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), `rivolt_build_info{build="v0.42.0-dev.3+sha-abc1234",version="v0.42.0"} 1`) {
+		t.Error("the image tag is not the version label")
+	}
+}

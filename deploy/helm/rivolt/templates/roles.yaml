@@ -23,8 +23,13 @@ metadata:
   labels:
     {{- include "rivolt.labels" $ | nindent 4 }}
     rivolt.dev/role: {{ $name }}
-  {{- if or $.Values.migrate.job.enabled (and (not $asRollout) $.Values.deploymentAnnotations) (and $asRollout $.Values.rollout.annotations) }}
+  {{- if or $.Values.migrate.job.enabled $asRollout (and (not $asRollout) $.Values.deploymentAnnotations) }}
   annotations:
+    {{- if $asRollout }}
+    # The Rollout's own copy of the image tag (not the pod template's, so it never rolls pods): the open-charge AnalysisTemplate Jobs read it
+    # through fieldRef to run the canary's image.
+    rivolt.dev/image-tag: {{ $.Values.image.tag | default $.Chart.AppVersion | quote }}
+    {{- end }}
     {{- if $.Values.migrate.job.enabled }}
     argocd.argoproj.io/sync-wave: "1"
     {{- end }}

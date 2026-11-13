@@ -162,6 +162,8 @@ func main() {
 			os.Exit(runArchive(os.Args[2:]))
 		case "ai-eval":
 			os.Exit(runAIEval(os.Args[2:], os.Stdout, os.Stderr))
+		case "open-charges":
+			os.Exit(runOpenCharges(os.Args[2:], os.Stdout, os.Stderr))
 		default:
 			// Anything that is not a flag is a subcommand this binary does not have. Starting the
 			// server for it would boot a second Rivolt in a pod whose chart execs a subcommand the
@@ -193,6 +195,9 @@ Usage:
   rivolt ai-eval [--budget USD] [--inputs N]
                   Run the recap, efficiency and advice prompts on the candidate Claude models over demo inputs
                   and print the answers side by side (reads ANTHROPIC_API_KEY; no database, no server).
+  rivolt open-charges snapshot [--out FILE | --configmap NAME [--namespace NS]] [--roll-hash H] | verify --snapshot FILE [--roll-from EPOCH] [--roll-hash H]
+                  The release roll's open-charge check (reads RIVOLT_VERIFY_DATABASE_URL, a read-only role): snapshot the open charges
+                  before the roll, verify after it that each is still one row (exit 1: split, vanished, stalled).
   rivolt migrate [--check]    apply pending database migrations (or list them); for deployments that migrate in a job
   rivolt reprice [--user NAME] [--ids FILE] [--detect [--min-confidence X]] [--apply --backup FILE] | --restore-csv FILE
                   Classify legacy charge prices and re-price DC fast
@@ -283,6 +288,8 @@ Environment:
                                  or YYYY-MM-DD).
   RIVOLT_REPLAY_BACKFILL         replay: history recorded on first connect
                                  (Go duration, default 720h).
+  RIVOLT_REPLAY_VEHICLE_IMAGES   replay (preview only): JSON list of plain https Rivian
+                                 image URLs for the replay vehicles
   RIVOLT_REPLAY_ALLOWED_USERS    replay: comma-separated usernames allowed a
                                  demo vehicle; "*" for everyone (default:
                                  nobody).
@@ -562,6 +569,9 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	// The chart's image tag, projected by the chart (the file /api/health reads); empty off-cluster, then the stamp stands in.
+	podTag, _ := os.ReadFile("/etc/podinfo/image-tag")
+	appMetrics.SetBuildInfo(strings.TrimSpace(string(podTag)), version)
 	rivian.SetCloseHookObserver(func(typ string) { appMetrics.CloseHooksFiredTotal.WithLabelValues(typ).Inc() })
 	registerProcessRole(appMetrics.Registry(), role.Role)
 	secrets.SetSessionDecryptObserver(func(site string) {
@@ -1058,6 +1068,15 @@ func runServer() {
 				}
 			}
 			feed.SetAllowedUsers(func(uid uuid.UUID) bool { return allowed[uid] })
+		}
+		// Rivian pictures for the replay vehicles (any source), the public demo account's included. Never set on a live (prod) deployment.
+		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_VEHICLE_IMAGES")); v != "" {
+			imgs, err := rivian.ParseReplayImages(v)
+			if err != nil {
+				logger.Error("bad RIVOLT_REPLAY_VEHICLE_IMAGES", "err", err.Error())
+				os.Exit(1)
+			}
+			feed.SetImages(imgs)
 		}
 		// Preview only: usernames whose replay sign-in works but whose account lists no vehicle, so the no-vehicle states can be seen.
 		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_EMPTY_USERS")); v != "" {
@@ -3210,8 +3229,11 @@ func runServer() {
 					logger.Info("telemetry archive deletions", "requests", r.Requests, "objects", r.Objects, "failed", r.Failed, "overdue", r.Overdue)
 				}
 			}
-			appMetrics.ArchiveDeletionsLastRun.SetToCurrentTime()
-			role.start("archive_deletions", func() { archive.Every(ctx, time.Hour, "archive_deletions", logger, del.Run) })
+			// The stamp starts at this pod's boot only where the job runs: a role that doesn't run it exports 0, not a stale boot time.
+			role.start("archive_deletions", func() {
+				appMetrics.ArchiveDeletionsLastRun.SetToCurrentTime()
+				archive.Every(ctx, time.Hour, "archive_deletions", logger, del.Run)
+			})
 		}
 		// vehicle_state past the retention period: whole monthly partitions are
 		// dropped ("deleted" counts partitions). Drives, charges and their totals
@@ -3472,6 +3494,7 @@ func runServer() {
 		SystemSettings:        settingsFactory, // the sweeps started in api.New (statement and weekly emails) run with no user in context
 		Push:                  reqStores.Push,
 		Trips:                 reqStores.Trips,
+		TripShare:             os.Getenv("RIVOLT_TRIP_SHARE") == "1",
 		PackHealth:            reqStores.PackHealth, // request pool: per-vehicle samples reached through the vehicle's owner (the monitor's own store stays on the system pool)
 		Monitors:              monitorRegistry,
 		SettingsMgr:           settingsMgr,

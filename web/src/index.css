@@ -419,6 +419,10 @@ html[data-theme='light'] {
     grid-row: 2;
     margin: 0; /* space-y margin would eat into the stretch */
   }
+  /* The redesigned hero has no KPI grid beside it: it takes the full row. */
+  :root [data-ui-grid='now'] > [data-ui-area='hero'] > [data-now-v2] {
+    grid-column: 1 / -1;
+  }
   :root [data-ui-grid='now'] > [data-ui-area='hero'] > :not([data-ui-hero]) {
     grid-column: 1 / -1;
     grid-row: 3;
@@ -890,4 +894,11 @@ html[data-theme='light'] {
     position: static;
     box-shadow: none;
   }
+}
+
+/* Colours for the line-art car (CarSketch). Dark uses the drawing's own greys; light darkens the body so it
+   stays visible against the pale card. */
+html[data-theme='light'] {
+  --car-body: oklch(68% 0.01 250);
+  --car-line: oklch(40% 0.01 250);
 }

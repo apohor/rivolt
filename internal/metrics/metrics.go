@@ -226,6 +226,9 @@ type Metrics struct {
 	// hold (single-owner M4-5 baseline: flag-off prod shows what the flag would remove; 0 with lead mode off, where the notion does not apply).
 	SessionDecrypts    *prometheus.CounterVec
 	TokensLoadedUnheld prometheus.Gauge
+	// BuildInfo is 1 with the pod's release identity (SetBuildInfo): version is the chart's image tag (/etc/podinfo/image-tag, so a roll check compares
+	// it with the chart's own value), build the binary's stamp. Release gitops reads it to see that every pod runs the promoted image.
+	BuildInfo *prometheus.GaugeVec
 	// LeaseReconcileTotal counts the coordinator's reconcile passes by what started them: start (boot), tick (the timer), signal (a peer released
 	// groups and said so, G1a) or other (a fenced write, a refused call or the first request asking for a pass). Created at 0. The share of
 	// signal against tick is how much of the hand-off wait the signal removed.
@@ -416,6 +419,9 @@ type Metrics struct {
 	// The dated Pro notices (internal/launchnotice), by kind and outcome (sent, in_app, skipped, failed, late). "late" counts a founding
 	// year that had to be extended to keep the 30 days' notice the Terms promise: any nonzero value is worth a look.
 	DatedNoticesTotal *prometheus.CounterVec
+	// TripShareTotal counts shared trip link events by event (kept in step with tripshare.MetricEvents): created, revoked, viewed, miss (unknown, expired or
+	// revoked token), rate_limited, busy (the per-pod lookup pool was full), refused (a plan that cannot be shared). Pre-created at 0.
+	TripShareTotal *prometheus.CounterVec
 	// App Store Server Notifications by outcome (applied, duplicate, ignored, unmapped, stale, rejected); a rejected one is a bad signature or
 	// a bundle, environment or product that is not this deployment's. Pre-created at 0.
 	AppleNotificationsTotal *prometheus.CounterVec
@@ -546,6 +552,10 @@ func New() *Metrics {
 			Name: "rivolt_tokens_loaded_unheld",
 			Help: "Rivian session tokens held in this pod's memory for users whose group another pod holds (0 with lead mode off).",
 		}),
+		BuildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "rivolt_build_info",
+			Help: "1, labelled with the image tag this pod runs (version) and the binary's own version stamp (build).",
+		}, []string{"version", "build"}),
 		LeaseReconcileTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_lease_reconcile_total",
 			Help: "Lease reconcile passes by trigger: start, tick, signal (a peer released groups) or other.",
@@ -922,6 +932,13 @@ func New() *Metrics {
 			},
 			[]string{"outcome"},
 		),
+		TripShareTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_trip_share_total",
+				Help: "Shared trip link events (created, revoked, viewed, miss, rate_limited, busy, refused).",
+			},
+			[]string{"event"},
+		),
 		DatedNoticesTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_dated_notices_total",
@@ -1144,6 +1161,7 @@ func New() *Metrics {
 		m.ReceiptEnergyDeltaPct,
 		m.SessionDecrypts,
 		m.TokensLoadedUnheld,
+		m.BuildInfo,
 		m.LeaseReconcileTotal,
 		m.LeaseLeadPassSeconds,
 		m.HeldGroupUsersSeconds,
@@ -1184,6 +1202,7 @@ func New() *Metrics {
 		m.SingletonRunsTotal,
 		m.DBPinGateFullTotal,
 		m.DatedNoticesTotal,
+		m.TripShareTotal,
 		m.AppleNotificationsTotal,
 		m.AppleLinkTotal,
 		m.RoutePointRefusedTotal,
@@ -1247,6 +1266,9 @@ func New() *Metrics {
 		m.TripPlanLegsTotal.WithLabelValues(result).Add(0)
 	}
 	// The dated Pro notices: every (kind, outcome) the jobs can report, so the first "late" is an increase.
+	for _, ev := range []string{"created", "revoked", "viewed", "miss", "rate_limited", "busy", "refused"} {
+		m.TripShareTotal.WithLabelValues(ev).Add(0)
+	}
 	for _, kind := range launchnotice.MetricKinds {
 		for _, outcome := range launchnotice.Outcomes {
 			m.DatedNoticesTotal.WithLabelValues(kind, outcome).Add(0)
@@ -1397,4 +1419,13 @@ func (m *Metrics) RegisterDBPool(name string, d *sql.DB) {
 		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "rivolt_db_pool_wait_seconds_total", Help: "Total time callers waited for a free connection.", ConstLabels: lbl},
 			func() float64 { return d.Stats().WaitDuration.Seconds() }),
 	)
+}
+
+// SetBuildInfo exports rivolt_build_info. imageTag is the chart's image tag when the deployment passes it (empty otherwise, then the stamp stands in).
+func (m *Metrics) SetBuildInfo(imageTag, build string) {
+	if imageTag == "" {
+		imageTag = build
+	}
+	m.BuildInfo.Reset()
+	m.BuildInfo.WithLabelValues(imageTag, build).Set(1)
 }

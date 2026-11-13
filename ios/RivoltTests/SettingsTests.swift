@@ -24,6 +24,13 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(titles, ["Account", "Security", "Vehicle", "Charging", "App", "Data", "About"])
     }
 
+    func testWithTheThemeSwitchAppearanceLeavesTheListForTheTopPicker() {
+        let on = SettingsLogic.groups(notificationsOffered: true, themeSwitch: true).map(\.title)
+        XCTAssertEqual(on, ["Account", "Security", "Vehicle", "Charging", "Notifications", "Data", "About"])
+        let off = SettingsLogic.groups(notificationsOffered: true, themeSwitch: false).map(\.title)
+        XCTAssertEqual(off, ["Account", "Security", "Vehicle", "Charging", "Notifications", "App", "Data", "About"])
+    }
+
     func testDeleteAccountIsTheLastRowOfData() {
         XCTAssertEqual(SettingsLogic.groups(notificationsOffered: true).first { $0.title == "Data" }?.rows.last, .deleteAccount)
     }

@@ -14,9 +14,10 @@ set -euo pipefail
 base="${1:?base rev}"
 head="${2:?head rev}"
 dir="internal/db/migrations"
+baseline_dir="internal/db/baseline" # the squashed baseline (step 5) is immutable the same way
 
 # --no-renames: a rename shows as a delete plus an add, so it is caught as the delete.
-changed=$(git diff --name-only --no-renames --diff-filter=MD "$base" "$head" -- "$dir" || true)
+changed=$(git diff --name-only --no-renames --diff-filter=MD "$base" "$head" -- "$dir" "$baseline_dir" || true)
 if [ -z "$changed" ]; then
   echo "migration-immutable: no existing migration modified, renamed or deleted"
   exit 0

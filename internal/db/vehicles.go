@@ -426,6 +426,23 @@ func SetVehicleImageURL(ctx context.Context, d *sql.DB, userID uuid.UUID, rivian
 	return err
 }
 
+// ClearVehiclePictures removes the hero image and the stored gallery (and the synced marker that went with it) from a row, for a replay
+// vehicle whose pictures were switched off: the upsert keeps what it is not given, so removal needs its own write. Only touches a row that
+// has any.
+func ClearVehiclePictures(ctx context.Context, d *sql.DB, userID uuid.UUID, rivianID string) error {
+	_, err := d.ExecContext(ctx, `
+		UPDATE vehicles
+		   SET image_url = NULL,
+		       metadata = CASE WHEN jsonb_exists(metadata, 'vehicle_info')
+		                       THEN jsonb_set(metadata, '{vehicle_info}', (metadata->'vehicle_info') - 'images' - 'synced')
+		                       ELSE metadata END,
+		       updated_at = NOW()
+		 WHERE user_id = $1 AND rivian_vehicle_id = $2
+		   AND (image_url IS NOT NULL OR jsonb_exists_any(COALESCE(metadata->'vehicle_info', '{}'::jsonb), ARRAY['images','synced']))
+	`, userID, rivianID)
+	return err
+}
+
 // The OTA release details (current and available version with release-notes
 // links) live in vehicles.metadata under "ota", beside "profile": it is
 // per-vehicle data that dies with the row, so no new table. The sync also

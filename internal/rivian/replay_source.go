@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -147,6 +149,8 @@ type ReplayFeed struct {
 	allow func(uid uuid.UUID) bool
 	// empty names the users whose replay sign-in works but whose account has no vehicle (preview's way to show the no-vehicle states).
 	empty func(uid uuid.UUID) bool
+	// images are the Rivian pictures the demo vehicles carry (SetImages).
+	images []VehicleImage
 	// lastRecorded returns the newest persisted sample for a demo
 	// vehicle (zero time when none), which is where Stream resumes.
 	lastRecorded func(ctx context.Context, vehicleID string) (time.Time, error)
@@ -415,6 +419,51 @@ func NewDBReplayFeed(ctx context.Context, pool *sql.DB, sourceVehicleID string, 
 // (the default) allows everyone.
 func (f *ReplayFeed) SetAllowedUsers(allow func(uid uuid.UUID) bool) { f.allow = allow }
 
+// SetImages gives every demo vehicle these Rivian pictures (from RIVOLT_REPLAY_VEHICLE_IMAGES), the public demo account's included.
+// The list's own vehicle and order ids are never used: each client rewrites them to its demo vehicle.
+func (f *ReplayFeed) SetImages(images []VehicleImage) { f.images = images }
+
+// ParseReplayImages reads the RIVOLT_REPLAY_VEHICLE_IMAGES JSON list. Only plain https URLs pass: a signed URL expires and carries the account
+// it was signed for, and a URL naming a VIN would publish one.
+func ParseReplayImages(raw string) ([]VehicleImage, error) {
+	var in []VehicleImage
+	if err := json.Unmarshal([]byte(raw), &in); err != nil {
+		return nil, fmt.Errorf("replay images: %w", err)
+	}
+	out := make([]VehicleImage, 0, len(in))
+	for _, img := range in {
+		u, err := url.Parse(img.URL)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return nil, fmt.Errorf("replay images: %q is not an https URL", img.URL)
+		}
+		if u.RawQuery != "" || u.User != nil {
+			return nil, fmt.Errorf("replay images: %s has a query or credentials (signed URLs are refused)", u.Host)
+		}
+		if replayVINRe.MatchString(img.URL) {
+			return nil, fmt.Errorf("replay images: %s names a VIN", u.Host)
+		}
+		out = append(out, VehicleImage{URL: img.URL, Extension: img.Extension, Resolution: img.Resolution,
+			Size: img.Size, Design: img.Design, Placement: img.Placement})
+	}
+	return out, nil
+}
+
+// A VIN is a whole 17-character uppercase token; a longer base64url path segment that merely contains such a run is not one.
+var replayVINRe = regexp.MustCompile(`(^|[^A-Za-z0-9])[A-HJ-NPR-Z0-9]{17}([^A-Za-z0-9]|$)`)
+
+// vehicleImages is the list for uid's demo vehicle, ids rewritten to the demo vehicle and the hero chosen; nil for none.
+func (f *ReplayFeed) vehicleImages(uid uuid.UUID, vehicleID string) []VehicleImage {
+	if len(f.images) == 0 {
+		return nil
+	}
+	out := make([]VehicleImage, len(f.images))
+	for i, img := range f.images {
+		img.VehicleID, img.OrderID = vehicleID, ""
+		out[i] = img
+	}
+	return out
+}
+
 // SetEmptyUsers names the users whose sign-in succeeds with no vehicle on the account. nil (the default) names nobody.
 func (f *ReplayFeed) SetEmptyUsers(empty func(uid uuid.UUID) bool) { f.empty = empty }
 
@@ -457,16 +506,25 @@ func NewReplayClient(feed *ReplayFeed, uid uuid.UUID) *ReplayClient {
 		model = "R1S"
 	}
 	hex := strings.ToUpper(strings.ReplaceAll(uid.String(), "-", ""))
+	imgs := feed.vehicleImages(uid, DemoVehicleID(uid))
+	hero := ""
+	if len(imgs) > 0 {
+		hero = pickHeroImage(imgs)
+	}
 	return &ReplayClient{
 		feed: feed,
 		vehicle: Vehicle{
-			ID:        DemoVehicleID(uid),
-			VIN:       "DEMO" + hex[:13],
-			Name:      "Demo " + model,
-			Model:     model,
-			ModelYear: feed.source.ModelYear,
-			Make:      "Rivian",
-			PackKWh:   feed.source.PackKWh,
+			ID:       DemoVehicleID(uid),
+			ImageURL: hero,
+			Images:   imgs,
+			// Pictures set means the gallery is complete, as the owner's refresh marks a live vehicle.
+			InfoSynced: len(imgs) > 0,
+			VIN:        "DEMO" + hex[:13],
+			Name:       "Demo " + model,
+			Model:      model,
+			ModelYear:  feed.source.ModelYear,
+			Make:       "Rivian",
+			PackKWh:    feed.source.PackKWh,
 		},
 		allowed:   feed.allow == nil || feed.allow(uid),
 		noVehicle: feed.empty != nil && feed.empty(uid),
@@ -669,6 +727,16 @@ func (r *replayAccountRegistry) SetNoStandingTokens(hold func(context.Context, u
 
 // NoStandingTokens reports whether the gate is on.
 func (r *replayAccountRegistry) NoStandingTokens() bool { return r.gate.Load() != nil }
+
+// ReplayVehicle is the vehicle uid's replay client lists, pictures included, without a client: a pod that does not hold the account (the
+// registry gate) has none, but still keeps that account's stored row in step with the feed. false when the account lists no vehicle.
+func (r *replayAccountRegistry) ReplayVehicle(uid uuid.UUID) (Vehicle, bool) {
+	c := NewReplayClient(r.feed, uid)
+	if !c.allowed || c.noVehicle {
+		return Vehicle{}, false
+	}
+	return c.vehicle, true
+}
 
 // ForLogin is For for a user this pod holds; any other user's sign-in works on a throwaway client that is not registered.
 func (r *replayAccountRegistry) ForLogin(uid uuid.UUID) (Account, func()) {

@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/ai"
 	"github.com/apohor/rivolt/internal/db"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/histwin"
@@ -232,7 +233,7 @@ func handleDriveEfficiencyPost(d Deps, uid uuid.UUID) http.HandlerFunc {
 			}
 			writeJSON(w, http.StatusBadGateway, map[string]any{
 				"error": err.Error(),
-				"model": analyzer.ModelName(),
+				"model": analyzer.ModelNameFor(ai.RouteEfficiency),
 			})
 			return
 		}

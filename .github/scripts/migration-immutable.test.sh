@@ -9,6 +9,8 @@ mkdir -p internal/db/migrations
 echo "CREATE TABLE t (id int);" > internal/db/migrations/0001_t.sql
 echo "ALTER TABLE t ADD COLUMN a int;" > internal/db/migrations/0002_a.sql
 echo "other" > README
+mkdir -p internal/db/baseline
+echo "-- baseline-of: v1" > internal/db/baseline/0000_baseline.sql
 git add -A && git commit -qm base
 base=$(git rev-parse HEAD)
 
@@ -27,10 +29,12 @@ edit_old()   { echo "-- harmless" >> internal/db/migrations/0001_t.sql; }
 delete_old() { git rm -q internal/db/migrations/0002_a.sql; }
 rename_old() { git mv internal/db/migrations/0002_a.sql internal/db/migrations/0002_renamed.sql; }
 edit_and_add() { edit_old; add_new; }
+edit_baseline() { echo "-- x" >> internal/db/baseline/0000_baseline.sql; }
 other_file() { echo more >> README; }
 
 run "a new migration is added" 0 "" add_new
 run "nothing under migrations changes" 0 "" other_file
+run "the baseline is edited" 1 "" edit_baseline
 run "an applied migration is edited" 1 "" edit_old
 run "an applied migration is deleted" 1 "" delete_old
 run "an applied migration is renamed" 1 "" rename_old
