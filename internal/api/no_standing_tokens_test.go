@@ -274,3 +274,29 @@ func TestRawProbesRefuseAnUnheldClient(t *testing.T) {
 		}
 	}
 }
+
+// "Check again" through the real router on a pod that holds no tokens: the owner is nudged once and the answer is the retry-able 503 with
+// Retry-After, never the bare notHeld error.
+func TestRefreshVehiclesRouteOnATokenlessPod(t *testing.T) {
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := uuid.New()
+	var nudged []uuid.UUID
+	router := New(Deps{Auth: svc, AuthEnforced: true, Accounts: gatedRegistry(),
+		SignInNudge: func(_ context.Context, u uuid.UUID) { nudged = append(nudged, u) }})
+	req := httptest.NewRequest(http.MethodPost, "https://rivolt.dev/api/settings/rivian/refresh-vehicles", strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "203.0.113.9:4000"
+	ctx := auth.WithUser(req.Context(), uid)
+	ctx = auth.WithSession(ctx, auth.SessionRef{ID: uuid.New(), Kind: "web"})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req.WithContext(ctx))
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("POST refresh-vehicles = %d, Retry-After %q (%s); want 503 with Retry-After", rec.Code, rec.Header().Get("Retry-After"), rec.Body.String())
+	}
+	if len(nudged) != 1 || nudged[0] != uid {
+		t.Fatalf("nudged %v, want the user once", nudged)
+	}
+}
