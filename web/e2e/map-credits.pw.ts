@@ -75,7 +75,7 @@ for (const theme of ["dark", "light"] as const) {
 
     // Keyboard focus rings the (i)'s box and the zoom buttons in the accent colour, never the browser default.
     await page.mouse.move(box.x + 2, box.y + 2);
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 60; i++) {
       await page.keyboard.press(tab);
       if (await button.evaluate((el) => el === document.activeElement)) break;
     }

@@ -230,6 +230,7 @@ final class AppState {
             let me = try await client.me()
             phase = .loggedIn(username: me.username)
             await refreshUnits(known: me.units)
+            await refreshDesignPreview()
             await notifications.signedIn(server: client)
         liveActivity.attach(server: client)
         await startStoreUpdates()
@@ -328,6 +329,7 @@ final class AppState {
         guard serverURL == server else { return }
         phase = .loggedIn(username: username)
         await refreshUnits()
+        await refreshDesignPreview()
         // The widgets were showing "sign in"; they can fetch now.
         WidgetCenter.shared.reloadAllTimelines()
         await notifications.signedIn(server: client)
@@ -373,6 +375,15 @@ final class AppState {
     }
 
     func clearSignInNotice() { signInNotice = nil }
+
+    /// The preview-only designs this server shows (`/api/config` features.design_preview); empty on prod, on a server that predates the
+    /// field, and when the call fails.
+    private(set) var designPreview: Set<String> = []
+
+    func refreshDesignPreview() async {
+        let keys = (try? await client.mapsConfig())?.features?.designPreview ?? []
+        designPreview = Set(keys)
+    }
 
     /// Bumped when the units shown change, so the screens read them again.
     private(set) var unitsRevision = 0

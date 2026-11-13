@@ -1,4 +1,4 @@
-// Theme: System (default) / Light / Dark, inside the signed-in app and
+// Theme: Auto (stored as "system", default) / Light / Dark, inside the signed-in app and
 // on the public pages that follow the device theme. Anywhere else the
 // attribute is never set, so the page stays dark.
 
