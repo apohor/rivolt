@@ -286,9 +286,11 @@ type PlanFields struct {
 	// so the client shows "Manage subscription" (POST /api/billing/portal, which works with billing off) and nothing else about plans.
 	// Absent otherwise.
 	ManageSubscription bool `json:"manage_subscription,omitempty"`
-	// HistoryDays is the free window in days (90) on a free account, null on a Pro one and where billing is off: history older than that
-	// is not shown (402 outside_free_window for a single drive or charge), and is never deleted.
-	HistoryDays *int `json:"history_days"`
+	// HistoryDays is the free window's length in days on a free account (it changes through the month), null on a Pro one and where billing
+	// is off; HistoryFrom is the first day (YYYY-MM-DD, UTC) it shows. History older than that is not shown (402 outside_free_window for a
+	// single drive or charge, with the same two values), and is never deleted. Clients show these, never a number of their own.
+	HistoryDays *int    `json:"history_days"`
+	HistoryFrom *string `json:"history_from"`
 }
 
 // planFor builds the plan fields for an account; nil when the lookup failed.
@@ -306,8 +308,9 @@ func planFor(ctx context.Context, e *entitlements.Service, uid uuid.UUID) *PlanF
 func planFromState(st entitlements.State, billing bool) *PlanFields {
 	pf := &PlanFields{Plan: "free", BillingEnabled: billing, PlanPeriodEnd: st.PeriodEnd, PlanTrialEnds: st.TrialEnds, PlanCancelsAt: st.CancelsAt, PlanGraceEnds: st.GraceEnds, PlanEndedAt: st.EndedAt}
 	if !st.Pro {
-		days := histwin.FreeDays
-		pf.HistoryDays = &days
+		win := histwin.Free(time.Now())
+		from := win.Since.Format("2006-01-02")
+		pf.HistoryDays, pf.HistoryFrom = &win.Days, &from
 	}
 	if st.EndedSource != "" {
 		src := st.EndedSource
