@@ -212,6 +212,12 @@ func probeApplyTx(ctx context.Context, d *sql.DB, f db.MigrationFile, res *probe
 	if err != nil {
 		return err
 	}
+	// pg_stat_xact_user_tables also carries this backend's not yet flushed counts from the previous transaction on the pooled connection,
+	// so take the baseline inside this transaction and report the difference.
+	scans0, err := probeXactScans(ctx, tx)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, strings.TrimSpace(f.SQL)); err != nil {
 		return fmt.Errorf("exec: %w", err)
 	}
@@ -226,6 +232,11 @@ func probeApplyTx(ctx context.Context, d *sql.DB, f db.MigrationFile, res *probe
 	scans, err := probeXactScans(ctx, tx)
 	if err != nil {
 		return err
+	}
+	for tbl, n := range scans0 {
+		if scans[tbl] -= n; scans[tbl] <= 0 {
+			delete(scans, tbl)
+		}
 	}
 	after, err := probeFilenodesTx(ctx, tx)
 	if err != nil {
@@ -615,6 +626,8 @@ func TestMigrationProbeFailsTheBadFixtures(t *testing.T) {
 		{db.MigrationFile{ID: "0902_fixture_volatile_default", SQL: "SET LOCAL lock_timeout = '2s';\nALTER TABLE charges ADD COLUMN probe_v DOUBLE PRECISION NOT NULL DEFAULT random();"}, "rewrote charges"},
 		{db.MigrationFile{ID: "0903_fixture_slow_tx", SQL: "SELECT pg_sleep(2.3);"}, "transaction ran"},
 		{db.MigrationFile{ID: "0904_fixture_lock_stall", SQL: "SET LOCAL lock_timeout = '2s';\nLOCK TABLE vehicle_state IN ACCESS EXCLUSIVE MODE;\nSELECT pg_sleep(1.4);"}, "writer stalled"},
+		{db.MigrationFile{ID: "0906_fixture_constant_default", SQL: "SET LOCAL lock_timeout = '2s';\nALTER TABLE charges ADD COLUMN probe_c INTEGER NOT NULL DEFAULT 0;"}, ""},
+		{db.MigrationFile{ID: "0907_fixture_column_type", SQL: "SET LOCAL lock_timeout = '2s';\nALTER TABLE drives ALTER COLUMN max_speed_mph TYPE NUMERIC(8, 2);"}, "rewrote drives"},
 		{db.MigrationFile{ID: "0905_fixture_new_check", SQL: "SET LOCAL lock_timeout = '2s';\nALTER TABLE drives ADD CONSTRAINT probe_never CHECK (source = 'never') NOT VALID;"}, "old write shape was rejected"},
 	}
 	var files []db.MigrationFile
