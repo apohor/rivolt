@@ -2767,8 +2767,8 @@ export type HomeLocation = {
   label?: string;
   // Full geocoded address, kept as Settings-card subtitle context.
   address?: string;
-  // How it was set: "city", "address", "coordinates" or "charge" (absent before it was recorded).
-  source?: "city" | "address" | "coordinates" | "charge" | "";
+  // How it was set: "city", "address", "coordinates", "charge" or "truck" (absent before it was recorded).
+  source?: "city" | "address" | "coordinates" | "charge" | "truck" | "";
   // Read-only, from GET/PUT: an earlier home can be restored; a street address can be looked up (Photon).
   previous_set?: boolean;
   address_search?: boolean;
