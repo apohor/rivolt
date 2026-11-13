@@ -82,7 +82,8 @@ jobs:
             fi
           } > /tmp/notes.md
           # A final's hand-written notes (release-notes/vX.Y.Z.md, required by build.yml's tag-validate) are the release body.
-          if [ "$kind" = final ] && [ -s "release-notes/${TAG}.md" ]; then
+          if [ "$kind" = final ]; then
+            [ -s "release-notes/${TAG}.md" ] || { echo "::error::${TAG} is a final tag but release-notes/${TAG}.md is missing or empty: no release created."; exit 1; }
             cp "release-notes/${TAG}.md" /tmp/notes.md
           fi
           gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md "${flags[@]}"
