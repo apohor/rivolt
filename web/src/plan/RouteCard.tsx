@@ -7,7 +7,9 @@ import { BottomSheet, type Snap } from "./BottomSheet";
 import { useSelectedStop } from "./selection";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { wholeDistance } from "./units";
-import { type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
+import { type ElevationProfile, type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
+import { ElevationChart } from "./ElevationChart";
+import { usableProfile } from "./elevation";
 import { Card } from "../components/ui";
 import { OvernightAdder, StopAdder, StopPreviewer } from "./tripTypes";
 import { isChargingWaypoint } from "./waypoints";
@@ -47,6 +49,7 @@ export function RouteCard({
   chooser,
   dayLabel,
   startsAtOrigin,
+  elevation,
 }: {
   route: TripRoute;
   index: number;
@@ -79,6 +82,8 @@ export function RouteCard({
   stacked?: boolean;
   // The route chooser, shown at the top of the summary.
   chooser?: React.ReactNode;
+  // The plan's terrain along this route: the map-first layout draws the elevation chart linked to the map.
+  elevation?: ElevationProfile;
 }) {
   const { distanceUnit, temperatureUnit } = usePreferences();
   // Map-first layout is for the primary route; alternatives and stacked days keep the in-flow card.
@@ -86,6 +91,9 @@ export function RouteCard({
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   // The phone sheet's height, kept across re-renders and new plans (a re-plan does not drop the sheet back); the map follows it once it settles.
   const [sheetSnap, setSheetSnap] = useState<Snap>("peek");
+  // The elevation chart's cursor and the map's dot are one place: a share (0 to 1) of the way along the route.
+  const [cursorShare, setCursorShare] = useState<number | null>(null);
+  const profile = usableProfile(elevation);
   // Rivian's planTrip2 returns waypointType in lowercase ("origin" /
   // "destination" / "waypoint"); compare case-insensitively so the
   // table renders correctly regardless of casing.
@@ -318,6 +326,15 @@ export function RouteCard({
               )}
               {hero}
             </section>
+          {profile && (
+            <ElevationChart
+              profile={profile}
+              share={cursorShare}
+              onShare={setCursorShare}
+              distanceUnit={distanceUnit}
+              stopNames={route.Waypoints.map((w) => w.Name)}
+            />
+          )}
           <section data-plan-area="itinerary" aria-label="Itinerary">
             <h2 className="ui-label mb-1">Itinerary</h2>
             {timeline}
@@ -341,6 +358,8 @@ export function RouteCard({
               destLabel={destLabel}
               legWeather={legWeather}
               sheetSnap={sheetSnap}
+              cursorShare={profile ? cursorShare : null}
+              onCursorShare={profile ? setCursorShare : undefined}
             />
           </Suspense>
         </div>
