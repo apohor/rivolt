@@ -23,7 +23,7 @@ import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
 import { firstLabelLayer, setDriveRoute, type LatLng } from "./route";
 import { RAMPS } from "./metrics";
 import { chargingStopCount, isChargingWaypoint } from "../plan/waypoints";
-import { pointAtShare, shareOfPoint } from "../plan/elevation";
+import { cumulative, pointAtShare, shareOfPoint } from "../plan/elevation";
 import { measurePill, pillAwayFromLine, pillBox, pillSide, placeStopPill, setPills, type Box, type PillSpec } from "./pills";
 import { watchDrawn } from "./drawn";
 import { localUnits, usePreferences } from "../lib/preferences";
@@ -1043,23 +1043,30 @@ export function TripRouteMap({
     }
   }
 
-  // Effect: the elevation chart's cursor, a dot on the route line.
+  // Effect: the elevation chart's cursor, a dot on the route line. The dot is made once and moved with each pointer move, not rebuilt.
+  const routeCum = useMemo(() => cumulative(routePath), [routePath]);
+  const cursorAt = useMemo(() => (cursorShare == null ? null : pointAtShare(routePath, cursorShare, routeCum)), [routePath, routeCum, cursorShare]);
+  const cursorMarkerRef = useRef<Marker | null>(null);
+  const cursorOn = cursorAt != null;
   useEffect(() => {
     const map = mapReady;
-    if (!map || cursorShare == null) return;
-    const at = pointAtShare(routePath, cursorShare);
-    if (!at) return;
+    if (!map || !cursorOn) return;
     let alive = true;
-    let marker: Marker | null = null;
     void loadMapLibre().then((ml) => {
       if (!alive || mapRef.current !== map) return;
       const el = document.createElement("span");
       el.setAttribute("data-elevation-dot", "");
       el.style.cssText = "display:block;width:16px;height:16px;border-radius:9999px;background:#fafafa;border:3px solid #0a0a0a;box-shadow:0 0 0 2px #34d399;pointer-events:none;";
-      marker = new ml.Marker({ element: el }).setLngLat([at[1], at[0]]).addTo(map);
+      const at = cursorAtRef.current;
+      cursorMarkerRef.current = new ml.Marker({ element: el }).setLngLat(at ? [at[1], at[0]] : [0, 0]).addTo(map);
     });
-    return () => { alive = false; marker?.remove(); };
-  }, [mapReady, routePath, cursorShare]);
+    return () => { alive = false; cursorMarkerRef.current?.remove(); cursorMarkerRef.current = null; };
+  }, [mapReady, cursorOn]);
+  const cursorAtRef = useRef(cursorAt);
+  cursorAtRef.current = cursorAt;
+  useEffect(() => {
+    if (cursorAt) cursorMarkerRef.current?.setLngLat([cursorAt[1], cursorAt[0]]);
+  }, [cursorAt]);
 
   // Effect: a tap on the route line (not on a charger, marker or popup) tells the chart where it is.
   useEffect(() => {
@@ -1070,7 +1077,7 @@ export function TripRouteMap({
       if (target?.closest?.(".maplibregl-marker, .maplibregl-popup, [data-leg-badge]")) return;
       if (map.getLayer(CHARGERS_LAYER) && map.queryRenderedFeatures([e.point.x, e.point.y], { layers: [CHARGERS_LAYER] }).length > 0) return;
       const hit = shareOfPoint(routePath, [e.lngLat.lat, e.lngLat.lng]);
-      const near = hit && pointAtShare(routePath, hit.share);
+      const near = hit && pointAtShare(routePath, hit.share, routeCum);
       if (!hit || !near) return;
       const px = map.project([near[1], near[0]]);
       // 20 px is a finger's width on either side of the line.
@@ -1078,7 +1085,7 @@ export function TripRouteMap({
     };
     map.on("click", onClick as never);
     return () => { map.off("click", onClick as never); };
-  }, [mapReady, routePath]);
+  }, [mapReady, routePath, routeCum]);
 
   // Effect: external selection. A table-row click makes the matching marker larger and ringed and pans onto it; the previous one reverts.
   useEffect(() => {

@@ -103,7 +103,7 @@ export function ElevationChart({
         aria-orientation="horizontal"
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={share != null ? Math.round(share * 100) : undefined}
+        aria-valuenow={Math.round((share ?? 0) * 100)}
         aria-valuetext={share != null && cyVal != null ? readout : "Not set. Use the arrow keys to move along the route."}
         className="mt-1 block h-auto w-full touch-pan-y select-none rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400"
         onPointerDown={(e) => {
