@@ -2154,6 +2154,13 @@ export const backend = {
     api.put<SavedTrip>(`/api/trips/saved/${encodeURIComponent(id)}`, body),
   savedTripDelete: (id: string) =>
     api.del<void>(`/api/trips/saved/${encodeURIComponent(id)}`),
+  // Shared trip links (features.trip_share). The token comes back once, from the create; the page address is /s#<token>.
+  tripShareCreate: (savedTripID: string, body: { title: string; expires_in_days?: 1 | 7 | 30 }) =>
+    api.post<TripShareCreated>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/share`, body),
+  tripShareList: (savedTripID: string) =>
+    api.get<{ links: TripShareLink[] }>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/shares`),
+  tripShareRevoke: (shareID: string) =>
+    api.del<void>(`/api/trips/shares/${encodeURIComponent(shareID)}`),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
   // file result summary (rows/samples/drives/charges ingested).
   // onProgress, when provided, is called for each server-emitted NDJSON
@@ -3442,4 +3449,47 @@ export type SavedTripBody = {
   inputs: SavedTripInputs;
   plan?: TripPlan | SavedMultidayPlan;
   advice?: TripAdvice;
+};
+
+// A shared trip link as the owner lists it (never the token).
+export type TripShareLink = {
+  id: string;
+  saved_trip_id: string;
+  title: string;
+  created_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+};
+
+// The create answer: the only place the token appears. path is "/s#<token>".
+export type TripShareCreated = TripShareLink & { token: string; path: string };
+
+// A shared trip as the public page gets it (POST /api/public/trips/share). SI units; the start and end are generalised by the server.
+export type SharedTripStop = {
+  kind: "charger" | "stop";
+  name?: string;
+  lat: number;
+  lon: number;
+  at_m: number | null;
+  arrive_at?: string;
+  depart_at?: string;
+  arrive_soc: number;
+  depart_soc: number;
+  charge_s?: number;
+  max_kw?: number;
+};
+
+export type SharedTrip = {
+  version: number;
+  title: string;
+  planned_at: string;
+  depart_at?: string;
+  tz?: string;
+  start_soc: number;
+  totals: { distance_m: number; drive_s: number; charge_s: number; arrival_soc: number };
+  start: { label: string; lat: number; lon: number };
+  end: { label: string; lat: number; lon: number };
+  stops: SharedTripStop[];
+  route: { segments: string[] };
+  elevation_profile?: ElevationProfile;
 };

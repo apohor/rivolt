@@ -29,6 +29,8 @@ import { ReplanFromHere } from "../plan/ReplanFromHere";
 import { TripPlanResult } from "../plan/TripPlanResult";
 import { withNight } from "../plan/stays";
 import { ProLimitNotice } from "../components/ProLimitNotice";
+import { TripShareSheet } from "../components/TripShareSheet";
+import { useTripShare } from "../lib/config";
 import { proLimitOf, type ProLimit } from "../lib/proLimit";
 
 
@@ -910,6 +912,8 @@ function SavedTripsCard({
   saveLimit?: ProLimit | null;
 }) {
   const [name, setName] = useState("");
+  const tripShare = useTripShare();
+  const [sharing, setSharing] = useState<SavedTrip | null>(null);
   const active = trips.find((t) => t.id === activeId) ?? null;
   useEffect(() => {
     setName(active?.name ?? suggestedName ?? "");
@@ -926,6 +930,7 @@ function SavedTripsCard({
   };
   return (
     <Card title="Saved trips" area="p-saved">
+      {sharing && <TripShareSheet trip={sharing} onClose={() => setSharing(null)} />}
       {loading ? (
         <Spinner />
       ) : trips.length === 0 ? (
@@ -965,6 +970,17 @@ function SavedTripsCard({
                   >
                     Pro to edit
                   </span>
+                )}
+                {!readOnly && tripShare && t.plan && (
+                  <button
+                    type="button"
+                    onClick={() => setSharing(t)}
+                    data-testid="trip-share-open"
+                    aria-label={`Share "${t.name}"`}
+                    className="shrink-0 text-xs text-neutral-400 hover:text-neutral-200"
+                  >
+                    share
+                  </button>
                 )}
                 {!readOnly && (
                   <button

@@ -764,7 +764,7 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil, DemoRadar: demo.Enabled() && d.DemoRadar != nil, HistoryImport: d.HistoryImport, DesignPreview: d.DesignPreview}))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil, DemoRadar: demo.Enabled() && d.DemoRadar != nil, HistoryImport: d.HistoryImport, TripShare: d.TripShare && d.DB != nil && d.Trips != nil && !d.AdminOnly, DesignPreview: d.DesignPreview}))
 		// The charging-networks comparison page's data: public reference data (plans as each
 		// network states them, typical observed prices with their label and month).
 		r.With(clLimiter.Middleware).Get("/charging-networks", handleChargingNetworks(time.Now))

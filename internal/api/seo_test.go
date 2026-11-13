@@ -297,6 +297,23 @@ func TestSEOInjection(t *testing.T) {
 		}
 	})
 
+	t.Run("the shared trip page is not indexed and sends no referrer", func(t *testing.T) {
+		for _, host := range []string{"rivolt.dev", "preview.rivolt.dev"} {
+			rec := seoGet(t, h, host, "/s")
+			if rec.Header().Get("X-Robots-Tag") != "noindex" {
+				t.Errorf("%s /s: want noindex", host)
+			}
+			if rec.Header().Get("Referrer-Policy") != "no-referrer" {
+				t.Errorf("%s /s: Referrer-Policy = %q, want no-referrer", host, rec.Header().Get("Referrer-Policy"))
+			}
+		}
+		if !strings.Contains(seoGet(t, h, "rivolt.dev", "/robots.txt").Body.String(), "Disallow: /s$\n") {
+			t.Error("robots.txt does not disallow /s")
+		}
+		if strings.Contains(seoGet(t, h, "rivolt.dev", "/sitemap.xml").Body.String(), "/s<") {
+			t.Error("sitemap lists /s")
+		}
+	})
 	t.Run("content signal on indexable robots only", func(t *testing.T) {
 		for _, host := range []string{"rivolt.dev", "demo.rivolt.dev"} {
 			if !strings.Contains(seoGet(t, h, host, "/robots.txt").Body.String(), "Content-Signal: search=yes, ai-input=yes, ai-train=no\n") {
