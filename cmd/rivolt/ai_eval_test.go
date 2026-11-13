@@ -66,4 +66,7 @@ func TestServedCostUsesServedModel(t *testing.T) {
 	if got := servedCost("claude-haiku-5-5", []string{"claude-haiku-5-5", "claude-opus-5-5"}, u); got != opus {
 		t.Errorf("mixed priced as %v, want dearest %v", got, opus)
 	}
+	if got := servedCost("claude-opus-5-5", []string{"other"}, u); got < opus {
+		t.Errorf("unknown served id priced %v, below the requested %v", got, opus)
+	}
 }
