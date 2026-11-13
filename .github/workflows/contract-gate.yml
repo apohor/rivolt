@@ -90,5 +90,5 @@ jobs:
       - name: The baseline equals a replay of the tag it names
         run: |
           # Docker Hub's CDN drops a fetch now and then (main 8719590); retry.
-          for i in 1 2 3; do docker pull postgres:16-alpine && break; sleep 10; done
+          for i in 1 2 3; do docker pull "$(bash .github/scripts/migration-baseline.sh image)" && break; sleep 10; done
           bash .github/scripts/migration-baseline.sh check

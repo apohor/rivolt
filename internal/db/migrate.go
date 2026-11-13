@@ -81,6 +81,13 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("load applied migrations: %w", err)
 	}
+	base, err := loadBaseline()
+	if err != nil {
+		return fmt.Errorf("load baseline: %w", err)
+	}
+	if applied, err = settleBaseline(ctx, db, base, applied); err != nil {
+		return err
+	}
 	for _, m := range steps {
 		if applied[m.id] {
 			continue
@@ -156,12 +163,25 @@ func CheckSchema(ctx context.Context, d *sql.DB) (SchemaState, error) {
 			return SchemaState{}, err
 		}
 	}
+	base, err := loadBaseline()
+	if err != nil {
+		return SchemaState{}, fmt.Errorf("load baseline: %w", err)
+	}
+	// What the baseline covers is shipped too, whether or not its files are still here.
+	ids := append([]string(nil), base.covers...)
+	for _, m := range steps {
+		ids = append(ids, m.id)
+	}
+	sort.Strings(ids)
 	var st SchemaState
 	shipped := map[string]bool{}
-	for _, m := range steps {
-		shipped[m.id] = true
-		if !applied[m.id] {
-			st.Pending = append(st.Pending, m.id)
+	for i, id := range ids {
+		if i > 0 && id == ids[i-1] {
+			continue
+		}
+		shipped[id] = true
+		if !applied[id] {
+			st.Pending = append(st.Pending, id)
 		}
 	}
 	for id := range applied {
