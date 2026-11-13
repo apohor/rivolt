@@ -8,6 +8,11 @@ enum PlanElevation {
     static let metersPerMile = 1609.344
     static let context = "Elevation shown for context; Rivian's estimate decides the energy."
 
+    /// The chart (and the map's tap-to-cursor) is a preview-only design: one check for every site.
+    static func shown(_ p: ElevationProfile?, designPreview: Set<String>) -> ElevationProfile? {
+        designPreview.contains("ios_elevation") ? usable(p) : nil
+    }
+
     /// A profile worth drawing: two points or more that run forward in distance. Anything else draws no chart.
     static func usable(_ p: ElevationProfile?) -> ElevationProfile? {
         guard let p, p.points.count >= 2 else { return nil }
