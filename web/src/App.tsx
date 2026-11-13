@@ -79,7 +79,7 @@ export default function App() {
     queryKey: ["auth", "me"],
     queryFn: () => backend.whoami(),
     staleTime: 5 * 60_000,
-    enabled: !demoOnly.loading && !demoOnly.only && !inDemo() && location.pathname !== "/s",
+    enabled: !demoOnly.loading && !demoOnly.only && !inDemo() && location.pathname !== "/s" && location.pathname !== "/s/",
   });
   // An admin viewing as a user has not accepted anything for them and cannot (read-only).
   const impersonating = useImpersonationTarget();

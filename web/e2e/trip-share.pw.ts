@@ -118,7 +118,7 @@ async function savedTrip(page: Page, tripShare: boolean) {
   await page.getByRole("tab", { name: "Saved" }).click();
 }
 
-test("Share on a saved trip says what the link shows, makes one, shows it once and turns it off", async ({ page }) => {
+test("Share on a saved trip says what the link shows, makes one, shows it once and turns it off @webkit", async ({ page }) => {
   await savedTrip(page, true);
   let live = [{ id: "sh-1", saved_trip_id: "st-a", title: "Older link", created_at: "2026-11-01T00:00:00Z", expires_at: null, revoked_at: null }];
   let created: { title?: string; expires_in_days?: number } | null = null;
@@ -138,7 +138,8 @@ test("Share on a saved trip says what the link shows, makes one, shows it once a
   await page.getByTestId("trip-share-open").click();
   const sheet = page.getByTestId("trip-share-sheet");
   // Q3: the sheet says the link shows the start area and the departure date and time.
-  await expect(sheet.getByTestId("trip-share-says")).toContainText(/start area/);
+  await expect(sheet.getByTestId("trip-share-says")).toContainText(/start and destination areas/);
+  await expect(sheet.getByTestId("trip-share-says")).toContainText(/stop you added yourself appears as an unnamed, approximate point, with its arrival and departure times/);
   await expect(sheet.getByTestId("trip-share-says")).toContainText(/departure date and time/);
   await expect(sheet.getByText("Older link")).toBeVisible();
   await sheet.getByLabel(/Title on the link/).fill("Weekend trip");

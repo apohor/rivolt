@@ -68,8 +68,9 @@ export function TripShareSheet({ trip, onClose }: { trip: SavedTrip; onClose: ()
           </button>
         </div>
         <p className="text-sm text-neutral-300" data-testid="trip-share-says">
-          Anyone with the link can open a read-only copy of this plan, with no account. It shows the route, the charging stops, times and battery levels,
-          the <strong>start area</strong> (not the exact start or destination: the first and last few kilometers of the route are left out) and
+          Anyone with the link can open a read-only copy of this plan, with no account. It shows the route, the charging stops (public chargers, with their names), times and battery levels. A stop you added yourself
+          appears as an unnamed, approximate point, with its arrival and departure times and battery levels. It shows the <strong>start and destination areas</strong> (not
+          the exact start or destination: the first and last few kilometers of the route are left out) and
           the <strong>departure date and time</strong>. It does not show your name, your vehicle, costs, or the saved trip's name. Later edits to the trip do not change the link. We do not record who opens it.
         </p>
         {made ? (
