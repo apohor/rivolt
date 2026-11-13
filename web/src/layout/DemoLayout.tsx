@@ -54,7 +54,7 @@ export default function DemoLayout() {
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 max-[200px]:gap-2 max-[200px]:px-3">
           <Link to="/demo" className="flex items-center gap-2 font-semibold tracking-tight text-neutral-100 hover:text-emerald-300 transition-colors shrink-0">
             <Logo size={22} className="text-emerald-400" />
-            <span className="max-[200px]:sr-only">Rivolt demo</span>
+            <span className="max-[359px]:sr-only">Rivolt demo</span>
           </Link>
           <h1 className="sr-only">Rivolt demo</h1>
           <ThemeSwitch />

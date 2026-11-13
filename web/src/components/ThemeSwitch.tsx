@@ -58,7 +58,7 @@ export function ThemeSwitch() {
         role="radiogroup"
         aria-label="Theme"
         data-theme-switch
-        className="inline-flex shrink-0 rounded-full border border-neutral-800 bg-neutral-900/60 p-0.5 max-[200px]:hidden"
+        className="-my-2 hidden shrink-0 rounded-full border border-neutral-800 bg-neutral-900/60 p-0.5 min-[360px]:inline-flex"
       >
         {OPTIONS.map((o) => (
           <button
@@ -79,13 +79,13 @@ export function ThemeSwitch() {
           </button>
         ))}
       </div>
-      {/* Too narrow for three buttons (a phone at Safari's aA 300 %): one button that cycles Auto, Light, Dark. */}
+      {/* Too narrow for three buttons (under 360 px: a small phone with large text, or Safari's aA 300 %): one button that cycles Auto, Light, Dark. */}
       <button
         type="button"
         data-theme-cycle
         aria-label={`Theme: ${current.label}. Switch to ${next.label}`}
         onClick={() => setChoice(next.key)}
-        className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-full border border-neutral-800 text-neutral-300 max-[200px]:flex"
+        className="-my-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-neutral-800 text-neutral-300 min-[360px]:hidden"
       >
         <Icon>{current.icon}</Icon>
       </button>

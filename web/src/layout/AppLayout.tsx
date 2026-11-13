@@ -76,7 +76,7 @@ function UserLayout() {
             className="flex items-center gap-2 font-semibold tracking-tight text-neutral-100 hover:text-emerald-300 transition-colors shrink-0"
           >
             <Logo size={22} className="text-emerald-400" />
-            <span className="max-[200px]:sr-only">Rivolt</span>
+            <span className="max-[359px]:sr-only">Rivolt</span>
           </NavLink>
           <div className="flex items-center gap-2 max-[200px]:gap-1">
           <ThemeSwitch />
