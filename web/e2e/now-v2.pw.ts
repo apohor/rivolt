@@ -1,0 +1,74 @@
+import { expect, test, type Page } from "@playwright/test";
+import { stubApi, VEHICLE_ID } from "./stub";
+import { e2eNow } from "./clock";
+
+// Design 1 (design_preview "now_v2"): the redesigned Now. Off, the screen is the one users have today.
+const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
+
+async function open(page: Page, flag: boolean, scenario: "parked" | "charging" = "parked") {
+  await stubApi(page, { scenario, nowEndpoint: true, designPreview: flag ? ["now_v2"] : [] });
+  await page.route("**/api/settings/ambient-temp", (r) => r.fulfill(j({ enabled: true })));
+  await page.route(new RegExp(`/api/vehicles/${VEHICLE_ID}/now`), (r) => {
+    const iso = (ago: number) => new Date(e2eNow() - ago).toISOString();
+    return r.fulfill(
+      j({
+        version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: scenario, state_since: iso(2 * 3_600_000),
+        soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0, charge: null,
+        ambient: { temp_c: 15, source: "open-meteo", as_of: iso(60_000) },
+      }),
+    );
+  });
+  await page.route(`**/api/vehicles/${VEHICLE_ID}/cold-range*`, (r) =>
+    r.fulfill(
+      j({
+        units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", temp_c: 15, efficiency_low: 2.3, efficiency_high: 2.7, range_low: 260, range_high: 272,
+        based_on: { drives: 9, miles: 240, temp_lo_c: 11, temp_hi_c: 19 }, available: [15], min_drives: 5, min_miles: 50,
+      }),
+    ),
+  );
+  await page.goto("/");
+}
+
+test("flag on: the new hero shows the chip, the full-charge estimate and the month strip", async ({ page }) => {
+  await open(page, true);
+  const hero = page.locator("[data-now-v2]");
+  await expect(hero).toBeVisible();
+  await expect(page.locator("[data-now-chip]")).toBeVisible();
+  await expect(page.getByTestId("now-subline")).toHaveText(/Full charge today ≈ 266 mi/);
+  await expect(page.getByTestId("now-temps")).toContainText("Outside");
+  await expect(page.getByTestId("now-month")).toBeVisible();
+  await expect(page.getByTestId("now-month")).toContainText("miles");
+  await expect(page.getByTestId("now-month")).toContainText("kWh added");
+  await expect(page.getByTestId("now-month")).toContainText("mi/kWh");
+  await expect(page.getByTestId("now-month")).toContainText("spent");
+  await expect(page.getByText("Since last charge")).toHaveCount(0);
+  await expect(page.locator("[data-weather-credit]")).toBeVisible();
+});
+
+test("flag on, charging: the chip says power and the subline says what the limit buys", async ({ page }) => {
+  await open(page, true, "charging");
+  await expect(page.locator("[data-now-chip]")).toContainText(/Charging · .* kW/);
+  await expect(page.getByTestId("now-subline")).toContainText(/Charging to \d+%/);
+});
+
+test("flag on: stepping the period (picker above) renames the strip", async ({ page }) => {
+  await open(page, true);
+  await expect(page.getByTestId("now-month").getByRole("heading")).toHaveText("This month");
+  await page.getByRole("button", { name: "Previous period" }).click();
+  await expect(page.getByTestId("now-month").getByRole("heading")).not.toHaveText("This month");
+});
+
+test("flag off: the screen is today's (no new hero, the KPI tiles are there)", async ({ page }) => {
+  await open(page, false);
+  await expect(page.getByTestId("now-headline")).toBeVisible();
+  await expect(page.locator("[data-now-v2]")).toHaveCount(0);
+  await expect(page.getByTestId("now-month")).toHaveCount(0);
+  await expect(page.getByText("Since last charge")).toBeVisible();
+});
+
+test("flag missing from /api/config: also today's screen", async ({ page }) => {
+  await stubApi(page, { scenario: "parked", designPreview: null });
+  await page.goto("/");
+  await expect(page.getByTestId("now-headline")).toBeVisible();
+  await expect(page.locator("[data-now-v2]")).toHaveCount(0);
+});

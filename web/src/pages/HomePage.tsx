@@ -40,11 +40,14 @@ import { WindowPicker } from "../components/WindowPicker";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
 import NowCard from "../components/NowCard";
+import { useDesignPreview } from "../lib/config";
 
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
   // The calendar scope (Week/Month/Year/All/Custom).
   const [period, setPeriod] = usePeriod();
+  // Design 1 (design_preview "now_v2"): the month strip replaces the KPI tiles. Off, the page is unchanged.
+  const v2 = useDesignPreview("now_v2");
   const baseRange = useMemo(() => periodRange(period), [period]);
   const {
     roundTripsEnabled,
@@ -291,6 +294,15 @@ export default function HomePage() {
           showTelemetryLink={!inDemo()}
         />
       )}
+      {v2 && !isError && (
+        <MonthStrip
+              scope={scope}
+              miles={ds.miles}
+              kwh={cs.energyKWh}
+              eff={ds.miPerKWh > 0 ? ds.miPerKWh : cs.energyKWh > 0 && ds.miles > 0 ? ds.miles / cs.energyKWh : null}
+              spent={chargingSpend != null ? formatMoney(chargingSpend.total, chargingSpend.currency) : "—"}
+            />
+      )}
       {early && <EarlyMonthNote />}
       {/* The truck first (the Now card); the first-charge note, the milestone and the asks follow
           it, so they never push it down (the iPhone does the same). */}
@@ -315,6 +327,7 @@ export default function HomePage() {
         />
       ) : (
         <>
+          {!v2 && (
           <div data-ui-area="kpi" className="grid grid-cols-2 md:grid-cols-6 gap-3">
               <Stat
                 label="Since last charge"
@@ -368,6 +381,7 @@ export default function HomePage() {
               />
               <IdleAwakeTile days={sleepActivity.data ?? []} loading={sleepActivity.isLoading} />
           </div>
+          )}
 
           {sleepTrouble && (
             <div role="status">
@@ -582,5 +596,44 @@ function ScopeBar({
       <VehiclePicker vehicles={vehicles} selectedID={selectedVehicleID} onChange={onSelectVehicle} />
       {period ? <PeriodPicker value={period} onChange={onPeriodChange} /> : <WindowPicker value={win} onChange={onWinChange} />}
     </div>
+  );
+}
+
+// "This month" in the redesigned Now: the period's four headline numbers in one strip, the period picker above steps it.
+function MonthStrip({
+  scope,
+  miles,
+  kwh,
+  eff,
+  spent,
+}: {
+  scope: Period;
+  miles: number;
+  kwh: number;
+  eff: number | null;
+  spent: string;
+}) {
+  const thisMonth = scope.kind === "month" && scope.offset === 0;
+  const items: [string, string][] = [
+    [num(miles, 0), "miles"],
+    [num(kwh, 0), "kWh added"],
+    [eff != null ? eff.toFixed(2) : "—", "mi/kWh"],
+    [spent, "spent"],
+  ];
+  return (
+    <section data-testid="now-month" aria-label="This month">
+      <div className="mb-2 mt-2 flex items-center justify-between px-0.5">
+        <h2 className="text-sm font-semibold text-neutral-200">{thisMonth ? "This month" : periodLabel(scope)}</h2>
+        <span className="text-sm text-neutral-400">{periodLabel(scope)}</span>
+      </div>
+      <div className="grid grid-cols-2 rounded-2xl border border-neutral-800 bg-neutral-900/60 sm:grid-cols-4">
+        {items.map(([v, l], i) => (
+          <div key={l} className={`flex flex-col gap-0.5 whitespace-nowrap px-3 py-3 ${i > 0 ? "sm:border-l sm:border-neutral-800" : ""}`}>
+            <span className="text-xl font-semibold tabular-nums text-neutral-100">{v}</span>
+            <span className="text-sm text-neutral-400">{l}</span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

@@ -202,7 +202,7 @@ export type StubOptions = {
   landing?: boolean;
   admin?: boolean;
   // features.design_preview keys (RIVOLT_DESIGN_PREVIEW); omitted = [].
-  designPreview?: string[];
+  designPreview?: string[] | null;
   // features.history_import (RIVOLT_HISTORY_IMPORT).
   historyImport?: boolean;
 };
@@ -251,7 +251,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/config") {
       return json(route, {
-        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo || demoOnly, signup_enabled: !signupDisabled, ...(historyImport ? { history_import: true } : {}), design_preview: designPreview, ...(demoOnly ? { demo_only: true, app_url: "https://rivolt.dev" } : {}) },
+        features: { trip_planner_enabled: true, landing_enabled: landing, demo_enabled: demo || demoOnly, signup_enabled: !signupDisabled, ...(historyImport ? { history_import: true } : {}), ...(designPreview === null ? {} : { design_preview: designPreview }), ...(demoOnly ? { demo_only: true, app_url: "https://rivolt.dev" } : {}) },
         tiles: { url: noTiles ? "" : tilesUrl || "/api/maps/tiles/us.pmtiles", chargers_url: tilesUrl ? tilesUrl.replace("us.pmtiles", "chargers.pmtiles") : "/api/maps/tiles/chargers.pmtiles", glyphs_url: "/api/maps/glyphs/{fontstack}/{range}.pbf", dem_url: "/api/maps/dem/{z}/{x}/{y}.png", dem_minzoom: 3, dem_maxzoom: 10 },
         valhalla: { path: "/api/maps/valhalla" },
         impersonation: { disabled: true },

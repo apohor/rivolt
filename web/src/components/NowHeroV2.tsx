@@ -1,0 +1,148 @@
+import { Link } from "react-router-dom";
+import { ArcGauge } from "./ArcGauge";
+import { AmbientTempLine, useColdRange } from "./AmbientTempLine";
+import { WeatherCredit } from "./WeatherCredit";
+import { useAmbientTemp } from "../lib/ambientTemp";
+import { formatTemperature, usePreferences } from "../lib/preferences";
+import { clock, type NowView } from "../lib/nowState";
+
+// The redesigned Now hero (design_preview "now_v2"): a status chip, then one card with the gauge, the range,
+// one line of context and the temperatures. Same data as the card it replaces; only the layout is new.
+
+export function nowChip(v: NowView, asleepSinceMs: number | null, nowMs: number, pillText: string): string {
+  if (v.kind === "asleep" && asleepSinceMs != null) return `Asleep · since ${clock(asleepSinceMs)}`;
+  if (v.kind === "charging") {
+    const parts = ["Charging"];
+    if (v.powerKw != null) parts.push(`${v.powerKw.toFixed(v.powerKw < 10 ? 1 : 0)} kW`);
+    if (v.etaHours != null) parts.push(`${v.limitPct != null && v.limitPct < 100 ? "done" : "full"} by ${clock(nowMs + v.etaHours * 3_600_000)}`);
+    return parts.join(" · ");
+  }
+  if (v.kind === "driving") return v.speedMph != null ? `Driving · ${Math.round(v.speedMph)} mph` : "Driving";
+  return pillText;
+}
+
+export default function NowHeroV2({
+  view,
+  vehicleID,
+  chip,
+  pillTone,
+  ambient,
+  cabin,
+  tone,
+  rows,
+  extra,
+  footer,
+  telemetryLink,
+  critical,
+}: {
+  view: NowView;
+  vehicleID: string;
+  chip: string;
+  pillTone: "live" | "warn" | "neutral";
+  ambient?: { temp_c: number } | null;
+  cabin: string | null;
+  tone: string;
+  rows: { k: string; v: string }[];
+  extra: React.ReactNode;
+  footer: React.ReactNode;
+  telemetryLink: boolean;
+  critical: boolean;
+}) {
+  const { temperatureUnit } = usePreferences();
+  const amb = useAmbientTemp();
+  const offline = view.kind === "offline";
+  const charging = view.kind === "charging";
+  const cold = useColdRange(vehicleID, amb.enabled && ambient ? ambient.temp_c : null);
+  const fullCharge = cold && !cold.reason && cold.range_low != null && cold.range_high != null ? Math.round((cold.range_low + cold.range_high) / 2) : null;
+  // While charging: what the limit buys, scaled from the range the truck reports now.
+  const atLimit = charging && view.limitPct != null && view.soc > 0 && view.rangeMi != null ? Math.round((view.rangeMi / view.soc) * view.limitPct) : null;
+  const subline = charging
+    ? view.limitPct != null
+      ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ≈ ${atLimit} mi when done` : ""}`
+      : null
+    : fullCharge != null
+      ? `Full charge today ≈ ${fullCharge} ${cold?.distance_unit ?? "mi"}`
+      : null;
+  const outside = amb.enabled && ambient ? formatTemperature(ambient.temp_c, temperatureUnit) : null;
+  return (
+    <>
+      <div className="flex justify-end">
+        <span
+          data-testid="now-pill"
+          data-now-chip
+          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm ${
+            pillTone === "live" || charging
+              ? "border-emerald-500/40 text-emerald-300"
+              : pillTone === "warn"
+                ? "border-amber-500/40 text-amber-300"
+                : "border-neutral-700 text-neutral-300"
+          }`}
+        >
+          <span aria-hidden className={`h-2 w-2 rounded-full ${charging ? "bg-emerald-500" : "bg-neutral-500"}`} />
+          {chip}
+        </span>
+      </div>
+      <div
+        data-now-v2="true"
+        data-ui-hero="true"
+        data-live={charging ? "charging" : view.kind === "driving" ? "driving" : undefined}
+        className={`rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
+      >
+        <div className="flex items-center gap-4">
+          <ArcGauge
+            value={view.soc}
+            label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
+            live={charging}
+            tone={offline ? "idle" : critical ? "critical" : "ok"}
+            limit={charging || view.kind === "plugged" ? view.limitPct : null}
+          >
+            {(shown) => (
+              <span className={`font-semibold leading-none tabular-nums ${tone}`}>
+                <span className="text-5xl">{view.soc > 0 ? Math.round(shown) : "—"}</span>
+                <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
+              </span>
+            )}
+          </ArcGauge>
+          {view.rangeMi != null && (
+            <p className="min-w-0">
+              <span className="text-2xl font-semibold tabular-nums text-neutral-100">{Math.round(view.rangeMi)} mi</span>{" "}
+              <span className="text-sm text-neutral-400">range</span>
+            </p>
+          )}
+        </div>
+        {subline && (
+          <p data-testid="now-subline" className="mt-3 text-sm text-neutral-400">
+            {subline}
+            {fullCharge != null && !charging && <span className="sr-only"> (estimate from your own drives)</span>}
+          </p>
+        )}
+        {rows.length > 0 && (
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+            {rows.map((d) => (
+              <div key={d.k} className="contents">
+                <dt className="text-neutral-500">{d.k}</dt>
+                <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {(cabin || outside) && (
+          <div className="mt-3 border-t border-neutral-800 pt-3 text-sm text-neutral-300" data-testid="now-temps">
+            {[cabin && `Cabin ${cabin}`, outside && `Outside ${outside} (estimate)`].filter(Boolean).join(" · ")}
+          </div>
+        )}
+        {amb.enabled === false && <AmbientTempLine ambient={ambient} vehicleID={vehicleID} />}
+        {extra}
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
+          {footer}
+          {telemetryLink && (
+            <Link to="/live" className="text-neutral-300 hover:text-emerald-300">
+              Full telemetry →
+            </Link>
+          )}
+        </div>
+      </div>
+      {outside && <WeatherCredit className="text-center text-sm text-neutral-500" />}
+    </>
+  );
+}

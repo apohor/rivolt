@@ -22,6 +22,8 @@ import {
 } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
+import NowHeroV2, { nowChip } from "./NowHeroV2";
+import { useDesignPreview } from "../lib/config";
 import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaNowLine, otaStepFromState } from "../lib/truckHealth";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
@@ -89,6 +91,8 @@ export default function NowCard({
 }) {
   // Live is hidden while impersonating (matches AppLayout).
   const impersonating = useImpersonationTarget() != null;
+  // Design 1 (design_preview "now_v2"): the redesigned hero. Off, the card below is unchanged.
+  const v2 = useDesignPreview("now_v2");
   const { distanceUnit, temperatureUnit } = usePreferences();
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -249,6 +253,64 @@ export default function NowCard({
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
   const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
 
+  const alertList = alerts.map((a) => {
+        const cls =
+          a.tone === "rose"
+            ? "border-rose-500/40 bg-rose-950/30 text-rose-200"
+            : "border-amber-500/30 bg-amber-950/20 text-amber-200";
+        const body = <span>{a.text}</span>;
+        return a.to ? (
+          <Link key={a.id} to={a.to} className={`block rounded-lg border px-3 py-2 text-sm ${cls}`}>
+            {body}
+          </Link>
+        ) : (
+          <div key={a.id} role="status" className={`rounded-lg border px-3 py-2 text-sm ${cls}`}>
+            {body}
+          </div>
+        );
+      });
+
+  if (v2) {
+    return (
+      <section aria-label="Now" data-ui-area="hero" className="space-y-2">
+        <NowHeroV2
+          view={view}
+          vehicleID={vehicleID}
+          chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text)}
+          pillTone={pill.tone}
+          ambient={server?.ambient}
+          cabin={cabin}
+          tone={tone}
+          critical={critical}
+          // The chip already says power and time left.
+          rows={details(view, tracker, driveQ.data ?? null, nowMs, currency).filter((d) => d.k !== "Power" && d.k !== "Time left")}
+          extra={
+            <>
+              {scheduleText && (
+                <p data-testid="now-schedule" className="mt-2 text-xs text-neutral-400">
+                  {scheduleText}
+                </p>
+              )}
+              {installing && (
+                <p data-testid="now-installing" className="mt-2 text-xs text-neutral-300">
+                  {otaNowLine(installing)}
+                </p>
+              )}
+              {comfort.length > 0 && (
+                <p data-testid="now-comfort" className="mt-2 text-xs text-neutral-300">
+                  {comfort.join(" · ")}
+                </p>
+              )}
+            </>
+          }
+          footer={<p data-testid="now-freshness">{freshnessLine(view)}</p>}
+          telemetryLink={!impersonating && showTelemetryLink}
+        />
+        {alertList}
+      </section>
+    );
+  }
+
   return (
     <section aria-label="Now" data-ui-area="hero" className="space-y-2">
       <div
@@ -382,22 +444,7 @@ export default function NowCard({
         </div>
       </div>
 
-      {alerts.map((a) => {
-        const cls =
-          a.tone === "rose"
-            ? "border-rose-500/40 bg-rose-950/30 text-rose-200"
-            : "border-amber-500/30 bg-amber-950/20 text-amber-200";
-        const body = <span>{a.text}</span>;
-        return a.to ? (
-          <Link key={a.id} to={a.to} className={`block rounded-lg border px-3 py-2 text-sm ${cls}`}>
-            {body}
-          </Link>
-        ) : (
-          <div key={a.id} role="status" className={`rounded-lg border px-3 py-2 text-sm ${cls}`}>
-            {body}
-          </div>
-        );
-      })}
+      {alertList}
     </section>
   );
 }
