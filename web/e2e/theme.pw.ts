@@ -71,6 +71,11 @@ test("header switch: one tap sets the theme, stays in sync with Settings, fits a
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(SHOTS, `theme-header-${name.toLowerCase()}-390.png`) });
   }
+  // One tab stop; the arrow keys move the choice.
+  await sw.getByRole("radio", { name: "Dark" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(sw.getByRole("radio", { name: "Auto" })).toBeFocused();
+  await expect(sw.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
   // Every control inside the viewport, and a 44 px tap row.
   const box = await sw.boundingBox();
   const settings = await page.locator("[data-settings-button]").boundingBox();

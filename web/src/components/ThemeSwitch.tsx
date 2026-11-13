@@ -42,6 +42,16 @@ export function ThemeSwitch() {
   const [choice, setChoice] = useThemeChoice();
   const current = OPTIONS.find((o) => o.key === choice) ?? OPTIONS[0];
   const next = OPTIONS[(OPTIONS.indexOf(current) + 1) % OPTIONS.length];
+  // A radio group is one tab stop; the arrow keys move the choice (and the focus) within it.
+  const onArrow = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const to = OPTIONS[(OPTIONS.indexOf(current) + step + OPTIONS.length) % OPTIONS.length];
+    setChoice(to.key);
+    const group = e.currentTarget.parentElement;
+    requestAnimationFrame(() => group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus());
+  };
   return (
     <>
       <div
@@ -58,7 +68,9 @@ export function ThemeSwitch() {
             aria-checked={choice === o.key}
             aria-label={o.label}
             title={o.label}
+            tabIndex={choice === o.key ? 0 : -1}
             onClick={() => setChoice(o.key)}
+            onKeyDown={onArrow}
             className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
               choice === o.key ? "bg-neutral-700 text-emerald-300" : "text-neutral-400 hover:text-neutral-100"
             }`}
