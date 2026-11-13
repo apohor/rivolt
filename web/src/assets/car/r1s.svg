@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 160" class="car" role="img" aria-label="Rivian R1S">
+  <title>Rivian R1S</title>
+  <ellipse cx="200.0" cy="151.0" rx="167.2" ry="4" fill="#000" opacity=".22"/>
+  <path d="M336.2 117.2 L336.2 117.2 C335.5 101.4 330.6 91.8 321.0 91.8 L282.2 91.8 C272.6 91.8 267.7 101.4 267.0 117.2 Z" fill="#0c0f10"/><path d="M142.6 117.2 L142.6 117.2 C141.9 101.4 137.0 91.8 127.4 91.8 L88.6 91.8 C79.0 91.8 74.1 101.4 73.4 117.2 Z" fill="#0c0f10"/>
+  <path d="M74.4 116.4 L45.6 116.4 Q39.7 116.1 39.5 110.0 L40.2 70.0 L44.3 36.1 Q45.3 30.0 54.4 30.0 L247.2 30.0 Q258.4 30.0 262.4 34.0 L289.6 66.3 Q292.0 68.4 296.8 68.4 L346.4 71.9 C355.2 72.4 359.8 75.6 360.5 82.8 L360.8 103.6 C360.8 111.6 358.4 117.0 352.8 117.2 L335.2 117.2 C334.6 102.8 329.6 93.2 320.0 93.2 L283.2 93.2 C273.6 93.2 268.6 102.8 268.0 124.4 L141.6 124.4 L141.6 124.4 C141.0 102.8 136.0 93.2 126.4 93.2 L89.6 93.2 C80.0 93.2 75.0 102.8 74.4 116.4 Z" fill="var(--car-body,#8b9398)" stroke="var(--car-line,#4a5256)" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M57.6 62.5 L59.4 37.7 Q60.3 34.2 64.8 34.2 L248.0 34.2 Q254.4 34.2 256.8 37.5 L281.6 62.5 Z" fill="var(--car-glass,#252c30)"/>
+  <path d="M205.6 34.2 L205.6 62.5 M134.4 34.2 L134.4 62.5 M268.0 90.8 L268.8 64.4 M205.6 64.4 L204.8 122.0 M142.4 90.8 L134.4 64.4 M40.8 64.7 L282.4 64.7 M144.8 106.0 L264.8 106.0" fill="none" stroke="var(--car-line,#4a5256)" stroke-width="0.8" stroke-linecap="round" opacity=".7"/>
+  <path d="M141.6 124.4 L268.0 124.4 L268.0 117.2 L141.6 117.2 Z" fill="#000" opacity=".16"/>
+  <path d="M354.6 79.1 Q354.6 76.7 357.0 76.7 Q359.4 76.7 359.4 79.1 L359.4 91.9 Q359.4 94.3 357.0 94.3 Q354.6 94.3 354.6 91.9 Z" fill="var(--car-lamp,#eef0e6)" stroke="var(--car-line,#4a5256)" stroke-width="0.9"/>
+  <path d="M345.6 73.7 L359.0 75.3" stroke="var(--car-lamp,#eef0e6)" stroke-width="1.6" stroke-linecap="round" fill="none"/><path d="M41.3 59.6 L41.8 55.6" stroke="var(--car-tail,#c8463d)" stroke-width="2.4" stroke-linecap="round"/><path d="M270.4 65.2 L276.0 65.2 Q277.9 58.3 275.2 58.3 L271.2 58.3 Q269.6 58.3 270.4 65.2 Z" fill="var(--car-body,#8b9398)" stroke="var(--car-line,#4a5256)" stroke-width="0.9"/>
+  <g class="wheel">
+    <circle cx="301.6" cy="123.9" r="26.1" fill="var(--car-tyre,#141819)" stroke="var(--car-line,#4a5256)" stroke-width="1.2"/>
+    <circle cx="301.6" cy="123.9" r="18.9" fill="#2a3033"/>
+    <circle cx="301.6" cy="123.9" r="17.6" fill="var(--car-wheel,#a9b0b4)"/>
+    <g fill="#3a4246"><rect x="298.9" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(18 301.6 123.9)"/><rect x="298.9" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(90 301.6 123.9)"/><rect x="298.9" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(162 301.6 123.9)"/><rect x="298.9" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(234 301.6 123.9)"/><rect x="298.9" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(306 301.6 123.9)"/></g>
+    <circle cx="301.6" cy="123.9" r="4.2" fill="#7d868b" stroke="#3a4246" stroke-width="0.8"/>
+  </g><g class="wheel">
+    <circle cx="108.0" cy="123.9" r="26.1" fill="var(--car-tyre,#141819)" stroke="var(--car-line,#4a5256)" stroke-width="1.2"/>
+    <circle cx="108.0" cy="123.9" r="18.9" fill="#2a3033"/>
+    <circle cx="108.0" cy="123.9" r="17.6" fill="var(--car-wheel,#a9b0b4)"/>
+    <g fill="#3a4246"><rect x="105.3" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(18 108.0 123.9)"/><rect x="105.3" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(90 108.0 123.9)"/><rect x="105.3" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(162 108.0 123.9)"/><rect x="105.3" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(234 108.0 123.9)"/><rect x="105.3" y="108.9" width="5.4" height="9.9" rx="2.4" transform="rotate(306 108.0 123.9)"/></g>
+    <circle cx="108.0" cy="123.9" r="4.2" fill="#7d868b" stroke="#3a4246" stroke-width="0.8"/>
+  </g>
+</svg>
