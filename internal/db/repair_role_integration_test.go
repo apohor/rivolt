@@ -94,3 +94,32 @@ func TestRepairRoleDeniesEverythingSecret(t *testing.T) {
 		}
 	}
 }
+
+// The denylist may name a table that does not exist yet (a table is denied a release before the migration that creates it, so a rolled-back
+// image that does not know the table never grants the repair role a read on it): the grants still succeed, and the name is on the list.
+func TestGrantRepairWithADeniedTableNotYetCreated(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	d, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.ExecContext(ctx, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rivolt_repair') THEN CREATE ROLE rivolt_repair NOLOGIN; END IF; END $$`); err != nil {
+		t.Fatal(err)
+	}
+	// Make the database look like the one before the migration: no trip_shares.
+	if _, err := d.ExecContext(ctx, `DROP TABLE IF EXISTS trip_shares`); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := db.GrantRepair(ctx, d); err != nil || !ok {
+		t.Fatalf("GrantRepair with trip_shares absent: ok=%v err=%v", ok, err)
+	}
+	found := false
+	for _, tb := range db.RepairDeniedTables() {
+		found = found || tb == "trip_shares"
+	}
+	if !found {
+		t.Fatal("trip_shares must be on the repair denylist before its migration ships")
+	}
+}
