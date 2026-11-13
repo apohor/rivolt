@@ -774,7 +774,7 @@ jobs:
           path: web/e2e-timings
           key: e2e-timings-webkit-${{ github.run_id }}
 
-  # The unit tests, in two shards that run side by side (the one job took 284 s). Shard "a" runs the packages listed in
+  # The unit tests, in two shards plus a vet shard that run side by side (the one job took 284 s). Shard "a" runs the packages listed in
   # the step below, shard "b" runs every other package, so a new package is covered without touching this file; only the
   # balance drifts. The required check "go" is the job after this one, which fails unless both shards passed.
   go-shard:
@@ -786,7 +786,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [a, b]
+        shard: [a, b, vet]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -846,18 +846,16 @@ jobs:
       # must pass.
       - name: go vet + go test
         run: |
+          # Shard "vet" is go vet over every package and nothing else: beside the race tests on one runner it took 200 s of the
+          # shard's time and left the other shard at 80 s.
+          if [ "${{ matrix.shard }}" = vet ]; then go vet ./...; exit $?; fi
           heavy='rivian ratelimit forward histimport fleetbucket radar archive'
           all=$(go list ./...)
           a=$(for d in $heavy; do echo "github.com/apohor/rivolt/internal/$d"; done)
           for d in $heavy; do echo "$all" | grep -qx "github.com/apohor/rivolt/internal/$d" || { echo "shard list names a package that is gone: $d" >&2; exit 1; }; done
           if [ "${{ matrix.shard }}" = a ]; then pkgs="$a"; else pkgs=$(echo "$all" | grep -vxF "$a"); fi
           echo "shard ${{ matrix.shard }} packages: $(echo "$pkgs" | wc -l) of $(echo "$all" | wc -l)"
-          # vet covers every package once, on shard b, alongside its tests.
-          if [ "${{ matrix.shard }}" = b ]; then go vet ./... > vet.log 2>&1 & vet=$!; fi
-          go test -race $pkgs; t=$?
-          v=0
-          if [ -n "${vet:-}" ]; then wait $vet; v=$?; cat vet.log; fi
-          exit $(( t != 0 || v != 0 ))
+          go test -race $pkgs
 
       - name: Save Go module download cache
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gomod.outputs.cache-hit != 'true'
@@ -1163,7 +1161,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for prefix in go-unit-a-Linux- go-unit-b-Linux- go-integration-a-Linux- go-integration-b-Linux- go-integration-c-Linux- go-image-Linux- gomod-Linux- playwright-Linux-chromium- playwright-Linux-webkit- e2e-timings-chromium- e2e-timings-webkit-; do
+          for prefix in go-unit-a-Linux- go-unit-b-Linux- go-unit-vet-Linux- go-integration-a-Linux- go-integration-b-Linux- go-integration-c-Linux- go-image-Linux- gomod-Linux- playwright-Linux-chromium- playwright-Linux-webkit- e2e-timings-chromium- e2e-timings-webkit-; do
             ids=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 100 --json id,key,sizeInBytes \
               | jq -r '.[1:][] | "\(.id) \(.key) \(.sizeInBytes)"')
             kept=$(gh cache list --repo "$GITHUB_REPOSITORY" --ref refs/heads/main --key "$prefix" --sort created_at --order desc --limit 1 --json key -q '.[0].key')
