@@ -253,7 +253,11 @@ export default function NowHeroV2({
         )}
         {(cabin || outside) && (
           <div
-            className="pointer-events-none relative mt-3 border-t border-neutral-800 pt-3 text-sm text-neutral-300"
+            // On a phone the temps sit under the truck and the rule separates them. In the desktop column, when nothing
+            // comes before them (parked, no subline or rows), the rule would hang over empty space, so it goes.
+            className={`pointer-events-none relative mt-3 border-t border-neutral-800 pt-3 text-sm text-neutral-300${
+              !subline && rows.length === 0 ? " min-[900px]:mt-0 min-[900px]:border-t-0 min-[900px]:pt-0" : ""
+            }`}
             data-testid="now-temps"
           >
             <span>

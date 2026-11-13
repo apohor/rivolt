@@ -106,3 +106,13 @@ test("charging: the bolt on the sketch stays small", async ({ page }) => {
   const bolt = await page.locator("[data-testid=now-car-sketch] > svg").nth(1).boundingBox();
   expect(bolt!.width).toBeLessThan(sketch!.width / 4);
 });
+
+test("desktop parked: the temps open the right column with no rule above them; on a phone the rule stays", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await open(page, { scenario: "parked" });
+  const temps = page.getByTestId("now-temps");
+  await expect(page.getByTestId("now-subline")).toHaveCount(0);
+  await expect(temps).toHaveCSS("border-top-width", "0px");
+  await page.setViewportSize({ width: 393, height: 852 });
+  await expect(temps).toHaveCSS("border-top-width", "1px");
+});
