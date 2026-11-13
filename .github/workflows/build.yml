@@ -1640,7 +1640,9 @@ jobs:
       - name: Checkout the tag scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          sparse-checkout: .github/ci
+          sparse-checkout: |
+            .github/ci
+            release-notes
 
       # First, before anything is retagged or bumped: a tag that is neither vX.Y.Z nor vX.Y.Z-rc.N (v1.2.3-beta, v1.2.3-rc,
       # v1.2.3+meta) stops the run here. A release candidate goes on to the same successful-build check as a release: it can only be
@@ -1654,6 +1656,18 @@ jobs:
           kind=$(bash .github/ci/tag-kind.sh "$TAG") || { echo "::error::Tag $TAG is neither vX.Y.Z nor vX.Y.Z-rc.N: nothing is retagged or bumped."; exit 1; }
           echo "kind=$kind" >> "$GITHUB_OUTPUT"
           echo "Tag $TAG is a $kind tag."
+
+      # A final (vX.Y.Z) needs its hand-written notes in the tagged commit: release-notes/vX.Y.Z.md, a few user-facing lines. The GitHub
+      # release is created from that file (release-notes.yml). A release candidate has no notes file; it gets the generated list.
+      - name: Require the release notes file (final tags)
+        if: steps.kind.outputs.kind == 'final'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          f="release-notes/${TAG}.md"
+          [ -s "$f" ] || { echo "::error::${TAG} is a final tag but ${f} is missing or empty in the tagged commit. Add the hand-written notes, merge, and tag that commit."; exit 1; }
+          echo "OK: ${f} exists ($(wc -l < "$f") lines)."
 
       - name: Confirm SHA has a successful build run
         env:
@@ -1759,7 +1773,7 @@ jobs:
     name: bump-prod
     needs: [tag-validate, retag]
     # After retag attaches the prod tag to the existing image, rewrite
-    # rivolt-infra's apps/platform/rivolt{,-admin}/{app.yaml,values.yaml} so ArgoCD picks
+    # rivolt-infra's apps/platform/rivolt{,-admin,-demo}/{app.yaml,values.yaml} so ArgoCD picks
     # up the new version automatically. Removes the manual sed dance
     # that previously followed every tag push.
     # Only a FINAL tag (vX.Y.Z) reaches prod's values. A release candidate (vX.Y.Z-rc.N) is published for the preview gate and stops
@@ -1812,6 +1826,11 @@ jobs:
           if [ -f apps/platform/rivolt-admin/app.yaml ]; then
             apps+=(apps/platform/rivolt-admin/app.yaml)
             vals+=(apps/platform/rivolt-admin/values.yaml)
+          fi
+          # The public demo follows every release in the same commit (chart version and image tag are one release: both move together).
+          if [ -f apps/platform/rivolt-demo/app.yaml ]; then
+            apps+=(apps/platform/rivolt-demo/app.yaml)
+            vals+=(apps/platform/rivolt-demo/values.yaml)
           fi
           sed -i -E "s/^([[:space:]]+version:)[[:space:]]+v[0-9]+\.[0-9]+\.[0-9]+/\1 ${VERSION}/" "${apps[@]}"
           sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+\"[0-9]+\.[0-9]+\.[0-9]+\"/\1 \"${v}\"/" "${vals[@]}"

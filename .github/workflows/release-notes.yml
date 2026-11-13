@@ -81,6 +81,11 @@ jobs:
               git log --pretty=format:'- %s (%h)' "$TAG"
             fi
           } > /tmp/notes.md
+          # A final's hand-written notes (release-notes/vX.Y.Z.md, required by build.yml's tag-validate) are the release body.
+          if [ "$kind" = final ]; then
+            [ -s "release-notes/${TAG}.md" ] || { echo "::error::${TAG} is a final tag but release-notes/${TAG}.md is missing or empty: no release created."; exit 1; }
+            cp "release-notes/${TAG}.md" /tmp/notes.md
+          fi
           gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md "${flags[@]}"
           # Which merges move Rivian sessions when they roll (S19 9g). It goes to the job summary, not the public release body, and it is
           # a record: a failure drops the line, not the release.
