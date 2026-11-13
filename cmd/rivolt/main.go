@@ -3210,8 +3210,11 @@ func runServer() {
 					logger.Info("telemetry archive deletions", "requests", r.Requests, "objects", r.Objects, "failed", r.Failed, "overdue", r.Overdue)
 				}
 			}
-			appMetrics.ArchiveDeletionsLastRun.SetToCurrentTime()
-			role.start("archive_deletions", func() { archive.Every(ctx, time.Hour, "archive_deletions", logger, del.Run) })
+			// The stamp starts at this pod's boot only where the job runs: a role that doesn't run it exports 0, not a stale boot time.
+			role.start("archive_deletions", func() {
+				appMetrics.ArchiveDeletionsLastRun.SetToCurrentTime()
+				archive.Every(ctx, time.Hour, "archive_deletions", logger, del.Run)
+			})
 		}
 		// vehicle_state past the retention period: whole monthly partitions are
 		// dropped ("deleted" counts partitions). Drives, charges and their totals
