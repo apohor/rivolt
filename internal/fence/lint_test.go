@@ -139,6 +139,7 @@ var notOwnerSide = map[string]string{
 	"leases.Store.Renew":           "lease protocol (epoch CAS)",
 	"db.VehicleResolver.Resolve":   "identity row only (user, Rivian id; ON CONFLICT changes nothing), no vehicle state; the guarded write that follows is what the lease decides",
 	"db.run":                       "migrations at server start",
+	"db.applyBaseline":             "migration runner: the squashed baseline on an empty database, under the migration lock; no owner rows",
 	"db.reconcileChecksums":        "migration bookkeeping: fills the sha256 of an applied migration file in the migrations table, under the migration lock; no owner rows",
 	"db.runNoTx":                   "migration runner, no-transaction form: one CREATE INDEX CONCURRENTLY and the migrations bookkeeping row, under the migration lock; no owner rows (db TestNoTxDirectiveAndStatementCheck refuses any other statement)",
 	"weather.Cache.Put":            "derived cache of public weather data; idempotent; no user-visible effect if a zombie writes it",

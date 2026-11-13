@@ -429,7 +429,7 @@ func (m *Manager) Public() AIPublic {
 	}
 	if m.analyzer != nil {
 		out.Ready = true
-		out.Model = m.analyzer.ModelName()
+		out.Model = m.analyzer.ModelSummary()
 		// "effective_provider" is what auto-selection resolved to.
 		out.Effective = effectiveProvider(m.cfg)
 	}
@@ -621,7 +621,7 @@ func (m *Manager) Update(ctx context.Context, patch AIUpdate) (AIPublic, error) 
 	}
 	if m.analyzer != nil {
 		pub.Ready = true
-		pub.Model = m.analyzer.ModelName()
+		pub.Model = m.analyzer.ModelSummary()
 		pub.Effective = effectiveProvider(m.cfg)
 	}
 	return pub, nil
@@ -861,11 +861,11 @@ func effectiveProvider(cfg AIConfig) string {
 // Returns (nil, nil) if no key is available — AI simply stays disabled.
 //
 // opKey is the operator's Anthropic key: used only when the install has no key
-// of its own for the chosen (or any) provider, always on OperatorModel, and
+// of its own for the chosen (or any) provider, on the per-route operator models (ai.OperatorModelFor), and
 // only through the budget-reserving path in ai.AnthropicProvider.
 func buildProvider(cfg AIConfig, opKey string, observe ai.OperatorObserver) (ai.Provider, error) {
 	operator := func() (ai.Provider, error) {
-		return ai.NewAnthropic(ai.AnthropicConfig{APIKey: opKey, Model: ai.OperatorModel, Operator: true, Observe: observe})
+		return ai.NewAnthropic(ai.AnthropicConfig{APIKey: opKey, Model: ai.OperatorModel, Operator: true, PerRouteModels: true, Observe: observe})
 	}
 	switch cfg.Provider {
 	case ProviderOpenAI:

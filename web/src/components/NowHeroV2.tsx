@@ -171,7 +171,7 @@ export default function NowHeroV2({
             <Link
               to="/live"
               data-testid="now-live-link"
-              className="pointer-events-auto inline-flex min-h-11 min-w-11 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
+              className="pointer-events-auto inline-flex min-h-11 min-w-11 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium pointer-fine:min-h-8 pointer-fine:min-w-8 pointer-fine:gap-1.5 pointer-fine:px-3 pointer-fine:text-xs text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
             >
               {(charging || view.kind === "driving") && (
                 <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />
@@ -184,7 +184,9 @@ export default function NowHeroV2({
             </div>
           </>
         )}
-        <div className="pointer-events-none relative flex items-center gap-4">
+        {/* From 900 px up the card fills the width: the gauge with the range under it, the truck large beside them, and the context in a column on the right. */}
+        <div className="min-[900px]:grid min-[900px]:grid-cols-[auto_minmax(0,1fr)_17rem] min-[900px]:items-center min-[900px]:gap-x-10 min-[900px]:gap-y-2">
+        <div className="pointer-events-none relative flex items-center gap-4 min-[900px]:contents">
           <ArcGauge
             value={view.soc}
             label={
@@ -209,14 +211,14 @@ export default function NowHeroV2({
               </span>
             )}
           </ArcGauge>
-          <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+          <div className="flex min-w-0 flex-1 flex-col items-start gap-1 min-[900px]:contents">
             {carUrl && carUrl !== failedUrl ? (
-              <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left" />
+              <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:max-h-60 min-[900px]:object-center" />
             ) : (
-              <CarSketch model={model} charging={charging} />
+              <CarSketch model={model} charging={charging} className="min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mx-auto min-[900px]:max-w-[440px]" />
             )}
             {view.rangeMi != null && (
-              <p className="min-w-0">
+              <p className="min-w-0 min-[900px]:col-start-1 min-[900px]:row-start-2 min-[900px]:text-center">
                 <span className="text-2xl font-semibold tabular-nums text-neutral-100">
                   {dist(view.rangeMi)}
                 </span>{" "}
@@ -225,10 +227,11 @@ export default function NowHeroV2({
             )}
           </div>
         </div>
+        <div className="min-[900px]:col-start-3 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-neutral-800 min-[900px]:pl-6">
         {subline && (
           <p
             data-testid="now-subline"
-            className="mt-3 text-sm text-neutral-400"
+            className="mt-3 text-sm text-neutral-400 min-[900px]:mt-0"
           >
             {subline}
             {fullCharge != null && !charging && (
@@ -237,7 +240,7 @@ export default function NowHeroV2({
           </p>
         )}
         {rows.length > 0 && (
-          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          <dl className="mt-3 min-[900px]:first:mt-0 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
             {rows.map((d) => (
               <div key={d.k} className="contents">
                 <dt className="text-neutral-500">{d.k}</dt>
@@ -250,7 +253,11 @@ export default function NowHeroV2({
         )}
         {(cabin || outside) && (
           <div
-            className="pointer-events-none relative mt-3 border-t border-neutral-800 pt-3 text-sm text-neutral-300"
+            // On a phone the temps sit under the truck and the rule separates them. In the desktop column, when nothing
+            // comes before them (parked, no subline or rows), the rule would hang over empty space, so it goes.
+            className={`pointer-events-none relative mt-3 border-t border-neutral-800 pt-3 text-sm text-neutral-300${
+              !subline && rows.length === 0 ? " min-[900px]:mt-0 min-[900px]:border-t-0 min-[900px]:pt-0" : ""
+            }`}
             data-testid="now-temps"
           >
             <span>
@@ -287,6 +294,8 @@ export default function NowHeroV2({
             )}
           </div>
         )}
+        </div>
+        </div>
         <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
           {extra}
         </div>

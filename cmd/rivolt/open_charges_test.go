@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClassifyOpenCharge(t *testing.T) {
@@ -21,6 +22,7 @@ func TestClassifyOpenCharge(t *testing.T) {
 		has   string
 	}{
 		{"still charging", chargeNow{Rows: 1, State: "charging_active", AgeSeconds: 30}, 600, "ok", "one row"},
+		{"no end time", chargeNow{Rows: 1, State: "charging_active", NoEnd: true}, 600, "fail", "no end time"},
 		{"gone", chargeNow{Missing: true}, 600, "fail", "gone"},
 		{"split", chargeNow{Rows: 2, RowIDs: "01234567,89abcdef", State: "charging_active", AgeSeconds: 5}, 600, "fail", "2 rows"},
 		{"stalled", chargeNow{Rows: 1, State: "charging_active", AgeSeconds: 700}, 600, "fail", "stalled"},
@@ -32,6 +34,37 @@ func TestClassifyOpenCharge(t *testing.T) {
 		level, msg := classifyOpenCharge(id, c.n, c.since)
 		if level != c.level || !strings.Contains(msg, c.has) {
 			t.Errorf("%s: got %s %q, want %s containing %q", c.name, level, msg, c.level, c.has)
+		}
+	}
+}
+
+func TestSecondsSinceRollStart(t *testing.T) {
+	now := time.Unix(10_000, 0)
+	if got := secondsSinceRollStart(9_000, time.Unix(9_500, 0), now); got != 1000 {
+		t.Errorf("explicit roll-from: %d, want 1000", got)
+	}
+	if got := secondsSinceRollStart(0, time.Unix(9_500, 0), now); got != 500 {
+		t.Errorf("default to the snapshot time: %d, want 500", got)
+	}
+	if got := secondsSinceRollStart(0, time.Time{}, now); got != 0 {
+		t.Errorf("no time at all: %d, want 0", got)
+	}
+}
+
+func TestCheckSnapshotRoll(t *testing.T) {
+	cases := []struct {
+		name, snap, want string
+		fail             bool
+	}{
+		{"same roll", "abc", "abc", false},
+		{"stale snapshot from an earlier roll", "old", "new", true},
+		{"snapshot without a hash", "", "new", true},
+		{"no hash asked for", "old", "", false},
+	}
+	for _, c := range cases {
+		err := checkSnapshotRoll(openChargeSnapshot{RollHash: c.snap}, c.want)
+		if (err != nil) != c.fail {
+			t.Errorf("%s: err = %v, want failure %v", c.name, err, c.fail)
 		}
 	}
 }

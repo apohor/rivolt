@@ -419,6 +419,10 @@ html[data-theme='light'] {
     grid-row: 2;
     margin: 0; /* space-y margin would eat into the stretch */
   }
+  /* The redesigned hero has no KPI grid beside it: it takes the full row. */
+  :root [data-ui-grid='now'] > [data-ui-area='hero'] > [data-now-v2] {
+    grid-column: 1 / -1;
+  }
   :root [data-ui-grid='now'] > [data-ui-area='hero'] > :not([data-ui-hero]) {
     grid-column: 1 / -1;
     grid-row: 3;

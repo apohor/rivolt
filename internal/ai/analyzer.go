@@ -57,6 +57,28 @@ func (a *Analyzer) ModelName() string {
 	return a.provider.Name()
 }
 
+// ModelSummary is the model line for the Settings screen: ModelName, or the per-route list for a provider that picks models per route.
+func (a *Analyzer) ModelSummary() string {
+	if a == nil || a.provider == nil {
+		return ""
+	}
+	if s, ok := a.provider.(interface{ ModelSummary() string }); ok {
+		return s.ModelSummary()
+	}
+	return a.provider.Name()
+}
+
+// ModelNameFor is ModelName for the model a call on route r runs on, for providers that pick a model per route.
+func (a *Analyzer) ModelNameFor(r Route) string {
+	if a == nil || a.provider == nil {
+		return ""
+	}
+	if rp, ok := a.provider.(interface{ NameForRoute(Route) string }); ok {
+		return rp.NameForRoute(r)
+	}
+	return a.provider.Name()
+}
+
 // Complete is a convenience passthrough so domain code doesn't have to
 // reach into Provider directly.
 func (a *Analyzer) Complete(ctx context.Context, system, user string) (string, TokenUsage, error) {

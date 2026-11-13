@@ -2,7 +2,10 @@ package rivian
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/apohor/rivolt/internal/fence"
 )
@@ -102,4 +105,91 @@ func TestBatteryCapacityHookIsFenced(t *testing.T) {
 			t.Errorf("%v: capacity not cached: %+v", c.st, v)
 		}
 	}
+}
+
+// A vehicle whose group is still warming up when the day's refresh lands is persisted after the warm-up, from the fetched data, once the
+// group is held: the refresh is not retried for a day, so dropping it left the stored gallery empty.
+func TestVehicleInfoHookWritesAfterWarmUp(t *testing.T) {
+	tok := fence.Token{Group: "g", Pod: "p", Epoch: 3}
+	src := &switchFence{tok: tok, st: fence.Warming}
+	m := NewStateMonitor(nil, nil)
+	m.warmWait = 20 * time.Millisecond
+	var kinds []string
+	var kmu sync.Mutex
+	deferred := 0
+	m.SetFence(src, func(kind string) { kmu.Lock(); kinds = append(kinds, kind); kmu.Unlock() })
+	m.SetVehicleInfoDeferredObserver(func() { kmu.Lock(); deferred++; kmu.Unlock() })
+	got := make(chan Vehicle, 2)
+	m.persistVehicleInfo(func(ctx context.Context, vs []Vehicle) {
+		if got, ok := fence.From(ctx); !ok || got != tok {
+			t.Errorf("deferred write without the group's token: %v %+v", ok, got)
+		}
+		for _, v := range vs {
+			got2 := v
+			select {
+			case got <- got2:
+			default:
+			}
+		}
+	}, []Vehicle{{ID: "w", Images: []VehicleImage{{URL: "u"}}}})
+	select {
+	case v := <-got:
+		t.Fatalf("persisted inside the warm-up: %+v", v)
+	case <-time.After(5 * time.Millisecond):
+	}
+	src.set(fence.Held)
+	select {
+	case v := <-got:
+		if v.ID != "w" || len(v.Images) != 1 {
+			t.Errorf("persisted %+v", v)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the gallery was not written after the warm-up")
+	}
+	kmu.Lock()
+	defer kmu.Unlock()
+	if deferred != 1 || len(kinds) != 0 {
+		t.Errorf("deferred counted %d, lease-fenced kinds %v; want one deferral and nothing on the lease-fenced counter", deferred, kinds)
+	}
+}
+
+// A refresh our own limiter turns away is tried again after its retry-after, within a bound; any other error is not retried.
+func TestRetryRateLimited(t *testing.T) {
+	limited := func() error { return &ErrRateLimited{RetryAfter: time.Millisecond} }
+	run := func(ctx context.Context, errs ...error) (int, error) {
+		n := 0
+		err := retryRateLimited(ctx, func(context.Context) error {
+			e := errs[min(n, len(errs)-1)]
+			n++
+			return e
+		})
+		return n, err
+	}
+	if n, err := run(context.Background(), limited(), limited(), nil); n != 3 || err != nil {
+		t.Errorf("limited twice then ok: %d calls, %v", n, err)
+	}
+	if n, err := run(context.Background(), limited()); n != 1+infoRetries || err == nil {
+		t.Errorf("always limited: %d calls, %v; want %d and the error", n, err, 1+infoRetries)
+	}
+	if n, err := run(context.Background(), errors.New("boom")); n != 1 || err == nil {
+		t.Errorf("other error: %d calls, %v; want 1 and the error", n, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if n, err := run(ctx, &ErrRateLimited{RetryAfter: time.Hour}); n != 1 || err == nil {
+		t.Errorf("done context: %d calls, %v; want 1 and the error", n, err)
+	}
+}
+
+type switchFence struct {
+	mu  sync.Mutex
+	tok fence.Token
+	st  fence.State
+}
+
+func (f *switchFence) set(st fence.State) { f.mu.Lock(); f.st = st; f.mu.Unlock() }
+func (f *switchFence) Fence(string) (fence.Token, fence.State) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tok, f.st
 }

@@ -444,6 +444,8 @@ struct RouteMapView: UIViewRepresentable {
     var onStop: ((Int) -> Void)?
     /// A tap on a leg's weather label (its index in `drawing.legTags`).
     var onLegTag: ((Int) -> Void)?
+    /// A tap that hit no pin or label: the place under the finger and how many metres a thumb's width covers there, for the planner's "tap the route".
+    var onTapAt: ((RouteSnap.Coord, Double) -> Void)?
     /// A long press on the map (the place under the finger): the planner's "drop a pin here". Only on a map that can be explored.
     var onLongPress: ((RouteSnap.Coord) -> Void)?
     /// The middle of the map each time it moves (the planner's "move a stop" mode, where the stop follows the crosshair).
@@ -478,7 +480,7 @@ struct RouteMapView: UIViewRepresentable {
         // The fit's margins are the map's content inset (`fitCamera`); left to itself MapLibre would reset it from the safe area.
         map.automaticallyAdjustsContentInset = false
         if interactive { context.coordinator.onCamera = { [weak c = context.coordinator] m in c?.cameraMoved(m) } }
-        if onStop != nil || onLegTag != nil {
+        if onStop != nil || onLegTag != nil || onTapAt != nil {
             map.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
         }
         if interactive, onLongPress != nil {
@@ -492,6 +494,7 @@ struct RouteMapView: UIViewRepresentable {
     func updateUIView(_ map: MLNMapView, context: Context) {
         context.coordinator.onStop = onStop
         context.coordinator.onLegTag = onLegTag
+        context.coordinator.onTapAt = onTapAt
         context.coordinator.onLongPress = onLongPress
         context.coordinator.onCenter = onCenter
         context.coordinator.onDrawnLegTags = onDrawnLegTags
@@ -513,6 +516,7 @@ struct RouteMapView: UIViewRepresentable {
         private let onPins: ((Pins) -> Void)?
         var onStop: ((Int) -> Void)?
         var onLegTag: ((Int) -> Void)?
+        var onTapAt: ((RouteSnap.Coord, Double) -> Void)?
         var onLongPress: ((RouteSnap.Coord) -> Void)?
         var onCenter: ((RouteSnap.Coord) -> Void)?
         var onDrawnLegTags: (([DrawnLabel]) -> Void)?
@@ -678,7 +682,7 @@ struct RouteMapView: UIViewRepresentable {
                 ring.circleStrokeWidth = NSExpression(forConstantValue: 3)
                 style.addLayer(ring)
             }
-            // The timeline's cursor dot, over everything but nothing it covers matters (6 pt, white ring).
+            // The timeline's cursor dot, over the line and the stops but under the leg weather labels (a label is never hidden by the dot; 6 pt, white ring).
             let cursorSource = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-cursor", shape: nil, options: nil)
             style.addSource(cursorSource)
             let dot = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-cursor", source: cursorSource)
@@ -686,7 +690,7 @@ struct RouteMapView: UIViewRepresentable {
             dot.circleColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
             dot.circleStrokeColor = NSExpression(forConstantValue: UIColor(Theme.background))
             dot.circleStrokeWidth = NSExpression(forConstantValue: 2)
-            style.addLayer(dot)
+            if let tags = style.layer(withIdentifier: "\(RouteMapView.sourceID)-legtags") { style.insertLayer(dot, below: tags) } else { style.addLayer(dot) }
             self.cursorSource = cursorSource
             setCursor(cursorAt)
             if !keepCamera { fit(map) }
@@ -761,6 +765,9 @@ struct RouteMapView: UIViewRepresentable {
                 onStop?(drawing.stops.count + j)
             } else if let k = map.visibleFeatures(in: box, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-legtags"]).first?.attribute(forKey: "i") as? Int {
                 onLegTag?(k)
+            } else if let onTapAt {
+                let c = map.convert(p, toCoordinateFrom: map)
+                onTapAt(RouteSnap.Coord(lat: c.latitude, lon: c.longitude), map.metersPerPoint(atLatitude: c.latitude) * 24)
             }
         }
 

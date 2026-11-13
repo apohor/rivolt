@@ -329,6 +329,8 @@ type StateMonitor struct {
 	fetchSchedules           func(ctx context.Context, vehicleID string) ([]ChargingSchedule, error)
 	// onScheduleRead counts schedule-read outcomes (SetScheduleObserver).
 	onScheduleRead func(outcome string)
+	// onInfoDeferred counts a vehicle info write deferred past the warm-up (SetVehicleInfoDeferredObserver).
+	onInfoDeferred func()
 	// onRollout counts what a takeover did to open sessions (SetRolloutObserver); prevEnd replaces the store read of the previous row (tests).
 	onRollout func(event, kind, source string)
 	prevEnd   func(ctx context.Context, vehicleID, kind, exclude string) (time.Time, bool)
@@ -4323,7 +4325,7 @@ func (m *StateMonitor) refreshVehicleInfoIfStale(ctx context.Context) {
 	go func() {
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		if err := m.RefreshVehicleInfo(rctx); err != nil {
+		if err := retryRateLimited(rctx, m.RefreshVehicleInfo); err != nil {
 			m.mu.Lock()
 			m.infoRefreshedAt = prev
 			m.mu.Unlock()
@@ -4332,9 +4334,39 @@ func (m *StateMonitor) refreshVehicleInfoIfStale(ctx context.Context) {
 	}()
 }
 
+// Our own limiter turns a refresh away with a retry-after of a few hundred milliseconds, most often right after a roll when every
+// vehicle starts at once. Giving the day's claim back and waiting for the next start repeated the same burst, so the refresh waits that
+// long and tries again, up to infoRetries times, each wait capped, all inside the refresh's own timeout and under the same claim.
+const (
+	infoRetries      = 3
+	infoRetryMaxWait = 5 * time.Second
+)
+
+// retryRateLimited runs refresh, and runs it again after the limiter's retry-after while the error is our own rate limit. Any other
+// error, an exhausted budget or a done context returns the last error at once.
+func retryRateLimited(ctx context.Context, refresh func(context.Context) error) error {
+	err := refresh(ctx)
+	for i := 0; i < infoRetries; i++ {
+		var rl *ErrRateLimited
+		if !errors.As(err, &rl) {
+			return err
+		}
+		wait := min(max(rl.RetryAfter, 0), infoRetryMaxWait)
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return err
+		case <-t.C:
+		}
+		err = refresh(ctx)
+	}
+	return err
+}
+
 // persistVehicleInfo hands the refreshed vehicles to the hook under each
-// vehicle's group fence: a vehicle whose group this pod does not hold (or is
-// still warming up) is left to the owner's next refresh. One call per token
+// vehicle's group fence: a vehicle whose group this pod does not hold is left
+// to the owner's next refresh, and one still warming up is written after the warm-up. One call per token
 // (a user's vehicles share a group, so normally one).
 func (m *StateMonitor) persistVehicleInfo(hook func(context.Context, []Vehicle), refreshed []Vehicle) {
 	type batch struct {
@@ -4344,8 +4376,22 @@ func (m *StateMonitor) persistVehicleInfo(hook func(context.Context, []Vehicle),
 	var batches []batch
 	byTok := map[fence.Token]int{}
 	for _, v := range refreshed {
-		wctx, ok := m.fenceCtx(context.Background(), v.ID, "vehicle_info")
-		if !ok {
+		wctx, st := m.fenceState(context.Background(), v.ID, "vehicle_info")
+		if st == fence.Warming {
+			// A subscription start often follows a takeover at once, inside the warm-up, and the day's refresh is spent: dropping the
+			// write here left the stored gallery empty for a day, and the next start could land in a warm-up again. Write it after the
+			// warm-up, from what was just fetched (no Rivian call).
+			v := v
+			if m.onInfoDeferred != nil {
+				m.onInfoDeferred() // not a refusal, so not the lease-fenced counter: it tells this cause from a rate-limited refresh
+			}
+			m.afterWarmUp(v.ID, func(fc context.Context) error {
+				hook(fc, []Vehicle{v})
+				return nil
+			}, "vehicle_info")
+			continue
+		}
+		if st != fence.Off && st != fence.Held {
 			continue
 		}
 		tok, _ := fence.From(wctx)

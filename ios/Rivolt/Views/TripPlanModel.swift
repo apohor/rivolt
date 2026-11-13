@@ -113,6 +113,8 @@ final class TripPlanModel {
     private(set) var night = NightState.none
     /// The charging stop (index in the plan's stops) a tap on the map pointed at; the list scrolls to it.
     var focusedStop: Int?
+    /// Where the elevation chart's cursor is, 0 to 1 along the route (the map shows a dot there); nil: none. Cleared when the plan changes.
+    var elevationCursor: Double?
     /// The road line of the plan on screen, once the map has it: the better path for finding a place to sleep.
     var roadLine: [RouteSnap.Coord] = []
 

@@ -24,12 +24,12 @@ var aiEvalModels = []string{"claude-haiku-5-5", "claude-sonnet-5-5", "claude-opu
 
 // runAIEval runs the three AI routes (recap, efficiency, advice) on the three candidate models over built-in demo
 // inputs and prints the answers side by side as Markdown, with tokens, cost and latency per call. It reads the key from
-// ANTHROPIC_API_KEY, never prints it, touches no database and starts no server; it stops before a call that would take
-// the running cost past --budget. Inputs are the demo account's shapes (no real user data).
+// ANTHROPIC_API_KEY, never prints it, touches no database and starts no server; it stops once the running cost reaches
+// --budget (the call that crosses it still completes). Inputs are the demo account's shapes (no real user data).
 func runAIEval(args []string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("ai-eval", flag.ContinueOnError)
 	fs.SetOutput(errOut)
-	budget := fs.Float64("budget", 2.0, "stop before a call that would take the total cost (USD) past this")
+	budget := fs.Float64("budget", 2.0, "stop once the total cost (USD) reaches this")
 	perRoute := fs.Int("inputs", 5, "inputs per route")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -75,7 +75,7 @@ func runAIEval(args []string, out, errOut io.Writer) int {
 			text, usage, err := c.call(ctx, analyzers[m])
 			lat := time.Since(start)
 			cancel()
-			cost := ai.ComputeCost("anthropic", m, usage.InputTokens, usage.OutputTokens)
+			cost := servedCost(m, served, usage)
 			total += cost
 			fmt.Fprintf(out, "### %s\n\n", m)
 			fmt.Fprintf(out, "in %d tok, out %d tok, $%.4f, %.1f s, served by %s\n\n", usage.InputTokens, usage.OutputTokens, cost, lat.Seconds(), strings.Join(served, "+"))
@@ -189,4 +189,15 @@ func evalDrives() []evalDrive {
 	easy := mk("efficient summer errand", 23, 7.4, 41, 10, 27, 71)
 	easy.w = &recap.Weather{TempC: 27, HasTemp: true, WindKPH: 8, HasWind: true, Conditions: "Clear", HasConditions: true}
 	return []evalDrive{commute, highway, mountain, tow, easy}
+}
+
+// servedCost prices a call by the model the responses report, not the one requested, so a silent alias change cannot hide
+// in the total. With several requests in one call it takes the dearest; never below the requested model.
+func servedCost(requested string, served []string, usage ai.TokenUsage) float64 {
+	// The requested model is the floor: an unknown served id prices on the fallback rate and must not come out below it.
+	cost := ai.ComputeCost("anthropic", requested, usage.InputTokens, usage.OutputTokens)
+	for _, m := range served {
+		cost = max(cost, ai.ComputeCost("anthropic", m, usage.InputTokens, usage.OutputTokens))
+	}
+	return cost
 }

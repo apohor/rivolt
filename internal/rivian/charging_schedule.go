@@ -155,6 +155,9 @@ type scheduleRead struct {
 // vehicle whose account has no schedules ("not available") is not counted. Safe before Start.
 func (m *StateMonitor) SetScheduleObserver(fn func(outcome string)) { m.onScheduleRead = fn }
 
+// SetVehicleInfoDeferredObserver wires the counter of vehicle info writes deferred past the warm-up.
+func (m *StateMonitor) SetVehicleInfoDeferredObserver(fn func()) { m.onInfoDeferred = fn }
+
 func (m *StateMonitor) noteScheduleRead(outcome string) {
 	if m.onScheduleRead != nil {
 		m.onScheduleRead(outcome)

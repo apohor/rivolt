@@ -1791,9 +1791,24 @@ jobs:
           echo "Retagging ${IMAGE}:${short} → ${args[*]}"
           docker buildx imagetools create "${args[@]}" "${IMAGE}:${short}"
 
+  # The destructive-migration gate in front of prod's pin commit. Prod is an autosync Application (or about to be), so the commit bump-prod
+  # writes is the deploy: a contract migration (a "-- contract:" marker) must never ride it. Fails closed. Break-glass is in contract-gate.sh.
+  contract-gate:
+    name: contract-gate
+    needs: [tag-validate]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.tag-validate.outputs.kind == 'final'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: No contract migration since the previous release
+        run: bash .github/ci/contract-gate.sh "${GITHUB_REF_NAME}"
+
   bump-prod:
     name: bump-prod
-    needs: [tag-validate, retag]
+    needs: [tag-validate, retag, contract-gate]
     # After retag attaches the prod tag to the existing image, rewrite
     # rivolt-infra's apps/platform/rivolt{,-admin,-demo}/{app.yaml,values.yaml} so ArgoCD picks
     # up the new version automatically. Removes the manual sed dance
@@ -1856,6 +1871,19 @@ jobs:
           fi
           sed -i -E "s/^([[:space:]]+version:)[[:space:]]+v[0-9]+\.[0-9]+\.[0-9]+/\1 ${VERSION}/" "${apps[@]}"
           sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+\"[0-9]+\.[0-9]+\.[0-9]+\"/\1 \"${v}\"/" "${vals[@]}"
+          # Once the demo is a plain (autosync) Application, its chart revision lives in argocd/autosync-demo.yaml on the one line tagged
+          # `# release-pin`, and its image tag on the line tagged `# release-pin-image`. Both move with app.yaml and values in this commit; no other line of the file is touched, and a file that
+          # exists without the tagged line fails the job rather than leaving the demo on old templates.
+          # Prod is the same once it is a plain Application: its pin lives in argocd/autosync-prod.yaml, written in the same commit as the demo's.
+          for pin in argocd/autosync-demo.yaml argocd/autosync-prod.yaml; do
+            [ -f "$pin" ] || continue
+            sed -i -E "s/^([[:space:]]+targetRevision:)[[:space:]]+v[0-9]+\.[0-9]+\.[0-9]+([[:space:]]+# release-pin)\$/\1 ${VERSION}\2/" "$pin"
+            grep -qE "^[[:space:]]+targetRevision:[[:space:]]+${VERSION}[[:space:]]+# release-pin\$" "$pin" || { echo "::error::$pin has no '# release-pin' targetRevision line to bump to ${VERSION}"; exit 1; }
+            # The image tag is a Helm parameter in the same Application (tagged `# release-pin-image`), so templates and image move in one object.
+            sed -i -E "s/^([[:space:]]+value:)[[:space:]]+\"[0-9]+\.[0-9]+\.[0-9]+\"([[:space:]]+# release-pin-image)\$/\1 \"${v}\"\2/" "$pin"
+            grep -qE "^[[:space:]]+value:[[:space:]]+\"${v}\"[[:space:]]+# release-pin-image\$" "$pin" || { echo "::error::$pin has no '# release-pin-image' image.tag line to bump to ${v}"; exit 1; }
+            apps+=("$pin")
+          done
           if git diff --quiet "${apps[@]}" "${vals[@]}"; then
             echo "prod already on ${VERSION} — nothing to commit."
             exit 0

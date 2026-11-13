@@ -24,6 +24,24 @@ const defaultAnthropicVersion = "2023-06-01"
 // whatever model they have configured.
 const OperatorModel = "claude-opus-5-5"
 
+// operatorRouteModels is the model each route runs on under the operator key, from the
+// model evaluation (_shared/ai-model-eval.md): Haiku is enough for the short recap, the
+// drive-efficiency attribution and the trip advice need Sonnet's reasoning, and Opus
+// cost 2 to 4 times more for no consistent gain. A route not listed runs on OperatorModel.
+var operatorRouteModels = map[Route]string{
+	RouteRecap:      "claude-haiku-5-5",
+	RouteEfficiency: "claude-sonnet-5-5",
+	RouteAdvice:     "claude-sonnet-5-5",
+}
+
+// OperatorModelFor is the model the operator key uses for a route.
+func OperatorModelFor(r Route) string {
+	if m, ok := operatorRouteModels[r]; ok {
+		return m
+	}
+	return OperatorModel
+}
+
 // Route names the feature a Complete call serves. It picks the effort and the
 // max_tokens, and labels the operator token counter. Callers set it with
 // WithRoute; an unset route is RouteOther.
@@ -119,6 +137,12 @@ func modelFeatures(model string) (effort, fallback bool) {
 			return true, true
 		}
 	}
+	// Sonnet 5.5 and Haiku 5.5 take effort (as run in the model evaluation) but not the fallback beta.
+	for _, p := range []string{"claude-sonnet-5-5", "claude-haiku-5-5"} {
+		if model == p || strings.HasPrefix(model, p+"-") {
+			return true, false
+		}
+	}
 	return false, false
 }
 
@@ -144,6 +168,8 @@ type AnthropicProvider struct {
 	observe  OperatorObserver
 	// forceEffort sends output_config.effort for a model modelFeatures does not list (model evaluation only).
 	forceEffort bool
+	// perRoute picks the model per call from operatorRouteModels (the operator key's default setup).
+	perRoute bool
 }
 
 // AnthropicConfig configures the provider.
@@ -158,6 +184,8 @@ type AnthropicConfig struct {
 	// ForceEffort sends the route's effort even for a model outside the modelFeatures allowlist. For the
 	// `rivolt ai-eval` side-by-side run only: a model that rejects the parameter answers 400.
 	ForceEffort bool
+	// PerRouteModels runs each route on OperatorModelFor(route) instead of Model. Operator key only.
+	PerRouteModels bool
 }
 
 // NewAnthropic constructs a provider. Returns an error if no API key is set.
@@ -186,11 +214,38 @@ func NewAnthropic(cfg AnthropicConfig) (*AnthropicProvider, error) {
 		observe:  cfg.Observe,
 
 		forceEffort: cfg.ForceEffort,
+		perRoute:    cfg.Operator && cfg.PerRouteModels,
 	}, nil
 }
 
 // Name reports a stable identifier for cache keying.
 func (p *AnthropicProvider) Name() string { return "anthropic:" + p.model }
+
+// NameForRoute is Name for the model a call on this route runs on.
+func (p *AnthropicProvider) NameForRoute(r Route) string { return "anthropic:" + p.modelFor(r) }
+
+// ModelSummary is what Settings shows as the model in use: the per-route models for the
+// operator key, so users are not told the Opus default, and the plain name otherwise.
+func (p *AnthropicProvider) ModelSummary() string {
+	if !p.perRoute {
+		return p.Name()
+	}
+	var parts []string
+	for _, g := range []struct {
+		label  string
+		routes []Route
+	}{{"recaps", []Route{RouteRecap}}, {"efficiency and advice", []Route{RouteEfficiency, RouteAdvice}}} {
+		parts = append(parts, OperatorModelFor(g.routes[0])+" for "+g.label)
+	}
+	return "anthropic: " + strings.Join(parts, ", ")
+}
+
+func (p *AnthropicProvider) modelFor(r Route) string {
+	if p.perRoute {
+		return OperatorModelFor(r)
+	}
+	return p.model
+}
 
 // Complete sends a system+user prompt pair and returns the assistant text
 // along with real token usage from the response.
@@ -224,10 +279,11 @@ func (p *AnthropicProvider) complete(ctx context.Context, system, user string) (
 	ctx, cancel := context.WithTimeout(ctx, rp.total)
 	defer cancel()
 
-	useEffort, useFallback := modelFeatures(p.model)
+	model := p.modelFor(route)
+	useEffort, useFallback := modelFeatures(model)
 	useEffort = useEffort || p.forceEffort
 	params := anthropic.BetaMessageNewParams{
-		Model:     p.model,
+		Model:     model,
 		MaxTokens: rp.maxTokens,
 		Messages: []anthropic.BetaMessageParam{
 			anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(user)),

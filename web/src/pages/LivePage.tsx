@@ -4,6 +4,7 @@ import { backend } from "../lib/api";
 import { Card, PageHeader, Spinner } from "../components/ui";
 import { LivePanel } from "../components/LivePanel";
 import { useImpersonationTarget } from "../lib/impersonation";
+import { useDesignPreview } from "../lib/config";
 
 export default function LivePage() {
   // Reflect the Rivian sign-in state on this page explicitly: the
@@ -15,9 +16,19 @@ export default function LivePage() {
     staleTime: 30_000,
   });
   const impersonating = useImpersonationTarget();
+  const nowV2 = useDesignPreview("now_v2");
 
   return (
     <div className="space-y-6">
+      {nowV2 ? (
+        <Link
+          to="/"
+          data-testid="live-back"
+          className="-ml-2 inline-flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm text-neutral-300 hover:text-emerald-300 pointer-fine:min-h-8"
+        >
+          <span aria-hidden="true">←</span> Now
+        </Link>
+      ) : null}
       <PageHeader
         title="Live"
         subtitle="Streaming vehicle state from Rivian"
