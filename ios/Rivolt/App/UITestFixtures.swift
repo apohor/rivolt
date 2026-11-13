@@ -12,6 +12,9 @@ enum UITestLaunch {
     static let stateFailsVariable = "RIVOLT_UITEST_STATE_FAILS"
     /// With the no-truck fixture: Check again lands on a server that does not hold the account (503, Retry-After 1), for "checking".
     static let refreshUnheldVariable = "RIVOLT_UITEST_REFRESH_UNHELD"
+    /// With the no-truck fixture: Check again is refused (429, the one forced lookup per 10 minutes), and from then on discovery answers looking, so the
+    /// same tap that is refused also moves the card.
+    static let refreshLimitedVariable = "RIVOLT_UITEST_REFRESH_LIMITED"
 
     /// The directories to answer from, or nil on a normal launch.
     static var directories: [URL]? {
@@ -42,6 +45,8 @@ final class FixtureTokens: TokenStore, @unchecked Sendable {
 
 final class FixtureURLProtocol: URLProtocol {
     nonisolated(unsafe) static var directories: [URL] = []
+    /// Set once the refresh call was answered (see refreshLimitedVariable).
+    nonisolated(unsafe) static var refreshed = false
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -106,11 +111,16 @@ final class FixtureURLProtocol: URLProtocol {
             }
             answer = corridorLayers(body: body)
         } else if let state = ProcessInfo.processInfo.environment[UITestLaunch.noTruckVariable], method == "GET", url.path == "/api/vehicles" || url.lastPathComponent == "discovery" {
-            answer = Data((url.lastPathComponent == "discovery" ? #"{"state":"\#(state)"}"# : "[]").utf8)
+            let shown = Self.refreshed && ProcessInfo.processInfo.environment[UITestLaunch.refreshLimitedVariable] != nil ? "looking" : state
+            answer = Data((url.lastPathComponent == "discovery" ? #"{"state":"\#(shown)"}"# : "[]").utf8)
         } else if ProcessInfo.processInfo.environment[UITestLaunch.refreshUnheldVariable] != nil, method == "POST", url.lastPathComponent == "refresh-vehicles" {
             failed = 503
             retryAfter = "1"
             answer = Data(#"{"error":"unavailable"}"#.utf8)
+        } else if ProcessInfo.processInfo.environment[UITestLaunch.refreshLimitedVariable] != nil, method == "POST", url.lastPathComponent == "refresh-vehicles" {
+            Self.refreshed = true
+            failed = 429
+            answer = Data(#"{"error":"too many checks"}"#.utf8)
         } else if ProcessInfo.processInfo.environment[UITestLaunch.stateFailsVariable] != nil, method == "GET", url.path.hasPrefix("/api/vehicles/"), url.path.hasSuffix("/state") {
             failed = 503
             answer = Data(#"{"error":"upstream unavailable","class":"transient"}"#.utf8)
