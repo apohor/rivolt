@@ -564,6 +564,7 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	appMetrics.SetBuildInfo(os.Getenv("RIVOLT_IMAGE_TAG"), version)
 	rivian.SetCloseHookObserver(func(typ string) { appMetrics.CloseHooksFiredTotal.WithLabelValues(typ).Inc() })
 	registerProcessRole(appMetrics.Registry(), role.Role)
 	secrets.SetSessionDecryptObserver(func(site string) {

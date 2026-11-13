@@ -226,6 +226,9 @@ type Metrics struct {
 	// hold (single-owner M4-5 baseline: flag-off prod shows what the flag would remove; 0 with lead mode off, where the notion does not apply).
 	SessionDecrypts    *prometheus.CounterVec
 	TokensLoadedUnheld prometheus.Gauge
+	// BuildInfo is 1 with the pod's release identity (SetBuildInfo): version is the chart's image tag (RIVOLT_IMAGE_TAG, so a roll check compares
+	// it with the chart's own value), build the binary's stamp. Release gitops reads it to see that every pod runs the promoted image.
+	BuildInfo *prometheus.GaugeVec
 	// LeaseReconcileTotal counts the coordinator's reconcile passes by what started them: start (boot), tick (the timer), signal (a peer released
 	// groups and said so, G1a) or other (a fenced write, a refused call or the first request asking for a pass). Created at 0. The share of
 	// signal against tick is how much of the hand-off wait the signal removed.
@@ -549,6 +552,10 @@ func New() *Metrics {
 			Name: "rivolt_tokens_loaded_unheld",
 			Help: "Rivian session tokens held in this pod's memory for users whose group another pod holds (0 with lead mode off).",
 		}),
+		BuildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "rivolt_build_info",
+			Help: "1, labelled with the image tag this pod runs (version) and the binary's own version stamp (build).",
+		}, []string{"version", "build"}),
 		LeaseReconcileTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_lease_reconcile_total",
 			Help: "Lease reconcile passes by trigger: start, tick, signal (a peer released groups) or other.",
@@ -1154,6 +1161,7 @@ func New() *Metrics {
 		m.ReceiptEnergyDeltaPct,
 		m.SessionDecrypts,
 		m.TokensLoadedUnheld,
+		m.BuildInfo,
 		m.LeaseReconcileTotal,
 		m.LeaseLeadPassSeconds,
 		m.HeldGroupUsersSeconds,
@@ -1411,4 +1419,13 @@ func (m *Metrics) RegisterDBPool(name string, d *sql.DB) {
 		prometheus.NewCounterFunc(prometheus.CounterOpts{Name: "rivolt_db_pool_wait_seconds_total", Help: "Total time callers waited for a free connection.", ConstLabels: lbl},
 			func() float64 { return d.Stats().WaitDuration.Seconds() }),
 	)
+}
+
+// SetBuildInfo exports rivolt_build_info. imageTag is the chart's image tag when the deployment passes it (empty otherwise, then the stamp stands in).
+func (m *Metrics) SetBuildInfo(imageTag, build string) {
+	if imageTag == "" {
+		imageTag = build
+	}
+	m.BuildInfo.Reset()
+	m.BuildInfo.WithLabelValues(imageTag, build).Set(1)
 }
