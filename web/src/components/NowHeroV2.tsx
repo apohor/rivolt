@@ -155,12 +155,15 @@ export default function NowHeroV2({
             <Link
               to="/live"
               data-testid="now-live-link"
-              className="absolute right-2 top-2 z-10 inline-flex min-h-11 items-center gap-2 rounded-full border border-neutral-700 px-4 text-sm font-medium text-neutral-100 hover:border-neutral-500"
+              className="absolute right-2 top-2 z-10 inline-flex min-h-11 min-w-11 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
             >
               {(charging || view.kind === "driving") && (
                 <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />
               )}
               Live
+              <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m9 5 7 7-7 7" />
+              </svg>
             </Link>
           </>
         )}
