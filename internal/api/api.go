@@ -1259,6 +1259,7 @@ func New(d Deps) http.Handler {
 				if d.ReceiptsSignedIn != nil {
 					r.Use(withReceiptsSignIn(d.ReceiptsSignedIn))
 				}
+				r.Use(withRefreshLookupGate(newRefreshLookupGate(d.Redis, d.RedisPrefix, RateLimiterKey(d.FailLimiterKey))))
 				r.Get("/", handleRivianStatus(d.Accounts, d.Secrets, d.DB, d.Metrics, d.Logger, func() bool {
 					return d.Flags != nil && d.Flags.KillSwitch().Paused
 				}))

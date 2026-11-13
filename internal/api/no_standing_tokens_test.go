@@ -300,3 +300,50 @@ func TestRefreshVehiclesRouteOnATokenlessPod(t *testing.T) {
 		t.Fatalf("nudged %v, want the user once", nudged)
 	}
 }
+
+// A second "Check again" inside the owner's lookup window, from any pod, is a 429 the app can tell apart from "the owner was asked" (503); the
+// owner is nudged only for the first tap.
+func TestRefreshVehiclesOnATokenlessPodIsLimitedAfterTheFirstLookup(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mr.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid := uuid.New()
+	var nudged int
+	router := New(Deps{Auth: svc, AuthEnforced: true, Accounts: gatedRegistry(), Redis: rdb, RedisPrefix: "t", FailLimiterKey: []byte("0123456789abcdef0123456789abcdef"),
+		SignInNudge: func(context.Context, uuid.UUID) { nudged++ }})
+	tap := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "https://rivolt.dev/api/settings/rivian/refresh-vehicles", strings.NewReader("{}"))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "203.0.113.9:4000"
+		ctx := auth.WithUser(req.Context(), uid)
+		ctx = auth.WithSession(ctx, auth.SessionRef{ID: uuid.New(), Kind: "web"})
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req.WithContext(ctx))
+		return rec
+	}
+	if rec := tap(); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("first tap = %d (%s), want 503", rec.Code, rec.Body.String())
+	}
+	rec := tap()
+	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("second tap = %d, Retry-After %q (%s); want 429 with Retry-After", rec.Code, rec.Header().Get("Retry-After"), rec.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body["error"] != "limited" {
+		t.Fatalf("second tap body %s, want error limited", rec.Body.String())
+	}
+	if _, has := body["class"]; has {
+		t.Fatalf("429 body carries a class: %s", rec.Body.String())
+	}
+	if nudged != 1 {
+		t.Fatalf("nudged %d times, want once", nudged)
+	}
+}
