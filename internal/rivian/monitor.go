@@ -109,7 +109,7 @@ type StateMonitor struct {
 	lastFlapWarnAt map[string]time.Time
 	parent         context.Context //nolint:containedctx // outer ctx for spawned subscriptions
 
-	// parallaxGPS is the master switch (RIVOLT_PARALLAX_GPS) for the
+	// parallaxGPS is the master switch (RIVOLT_PARALLAX) for the
 	// Parallax gnss subscriber. It mirrors the app's Firebase
 	// `parallaxCommand` remote-config layer: necessary but not
 	// sufficient — a vehicle also has to advertise Parallax
@@ -131,7 +131,7 @@ type StateMonitor struct {
 	// fastTakeover (RIVOLT_FAST_TAKEOVER) takes work off the takeover's critical path: the capability map comes from the shared store when a peer
 	// already probed it (zero-impact deploys, G1b).
 	fastTakeover bool
-	// parallaxDriveDynamics (RIVOLT_PARALLAX_DRIVE_DYNAMICS) subscribes to
+	// parallaxDriveDynamics (RIVOLT_PARALLAX) subscribes to
 	// dynamics.vehicle.{gear,drive_mode,odometer} + vehicle.power.state,
 	// shadow-logs each value next to vehicleState, and makes them
 	// authoritative:
@@ -147,7 +147,7 @@ type StateMonitor struct {
 	// Never advances m.stamp, so the vehicleState watchdog is untouched.
 	// Off by default; on with RIVOLT_PARALLAX.
 	parallaxDriveDynamics bool
-	// parallaxCapture (RIVOLT_PARALLAX_CAPTURE) adds the not-yet-decoded
+	// parallaxCapture (RIVOLT_PARALLAX) adds the not-yet-decoded
 	// read topics (CaptureRVMs) to the drive-dynamics subscription for
 	// raw-payload shadow RE. Preview-only — keeps prod off the
 	// experimental topics until each is decoded and promoted. Requires
@@ -502,6 +502,18 @@ type RouteFiller interface {
 	RouteShape(ctx context.Context, from, to [2]float64) ([][2]float64, error)
 }
 
+// removedParallaxEnv are the granular switches RIVOLT_PARALLAX replaced. They are
+// ignored now; a boot warning tells an operator who still sets one.
+var removedParallaxEnv = []string{"RIVOLT_PARALLAX_GPS", "RIVOLT_PARALLAX_DRIVE_DYNAMICS", "RIVOLT_PARALLAX_CAPTURE"}
+
+func warnRemovedParallaxEnv(logger *slog.Logger, lookup func(string) (string, bool)) {
+	for _, k := range removedParallaxEnv {
+		if _, ok := lookup(k); ok {
+			logger.Warn("ignored env var: set RIVOLT_PARALLAX instead", "var", k)
+		}
+	}
+}
+
 // NewStateMonitor wraps a live client. Pass a logger (usually from
 // main.go's structured logger). nil is allowed; events will be
 // discarded.
@@ -510,22 +522,20 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		logger = slog.New(slog.NewTextHandler(discardWriter{}, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
 	// RIVOLT_PARALLAX is the single operator switch for the whole Parallax
-	// path — GPS backbone, authoritative drive dynamics, and the capture
-	// topics — now that all three are proven and run everywhere. The old
-	// granular RIVOLT_PARALLAX_{GPS,DRIVE_DYNAMICS,CAPTURE} vars are still
-	// honored as a fallback so a mid-rollout config keeps working, but
-	// RIVOLT_PARALLAX is the one flag going forward. (The internal fields
-	// stay split for now — a no-risk config collapse; fully merging them
-	// waits until the replay harness can validate the recorder offline.)
+	// path: GPS backbone, authoritative drive dynamics, and the capture
+	// topics. (The internal fields stay split for now: a no-risk config
+	// collapse; fully merging them waits until the replay harness can
+	// validate the recorder offline.)
 	parallaxAll := parseBoolEnv(os.Getenv("RIVOLT_PARALLAX"))
+	warnRemovedParallaxEnv(logger, os.LookupEnv)
 	return &StateMonitor{
 		client:                client,
 		logger:                logger,
-		parallaxGPS:           parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_GPS")),
+		parallaxGPS:           parallaxAll,
 		driveDBResume:         parseBoolEnv(os.Getenv("RIVOLT_DRIVE_DB_RESUME")),
 		fastTakeover:          parseBoolEnv(os.Getenv("RIVOLT_FAST_TAKEOVER")),
-		parallaxDriveDynamics: parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_DRIVE_DYNAMICS")),
-		parallaxCapture:       parallaxAll || parseBoolEnv(os.Getenv("RIVOLT_PARALLAX_CAPTURE")),
+		parallaxDriveDynamics: parallaxAll,
+		parallaxCapture:       parallaxAll,
 		lastVehStateGPS:       make(map[string]time.Time),
 		lastVehStateSoC:       make(map[string]float64),
 		lastParallaxAt:        make(map[string]time.Time),
@@ -1662,7 +1672,7 @@ func (m *StateMonitor) run(ctx context.Context, vehicleID string) {
 	m.refreshVehicleInfoIfStale(startCtx)
 
 	// Decide whether to run the Parallax GPS subscriber for this
-	// vehicle. Two-layer gate mirroring the app: the RIVOLT_PARALLAX_GPS
+	// vehicle. Two-layer gate mirroring the app: the RIVOLT_PARALLAX
 	// master must be on AND the vehicle must advertise Parallax
 	// connectivity (VEHICLE_CONNECTIVITY_PARALLAX=AVAILABLE) via
 	// SupportedFeatures. We gate on connectivity, not the full-migration
@@ -2633,7 +2643,7 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 // It never applies Parallax P (mid-drive P blips would fragment) and never
 // advances m.stamp (record() doesn't), so the vehicleState watchdog and
 // drive-close authority are untouched. Gated on
-// RIVOLT_PARALLAX_DRIVE_DYNAMICS + Parallax connectivity.
+// RIVOLT_PARALLAX + Parallax connectivity.
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
 	ctx, ok := m.permitCtxWait(ctx, vehicleID, CallSiteSubscription)
 	if !ok {
