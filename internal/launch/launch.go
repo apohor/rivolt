@@ -47,8 +47,8 @@ var Items = []Item{
 	// Lifecycle: what a lapse, a trial end and an account deletion do.
 	{ID: "portal-with-billing-off", What: "a Stripe subscriber can open the Customer Portal and cancel with RIVOLT_BILLING off (a rollback), Checkout stays refused, and /api/auth/me tells the client to show Manage subscription",
 		Cleared: true, ClearedBy: "#1446,#1448", Proof: "TestPortalIsNotGatedByBilling,TestPortalWithBillingOffAgainstPostgres,TestManageSubscription,web/src/components/PlanCard.test.tsx"},
-	{ID: "lapse-stops-pushes", What: "on lapse or trial end each running Live Activity gets one end with its final state and its token is deleted, and no further Live Activity pushes are sent (widgets do not exist yet: the Pro-surface guard test covers them)",
-		Cleared: true, ClearedBy: "#1381", Proof: "TestLiveActivityEndsOnLapse"},
+	{ID: "lapse-stops-pushes", What: "the Live Activity is free (Pro v6): a lapse or trial end leaves running activities alone, and the push package never asks the plan (widgets do not exist yet: the Pro-surface guard test covers them)",
+		Cleared: true, ClearedBy: "#1381", Proof: "TestFreeAccountGetsLiveActivityUpdates,TestPushNeverConsultsThePlan,TestLiveActivityRoutesAreFree"},
 	{ID: "founding-grant", What: "the founding-year grant job is idempotent and checks grants = accounts - demo; a new account starts on the free plan (no trial row is written)",
 		Cleared: true, ClearedBy: "#1384", Proof: "TestFoundingGrantAgainstPostgres,TestNewAccountStartsFreeAgainstPostgres"},
 	{ID: "plan-card-fields", What: "/api/auth/me carries plan_cancels_at and plan_grace_ends, with a test for the cancelled and past_due states",

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	"github.com/apohor/rivolt/internal/aibudget"
+	"github.com/apohor/rivolt/internal/aitaste"
 	"github.com/apohor/rivolt/internal/charges"
 	rivoltcrypto "github.com/apohor/rivolt/internal/crypto"
 	"github.com/apohor/rivolt/internal/db"
@@ -32,6 +33,7 @@ type RequestStores struct {
 	Trips      *trips.Factory
 	PackHealth *packhealth.Store
 	AIBudget   *aibudget.Store
+	AITaste    *aitaste.Store
 	// Secrets is nil when there is no sealer (the Rivian sign-in surface is then read-only).
 	Secrets *secrets.Store
 }
@@ -49,6 +51,7 @@ func NewRequestStores(req, sys *sql.DB, sealer rivoltcrypto.Sealer) RequestStore
 		Trips:      trips.NewFactory(req),
 		PackHealth: packhealth.NewStore(req),
 		AIBudget:   aibudget.New(req),
+		AITaste:    aitaste.NewStore(req),
 	}
 	if sealer != nil {
 		rs.Secrets = secrets.New(req, sealer)

@@ -9,20 +9,27 @@ import (
 func TestFreeWindow(t *testing.T) {
 	now := time.Date(2026, 11, 20, 15, 4, 5, 0, time.UTC)
 	w := Free(now)
-	if !w.Since.Equal(time.Date(2026, 8, 22, 15, 4, 5, 0, time.UTC)) || w.Days != 90 {
-		t.Errorf("since %v days %d", w.Since, w.Days)
+	// One cutoff for rows and statements: the first of the month twelve back, so the window is November 2026 and the twelve months before.
+	want := time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC)
+	if !w.Since.Equal(want) || !w.MoneyFrom.Equal(want) {
+		t.Errorf("since %v money from %v, want both %v", w.Since, w.MoneyFrom, want)
 	}
-	// Current + previous two calendar months: November, October, September.
-	if !w.MoneyFrom.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("money from %v, want 2026-09-01", w.MoneyFrom)
+	if w.Days != 384 {
+		t.Errorf("days %d, want 384 (2025-11-01 to 2026-11-20)", w.Days)
 	}
 	// Across a year boundary.
-	if w := Free(time.Date(2027, 1, 15, 0, 0, 0, 0, time.UTC)); !w.MoneyFrom.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("january: money from %v, want 2026-11-01", w.MoneyFrom)
+	if w := Free(time.Date(2027, 1, 15, 0, 0, 0, 0, time.UTC)); !w.Since.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("january: since %v, want 2026-01-01", w.Since)
 	}
 	// A non-UTC "now" is read in UTC.
-	if w := Free(time.Date(2026, 12, 1, 0, 30, 0, 0, time.FixedZone("x", 2*3600))); !w.MoneyFrom.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("zone: money from %v, want 2026-09-01 (it is still 30 November 22:30 UTC)", w.MoneyFrom)
+	if w := Free(time.Date(2026, 12, 1, 0, 30, 0, 0, time.FixedZone("x", 2*3600))); !w.Since.Equal(want) {
+		t.Errorf("zone: since %v, want %v (it is still 30 November 22:30 UTC)", w.Since, want)
+	}
+	// The window never reaches below a year or above a year and a month, so a client can rely on that range for free_days.
+	for d := 0; d < 800; d++ {
+		if w := Free(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d)); w.Days < 365 || w.Days > 396 {
+			t.Fatalf("day %d: window of %d days", d, w.Days)
+		}
 	}
 }
 
@@ -35,7 +42,7 @@ func TestContextWindow(t *testing.T) {
 		t.Error("no window must allow everything")
 	}
 	since := time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC)
-	wctx := With(ctx, W{Since: since, Days: 90})
+	wctx := With(ctx, W{Since: since, Days: 384})
 	if got, ok := Since(wctx); !ok || !got.Equal(since) {
 		t.Errorf("Since = %v %v", got, ok)
 	}

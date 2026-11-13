@@ -118,7 +118,6 @@ func TestMainHandsThePlanOnlyToTheKnownConsumers(t *testing.T) {
 		regexp.MustCompile(`^\s*entitlementsSvc := entitlements\.New\(`),
 		regexp.MustCompile(`Invalidate: entitlementsSvc\.Invalidate`),       // the Stripe and Apple webhooks drop a cached plan
 		regexp.MustCompile(`Plans: entitlementsSvc`),                        // Stripe Checkout refuses a double subscription
-		regexp.MustCompile(`pushSvc\.WithProCheck\(entitlementsSvc\.Pro\)`), // Live Activity updates are Pro
 		regexp.MustCompile(`^\s*Entitlements:\s+entitlementsSvc,`),          // the API's plan fields, window and feature gates
 		regexp.MustCompile(`^\s*//`),                                        // a comment
 	}

@@ -90,7 +90,7 @@ func handleDriveGet(store *drives.Store, chargesStore *charges.Store, settingsSt
 			return
 		}
 		if !histwin.Allows(r.Context(), d.StartedAt) {
-			writeOutsideFreeWindow(w)
+			writeOutsideFreeWindow(w, r)
 			return
 		}
 		cfg, _ := settings.GetChargingConfig(r.Context(), settingsStore)

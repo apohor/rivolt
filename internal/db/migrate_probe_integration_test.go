@@ -27,7 +27,6 @@ import (
 	"os"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -43,9 +42,7 @@ const (
 	probeMaxStall     = time.Second
 	probeMaxTxFile    = 2 * time.Second
 	probeReaderHold   = 10 * time.Second
-	probeRetryBudget  = 30 * time.Second
 	probeWriterPeriod = 50 * time.Millisecond
-	probeLimitsFrom   = 120 // the runner's lock_timeout and statement_timeout apply from this file number on (migrate.go)
 )
 
 var (
@@ -53,7 +50,6 @@ var (
 	// Lock modes that block INSERT and UPDATE on the table.
 	probeBlocksWrites = map[string]bool{"ShareLock": true, "ShareRowExclusiveLock": true, "ExclusiveLock": true, "AccessExclusiveLock": true}
 	probeLockRank     = map[string]int{"AccessShareLock": 1, "RowShareLock": 2, "RowExclusiveLock": 3, "ShareUpdateExclusiveLock": 4, "ShareLock": 5, "ShareRowExclusiveLock": 6, "ExclusiveLock": 7, "AccessExclusiveLock": 8}
-	probeNumber       = regexp.MustCompile(`^(\d+)`)
 )
 
 type probeResult struct {
@@ -161,12 +157,6 @@ func probeIsNoTx(body string) bool {
 	return strings.HasPrefix(strings.TrimSpace(first), "-- migrate:no-transaction")
 }
 
-func probeLimits(id string) bool {
-	m := probeNumber.FindString(id)
-	n, err := strconv.Atoi(m)
-	return err == nil && n >= probeLimitsFrom
-}
-
 // probeBuild returns a database at the base schema plus the seed (tag 1).
 func probeBuild(ctx context.Context, t *testing.T, base []db.MigrationFile, seed string) *sql.DB {
 	t.Helper()
@@ -203,8 +193,8 @@ func probeApplyTx(ctx context.Context, d *sql.DB, f db.MigrationFile, res *probe
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if probeLimits(f.ID) {
-		if _, err := tx.ExecContext(ctx, `SET LOCAL lock_timeout = '2s'; SET LOCAL statement_timeout = '60s'; SET LOCAL idle_in_transaction_session_timeout = '30s'`); err != nil {
+	if db.AppliesRunnerLimitsForTest(f.ID) {
+		if _, err := tx.ExecContext(ctx, db.RunnerSettingsForTest); err != nil {
 			return err
 		}
 	}
@@ -394,7 +384,7 @@ func probeApply(ctx context.Context, d *sql.DB, f db.MigrationFile, retry bool, 
 		res.dur = time.Since(started)
 		return err
 	}
-	deadline := time.Now().Add(probeRetryBudget)
+	deadline := time.Now().Add(db.LockRetryBudgetForTest())
 	for {
 		res.attempts++
 		err := probeApplyTx(ctx, d, f, res)
@@ -610,6 +600,9 @@ func TestMigrationProbePassesTheImportFiles(t *testing.T) {
 		case m.ID < "0119":
 			files = append(files, m)
 		}
+	}
+	if len(files) != 7 {
+		t.Fatalf("expected the 7 import files 0112-0118, found %d", len(files))
 	}
 	a, b := probeBoth(context.Background(), t, base, files)
 	for _, rs := range [][]*probeResult{a, b} {
