@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -519,10 +520,34 @@ func logHeader(pf *parseFailure) any {
 			keep = append(keep, c)
 		}
 	}
-	if pf.cells == 0 || len(keep)*2 <= pf.cells {
+	if pf.cells == 0 || len(keep)*2 <= pf.cells || !looksLikeHeader(keep) {
 		return fmt.Sprintf("%d cells, not logged", pf.cells)
 	}
 	return keep
+}
+
+// exportWords are whole tokens a real export header uses. Bare "mi" and "lon" are left out (they are given names); a real header has
+// another word beside them (distance, lat, time).
+var exportWords = map[string]bool{
+	"time": true, "timestamp": true, "date": true, "datetime": true, "start": true, "started": true, "end": true, "ended": true,
+	"battery": true, "soc": true, "distance": true, "km": true, "mph": true, "energy": true, "kwh": true, "speed": true, "odometer": true,
+	"lat": true, "latitude": true, "longitude": true, "cost": true, "power": true, "charge": true, "charges": true, "charging": true,
+	"charged": true, "drive": true, "drives": true, "driving": true,
+}
+
+// looksLikeHeader is whether at least two cells each hold a whole export word. One is not enough: a surname or a place can be a whole
+// word too ("Power", "Times Square"), but a data row does not have two such cells.
+func looksLikeHeader(cells []string) bool {
+	n := 0
+	for _, c := range cells {
+		for _, tok := range strings.FieldsFunc(strings.ToLower(c), func(r rune) bool { return !unicode.IsLetter(r) }) {
+			if exportWords[tok] {
+				n++
+				break
+			}
+		}
+	}
+	return n >= 2
 }
 
 func nonEmpty(cells []string) int {

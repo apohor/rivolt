@@ -354,3 +354,25 @@ func TestHistoryImportRefusalLogDropsDataRows(t *testing.T) {
 		t.Errorf("log lacks the count: %s", out)
 	}
 }
+
+// Words that carry no digit or "@" still do not reach the log unless the line has two cells with an EV-export word.
+func TestHistoryImportRefusalLogNeedsAnExportWord(t *testing.T) {
+	for _, row := range []string{"Maria Gonzalez,Springfield,USA", "Maria Costa,Springfield,USA", "John Power,Portland,USA", "Sam Driver,Portland,USA", "Pat Smith,Times Square,USA", "Mi,Lon,Battery Park"} {
+		var logs bytes.Buffer
+		a := newHistoryImportAPI(Deps{Metrics: metrics.New(), Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+		req := &importRequest{source: "tezlab", formats: importSources["tezlab"], files: []importFile{{name: "x.csv", data: []byte(row + "\nA B,C,D\n")}}}
+		_, pf := req.parse(time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC))
+		if pf == nil || pf.code != "unknown_columns" {
+			t.Fatalf("%q: parse = %+v", row, pf)
+		}
+		a.refused("tezlab", pf)
+		if !strings.Contains(logs.String(), "3 cells, not logged") {
+			t.Errorf("%q: log is %s", row, logs.String())
+		}
+	}
+	for _, c := range [][]string{{"Start Time", "Distance (mi)", "Notes"}, {"Odometer", "Charging Energy"}} {
+		if !looksLikeHeader(c) {
+			t.Errorf("%q should pass", c)
+		}
+	}
+}
