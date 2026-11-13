@@ -10,12 +10,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
-
-	"github.com/apohor/rivolt/internal/vehiclediscovery"
 )
 
 // refreshLookupOpTimeout bounds the Redis calls of the gate: a slow Redis must not hold a "Check again" tap.
 const refreshLookupOpTimeout = 300 * time.Millisecond
+
+// refreshLookupWindow mirrors refreshLookupWindow (the owner's shortest time between two lookups of one user); internal/api may not
+// import that module, and a shorter window here only means one more nudge the owner then refuses itself.
+const refreshLookupWindow = 10 * time.Minute
 
 type refreshLookupGateKey struct{}
 
@@ -50,13 +52,13 @@ func (g *refreshLookupGate) claim(ctx context.Context, uid uuid.UUID) (ok bool, 
 	cctx, cancel := context.WithTimeout(ctx, refreshLookupOpTimeout)
 	defer cancel()
 	k := g.redisKey(uid)
-	set, err := g.rdb.SetNX(cctx, k, "1", vehiclediscovery.ForceEvery).Result()
+	set, err := g.rdb.SetNX(cctx, k, "1", refreshLookupWindow).Result()
 	if err != nil || set {
 		return true, 0
 	}
 	left, err := g.rdb.TTL(cctx, k).Result()
 	if err != nil || left <= 0 {
-		return false, int(vehiclediscovery.ForceEvery / time.Second)
+		return false, int(refreshLookupWindow / time.Second)
 	}
 	return false, int((left + time.Second - 1) / time.Second)
 }

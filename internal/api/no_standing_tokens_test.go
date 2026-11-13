@@ -310,7 +310,7 @@ func TestRefreshVehiclesOnATokenlessPodIsLimitedAfterTheFirstLookup(t *testing.T
 	}
 	defer mr.Close()
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer rdb.Close()
+	t.Cleanup(func() { _ = rdb.Close() })
 	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
 	if err != nil {
 		t.Fatal(err)
