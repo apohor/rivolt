@@ -296,6 +296,7 @@ export default function HomePage() {
           }
           packKwh={vehicles.data?.find((v) => v.id === activeVehicleID)?.pack_kwh || null}
           images={vehicles.data?.find((v) => v.id === activeVehicleID)?.images}
+          model={vehicles.data?.find((v) => v.id === activeVehicleID)?.model}
           // /live needs a session: no dead link in the demo.
           showTelemetryLink={!inDemo()}
         />

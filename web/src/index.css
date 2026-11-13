@@ -891,3 +891,10 @@ html[data-theme='light'] {
     box-shadow: none;
   }
 }
+
+/* Colours for the line-art car (CarSketch). Dark uses the drawing's own greys; light darkens the body so it
+   stays visible against the pale card. */
+html[data-theme='light'] {
+  --car-body: oklch(68% 0.01 250);
+  --car-line: oklch(40% 0.01 250);
+}
