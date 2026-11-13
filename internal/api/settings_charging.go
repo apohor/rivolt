@@ -130,6 +130,7 @@ func handleChargingNetworksReset(store *settings.Store) http.HandlerFunc {
 // chargingRatePatch is the body of PATCH /api/settings/charging: only the home rate.
 type chargingRatePatch struct {
 	HomePricePerKWh *float64 `json:"home_price_per_kwh"`
+	HomePriceSource *string  `json:"home_price_source"`
 	HomeCurrency    *string  `json:"home_currency"`
 	GasPrice        *float64 `json:"gas_price_per_gallon"`
 	ComparisonMPG   *float64 `json:"comparison_mpg"`
@@ -163,6 +164,14 @@ func decodeChargingRatePatch(w http.ResponseWriter, r *http.Request) (chargingRa
 	if v := p.HomePricePerKWh; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v > settings.MaxHomePricePerKWh) {
 		return p, "home_price_per_kwh must be a number from 0 to 5"
 	}
+	if v := p.HomePriceSource; v != nil {
+		if p.HomePricePerKWh == nil {
+			return p, "home_price_source comes with home_price_per_kwh"
+		}
+		if *v != settings.PriceSourceUser && *v != settings.PriceSourceStateAverage {
+			return p, "home_price_source must be user or state_average"
+		}
+	}
 	if p.HomeCurrency != nil {
 		c, ok := settings.NormalizeHomeCurrency(*p.HomeCurrency)
 		if !ok {
@@ -190,14 +199,14 @@ func handleChargingSettingsPatch(store *settings.Store) http.HandlerFunc {
 			http.Error(w, "settings store unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if err := settings.PatchChargingConfig(r.Context(), store, p.HomePricePerKWh, p.HomeCurrency, p.GasPrice, p.ComparisonMPG); err != nil {
+		if err := settings.PatchChargingConfigSource(r.Context(), store, p.HomePricePerKWh, p.HomePriceSource, p.HomeCurrency, p.GasPrice, p.ComparisonMPG); err != nil {
 			slog.ErrorContext(r.Context(), "settings write failed", "group", "charging.home_rate", "err", err.Error())
 			http.Error(w, "could not save", http.StatusInternalServerError)
 			return
 		}
 		fields := []string{}
 		if p.HomePricePerKWh != nil {
-			fields = append(fields, "home_price_per_kwh")
+			fields = append(fields, "home_price_per_kwh", "home_price_source")
 		}
 		if p.HomeCurrency != nil {
 			fields = append(fields, "home_currency")

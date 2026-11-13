@@ -58,6 +58,7 @@ var exportedSettingKeys = map[string]bool{
 	"home_location.prev_source":     true,
 	"charging.home_price_per_kwh":   true,
 	"charging.home_currency":        true,
+	"charging.home_price_source":    true,
 	"charging.gas_price_per_gallon": true,
 	"charging.comparison_mpg":       true,
 	"charging.networks":             true,
