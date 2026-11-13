@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { useSystemTheme } from "../lib/theme";
 import { ThemeSwitch } from "../components/ThemeSwitch";
+import { useDesignPreview } from "../lib/config";
 import { navPrefetch, pageLoaders } from "../lib/pageLoaders";
 import Logo from "../components/Logo";
 import { ConnectLink, DemoBanner } from "../components/DemoBanner";
@@ -24,6 +25,7 @@ function prefetchRoute(to: string) {
 
 export default function DemoLayout() {
   useSystemTheme(true);
+  const themeSwitch = useDesignPreview("theme_switch");
   const location = useLocation();
   const demo = useQuery({ queryKey: ["demo", "info"], queryFn: () => backend.demoInfo(), retry: 0 });
 
@@ -54,10 +56,10 @@ export default function DemoLayout() {
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 max-[200px]:gap-2 max-[200px]:px-3">
           <Link to="/demo" className="flex items-center gap-2 font-semibold tracking-tight text-neutral-100 hover:text-emerald-300 transition-colors shrink-0">
             <Logo size={22} className="text-emerald-400" />
-            <span className="max-[359px]:sr-only">Rivolt demo</span>
+            <span className={themeSwitch ? "max-[359px]:sr-only" : "max-[200px]:sr-only"}>Rivolt demo</span>
           </Link>
           <h1 className="sr-only">Rivolt demo</h1>
-          <ThemeSwitch />
+          {themeSwitch && <ThemeSwitch />}
         </div>
       </header>
       <div className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-4 max-[200px]:px-3">

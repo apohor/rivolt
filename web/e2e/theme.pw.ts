@@ -5,6 +5,7 @@ import { stubApi } from "./stub";
 
 // Theme option (System / Light / Dark): the choice beats the OS, is kept
 // per device, and survives a reload without a flash (theme-init.js).
+// The header switch and the "Auto" name are behind the design_preview key theme_switch (preview only).
 
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
@@ -20,7 +21,7 @@ for (const [os, choice, expectLight] of [
   test(`settings · OS ${os} · choice ${choice}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: os });
     const page = await ctx.newPage();
-    await stubApi(page);
+    await stubApi(page, { designPreview: ["theme_switch"] });
     if (choice !== "system") {
       await page.addInitScript((c) => localStorage.setItem("rivolt.theme", c), choice);
     }
@@ -41,7 +42,7 @@ for (const [os, choice, expectLight] of [
 test("choosing Dark under an OS in light sticks across a reload", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "light" });
   const page = await ctx.newPage();
-  await stubApi(page);
+  await stubApi(page, { designPreview: ["theme_switch"] });
   await page.goto("/settings");
   await expect(html(page)).toHaveAttribute("data-theme", "light");
   await page.locator("main").getByRole("radio", { name: "Dark" }).click();
@@ -59,7 +60,7 @@ test("choosing Dark under an OS in light sticks across a reload", async ({ brows
 test("header switch: one tap sets the theme, stays in sync with Settings, fits at 390 px and aA 300 %", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "light" });
   const page = await ctx.newPage();
-  await stubApi(page);
+  await stubApi(page, { designPreview: ["theme_switch"] });
   await page.goto("/settings");
   const sw = page.locator("[data-theme-switch]");
   await expect(sw.getByRole("radio", { name: "Auto" })).toHaveAttribute("aria-checked", "true");
@@ -100,4 +101,19 @@ test("header switch: one tap sets the theme, stays in sync with Settings, fits a
   expect(sb!.x + sb!.width).toBeLessThanOrEqual(130);
   await page.screenshot({ path: path.join(SHOTS, "theme-header-cycle-130.png") });
   await ctx.close();
+});
+
+test("theme_switch off (prod, older server, unknown keys): no header switch, Settings says System", async ({ browser }) => {
+  for (const designPreview of [[], ["something_else"]]) {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "light" });
+    const page = await ctx.newPage();
+    await stubApi(page, { designPreview });
+    await page.goto("/settings");
+    await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
+    await expect(page.locator("main").getByRole("radio", { name: "System" })).toBeVisible();
+    await expect(page.locator("main").getByRole("radio", { name: "Auto" })).toHaveCount(0);
+    await expect(page.locator("[data-theme-switch]")).toHaveCount(0);
+    await expect(page.locator("[data-theme-cycle]")).toHaveCount(0);
+    await ctx.close();
+  }
 });
