@@ -8,15 +8,16 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "rivolt.labels" . | nindent 4 }}
-  {{- if or .Values.migrate.job.enabled .Values.rollout.annotations }}
   annotations:
+    # The Rollout's own copy of the image tag (not the pod template's, so it never rolls pods): the open-charge AnalysisTemplate Jobs read it
+    # through fieldRef to run the canary's image.
+    rivolt.dev/image-tag: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
     {{- if .Values.migrate.job.enabled }}
     argocd.argoproj.io/sync-wave: "1"
     {{- end }}
     {{- with .Values.rollout.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-  {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}

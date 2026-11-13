@@ -28,7 +28,7 @@ import (
 //	verify    reads that JSON (--snapshot FILE, the ConfigMap mounted as a volume) after the roll and checks each charge is still exactly one row:
 //	          same id, no second row for the vehicle since it started, and while still charging_active a last sample under 10 minutes old.
 //	          Exits 1 for a charge that split, vanished or stalled, or when the database can't be read. A charge that ended meanwhile passes; one
-//	          that ended inside the roll window (--roll-from EPOCH, or env ROLL_FROM) also prints a WARN, since a lost stream closes charges.
+//	          that ended inside the roll window (--roll-from EPOCH or env ROLL_FROM; default: when the snapshot was taken) also prints a WARN, since a lost stream closes charges.
 //
 // The database is RIVOLT_VERIFY_DATABASE_URL (the read-only role), never the app's. Unknown arguments exit 2.
 const (
@@ -196,6 +196,17 @@ func readChargeNow(ctx context.Context, q *sql.DB, c openCharge) (chargeNow, err
 	return n, err
 }
 
+// secondsSinceRollStart is how long ago the roll began: --roll-from when given, else the snapshot's own time (the snapshot Job runs at roll step 0).
+func secondsSinceRollStart(rollFrom int64, takenAt, now time.Time) int64 {
+	if rollFrom > 0 {
+		return now.Unix() - rollFrom
+	}
+	if takenAt.IsZero() {
+		return 0
+	}
+	return now.Unix() - takenAt.Unix()
+}
+
 func verifyOpenCharges(ctx context.Context, q *sql.DB, snapFile string, rollFrom int64, stdout, stderr io.Writer) int {
 	raw, err := os.ReadFile(snapFile)
 	if err != nil {
@@ -211,10 +222,7 @@ func verifyOpenCharges(ctx context.Context, q *sql.DB, snapFile string, rollFrom
 		fmt.Fprintln(stdout, "open charges: none were open before the roll; nothing to verify")
 		return 0
 	}
-	var since int64
-	if rollFrom > 0 {
-		since = time.Now().Unix() - rollFrom
-	}
+	since := secondsSinceRollStart(rollFrom, snap.TakenAt, time.Now())
 	bad := 0
 	for _, c := range snap.Charges {
 		n, err := readChargeNow(ctx, q, c)
