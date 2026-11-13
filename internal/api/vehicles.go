@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -853,9 +854,23 @@ func storeReplayImages(ctx context.Context, rc *rivian.ReplayClient, sqlDB *sql.
 	if err != nil {
 		return
 	}
+	// Write only what differs from the stored row: the list is read far more often than the pictures change.
+	stored := map[string]db.VehicleAPIRow{}
+	if rows, err := db.ListUserVehiclesForAPI(ctx, sqlDB, userID); err == nil {
+		for _, row := range rows {
+			stored[row.RivianVehicleID] = row
+		}
+	}
 	for _, v := range vs {
 		if v.ID == "" {
 			continue
+		}
+		if row, ok := stored[v.ID]; ok && row.ImageURL == v.ImageURL && rivian.StoredInfoSynced(row.Info) {
+			var have rivian.Vehicle
+			have.ApplyStoredInfo(row.Info)
+			if reflect.DeepEqual(have.Images, v.Images) {
+				continue
+			}
 		}
 		err := db.UpsertVehicleFromSync(ctx, sqlDB, userID, db.VehicleSync{
 			RivianID: v.ID, VIN: v.VIN, Name: v.Name, Model: v.Model, ModelYear: v.ModelYear, Trim: v.TrimID, PackKWh: v.PackKWh, Info: v.StoredInfo(),

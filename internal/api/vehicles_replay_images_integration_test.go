@@ -76,4 +76,17 @@ func TestReplayVehicleImagesReachTheStoredRow(t *testing.T) {
 			}
 		}
 	}
+	// A list whose pictures already match the row does not write it again (a write makes a new row version, so xmin moves).
+	rowVersion := func() string {
+		var x string
+		if err := pool.QueryRowContext(ctx, `SELECT xmin::text FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id LIKE 'demo-%'`, uid).Scan(&x); err != nil {
+			t.Fatal(err)
+		}
+		return x
+	}
+	before := rowVersion()
+	list(login())
+	if after := rowVersion(); after != before {
+		t.Errorf("unchanged pictures rewrote the row: xmin %s -> %s", before, after)
+	}
 }
