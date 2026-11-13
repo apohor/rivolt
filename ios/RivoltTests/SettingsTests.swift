@@ -13,6 +13,7 @@ final class SettingsTests: XCTestCase {
             ["Vehicle", "Vehicle profile", "Home location", "Units"],
             ["Charging", "Charging rates", "Off-peak schedule", "Charging networks", "Trip planner"],
             ["Notifications", "Notifications"],
+            ["App", "Appearance"],
             ["Data", "Export your data", "Delete older history", "Delete account"],
             ["About", "Privacy policy", "Terms", "Support", "Acknowledgements"],
         ])
@@ -20,7 +21,14 @@ final class SettingsTests: XCTestCase {
 
     func testNotificationsIsLeftOutWhereTheServerCannotPush() {
         let titles = SettingsLogic.groups(notificationsOffered: false).map(\.title)
-        XCTAssertEqual(titles, ["Account", "Security", "Vehicle", "Charging", "Data", "About"])
+        XCTAssertEqual(titles, ["Account", "Security", "Vehicle", "Charging", "App", "Data", "About"])
+    }
+
+    func testWithTheThemeSwitchAppearanceLeavesTheListForTheTopPicker() {
+        let on = SettingsLogic.groups(notificationsOffered: true, themeSwitch: true).map(\.title)
+        XCTAssertEqual(on, ["Account", "Security", "Vehicle", "Charging", "Notifications", "Data", "About"])
+        let off = SettingsLogic.groups(notificationsOffered: true, themeSwitch: false).map(\.title)
+        XCTAssertEqual(off, ["Account", "Security", "Vehicle", "Charging", "Notifications", "App", "Data", "About"])
     }
 
     func testDeleteAccountIsTheLastRowOfData() {

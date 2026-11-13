@@ -59,6 +59,8 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/trips/saved"): return "trip_saved_list"
         case ("GET", "/api/settings/planner"): return "settings_planner"
         case ("GET", "/api/app/config"): return "app_config"
+        // The preview-only designs: off unless the UI test asks for the theme switch.
+        case ("GET", "/api/config"): return ProcessInfo.processInfo.arguments.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
         case ("GET", "/api/activity"): return "activity"
         case ("POST", "/api/maps/valhalla/route"): return "valhalla_route"
         default:

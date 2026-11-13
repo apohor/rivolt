@@ -3,7 +3,7 @@ import SwiftUI
 /// What Settings lists and in what order, with no view code so a test can see it. It mirrors the web's Settings tabs and names.
 enum SettingsLogic {
     enum Row: String, Equatable {
-        case plan, notices, connection, signOut, devices, passkeys, vehicleProfile, primaryVehicle, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications
+        case plan, notices, connection, signOut, devices, passkeys, vehicleProfile, primaryVehicle, homeLocation, units, chargingRates, offpeak, chargingNetworks, plannerDefaults, notifications, appearance
         case export, deleteHistory, deleteAccount, privacy, terms, support, acknowledgements
 
         var title: String {
@@ -23,6 +23,7 @@ enum SettingsLogic {
             case .chargingNetworks: return "Charging networks"
             case .plannerDefaults: return "Trip planner"
             case .notifications: return "Notifications"
+            case .appearance: return "Appearance"
             case .export: return "Export your data"
             case .deleteHistory: return "Delete older history"
             case .deleteAccount: return "Delete account"
@@ -50,6 +51,7 @@ enum SettingsLogic {
             case .chargingNetworks: return "ev.charger"
             case .plannerDefaults: return "map"
             case .notifications: return "bell"
+            case .appearance: return "circle.lefthalf.filled"
             case .export: return "square.and.arrow.up"
             case .deleteHistory: return "calendar.badge.minus"
             case .deleteAccount: return "trash"
@@ -67,9 +69,9 @@ enum SettingsLogic {
         var id: String { title }
     }
 
-    /// Account, Security, Vehicle, Charging, Notifications (only where this server can push), Data and About, as the web's tabs.
+    /// Account, Security, Vehicle, Charging, Notifications (only where this server can push), App, Data and About, as the web's tabs.
     /// "Rivolt Pro" is listed only where the server bills (the account carries a plan); with billing off nothing mentions a plan.
-    static func groups(notificationsOffered: Bool, planOffered: Bool = false, primaryVehicleOffered: Bool = false, noticesOffered: Bool = false) -> [Group] {
+    static func groups(notificationsOffered: Bool, planOffered: Bool = false, primaryVehicleOffered: Bool = false, noticesOffered: Bool = false, themeSwitch: Bool = false) -> [Group] {
         var out = [
             Group(title: "Account", rows: (planOffered ? [.plan] : []) + (noticesOffered ? [.notices] : []) + [.connection, .signOut]),
             Group(title: "Security", rows: [.devices, .passkeys]),
@@ -77,6 +79,8 @@ enum SettingsLogic {
             Group(title: "Charging", rows: [.chargingRates, .offpeak, .chargingNetworks, .plannerDefaults]),
         ]
         if notificationsOffered { out.append(Group(title: "Notifications", rows: [.notifications])) }
+        // With the theme switch (design_preview key theme_switch) Appearance is the first row of the list instead of an App group.
+        if !themeSwitch { out.append(Group(title: "App", rows: [.appearance])) }
         out += [
             Group(title: "Data", rows: [.export, .deleteHistory, .deleteAccount]),
             Group(title: "About", rows: [.privacy, .terms, .support, .acknowledgements]),
@@ -100,17 +104,21 @@ struct SettingsView: View {
     /// The truck the vehicle and notification settings are for.
     var vehicleID: String?
 
+    @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
     @State private var showDelete = false
     @State private var plan: PlanState = .off
     @State private var hasNotices = false
+    private var themeSwitch: Bool { state.designPreview.contains("theme_switch") }
 
     var body: some View {
         NavigationStack {
             List {
                 // Light, dark or Auto, first in the list so it is one tap from any screen (the person icon opens this).
-                Section { AppearancePicker() }
-                    .listRowBackground(Theme.card)
-                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered, planOffered: plan != .off, primaryVehicleOffered: plan == .free, noticesOffered: hasNotices)) { group in
+                if themeSwitch {
+                    Section { AppearancePicker() }
+                        .listRowBackground(Theme.card)
+                }
+                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered, planOffered: plan != .off, primaryVehicleOffered: plan == .free, noticesOffered: hasNotices, themeSwitch: themeSwitch)) { group in
                     Section {
                         ForEach(group.rows, id: \.rawValue) { row in rowView(row) }
                     } header: {
@@ -190,6 +198,12 @@ struct SettingsView: View {
                 NotificationSettingsView(manager: state.notifications, liveActivitiesAllowed: state.liveActivity.allowedInSettings,
                                          live: state.liveActivity, vehicleID: vehicleID)
             } label: { label(row) }
+        case .appearance:
+            Picker(selection: $appearance) {
+                ForEach(AppearanceChoice.allCases) { Text($0.title).tag($0) }
+            } label: { label(row) }
+            .pickerStyle(.menu)
+            .tint(Theme.textSecondary)
         case .export:
             NavigationLink { ExportDataView() } label: { label(row) }
         case .deleteHistory:

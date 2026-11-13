@@ -1,6 +1,6 @@
 import XCTest
 
-/// Settings' first row: Auto / Light / Dark as one segmented control (a menu where the text is too large for three segments),
+/// With the theme switch (design_preview key theme_switch), Settings' first row: Auto / Light / Dark as one segmented control (a menu where the text is too large for three segments),
 /// driven like a person would with every call answered from fixtures (Rivolt/App/UITestFixtures.swift).
 final class AppearanceUITests: XCTestCase {
     private func launch(_ arguments: [String] = []) -> XCUIApplication {
@@ -32,7 +32,7 @@ final class AppearanceUITests: XCTestCase {
     }
 
     func testOneTapFromSettingsSwitchesAutoLightDark() {
-        let app = launch()
+        let app = launch(["-uitest-theme-switch"])
         let picker = openSettings(app)
         XCTAssertTrue(picker.buttons["Auto"].exists && picker.buttons["Light"].exists && picker.buttons["Dark"].exists, "three segments")
         picker.buttons["Auto"].tap()  // the simulator keeps the last run's choice
@@ -47,10 +47,22 @@ final class AppearanceUITests: XCTestCase {
     }
 
     func testAtLargestTextTheChoiceIsStillThereAndFits() {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let app = launch(["-uitest-theme-switch", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         let picker = openSettings(app)
         XCTAssertTrue(picker.isHittable, "the control can be tapped at the largest text size")
         XCTAssertLessThanOrEqual(picker.frame.maxX, app.windows.firstMatch.frame.width, "inside the screen")
         shot(app, "appearance-ax3")
+    }
+
+    func testWithoutTheThemeSwitchAppearanceStaysUnderApp() {
+        let app = launch()
+        let button = app.buttons["settings-button"].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: 20), "the person icon is there")
+        button.tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["appearance-picker"].firstMatch.exists, "no picker at the top")
+        let row = app.staticTexts["Appearance"].firstMatch
+        for _ in 0..<8 where !row.exists { app.swipeUp() }
+        XCTAssertTrue(row.exists, "the App > Appearance row is still there")
     }
 }
