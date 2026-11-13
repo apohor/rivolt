@@ -149,9 +149,8 @@ type ReplayFeed struct {
 	allow func(uid uuid.UUID) bool
 	// empty names the users whose replay sign-in works but whose account has no vehicle (preview's way to show the no-vehicle states).
 	empty func(uid uuid.UUID) bool
-	// images are the Rivian pictures the demo vehicles carry (SetImages); noImages names the users who get none (the public demo account).
-	images   []VehicleImage
-	noImages func(uid uuid.UUID) bool
+	// images are the Rivian pictures the demo vehicles carry (SetImages).
+	images []VehicleImage
 	// lastRecorded returns the newest persisted sample for a demo
 	// vehicle (zero time when none), which is where Stream resumes.
 	lastRecorded func(ctx context.Context, vehicleID string) (time.Time, error)
@@ -420,11 +419,9 @@ func NewDBReplayFeed(ctx context.Context, pool *sql.DB, sourceVehicleID string, 
 // (the default) allows everyone.
 func (f *ReplayFeed) SetAllowedUsers(allow func(uid uuid.UUID) bool) { f.allow = allow }
 
-// SetImages gives every demo vehicle these Rivian pictures (preview only, from RIVOLT_REPLAY_VEHICLE_IMAGES), except for users noImages names.
+// SetImages gives every demo vehicle these Rivian pictures (from RIVOLT_REPLAY_VEHICLE_IMAGES), the public demo account's included.
 // The list's own vehicle and order ids are never used: each client rewrites them to its demo vehicle.
-func (f *ReplayFeed) SetImages(images []VehicleImage, noImages func(uid uuid.UUID) bool) {
-	f.images, f.noImages = images, noImages
-}
+func (f *ReplayFeed) SetImages(images []VehicleImage) { f.images = images }
 
 // ParseReplayImages reads the RIVOLT_REPLAY_VEHICLE_IMAGES JSON list. Only plain https URLs pass: a signed URL expires and carries the account
 // it was signed for, and a URL naming a VIN would publish one.
@@ -456,7 +453,7 @@ var replayVINRe = regexp.MustCompile(`(^|[^A-Za-z0-9])[A-HJ-NPR-Z0-9]{17}([^A-Za
 
 // vehicleImages is the list for uid's demo vehicle, ids rewritten to the demo vehicle and the hero chosen; nil for none.
 func (f *ReplayFeed) vehicleImages(uid uuid.UUID, vehicleID string) []VehicleImage {
-	if len(f.images) == 0 || (f.noImages != nil && f.noImages(uid)) {
+	if len(f.images) == 0 {
 		return nil
 	}
 	out := make([]VehicleImage, len(f.images))

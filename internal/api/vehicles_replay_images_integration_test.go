@@ -64,7 +64,7 @@ func TestReplayVehicleImagesReachTheStoredRow(t *testing.T) {
 	if vs := list(login()); len(vs) != 1 || len(vs[0].Images) != 0 {
 		t.Fatalf("no pictures configured: %+v", vs)
 	}
-	feed.SetImages(imgs, nil)
+	feed.SetImages(imgs)
 	for i := 0; i < 2; i++ { // the second call is the stored answer
 		vs := list(login())
 		if len(vs) != 1 || vs[0].ImageURL != "https://img.test/3q.webp" || len(vs[0].Images) != 2 {
