@@ -85,9 +85,13 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		if applied[m.id] {
 			continue
 		}
-		if err := run(ctx, db, m); err != nil {
+		if err := runWithLockRetry(ctx, db, m); err != nil {
 			return fmt.Errorf("migration %s: %w", m.id, err)
 		}
+	}
+	// Checksums are bookkeeping: a failure here is logged, never a failed migration.
+	if _, err := reconcileChecksums(ctx, db, true); err != nil {
+		slog.Warn("migration checksums not recorded", "err", err)
 	}
 	return nil
 }
@@ -264,7 +268,7 @@ func loadApplied(ctx context.Context, db *sql.DB) (map[string]bool, error) {
 // run applies one migration inside a single transaction. The SQL body
 // may contain many statements; Postgres's simple-query protocol (which
 // pgx uses for `Exec`) runs them serially. A failure rolls everything
-// back and the migration will retry on the next boot.
+// back; a lock timeout or deadlock is run again for up to 30 s (migrate_retry.go), anything else fails and retries on the next boot.
 func run(ctx context.Context, db *sql.DB, m migration) error {
 	if isNoTx(m.sql) {
 		return runNoTx(ctx, db, m)
@@ -279,6 +283,13 @@ func run(ctx context.Context, db *sql.DB, m migration) error {
 	body := strings.TrimSpace(m.sql)
 	if body == "" {
 		return fmt.Errorf("empty migration body")
+	}
+	// The runner's own limits, before the file's statements, for files from runnerLimitsFrom on. A file may set its own (SET LOCAL replaces
+	// these inside the transaction); the lint caps what it may ask for (migrate_lint_v2_test.go).
+	if appliesRunnerLimits(m.id) {
+		if _, err := tx.ExecContext(ctx, runnerSettings); err != nil {
+			return fmt.Errorf("set runner timeouts: %w", err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, body); err != nil {
 		return fmt.Errorf("exec: %w", err)
