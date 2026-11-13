@@ -2294,6 +2294,7 @@ func runServer() {
 			}
 		})
 		monitorRegistry.SetScheduleObserver(func(outcome string) { appMetrics.RivianScheduleReadTotal.WithLabelValues(outcome).Inc() })
+		monitorRegistry.SetVehicleInfoDeferredObserver(func() { appMetrics.VehicleInfoDeferredTotal.Inc() })
 		// Owner-side writes carry the group lease (lead mode only; Off otherwise). A refused write
 		// counts, and asks the coordinator (when this role has one) to look at its groups now.
 		var coord *leases.Coordinator

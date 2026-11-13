@@ -116,6 +116,9 @@ type Metrics struct {
 	// RivianScheduleReadTotal counts charging-schedule reads by outcome: ok, retried_ok, dropped (refused
 	// by the shared budget on every try) and error. Pre-created at 0; no other labels.
 	RivianScheduleReadTotal *prometheus.CounterVec
+	// VehicleInfoDeferredTotal counts vehicle info writes that landed inside the post-steal warm-up and were written after it. A deferral,
+	// not a refusal: it has no place in rivolt_lease_fenced_total, which pages.
+	VehicleInfoDeferredTotal prometheus.Counter
 	// LeaseShed counts the lead-mode shed decisions of a pod over its fair share, by choice: idle
 	// (a sleeping group), awake (no sleeping one), deferred (every group over the share had an open
 	// drive or charge, so nothing moved that pass).
@@ -716,6 +719,10 @@ func New() *Metrics {
 			},
 			[]string{"outcome"},
 		),
+		VehicleInfoDeferredTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_vehicle_info_deferred_total",
+			Help: "Vehicle info writes deferred past the post-steal warm-up and written after it (not refusals).",
+		}),
 		RivianRequestSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "rivolt_rivian_request_seconds",
 			Help:    "Seconds each request to Rivian's GraphQL gateway took (sent to answered or failed), by operation.",
@@ -1176,6 +1183,7 @@ func New() *Metrics {
 		m.RivianWSReconnects,
 		m.RivianUnpermitted,
 		m.RivianScheduleReadTotal,
+		m.VehicleInfoDeferredTotal,
 		m.LeaseShed,
 		m.LeaseUnstreamed,
 		m.LeaseUnstreamedVehicles,
