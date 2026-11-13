@@ -51,6 +51,8 @@ func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group 
 		return r.planLegs(ctx, user, group, args)
 	case forward.KindOTANotes:
 		return r.otaNotes(ctx, user, group, args)
+	case forward.KindLiveSession:
+		return r.liveSession(ctx, user, group, args)
 	case forward.KindReceiptsSync:
 		return r.receiptsSync(ctx, user)
 	}
@@ -91,6 +93,20 @@ func (r *forwardRunner) otaNotes(ctx context.Context, user, group string, args a
 		c, _ = acct.(rivian.Client)
 	}
 	return api.ServeOTANotes(ctx, c, a.VehicleID), nil
+}
+
+// liveSession serves one live-session read for a requester that does not hold the group: this pod's monitor answers, no Rivian call is made.
+// The vehicle must belong to the named group, as for fresh_state.
+func (r *forwardRunner) liveSession(_ context.Context, user, group string, args any) (forward.Result, error) {
+	a, ok := args.(*forward.LiveSessionArgs)
+	uid, err := uuid.Parse(user)
+	if !ok || err != nil || r.monitors == nil || r.store == nil {
+		return forward.Result{Status: 400, Class: "bad_request"}, nil
+	}
+	if g, known := r.store.GroupOfVehicle(a.VehicleID); !known || g != group {
+		return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
+	}
+	return api.ServeLiveSession(r.monitors.For(uid), a.VehicleID), nil
 }
 
 // planLegs serves one planner call for a requester that does not hold the group, against the user's own client. The vehicle must belong

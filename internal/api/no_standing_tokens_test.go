@@ -384,3 +384,66 @@ func TestRefreshVehiclesOnATokenlessPodHandsTheSlotBackWhenTheNudgeIsLost(t *tes
 		t.Fatalf("nudged %d times, want 2", nudged)
 	}
 }
+
+// liveSessionGet drives GET /api/live-session/{id} through the real router on a token-less pod whose forwarder is fw.
+func liveSessionGet(t *testing.T, fw StateForwarder) *httptest.ResponseRecorder {
+	t.Helper()
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := New(Deps{Auth: svc, AuthEnforced: true, Accounts: gatedRegistry(), StateForward: fw,
+		GroupOfVehicle: func(string) (string, bool) { return fwdGroup, true }})
+	req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev/api/live-session/"+fwdVehicle, nil)
+	req.RemoteAddr = "203.0.113.9:4000"
+	ctx := auth.WithUser(req.Context(), uuid.New())
+	ctx = auth.WithSession(ctx, auth.SessionRef{ID: uuid.New(), Kind: "web"})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req.WithContext(ctx))
+	return rec
+}
+
+// The api pod holds no monitor: the live panel's session totals come from the owner's, through a live_session forward.
+func TestLiveSessionRouteOnATokenlessPodAnswersWithTheOwnersTotals(t *testing.T) {
+	body, _ := json.Marshal(wireOf(&rivian.LiveSession{VehicleID: fwdVehicle, Active: true, PowerKW: 11.2, TotalChargedEnergyKWh: 18.5},
+		rivian.ChargeNow{EnergyKWh: 18.5, PeakKW: 11.2}))
+	fw := &fakeStateForwarder{res: forward.Result{Status: 200, Body: body}}
+	rec := liveSessionGet(t, fw)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("live-session = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Active bool    `json:"active"`
+		Total  float64 `json:"total_charged_energy_kwh"`
+		Power  float64 `json:"power_kw"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || !got.Active || got.Total != 18.5 || got.Power != 11.2 {
+		t.Fatalf("live-session body %s (%v), want the owner's totals", rec.Body.String(), err)
+	}
+	if len(fw.calls) != 1 || fw.calls[0].Kind != forward.KindLiveSession || fw.calls[0].Group != fwdGroup {
+		t.Fatalf("forwarder calls %+v, want one live_session to the vehicle's group", fw.calls)
+	}
+}
+
+// No owner to ask (the forward comes back unavailable): a retry-able 503, never a zeroed 200 the panel would show as an empty charge.
+func TestLiveSessionRouteOnATokenlessPodWithNoOwnerIsRetryable(t *testing.T) {
+	rec := liveSessionGet(t, &fakeStateForwarder{res: forward.UnavailableResult()})
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("live-session with no owner = %d, Retry-After %q (%s); want 503 with Retry-After", rec.Code, rec.Header().Get("Retry-After"), rec.Body.String())
+	}
+}
+
+// The owner's runner side: its monitor's session and charge-now go back in the wire shape the requester decodes.
+func TestServeLiveSessionReturnsTheMonitorsRead(t *testing.T) {
+	res := ServeLiveSession(rivian.NewStateMonitor(nil, nil), fwdVehicle)
+	if res.Status != http.StatusOK {
+		t.Fatalf("ServeLiveSession = %d, want 200", res.Status)
+	}
+	var w liveSessionWire
+	if err := json.Unmarshal(res.Body, &w); err != nil {
+		t.Fatal(err)
+	}
+	if got := ServeLiveSession(nil, fwdVehicle); got.Status != http.StatusServiceUnavailable {
+		t.Fatalf("ServeLiveSession without a monitor = %d, want 503", got.Status)
+	}
+}

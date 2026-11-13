@@ -1222,7 +1222,7 @@ func New(d Deps) http.Handler {
 				handleVehicleStateFresh(clientFor(d, uid), d.rivianSessionCheck(uid))(w, r)
 			}))
 			r.With(vehicleScoped, vehicleGate).Get("/live-session/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleLiveSession(clientFor(d, uid), monitorFor(d, uid), d.Settings.For(uid))(w, r)
+				handleLiveSessionForwarded(clientFor(d, uid), monitorFor(d, uid), d.Settings.For(uid), d.stateForward(uid))(w, r)
 			}))
 			r.With(vehicleScoped, vehicleGate).Get("/live-drive/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleLiveDrive(monitorFor(d, uid))(w, r)
