@@ -47,7 +47,7 @@ var Kinds = map[Kind]Spec{
 	KindAdopt:        {Timeout: 5 * time.Second, Retry: false, NoReply: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[AdoptArgs](a) }},
 	KindReceiptsSync: {Timeout: 25 * time.Second, Retry: false, NoReply: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[ReceiptsSyncArgs](a) }},
 	KindOTANotes:     {Timeout: 15 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[OTANotesArgs](a) }},
-	KindLiveSession:  {Timeout: 8 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[LiveSessionArgs](a) }},
+	KindLiveSession:  {Timeout: 4 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[LiveSessionArgs](a) }},
 }
 
 // ErrBadArgs: args that fail the kind's schema.
