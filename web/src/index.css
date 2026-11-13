@@ -881,3 +881,13 @@ html[data-theme='light'] {
     overflow-wrap: anywhere;
   }
 }
+
+/* A very short viewport (a phone at Safari's aA 300 %: 131 x 232 CSS px, with the 57 px tab bar below) cannot spare a pinned page header, 80 to 100 px
+   under the pinned app bar: the title and period scroll away with the page instead, so the content gets the room. The app bar stays: the plan's
+   sheet is laid out under it. */
+@media (max-height: 320px) {
+  :root [data-ui-header] {
+    position: static;
+    box-shadow: none;
+  }
+}
