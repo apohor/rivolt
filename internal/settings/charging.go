@@ -118,16 +118,13 @@ func SetChargingConfig(ctx context.Context, s *Store, cfg ChargingConfig) error 
 	if cfg.ComparisonMPG < 0 {
 		cfg.ComparisonMPG = 0
 	}
-	// The full overwrite from the web does not know the source: a rate left as stored keeps its source, a changed or sent one is the user's.
+	// The full overwrite from the web echoes the GET, so the source in the body is not trusted: a rate left as stored keeps its stored source,
+	// a changed one is the user's. Only PatchChargingConfigSource writes state_average.
 	source := PriceSourceUser
 	if cfg.HomePricePerKWh <= 0 {
 		source = ""
-	} else if cfg.HomePriceSource == PriceSourceStateAverage {
-		source = PriceSourceStateAverage
-	} else if cfg.HomePriceSource == "" {
-		if cur, err := GetChargingConfig(ctx, s); err == nil && cur.HomePricePerKWh == cfg.HomePricePerKWh {
-			source = cur.HomePriceSource
-		}
+	} else if cur, err := GetChargingConfig(ctx, s); err == nil && cur.HomePricePerKWh == cfg.HomePricePerKWh {
+		source = cur.HomePriceSource
 	}
 	return s.SetMany(ctx, map[string]string{
 		keyChargingHomePricePerKWh: strconv.FormatFloat(cfg.HomePricePerKWh, 'f', -1, 64),

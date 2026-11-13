@@ -60,13 +60,13 @@ func TestChargingHomePriceSource(t *testing.T) {
 	}
 	// The web's overwrite with the same rate and no source keeps the mark; a different rate is the user's.
 	cur := get()
-	cur.HomePriceSource = ""
 	if err := settings.SetChargingConfig(ctx, store, cur); err != nil {
 		t.Fatal(err)
 	}
 	if c := get(); c.HomePriceSource != settings.PriceSourceStateAverage {
 		t.Errorf("round trip un-marked the estimate: %q", c.HomePriceSource)
 	}
+	// The web sends back the GET object with a new rate: the echoed state_average is not taken.
 	cur.HomePricePerKWh = 0.31
 	if err := settings.SetChargingConfig(ctx, store, cur); err != nil {
 		t.Fatal(err)
