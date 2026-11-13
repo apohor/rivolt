@@ -197,7 +197,7 @@ final class PlanSheetUITests: XCTestCase {
         XCTAssertTrue(note.exists, "a row below the chart")
         let noteTop = note.frame.minY
         let start = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 160)), withVelocity: .slow, thenHoldForDuration: 0.1)
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -160)), withVelocity: .slow, thenHoldForDuration: 0.1)   // up: the details have more below the chart
         XCTAssertEqual(chart.value as? String ?? "", cursor, "a vertical swipe leaves the cursor")
         XCTAssertNotEqual(note.frame.minY, noteTop, "the swipe scrolled the details")
         XCTAssertEqual(grabber.frame.minY, grabberTop, accuracy: 1, "the sheet stayed put")
