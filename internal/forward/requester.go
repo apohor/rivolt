@@ -24,6 +24,21 @@ const (
 	RetryAfterSeconds = 5 // the Retry-After a handler sends with a 503 from here
 )
 
+// runHeld runs the call here when this pod holds the group's lease (ok true): the owner's own calls, with no forwarding.
+func (f *Forwarder) runHeld(ctx context.Context, c Call, local func(context.Context) (Result, error)) (Result, bool, error) {
+	if epoch, ok := f.cfg.Leases.Held(c.Group); !ok || f.cfg.Leases.PastDeadline() || epoch <= 0 {
+		return Result{}, false, nil
+	}
+	f.count(c.Kind, "held") // the normal case on the owner: not a fail-soft path (left out of the local share), but counted for volume
+	if f.cfg.Token != nil {
+		if tok, has := f.cfg.Token(c.Group); has {
+			ctx = fence.With(ctx, tok) // the call is the group's own, so it carries the permit like an acquired one does
+		}
+	}
+	res, err := local(ctx)
+	return res, true, err
+}
+
 // LeaseForgetter is implemented by a LeaseView that caches: Forget drops a group's cached row so the next Owner call reads it fresh.
 type LeaseForgetter interface{ Forget(group string) }
 
@@ -142,14 +157,7 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 	if _, ok := Kinds[c.Kind]; !ok {
 		return Result{Status: StatusUnavailable, Class: ClassUnavailable}, "rejected", errors.New("forward: not an allowlisted kind")
 	}
-	if epoch, ok := f.cfg.Leases.Held(c.Group); ok && !f.cfg.Leases.PastDeadline() && epoch > 0 {
-		f.count(c.Kind, "held") // the normal case on the owner: not a fail-soft path (left out of the local share), but counted for volume
-		if f.cfg.Token != nil {
-			if tok, has := f.cfg.Token(c.Group); has {
-				ctx = fence.With(ctx, tok) // the call is the group's own, so it carries the permit like an acquired one does
-			}
-		}
-		res, err := local(ctx)
+	if res, ok, err := f.runHeld(ctx, c, local); ok {
 		return res, "held", err
 	}
 	owner, err := f.cfg.Leases.Owner(ctx, c.Group)
@@ -162,7 +170,7 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 		return f.fallback(ctx, c, "local", !owner.Found, local)
 	}
 	attempts := 0
-	var sawBusy bool
+	var sawBusy, waited bool
 	for {
 		attempts++
 		res, outcome := f.attempt(ctx, c, owner)
@@ -180,11 +188,17 @@ func (f *Forwarder) Do(ctx context.Context, c Call, local func(context.Context) 
 		case "redis":
 			return f.fallback(ctx, c, "local", false, local) // the lease is live: not ready, or Redis is down
 		case "draining":
-			if f.cfg.OwnerWait <= 0 || !(f.cfg.NoLocal || f.cfg.AcquireOnRequest) {
+			// One wait per call: a successor that is also draining (a sequential roll) is not waited for a second time.
+			if waited || f.cfg.OwnerWait <= 0 || !(f.cfg.NoLocal || f.cfg.AcquireOnRequest) {
 				return f.fallback(ctx, c, "local", false, local)
 			}
+			waited = true
 			next, found := f.waitForOwner(ctx, c, owner)
 			if next.Pod == "" {
+				// The wait may have ended because this pod took the group: serve it as the owner rather than refuse.
+				if res, ok, err := f.runHeld(ctx, c, local); ok {
+					return res, "held", err
+				}
 				return f.fallback(ctx, c, "local", !found, local) // out of time, or the row is gone and this pod may take it
 			}
 			owner = next
