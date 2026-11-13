@@ -2,7 +2,9 @@ package rivian
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/apohor/rivolt/internal/fence"
 )
@@ -102,4 +104,54 @@ func TestBatteryCapacityHookIsFenced(t *testing.T) {
 			t.Errorf("%v: capacity not cached: %+v", c.st, v)
 		}
 	}
+}
+
+// A vehicle whose group is still warming up when the day's refresh lands is persisted after the warm-up, from the fetched data, once the
+// group is held: the refresh is not retried for a day, so dropping it left the stored gallery empty.
+func TestVehicleInfoHookWritesAfterWarmUp(t *testing.T) {
+	tok := fence.Token{Group: "g", Pod: "p", Epoch: 3}
+	src := &switchFence{tok: tok, st: fence.Warming}
+	m := NewStateMonitor(nil, nil)
+	m.warmWait = 20 * time.Millisecond
+	m.SetFence(src, func(string) {})
+	got := make(chan Vehicle, 2)
+	m.persistVehicleInfo(func(ctx context.Context, vs []Vehicle) {
+		if got, ok := fence.From(ctx); !ok || got != tok {
+			t.Errorf("deferred write without the group's token: %v %+v", ok, got)
+		}
+		for _, v := range vs {
+			got2 := v
+			select {
+			case got <- got2:
+			default:
+			}
+		}
+	}, []Vehicle{{ID: "w", Images: []VehicleImage{{URL: "u"}}}})
+	select {
+	case v := <-got:
+		t.Fatalf("persisted inside the warm-up: %+v", v)
+	case <-time.After(5 * time.Millisecond):
+	}
+	src.set(fence.Held)
+	select {
+	case v := <-got:
+		if v.ID != "w" || len(v.Images) != 1 {
+			t.Errorf("persisted %+v", v)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the gallery was not written after the warm-up")
+	}
+}
+
+type switchFence struct {
+	mu  sync.Mutex
+	tok fence.Token
+	st  fence.State
+}
+
+func (f *switchFence) set(st fence.State) { f.mu.Lock(); f.st = st; f.mu.Unlock() }
+func (f *switchFence) Fence(string) (fence.Token, fence.State) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tok, f.st
 }
