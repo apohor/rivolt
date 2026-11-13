@@ -240,7 +240,7 @@ export default function NowHeroV2({
           </p>
         )}
         {rows.length > 0 && (
-          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+          <dl className="mt-3 min-[900px]:first:mt-0 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
             {rows.map((d) => (
               <div key={d.k} className="contents">
                 <dt className="text-neutral-500">{d.k}</dt>

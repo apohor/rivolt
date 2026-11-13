@@ -116,3 +116,12 @@ test("desktop parked: the temps open the right column with no rule above them; o
   await page.setViewportSize({ width: 393, height: 852 });
   await expect(temps).toHaveCSS("border-top-width", "1px");
 });
+
+test("charging: the bolt scales with the sketch, so it sits on the roof at any width", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await open(page, { scenario: "charging", withImages: false });
+  const sketch = await page.getByTestId("now-car-sketch").boundingBox();
+  const bolt = await page.locator("[data-testid=now-car-sketch] > svg").nth(1).boundingBox();
+  expect(bolt!.width / sketch!.width).toBeGreaterThan(0.09);
+  expect(bolt!.width / sketch!.width).toBeLessThan(0.13);
+});
