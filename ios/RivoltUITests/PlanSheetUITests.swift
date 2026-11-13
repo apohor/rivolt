@@ -150,4 +150,46 @@ final class PlanSheetUITests: XCTestCase {
             XCTAssertTrue(button.isHittable, "\(name) takes a tap")
         }
     }
+
+    /// Brings the elevation chart into view by opening the sheet and scrolling its details, and returns it.
+    private func chart(in app: XCUIApplication, grabber: XCUIElement) -> XCUIElement {
+        let chart = app.descendants(matching: .any)["plan-elevation-chart"].firstMatch
+        if grabber.value as? String != "full" { grabber.tap(); if grabber.value as? String != "full" { grabber.tap() } }
+        let window = app.windows.firstMatch
+        for _ in 0..<8 where !chart.exists || !chart.isHittable || chart.frame.maxY > window.frame.maxY - 120 {
+            let low = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+            low.press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)), withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        XCTAssertTrue(chart.exists && chart.isHittable, "the plan has an elevation chart in view")
+        return chart
+    }
+
+    /// A drag along the elevation chart moves its cursor (the value says where) and does not move the sheet.
+    func testDraggingAlongTheElevationChartMovesItsCursorAndLeavesTheSheet() throws {
+        let app = launch()
+        let grabber = open("Seattle to Spokane", in: app)
+        let chart = chart(in: app, grabber: grabber)
+        let sheet = grabber.value as? String ?? "?"
+        // The scroll that brought the chart into view may have touched it, so read the cursor where a first touch puts it, then drag on.
+        let from = chart.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+        from.tap()
+        let before = chart.value as? String ?? ""
+        from.press(forDuration: 0.05, thenDragTo: chart.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)))
+        let value = chart.value as? String ?? ""
+        XCTAssertNotEqual(value, before, "the drag moved the cursor")
+        XCTAssertTrue(value.range(of: #"^[\d,]+ (mi|km) · [\d,]+ (ft|m)$"#, options: .regularExpression) != nil, "the cursor has a place and a height: \(value)")
+        expect(grabber, sheet, "a sideways drag on the chart leaves the sheet")
+    }
+
+    /// At accessibility text the chart is still whole: on the screen's width, with its words.
+    func testTheElevationChartFitsAtAX3() throws {
+        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
+        let grabber = open("Seattle to Spokane", in: app)
+        let chart = chart(in: app, grabber: grabber)
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThanOrEqual(chart.frame.minX, window.minX)
+        XCTAssertLessThanOrEqual(chart.frame.maxX, window.maxX)
+        XCTAssertGreaterThanOrEqual(chart.frame.height, 100, "the plot keeps its height")
+        XCTAssertTrue(app.staticTexts["Elevation shown for context; Rivian's estimate decides the energy."].firstMatch.exists, "the context line is there")
+    }
 }

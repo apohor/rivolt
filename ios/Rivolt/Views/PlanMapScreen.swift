@@ -99,7 +99,7 @@ struct PlanMapScreen: View {
         .onChange(of: day) { pickedLeg = nil }
         // Another trip's days: it opens on the whole trip, not on the day picked on the last one.
         .onChange(of: plannedDays) { day = nil }
-        .onChange(of: model.plan) { pickedLeg = nil }
+        .onChange(of: model.plan) { pickedLeg = nil; model.elevationCursor = nil }
         .onChange(of: ax) { _, large in detent = large ? .peek : .half }
         .task { await radar.probe(source: state.client) }
         .task(id: radar.isOn) { if radar.isOn { await radar.keepFresh(source: state.client) } }
@@ -164,7 +164,8 @@ struct PlanMapScreen: View {
         } else if let route = model.plan?.best {
             PlanMap(content: .route(.init(route: route, weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil, vias: model.vias,
                                           pendingVias: model.pendingVias, previewLine: model.previewLine)),
-                    focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
+                    focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) },
+                    cursorShare: model.elevationCursor, onCursorShare: PlanElevation.usable(model.plan?.elevationProfile) == nil ? nil : { model.elevationCursor = $0 }, along: model.markers,
                     onLine: { line, _ in Task { await model.setRoadLine(line, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom,
                     showsCredit: false, onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
                     onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) })
