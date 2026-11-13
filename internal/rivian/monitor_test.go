@@ -1,9 +1,11 @@
 package rivian
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 )
@@ -340,5 +342,16 @@ func TestNoteSubEnd_PerVehicleIsolation(t *testing.T) {
 	}
 	if m.noteSubEnd("veh-B", short, false) {
 		t.Fatal("veh-B warned off veh-A's short sessions; windows should be per-vehicle")
+	}
+}
+
+func TestWarnRemovedParallaxEnv(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	set := map[string]string{"RIVOLT_PARALLAX_GPS": "true", "RIVOLT_PARALLAX": "true"}
+	warnRemovedParallaxEnv(logger, func(k string) (string, bool) { v, ok := set[k]; return v, ok })
+	out := buf.String()
+	if !strings.Contains(out, "RIVOLT_PARALLAX_GPS") || strings.Contains(out, "RIVOLT_PARALLAX_CAPTURE") || strings.Contains(out, "var=RIVOLT_PARALLAX ") {
+		t.Fatalf("unexpected warnings: %q", out)
 	}
 }
