@@ -76,3 +76,19 @@ func TestOperatorKeyIsNeverPersisted(t *testing.T) {
 		t.Error("removing the operator key must disable AI again")
 	}
 }
+
+// A mounted secret often ends in a newline; a key of only whitespace is no key.
+func TestOperatorKeyIsTrimmed(t *testing.T) {
+	m, err := NewManager(context.Background(), memKV{}, AIConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SetOperator(" \n", nil)
+	if m.Provider() != nil {
+		t.Error("a whitespace-only operator key must not enable AI")
+	}
+	m.SetOperator("sk-op-secret\n", nil)
+	if m.Provider() == nil {
+		t.Error("an operator key with a trailing newline must still enable AI")
+	}
+}
