@@ -40,6 +40,27 @@ func TestParamsCheckRefusesLessThan30DaysOfNotice(t *testing.T) {
 	}
 }
 
+// The Pro list is plan v6: a 12-month free window, forecast radar along the route in Pro, and only the small Now widget and the charging Live
+// Activity free. The v5 words (90 days, every widget in Pro) must not come back in either email.
+func TestLaunchCopyIsPlanV6(t *testing.T) {
+	launch := RenderEmail(NewParams(day("2026-12-01")))
+	free := RenderFoundingEmail(FoundingParams{End: "2027-11-15"})
+	for name, body := range map[string]string{"launch": launch, "founding": free} {
+		if strings.Contains(body, "90 days") {
+			t.Errorf("%s email still says 90 days", name)
+		}
+		if !strings.Contains(body, "12 months") || !strings.Contains(body, "small Now widget") || !strings.Contains(body, "charging Live Activity") {
+			t.Errorf("%s email lacks the v6 free window or widgets", name)
+		}
+	}
+	if !strings.Contains(launch, "forecast radar along the route") {
+		t.Error("the launch email's Pro list lacks forecast radar along the route")
+	}
+	if !strings.Contains(free, "iPhone purchase coming soon; the app has no link out to buy.") || strings.Contains(free, "or in the iPhone app") {
+		t.Error("the end-of-year email must be web-first with no iPhone purchase path")
+	}
+}
+
 func TestRenderedCopyHasNoPlaceholdersAndStatesTheDates(t *testing.T) {
 	p := NewParams(day("2026-12-01"))
 	body := RenderEmail(p)

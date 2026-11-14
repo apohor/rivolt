@@ -135,10 +135,10 @@ func RenderFoundingInApp(p FoundingParams) InApp {
 }
 
 // foundingBody is the free account's email after the opening: one paragraph per line.
-const foundingBody = "What changes on that date: Activity, Money and Truck show the last 90 days; the planner plans single-day trips; three saved trips stay editable and the rest stay read-only; one vehicle is shown at a time; trends and range near a temperature are not shown; the iPhone widgets and the charging Live Activity show the free state.\n\n" +
-	"What does not change: every drive and charge keeps being recorded on every connected vehicle, every alert keeps working, and the full export of everything, including history older than 90 days, stays free.\n\n" +
+const foundingBody = "What changes on that date: Activity, Money and Truck show the last 12 months; the planner plans single-day trips; three saved trips stay editable and the rest stay read-only; one vehicle is shown at a time; trends and range near a temperature are not shown; the other iPhone widgets are Pro-only; the small Now widget and the charging Live Activity stay free.\n\n" +
+	"What does not change: every drive and charge keeps being recorded on every connected vehicle, every alert keeps working, and the full export of everything, including history older than 12 months, stays free.\n\n" +
 	"Export everything first if you like: " + ExportURL + "\n\n" +
-	"To keep Pro, subscribe from your Plan card (sign in first), $3.99 a month or $34.99 a year, or in the iPhone app: " + PlanURL + "\n" +
+	"To keep Pro, subscribe from your Plan card on the web (sign in first), $3.99 a month or $34.99 a year: " + PlanURL + ". iPhone purchase coming soon; the app has no link out to buy.\n" +
 	"Or do nothing: nothing is deleted either way.\n"
 
 // Mailer sends one message.
