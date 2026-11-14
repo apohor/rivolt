@@ -51,3 +51,14 @@ func TestConfigCheck(t *testing.T) {
 		t.Errorf("sandbox deployment accepted production: %v", err)
 	}
 }
+
+// A bundle id with no product list must stop a billing-on start: Check would otherwise accept any product under the bundle.
+func TestConfigFromEnvBundleWithoutProductsNeedsBillingOff(t *testing.T) {
+	e := env(map[string]string{"RIVOLT_APPLE_IAP_BUNDLE_ID": "dev.example.test"})
+	if _, err := ConfigFromEnv(e, true); err == nil {
+		t.Fatal("bundle id without products with billing on must be an error")
+	}
+	if c, err := ConfigFromEnv(e, false); err != nil || c == nil {
+		t.Fatalf("billing off: %v %v", c, err)
+	}
+}

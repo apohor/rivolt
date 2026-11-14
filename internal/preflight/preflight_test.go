@@ -112,9 +112,13 @@ func TestPreflightProblems(t *testing.T) {
 		"missing webhook secret": func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_STRIPE_WEBHOOK_SECRET": ""}) },
 		"missing a price":        func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_STRIPE_PRICE_YEARLY": ""}) },
 		"missing base url":       func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_PUBLIC_BASE_URL": ""}) },
-		"missing apple bundle":   func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_BILLING_IOS": "1", "RIVOLT_APPLE_IAP_BUNDLE_ID": ""}) },
-		"missing apple products": func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_BILLING_IOS": "1", "RIVOLT_APPLE_IAP_PRODUCTS": ""}) },
-		"bad apple environment":  func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_APPLE_IAP_ENV": "Staging"}) },
+		"missing apple bundle": func(in *Input) {
+			in.Getenv = env(map[string]string{"RIVOLT_BILLING_IOS": "1", "RIVOLT_APPLE_IAP_BUNDLE_ID": ""})
+		},
+		"missing apple products": func(in *Input) {
+			in.Getenv = env(map[string]string{"RIVOLT_BILLING": "1", "RIVOLT_APPLE_IAP_PRODUCTS": ""})
+		},
+		"bad apple environment": func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_APPLE_IAP_ENV": "Staging"}) },
 		"a page answers 404": func(in *Input) {
 			in.Fetch = func(_ context.Context, u string) (int, error) {
 				if strings.HasSuffix(u, "/privacy") {
@@ -463,5 +467,15 @@ func TestPreflightAppleOffIsAPass(t *testing.T) {
 	in.Getenv = env(map[string]string{"RIVOLT_APPLE_IAP_PRODUCTS": "", "RIVOLT_APPLE_IAP_ENV": "Staging"})
 	if r := Run(context.Background(), in); !strings.Contains(strings.Join(r.Problems, "\n"), "StoreKit is misconfigured") {
 		t.Errorf("a bad StoreKit environment must stay a problem with iOS billing off: %v", r.Problems)
+	}
+}
+
+// A bundle id with no product list and billing on would accept any product under the bundle: still a problem with iOS billing off.
+func TestPreflightAppleBundleWithoutProductsIsAProblem(t *testing.T) {
+	in := okInput()
+	in.Getenv = env(map[string]string{"RIVOLT_BILLING": "1", "RIVOLT_BILLING_IOS": "", "RIVOLT_APPLE_IAP_PRODUCTS": ""})
+	r := Run(context.Background(), in)
+	if !strings.Contains(strings.Join(r.Problems, "\n"), "RIVOLT_APPLE_IAP_PRODUCTS is required") {
+		t.Errorf("bundle without products must be a problem: %v", r.Problems)
 	}
 }
