@@ -115,6 +115,11 @@ func iosFixtureTargets() map[string]any {
 		"activity.json": &activityResponse{},
 		// The demo's live answer, trimmed: microsecond timestamps, a null trailer, an AC charge with no network (the shapes the app's decoder met).
 		"activity_live_shape.json": &activityResponse{},
+		// The iPhone round-trip detail: a merged row with legs[] (parked_min_after is a float on the wire) and each leg's drive.
+		"activity_round_trip.json": &activityResponse{},
+		"drive_rt-leg-1.json":      &driveResponse{},
+		"drive_rt-leg-2.json":      &driveResponse{},
+		"drive_rt-leg-3.json":      &driveResponse{},
 		// The Now card's detail (Sprint 7 slice A): the same calls as the web
 		// Home page's LivePanel.
 		"live_session.json":      &liveSessionResponse{},

@@ -42,8 +42,24 @@ struct ActivityLeg: Decodable, Hashable, Identifiable {
     let startedAt: Date
     let endedAt: Date
     let distanceMi: Double
-    /// Whole minutes parked before the next leg; nil on the last.
+    /// Minutes parked before the next leg, rounded to whole minutes; nil on the last. The server sends it as a number with a decimal type
+    /// (a float), so it is read as one and rounded here.
     let parkedMinAfter: Int?
+
+    init(id: String, startedAt: Date, endedAt: Date, distanceMi: Double, parkedMinAfter: Int?) {
+        self.id = id; self.startedAt = startedAt; self.endedAt = endedAt; self.distanceMi = distanceMi; self.parkedMinAfter = parkedMinAfter
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, startedAt, endedAt, distanceMi, parkedMinAfter }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        endedAt = try c.decode(Date.self, forKey: .endedAt)
+        distanceMi = try c.decode(Double.self, forKey: .distanceMi)
+        parkedMinAfter = try c.decodeIfPresent(Double.self, forKey: .parkedMinAfter).map { Int($0.rounded()) }
+    }
 }
 
 struct ActivityCharge: Decodable, Hashable, Identifiable {
