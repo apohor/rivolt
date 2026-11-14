@@ -236,7 +236,7 @@ export function RouteCard({
   );
   // Leg i of the weather adjustment runs from waypoint i to i+1, so the weather on the way to waypoint idx is leg idx-1.
   const legTo = (idx: number) => (adjustment && idx > 0 ? adjustment.legs[idx - 1] : undefined);
-  const weatherNoteTo = (idx: number) => {
+  const weatherNoteTo = (idx: number, withCredit = false) => {
     const leg = legTo(idx);
     if (!leg) return undefined;
     const facts = legWeatherFacts(leg, temperatureUnit, distanceUnit);
@@ -245,8 +245,8 @@ export function RouteCard({
       facts?.feels ? `Feels like ${facts.feels}` : null,
       legEstimateLine(leg.multiplier, (adjustment?.profile_multiplier ?? 1) !== 1),
       climb,
-      // The terrain data asks to be credited wherever the climb shows.
-      climb ? TERRAIN_ATTRIBUTION : null,
+      // The terrain data asks to be credited wherever the climb shows: in the map's popup, and once under the itinerary (not under every stop).
+      climb && withCredit ? TERRAIN_ATTRIBUTION : null,
     ].filter((l): l is string => !!l);
   };
   // The origin of a plan from the truck's position has no name: "Start to Kettleman City", not "the stop to Kettleman City".
@@ -254,7 +254,7 @@ export function RouteCard({
   const legWeather: (LegWeatherInfo | null)[] | undefined = adjustment
     ? route.Waypoints.slice(1).map((_, k) => {
         const facts = legWeatherFacts(adjustment.legs[k], temperatureUnit, distanceUnit);
-        return facts ? { facts, title: `${shortPlace(k)} to ${shortPlace(k + 1)}`, note: weatherNoteTo(k + 1) ?? [] } : null;
+        return facts ? { facts, title: `${shortPlace(k)} to ${shortPlace(k + 1)}`, note: weatherNoteTo(k + 1, true) ?? [] } : null;
       })
     : undefined;
   const row = (idx: number, kind: "start" | "stop" | "via" | "end", name: string, n?: number) => (
@@ -338,6 +338,10 @@ export function RouteCard({
           <section data-plan-area="itinerary" aria-label="Itinerary">
             <h2 className="ui-label mb-1">Itinerary</h2>
             {timeline}
+            {/* Once per plan, where the stops' climb lines show; the elevation chart carries its own. */}
+            {!profile && adjustment?.legs.some((l) => climbLine(l.climb_m, l.descent_m, distanceUnit)) && (
+              <p data-testid="terrain-credit" className="mt-2 text-[11px] text-neutral-600">{TERRAIN_ATTRIBUTION}</p>
+            )}
             {credit}
           </section>
         </BottomSheet>

@@ -225,7 +225,7 @@ struct HomeView: View {
                     }
                     .accessibilityLabel("Switch vehicle")
                 }
-                if v2, let chip = chipText { ThemePill(text: chip, tone: chipTone) }
+                if v2, let chip = chipText { ThemePill(text: chip, tone: chipTone, identifier: "now-chip") }
                 // With the redesign the period stepper sits above the month's figures instead.
                 if !v2 { PeriodControl() }
             }

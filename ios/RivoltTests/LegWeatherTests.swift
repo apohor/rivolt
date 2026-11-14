@@ -96,6 +96,7 @@ final class LegWeatherTests: XCTestCase {
         XCTAssertEqual(LegWeather.climbLine(climbM: 579, descentM: 670, metric: true), "Climb +579 m · descent −670 m")
         XCTAssertNil(LegWeather.climbLine(climbM: nil, descentM: 670, metric: false))
         XCTAssertTrue(LegWeather.terrainCredit.hasPrefix("Terrain: USGS 3DEP"))
+        XCTAssertFalse(LegWeather.showsClimb(nil))
     }
 
     func testAPlanWithWeatherDecodesAndCarriesTheProfileFlag() throws {

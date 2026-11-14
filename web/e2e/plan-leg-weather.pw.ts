@@ -43,6 +43,9 @@ for (const v of [
     await expect(tags.nth(0)).toHaveText("41 °F · 25 mph headwind · rain");
     await expect(tags.nth(1)).toHaveText("21 °F · 12 mph tailwind · snow expected");
     await expect(page.locator("[data-plan-timeline]")).not.toContainText("(estimate)");
+    // The terrain credit once per plan, not under every stop's climb line.
+    await expect(page.locator("[data-plan-timeline]")).not.toContainText("Terrain:");
+    await expect(page.getByTestId("terrain-credit")).toHaveCount(1);
 
     // The badges: facts only, no energy figure.
     const badges = page.locator("[data-leg-badge]");

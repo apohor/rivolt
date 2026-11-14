@@ -127,7 +127,8 @@ struct ActivityView: View {
             }
             .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
         }
-        .refreshable { await load(force: true) }
+        // The map and the efficiency tab have no pull of their own: one pull in the list reloads all three.
+        .refreshable { await load(force: true); await loadMap(force: true); await loadEfficiency(force: true) }
     }
 
     /// The month's efficiency breakdowns (the web's Activity "Efficiency").

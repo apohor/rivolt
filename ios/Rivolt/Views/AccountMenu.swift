@@ -6,14 +6,13 @@ enum AccountMenuLogic {
     static let tapSize: CGFloat = 44
 }
 
-/// The person icon at the end of every screen's top bar: one tap opens Settings (which holds Sign out too). A screen with something to
-/// refresh by hand also gets a small "more" menu with Refresh. The demo keeps its own short menu (nothing to change, nothing to sign out
-/// of). Each screen only places it.
+/// The person icon at the end of every screen's top bar: one tap opens Settings (which holds Sign out too). Refreshing is pull-to-refresh on
+/// the screen itself. The demo keeps its own short menu (nothing to change, nothing to sign out of). Each screen only places it.
 struct AccountMenu: View {
     @Environment(AppState.self) private var state
     /// The truck the vehicle and notification settings are for (the Live Activity switch is per truck).
     var vehicleID: String?
-    /// Nil when the screen has nothing to refresh by hand.
+    /// The demo menu's Refresh; nil when the screen has nothing to refresh by hand. The signed-in bar has no Refresh button (pull to refresh).
     var onRefresh: (() -> Void)?
 
     @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
@@ -27,8 +26,7 @@ struct AccountMenu: View {
                 DemoPill()
                 menu
             } else {
-                // Settings is one tap from every screen (owner decision). Refresh, where a screen has one, is its own small menu.
-                if let onRefresh { refreshMenu(onRefresh) }
+                // Settings is one tap from every screen (owner decision).
                 settingsButton
             }
         }
@@ -46,18 +44,6 @@ struct AccountMenu: View {
         .buttonStyle(.plain)
         .accessibilityLabel(AccountMenuLogic.settingsLabel)
         .accessibilityIdentifier("settings-button")
-    }
-
-    private func refreshMenu(_ onRefresh: @escaping () -> Void) -> some View {
-        Menu {
-            Button("Refresh", action: onRefresh)
-        } label: {
-            Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(Theme.textSecondary)
-                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                .frame(width: AccountMenuLogic.tapSize, height: AccountMenuLogic.tapSize)
-                .contentShape(Rectangle())
-        }
-        .accessibilityLabel("More")
     }
 
     private var menu: some View {

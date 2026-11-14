@@ -203,6 +203,11 @@ struct TripPlanResult: View {
                 StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric, weather: PlanRouteLogic.Weather(plan)) { model.focusedStop = $0 }
                 if route.chargingStops.isEmpty { Text(TripPlanLogic.noStopsLine(route)).themeText(.value, color: Theme.textSecondary) }
             }
+            // The terrain credit once per plan, where the stops' climb lines are (the elevation chart carries its own).
+            if PlanElevation.shown(plan.elevationProfile, designPreview: state.designPreview) == nil, LegWeather.showsClimb(plan.weatherAdjustment?.legs) {
+                Text(LegWeather.terrainCredit).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("plan-terrain-credit")
+            }
             if !model.vias.isEmpty { YourStopsSection(model: model) }
             if let cost = TripPlanLogic.costLine(plan.costs?.first) {
                 ThemeSection(title: "Cost") {
@@ -681,7 +686,6 @@ struct StopRows: View {
                 if let est = LegWeather.estimateLine(multiplier: leg.multiplier, withSetup: weather.withSetup) { Text(est).themeText(.subline, color: Theme.textSecondary) }
                 if let climb = LegWeather.climbLine(climbM: leg.climbM, descentM: leg.descentM, metric: weather.metric) {
                     Text(climb).themeText(.subline, color: Theme.textSecondary)
-                    Text(LegWeather.terrainCredit).themeText(.caption, color: Theme.textTertiary)
                 }
             }
         }
