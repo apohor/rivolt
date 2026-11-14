@@ -3524,6 +3524,7 @@ func runServer() {
 		// The Pro plan (internal/entitlements). RIVOLT_BILLING is off by default: every account is Pro, nothing is read, nothing is sold
 		// (self-hosted installs). Billing on reads the entitlements table, the demo account always being Pro.
 		Entitlements:    entitlementsSvc,
+		BillingIOS:      rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING_IOS")),
 		FailLimiterKey:  api.FailLimiterKey(cookieSecret),
 		PurgeUserCaches: func(_ context.Context, uid uuid.UUID) { purgeUserCaches(uid) },
 		AdminHealth: adminhealth.New(adminhealth.Config{

@@ -344,11 +344,13 @@ type meSignedOut struct {
 
 // handleMeEnrichedWith is handleMeEnriched plus `units`, the account's resolved display units, when unitsFor is set, and `passkeys`.
 func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units, passkeys bool) http.HandlerFunc {
-	return handleMeEnrichedPlan(svc, d, hideAdmin, unitsFor, passkeys, nil)
+	return handleMeEnrichedPlan(svc, d, hideAdmin, unitsFor, passkeys, nil, false)
 }
 
-// handleMeEnrichedPlan is handleMeEnrichedWith plus the plan fields, from e (nil: none).
-func handleMeEnrichedPlan(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units, passkeys bool, e *entitlements.Service) http.HandlerFunc {
+// handleMeEnrichedPlan is handleMeEnrichedWith plus the plan fields, from e (nil: none). The iPhone app (a bearer token) is told
+// billing_enabled false unless iosBilling (RIVOLT_BILLING_IOS) is on: its purchase UI stays hidden while the web sells, and the
+// plan and history fields still say what the account has, so the limits are unchanged. The app reads the field it already reads.
+func handleMeEnrichedPlan(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units, passkeys bool, e *entitlements.Service, iosBilling bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -398,6 +400,10 @@ func handleMeEnrichedPlan(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor
 		}
 		if e != nil {
 			me.PlanFields = planFor(r.Context(), e, uid)
+			if me.PlanFields != nil && !iosBilling && auth.ViaBearer(r.Context()) {
+				me.PlanFields.BillingEnabled = false
+				me.PlanFields.ManageSubscription = false
+			}
 		}
 		_ = json.NewEncoder(w).Encode(me)
 	}
