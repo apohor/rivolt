@@ -107,6 +107,7 @@ struct SettingsView: View {
     @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
     @State private var showDelete = false
     @State private var plan: PlanState = .off
+    @State private var freeWindow: FreeWindow = .unknown
     @State private var hasNotices = false
     private var themeSwitch: Bool { state.designPreview.contains("theme_switch") }
 
@@ -147,7 +148,9 @@ struct SettingsView: View {
             .sheet(isPresented: $showDelete) { DeleteAccountSheet(billing: plan != .off).followsAppearance() }
             .task {
                 guard !state.isDemo else { return }
-                plan = PlanLogic.state(try? await state.client.me())
+                let me = try? await state.client.me()
+                plan = PlanLogic.state(me)
+                freeWindow = FreeWindow(me)
                 hasNotices = !((try? await state.client.notices()) ?? []).isEmpty
             }
         }
@@ -166,7 +169,7 @@ struct SettingsView: View {
     private func rowView(_ row: SettingsLogic.Row) -> some View {
         switch row {
         case .plan:
-            NavigationLink { ProPaywallView(plan: plan) } label: { label(row) }
+            NavigationLink { ProPaywallView(plan: plan, window: freeWindow) } label: { label(row) }
         case .notices:
             NavigationLink { NoticesView() } label: { label(row) }
         case .connection:

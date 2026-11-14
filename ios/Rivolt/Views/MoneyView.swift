@@ -20,6 +20,7 @@ struct MoneyView: View {
     @State private var csvBusy = false
     @State private var csvError: String?
     @State private var plan: PlanState = .off
+    @State private var freeWindow: FreeWindow = .unknown
     @State private var showPro = false
 
     @State private var pickedLocked = false
@@ -59,8 +60,13 @@ struct MoneyView: View {
                 guard vehiclesLoaded, selected?.proLocked != true else { return }
                 await model.load(source: state.client, vehicleID: scope, period: period)
             }
-            .task { if !state.isDemo { plan = PlanLogic.state(try? await state.client.me()) } }
-            .sheet(isPresented: $showPro) { ProPaywallView(plan: plan).followsAppearance() }
+            .task {
+                guard !state.isDemo else { return }
+                let me = try? await state.client.me()
+                plan = PlanLogic.state(me)
+                freeWindow = FreeWindow(me)
+            }
+            .sheet(isPresented: $showPro) { ProPaywallView(plan: plan, window: freeWindow).followsAppearance() }
             .task(id: savingsWhich) { await model.loadSavings(source: state.client, which: savingsWhich) }
             .onChange(of: filter) {
                 if filter == .confirm { Task { await model.loadConfirm(source: state.client) } }
@@ -122,7 +128,7 @@ struct MoneyView: View {
     /// The CSV of a month a free account's statement no longer shows is part of Pro (backend #1370).
     private var csvIsPro: Bool {
         guard let m = model.month else { return false }
-        return PlanLogic.csvIsPro(plan, month: m.period, now: MoneyLogic.period(PeriodMonth(containing: .now, calendar: .current), calendar: .current))
+        return PlanLogic.csvIsPro(plan, month: m.period, window: freeWindow)
     }
 
     /// The month as the web's CSV, cut in the same zone and for the same truck as the page. Read only when asked.
