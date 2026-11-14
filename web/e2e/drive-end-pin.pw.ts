@@ -43,7 +43,7 @@ test("iphone: a drive whose parked frame after it says home still shows its end 
 
 // A round trip (out, a stop, back to where it began) is one row in the list, and its page is one drive that starts and ends at the same spot: one pin,
 // not two, and not a missing End. Its pill says both times (startPillText, unit-tested; the pill is canvas, so the pin count is what shows here).
-test("iphone: a merged round trip shows one pin where it starts and ends", async ({ browser }) => {
+test("iphone: a merged round trip shows one start-end pin and a stop pin", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
   await stubApi(page);
@@ -71,6 +71,8 @@ test("iphone: a merged round trip shows one pin where it starts and ends", async
   await page.route("**/api/samples**", (r) => r.fulfill({ json: samples }));
   await page.goto("/drives/drive-out");
   await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
-  await expect(page.locator("[data-map-drawn] .maplibregl-marker")).toHaveCount(1);
+  // The shared start/end pin, and the stop between the two legs ("Parked 30 min").
+  await expect(page.locator("[data-map-drawn] .maplibregl-marker")).toHaveCount(2);
+  await expect(page.locator("[data-stop]")).toHaveCount(1);
   await ctx.close();
 });

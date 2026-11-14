@@ -123,6 +123,15 @@ export function pinElement(color: string, title: string): HTMLElement {
   return el;
 }
 
+// stopElement is a round-trip stop's pin: an amber dot. Its label ("Parked 13 min") is a pill drawn with the time pills (DriveMap), so it
+// follows the map's light and dark card colours and the basemap's place labels give way to it.
+export function stopElement(label: string): HTMLElement {
+  const el = pinElement("#f59e0b", label);
+  el.classList.add("rivolt-map-stop");
+  el.setAttribute("data-stop", label);
+  return el;
+}
+
 // cursorElement is the accent dot that follows the chart scrub.
 export function cursorElement(): HTMLElement {
   const el = document.createElement("span");

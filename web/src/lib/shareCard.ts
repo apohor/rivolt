@@ -2,6 +2,7 @@
 // text (no place, id, coordinate, VIN or map field, so none can reach the painter), and it is painted in the browser
 // from figures the page already has. Nothing is uploaded, posted or tracked. Cost is opt-in on every card.
 
+import { driveDurationSeconds } from "./drives";
 import { estimatedShare, formatMoney, monthLabel, type LedgerMonth } from "./ledger";
 import { buildStatementCardModel } from "./statementCard";
 import { shareFooterLine } from "./appLink";
@@ -62,7 +63,8 @@ export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; 
 export function buildTripShareModel(d: Drive, o: { includeCost: boolean; sample: boolean }): ShareCardModel {
   const start = new Date(d.StartedAt);
   const end = new Date(d.EndedAt);
-  const min = Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) ? Math.max(0, (end.getTime() - start.getTime()) / 60_000) : 0;
+  // Driving time: on a merged round trip the wall span also holds the parked gaps between legs.
+  const min = Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) ? Math.max(0, driveDurationSeconds(d) / 60) : 0;
   const stats: ShareStat[] = [];
   if (d.EnergyUsedKWh > 0 && d.DistanceMi > 0) stats.push({ label: "Efficiency", value: `${(d.DistanceMi / d.EnergyUsedKWh).toFixed(2)} mi/kWh` });
   if (d.EnergyUsedKWh > 0) stats.push({ label: "Energy used", value: `${d.EnergyUsedKWh.toFixed(1)} kWh` });
@@ -73,7 +75,9 @@ export function buildTripShareModel(d: Drive, o: { includeCost: boolean; sample:
   }
   // The day only, never the time of day.
   const day = Number.isFinite(start.getTime()) ? start.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }) : "";
-  return { kind: "trip", eyebrow: "Trip", title: `${n0(d.DistanceMi)} mi${min > 0 ? ` · ${hm(min)}` : ""}`, subtitle: day, stats, notes: [], sample: o.sample };
+  // A merged round trip says so and counts its real legs (a zero-distance stub is not one); the totals above are the sum.
+  const legs = d.round_trip_legs ?? 1;
+  return { kind: "trip", eyebrow: legs > 1 ? "Round trip" : "Trip", title: `${n0(d.DistanceMi)} mi${min > 0 ? ` · ${hm(min)}` : ""}`, subtitle: day, stats, notes: legs > 1 ? [`${legs} legs`] : [], sample: o.sample };
 }
 
 const hasMoney = (s: string) => /[$€£]\s?\d|\d\s?(USD|EUR|GBP|CAD)\b/i.test(s);

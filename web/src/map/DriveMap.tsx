@@ -17,9 +17,9 @@ import { snapToRoads, type SnapPoint } from "./snap";
 import { displayTimeZone } from "../lib/format";
 import { localUnits } from "../lib/preferences";
 import { cumulativeMiles, formatValue, gradientStops, percentileRange, RAMPS, seriesFor, type Mode, type Sample } from "./metrics";
-import { placePills, setPills, startPillText } from "./pills";
+import { type Box, type PillSpec, measurePill, pillBox, pillSide, placePills, placeStopPill, setPills, startPillText } from "./pills";
 import { watchDrawn } from "./drawn";
-import { cursorElement, flavorControl, foldCredits, modeLegend, pinElement, readoutElement, stalenessBadge, tilesNotice } from "./controls";
+import { cursorElement, flavorControl, foldCredits, modeLegend, pinElement, readoutElement, stalenessBadge, stopElement, tilesNotice } from "./controls";
 
 // alt (metres), soc (battery percent) and odo (odometer, miles) feed the Elevation and Efficiency modes; without them those modes are hidden.
 type Point = { lat: number; lon: number; t?: number; s?: number; alt?: number; soc?: number; odo?: number };
@@ -33,6 +33,7 @@ export function DriveMap({
   onCursorChange,
   fixAgeSeconds,
   packKWh,
+  stops,
 }: {
   points: Point[];
   start?: Point;
@@ -46,6 +47,8 @@ export function DriveMap({
   fixAgeSeconds?: number | null;
   // The pack's size in kWh, for the Efficiency mode (battery change against distance); without it that mode is hidden.
   packKWh?: number;
+  // Round-trip stops between legs: a pin with its label ("Parked 13 min"). Memoise: a new array rebuilds the map.
+  stops?: { lat: number; lon: number; label: string }[];
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -198,11 +201,30 @@ export function DriveMap({
         const sLL: [number, number] = [lineStart.lon, lineStart.lat];
         const eLL: [number, number] | null = lineEnd && !sameSpot ? [lineEnd.lon, lineEnd.lat] : null;
         const sides = placePills(map, sLL, eLL);
-        const key = JSON.stringify([sides, flavor, firstT, lastT]);
+        const specs: PillSpec[] = [{ id: "start", text: startPillText(sameSpot, timeOf(firstT), timeOf(lastT)), lngLat: sLL, small: true, ...sides.start }];
+        if (eLL) specs.push({ id: "end", text: timeOf(lastT), lngLat: eLL, small: true, ...sides.end });
+        // A round trip's stops ("Parked 13 min"): pills like the time pills, each on the first side that clears the pins and the other pills.
+        const taken: Box[] = [];
+        for (const sp of specs) {
+          const p = map.project(sp.lngLat);
+          taken.push({ x0: p.x - 11, y0: p.y - 11, x1: p.x + 11, y1: p.y + 11 });
+          const sz = measurePill(sp.text);
+          if (sz) taken.push(pillBox(p, sp.anchor, sp.offset, sz));
+        }
+        const view = { w: el.clientWidth, h: el.clientHeight };
+        (stops ?? []).forEach((st, i) => {
+          if (!Number.isFinite(st.lat) || !Number.isFinite(st.lon) || (st.lat === 0 && st.lon === 0)) return;
+          const ll: [number, number] = [st.lon, st.lat];
+          const p = map.project(ll);
+          const sz = measurePill(st.label, true);
+          const at = sz ? placeStopPill(p, sz, pillSide(map, ll), taken, view) : null;
+          if (!sz || !at) return;
+          taken.push(pillBox(p, at.anchor, at.offset, sz), { x0: p.x - 11, y0: p.y - 11, x1: p.x + 11, y1: p.y + 11 });
+          specs.push({ id: `stop-${i}`, text: st.label, lngLat: ll, dot: "#f59e0b", ...at });
+        });
+        const key = JSON.stringify([specs.map((x) => [x.id, x.text, x.anchor, x.offset]), flavor, firstT, lastT]);
         if (!force && key === pillKey) return;
         pillKey = key;
-        const specs = [{ id: "start", text: startPillText(sameSpot, timeOf(firstT), timeOf(lastT)), lngLat: sLL, small: true, ...sides.start }];
-        if (eLL) specs.push({ id: "end", text: timeOf(lastT), lngLat: eLL, small: true, ...sides.end });
         setPills(map, specs, flavor);
       };
       const fit = () => {
@@ -233,6 +255,9 @@ export function DriveMap({
       const markers: Marker[] = [];
       if (lineStart) markers.push(new ml.Marker({ element: pinElement("#10b981", sameSpot ? "Start / End" : "Start") }).setLngLat([lineStart.lon, lineStart.lat]).addTo(map));
       if (lineEnd && !sameSpot) markers.push(new ml.Marker({ element: pinElement("#f43f5e", "End") }).setLngLat([lineEnd.lon, lineEnd.lat]).addTo(map));
+      for (const s of stops ?? []) {
+        if (Number.isFinite(s.lat) && Number.isFinite(s.lon) && (s.lat !== 0 || s.lon !== 0)) markers.push(new ml.Marker({ element: stopElement(s.label) }).setLngLat([s.lon, s.lat]).addTo(map));
+      }
       cleanups.push(() => markers.forEach((m) => m.remove()));
 
       // Hover to time: the nearest timestamped sample within 28 px of the pointer.
@@ -316,7 +341,7 @@ export function DriveMap({
     return () => { for (const c of cleanups.reverse()) c(); };
     // points is an array derived upstream; re-run only when its identity or the endpoints change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds, packKWh]);
+  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds, packKWh, stops]);
 
   // The scrub dot and its readout follow cursorTime without rebuilding the map.
   useEffect(() => {

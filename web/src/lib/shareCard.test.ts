@@ -35,6 +35,13 @@ describe("share card models", () => {
     expect(m.title).toContain("1 h 15 min");
     expect(all(buildTripShareModel(drive, { includeCost: true, sample: false }))).toMatch(/~\$2\.40/);
   });
+  it("trip: a merged round trip says so, counts its legs and shows driving time, not the parked gaps", () => {
+    const rt = { ...drive, EndedAt: "2026-10-19T17:32:00Z", DrivingSeconds: 3600, round_trip_legs: 3 } as Drive;
+    const m = buildTripShareModel(rt, { includeCost: false, sample: false });
+    expect(m.eyebrow).toBe("Round trip");
+    expect(m.notes).toEqual(["3 legs"]);
+    expect(m.title).toContain("1 h 0 min");
+  });
   it("milestone: the server's words, never a dollar figure, no ids", () => {
     const m = buildMilestoneShareModel(ms({}), { sample: false });
     expect(all(m)).not.toMatch(/veh-secret/);
