@@ -113,7 +113,7 @@ func ledgerConfig(ctx context.Context, store *settings.Store) (ledger.Config, er
 	if err != nil {
 		return ledger.Config{}, err
 	}
-	cfg := ledger.Config{Currency: strings.ToUpper(cc.HomeCurrency), HomeRate: cc.HomePricePerKWh}
+	cfg := ledger.Config{Currency: strings.ToUpper(cc.HomeCurrency), HomeRate: cc.HomePricePerKWh, HomeRateEstimated: cc.HomePriceSource == settings.PriceSourceStateAverage}
 	home, err := settings.GetHomeLocation(ctx, store)
 	if err != nil {
 		return ledger.Config{}, err

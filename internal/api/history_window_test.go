@@ -55,6 +55,7 @@ var routeClasses = map[string]windowClass{
 	"GET /api/ledger/summary":                    {"windowed", ""},
 	"GET /api/ledger/trips":                      {"windowed", ""},
 	"GET /api/ledger/savings":                    {"windowed", ""},
+	"GET /api/ledger/coach":                      {"windowed", ""},
 	"GET /api/statement-email/preview":           {"windowed", "also limited to a free account's primary vehicle, by the same statementScope the email job uses, so the preview is the email"},
 	"GET /api/samples":                           {"windowed", ""},
 	"GET /api/sleep-activity":                    {"windowed", ""},
