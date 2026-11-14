@@ -68,6 +68,29 @@ func TestCollapseRoundTripsLikeWeb(t *testing.T) {
 			t.Errorf("len = %d", len(out))
 		}
 	})
+	t.Run("a stub bridges the chain but is not a leg", func(t *testing.T) {
+		leg1 := rtd("2026-07-16T09:00:00Z", "2026-07-16T09:20:00Z", ptA, ptB)
+		stub := rtd("2026-07-16T09:25:00Z", "2026-07-16T09:25:30Z", ptB, ptB)
+		stub.d.DistanceMi = 0.01
+		leg2 := rtd("2026-07-16T09:40:00Z", "2026-07-16T10:00:00Z", ptB, ptA)
+		out := collapseRoundTripsLikeWeb([]rtDrive{leg2, stub, leg1}, radius, gap)
+		if len(out) != 1 || out[0].legs != 2 || len(out[0].legList) != 2 || math.Abs(out[0].d.DistanceMi-10.01) > 1e-5 {
+			t.Fatalf("out = %+v", out)
+		}
+		l := out[0].legList
+		if l[0].ID != leg1.d.ID || l[1].ID != leg2.d.ID || l[0].ParkedMinAfter == nil || *l[0].ParkedMinAfter != 20 || l[1].ParkedMinAfter != nil {
+			t.Errorf("legs = %+v", l)
+		}
+	})
+	t.Run("a chain with one real leg shows no legs and counts one", func(t *testing.T) {
+		leg1 := rtd("2026-07-16T09:00:00Z", "2026-07-16T09:20:00Z", ptA, ptB)
+		stub := rtd("2026-07-16T09:25:00Z", "2026-07-16T09:25:20Z", ptB, ptA)
+		stub.d.DistanceMi = 0
+		out := collapseRoundTripsLikeWeb([]rtDrive{stub, leg1}, radius, gap)
+		if len(out) != 1 || out[0].legs != 1 || len(out[0].legList) != 0 || !out[0].merged || out[0].drivingS != 1220 {
+			t.Errorf("out = %+v", out)
+		}
+	})
 	t.Run("does not merge across a long park", func(t *testing.T) {
 		leg1 := rtd("2026-07-16T09:00:00Z", "2026-07-16T09:20:00Z", ptA, ptB)
 		leg2 := rtd("2026-07-16T12:20:00Z", "2026-07-16T12:40:00Z", ptB, ptA)
