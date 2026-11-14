@@ -775,6 +775,12 @@ func runServer() {
 	// fails we log and carry on — the hot path treats a nil
 	// store as "gate always open", matching the legacy
 	// pre-kill-switch behavior.
+	// The preview's simulated drive and charge buttons exist on the admin site only, and only when asked for and when a live Rivian client is
+	// forbidden outright (admin-preview sets both); prod's admin site sets neither, so the routes are not there.
+	var replaySim api.SimRunner
+	if adminOnlyMode && pgPool != nil && rivian.SimControlsEnabled(os.Getenv) {
+		replaySim = rivian.NewSimControl(rivian.NewFlagsSimStore(pgPool))
+	}
 	flagsStore, err := flags.OpenStore(ctx, pgPool, logger)
 	if err != nil {
 		logger.Warn("flags store unavailable", "err", err.Error())
@@ -1068,6 +1074,11 @@ func runServer() {
 				}
 			}
 			feed.SetAllowedUsers(func(uid uuid.UUID) bool { return allowed[uid] })
+		}
+		// The preview's simulated drive and charge (admin site, /api/admin/sim): only the generated sample truck plays them, and only where a
+		// live Rivian client is forbidden outright.
+		if src == "sample" && pgPool != nil && rivian.ParseBoolEnv(os.Getenv("RIVOLT_RIVIAN_LIVE_FORBIDDEN")) {
+			feed.SetSimStore(rivian.NewFlagsSimStore(pgPool))
 		}
 		// Rivian pictures for the replay vehicles (any source), the public demo account's included. Never set on a live (prod) deployment.
 		if v := strings.TrimSpace(os.Getenv("RIVOLT_REPLAY_VEHICLE_IMAGES")); v != "" {
@@ -3504,6 +3515,7 @@ func runServer() {
 		ImpersonationDisabled: impersonationDisabled,
 		AdminDisabled:         adminDisabled,
 		AdminOnly:             adminOnlyMode,
+		ReplaySim:             replaySim,
 		ProbesOnly:            !role.PublicRoutes,
 		PlanLegs:              newPlanLegs(sharedRedis, redisKeyPrefix, logger, appMetrics, replicaDivisor),
 		Redis:                 sharedRedis,

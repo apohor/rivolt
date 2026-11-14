@@ -215,6 +215,9 @@ type Deps struct {
 	ProbesOnly bool
 	// AdminHealth feeds GET /api/admin/health-summary (nil: every section reads unavailable).
 	AdminHealth *adminhealth.Service
+	// ReplaySim is the preview's simulated drive and charge (/api/admin/sim). Nil leaves the routes unmounted, so they answer 404; main
+	// builds it only on the admin site when RIVOLT_SIM_CONTROLS and RIVOLT_RIVIAN_LIVE_FORBIDDEN are both true.
+	ReplaySim SimRunner
 	// PlanLegs caches live planner calls and caps them per user (nil: neither).
 	PlanLegs *planleg.Cache
 	Access   *cfaccess.Verifier
@@ -1511,6 +1514,13 @@ func New(d Deps) http.Handler {
 					return map[string]any{"users_count": n}
 				}
 				r.Get("/audit", handleAdminAuditList(auditStore))
+				if d.ReplaySim != nil {
+					r.Get("/sim", handleAdminSimGet(d.ReplaySim))
+					r.With(audit(auditSpec{action: "sim.drive", targetType: "replay_sim"})).
+						Post("/sim/drive", handleAdminSimStart(d.ReplaySim, rivian.SimDrive))
+					r.With(audit(auditSpec{action: "sim.charge", targetType: "replay_sim"})).
+						Post("/sim/charge", handleAdminSimStart(d.ReplaySim, rivian.SimCharge))
+				}
 				r.Get("/health-summary", handleAdminHealthSummary(d.AdminHealth))
 				r.With(audit(auditSpec{action: "impersonation.stop", targetType: "user", bodyUser: "target_id"})).
 					Post("/impersonation/stop", handleImpersonationStop())
