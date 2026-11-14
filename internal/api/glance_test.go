@@ -90,7 +90,7 @@ func TestGlanceAPIHoldsNoRivianClient(t *testing.T) {
 			for i := 0; i < rt.NumOut(); i++ {
 				walk(rt.Out(i), path+" result")
 			}
-		case reflect.Ptr, reflect.Slice:
+		case reflect.Pointer, reflect.Slice:
 			walk(rt.Elem(), path)
 		}
 	}
