@@ -34,6 +34,7 @@ struct HomeView: View {
     private var month: Period { state.period }
     @Environment(\.tabActive) private var tabActive
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     /// When the truck was last read from the server, so "Offline" is said only after a recent read (NowFreshness).
     @State private var freshness = NowFreshness()
     /// Bumped by each read so the card's ages move on without waiting for a change in the data.
@@ -197,33 +198,37 @@ struct HomeView: View {
     /// The page title with the month stepper (and, with more than one truck, which one is shown), pinned under the top
     /// bar like the web's.
     private var titleRow: some View {
-        ThemeTitleRow(title: "Now") {
-            if vehicles.count > 1 {
-                Menu {
-                    Picker("Vehicle", selection: Binding(get: { selectedID }, set: { id in
-                        selectedID = id
-                        pickedLocked = vehicles.first { $0.id == id }?.proLocked == true
-                    })) {
-                        ForEach(vehicles) { v in Text(VehicleChoice.label(v)).tag(v.id) }
-                    }
-                } label: {
-                    if v2 {
-                        // The redesign drops the small car glyph (the web has none): the truck's name, with the chevron that says it opens.
-                        HStack(spacing: 4) {
-                            Text(vehicles.first { $0.id == selectedID }?.name ?? "Vehicle").themeText(.value, color: Theme.textSecondary).lineLimit(1)
-                            Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(Theme.textSecondary)
+        // At accessibility sizes the truck and its state stack instead of squeezing side by side.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        return ThemeTitleRow(title: "Now") {
+            layout {
+                if vehicles.count > 1 {
+                    Menu {
+                        Picker("Vehicle", selection: Binding(get: { selectedID }, set: { id in
+                            selectedID = id
+                            pickedLocked = vehicles.first { $0.id == id }?.proLocked == true
+                        })) {
+                            ForEach(vehicles) { v in Text(VehicleChoice.label(v)).tag(v.id) }
                         }
-                        .frame(minHeight: 44)
-                    } else {
-                        Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
-                            .frame(width: 36, height: 36)
+                    } label: {
+                        if v2 {
+                            // The redesign drops the small car glyph (the web has none): the truck's name, with the chevron that says it opens.
+                            HStack(spacing: 4) {
+                                Text(vehicles.first { $0.id == selectedID }?.name ?? "Vehicle").themeText(.value, color: Theme.textSecondary).lineLimit(1)
+                                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(Theme.textSecondary)
+                            }
+                            .frame(minHeight: 44)
+                        } else {
+                            Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
+                                .frame(width: 36, height: 36)
+                        }
                     }
+                    .accessibilityLabel("Switch vehicle")
                 }
-                .accessibilityLabel("Switch vehicle")
+                if v2, let chip = chipText { ThemePill(text: chip, tone: chipTone) }
+                // With the redesign the period stepper sits above the month's figures instead.
+                if !v2 { PeriodControl() }
             }
-            if v2, let chip = chipText { ThemePill(text: chip, tone: chipTone) }
-            // With the redesign the period stepper sits above the month's figures instead.
-            if !v2 { PeriodControl() }
         }
     }
 
