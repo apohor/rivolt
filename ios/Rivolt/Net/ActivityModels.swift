@@ -29,9 +29,21 @@ struct ActivityDrive: Decodable, Hashable, Identifiable {
     /// Whether a trailer was connected: the server's effective value (the user's correction, else what the truck
     /// reported), nil when never known. The connector, not the load. The app does not correct it (web only).
     var trailer: Bool? = nil
+    /// Only on a merged round trip: its real legs in order (a zero-distance stub is not one), so the detail can draw every one.
+    var legs: [ActivityLeg]? = nil
 
     /// A drive with a trailer is left out of the efficiency figures.
     var hasTrailer: Bool { trailer == true }
+}
+
+/// One drive of a merged round trip, as the server lists it.
+struct ActivityLeg: Decodable, Hashable, Identifiable {
+    let id: String
+    let startedAt: Date
+    let endedAt: Date
+    let distanceMi: Double
+    /// Whole minutes parked before the next leg; nil on the last.
+    let parkedMinAfter: Int?
 }
 
 struct ActivityCharge: Decodable, Hashable, Identifiable {

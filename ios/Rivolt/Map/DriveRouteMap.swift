@@ -8,6 +8,8 @@ import SwiftUI
 /// screen (DriveDetailModel, shared with the timeline), held in memory while it is open. No location services.
 struct DriveRouteMap: View {
     let phase: DriveDetailModel.Phase
+    /// A merged round trip's legs, each with its own route and samples: all of them are drawn, with a pin for each stop.
+    var legs: [DriveDetailModel.Leg] = []
     /// The timeline's cursor: a dot where the truck was at that moment, and its readout in a chip (the web's map cursor).
     var cursor: Date?
     var cursorReadout: String?
@@ -105,6 +107,7 @@ struct DriveRouteMap: View {
     private var pillTimes: (start: String?, end: String?)? {
         guard case .loaded(let d, _) = phase else { return nil }
         func f(_ date: Date?) -> String? { date?.formatted(date: .omitted, time: .shortened) }
+        if legs.count > 1 { return (f(legs.first?.route.startedAt ?? legs.first?.leg.startedAt), f(legs.last?.route.endedAt ?? legs.last?.leg.endedAt)) }
         return (f(d.startedAt), f(d.endedAt))
     }
 
@@ -125,6 +128,10 @@ struct DriveRouteMap: View {
             samples = s
             failed = false
         }
+        if legs.count > 1 {
+            await loadLegs(client: client)
+            return
+        }
         // The drive's samples (and 10 minutes either side, for the parked pins), as the web's detail page.
         if let samples, let path = RouteSnap.path(drive: drive, samples: samples) {
             drawing = RouteSnap.raw(path)
@@ -140,6 +147,43 @@ struct DriveRouteMap: View {
             noLocation = drive.locationUnavailable == true
             empty = true
         }
+    }
+
+    /// A round trip: each leg's own line (its samples, snapped), joined, with a "Parked N min" label where the truck stopped.
+    private func loadLegs(client: some RouteSnapSource) async {
+        let paths: [(Int, RouteSnap.Path)] = legs.enumerated().compactMap { i, l in
+            l.samples.flatMap { RouteSnap.path(drive: l.route, samples: $0) }.map { (i, $0) }
+        }
+        // A leg with no samples falls back to its stored route, so no leg goes missing.
+        func stored(_ l: DriveDetailModel.Leg) -> RouteSnap.Drawing? {
+            l.route.points.count >= 2
+                ? RouteSnap.Drawing(pieces: [RouteSnap.Piece(coords: l.route.points, speed: nil)], routedGaps: [], gaps: [],
+                                    start: l.route.points.first, end: l.route.points.last, hasSpeed: false)
+                : nil
+        }
+        func tags(_ ds: [RouteSnap.Drawing?]) -> [RouteSnap.Drawing.LegTag] {
+            legs.enumerated().compactMap { i, l in
+                guard let m = l.leg.parkedMinAfter, ds.indices.contains(i), let end = ds[i]?.end ?? ds[i]?.pieces.last?.coords.last else { return nil }
+                return RouteSnap.Drawing.LegTag(coord: end, text: "Parked \(RouteSnap.parkedText(minutes: m))")
+            }
+        }
+        func join(_ ds: [RouteSnap.Drawing?]) -> RouteSnap.Drawing? {
+            guard var d = RouteSnap.merge(ds.compactMap { $0 }) else { return nil }
+            d.legTags = tags(ds)
+            return d
+        }
+        var current: [RouteSnap.Drawing?] = legs.indices.map { i in paths.first { $0.0 == i }.map { RouteSnap.raw($0.1) } ?? stored(legs[i]) }
+        guard let raw = join(current) else {
+            noLocation = legs.allSatisfy { $0.route.locationUnavailable == true }
+            empty = true
+            return
+        }
+        drawing = raw
+        var snappedAny = false
+        for (i, path) in paths {
+            if let snapped = await RouteSnap.snap(path, source: client), !Task.isCancelled { current[i] = snapped; snappedAny = true }
+        }
+        if snappedAny, !Task.isCancelled, let d = join(current) { drawing = d }
     }
 
     /// What the server observed, with no cause and no fault.
