@@ -27,6 +27,7 @@ struct NowCard: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(AppState.self) private var appState: AppState?
     @ScaledMetric(relativeTo: .largeTitle) private var gaugeWidth = CGFloat(ThemeTokens.gaugeSize)
     @State private var outsideInfo = false
 
@@ -131,7 +132,7 @@ struct NowCard: View {
         charging && (summary.chargeAddedPct != nil || ChargingDetail.make(summary: summary, session: session, charge: charge)?.cost != nil)
     }
 
-    private var carURL: URL? { VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light) }
+    private var carURL: URL? { VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light, plugPicture: appState?.designPreview.contains("plug_anim") == true) }
 
     /// Rivian's picture; one that fails to load leaves nothing (no broken image), and the range stays beside the gauge.
     private func car(maxHeight: CGFloat) -> some View {
