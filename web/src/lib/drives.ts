@@ -155,8 +155,9 @@ function mergeChain(chain: Drive[]): Drive {
     estimated_currency: cur,
     estimated_price_per_kwh: rate,
     // Real legs only: a zero-distance stub is not a leg, so "round trip, 4 drives" reads 3 when one of the four is a stub.
-    round_trip_legs: legs.length,
-    round_trip_leg_list: legs,
+    // Never below 1, and no list under 2 legs (an all-stub chain is one drive), as the server.
+    round_trip_legs: Math.max(1, legs.length),
+    round_trip_leg_list: legs.length > 1 ? legs : undefined,
     // A round trip had a trailer when any leg did, and none when some leg is known to have had none. The legs are
     // corrected one by one, so the merged row carries no correction of its own.
     Trailer: chain.some((d) => driveHasTrailer(d) === true) ? true : chain.some((d) => driveHasTrailer(d) === false) ? false : null,

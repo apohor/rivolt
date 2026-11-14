@@ -123,18 +123,12 @@ export function pinElement(color: string, title: string): HTMLElement {
   return el;
 }
 
-// stopElement is a round-trip stop: an amber dot with how long the truck was parked there beside it ("Parked 13 min").
+// stopElement is a round-trip stop's pin: an amber dot. Its label ("Parked 13 min") is a pill drawn with the time pills (DriveMap), so it
+// follows the map's light and dark card colours and the basemap's place labels give way to it.
 export function stopElement(label: string): HTMLElement {
-  const el = document.createElement("span");
-  el.className = "rivolt-map-stop";
+  const el = pinElement("#f59e0b", label);
+  el.classList.add("rivolt-map-stop");
   el.setAttribute("data-stop", label);
-  el.title = label;
-  el.style.cssText = "display:flex;align-items:center;gap:4px;";
-  const dot = pinElement("#f59e0b", label);
-  const text = document.createElement("span");
-  text.textContent = label;
-  text.style.cssText = "background:rgba(23,23,23,.9);color:#fde68a;border:1px solid #404040;border-radius:6px;padding:1px 6px;font-size:11px;white-space:nowrap;";
-  el.append(dot, text);
   return el;
 }
 

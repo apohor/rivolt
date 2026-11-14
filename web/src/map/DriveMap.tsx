@@ -17,7 +17,7 @@ import { snapToRoads, type SnapPoint } from "./snap";
 import { displayTimeZone } from "../lib/format";
 import { localUnits } from "../lib/preferences";
 import { cumulativeMiles, formatValue, gradientStops, percentileRange, RAMPS, seriesFor, type Mode, type Sample } from "./metrics";
-import { placePills, setPills, startPillText } from "./pills";
+import { type Box, type PillSpec, measurePill, pillBox, pillSide, placePills, placeStopPill, setPills, startPillText } from "./pills";
 import { watchDrawn } from "./drawn";
 import { cursorElement, flavorControl, foldCredits, modeLegend, pinElement, readoutElement, stalenessBadge, stopElement, tilesNotice } from "./controls";
 
@@ -201,11 +201,30 @@ export function DriveMap({
         const sLL: [number, number] = [lineStart.lon, lineStart.lat];
         const eLL: [number, number] | null = lineEnd && !sameSpot ? [lineEnd.lon, lineEnd.lat] : null;
         const sides = placePills(map, sLL, eLL);
-        const key = JSON.stringify([sides, flavor, firstT, lastT]);
+        const specs: PillSpec[] = [{ id: "start", text: startPillText(sameSpot, timeOf(firstT), timeOf(lastT)), lngLat: sLL, small: true, ...sides.start }];
+        if (eLL) specs.push({ id: "end", text: timeOf(lastT), lngLat: eLL, small: true, ...sides.end });
+        // A round trip's stops ("Parked 13 min"): pills like the time pills, each on the first side that clears the pins and the other pills.
+        const taken: Box[] = [];
+        for (const sp of specs) {
+          const p = map.project(sp.lngLat);
+          taken.push({ x0: p.x - 11, y0: p.y - 11, x1: p.x + 11, y1: p.y + 11 });
+          const sz = measurePill(sp.text);
+          if (sz) taken.push(pillBox(p, sp.anchor, sp.offset, sz));
+        }
+        const view = { w: el.clientWidth, h: el.clientHeight };
+        (stops ?? []).forEach((st, i) => {
+          if (!Number.isFinite(st.lat) || !Number.isFinite(st.lon) || (st.lat === 0 && st.lon === 0)) return;
+          const ll: [number, number] = [st.lon, st.lat];
+          const p = map.project(ll);
+          const sz = measurePill(st.label, true);
+          const at = sz ? placeStopPill(p, sz, pillSide(map, ll), taken, view) : null;
+          if (!sz || !at) return;
+          taken.push(pillBox(p, at.anchor, at.offset, sz), { x0: p.x - 11, y0: p.y - 11, x1: p.x + 11, y1: p.y + 11 });
+          specs.push({ id: `stop-${i}`, text: st.label, lngLat: ll, dot: "#f59e0b", ...at });
+        });
+        const key = JSON.stringify([specs.map((x) => [x.id, x.text, x.anchor, x.offset]), flavor, firstT, lastT]);
         if (!force && key === pillKey) return;
         pillKey = key;
-        const specs = [{ id: "start", text: startPillText(sameSpot, timeOf(firstT), timeOf(lastT)), lngLat: sLL, small: true, ...sides.start }];
-        if (eLL) specs.push({ id: "end", text: timeOf(lastT), lngLat: eLL, small: true, ...sides.end });
         setPills(map, specs, flavor);
       };
       const fit = () => {

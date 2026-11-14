@@ -80,3 +80,53 @@ for (const [w, h, scheme] of [[393, 852, "dark"], [393, 852, "light"], [1280, 90
     await ctx.close();
   });
 }
+
+function encode5(pts: [number, number][]): string {
+  let pl = 0;
+  let po = 0;
+  let out = "";
+  const enc = (v: number) => {
+    let n = v < 0 ? ~(v << 1) : v << 1;
+    let r = "";
+    while (n >= 0x20) {
+      r += String.fromCharCode((0x20 | (n & 0x1f)) + 63);
+      n >>= 5;
+    }
+    return r + String.fromCharCode(n + 63);
+  };
+  for (const [lat, lon] of pts) {
+    const la = Math.round(lat * 1e5);
+    const lo = Math.round(lon * 1e5);
+    out += enc(la - pl) + enc(lo - po);
+    pl = la;
+    po = lo;
+  }
+  return out;
+}
+
+// Samples gone (an import, or aged out): the map falls back to the stored routes, and it must draw every leg's, not only the first's.
+test("round trip with no samples draws every leg's stored route and pins the stops", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, colorScheme: "light" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  const routed = [
+    { ...l1, RoutePolyline: encode5([HOME, A]) },
+    { ...l2, RoutePolyline: encode5([A, B]) },
+    { ...l3, RoutePolyline: encode5([B, HOME]) },
+  ];
+  const fetched: string[] = [];
+  await page.route("**/api/drives?**", (r) => r.fulfill({ json: [l3, l2, stub, l1] }));
+  await page.route(/\/api\/drives\/[^/?]+$/, (r) => {
+    const id = new URL(r.request().url()).pathname.split("/").pop();
+    fetched.push(id ?? "");
+    const d = routed.find((x) => x.ID === id);
+    return d ? r.fulfill({ json: d }) : r.fulfill({ status: 404, json: {} });
+  });
+  await page.route("**/api/samples**", (r) => r.fulfill({ json: [] }));
+  await page.goto("/drives/leg-1");
+  await expect(page.getByRole("heading", { name: "Round trip" })).toBeVisible();
+  await expect(page.locator(".maplibregl-map").first()).toBeVisible();
+  expect(fetched).toEqual(expect.arrayContaining(["leg-1", "leg-2", "leg-3"]));
+  await expect(page.locator("[data-stop]")).toHaveCount(2);
+  await ctx.close();
+});

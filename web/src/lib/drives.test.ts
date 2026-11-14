@@ -155,6 +155,16 @@ describe("round-trip legs", () => {
     expect(out[0].DistanceMi).toBeCloseTo(9.7, 5);
   });
 
+  it("never counts below one, and lists no legs, for a chain of stubs", () => {
+    const stubs = [0, 1].map((i) =>
+      drive({ ID: `s${i}`, StartedAt: at(i ? "14:40" : "14:30"), EndedAt: at(i ? "14:41" : "14:31"), DistanceMi: 0, StartLat: home.lat, StartLon: home.lon, EndLat: home.lat, EndLon: home.lon }),
+    );
+    for (const row of collapseRoundTrips(stubs, RADIUS, GAP)) {
+      expect(row.round_trip_legs ?? 1).toBeGreaterThanOrEqual(1);
+      expect(row.round_trip_leg_list).toBeUndefined();
+    }
+  });
+
   it("measures the parked time to the next real leg, absorbing the stub, and none after the last", () => {
     const legs = collapseRoundTrips(chain(), RADIUS, GAP)[0].round_trip_leg_list!;
     expect(legs.map((l) => l.parkedMinAfter)).toEqual([13, 19, null]);

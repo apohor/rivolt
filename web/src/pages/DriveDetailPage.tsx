@@ -656,7 +656,7 @@ export default function DriveDetailPage() {
         ) : mapPathSamples.length === 0 ? (
           storedRoutePoints.length >= 2 ? (
             <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
-              <DriveMap points={storedRoutePoints} />
+              <DriveMap points={storedRoutePoints} stops={mapStops} />
             </Suspense>
           ) : drive.LocationUnavailable ? (
             <NoLocation />
