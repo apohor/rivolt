@@ -32,14 +32,15 @@ export function pickVehicleImage(images: readonly PlacedImage[] | undefined, wan
 }
 
 // Live: the angle that illustrates the vehicle's state right now.
-export function pickImageForState(images: readonly PlacedImage[] | undefined, state: VehicleState | undefined, light: boolean): string {
+// `plugPicture` (design "plug_anim"): the side-charging view whenever the cable is in, charging or not.
+export function pickImageForState(images: readonly PlacedImage[] | undefined, state: VehicleState | undefined, light: boolean, plugPicture = false): string {
   const wants: string[] = [];
   if (state) {
     // charger_state sticks at 'charging_ready' for hours after unplug, so gate on the real plug indicator.
     const plugged = (state.charger_status || "").toLowerCase().startsWith("chrgr_sts_connected");
     const cs = (state.charger_state || "").toLowerCase();
     // Rivian's side-charging art is a cropped close-up of the front half: only while power is actually flowing.
-    const charging = plugged && cs.startsWith("charging_") && (state.charger_power_kw ?? 0) > 0;
+    const charging = plugged && (plugPicture || (cs.startsWith("charging_") && (state.charger_power_kw ?? 0) > 0));
     const driving = ["D", "R", "N"].includes((state.gear || "").toUpperCase());
     if (charging) wants.push("side-charging", "three-quarter", "side");
     else if (driving) wants.push("side", "three-quarter");
@@ -50,9 +51,9 @@ export function pickImageForState(images: readonly PlacedImage[] | undefined, st
   return pickVehicleImage(images, wants, light);
 }
 
-// Now: actively charging (power flowing) shows the plugged side view, driving the side view, otherwise the three-quarter view.
-export function pickImageForNow(images: readonly PlacedImage[] | undefined, kind: "charging" | "driving" | string, light: boolean, powerKw: number | null = null): string {
-  const charging = kind === "charging" && (powerKw ?? 0) > 0;
+// Now: actively charging (power flowing) shows the plugged side view (with `plugPicture`, any plugged-in state does), driving the side view, otherwise the three-quarter view.
+export function pickImageForNow(images: readonly PlacedImage[] | undefined, kind: "charging" | "driving" | string, light: boolean, powerKw: number | null = null, plugPicture = false): string {
+  const charging = (kind === "charging" && (powerKw ?? 0) > 0) || (plugPicture && (kind === "charging" || kind === "plugged"));
   return pickVehicleImage(images, charging ? ["side-charging"] : kind === "driving" ? ["side"] : [], light);
 }
 
