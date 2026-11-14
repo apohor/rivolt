@@ -111,6 +111,7 @@ var routeClasses = map[string]windowClass{
 	"GET /api/vehicles":                           {"exempt", "the vehicle list: a free account's other vehicles are listed with pro_locked (handler-level), never hidden"},
 	"GET /api/vehicles/owned":                     {"exempt", "the vehicle list"},
 	"GET /api/vehicles/{vehicleID}/now":           {"exempt", "live state, not history"},
+	"GET /api/vehicles/{vehicleID}/glance":        {"exempt", "newest stored row only, not history"},
 	"GET /api/vehicles/{vehicleID}/lease":         {"exempt", "lease terms, no history"},
 	"GET /api/vehicles/{vehicleID}/lease/status":  {"exempt", "lease status, no history"},
 	"PUT /api/vehicles/{vehicleID}/lease":         {"exempt", "a write of the user's own settings"},
