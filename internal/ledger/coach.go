@@ -180,10 +180,12 @@ func BuildCoach(in Input, periods []Period, sch offpeak.Schedule, flat bool) Coa
 
 	// Cost per 100: the statement's own spend and miles over the window, withheld when too much of the energy has no price.
 	var spend, miles, unpricedKWh, addedKWh, estSpend float64
+	var pricedSessions int
 	var sessions []HomeSession
 	for _, p := range periods {
 		m := Build(in, p, false)
 		spend += m.Spend.Total
+		pricedSessions += m.Spend.PricedSessions
 		miles += m.Driving.Miles
 		unpricedKWh += m.Spend.UnpricedKWh + m.Spend.EstimatePendingKWh
 		addedKWh += m.Energy.KWhAdded
@@ -194,6 +196,10 @@ func BuildCoach(in Input, periods []Period, sch offpeak.Schedule, flat bool) Coa
 			continue
 		}
 		v := viewOf(c, in.Config)
+		// A charge in another currency is left out of the spend but its miles are not: count its energy as unpriced.
+		if hasFlag(v.flags, FlagCurrencyMismatch) {
+			unpricedKWh += val(c.EnergyKWh)
+		}
 		if v.spendOK && !hasFlag(v.flags, FlagCurrencyMismatch) && isEstimateSource(v.source, in.Config) {
 			estSpend += *c.Cost
 		}
@@ -210,7 +216,9 @@ func BuildCoach(in Input, periods []Period, sch offpeak.Schedule, flat bool) Coa
 	switch {
 	case miles < MinMilesForCostPerMile:
 		c100.Needs = "more_driving"
-	case spend <= 0 || c100.UnpricedShare > MaxUnpricedShare:
+	case pricedSessions == 0 && unpricedKWh <= 0:
+		c100.Needs = "priced_charges"
+	case pricedSessions == 0 || c100.UnpricedShare > MaxUnpricedShare:
 		c100.Needs = "unpriced_charges"
 	default:
 		mi := round2(spend / miles * 100)

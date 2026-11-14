@@ -124,3 +124,25 @@ func TestCoachThinDataGivesNeedsNotFigures(t *testing.T) {
 		t.Errorf("%+v", got)
 	}
 }
+
+func TestCoachCountsAForeignCurrencyChargeAsUnpriced(t *testing.T) {
+	home := homeAC("h1", "02", 30, 0.25, SourceHomeRate) // 30 kWh, $7.50
+	cad := fastAway("f1", "10", 30, 0.60)                // 30 of 60 kWh in another currency
+	cad.Currency = "CAD"
+	got := BuildCoach(coachInput([]Charge{home, cad}, []Drive{driveMi("d1", "03", 300)}, cfg()), coachOct, offpeak.Schedule{}, true)
+	c := got.CostPer100
+	if c.Needs != "unpriced_charges" || c.Per100Mi != nil || c.UnpricedShare < 0.49 {
+		t.Errorf("%+v", c)
+	}
+}
+
+func TestCoachAllFreeChargingIsAZeroFigureNotMissingPrices(t *testing.T) {
+	free := homeAC("h1", "02", 40, 0, SourceUser)
+	zero := 0.0
+	free.Cost = &zero
+	got := BuildCoach(coachInput([]Charge{free}, []Drive{driveMi("d1", "03", 200)}, cfg()), coachOct, offpeak.Schedule{}, true)
+	c := got.CostPer100
+	if c.Needs != "" || c.Per100Mi == nil || *c.Per100Mi != 0 {
+		t.Errorf("%+v", c)
+	}
+}
