@@ -1,6 +1,7 @@
 // "What moving home charging into your off-peak hours would have saved": the savings endpoint's answer and how the card words it.
 // Always an estimate, always "could have saved", never "overpaid". Sessions that can't move are left out and the card says so.
 import { api } from "./api";
+import { browserTimeZone } from "./ledger";
 
 export type SavingsResponse = {
   month?: string;
@@ -87,7 +88,12 @@ export type CoachResponse = {
   cost_per_kwh: { needs?: string; home: CoachBucket; public: CoachBucket; fast_charging: CoachBucket; fast_premium_pct?: number | null; estimated: boolean };
 };
 
-export const fetchCoach = (signal?: AbortSignal) => api.get<CoachResponse>("/api/ledger/coach", signal);
+// For the truck the Money page shows (when the account has several) and in the browser's zone, like the statement above it.
+export const fetchCoach = (opts: { vehicleID?: string; tz?: string; signal?: AbortSignal } = {}) => {
+  const qs = new URLSearchParams({ tz: opts.tz ?? browserTimeZone() });
+  if (opts.vehicleID) qs.set("vehicle_id", opts.vehicleID);
+  return api.get<CoachResponse>(`/api/ledger/coach?${qs}`, opts.signal);
+};
 
 const COACH_NEEDS: Record<string, string> = {
   priced_charges: "Not enough priced charging yet to work out what a kWh costs you.",

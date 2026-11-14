@@ -539,7 +539,7 @@ function Statement({
           </Card>
 
           <SavingsCard area="m-save" />
-          {coachOn && !sample && <CoachCard area="m-coach" />}
+          {coachOn && !sample && <CoachCard area="m-coach" vehicleID={vehicleID} />}
 
           <Card title="Receipts" area="m-receipts">
             <div className="mb-3 flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">

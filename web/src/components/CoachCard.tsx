@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchCoach, coachNeedsText, type CoachBucket, type CoachResponse } from "../lib/savings";
-import { formatMoney } from "../lib/ledger";
+import { browserTimeZone, formatMoney } from "../lib/ledger";
+import { usePreferences } from "../lib/preferences";
 import { Card } from "./ui";
 
 const EST = <span className="text-neutral-500"> (estimated)</span>;
@@ -29,8 +30,10 @@ function bucketLine(name: string, b: CoachBucket, cur: string) {
 
 // CoachCard: what a kWh and 100 miles really cost, and what shifting to off-peak would save, from the user's own stored charges and drives.
 // Behind the savings_coach design-preview key. Advice only.
-export function CoachCard({ area }: { area?: string }) {
-  const q = useQuery({ queryKey: ["coach"], queryFn: ({ signal }) => fetchCoach(signal), staleTime: 5 * 60_000, retry: 0 });
+export function CoachCard({ area, vehicleID }: { area?: string; vehicleID?: string }) {
+  const { distanceUnit } = usePreferences();
+  const tz = browserTimeZone();
+  const q = useQuery({ queryKey: ["coach", vehicleID ?? "", tz], queryFn: ({ signal }) => fetchCoach({ vehicleID, tz, signal }), staleTime: 5 * 60_000, retry: 0 });
   if (q.isError) return null;
   const d: CoachResponse | undefined = q.data;
   const cur = d?.currency || "USD";
@@ -57,13 +60,12 @@ export function CoachCard({ area }: { area?: string }) {
                 </>
               )}
             </Row>
-            <Row label="Cost per 100 miles">
-              {d.cost_per_100.needs || d.cost_per_100.per_100_mi == null ? (
+            <Row label={`Cost per 100 ${distanceUnit === "km" ? "kilometres" : "miles"}`}>
+              {d.cost_per_100.needs || d.cost_per_100.per_100_mi == null || d.cost_per_100.per_100_km == null ? (
                 <Needs need={d.cost_per_100.needs ?? "more_driving"} />
               ) : (
                 <p>
-                  {formatMoney(d.cost_per_100.per_100_mi, cur)} per 100 mi
-                  {d.cost_per_100.per_100_km != null && <span className="text-neutral-400"> · {formatMoney(d.cost_per_100.per_100_km, cur)} per 100 km</span>}
+                  {formatMoney((distanceUnit === "km" ? d.cost_per_100.per_100_km : d.cost_per_100.per_100_mi) ?? 0, cur)} per 100 {distanceUnit}
                   {d.cost_per_100.estimated && EST}
                 </p>
               )}
@@ -73,8 +75,9 @@ export function CoachCard({ area }: { area?: string }) {
                 <Needs need={d.off_peak_shift.needs ?? "more_home_sessions"} />
               ) : (
                 <p>
-                  Moving {d.off_peak_shift.sessions_moved} home {d.off_peak_shift.sessions_moved === 1 ? "charge" : "charges"} to off-peak hours could have saved {formatMoney(d.off_peak_shift.could_have_saved, cur)}
-                  {EST}
+                  {d.off_peak_shift.could_have_saved > 0
+                    ? <>Moving {d.off_peak_shift.sessions_moved} home {d.off_peak_shift.sessions_moved === 1 ? "charge" : "charges"} to off-peak hours could have saved {formatMoney(d.off_peak_shift.could_have_saved, cur)}{EST}</>
+                    : <>Your home charging already ran at the lowest rate, so moving it would not have saved anything.</>}
                 </p>
               )}
             </Row>

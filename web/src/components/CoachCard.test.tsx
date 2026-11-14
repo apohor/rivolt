@@ -46,3 +46,23 @@ describe("CoachCard", () => {
     for (const n of ["priced_charges", "more_driving", "unpriced_charges", "flat_rate", "home_rate", "offpeak_schedule", "more_home_sessions"]) expect(coachNeedsText(n).length).toBeGreaterThan(20);
   });
 });
+
+describe("CoachCard scope", () => {
+  it("asks for the selected truck in the browser zone", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(full), { status: 200, headers: { "content-type": "application/json" } }));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CoachCard vehicleID="veh-2" />
+      </QueryClientProvider>,
+    );
+    await screen.findByText(/Home: /);
+    const url = String(spy.mock.calls[0][0]);
+    expect(url).toMatch(/vehicle_id=veh-2/);
+    expect(url).toMatch(/tz=/);
+  });
+  it("words a zero saving as a sentence", async () => {
+    show({ ...full, off_peak_shift: { could_have_saved: 0, sessions_moved: 0, sessions_considered: 5, estimated: true } });
+    expect(await screen.findByText(/already ran at the lowest rate/)).toBeTruthy();
+    expect(screen.queryByText(/saved \$0/)).toBeNull();
+  });
+});
