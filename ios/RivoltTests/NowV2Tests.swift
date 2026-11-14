@@ -38,6 +38,18 @@ final class NowV2Tests: XCTestCase {
         XCTAssertEqual(VehiclePicture.forNow(images, kind: .plugged, powerKw: nil, light: false)?.absoluteString, "https://i.example/tq", "flag off: today's picture")
     }
 
+    func testPlugBadgeStatesAndLabels() {
+        XCTAssertNil(PlugPicture.state(kind: .plugged, powerKw: nil, enabled: false))
+        XCTAssertNil(PlugPicture.state(kind: .parked, powerKw: nil, enabled: true))
+        XCTAssertNil(PlugPicture.state(kind: .driving, powerKw: 5, enabled: true))
+        XCTAssertEqual(PlugPicture.state(kind: .plugged, powerKw: nil, enabled: true), .plugged)
+        XCTAssertEqual(PlugPicture.state(kind: .charging, powerKw: 0, enabled: true), .plugged)
+        XCTAssertEqual(PlugPicture.state(kind: .charging, powerKw: 11, enabled: true), .charging(kw: 11))
+        XCTAssertEqual(PlugPicture.State.plugged.label, "Plugged in, not charging")
+        XCTAssertEqual(PlugPicture.State.charging(kw: 11).label, "Charging, 11 kW")
+        XCTAssertEqual(PlugPicture.State.charging(kw: 11.24).label, "Charging, 11.2 kW")
+    }
+
     func testMissingPlacementFallsBackAndInteriorIsNeverShown() {
         XCTAssertEqual(VehiclePicture.forNow([img("https://i.example/front", "front")], kind: .charging, powerKw: 11, light: false)?.absoluteString, "https://i.example/front")
         XCTAssertNil(VehiclePicture.forNow([img("https://i.example/in", "interior-front")], kind: .parked, powerKw: nil, light: false))

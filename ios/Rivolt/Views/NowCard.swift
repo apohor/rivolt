@@ -132,7 +132,7 @@ struct NowCard: View {
         charging && (summary.chargeAddedPct != nil || ChargingDetail.make(summary: summary, session: session, charge: charge)?.cost != nil)
     }
 
-    private var carURL: URL? { VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light, plugPicture: appState?.designPreview.contains("plug_anim") == true) }
+    private var carURL: URL? { VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light, plugPicture: plugAnim) }
 
     /// Rivian's picture; one that fails to load leaves nothing (no broken image), and the range stays beside the gauge.
     private func car(maxHeight: CGFloat) -> some View {
@@ -142,8 +142,10 @@ struct NowCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityHidden(true)
+        .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
     }
+
+    private var plugAnim: Bool { appState?.designPreview.contains("plug_anim") == true }
 
     @ViewBuilder
     private var heroGaugeV2: some View {
