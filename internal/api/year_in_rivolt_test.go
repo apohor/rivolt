@@ -69,6 +69,8 @@ func TestYearResponseCarriesOnlyTheApprovedFields(t *testing.T) {
 		"since_month": true, "drive_count": true, "energy_shares": true, "home": true, "away": true, "fast": true,
 		"efficiency_mi_per_kwh": true, "efficiency_estimated": true, "most_efficient_long_drive": true, "mi_per_kwh": true,
 		"planned_trips": true, "planned_stops": true, "model": true, "cost_per_mile": true,
+		// The long-form page (?detail=1): months, the longest drives by month, the busiest month. No places, days or money.
+		"detail": true, "months": true, "longest_drives": true, "busiest_month": true,
 	}
 	ty := map[string]bool{}
 	typeKeys(reflect.TypeOf(yearResponse{}), ty, map[reflect.Type]bool{})
@@ -171,5 +173,36 @@ func TestPlannedStopsAndModel(t *testing.T) {
 		if got := commonModel(c.in); got != c.want {
 			t.Errorf("%v: %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestComputeYearDetail(t *testing.T) {
+	var ds []drives.Drive
+	for i := 1; i <= 7; i++ {
+		ds = append(ds, yd(float64(i*10), float64(i), time.January))
+	}
+	ds = append(ds, yd(500, 100, time.July), yd(0, 0, time.March))
+	cs := []yearCharge{{month: "2026-01"}, {month: "2026-01"}, {month: "2026-07"}, {month: ""}}
+	d := computeYearDetail(ds, cs)
+	if len(d.Months) != 3 || d.Months[0].Month != "2026-01" || d.Months[1].Month != "2026-03" || d.Months[2].Month != "2026-07" {
+		t.Fatalf("months: %+v", d.Months)
+	}
+	if jan := d.Months[0]; jan.DriveCount != 7 || jan.Miles != 280 || jan.KWh != 28 || jan.ChargeCount != 2 {
+		t.Errorf("january: %+v", jan)
+	}
+	if d.BusiestMonth != "2026-07" {
+		t.Errorf("busiest %q", d.BusiestMonth)
+	}
+	if len(d.LongestDrives) != yearDetailLongest || d.LongestDrives[0].Miles != 500 || d.LongestDrives[0].Month != "2026-07" || d.LongestDrives[4].Miles != 40 {
+		t.Errorf("longest: %+v", d.LongestDrives)
+	}
+	empty := computeYearDetail(nil, nil)
+	b, _ := json.Marshal(empty)
+	if string(b) != `{"months":[],"longest_drives":[]}` {
+		t.Errorf("empty detail: %s", b)
+	}
+	// Off by default: the plain card has no detail key.
+	if b, _ := json.Marshal(computeYear(2026, ds, cs, yearExtras{})); strings.Contains(string(b), "detail") {
+		t.Errorf("plain card carries detail: %s", b)
 	}
 }

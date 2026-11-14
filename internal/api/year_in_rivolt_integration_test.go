@@ -111,6 +111,25 @@ func TestYearInRivolt(t *testing.T) {
 	if out.Miles != 190 || out.KWh != 66 || out.ChargeCount != 3 {
 		t.Errorf("totals miles=%v kwh=%v charges=%d: the year's edges and the re-parking drive are out", out.Miles, out.KWh, out.ChargeCount)
 	}
+	if out.Detail != nil {
+		t.Errorf("the plain card carries the detail block: %+v", out.Detail)
+	}
+	// ?detail=1 adds the long-form page, over the same rows: its months add up to the card's totals.
+	if _, det := get("?year="+strconv.Itoa(y)+"&detail=1", old); det.Detail == nil {
+		t.Error("?detail=1 has no detail block")
+	} else {
+		var mi, kwh float64
+		var drives, chg int
+		for _, m := range det.Detail.Months {
+			mi, kwh, drives, chg = mi+m.Miles, kwh+m.KWh, drives+m.DriveCount, chg+m.ChargeCount
+		}
+		if mi != out.Miles || math.Abs(kwh-out.KWh) > 1e-9 || drives != out.DriveCount || chg != out.ChargeCount {
+			t.Errorf("detail months sum to miles=%v kwh=%v drives=%d charges=%d, the card says %v/%v/%d/%d", mi, kwh, drives, chg, out.Miles, out.KWh, out.DriveCount, out.ChargeCount)
+		}
+		if len(det.Detail.LongestDrives) == 0 || det.Detail.LongestDrives[0].Miles != 100 || det.Detail.BusiestMonth == "" {
+			t.Errorf("detail longest/busiest: %+v", det.Detail)
+		}
+	}
 	if out.LongestTrip == nil || out.LongestTrip.Miles != 100 || out.LongestTrip.Month != strconv.Itoa(y)+"-07" {
 		t.Errorf("longest trip %+v", out.LongestTrip)
 	}
