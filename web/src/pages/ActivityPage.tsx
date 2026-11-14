@@ -335,6 +335,18 @@ function DriveCard({ item }: { item: DriveItem }) {
           <span>{d.EnergyUsedKWh.toFixed(1)} kWh</span>
         )}
       </div>
+      {d.legs && d.legs.length > 1 ? (
+        <ul className="mt-1 space-y-0.5 text-xs text-neutral-500" data-round-trip-leg-list>
+          {d.legs.map((l, k) => (
+            <li key={l.id} className="flex justify-between gap-2">
+              <span>Leg {k + 1} · {timeRange(l.StartedAt, l.EndedAt)}</span>
+              <span className="tabular-nums">
+                {l.DistanceMi.toFixed(1)} mi{l.parkedMin != null ? ` · parked ${l.parkedMin} min` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       </div>
     </Link>
   );

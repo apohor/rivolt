@@ -33,6 +33,7 @@ export function DriveMap({
   onCursorChange,
   fixAgeSeconds,
   packKWh,
+  stops,
 }: {
   points: Point[];
   start?: Point;
@@ -46,7 +47,10 @@ export function DriveMap({
   fixAgeSeconds?: number | null;
   // The pack's size in kWh, for the Efficiency mode (battery change against distance); without it that mode is hidden.
   packKWh?: number;
+  // The stops between a round trip's legs: an amber pin on each, its title saying how long the truck was parked.
+  stops?: { lat: number; lon: number; label: string }[];
 }) {
+  const stopsKey = (stops ?? []).map((x) => `${x.lat},${x.lon},${x.label}`).join("|");
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
   // Where the legend card goes on a phone: directly under the map.
@@ -233,6 +237,12 @@ export function DriveMap({
       const markers: Marker[] = [];
       if (lineStart) markers.push(new ml.Marker({ element: pinElement("#10b981", sameSpot ? "Start / End" : "Start") }).setLngLat([lineStart.lon, lineStart.lat]).addTo(map));
       if (lineEnd && !sameSpot) markers.push(new ml.Marker({ element: pinElement("#f43f5e", "End") }).setLngLat([lineEnd.lon, lineEnd.lat]).addTo(map));
+      for (const [k, st] of (stops ?? []).entries()) {
+        if (!Number.isFinite(st.lat) || !Number.isFinite(st.lon)) continue;
+        const el = pinElement("#f59e0b", st.label);
+        el.setAttribute("data-stop", String(k + 1));
+        markers.push(new ml.Marker({ element: el }).setLngLat([st.lon, st.lat]).addTo(map));
+      }
       cleanups.push(() => markers.forEach((m) => m.remove()));
 
       // Hover to time: the nearest timestamped sample within 28 px of the pointer.
@@ -316,7 +326,7 @@ export function DriveMap({
     return () => { for (const c of cleanups.reverse()) c(); };
     // points is an array derived upstream; re-run only when its identity or the endpoints change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds, packKWh]);
+  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds, packKWh, stopsKey]);
 
   // The scrub dot and its readout follow cursorTime without rebuilding the map.
   useEffect(() => {

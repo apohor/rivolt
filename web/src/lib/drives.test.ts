@@ -132,4 +132,41 @@ describe("collapseRoundTrips origin anchoring", () => {
     const out = collapseRoundTrips([leg2, leg1], RADIUS, GAP);
     expect(out).toHaveLength(2);
   });
+
+  describe("legs and stubs", () => {
+    const mk = (start: string, end: string, from: typeof A, to: typeof A, mi = 5) =>
+      drive({ StartedAt: start, EndedAt: end, StartLat: from.lat, StartLon: from.lon, EndLat: to.lat, EndLon: to.lon, DistanceMi: mi });
+
+    it("lists each leg with its parked time and sums the totals", () => {
+      const l1 = mk("2026-07-16T10:00:00Z", "2026-07-16T10:20:00Z", A, B);
+      const l2 = mk("2026-07-16T10:50:00Z", "2026-07-16T11:10:00Z", B, X);
+      const l3 = mk("2026-07-16T11:20:00Z", "2026-07-16T11:40:00Z", X, A, 4);
+      const out = collapseRoundTrips([l3, l2, l1], 200, 90);
+      expect(out).toHaveLength(1);
+      expect(out[0].round_trip_legs).toBe(3);
+      expect(out[0].DistanceMi).toBeCloseTo(14, 5);
+      expect(out[0].legs?.map((l) => [l.id, l.parkedMin])).toEqual([
+        [l1.ID, 30],
+        [l2.ID, 10],
+        [l3.ID, null],
+      ]);
+      expect(out[0].legs?.[0].EndLat).toBeCloseTo(B.lat, 4);
+    });
+
+    it("does not count a zero-distance stub as a leg, and folds it into the row", () => {
+      const l1 = mk("2026-07-16T10:00:00Z", "2026-07-16T10:20:00Z", A, B);
+      const stub = mk("2026-07-16T10:30:00Z", "2026-07-16T10:30:20Z", B, B, 0);
+      const l2 = mk("2026-07-16T10:50:00Z", "2026-07-16T11:10:00Z", B, A);
+      const out = collapseRoundTrips([l2, stub, l1], 200, 90);
+      expect(out).toHaveLength(1);
+      expect(out[0].round_trip_legs).toBe(2);
+      expect(out[0].legs).toHaveLength(2);
+    });
+
+    it("keeps a lone stub as its own row", () => {
+      const l1 = mk("2026-07-16T10:00:00Z", "2026-07-16T10:20:00Z", A, B);
+      const stub = mk("2026-07-16T15:00:00Z", "2026-07-16T15:00:20Z", X, X, 0);
+      expect(collapseRoundTrips([stub, l1], 200, 90)).toHaveLength(2);
+    });
+  });
 });

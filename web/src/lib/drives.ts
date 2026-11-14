@@ -1,4 +1,4 @@
-import type { Drive } from "./api";
+import type { Drive, DriveLeg } from "./api";
 import { durationSeconds } from "./format";
 
 // driveDurationSeconds returns the time actually spent driving. For a
@@ -51,8 +51,13 @@ export function collapseRoundTrips(
 ): Drive[] {
   if (ds.length < 2) return ds.slice();
   // ListRecent returns DESC; walk ascending so previous/next has
-  // their natural chronological meaning.
-  const asc = ds.slice().reverse();
+  // their natural chronological meaning. A zero-distance stub (the truck
+  // shifted and did not move) is no leg: chains are found among the real
+  // drives, and a stub right after one folds into it.
+  const all = ds.slice().reverse();
+  const asc = all.filter((d) => !isStub(d));
+  const stubs = all.filter(isStub);
+  if (asc.length === 0) return ds.slice();
   const merged: Drive[] = [];
   let i = 0;
   while (i < asc.length) {
@@ -87,7 +92,23 @@ export function collapseRoundTrips(
     merged.push(best > i ? mergeChain(asc.slice(i, best + 1)) : asc[i]);
     i = best + 1;
   }
-  return merged.reverse();
+  // A stub inside a merged row, or within the gap after it, is part of that row; any other stays as its own row.
+  const kept = stubs.filter(
+    (st) =>
+      !merged.some(
+        (m) =>
+          (m.round_trip_legs ?? 1) > 1 &&
+          new Date(st.StartedAt).getTime() >= new Date(m.StartedAt).getTime() &&
+          new Date(st.StartedAt).getTime() <= new Date(m.EndedAt).getTime() + maxGapMinutes * 60_000,
+      ),
+  );
+  return [...merged, ...kept].sort((a, b) => new Date(b.StartedAt).getTime() - new Date(a.StartedAt).getTime());
+}
+
+// A drive that covers under 0.05 mi (it reads 0.0) is a stub, not a leg.
+export const STUB_MI = 0.05;
+export function isStub(d: Pick<Drive, "DistanceMi">): boolean {
+  return d.DistanceMi < STUB_MI;
 }
 
 // mergeChain folds an ordered slice of drives into one aggregate row.
@@ -154,6 +175,20 @@ function mergeChain(chain: Drive[]): Drive {
     estimated_currency: cur,
     estimated_price_per_kwh: rate,
     round_trip_legs: chain.length,
+    legs: chain.map(
+      (d, k): DriveLeg => ({
+        id: d.ID,
+        StartedAt: d.StartedAt,
+        EndedAt: d.EndedAt,
+        DistanceMi: d.DistanceMi,
+        EndLat: d.EndLat,
+        EndLon: d.EndLon,
+        parkedMin:
+          k < chain.length - 1
+            ? Math.max(0, Math.round((new Date(chain[k + 1].StartedAt).getTime() - new Date(d.EndedAt).getTime()) / 60_000))
+            : null,
+      }),
+    ),
     // A round trip had a trailer when any leg did, and none when some leg is known to have had none. The legs are
     // corrected one by one, so the merged row carries no correction of its own.
     Trailer: chain.some((d) => driveHasTrailer(d) === true) ? true : chain.some((d) => driveHasTrailer(d) === false) ? false : null,

@@ -4,7 +4,7 @@ import { pickAnchor } from "../lib/driveAnchor";
 import { formatMoney } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { ProLimitNotice } from "../components/ProLimitNotice";
 import { proLimitOf } from "../lib/proLimit";
@@ -20,6 +20,7 @@ import { DriveTimeline } from "../components/DriveTimeline";
 import { ShareTripButton } from "../components/ShareButtons";
 import { EfficiencyExplainerCard } from "../components/EfficiencyExplainerCard";
 import {
+  displayTimeZone,
   formatDateTime,
   formatDuration,
   num,
@@ -31,6 +32,35 @@ import { TrailerControl } from "../components/TrailerControl";
 import { analyzeDrivePower } from "../lib/power";
 import { useGPSThresholds } from "../lib/config";
 import { usePreferences } from "../lib/preferences";
+
+type SampleRead = { data: Sample[] | undefined; isLoading: boolean; isError: boolean; error: unknown };
+// formatParked says a stop's length: "12 min" or "1 h 05 min".
+function formatParked(min: number): string {
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")} min`;
+}
+
+function fmtTimeShort(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: displayTimeZone() });
+}
+
+function combineSampleReads(parts: { data?: Sample[]; isLoading: boolean; isError: boolean; error: unknown }[]): SampleRead {
+  const failed = parts.find((q) => q.isError);
+  let data: Sample[] | undefined;
+  if (parts.length > 0 && parts.every((q) => q.data)) {
+    const seen = new Set<string>();
+    data = [];
+    for (const q of parts) {
+      for (const p of q.data as Sample[]) {
+        if (seen.has(p.At)) continue;
+        seen.add(p.At);
+        data.push(p);
+      }
+    }
+    data.sort((x, y) => new Date(x.At).getTime() - new Date(y.At).getTime());
+  }
+  return { data, isLoading: parts.some((q) => q.isLoading), isError: !!failed, error: failed?.error };
+}
 
 export default function DriveDetailPage() {
   const demo = inDemo();
@@ -122,22 +152,27 @@ export default function DriveDetailPage() {
   // miss the true start/end by up to a mile because telemetry often
   // drops the first 60–90 seconds of a trip: the first sample arrives
   // with the car already at highway speed, far from home.
-  const samples = useQuery({
-    queryKey: ["samples", "drive", id],
-    enabled: !!drive,
-    queryFn: () => {
-      const startMs = new Date(drive!.StartedAt).getTime();
-      const endMs = new Date(drive!.EndedAt).getTime();
-      const since = new Date(startMs - 10 * 60_000);
-      // Bound the upper end so we only pull samples in this drive's
-      // window plus 10-min flanks. Without `until`, the server would
-      // stream every sample from drive-start through now — for old
-      // drives that's hours/days of post-drive parked + charging
-      // rows that the SPA throws away after a filter pass.
-      const until = new Date(endMs + 10 * 60_000);
-      // The endpoint isn't vehicle-scoped: keep this drive's truck only.
-      return backend.samples(since, DETAIL_SAMPLE_LIMIT, until, drive!.VehicleID).then((r) => forVehicle(r, drive!.VehicleID));
-    },
+  // A merged round trip is read leg by leg (each leg's window with its flanks) so every leg's samples are in, and the
+  // parked stretch between legs comes with the legs on either side; one drive is one window.
+  const windows = useMemo(() => {
+    if (!drive) return [] as { from: number; to: number }[];
+    const spans =
+      drive.legs && drive.legs.length > 1
+        ? drive.legs.map((l) => ({ from: new Date(l.StartedAt).getTime(), to: new Date(l.EndedAt).getTime() }))
+        : [{ from: new Date(drive.StartedAt).getTime(), to: new Date(drive.EndedAt).getTime() }];
+    return spans.map((w) => ({ from: w.from - 10 * 60_000, to: w.to + 10 * 60_000 }));
+  }, [drive]);
+  // combine is a module-level function so its result keeps its identity until a read changes (the map rebuilds on a new points array).
+  const samples = useQueries({
+    queries: windows.map((w) => ({
+      queryKey: ["samples", "drive", id, w.from, w.to],
+      // The endpoint isn't vehicle-scoped: keep this drive's truck only. `until` bounds the read to the window plus its flanks.
+      queryFn: () =>
+        backend
+          .samples(new Date(w.from), DETAIL_SAMPLE_LIMIT, new Date(w.to), drive!.VehicleID)
+          .then((r) => forVehicle(r, drive!.VehicleID)),
+    })),
+    combine: combineSampleReads,
   });
 
   // Time series for the weather panel (temperature line +
@@ -313,6 +348,15 @@ export default function DriveDetailPage() {
     const used = drive.StartSoCPct - drive.EndSoCPct;
     return drive.EnergyUsedKWh > 0 && used >= 5 ? drive.EnergyUsedKWh / (used / 100) : undefined;
   }, [drive]);
+
+  // The stops between a round trip's legs, each where the earlier leg ended, with how long the truck sat there.
+  const stops = useMemo(
+    () =>
+      (drive?.legs ?? []).flatMap((l, k) =>
+        l.parkedMin != null ? [{ lat: l.EndLat, lon: l.EndLon, label: `Stop ${k + 1}: parked ${formatParked(l.parkedMin)}` }] : [],
+      ),
+    [drive?.legs],
+  );
 
   // A drive with no samples (a gap or an import) still has its stored route: draw the map from that, without
   // speed colouring or a cursor, since there are no samples to colour or point at.
@@ -626,10 +670,31 @@ export default function DriveDetailPage() {
             }
             fixAgeSeconds={fixAgeSeconds}
             packKWh={mapPackKWh}
+            stops={stops}
           />
           </Suspense>
         )}
       </Card>
+
+      {drive?.legs && drive.legs.length > 1 ? (
+        <Card title={`Legs (${drive.legs.length})`}>
+          <ol className="divide-y divide-neutral-800 text-sm" data-testid="round-trip-legs">
+            {drive.legs.map((l, k) => (
+              <li key={l.id} className="py-2">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-neutral-200">
+                    Leg {k + 1} · {fmtTimeShort(l.StartedAt)} to {fmtTimeShort(l.EndedAt)}
+                  </span>
+                  <span className="tabular-nums text-neutral-400">{l.DistanceMi.toFixed(1)} mi</span>
+                </div>
+                {l.parkedMin != null ? (
+                  <div className="mt-0.5 text-xs text-amber-400">Parked {formatParked(l.parkedMin)}</div>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </Card>
+      ) : null}
 
       {samples.isError && !demo ? (
         <ErrorBox

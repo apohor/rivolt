@@ -71,6 +71,8 @@ test("iphone: a merged round trip shows one pin where it starts and ends", async
   await page.route("**/api/samples**", (r) => r.fulfill({ json: samples }));
   await page.goto("/drives/drive-out");
   await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
-  await expect(page.locator("[data-map-drawn] .maplibregl-marker")).toHaveCount(1);
+  // The one pin at the start/end, and the stop between the two legs (amber, [data-stop]).
+  await expect(page.locator("[data-map-drawn] [data-stop]")).toHaveCount(1);
+  await expect(page.locator("[data-map-drawn] .maplibregl-marker")).toHaveCount(2);
   await ctx.close();
 });
