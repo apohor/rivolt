@@ -53,7 +53,7 @@ func TestPurchaseEmailStatesTheRenewalTermsAndHowToCancel(t *testing.T) {
 	paid := RenderPurchase(PurchaseParams{Interval: "year", Amount: "$34.99", Price: "$34.99 a year", Date: "2027-12-01"})
 	trial := RenderPurchase(PurchaseParams{Interval: "year", Amount: "$34.99", Price: "$34.99 a year", Date: "2026-12-11", Trialing: true})
 	for name, body := range map[string]string{"paid": paid, "trial": trial} {
-		for _, want := range []string{"$34.99 a year", "renews automatically every year until you cancel", "https://rivolt.dev/settings#plan", "Nothing is deleted when a plan ends", "the full export is always free", "https://rivolt.dev/terms", "https://rivolt.dev/privacy", "within 14 days of it for a full refund", "support@rivolt.dev"} {
+		for _, want := range []string{"$34.99 a year", "renews automatically every year until you cancel", "https://rivolt.dev/settings#plan", "Nothing is deleted when a plan ends", "the full export is always free", "https://rivolt.dev/terms", "https://rivolt.dev/privacy", "within 7 days of it for a full refund", "support@rivolt.dev"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s email lacks %q:\n%s", name, want, body)
 			}

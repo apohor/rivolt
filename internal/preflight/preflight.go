@@ -375,7 +375,7 @@ func Run(ctx context.Context, in Input) *Report {
 }
 
 // allowedCheckoutMethods are the payment method types Checkout may offer: cards and wallets. ACH, buy-now-pay-later and the delayed or
-// redirect methods have refund and dispute flows that do not match the 14-day refund and dispute copy.
+// redirect methods have refund and dispute flows that do not match the 7-day refund and dispute copy.
 var allowedCheckoutMethods = map[string]bool{"card": true, "apple_pay": true, "google_pay": true}
 
 func modeName(live bool) string {
@@ -437,7 +437,7 @@ func (r *Report) checkoutMethods(f StripeFacts, configured bool) {
 			}
 		}
 		if len(extra) > 0 {
-			r.problem("the payment method configuration also offers %d method(s) beyond cards and wallets: %s (only card, apple_pay and google_pay; Link's bank option is an ACH debit, and other methods' refund and dispute flows do not match the 14-day refund copy)", len(extra), strings.Join(extra, ", "))
+			r.problem("the payment method configuration also offers %d method(s) beyond cards and wallets: %s (only card, apple_pay and google_pay; Link's bank option is an ACH debit, and other methods' refund and dispute flows do not match the 7-day refund copy)", len(extra), strings.Join(extra, ", "))
 		}
 		if !card {
 			r.problem("the payment method configuration does not offer cards")
