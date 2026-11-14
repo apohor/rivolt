@@ -257,9 +257,9 @@ func Run(ctx context.Context, in Input) *Report {
 	}
 	r.line("  RIVOLT_STRIPE_AUTOMATIC_TAX: %s", map[bool]string{true: "on", false: "off"}[parseBool(get("RIVOLT_STRIPE_AUTOMATIC_TAX"))])
 	// StoreKit is needed only where the iPhone app sells (RIVOLT_BILLING_IOS); web-first, it is off and a missing bundle id is a pass.
-	// The product-list rule is the server's: ConfigFromEnv gets the same RIVOLT_BILLING flag the start check uses.
+	// The product-list rule is the server's billing-on rule, checked as if billing were on: a bundle id without products must show here before the flip, not crash the roll after it.
 	iosOn := parseBool(get("RIVOLT_BILLING_IOS"))
-	cfg, err := applebill.ConfigFromEnv(get, billingOn)
+	cfg, err := applebill.ConfigFromEnv(get, true)
 	switch {
 	case err != nil:
 		r.problem("StoreKit is misconfigured: %v", err)
