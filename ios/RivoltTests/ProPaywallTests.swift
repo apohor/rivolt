@@ -32,7 +32,8 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertEqual(PlanLogic.state(try me("me_plan_subscriber")), .pro(source: "stripe", periodEnd: cal("2026-12-01")))
         XCTAssertEqual(PlanLogic.state(try me("me_plan_apple")), .pro(source: "apple", periodEnd: d("2026-12-01T00:00:00Z")))
         XCTAssertEqual(PlanLogic.state(try me("me_plan_founding")), .pro(source: "founding", periodEnd: cal("2027-11-01")))
-        XCTAssertEqual(try me("me_plan_free").historyDays, 90)
+        XCTAssertEqual(try me("me_plan_free").historyDays, 395)
+        XCTAssertEqual(try me("me_plan_free").historyFrom, "2025-11-01")
         XCTAssertNil(try me("me_plan_founding").historyDays)
     }
 
@@ -68,7 +69,12 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertTrue(t.contains("at least 24 hours before the end of any period"))
         XCTAssertTrue(t.contains("Settings → Apple ID → Subscriptions"))
         XCTAssertTrue(t.contains("charged to your Apple ID"))
-        XCTAssertFalse(ProCopy.included.isEmpty)
+        XCTAssertFalse(ProCopy.included().isEmpty)
+        let w = FreeWindow(days: 395, from: "2025-11-01")
+        XCTAssertTrue(ProCopy.included(w).joined().contains("free: since November 1, 2025"))
+        XCTAssertEqual(ProCopy.card(.free, window: w)?.line, "Recording, alerts, history since November 1, 2025 and the full export, always.")
+        XCTAssertTrue(ProCopy.card(.lapsed(endedOn: nil, source: nil), window: w)?.line.hasPrefix("Showing history since November 1, 2025.") == true)
+        for text in ProCopy.included(w) + ProCopy.included() + [ProCopy.card(.free)?.line ?? "", ProCopy.card(.lapsed(endedOn: nil, source: nil))?.line ?? ""] { XCTAssertFalse(text.contains("90"), text) }
         XCTAssertEqual(ProCopy.choiceLabel(true), "Subscribe: $34.99 a year, renews yearly")
         XCTAssertEqual(ProCopy.choiceLabel(false), "Subscribe: $3.99 a month, renews monthly")
     }
@@ -106,25 +112,25 @@ final class ProPaywallTests: XCTestCase {
         let required = try JSONSerialization.jsonObject(with: Fixture.data("err_pro_required")) as? [String: Any]
         XCTAssertEqual(ProLimit.of(APIError.server(status: 402, message: outside?["error"] as? String ?? "")), .outsideFreeWindow)
         XCTAssertEqual(ProLimit.of(APIError.server(status: 402, message: required?["error"] as? String ?? "")), .proRequired)
-        XCTAssertEqual(outside?["free_days"] as? Int, 90)
+        XCTAssertEqual(outside?["free_days"] as? Int, 395)
         XCTAssertNil(ProLimit.of(APIError.server(status: 403, message: "outside_free_window")))
         XCTAssertNil(ProLimit.of(APIError.server(status: 402, message: "something_else")))
         XCTAssertNil(ProLimit.of(APIError.transport("x")))
-        XCTAssertTrue(ProLimit.outsideFreeWindow.text().contains("last 90 days"))
+        XCTAssertTrue(ProLimit.outsideFreeWindow.text(window: FreeWindow(days: 395, from: nil)).contains("last 395 days"))
+        XCTAssertTrue(ProLimit.outsideFreeWindow.text(window: FreeWindow(days: 395, from: "2025-11-01")).contains("before November 1, 2025"))
+        XCTAssertFalse(ProLimit.outsideFreeWindow.text().contains("90"))
         XCTAssertTrue(ProLimit.proRequired.text().contains("kept either way"))
     }
 
     func testTheCSVOfAnOlderMonthIsProOnlyForAFreeOrLapsedAccount() {
-        XCTAssertEqual(PlanLogic.monthsBack("2026-10", now: "2026-10"), 0)
-        XCTAssertEqual(PlanLogic.monthsBack("2026-08", now: "2026-10"), 2)
-        XCTAssertEqual(PlanLogic.monthsBack("2026-07", now: "2026-10"), 3)
-        XCTAssertEqual(PlanLogic.monthsBack("2025-12", now: "2026-02"), 2)
-        XCTAssertEqual(PlanLogic.monthsBack("junk", now: "2026-10"), 0)
-        XCTAssertFalse(PlanLogic.csvIsPro(.free, month: "2026-08", now: "2026-10"))
-        XCTAssertTrue(PlanLogic.csvIsPro(.free, month: "2026-07", now: "2026-10"))
-        XCTAssertTrue(PlanLogic.csvIsPro(.lapsed(endedOn: nil, source: nil), month: "2026-01", now: "2026-10"))
-        XCTAssertFalse(PlanLogic.csvIsPro(.off, month: "2020-01", now: "2026-10"))
-        XCTAssertFalse(PlanLogic.csvIsPro(.pro(source: "apple", periodEnd: nil), month: "2020-01", now: "2026-10"))
+        let w = FreeWindow(days: 395, from: "2025-11-01")
+        XCTAssertFalse(PlanLogic.csvIsPro(.free, month: "2025-11", window: w))
+        XCTAssertFalse(PlanLogic.csvIsPro(.free, month: "2026-08", window: w))
+        XCTAssertTrue(PlanLogic.csvIsPro(.free, month: "2025-10", window: w))
+        XCTAssertTrue(PlanLogic.csvIsPro(.lapsed(endedOn: nil, source: nil), month: "2024-01", window: w))
+        XCTAssertFalse(PlanLogic.csvIsPro(.free, month: "2024-01", window: .unknown))
+        XCTAssertFalse(PlanLogic.csvIsPro(.off, month: "2020-01", window: w))
+        XCTAssertFalse(PlanLogic.csvIsPro(.pro(source: "apple", periodEnd: nil), month: "2020-01", window: w))
     }
 
     func testNothingCanBeBoughtYetAndTheScreenSaysSo() async {

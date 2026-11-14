@@ -13,6 +13,42 @@ enum PlanState: Equatable {
     case lapsed(endedOn: Date?, source: String?)
 }
 
+/// The free plan's history window as the server reports it (`history_days` and `history_from` on /api/auth/me): the first day it shows moves on
+/// the first of each month, so the app never carries a length of its own. Nothing known (the answer not read yet, an older server) says so in words.
+struct FreeWindow: Equatable {
+    var days: Int? = nil
+    /// The first day shown, "YYYY-MM-DD" (UTC).
+    var from: String? = nil
+
+    static let unknown = FreeWindow()
+
+    init(days: Int? = nil, from: String? = nil) { self.days = days; self.from = from }
+    init(_ me: AuthUser?) { self.init(days: me?.historyDays, from: me?.historyFrom) }
+
+    private var fromText: String? { from.flatMap(PlanLogic.calendarDate).flatMap { PlanLogic.date($0) } }
+
+    /// After "free:" in the list of what Pro adds.
+    var short: String {
+        if let d = fromText { return "since \(d)" }
+        if let n = days { return "the last \(n) days" }
+        return "recent history only"
+    }
+
+    /// As the thing the free plan shows: "history since November 1, 2025".
+    var history: String {
+        if let d = fromText { return "history since \(d)" }
+        if let n = days { return "the last \(n) days" }
+        return "recent history"
+    }
+
+    /// The reason a row is hidden.
+    var olderThan: String {
+        if let d = fromText { return "This is from before \(d), as far back as the free plan shows." }
+        if let n = days { return "This is older than the last \(n) days that the free plan shows." }
+        return "This is older than the history the free plan shows."
+    }
+}
+
 enum PlanLogic {
     /// The date to show for one billing instant (B8). With the "utc_date" basis it is the server's UTC calendar date, as a `Date` that formats to that
     /// same calendar date in the device's own zone (local noon of it), so no zone conversion can move it; otherwise the instant itself.
@@ -54,25 +90,12 @@ enum PlanLogic {
         d.map { max(0, Int(ceil($0.timeIntervalSince(now) / 86_400))) }
     }
 
-    /// What a free account's Money shows (backend #1370): this month and the two before it.
-    static let freeMonths = 3
-
-    /// Whole calendar months from `month` ("2026-07") up to `now` ("2026-10"): 3 for July when it is October; 0 for a malformed month.
-    static func monthsBack(_ month: String, now: String) -> Int {
-        func parts(_ s: String) -> (Int, Int)? {
-            let p = s.split(separator: "-")
-            guard p.count == 2, let y = Int(p[0]), let m = Int(p[1]), (1...12).contains(m) else { return nil }
-            return (y, m)
-        }
-        guard let a = parts(month), let b = parts(now) else { return 0 }
-        return (b.0 - a.0) * 12 + (b.1 - a.1)
-    }
-
-    /// True when this plan shows only the last `freeMonths` months and the month is older: its CSV is part of Pro. Pro, billing off and the
-    /// demo (`.off`) see everything.
-    static func csvIsPro(_ plan: PlanState, month: String, now: String) -> Bool {
+    /// True when this plan shows only the server's free window and the month ("YYYY-MM") starts before it: its CSV is part of Pro. Pro, billing
+    /// off and the demo (`.off`) see everything, and so does a window not read yet (the server holds the line either way).
+    static func csvIsPro(_ plan: PlanState, month: String, window: FreeWindow) -> Bool {
+        guard let from = window.from, from.count >= 7 else { return false }
         switch plan {
-        case .free, .lapsed: return monthsBack(month, now: now) >= freeMonths
+        case .free, .lapsed: return month < String(from.prefix(7))
         default: return false
         }
     }
@@ -88,8 +111,8 @@ enum ProCopy {
     static func primaryVehicleSaved(_ name: String) -> String { "Done. The free plan now shows \(name)." }
     static let title = "Rivolt Pro"
     static let subtitle = "Full history, multi-day trips and widgets, from $3.99 a month."
-    static let included = [
-        "Unlimited history and trends (free: the last 90 days)",
+    static func included(_ window: FreeWindow = .unknown) -> [String] { [
+        "Unlimited history and trends (free: \(window.short))",
         "Range near a temperature",
         "Multi-day trip plans with hotel and campground overnights",
         "Re-plan from where the truck is, and plan-vs-actual after the trip",
@@ -97,7 +120,7 @@ enum ProCopy {
         "Every vehicle shown (free: 1)",
         "iPhone: Lock Screen and Home Screen widgets, the charging Live Activity",
         "Always free, on every plan: recording, every alert, imports, share cards, the full export, deletion",
-    ]
+    ] }
     static let yearly = (label: "Yearly", price: "$34.99", unit: "a year", extra: "about $2.92 a month")
     static let monthly = (label: "Monthly", price: "$3.99", unit: "a month", extra: "")
 
@@ -141,12 +164,12 @@ enum ProCopy {
     static func choiceLabel(_ yearly: Bool) -> String { yearly ? "Subscribe: $34.99 a year, renews yearly" : "Subscribe: $3.99 a month, renews monthly" }
 
     /// The Settings plan card, one state at a time (the web's `planCardCopy`).
-    static func card(_ state: PlanState, now: Date = .now) -> (title: String, line: String)? {
+    static func card(_ state: PlanState, window: FreeWindow = .unknown, now: Date = .now) -> (title: String, line: String)? {
         switch state {
         case .off:
             return nil
         case .free:
-            return ("Free", "Recording, alerts, the last 90 days and the full export, always.")
+            return ("Free", "Recording, alerts, \(window.history) and the full export, always.")
         case .pro(let source, let end):
             let renews = PlanLogic.date(end).map { ", renews \($0)" } ?? ""
             switch source {
@@ -161,7 +184,7 @@ enum ProCopy {
         case .paymentFailed(_, let until):
             return ("Rivolt Pro, payment failed", "Update your card from the payment email we sent, by \(PlanLogic.date(until) ?? "the end of the week"), to keep Pro. Nothing is deleted either way.")
         case .lapsed(let on, _):
-            return ("Your Pro ended\(PlanLogic.date(on).map { " on \($0)" } ?? "")", "Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).")
+            return ("Your Pro ended\(PlanLogic.date(on).map { " on \($0)" } ?? "")", "Showing \(window.history). Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).")
         }
     }
 }
@@ -229,9 +252,9 @@ enum ProLimit: Equatable {
         }
     }
 
-    func text(freeDays: Int = 90) -> String {
+    func text(window: FreeWindow = .unknown) -> String {
         switch self {
-        case .outsideFreeWindow: return "This is older than the last \(freeDays) days that the free plan shows. It is kept, and it is in your export; Pro shows all of it."
+        case .outsideFreeWindow: return "\(window.olderThan) It is kept, and it is in your export; Pro shows all of it."
         case .proRequired: return "This is part of Rivolt Pro. Everything you recorded is kept either way."
         }
     }
@@ -242,10 +265,12 @@ enum ProLimit: Equatable {
 struct ProLimitNote: View {
     @Environment(AppState.self) private var state
     let limit: ProLimit
-    var freeDays: Int = 90
+    /// Overrides what the note reads from the server itself.
+    var window: FreeWindow?
     /// A sentence for the feature that was hit, in place of the generic one.
     var message: String?
     @State private var plan: PlanState = .off
+    @State private var freeWindow: FreeWindow = .unknown
     @State private var showing = false
 
     /// The notes about data the free plan hides (older than the window, or another vehicle's) point to deleting it; the planner's do not.
@@ -253,7 +278,7 @@ struct ProLimitNote: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(message ?? limit.text(freeDays: freeDays)).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
+            Text(message ?? limit.text(window: window ?? freeWindow)).themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
             if offersDelete {
                 VStack(alignment: .leading, spacing: 2) {
                     Link(DeleteHistoryLink.title, destination: DeleteHistoryLink.url(state.serverURL))
@@ -272,9 +297,11 @@ struct ProLimitNote: View {
         .accessibilityElement(children: .contain)
         .task {
             guard !state.isDemo else { return }
-            plan = PlanLogic.state(try? await state.client.me())
+            let me = try? await state.client.me()
+            plan = PlanLogic.state(me)
+            freeWindow = FreeWindow(me)
         }
-        .sheet(isPresented: $showing) { ProPaywallView(plan: plan).followsAppearance() }
+        .sheet(isPresented: $showing) { ProPaywallView(plan: plan, window: window ?? freeWindow).followsAppearance() }
     }
 }
 
@@ -299,6 +326,8 @@ struct ProPaywallView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.dynamicTypeSize) private var typeSize
     let plan: PlanState
+    /// The free window the server reports, for the words that name it.
+    var window: FreeWindow = .unknown
     var purchasing: ProPurchasing = UnavailablePurchasing()
     /// What the server sets up, found when the sheet opens; `purchasing` stands until then, and always when it was given.
     @State private var live: ProPurchasing?
@@ -348,7 +377,7 @@ struct ProPaywallView: View {
                     status
                     VStack(alignment: .leading, spacing: 6) {
                         Text("What's included").themeText(.label, color: Theme.textTertiary).accessibilityAddTraits(.isHeader)
-                        ForEach(ProCopy.included, id: \.self) {
+                        ForEach(ProCopy.included(window), id: \.self) {
                             // The bullet is for the eye; VoiceOver reads the sentence.
                             Text("• \($0)").themeText(.value, color: Theme.textBody).fixedSize(horizontal: false, vertical: true).accessibilityLabel($0)
                         }
@@ -399,7 +428,7 @@ struct ProPaywallView: View {
     }
 
     @ViewBuilder private var status: some View {
-        if let card = ProCopy.card(plan) {
+        if let card = ProCopy.card(plan, window: window) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(card.title).themeText(.value, color: Theme.textPrimary).fontWeight(.semibold)
                 Text(card.line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
@@ -451,6 +480,7 @@ struct PlanNoticeView: View {
     @Environment(AppState.self) private var state
     @AppStorage("rivolt.planNotice.dismissed") private var dismissedOn = ""
     @State private var plan: PlanState = .off
+    @State private var window: FreeWindow = .unknown
     @State private var showing = false
 
     private var lapseID: String? {
@@ -460,7 +490,7 @@ struct PlanNoticeView: View {
 
     var body: some View {
         Group {
-            if let id = lapseID, dismissedOn != id, let card = ProCopy.card(plan) {
+            if let id = lapseID, dismissedOn != id, let card = ProCopy.card(plan, window: window) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("\(card.title). \(card.line)")
                         .themeText(.subline, color: Theme.textBody).fixedSize(horizontal: false, vertical: true)
@@ -480,12 +510,14 @@ struct PlanNoticeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .themeCard(padding: 0)
                 .accessibilityElement(children: .contain)
-                .sheet(isPresented: $showing) { ProPaywallView(plan: plan).followsAppearance() }
+                .sheet(isPresented: $showing) { ProPaywallView(plan: plan, window: window).followsAppearance() }
             }
         }
         .task {
             guard !state.isDemo else { return }
-            plan = PlanLogic.state(try? await state.client.me())
+            let me = try? await state.client.me()
+            plan = PlanLogic.state(me)
+            window = FreeWindow(me)
         }
     }
 }
