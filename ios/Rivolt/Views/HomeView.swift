@@ -207,8 +207,17 @@ struct HomeView: View {
                         ForEach(vehicles) { v in Text(VehicleChoice.label(v)).tag(v.id) }
                     }
                 } label: {
-                    Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
-                        .frame(width: 36, height: 36)
+                    if v2 {
+                        // The redesign drops the small car glyph (the web has none): the truck's name, with the chevron that says it opens.
+                        HStack(spacing: 4) {
+                            Text(vehicles.first { $0.id == selectedID }?.name ?? "Vehicle").themeText(.value, color: Theme.textSecondary).lineLimit(1)
+                            Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(Theme.textSecondary)
+                        }
+                        .frame(minHeight: 44)
+                    } else {
+                        Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
+                            .frame(width: 36, height: 36)
+                    }
                 }
                 .accessibilityLabel("Switch vehicle")
             }

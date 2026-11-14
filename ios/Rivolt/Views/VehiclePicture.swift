@@ -27,9 +27,18 @@ enum VehiclePicture {
             // A stable choice: the lowest rank, the first listed among equals.
             var best = hits[0]
             for h in hits.dropFirst() where rank(h) < rank(best) { best = h }
-            if let url = URL(string: best.url), url.scheme == "https" { return url }
+            if let url = URL(string: best.url), url.scheme == "https" || Self.allowsFile(url) { return url }
         }
         return nil
+    }
+
+    /// A local file stands in for Rivian's picture in Debug builds only, so the UI tests and the design shots can show one without a network.
+    private static func allowsFile(_ url: URL) -> Bool {
+        #if DEBUG
+        return url.isFileURL
+        #else
+        return false
+        #endif
     }
 
     /// Now: actively charging (power flowing) shows the plugged side view, driving the side view, otherwise the three-quarter view.

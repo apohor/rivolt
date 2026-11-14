@@ -66,7 +66,7 @@ struct NowLiveView: View {
 
     private var energy: some View {
         let detail = ChargingDetail.make(summary: summary, session: session, charge: charge)
-        return ThemeSection(title: "\(vehicle.name): \(summary.stateLabel)") {
+        return ThemeSection(title: "\(vehicle.name): \(offline ? "Offline" : summary.stateLabel)") {
             row("Battery", summary.socPct.map { "\(Int($0.rounded()))%" })
             row("Range", summary.rangeKm.map { km in "\(Int((NowFormat.usesMetric ? km : km / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi")" })
             row("Charge limit", summary.chargeTargetPct.map { "\(Int($0.rounded()))%" })

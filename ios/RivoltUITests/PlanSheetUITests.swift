@@ -173,6 +173,15 @@ final class PlanSheetUITests: XCTestCase {
         return chart
     }
 
+    /// With the Now redesign's key too, the Plan tab's top bar has the sun/moon switch like every other tab's.
+    func testThePlanTopBarHasTheThemeSwitchWithBothKeys() throws {
+        let app = launch(["-uitest-ios-elevation", "-uitest-now-v2"])
+        let plan = app.buttons["Plan"].firstMatch
+        XCTAssertTrue(plan.waitForExistence(timeout: 20))
+        plan.tap()
+        XCTAssertTrue(app.buttons["theme-switch"].firstMatch.waitForExistence(timeout: 10), "the Plan top bar has the switch")
+    }
+
     /// Without the design_preview key ios_elevation the plan has no chart (prod's screen is unchanged).
     func testWithoutTheFlagThePlanHasNoElevationChart() throws {
         let app = launch()
