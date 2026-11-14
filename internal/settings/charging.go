@@ -12,8 +12,16 @@ import (
 const (
 	keyChargingHomePricePerKWh = "charging.home_price_per_kwh"
 	keyChargingHomeCurrency    = "charging.home_currency"
+	keyChargingHomePriceSource = "charging.home_price_source"
 	keyChargingGasPricePerGal  = "charging.gas_price_per_gallon"
 	keyChargingComparisonMPG   = "charging.comparison_mpg"
+)
+
+// Where the home rate came from (ChargingConfig.HomePriceSource). The guided setup offers the state average as a one-tap default; Money marks
+// charges priced with it as estimated until the user sets their own rate.
+const (
+	PriceSourceUser         = "user"
+	PriceSourceStateAverage = "state_average"
 )
 
 // DefaultHomeCurrency is the ISO-4217 code used when the operator
@@ -37,6 +45,9 @@ type ChargingConfig struct {
 	// hour. Zero means "not configured"; in that case estimated cost
 	// is not computed.
 	HomePricePerKWh float64 `json:"home_price_per_kwh"`
+	// HomePriceSource is "state_average" (the setup's default, estimated) or "user" (the user typed it); "" when no rate is set. A rate
+	// stored before this key existed reads as "user".
+	HomePriceSource string `json:"home_price_source"`
 	// HomeCurrency is the ISO-4217 code displayed next to estimated
 	// cost. Defaults to USD.
 	HomeCurrency string `json:"home_currency"`
@@ -64,6 +75,12 @@ func GetChargingConfig(ctx context.Context, s *Store) (ChargingConfig, error) {
 	if v, ok := all[keyChargingHomePricePerKWh]; ok && v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
 			cfg.HomePricePerKWh = f
+		}
+	}
+	if cfg.HomePricePerKWh > 0 {
+		cfg.HomePriceSource = PriceSourceUser
+		if v := all[keyChargingHomePriceSource]; v == PriceSourceStateAverage {
+			cfg.HomePriceSource = v
 		}
 	}
 	if v, ok := all[keyChargingHomeCurrency]; ok && v != "" {
@@ -101,8 +118,17 @@ func SetChargingConfig(ctx context.Context, s *Store, cfg ChargingConfig) error 
 	if cfg.ComparisonMPG < 0 {
 		cfg.ComparisonMPG = 0
 	}
+	// The full overwrite from the web echoes the GET, so the source in the body is not trusted: a rate left as stored keeps its stored source,
+	// a changed one is the user's. Only PatchChargingConfigSource writes state_average.
+	source := PriceSourceUser
+	if cfg.HomePricePerKWh <= 0 {
+		source = ""
+	} else if cur, err := GetChargingConfig(ctx, s); err == nil && cur.HomePricePerKWh == cfg.HomePricePerKWh {
+		source = cur.HomePriceSource
+	}
 	return s.SetMany(ctx, map[string]string{
 		keyChargingHomePricePerKWh: strconv.FormatFloat(cfg.HomePricePerKWh, 'f', -1, 64),
+		keyChargingHomePriceSource: source,
 		keyChargingHomeCurrency:    cfg.HomeCurrency,
 		keyChargingGasPricePerGal:  strconv.FormatFloat(cfg.GasPricePerGallon, 'f', -1, 64),
 		keyChargingComparisonMPG:   strconv.FormatFloat(cfg.ComparisonMPG, 'f', -1, 64),
@@ -139,12 +165,26 @@ const (
 // PatchChargingConfig writes only the fields that are set (nil leaves the stored value
 // alone). The caller has validated the values.
 func PatchChargingConfig(ctx context.Context, s *Store, pricePerKWh *float64, currency *string, gasPrice, comparisonMPG *float64) error {
+	return PatchChargingConfigSource(ctx, s, pricePerKWh, nil, currency, gasPrice, comparisonMPG)
+}
+
+// PatchChargingConfigSource is PatchChargingConfig with the rate's source. A rate written without one is the user's ("user"); the source is
+// stored in the same write as the rate, so the two never disagree. The caller has checked that a source comes with a rate.
+func PatchChargingConfigSource(ctx context.Context, s *Store, pricePerKWh *float64, source *string, currency *string, gasPrice, comparisonMPG *float64) error {
 	if s == nil {
 		return nil
 	}
 	kv := map[string]string{}
 	if pricePerKWh != nil {
 		kv[keyChargingHomePricePerKWh] = strconv.FormatFloat(*pricePerKWh, 'f', -1, 64)
+		src := PriceSourceUser
+		if source != nil {
+			src = *source
+		}
+		if *pricePerKWh <= 0 {
+			src = ""
+		}
+		kv[keyChargingHomePriceSource] = src
 	}
 	if currency != nil {
 		kv[keyChargingHomeCurrency] = *currency
