@@ -2669,6 +2669,16 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 // subscription. Values reach the live state only from fresh frames
 // (applicable).
 func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID string, f DriveDynamicsFrame) {
+	if f.NavRejected {
+		m.logger.Warn("nav count: server refused the navigation topics, off for this vehicle until restart", "vehicle", vehicleID)
+		m.mu.RLock()
+		obs := m.sleepObserver
+		m.mu.RUnlock()
+		if o, ok := obs.(NavObserver); ok {
+			o.OnNavRejected()
+		}
+		return
+	}
 	if isNavRVM(f.RVM) {
 		// Before noteParallaxFrame: a navigation frame says nothing about
 		// the car being awake or the feed being live.
@@ -3205,6 +3215,8 @@ func (m *StateMonitor) applicable(f DriveDynamicsFrame, fresh bool) bool {
 // size, nothing else.
 type NavObserver interface {
 	OnNavFrame(topic string, payloadBytes int)
+	// OnNavRejected is told once when the server refused the topics and they were latched off.
+	OnNavRejected()
 }
 
 // countNavFrame is the only thing a navigation frame ever reaches: one

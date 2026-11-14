@@ -3960,6 +3960,14 @@ func (s *sleepMetrics) OnNavFrame(topic string, payloadBytes int) {
 	s.m.NavFrameBytesTotal.WithLabelValues(label).Add(float64(payloadBytes))
 }
 
+// OnNavRejected implements rivian.NavObserver: the server refused the navigation topics and they were latched off.
+func (s *sleepMetrics) OnNavRejected() {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.NavRejectedTotal.Inc()
+}
+
 // rivianResultMetrics counts each Rivian call's outcome by operation and
 // class (rivolt_rivian_results_total); same dependency direction as
 // breakerMetrics.

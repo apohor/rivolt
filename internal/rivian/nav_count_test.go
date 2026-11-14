@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 // navCounter is a SleepObserver that also counts navigation frames.
@@ -17,9 +22,17 @@ type navCounter struct {
 	mu     sync.Mutex
 	frames map[string]int
 	bytes  map[string]int
+
+	rejected int
 }
 
 func (n *navCounter) OnSleepEnded(string, time.Duration, bool) {}
+
+func (n *navCounter) OnNavRejected() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.rejected++
+}
 
 func (n *navCounter) OnNavFrame(topic string, payloadBytes int) {
 	n.mu.Lock()
@@ -107,5 +120,102 @@ func TestNavFrameIsCountedAndNothingElse(t *testing.T) {
 	}
 	if len(m.lastParallaxAt) != 0 {
 		t.Errorf("parallax liveness touched: %v", m.lastParallaxAt)
+	}
+}
+
+// If the server refuses a subscription that carried the navigation topics
+// (a gate, say), the reconnect carries the core topics without them, the
+// refusal is counted and logged once, and the car's other Parallax topics
+// keep flowing.
+func TestNavTopicsLatchOffWhenTheServerRefusesThem(t *testing.T) {
+	type sub struct{ rvms []string }
+	var mu sync.Mutex
+	var subs []sub
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"graphql-transport-ws"}})
+		if err != nil {
+			return
+		}
+		ctx := r.Context()
+		if _, _, err := c.Read(ctx); err != nil { // connection_init
+			return
+		}
+		_ = c.Write(ctx, websocket.MessageText, []byte(`{"type":"connection_ack"}`))
+		for {
+			_, data, err := c.Read(ctx)
+			if err != nil {
+				return
+			}
+			var f struct {
+				ID, Type string
+				Payload  struct {
+					Variables struct{ RVMs []string }
+				}
+			}
+			if json.Unmarshal(data, &f) != nil || f.Type != "subscribe" {
+				continue
+			}
+			mu.Lock()
+			subs = append(subs, sub{rvms: f.Payload.Variables.RVMs})
+			n := len(subs)
+			mu.Unlock()
+			if n == 1 {
+				_ = c.Write(ctx, websocket.MessageText, []byte(`{"id":"`+f.ID+`","type":"error","payload":[{"message":"not allowed"}]}`))
+				continue
+			}
+			_ = c.Write(ctx, websocket.MessageText, []byte(`{"id":"`+f.ID+`","type":"next","payload":{"data":{"parallaxMessages":{"payload":"CAM=","timestamp":"5","rvm":"`+rvmDriveGear+`"}}}}`))
+		}
+	}))
+	defer srv.Close()
+
+	c := NewLive()
+	c.userSessionToken = "u"
+	c.wsEndpointOverride = "ws" + strings.TrimPrefix(srv.URL, "http")
+	logs := &bytes.Buffer{}
+	m := NewStateMonitor(nil, slog.New(slog.NewTextHandler(logs, nil)))
+	m.navCount = true
+	obs := &navCounter{frames: map[string]int{}, bytes: map[string]int{}}
+	m.SetSleepObserver(obs)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	gotGear := make(chan struct{})
+	var once sync.Once
+	go func() {
+		_ = c.SubscribeDriveDynamics(ctx, "veh-1", m.captureTopics("veh-1"), func(f DriveDynamicsFrame) {
+			m.onDriveDynamicsFrame(ctx, "veh-1", f)
+			if f.RVM == rvmDriveGear {
+				once.Do(func() { close(gotGear) })
+			}
+		})
+	}()
+	select {
+	case <-gotGear:
+	case <-ctx.Done():
+		t.Fatal("no gear frame after the reconnect")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(subs) < 2 {
+		t.Fatalf("%d subscriptions, want a reconnect", len(subs))
+	}
+	has := func(rvms []string, want string) bool { return slices.Contains(rvms, want) }
+	if !has(subs[0].rvms, rvmNavTripInfo) || !has(subs[0].rvms, rvmNavTripProgress) {
+		t.Errorf("first connect lacked the nav topics: %v", subs[0].rvms)
+	}
+	if has(subs[1].rvms, rvmNavTripInfo) || has(subs[1].rvms, rvmNavTripProgress) {
+		t.Errorf("reconnect still carried a nav topic: %v", subs[1].rvms)
+	}
+	if !has(subs[1].rvms, rvmDriveGear) || !has(subs[1].rvms, rvmChargingStatus) {
+		t.Errorf("reconnect lost the core topics: %v", subs[1].rvms)
+	}
+	obs.mu.Lock()
+	defer obs.mu.Unlock()
+	if obs.rejected != 1 {
+		t.Errorf("rejection counted %d times, want 1", obs.rejected)
+	}
+	if n := strings.Count(logs.String(), "server refused the navigation topics"); n != 1 {
+		t.Errorf("logged %d times, want once:\n%s", n, logs.String())
 	}
 }

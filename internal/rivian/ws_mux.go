@@ -333,7 +333,7 @@ func (m *wsMux) receive() {
 			}
 		case "error":
 			if sub := m.lookup(frame.ID); sub != nil {
-				m.deliverSubErr(sub, fmt.Errorf("ws server error: %s", string(frame.Payload)))
+				m.deliverSubErr(sub, fmt.Errorf("%w: %s", errWSServerError, string(frame.Payload)))
 			}
 		case "complete":
 			if sub := m.lookup(frame.ID); sub != nil {
@@ -353,6 +353,10 @@ func (m *wsMux) receive() {
 		}
 	}
 }
+
+// errWSServerError marks a graphql-ws "error" frame: the server refused the
+// subscription (as opposed to a "complete", which is routine churn).
+var errWSServerError = errors.New("ws server error")
 
 // lookup returns the sub registered under id, or nil.
 func (m *wsMux) lookup(id string) *wsSub {

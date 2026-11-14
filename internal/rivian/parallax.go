@@ -957,7 +957,15 @@ type DriveDynamicsFrame struct {
 	// PayloadBytes is the decoded size of a navigation frame, whose Payload,
 	// Value and ValueOK are left empty on purpose (count only).
 	PayloadBytes int
+	// NavRejected is set on a synthetic frame (no RVM) when the server
+	// refused a subscription that carried the navigation topics and they
+	// were dropped from the next connect.
+	NavRejected bool
 }
+
+// errParallaxSubscription marks a GraphQL error on the ParallaxMessages
+// subscription.
+var errParallaxSubscription = errors.New("parallax subscription error")
 
 // driveDynamicsFrameOf builds the frame for one message. A navigation
 // topic is count only: its payload is neither decoded nor carried, just
@@ -1004,6 +1012,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		return errors.New("rivian: callback is required")
 	}
 	var bo reconnectBackoff
+	navOff := false // latched when the server refuses a subscription that carried the navigation topics
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -1013,8 +1022,17 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 			rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
 			rvmChargingStatus, rvmOtaDeploy, rvmTimeEstimation,
 		}
+		carriedNav := false
 		if extra != nil {
-			rvms = append(rvms, extra()...)
+			for _, r := range extra() {
+				if isNavRVM(r) {
+					if navOff {
+						continue
+					}
+					carriedNav = true
+				}
+				rvms = append(rvms, r)
+			}
 		}
 		bo.start()
 		err := c.runGenericSubscription(ctx, userTok, subParams{
@@ -1028,7 +1046,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 				return nil
 			}
 			if len(p.Errors) > 0 {
-				return fmt.Errorf("parallax subscription error: %s", p.Errors[0].Message)
+				return fmt.Errorf("%w: %s", errParallaxSubscription, p.Errors[0].Message)
 			}
 			msg := p.Data.ParallaxMessages
 			if msg.Payload == "" {
@@ -1042,6 +1060,13 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		}
 		if errors.Is(err, errWSUnauthenticated) {
 			return err
+		}
+		if carriedNav && (errors.Is(err, errParallaxSubscription) || errors.Is(err, errWSServerError)) {
+			// The server refused a subscription that carried the
+			// navigation topics (a gate, say). They share it with gear and
+			// charging status, so drop them for good rather than loop.
+			navOff = true
+			cb(DriveDynamicsFrame{NavRejected: true})
 		}
 		wait := bo.next()
 		select {
