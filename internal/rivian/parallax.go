@@ -580,6 +580,21 @@ const (
 	rvmBatteryChars = "energy.high_voltage.battery_characteristics"
 )
 
+// The two navigation topics carry the active trip: trip_info holds the
+// route (so the destination), trip_progress the legs' remaining distance,
+// time and the car's position. A destination is a precise location, so
+// these are only ever counted (see NavCountRVMs); no payload byte is read.
+const (
+	rvmNavTripInfo     = "navigation.navigation_service.trip_info"
+	rvmNavTripProgress = "navigation.navigation_service.trip_progress"
+)
+
+// NavCountRVMs are the navigation topics subscribed when RIVOLT_NAV_COUNT
+// is on, to count frames and payload bytes per topic and nothing else.
+var NavCountRVMs = []string{rvmNavTripInfo, rvmNavTripProgress}
+
+func isNavRVM(rvm string) bool { return rvm == rvmNavTripInfo || rvm == rvmNavTripProgress }
+
 // CaptureRVMs are the read topics carried on the drive-dynamics
 // subscription only under the preview capture flag, so prod isn't
 // subscribed to them yet. alarm + 12V health are decoded from the APK
@@ -939,6 +954,27 @@ type DriveDynamicsFrame struct {
 	ValueOK     bool
 	Payload     string
 	TimestampMs int64
+	// PayloadBytes is the decoded size of a navigation frame, whose Payload,
+	// Value and ValueOK are left empty on purpose (count only).
+	PayloadBytes int
+}
+
+// driveDynamicsFrameOf builds the frame for one message. A navigation
+// topic is count only: its payload is neither decoded nor carried, just
+// sized from the base64 length.
+func driveDynamicsFrameOf(rvm, payload, timestamp string) DriveDynamicsFrame {
+	if isNavRVM(rvm) {
+		return DriveDynamicsFrame{RVM: rvm, PayloadBytes: base64.StdEncoding.DecodedLen(len(payload))}
+	}
+	// Don't gate on a successful varint decode — a topic whose shape isn't
+	// RE'd yet (power.state) must still reach the shadow so its raw payload
+	// gets logged for offline decoding.
+	v, ok := decodeSingleVarint(payload)
+	var ts int64
+	if s := strings.Trim(timestamp, `"`); s != "" {
+		ts, _ = strconv.ParseInt(s, 10, 64)
+	}
+	return DriveDynamicsFrame{RVM: rvm, Value: v, ValueOK: ok, Payload: payload, TimestampMs: ts}
 }
 
 // DriveDynamicsCallback receives each decoded drive-dynamics frame.
@@ -998,15 +1034,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 			if msg.Payload == "" {
 				return nil
 			}
-			// Don't gate on a successful varint decode — a topic whose
-			// shape isn't RE'd yet (power.state) must still reach the
-			// shadow so its raw payload gets logged for offline decoding.
-			v, ok := decodeSingleVarint(msg.Payload)
-			var ts int64
-			if s := strings.Trim(string(msg.Timestamp), `"`); s != "" {
-				ts, _ = strconv.ParseInt(s, 10, 64)
-			}
-			cb(DriveDynamicsFrame{RVM: msg.RVM, Value: v, ValueOK: ok, Payload: msg.Payload, TimestampMs: ts})
+			cb(driveDynamicsFrameOf(msg.RVM, msg.Payload, string(msg.Timestamp)))
 			return nil
 		})
 		if err == nil {

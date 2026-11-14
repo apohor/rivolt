@@ -335,6 +335,9 @@ type Metrics struct {
 	// it with its original timestamp) and frames older than a minute. A
 	// replayed gear D once flapped a charging truck's sessions.
 	ParallaxReplaysIgnoredTotal *prometheus.CounterVec
+	// Navigation frames (trip_info, trip_progress) seen and their decoded payload bytes, by topic. Count only: no content, no vehicle label.
+	NavFramesTotal     *prometheus.CounterVec
+	NavFrameBytesTotal *prometheus.CounterVec
 	// Charges whose energy the recorder replaced with an estimate from the SoC gain because its integral had lost energy
 	// (a handoff or a restart). No labels: /metrics is public. Every increment is a recorder bug to find.
 	ChargeEnergyFloorTotal prometheus.Counter
@@ -1033,6 +1036,14 @@ func New() *Metrics {
 			},
 			[]string{"method"},
 		),
+		NavFramesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_nav_frames_total",
+			Help: "Navigation Parallax frames received, by topic (trip_info, trip_progress). Counted only, never decoded.",
+		}, []string{"topic"}),
+		NavFrameBytesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_nav_frame_bytes_total",
+			Help: "Decoded payload bytes of navigation Parallax frames, by topic. Size only, never decoded.",
+		}, []string{"topic"}),
 		ParallaxReplaysIgnoredTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_parallax_replays_ignored_total",
@@ -1259,6 +1270,8 @@ func New() *Metrics {
 		m.ServerEventsTotal,
 		m.VehicleSleepsTotal,
 		m.ParallaxReplaysIgnoredTotal,
+		m.NavFramesTotal,
+		m.NavFrameBytesTotal,
 		m.ChargeEnergyFloorTotal,
 		m.DrivesLocationUnavailableTotal,
 		m.APNsRegisterRefusedTotal,
@@ -1374,6 +1387,10 @@ func New() *Metrics {
 	}
 	for _, reason := range []string{"drain", "rebalance", "expired", "other"} {
 		m.RolloutHandoffsTotal.WithLabelValues(reason).Add(0)
+	}
+	for _, topic := range []string{"trip_info", "trip_progress"} {
+		m.NavFramesTotal.WithLabelValues(topic).Add(0)
+		m.NavFrameBytesTotal.WithLabelValues(topic).Add(0)
 	}
 	for _, kind := range []string{"drive", "charge"} {
 		m.SessionSplitTotal.WithLabelValues(kind).Add(0)

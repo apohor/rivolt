@@ -153,6 +153,11 @@ type StateMonitor struct {
 	// experimental topics until each is decoded and promoted. Requires
 	// parallaxDriveDynamics (the subscription it rides on).
 	parallaxCapture bool
+	// navCount (RIVOLT_NAV_COUNT, default off) subscribes the two
+	// navigation topics (NavCountRVMs) and counts their frames and payload
+	// bytes per topic. The payload is never decoded, logged or stored: a
+	// destination is a precise location.
+	navCount bool
 	// lastParallaxAt[vehicleID] is when any Parallax topic (gnss,
 	// battery_state, drive-dynamics, charging) last delivered a frame.
 	// Feeds parallaxLivenessWatch — the observability precursor to the
@@ -538,6 +543,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		fastTakeover:          parseBoolEnv(os.Getenv("RIVOLT_FAST_TAKEOVER")),
 		parallaxDriveDynamics: parallaxAll,
 		parallaxCapture:       parallaxAll,
+		navCount:              parseBoolEnv(os.Getenv("RIVOLT_NAV_COUNT")),
 		lastVehStateGPS:       make(map[string]time.Time),
 		lastVehStateSoC:       make(map[string]float64),
 		lastParallaxAt:        make(map[string]time.Time),
@@ -580,7 +586,7 @@ func NewSourceMonitor(src FrameSource, vehicles []Vehicle, logger *slog.Logger) 
 	// Recorded frames are already the merged output of whichever feeds
 	// produced them; the Parallax field-authority rules only apply to
 	// live subscriptions.
-	m.parallaxGPS, m.parallaxDriveDynamics, m.parallaxCapture = false, false, false
+	m.parallaxGPS, m.parallaxDriveDynamics, m.parallaxCapture, m.navCount = false, false, false, false
 	m.source = src
 	m.catchup = newCatchupWriter(m)
 	for i := range vehicles {
@@ -2663,6 +2669,12 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 // subscription. Values reach the live state only from fresh frames
 // (applicable).
 func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID string, f DriveDynamicsFrame) {
+	if isNavRVM(f.RVM) {
+		// Before noteParallaxFrame: a navigation frame says nothing about
+		// the car being awake or the feed being live.
+		m.countNavFrame(f)
+		return
+	}
 	fresh := m.noteParallaxFrame(vehicleID, f.RVM, f.TimestampMs)
 	m.mu.Lock()
 	prev := m.cache[vehicleID]
@@ -3186,6 +3198,24 @@ func (m *StateMonitor) applicable(f DriveDynamicsFrame, fresh bool) bool {
 		}
 	}
 	return ok
+}
+
+// NavObserver is optionally implemented by the SleepObserver (main's
+// metrics adapter): told each navigation frame's topic and decoded payload
+// size, nothing else.
+type NavObserver interface {
+	OnNavFrame(topic string, payloadBytes int)
+}
+
+// countNavFrame is the only thing a navigation frame ever reaches: one
+// count and one size per topic. The frame's content is not in f.
+func (m *StateMonitor) countNavFrame(f DriveDynamicsFrame) {
+	m.mu.RLock()
+	obs := m.sleepObserver
+	m.mu.RUnlock()
+	if o, ok := obs.(NavObserver); ok {
+		o.OnNavFrame(f.RVM, f.PayloadBytes)
+	}
 }
 
 // ParallaxReplayObserver is optionally implemented by the SleepObserver

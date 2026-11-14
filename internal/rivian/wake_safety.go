@@ -87,7 +87,7 @@ func (m *StateMonitor) captureTopics(vehicleID string) func() []string {
 	first, lastOff := true, false
 	return func() []string {
 		if !m.parallaxCapture {
-			return nil
+			return m.navTopics(vehicleID)
 		}
 		off := m.wakeSafetyFor(vehicleID).CaptureOff
 		if off != lastOff || (first && off) {
@@ -101,11 +101,21 @@ func (m *StateMonitor) captureTopics(vehicleID string) func() []string {
 		if off {
 			return nil
 		}
-		if !pxNextCapturing(time.Now()) {
-			return CaptureRVMs
+		topics := append([]string(nil), CaptureRVMs...)
+		if pxNextCapturing(time.Now()) {
+			topics = append(topics, pxNextRVMs...)
 		}
-		return append(append([]string(nil), CaptureRVMs...), pxNextRVMs...)
+		return append(topics, m.navTopics(vehicleID)...)
 	}
+}
+
+// navTopics is the count-only navigation pair when RIVOLT_NAV_COUNT is on.
+// Wake-safety capture-off applies, like every extra topic.
+func (m *StateMonitor) navTopics(vehicleID string) []string {
+	if !m.navCount || m.wakeSafetyFor(vehicleID).CaptureOff {
+		return nil
+	}
+	return NavCountRVMs
 }
 
 func (m *StateMonitor) cachedPowerState(vehicleID string) (ps string, odoKm float64) {
