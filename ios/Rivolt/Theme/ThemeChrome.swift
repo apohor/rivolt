@@ -44,9 +44,9 @@ struct ThemeTopBar<Trailing: View>: View {
             ThemeLogo(size: ThemeTokens.logoSize)
             Text(title).font(Theme.sans(16, .semibold, relativeTo: .headline)).tracking(ThemeTokens.logoWordmarkTracking * 16)
                 .foregroundStyle(Theme.textPrimary)
-            // The web's ThemeSwitch sits beside the wordmark; here with the Now redesign (design_preview key ios_now_v2).
-            if state?.designPreview.contains("ios_now_v2") == true { ThemeModeSwitch() }
             Spacer(minLength: 8)
+            // The sun or moon sits at the right, next to the profile button, with the Now redesign (design_preview key ios_now_v2).
+            if state?.designPreview.contains("ios_now_v2") == true { ThemeModeSwitch() }
             trailing
         }
         .padding(.horizontal, 4 * Theme.unit)

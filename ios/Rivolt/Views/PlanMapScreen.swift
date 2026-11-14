@@ -177,7 +177,7 @@ struct PlanMapScreen: View {
     private var peek: some View {
         let title = PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line)
         if ax {
-            PlanSheetCompactHeader(title: title)
+            PlanSheetCompactHeader(title: title, wraps: detent == .full)
         } else {
             PlanSheetHeader(title: title, summary: model.plan?.best.map { TripPlanLogic.summary($0, metric: metric) }, onEdit: onEdit)
         }
@@ -538,15 +538,18 @@ struct PlanMoveBar: View {
 }
 
 
-/// The sheet's header at accessibility text sizes: the title, two lines at most. The rest (summary, Edit, the day chips, Networks) is at the top of the
+/// The sheet's header at accessibility text sizes: the title, two lines at most (in whole at the full detent). The rest (summary, Edit, the day chips, Networks) is at the top of the
 /// sheet's content, so the header never takes the map.
 struct PlanSheetCompactHeader: View {
     let title: String
+    /// At the full detent the name wraps in whole; above it two lines, so the day chips stay above the tab bar.
+    var wraps = false
 
     var body: some View {
-        Text(title).themeText(.title, color: Theme.textPrimary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+        Text(title).themeText(.title, color: Theme.textPrimary).lineLimit(wraps ? nil : 2).fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("plan-sheet-title")
     }
 }
 

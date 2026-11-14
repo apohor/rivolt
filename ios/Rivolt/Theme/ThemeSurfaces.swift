@@ -116,6 +116,7 @@ struct ThemePill: View {
     enum Tone { case live, stale, neutral }
     let text: String
     var tone: Tone = .neutral
+    var identifier: String?
 
     private var textColor: Color {
         switch tone {
@@ -133,14 +134,31 @@ struct ThemePill: View {
         }
     }
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// A capsule's ends cut into a second line of text, so at the accessibility sizes (where the text wraps) the pill is a rounded rectangle with the text inset.
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: typeSize.isAccessibilitySize ? Theme.radiusInner : 999, style: .continuous)
+    }
+
     var body: some View {
         Text(text)
             .themeText(.caption, color: textColor)
-            .padding(.horizontal, 2 * Theme.unit)
-            .padding(.vertical, Theme.unit / 2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, (typeSize.isAccessibilitySize ? 3 : 2) * Theme.unit)
+            .padding(.vertical, (typeSize.isAccessibilitySize ? 1.5 : 0.5) * Theme.unit)
             // The warning pill carries a faint amber fill, like the web's.
-            .background(tone == .stale ? Theme.estimateFill.opacity(0.1) : .clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(border, lineWidth: 1))
+            .background(tone == .stale ? Theme.estimateFill.opacity(0.1) : .clear, in: shape)
+            .overlay(shape.strokeBorder(border, lineWidth: 1))
+            .modifier(PillIdentity(identifier: identifier))
+    }
+}
+
+/// Names the pill as one element that contains its text (so a test can compare the text's frame with the pill's), when the screen asks.
+private struct PillIdentity: ViewModifier {
+    let identifier: String?
+    func body(content: Content) -> some View {
+        if let identifier { content.accessibilityElement(children: .contain).accessibilityIdentifier(identifier) } else { content }
     }
 }
 

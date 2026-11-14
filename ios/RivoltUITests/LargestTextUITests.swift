@@ -13,37 +13,43 @@ final class LargestTextUITests: XCTestCase {
         return app
     }
 
-    func testTheNowHeaderButtonsDoNotOverlap() {
+    func testTheNowHeaderHasNoMoreMenuAndPullToRefreshStays() {
         let app = launch()
         let profile = app.buttons["settings-button"].firstMatch
         XCTAssertTrue(profile.waitForExistence(timeout: 20))
-        let more = app.buttons["More"].firstMatch
-        XCTAssertTrue(more.waitForExistence(timeout: 10), "the refresh menu is on Now")
-        XCTAssertFalse(more.frame.intersects(profile.frame), "the two header buttons are side by side, not on top of each other")
+        XCTAssertFalse(app.buttons["More"].exists, "the refresh menu is gone: refreshing is a pull on the screen")
+        // The screen's scroll view still takes the pull (it is .refreshable) and the bar is untouched after it.
+        let scroll = app.scrollViews.firstMatch
+        XCTAssertTrue(scroll.waitForExistence(timeout: 10))
+        scroll.swipeDown()
+        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["More"].exists)
     }
 
-    /// With the Now redesign's top-bar switch and its truck row, nothing in the header or the title row sits on top of anything else.
+    /// With the Now redesign the sun/moon switch is on the right, next to the person icon, and nothing in the header or the title row sits on top of anything else.
     func testTheNowV2HeaderAndTitleRowDoNotOverlap() {
         let app = launch(["-uitest-now-v2"])
         let profile = app.buttons["settings-button"].firstMatch
         XCTAssertTrue(profile.waitForExistence(timeout: 20))
-        let more = app.buttons["More"].firstMatch
         let theme = app.buttons["theme-switch"].firstMatch
         XCTAssertTrue(theme.waitForExistence(timeout: 10), "the sun/moon switch is in the top bar")
-        XCTAssertTrue(more.waitForExistence(timeout: 10))
-        XCTAssertFalse(theme.frame.intersects(more.frame), "the switch and More are apart")
+        XCTAssertFalse(app.buttons["More"].exists, "no More menu")
         XCTAssertFalse(theme.frame.intersects(profile.frame), "the switch and the person icon are apart")
-        XCTAssertFalse(more.frame.intersects(profile.frame))
+        XCTAssertLessThanOrEqual(theme.frame.maxX, profile.frame.minX + 1, "the switch is left of the person icon, beside it")
+        XCTAssertLessThan(profile.frame.minX - theme.frame.maxX, 12, "next to the person icon, not out by the wordmark")
         let wordmark = app.staticTexts["Rivolt"].firstMatch
         XCTAssertTrue(wordmark.waitForExistence(timeout: 10), "the wordmark is in the top bar")
         XCTAssertFalse(wordmark.frame.intersects(theme.frame), "the wordmark and the switch are apart")
-        XCTAssertFalse(wordmark.frame.intersects(more.frame), "the wordmark and More are apart")
         XCTAssertFalse(wordmark.frame.intersects(profile.frame), "the wordmark and the person icon are apart")
         let picker = app.buttons["Switch vehicle"].firstMatch
-        let pill = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Offline' OR label CONTAINS 'Last seen' OR label CONTAINS 'Charging'")).firstMatch
+        let pill = app.descendants(matching: .any)["now-chip"].firstMatch
         XCTAssertTrue(picker.waitForExistence(timeout: 10), "the truck picker is there")
         XCTAssertTrue(pill.waitForExistence(timeout: 10), "the state pill is there")
         XCTAssertFalse(picker.frame.intersects(pill.frame), "the truck picker and the state pill do not overlap")
+        // The pill's text sits inside the pill with room to spare, even when it wraps to two lines.
+        let text = pill.staticTexts.firstMatch
+        XCTAssertTrue(text.exists)
+        XCTAssertTrue(pill.frame.insetBy(dx: 4, dy: 4).contains(text.frame), "the pill's text is inside the pill's border: \(text.frame) in \(pill.frame)")
     }
 
     func testThePlanFormLabelsAreNotBrokenOneLetterPerLine() {

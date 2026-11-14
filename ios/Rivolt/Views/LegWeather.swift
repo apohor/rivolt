@@ -102,6 +102,11 @@ enum LegWeather {
         return "Climb +\(f(climbM)) \(u) · descent −\(f(descentM)) \(u)"
     }
 
+    /// Whether any leg shows a climb line, so the plan carries the terrain credit once.
+    static func showsClimb(_ legs: [TripWeatherLeg]?) -> Bool {
+        (legs ?? []).contains { climbLine(climbM: $0.climbM, descentM: $0.descentM, metric: true) != nil }
+    }
+
     /// The terrain data asks to be credited wherever the climb shows (the web's line).
     static let terrainCredit = "Terrain: USGS 3DEP, GMTED2010 and SRTM; Natural Resources Canada (Open Government Licence – Canada); INEGI; ArcticDEM; NOAA ETOPO1"
 }
