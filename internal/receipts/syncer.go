@@ -96,10 +96,12 @@ const (
 	TriggerForward = "forward"
 	TriggerSweep   = "sweep"
 	TriggerClose   = "close"
+	// TriggerDetails is the sweep's details-only tail (no summaries call), counted apart so a quiet summaries claim does not make the metric look idle.
+	TriggerDetails = "details"
 )
 
 var (
-	Triggers = []string{TriggerForward, TriggerSweep, TriggerClose}
+	Triggers = []string{TriggerForward, TriggerSweep, TriggerClose, TriggerDetails}
 	Outcomes = []string{"ok", "skipped", "not_owner", "error"}
 )
 
@@ -108,7 +110,12 @@ func (s *Syncer) SetObserve(f func(trigger, outcome string)) { s.observe = f }
 
 // syncAs is Sync for a summaries pass that is counted under trigger.
 func (s *Syncer) syncAs(ctx context.Context, trigger string, uid uuid.UUID, minInterval time.Duration, summariesOnly bool) (Result, error) {
-	res, err := s.sync(ctx, uid, minInterval, false, summariesOnly)
+	return s.observed(ctx, trigger, uid, minInterval, false, summariesOnly)
+}
+
+// observed runs one pass and counts it under trigger.
+func (s *Syncer) observed(ctx context.Context, trigger string, uid uuid.UUID, minInterval time.Duration, detailsOnly, summariesOnly bool) (Result, error) {
+	res, err := s.sync(ctx, uid, minInterval, detailsOnly, summariesOnly)
 	if s.observe != nil {
 		outcome := "ok"
 		switch {
@@ -385,7 +392,7 @@ func (s *Syncer) sweep(ctx context.Context) {
 		res, err := s.syncAs(ctx, TriggerSweep, uid, dailyInterval, false)
 		if err == nil && res.Skipped {
 			// Not due for summaries: finish a backfill tail if one is waiting.
-			res, err = s.Sync(ctx, uid, detailMinInterval, true)
+			res, err = s.observed(ctx, TriggerDetails, uid, detailMinInterval, true, false)
 		}
 		if err != nil {
 			s.logger.Warn("receipts: sync failed", "user_id", uid.String(), "err", describe(err))
