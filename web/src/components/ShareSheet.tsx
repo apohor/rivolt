@@ -12,20 +12,24 @@ export function ShareSheet({
   fileName,
   withCostToggle,
   withOffpeakToggle = false,
+  withMapToggle = false,
   onShared,
   onClose,
 }: {
-  build: (includeCost: boolean, includeOffpeak: boolean) => ShareCardModel;
+  build: (includeCost: boolean, includeOffpeak: boolean, includeMap: boolean) => ShareCardModel;
   fileName: string;
   withCostToggle: boolean;
   // The off-peak share line has its own toggle, shown only when there is a share to show.
   withOffpeakToggle?: boolean;
+  // The route map toggle, shown only when a trimmed route is in hand.
+  withMapToggle?: boolean;
   // Called once an image was shared, saved or copied (not when the sheet is only opened or closed).
   onShared?: () => void;
   onClose: () => void;
 }) {
   const [includeCost, setIncludeCost] = useState(false);
   const [includeOffpeak, setIncludeOffpeak] = useState(false);
+  const [includeMap, setIncludeMap] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const canvas = useRef<HTMLCanvasElement | null>(null);
@@ -43,8 +47,8 @@ export function ShareSheet({
     };
   }, []);
   useEffect(() => {
-    if (canvas.current) paintShareCard(canvas.current, build(includeCost, includeOffpeak));
-  }, [build, includeCost, includeOffpeak, cfgReady]);
+    if (canvas.current) paintShareCard(canvas.current, build(includeCost, includeOffpeak, withMapToggle && includeMap));
+  }, [build, includeCost, includeOffpeak, includeMap, withMapToggle, cfgReady]);
   const dialog = useRef<HTMLDivElement | null>(null);
   // Focus goes into the sheet, Tab stays inside it, and closing hands focus back to what opened it.
   useEffect(() => {
@@ -74,7 +78,7 @@ export function ShareSheet({
   }, [onClose]);
 
   async function blob(): Promise<Blob> {
-    const b = await shareCardBlob(build(includeCost, includeOffpeak));
+    const b = await shareCardBlob(build(includeCost, includeOffpeak, withMapToggle && includeMap));
     if (!b) throw new Error("Image export isn't available in this browser.");
     return b;
   }
@@ -128,6 +132,15 @@ export function ShareSheet({
             <span>
               Include off-peak share
               <span className="block text-xs text-neutral-400">Adds the percentage of home charging that ran in your off-peak hours. No rates, no dollars, no times.</span>
+            </span>
+          </label>
+        )}
+        {withMapToggle && (
+          <label className="flex items-start gap-2 text-sm text-neutral-200">
+            <input type="checkbox" className="mt-1 accent-emerald-500" checked={includeMap} onChange={(e) => setIncludeMap(e.target.checked)} />
+            <span>
+              Include map
+              <span className="block text-xs text-neutral-400">Draws the route as a line. The start and end are cut off, and so is the area around your saved home. No labels.</span>
             </span>
           </label>
         )}

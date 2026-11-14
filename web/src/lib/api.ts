@@ -404,6 +404,10 @@ export type VehicleState = {
   window_rear_right_closed: string;
 };
 
+// GET /api/drives/{id}/postcard: the drive's route with both ends and the saved home cut off, as polyline6 segments.
+// No date, time or place; the server answers 409 no_route, 422 too_short, or an outside-the-free-window error.
+export type DrivePostcard = { version: number; distance_mi: number; route: { segments: string[] } };
+
 export type Drive = {
   ID: string;
   VehicleID: string;
@@ -1868,6 +1872,7 @@ export const backend = {
   routeThumbs: (ids: string[]) => api.get<Record<string, string>>(`/api/drives/route-thumbs?ids=${ids.map(encodeURIComponent).join(",")}`),
   // One drive with its route polyline and cost estimate. 404 for an unknown id or someone else's drive.
   drive: (id: string) => api.get<Drive>(`/api/drives/${encodeURIComponent(id)}`),
+  drivePostcard: (id: string, signal?: AbortSignal) => api.get<DrivePostcard>(`/api/drives/${encodeURIComponent(id)}/postcard`, signal),
   // The user's own correction of whether a trailer was connected on a drive: true, false, or null to go back to what the truck reported.
   driveTrailer: (id: string, trailer: boolean | null) =>
     api.patch<{ trailer_override: boolean | null }>(`/api/drives/${encodeURIComponent(id)}/trailer`, { trailer }),

@@ -1,12 +1,15 @@
 // Shareable summary cards (month, trip, milestone). The model is the privacy guarantee: it carries only display
-// text (no place, id, coordinate, VIN or map field, so none can reach the painter), and it is painted in the browser
+// text (no place, id, coordinate or VIN field, so none can reach the painter), and it is painted in the browser
 // from figures the page already has. Nothing is uploaded, posted or tracked. Cost is opt-in on every card.
+// The one exception is the trip card's opt-in map: the server's trimmed postcard route (GET /api/drives/{id}/postcard,
+// both ends and the saved home already cut off), drawn as a bare line with no label, marker, date or time.
 
 import { driveDurationSeconds } from "./drives";
 import { estimatedShare, formatMoney, monthLabel, type LedgerMonth } from "./ledger";
 import { buildStatementCardModel } from "./statementCard";
 import { shareFooterLine } from "./appLink";
 import { getConfig } from "./config";
+import { decodePolyline } from "./polyline";
 import type { Drive, MilestoneItem } from "./api";
 
 export type ShareKind = "month" | "trip" | "milestone" | "year";
@@ -19,6 +22,8 @@ export type ShareCardModel = {
   stats: ShareStat[];
   notes: string[];
   sample: boolean;
+  // The trimmed route as polyline6 segments, only when the user turned "Include map" on.
+  map?: { segments: string[] };
 };
 
 export const SHARE_FOOTER = ["Made with Rivolt · rivolt.dev", "Unofficial. Not affiliated with Rivian."] as const;
@@ -60,7 +65,7 @@ export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; 
   return { kind: "month", eyebrow: `${monthLabel(m.period)}${m.is_current_month ? " so far" : ""}`, title, subtitle, stats, notes, sample: o.sample };
 }
 
-export function buildTripShareModel(d: Drive, o: { includeCost: boolean; sample: boolean }): ShareCardModel {
+export function buildTripShareModel(d: Drive, o: { includeCost: boolean; sample: boolean; mapSegments?: string[] | null }): ShareCardModel {
   const start = new Date(d.StartedAt);
   const end = new Date(d.EndedAt);
   // Driving time: on a merged round trip the wall span also holds the parked gaps between legs.
@@ -77,7 +82,7 @@ export function buildTripShareModel(d: Drive, o: { includeCost: boolean; sample:
   const day = Number.isFinite(start.getTime()) ? start.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }) : "";
   // A merged round trip says so and counts its real legs (a zero-distance stub is not one); the totals above are the sum.
   const legs = d.round_trip_legs ?? 1;
-  return { kind: "trip", eyebrow: legs > 1 ? "Round trip" : "Trip", title: `${n0(d.DistanceMi)} mi${min > 0 ? ` · ${hm(min)}` : ""}`, subtitle: day, stats, notes: legs > 1 ? [`${legs} legs`] : [], sample: o.sample };
+  return { kind: "trip", eyebrow: legs > 1 ? "Round trip" : "Trip", title: `${n0(d.DistanceMi)} mi${min > 0 ? ` · ${hm(min)}` : ""}`, subtitle: day, stats, notes: legs > 1 ? [`${legs} legs`] : [], sample: o.sample, ...(o.mapSegments && o.mapSegments.length > 0 ? { map: { segments: o.mapSegments } } : {}) };
 }
 
 const hasMoney = (s: string) => /[$€£]\s?\d|\d\s?(USD|EUR|GBP|CAD)\b/i.test(s);
@@ -133,6 +138,47 @@ function wrap(g: CanvasRenderingContext2D, text: string, x: number, y: number, l
   return y;
 }
 
+// The server's segments decoded, each kept apart so the cut-off stretches are never joined by a line.
+function routePaths(segments: string[]): [number, number][][] {
+  return segments.map((s) => decodePolyline(s, 6)).filter((p) => p.length >= 2);
+}
+
+// Draws the paths fitted into the box (equirectangular, so a mile north is as long as a mile east), as a bare line.
+function drawRoute(g: CanvasRenderingContext2D, paths: [number, number][][], x: number, y: number, w: number, h: number) {
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLon = Infinity;
+  let maxLon = -Infinity;
+  for (const p of paths) {
+    for (const [lat, lon] of p) {
+      minLat = Math.min(minLat, lat);
+      maxLat = Math.max(maxLat, lat);
+      minLon = Math.min(minLon, lon);
+      maxLon = Math.max(maxLon, lon);
+    }
+  }
+  const kx = Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180);
+  const spanX = Math.max((maxLon - minLon) * kx, 1e-6);
+  const spanY = Math.max(maxLat - minLat, 1e-6);
+  const k = Math.min(w / spanX, h / spanY);
+  const ox = x + (w - spanX * k) / 2;
+  const oy = y + (h - spanY * k) / 2;
+  g.strokeStyle = "#e5e5e5";
+  g.lineWidth = 7;
+  g.lineJoin = "round";
+  g.lineCap = "round";
+  for (const p of paths) {
+    g.beginPath();
+    p.forEach(([lat, lon], i) => {
+      const px = ox + (lon - minLon) * kx * k;
+      const py = oy + (maxLat - lat) * k;
+      if (i === 0) g.moveTo(px, py);
+      else g.lineTo(px, py);
+    });
+    g.stroke();
+  }
+}
+
 // Paints the model to a canvas, fixed 1080x1080 so it posts anywhere. Fonts are the system's: nothing is fetched.
 export function paintShareCard(canvas: HTMLCanvasElement, c: ShareCardModel): boolean {
   const g = canvas.getContext("2d");
@@ -146,25 +192,40 @@ export function paintShareCard(canvas: HTMLCanvasElement, c: ShareCardModel): bo
   g.fillStyle = "#a3a3a3";
   g.font = `500 44px ${FONT}`;
   g.fillText(c.eyebrow, 80, 140);
+  // With a map the header and rows tighten so the line gets a band of its own between the subtitle and the stats.
+  const paths = c.map ? routePaths(c.map.segments) : [];
+  const withMap = c.kind === "trip" && paths.length > 0;
   g.fillStyle = "#fafafa";
-  fit(g, c.title, c.kind === "milestone" ? 120 : 190, 64);
-  let y = 330;
+  fit(g, c.title, c.kind === "milestone" ? 120 : withMap ? 130 : 190, 64);
+  let y = withMap ? 270 : 330;
   if (c.kind === "milestone") y = wrap(g, c.title, 80, 300, 130, 2) - 40;
   else g.fillText(c.title, 80, y);
   g.fillStyle = "#a3a3a3";
   g.font = `400 44px ${FONT}`;
-  y = wrap(g, c.subtitle, 80, y + 80, 56, 3);
-  y += 30;
+  y = wrap(g, c.subtitle, 80, y + (withMap ? 70 : 80), 56, 3);
+  y += withMap ? 0 : 30;
+  const rows = c.stats.slice(0, 6);
+  const step = withMap ? 52 : c.kind === "year" ? 66 : 78;
+  if (withMap) {
+    // The band ends above the rows, the notes and the footer (with its sample line).
+    const footerTop = H - 70 - (shareFooter().length - 1) * 44 - 36 - (c.sample ? 52 : 0);
+    const below = rows.length * step + c.notes.length * 44 + 24;
+    const bandH = Math.min(300, footerTop - below - y - 20);
+    if (bandH >= 120) {
+      drawRoute(g, paths, 80, y, W - 160, bandH);
+      y += bandH + 50;
+    } else y += 30;
+  }
   // A year card has six longer rows: a little smaller so the value never meets its label.
-  g.font = `500 ${c.kind === "year" ? 40 : 44}px ${FONT}`;
-  for (const s of c.stats.slice(0, 6)) {
+  g.font = `500 ${c.kind === "year" ? 40 : withMap ? 38 : 44}px ${FONT}`;
+  for (const s of rows) {
     g.fillStyle = "#a3a3a3";
     g.textAlign = "left";
     g.fillText(s.label, 80, y);
     g.fillStyle = "#e5e5e5";
     g.textAlign = "right";
     g.fillText(s.value, W - 80, y);
-    y += c.kind === "year" ? 66 : 78;
+    y += step;
   }
   g.textAlign = "left";
   g.font = `400 32px ${FONT}`;
