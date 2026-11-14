@@ -11,6 +11,7 @@ import { formatMoney } from "../lib/ledger";
 import { pickImageForState, useIsLight } from "../lib/vehicleImage";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { useDesignPreview } from "../lib/config";
+import { PlugPicture } from "./PlugPicture";
 import { LiveChargeGraph } from "./LiveChargeGraph";
 import { LiveDriveTrail } from "./LiveDriveTrail";
 
@@ -180,13 +181,18 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
             {/* Configurator PNGs have huge horizontal margins baked
                 in; max-h-40 / max-w-sm keeps the car recognizable
                 without the left column dwarfing the status panel. */}
-            <img
-              src={heroUrl}
-              onError={() => setBadUrls((f) => [...f, heroUrl])}
-              alt={name}
-              loading="lazy"
-              className="max-h-40 w-full max-w-sm rounded-md object-contain"
-            />
+            {(() => {
+              const img = (
+                <img
+                  src={heroUrl}
+                  onError={() => setBadUrls((f) => [...f, heroUrl])}
+                  alt={name}
+                  loading="lazy"
+                  className="max-h-40 w-full max-w-sm rounded-md object-contain"
+                />
+              );
+              return plugPicture && s && isPluggedIn(s) ? <PlugPicture kw={s.charger_power_kw} className="w-full max-w-sm">{img}</PlugPicture> : img;
+            })()}
           </div>
         ) : (
           <div className="md:col-span-1" />

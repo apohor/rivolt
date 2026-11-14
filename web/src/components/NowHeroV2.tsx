@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { ArcGauge } from "./ArcGauge";
+import { PlugPicture } from "./PlugPicture";
 import { CarSketch } from "./CarSketch";
 import { useColdRange } from "./AmbientTempLine";
 import { pickImageForNow, useIsLight, type PlacedImage } from "../lib/vehicleImage";
@@ -216,7 +217,13 @@ export default function NowHeroV2({
           </ArcGauge>
           <div className="flex min-w-0 flex-1 flex-col items-start gap-1 min-[900px]:contents">
             {carUrl && carUrl !== failedUrl ? (
-              <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:max-h-60 min-[900px]:object-center" />
+              plugPicture && (view.kind === "plugged" || view.kind === "charging") ? (
+                <PlugPicture kw={view.powerKw} className="w-full min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1">
+                  <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left min-[900px]:max-h-60 min-[900px]:object-center" />
+                </PlugPicture>
+              ) : (
+                <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:max-h-60 min-[900px]:object-center" />
+              )
             ) : (
               <CarSketch model={model} charging={charging} className="min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mx-auto min-[900px]:max-w-[440px]" />
             )}
