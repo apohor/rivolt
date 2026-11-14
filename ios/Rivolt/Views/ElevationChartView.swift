@@ -6,15 +6,55 @@ import SwiftUI
 struct ElevationChartView: View {
     let profile: ElevationProfile
     let metric: Bool
+    /// The legs' summed climb and descent, or nil when the plan cannot say (the row then shows no figures).
+    var totals: (up: Double, down: Double)? = nil
     /// Where the cursor is, 0 to 1 along the route, or nil for none.
     @Binding var share: Double?
 
     private static let step = 0.02
 
+    /// Collapsed to one row until a tap opens the chart; the choice is kept on this iPhone.
+    @AppStorage("rivolt.elevationOpen") private var open = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
         let total = PlanElevation.total(profile)
         let readout = PlanElevation.readout(profile, share: share, metric: metric)
-        ThemeSection(title: "Elevation") {
+        VStack(alignment: .leading, spacing: 0) {
+            toggleRow
+            if open { expanded(total: total, readout: readout) }
+        }
+        .themeCard(padding: 0)
+    }
+
+    private var toggleRow: some View {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
+        return Button { withAnimation(.easeOut(duration: 0.2)) { open.toggle() } } label: {
+            layout {
+                Text("Elevation").font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).foregroundStyle(Theme.textBody)
+                if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                HStack(spacing: 6) {
+                    Text(totals.map { PlanElevation.climbText($0, metric: metric) } ?? "").themeText(.value, color: Theme.textSecondary)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                }
+            }
+            .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2.5 * Theme.unit)
+            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(totals.map { "Elevation, climbs \(PlanElevation.elevation($0.up, metric: metric)), descends \(PlanElevation.elevation($0.down, metric: metric))" } ?? "Elevation")
+        .accessibilityValue(open ? "Chart shown" : "Chart hidden")
+        .accessibilityHint(open ? "Hides the chart" : "Shows the chart")
+        .accessibilityIdentifier("plan-elevation-toggle")
+    }
+
+    @ViewBuilder
+    private func expanded(total: Double, readout: String) -> some View {
+        Rectangle().fill(Theme.border).frame(height: 1)
+        VStack(alignment: .leading, spacing: 8) {
             readoutText(readout)
             chart(total: total)
                 .frame(height: 110)
@@ -32,6 +72,7 @@ struct ElevationChartView: View {
             Text(PlanElevation.context).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             Text(LegWeather.terrainCredit).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
         }
+        .padding(4 * Theme.unit)
     }
 
     private func readoutText(_ text: String) -> some View {

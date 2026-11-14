@@ -34,6 +34,7 @@ struct HomeView: View {
     private var month: Period { state.period }
     @Environment(\.tabActive) private var tabActive
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     /// When the truck was last read from the server, so "Offline" is said only after a recent read (NowFreshness).
     @State private var freshness = NowFreshness()
     /// Bumped by each read so the card's ages move on without waiting for a change in the data.
@@ -48,6 +49,7 @@ struct HomeView: View {
     @State private var pickedLocked = false
 
     /// The redesigned Now (design_preview key ios_now_v2, apart from the web's now_v2); off on prod, so the screen is the one it always was.
+    @State private var showLive = false
     private var v2: Bool { state.designPreview.contains("ios_now_v2") }
 
     private var selected: Vehicle? {
@@ -75,7 +77,8 @@ struct HomeView: View {
                             if haveData {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
                                         session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil,
-                                        v2: v2, images: vehicle.images, fullChargeRange: v2 ? coldRange?.fullChargeRange : nil)
+                                        v2: v2, images: vehicle.images, fullChargeRange: v2 ? coldRange?.fullChargeRange : nil,
+                                        onLive: v2 ? { showLive = true } : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -127,6 +130,15 @@ struct HomeView: View {
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: $showLive) {
+                if let vehicle = selected {
+                    let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
+                    NowLiveView(vehicle: vehicle, summary: summary, session: summary.freshness != .stale ? session : nil,
+                                liveDrive: summary.freshness != .stale ? liveDrive : nil, charge: summary.freshness != .stale ? latestCharge : nil,
+                                images: vehicle.images) { showLive = false }
+                        .toolbar(.hidden, for: .navigationBar)
+                }
+            }
             .refreshable { await load(force: true) }
             .task { await load() }
             .task { await loadRivian() }
@@ -186,24 +198,37 @@ struct HomeView: View {
     /// The page title with the month stepper (and, with more than one truck, which one is shown), pinned under the top
     /// bar like the web's.
     private var titleRow: some View {
-        ThemeTitleRow(title: "Now") {
-            if vehicles.count > 1 {
-                Menu {
-                    Picker("Vehicle", selection: Binding(get: { selectedID }, set: { id in
-                        selectedID = id
-                        pickedLocked = vehicles.first { $0.id == id }?.proLocked == true
-                    })) {
-                        ForEach(vehicles) { v in Text(VehicleChoice.label(v)).tag(v.id) }
+        // At accessibility sizes the truck and its state stack instead of squeezing side by side.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        return ThemeTitleRow(title: "Now") {
+            layout {
+                if vehicles.count > 1 {
+                    Menu {
+                        Picker("Vehicle", selection: Binding(get: { selectedID }, set: { id in
+                            selectedID = id
+                            pickedLocked = vehicles.first { $0.id == id }?.proLocked == true
+                        })) {
+                            ForEach(vehicles) { v in Text(VehicleChoice.label(v)).tag(v.id) }
+                        }
+                    } label: {
+                        if v2 {
+                            // The redesign drops the small car glyph (the web has none): the truck's name, with the chevron that says it opens.
+                            HStack(spacing: 4) {
+                                Text(vehicles.first { $0.id == selectedID }?.name ?? "Vehicle").themeText(.value, color: Theme.textSecondary).lineLimit(1)
+                                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(Theme.textSecondary)
+                            }
+                            .frame(minHeight: 44)
+                        } else {
+                            Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
+                                .frame(width: 36, height: 36)
+                        }
                     }
-                } label: {
-                    Image(systemName: "car.2").font(.body).foregroundStyle(Theme.textSecondary)
-                        .frame(width: 36, height: 36)
+                    .accessibilityLabel("Switch vehicle")
                 }
-                .accessibilityLabel("Switch vehicle")
+                if v2, let chip = chipText { ThemePill(text: chip, tone: chipTone) }
+                // With the redesign the period stepper sits above the month's figures instead.
+                if !v2 { PeriodControl() }
             }
-            if v2, let chip = chipText { ThemePill(text: chip, tone: chipTone) }
-            // With the redesign the period stepper sits above the month's figures instead.
-            if !v2 { PeriodControl() }
         }
     }
 

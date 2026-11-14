@@ -55,7 +55,8 @@ final class FixtureURLProtocol: URLProtocol {
     static func file(method: String, path: String) -> String? {
         switch (method, path) {
         // The iPhone elevation chart is a preview-only design (design_preview key ios_elevation): on only when the UI test asks.
-        case ("GET", "/api/config") where ProcessInfo.processInfo.arguments.contains("-uitest-ios-elevation"): return "config_ios_elevation"
+        case ("GET", "/api/config") where ProcessInfo.processInfo.arguments.contains("-uitest-ios-elevation"):
+            return ProcessInfo.processInfo.arguments.contains("-uitest-now-v2") ? "config_now_v2_elevation" : "config_ios_elevation"
         case ("GET", "/api/auth/me"): return "me"
         case ("GET", "/api/vehicles"): return "vehicles"
         case ("GET", "/api/trips/saved"): return "trip_saved_list"

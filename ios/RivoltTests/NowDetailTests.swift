@@ -25,6 +25,17 @@ final class NowDetailTests: XCTestCase {
         try JSON.decoder().decode(T.self, from: Data(json.utf8))
     }
 
+    /// The Live screen reads what the Now chip reads: with no session, the time left is the chip's estimate and the energy added the battery's own gain.
+    func testLiveTimeLeftAndEnergyAddedFallBackToWhatNowShows() throws {
+        let sum = try charging()
+        let eta = try XCTUnwrap(sum.chargeEta, "the fixture charge has an estimate on the chip")
+        let d = try XCTUnwrap(ChargingDetail.make(summary: sum, session: nil, charge: nil))
+        XCTAssertEqual(d.remaining, TimeInterval(eta.minutes) * 60, "Time left is not a dash while the chip shows an estimate")
+        XCTAssertEqual(try XCTUnwrap(d.energyKwh), try gainKwh(sum), accuracy: 0.001)
+        let withRow = try XCTUnwrap(ChargingDetail.make(summary: sum, session: nil, charge: try chargeRow(sum, kwh: 4.2)))
+        XCTAssertEqual(withRow.energyKwh, 4.2, "the open charge row's energy comes before the battery's gain")
+    }
+
     func testLiveSessionDecodesTheServersKeysAndFillsGaps() throws {
         let s = try decode(LiveSession.self, #"{"active":true,"time_elapsed_seconds":1800,"time_remaining_seconds":2400,"power_kw":11.1,"kilometers_charged_per_hour":58,"range_added_km":29,"total_charged_energy_kwh":5.6,"soc_pct":63,"current_price":"","current_currency":"","is_free_session":false,"is_rivian_charger":false,"estimated_cost":0.9,"estimated_currency":"USD"}"#)
         XCTAssertEqual(s.timeRemainingSeconds, 2400)
