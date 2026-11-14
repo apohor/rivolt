@@ -605,6 +605,14 @@ html[data-theme='light'] {
   :root [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-save'] {
     grid-row: 5;
   }
+  /* The savings coach (preview) goes under the savings card, full width. */
+  :root [data-ui-grid='money'] > [data-ui-area='m-coach'] {
+    grid-column: 1 / -1;
+    grid-row: 5;
+  }
+  :root [data-ui-grid='money']:has(> [data-ui-area='m-banner']) > [data-ui-area='m-coach'] {
+    grid-row: 6;
+  }
 }
 
 /* Money: equal-height columns. The receipts card takes the height of the left

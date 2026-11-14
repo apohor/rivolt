@@ -18,6 +18,7 @@ import { buildMonthShareModel, shareFileName } from "../lib/shareCard";
 import { ShareSheet } from "../components/ShareSheet";
 import { ShareNudge, readShareNudgeDismissed, rememberShareNudgeDismissed, shareNudgeShows } from "../components/ShareNudge";
 import { SavingsCard } from "../components/SavingsCard";
+import { CoachCard } from "../components/CoachCard";
 import { OffpeakPrompt } from "../components/OffpeakPrompt";
 import { fetchSavings, offpeakShareOf } from "../lib/savings";
 import { HomeRateEstimatedContext, kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
@@ -235,6 +236,7 @@ function Statement({
   toConfirm: number | null;
   confirmCharges: Charge[];
 }) {
+  const coachOn = useDesignPreview("savings_coach");
   const cur = m.currency;
   // Where the server bills, a free account's statement shows this month and the two before; the CSV of an older month is Pro.
   const me = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 });
@@ -537,6 +539,7 @@ function Statement({
           </Card>
 
           <SavingsCard area="m-save" />
+          {coachOn && !sample && <CoachCard area="m-coach" />}
 
           <Card title="Receipts" area="m-receipts">
             <div className="mb-3 flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">
