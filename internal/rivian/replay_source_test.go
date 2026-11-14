@@ -363,3 +363,36 @@ func TestParseReplayImagesAcceptsOpaqueTokens(t *testing.T) {
 		t.Fatalf("opaque token refused: %v", err)
 	}
 }
+
+// A replay account is a receipt source: it serves the demo vehicle's recorded charges as synthetic billing summaries, and nothing
+// when the feed has no database or the account is not allowed.
+func TestReplayClient_ServesSyntheticReceipts(t *testing.T) {
+	f, _ := testFeed(replayEpoch, time.Hour)
+	uid := uuid.New()
+	var src ReceiptSource = NewReplayClient(f, uid)
+	got, err := src.CompletedSessionSummaries(context.Background())
+	if err != nil || len(got) != 0 {
+		t.Fatalf("no database: %v, %v", got, err)
+	}
+
+	kwh := 40.0
+	var asked string
+	f.summaries = func(_ context.Context, vehicleID string) ([]SessionSummary, error) {
+		asked = vehicleID
+		return []SessionSummary{{TransactionID: "demo-1", EnergyKWh: &kwh}}, nil
+	}
+	got, err = src.CompletedSessionSummaries(context.Background())
+	if err != nil || len(got) != 1 || asked != DemoVehicleID(uid) {
+		t.Fatalf("got %v, %v for %q", got, err, asked)
+	}
+	ch, err := src.SessionCharger(context.Background(), "demo-1")
+	if err != nil || ch == nil || ch.IsHome == nil || *ch.IsHome {
+		t.Fatalf("charger = %+v, %v", ch, err)
+	}
+
+	f.allow = func(uuid.UUID) bool { return false }
+	got, _ = NewReplayClient(f, uid).CompletedSessionSummaries(context.Background())
+	if len(got) != 0 {
+		t.Fatalf("a disallowed account got %v", got)
+	}
+}

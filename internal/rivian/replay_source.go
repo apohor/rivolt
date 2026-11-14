@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"regexp"
 	"strings"
@@ -154,6 +155,9 @@ type ReplayFeed struct {
 	// lastRecorded returns the newest persisted sample for a demo
 	// vehicle (zero time when none), which is where Stream resumes.
 	lastRecorded func(ctx context.Context, vehicleID string) (time.Time, error)
+	// summaries lists the demo vehicle's recorded charges as the session summaries Rivian would bill (replayChargeSummaries); nil
+	// means this feed serves none.
+	summaries func(ctx context.Context, vehicleID string) ([]SessionSummary, error)
 	logger       *slog.Logger
 }
 
@@ -407,6 +411,7 @@ func NewDBReplayFeed(ctx context.Context, pool *sql.DB, sourceVehicleID string, 
 			WHERE v.rivian_vehicle_id = $1`, vehicleID).Scan(&at)
 		return at.Time, err
 	}
+	f.summaries = replayChargeSummaries(pool)
 	logger.Info("replay corpus loaded",
 		"source_vehicle", sourceVehicleID,
 		"from", first.Time.UTC().Format(time.RFC3339),
@@ -853,4 +858,69 @@ func (f FirstPlanner) PlanTrip(ctx context.Context, in PlanTripInput) (*TripPlan
 		return plan, err
 	}
 	return nil, ErrNoFixture
+}
+
+// Demo billing: what a replay account's "Rivian" charges per kWh and who it says it is. Synthetic by construction: the costs are made up
+// from the recorded energy, never from any real receipt.
+const (
+	replayReceiptRatePerKWh = 0.35
+	replayReceiptVendor     = "Demo Charging"
+	replayReceiptCity       = "Sample City"
+	replaySummaryWindow     = 60 * 24 * time.Hour
+	replaySummaryMax        = 200
+)
+
+// replayChargeSummaries answers ReplayClient.CompletedSessionSummaries from the charges the recorder wrote for the demo vehicle: one
+// summary per finished charge with energy, window as recorded, a synthetic cost and a fixed vendor and city, so the receipts sync has
+// something to match on a preview install exactly as it does on a live one.
+func replayChargeSummaries(pool *sql.DB) func(ctx context.Context, vehicleID string) ([]SessionSummary, error) {
+	if pool == nil {
+		return nil
+	}
+	return func(ctx context.Context, vehicleID string) ([]SessionSummary, error) {
+		rows, err := pool.QueryContext(ctx, `
+			SELECT c.id, c.started_at, c.ended_at, c.energy_added_kwh
+			  FROM charges c JOIN vehicles v ON v.id = c.vehicle_id
+			 WHERE v.rivian_vehicle_id = $1 AND c.source = 'live'
+			   AND c.ended_at IS NOT NULL AND c.ended_at > c.started_at AND c.energy_added_kwh > 0
+			   AND c.ended_at > now() - $2::interval AND c.ended_at < now() - interval '2 minutes'
+			 ORDER BY c.ended_at DESC LIMIT $3`, vehicleID, fmt.Sprintf("%d seconds", int(replaySummaryWindow.Seconds())), replaySummaryMax)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []SessionSummary
+		for rows.Next() {
+			var id uuid.UUID
+			var start, end time.Time
+			var kwh float64
+			if err := rows.Scan(&id, &start, &end, &kwh); err != nil {
+				return nil, err
+			}
+			cost := math.Round(kwh*replayReceiptRatePerKWh*100) / 100
+			km := kwh * 2.5
+			out = append(out, SessionSummary{
+				TransactionID: "demo-" + id.String(), StartedAt: start, EndedAt: end,
+				TotalCost: &cost, Currency: "USD", EnergyKWh: &kwh, RangeAddedKm: &km,
+				Vendor: replayReceiptVendor, City: replayReceiptCity,
+			})
+		}
+		return out, rows.Err()
+	}
+}
+
+var _ ReceiptSource = (*ReplayClient)(nil)
+
+// CompletedSessionSummaries serves the demo vehicle's charges as Rivian billing summaries (empty when the feed has no database).
+func (c *ReplayClient) CompletedSessionSummaries(ctx context.Context) ([]SessionSummary, error) {
+	if !c.allowed || c.noVehicle || c.feed.summaries == nil {
+		return nil, nil
+	}
+	return c.feed.summaries(ctx, c.vehicle.ID)
+}
+
+// SessionCharger names the demo charger: a fixed synthetic one, never a home charger.
+func (c *ReplayClient) SessionCharger(_ context.Context, _ string) (*SessionCharger, error) {
+	home := false
+	return &SessionCharger{Name: replayReceiptVendor, Vendor: replayReceiptVendor, IsHome: &home}, nil
 }
