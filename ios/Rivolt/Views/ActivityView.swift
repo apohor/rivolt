@@ -10,6 +10,8 @@ struct ActivityView: View {
     @State private var vehicles: [Vehicle] = []
     @State private var model = ActivityModel()
     @State private var monthLoadedOnce = false
+    /// A pull in the list while the map or the efficiency view was not on screen: the next time one opens it reads again, not from what it held.
+    @State private var staleViews: Set<ActivityMode> = []
     /// The scope Now, Activity and Truck share (see `PeriodControl`).
     /// The saved choice, else the last 30 days on a first visit (see `AppState.activityPeriod`).
     private var month: Period { state.activityPeriod }
@@ -44,7 +46,7 @@ struct ActivityView: View {
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    // Refresh reloads the map too: map mode has no pull-to-refresh.
+                    // The demo menu's Refresh reads whichever view is open again.
                     ThemeTopBar {
                         AccountMenu(vehicleID: vehicleID, onRefresh: {
                             Task { await load(force: true); await loadMap(force: true); await loadEfficiency(force: true) }
@@ -66,8 +68,10 @@ struct ActivityView: View {
             }
             .task(id: "\(mode.rawValue)|\(vehicleID ?? "")|\(month.key)") {
                 if monthLoadedOnce { try? await Task.sleep(for: .milliseconds(350)); if Task.isCancelled { return } }
-                await loadMap()
-                await loadEfficiency()
+                // Coming back to a view after a pull in the list reads it again (the map has no pull of its own: a map pans).
+                let reread = staleViews.remove(mode) != nil
+                await loadMap(force: reread)
+                await loadEfficiency(force: reread)
             }
             .task { if vehicles.isEmpty { vehicles = (try? await state.client.vehicles()) ?? [] } }
             // A tapped charging-done notification: open that charge's page once the month is loaded. Not in the month on screen: just the list.
@@ -127,8 +131,8 @@ struct ActivityView: View {
             }
             .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
         }
-        // The map and the efficiency tab have no pull of their own: one pull in the list reloads all three.
-        .refreshable { await load(force: true); await loadMap(force: true); await loadEfficiency(force: true) }
+        // The map has no pull of its own (a map pans): a pull in the list marks it, and the efficiency view, to be read again when opened.
+        .refreshable { staleViews = [.map, .efficiency]; await load(force: true) }
     }
 
     /// The month's efficiency breakdowns (the web's Activity "Efficiency").

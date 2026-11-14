@@ -66,6 +66,9 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/config"): let args = ProcessInfo.processInfo.arguments
             return args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
         case ("GET", "/api/activity"): return "activity"
+        // The Activity map's two lists (empty: the UI test counts how often they are read).
+        case ("GET", "/api/drives"): return "drives_list"
+        case ("GET", "/api/charges"): return "charges_list"
         case ("POST", "/api/maps/valhalla/route"): return "valhalla_route"
         default:
             if method == "GET", path.hasPrefix("/api/vehicles/"), path.hasSuffix("/state") { return "state_full" }
