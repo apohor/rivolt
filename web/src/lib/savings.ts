@@ -1,6 +1,7 @@
 // "What moving home charging into your off-peak hours would have saved": the savings endpoint's answer and how the card words it.
 // Always an estimate, always "could have saved", never "overpaid". Sessions that can't move are left out and the card says so.
 import { api } from "./api";
+import { browserTimeZone } from "./ledger";
 
 export type SavingsResponse = {
   month?: string;
@@ -72,3 +73,35 @@ export const savedHeadline = (moved: number, money: string): string =>
   `Moving ${moved} home ${plural(moved, "charge", "charges")} into your off-peak windows could have saved about ${money} (estimate).`;
 
 export const leftOutLine = (n: number): string => `${n} ${plural(n, "session", "sessions")} could not be moved and ${plural(n, "is", "are")} left out.`;
+
+// The savings coach: three insights over the last few months, each a figure or a reason it has none. Figures built on a guessed price say "estimated".
+export type CoachBucket = { sessions: number; kwh: number; cost: number; per_kwh?: number | null; estimated: boolean; estimated_cost_share: number };
+export type CoachResponse = {
+  version: number;
+  tz?: string;
+  currency?: string;
+  months?: string[];
+  headline_id?: string;
+  order?: string[];
+  off_peak_shift: { needs?: string; could_have_saved?: number | null; sessions_moved: number; sessions_considered: number; estimated: boolean };
+  cost_per_100: { needs?: string; per_100_mi?: number | null; per_100_km?: number | null; spend: number; miles: number; unpriced_share: number; estimated: boolean };
+  cost_per_kwh: { needs?: string; home: CoachBucket; public: CoachBucket; fast_charging: CoachBucket; fast_premium_pct?: number | null; estimated: boolean };
+};
+
+// For the truck the Money page shows (when the account has several) and in the browser's zone, like the statement above it.
+export const fetchCoach = (opts: { vehicleID?: string; tz?: string; signal?: AbortSignal } = {}) => {
+  const qs = new URLSearchParams({ tz: opts.tz ?? browserTimeZone() });
+  if (opts.vehicleID) qs.set("vehicle_id", opts.vehicleID);
+  return api.get<CoachResponse>(`/api/ledger/coach?${qs}`, opts.signal);
+};
+
+const COACH_NEEDS: Record<string, string> = {
+  priced_charges: "Not enough priced charging yet to work out what a kWh costs you.",
+  more_driving: "Drive a little more (about 100 miles in the period) and your cost per 100 will show here.",
+  unpriced_charges: "Too much of your charging has no price yet, so a cost per 100 would be misleading. Set a home rate or confirm prices on your receipts.",
+  flat_rate: "You are on a flat rate, so moving charging to other hours would not change the cost.",
+  home_rate: "Set your home rate to see what moving charging would save.",
+  offpeak_schedule: "Add your off-peak hours to see what moving charging would save.",
+  more_home_sessions: "A few more home charges are needed before this can be estimated.",
+};
+export const coachNeedsText = (need: string): string => COACH_NEEDS[need] ?? "Not enough data yet.";
