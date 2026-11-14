@@ -43,11 +43,9 @@ const DAY = 86_400_000;
 
 // The free plan's history window as the server reports it (history_days, history_from on /api/auth/me): the first day it shows moves on the first
 // of each month, so the app never carries a length of its own. Absent fields (an older server, not read yet) name no number.
-export type FreeWindow = { days?: number | null; from?: string | null };
+export type FreeWindow = { from?: string | null };
 
-export function freeWindowOf(me: Pick<PlanFields, "history_days" | "history_from"> | null | undefined): FreeWindow {
-  return { days: me?.history_days ?? null, from: me?.history_from ?? null };
-}
+export const freeWindowOf = (me: Pick<PlanFields, "history_from"> | null | undefined): FreeWindow => ({ from: me?.history_from });
 
 export function planState(me: PlanFields | null | undefined): PlanState {
   if (!me || me.plan === undefined || me.billing_enabled !== true) return { kind: "off" };

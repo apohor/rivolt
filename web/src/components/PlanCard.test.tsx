@@ -70,8 +70,8 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
   });
 
   it("a 402 limit says why, that nothing is lost, and offers Pro only where the server bills", async () => {
-    const a = renderWith(free, <ProLimitNotice limit={{ code: "outside_free_window", freeDays: 395 }} />);
-    expect(await screen.findByText(/older than the last 395 days/)).toBeInTheDocument();
+    const a = renderWith(free, <ProLimitNotice limit={{ code: "outside_free_window", freeFrom: "2025-11-01" }} />);
+    expect(await screen.findByText(/before November 1, 2025/)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "See Pro" })).toBeInTheDocument();
     a.unmount();
     renderWith(billingOff, <ProLimitNotice limit={{ code: "pro_required" }} />);

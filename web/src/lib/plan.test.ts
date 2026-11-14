@@ -79,8 +79,8 @@ describe("the free window in the plan copy", () => {
     const st = planState({ plan: "free", billing_enabled: true, history_days: 395, history_from: "2025-11-01" } as never);
     expect(planCardCopy(st)?.line).toBe("Recording, alerts, history since November 1, 2025 and the full export, always.");
     expect(PRO.included(st.kind === "free" ? st.window : undefined)[0]).toBe("Unlimited history and trends (free: since November 1, 2025)");
-    const lapsed = planState({ plan: "free", billing_enabled: true, history_days: 380, plan_ended_at: "2026-11-06T02:52:00Z", plan_date_basis: "utc_date", plan_ended_date: "2026-11-06" } as never);
-    expect(lapseBanner(lapsed)).toContain("Showing the last 380 days.");
+    const lapsed = planState({ plan: "free", billing_enabled: true, history_from: "2025-12-01", plan_ended_at: "2026-11-06T02:52:00Z", plan_date_basis: "utc_date", plan_ended_date: "2026-11-06" } as never);
+    expect(lapseBanner(lapsed)).toContain("Showing history since December 1, 2025.");
     for (const t of [planCardCopy(planState({ plan: "free", billing_enabled: true } as never))?.line ?? "", PRO.included().join(" "), lapseBanner({ kind: "lapsed", endedOn: null, endedSource: null })]) expect(t).not.toMatch(/\b90\b/);
   });
 });

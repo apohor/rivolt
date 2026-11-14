@@ -5,21 +5,17 @@ import { ApiError } from "./api";
 import type { FreeWindow } from "./plan";
 import { windowOlderThan } from "./proCopy";
 
-// The 402 body: the error code, and the window in days for outside_free_window.
+// The 402 body: the error code, and the first day the free plan shows for outside_free_window.
 export type ProLimitBody = { error: string; free_days?: number; free_from?: string };
 
 // pro_required may also name the free limit that was hit (the saved-trip cap).
-export type ProLimit = { code: "outside_free_window"; freeDays?: number; freeFrom?: string } | { code: "pro_required"; limit?: number };
+export type ProLimit = { code: "outside_free_window"; freeFrom?: string } | { code: "pro_required"; limit?: number };
 
 export function proLimitOf(e: unknown): ProLimit | null {
   if (!(e instanceof ApiError) || e.status !== 402) return null;
-  const b = e.body as { error?: unknown; free_days?: unknown; free_from?: unknown } | string | null | undefined;
+  const b = e.body as { error?: unknown; free_from?: unknown } | string | null | undefined;
   const o = typeof b === "object" && b ? b : null;
-  if (o?.error === "outside_free_window") return {
-      code: "outside_free_window",
-      ...(typeof o.free_days === "number" && o.free_days > 0 ? { freeDays: o.free_days } : {}),
-      ...(typeof o.free_from === "string" ? { freeFrom: o.free_from } : {}),
-    };
+  if (o?.error === "outside_free_window") return { code: "outside_free_window", ...(typeof o.free_from === "string" ? { freeFrom: o.free_from } : {}) };
   if (o?.error === "pro_required") return { code: "pro_required", ...(typeof (o as { limit?: unknown }).limit === "number" ? { limit: (o as { limit: number }).limit } : {}) };
   return null;
 }
@@ -47,6 +43,6 @@ export function proFeatureText(f: ProFeature, limit?: number): string {
 // `account` is the window the account's own plan fields report; the 402 body's numbers win.
 export function proLimitText(l: ProLimit, account?: FreeWindow): string {
   return l.code === "outside_free_window"
-    ? `${windowOlderThan({ days: l.freeDays ?? account?.days, from: l.freeFrom ?? account?.from })} It is kept, and it is in your export; Pro shows all of it.`
+    ? `${windowOlderThan({ from: l.freeFrom ?? account?.from })} It is kept, and it is in your export; Pro shows all of it.`
     : "This is part of Rivolt Pro. Everything you recorded is kept either way.";
 }

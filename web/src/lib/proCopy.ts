@@ -6,26 +6,14 @@ import { planDate, type FreeWindow, type PlanState } from "./plan";
 
 export type Interval = "month" | "year";
 
-// The free window in words, from the server's numbers: "since November 1, 2025", else "the last N days", else no number.
-export function windowShort(w?: FreeWindow): string {
-  const d = planDate(w?.from);
-  if (d) return `since ${d}`;
-  return w?.days ? `the last ${w.days} days` : "recent history only";
-}
+// The free window in words, from the server's history_from: "since November 1, 2025", or no number when the server did not send it.
+export const windowShort = (w?: FreeWindow) => { const d = planDate(w?.from); return d ? `since ${d}` : "recent history only"; };
 
 // "history since November 1, 2025", for sentences that name what the free plan shows.
-export function windowHistory(w?: FreeWindow): string {
-  const d = planDate(w?.from);
-  if (d) return `history since ${d}`;
-  return w?.days ? `the last ${w.days} days` : "recent history";
-}
+export const windowHistory = (w?: FreeWindow) => { const d = planDate(w?.from); return d ? `history since ${d}` : "recent history"; };
 
-// Why a record is hidden, for a 402 outside_free_window (the body's own numbers win over the account's).
-export function windowOlderThan(w?: FreeWindow): string {
-  const d = planDate(w?.from);
-  if (d) return `This is from before ${d}, as far back as the free plan shows.`;
-  return w?.days ? `This is older than the last ${w.days} days that the free plan shows.` : "This is older than the history the free plan shows.";
-}
+// Why a record is hidden, for a 402 outside_free_window (the body's own date wins over the account's).
+export const windowOlderThan = (w?: FreeWindow) => { const d = planDate(w?.from); return d ? `This is from before ${d}, as far back as the free plan shows.` : "This is older than the history the free plan shows."; };
 
 export const PRO = {
   title: "Rivolt Pro",
