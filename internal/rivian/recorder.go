@@ -251,6 +251,8 @@ type liveCharge struct {
 	endAt      time.Time
 	endSoC     float64
 	finalState string
+	// errSince is when an unbroken run of station-error frames began; zero outside one. See noteState.
+	errSince time.Time
 
 	// Running trapezoidal integral of ChargerPowerKW over wall-clock
 	// time, in kWh. Used as the L2 energy fallback when Parallax never
@@ -315,6 +317,36 @@ type liveCharge struct {
 
 	// floorNoted is set once the energy floor's counter and log have been written for this charge.
 	floorNoted atomic.Bool
+}
+
+// stationErrorGrace is how long a run of station-error frames may last before it becomes the charge's final state. A home EVSE that
+// flaps (error, connecting, active within seconds) is still charging; the open-charge predicates only know the active states, so
+// letting each flap through made a session that was still adding energy read as finished.
+const stationErrorGrace = 3 * time.Minute
+
+// isStationError matches both spellings Rivian uses for the charger fault: vehicleState's "charging_station_err" and the
+// Parallax-era "charging_station_error".
+func isStationError(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "charging_station_err", "charging_station_error":
+		return true
+	}
+	return false
+}
+
+// noteState sets finalState from a frame's charger state, holding the previous state through a short run of station-error frames.
+func (c *liveCharge) noteState(t time.Time, state string) {
+	if !isStationError(state) || c.finalState == "" || isStationError(c.finalState) {
+		c.errSince = time.Time{}
+		c.finalState = state
+		return
+	}
+	if c.errSince.IsZero() {
+		c.errSince = t
+	}
+	if t.Sub(c.errSince) >= stationErrorGrace {
+		c.finalState = state
+	}
 }
 
 // markMeaningful bumps lastMeaningfulAt if the incoming frame
@@ -1383,7 +1415,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			}
 			s.charge.markMeaningful(curr.At, curr.BatteryLevelPct, curr.ChargerPowerKW, curr.ChargerState)
 			s.charge.endSoC = curr.BatteryLevelPct
-			s.charge.finalState = curr.ChargerState
+			s.charge.noteState(curr.At, curr.ChargerState)
 			s.charge.noteLimit(curr.ChargeTargetPct)
 			if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 				s.charge.maxPower = curr.ChargerPowerKW
@@ -1437,7 +1469,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		s.charge.noteLimit(curr.ChargeTargetPct)
 		s.charge.endSoC = curr.BatteryLevelPct
-		s.charge.finalState = curr.ChargerState
+		s.charge.noteState(curr.At, curr.ChargerState)
 		m.touchLiveCharge(ctx, curr.VehicleID, s.charge)
 		return s.charge.number
 	}
