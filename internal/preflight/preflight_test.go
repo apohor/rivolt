@@ -112,8 +112,8 @@ func TestPreflightProblems(t *testing.T) {
 		"missing webhook secret": func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_STRIPE_WEBHOOK_SECRET": ""}) },
 		"missing a price":        func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_STRIPE_PRICE_YEARLY": ""}) },
 		"missing base url":       func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_PUBLIC_BASE_URL": ""}) },
-		"missing apple bundle":   func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_APPLE_IAP_BUNDLE_ID": ""}) },
-		"missing apple products": func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_APPLE_IAP_PRODUCTS": ""}) },
+		"missing apple bundle":   func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_BILLING_IOS": "1", "RIVOLT_APPLE_IAP_BUNDLE_ID": ""}) },
+		"missing apple products": func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_BILLING_IOS": "1", "RIVOLT_APPLE_IAP_PRODUCTS": ""}) },
 		"bad apple environment":  func(in *Input) { in.Getenv = env(map[string]string{"RIVOLT_APPLE_IAP_ENV": "Staging"}) },
 		"a page answers 404": func(in *Input) {
 			in.Fetch = func(_ context.Context, u string) (int, error) {
@@ -443,5 +443,25 @@ func TestPreflightBillingAddressMustBeRequired(t *testing.T) {
 		if Run(context.Background(), in).Ready() {
 			t.Errorf("billing_address_collection %q: ready", v)
 		}
+	}
+}
+
+// Web-first: with RIVOLT_BILLING_IOS off a missing StoreKit config is a pass; a half-configured one (bad environment) is still a problem.
+func TestPreflightAppleOffIsAPass(t *testing.T) {
+	in := okInput()
+	in.Getenv = env(map[string]string{"RIVOLT_APPLE_IAP_BUNDLE_ID": "", "RIVOLT_APPLE_IAP_PRODUCTS": ""})
+	r := Run(context.Background(), in)
+	out := render(r)
+	for _, p := range r.Problems {
+		if strings.Contains(p, "RIVOLT_APPLE") || strings.Contains(p, "StoreKit") {
+			t.Fatalf("apple off must not be a problem: %v\n%s", r.Problems, out)
+		}
+	}
+	if !strings.Contains(out, "apple: off (web-first)") {
+		t.Errorf("report lacks the apple off line:\n%s", out)
+	}
+	in.Getenv = env(map[string]string{"RIVOLT_APPLE_IAP_PRODUCTS": "", "RIVOLT_APPLE_IAP_ENV": "Staging"})
+	if r := Run(context.Background(), in); !strings.Contains(strings.Join(r.Problems, "\n"), "StoreKit is misconfigured") {
+		t.Errorf("a bad StoreKit environment must stay a problem with iOS billing off: %v", r.Problems)
 	}
 }

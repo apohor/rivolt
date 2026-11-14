@@ -19,10 +19,10 @@ type Config struct {
 	Environment string
 }
 
-// ConfigFromEnv reads RIVOLT_APPLE_IAP_BUNDLE_ID, RIVOLT_APPLE_IAP_PRODUCTS (a comma list, REQUIRED when billing is on, so "any product under
+// ConfigFromEnv reads RIVOLT_APPLE_IAP_BUNDLE_ID, RIVOLT_APPLE_IAP_PRODUCTS (a comma list, REQUIRED when iPhone billing (RIVOLT_BILLING_IOS) is on, so "any product under
 // the bundle" cannot happen on prod by omission) and RIVOLT_APPLE_IAP_ENV (Production, the default, or Sandbox: one per deployment, never both).
 // Without a bundle id it returns (nil, nil). A half-configured deployment is an error the caller must stop on.
-func ConfigFromEnv(getenv func(string) string, billingOn bool) (*Config, error) {
+func ConfigFromEnv(getenv func(string) string, iosBillingOn bool) (*Config, error) {
 	bundle := strings.TrimSpace(getenv("RIVOLT_APPLE_IAP_BUNDLE_ID"))
 	if bundle == "" {
 		return nil, nil
@@ -40,8 +40,8 @@ func ConfigFromEnv(getenv func(string) string, billingOn bool) (*Config, error) 
 			products[p] = true
 		}
 	}
-	if billingOn && len(products) == 0 {
-		return nil, errors.New("RIVOLT_APPLE_IAP_PRODUCTS is required when billing is on (the product ids Rivolt Pro is sold as)")
+	if iosBillingOn && len(products) == 0 {
+		return nil, errors.New("RIVOLT_APPLE_IAP_PRODUCTS is required when RIVOLT_BILLING_IOS is on (the product ids Rivolt Pro is sold as)")
 	}
 	return &Config{BundleID: bundle, Products: products, Environment: env}, nil
 }
