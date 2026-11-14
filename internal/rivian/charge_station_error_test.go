@@ -1,6 +1,7 @@
 package rivian
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ func TestStationErrorFlapKeepsTheChargeOpen(t *testing.T) {
 	for i, s := range []struct {
 		at    time.Duration
 		state string
-	}{{5, "charging_station_error"}, {10, "charging_station_error"}, {12, "charging_connecting"}, {17, "charging_active"}, {60, "charging_station_err"}} {
+	}{{5, "charging_station_error"}, {10, "charging_station_error"}, {12, "charging_connecting"}, {17, "charging_active"}} {
 		c.noteState(t0.Add(s.at*time.Second), s.state)
 		if !charges.IsOpenLiveFinalState(c.finalState) {
 			t.Fatalf("frame %d (%s): final_state %q reads as finished", i, s.state, c.finalState)
@@ -46,5 +47,42 @@ func TestStationErrorThatLastsBecomesTheFinalState(t *testing.T) {
 	c.noteState(t0.Add(stationErrorGrace+2*time.Second), "charging_station_error")
 	if c.finalState != "charging_active" {
 		t.Fatalf("a new flap after recovery: %q", c.finalState)
+	}
+}
+
+// The same flap through the real frame handler: one charge, open after every frame, and a run past the grace ends as the final state.
+func TestStationErrorFlapThroughTheRecorder(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	s := &liveSessions{}
+	ctx := context.Background()
+	t0 := time.Unix(1_700_000_000, 0)
+	frame := func(sec int, state string, soc float64) {
+		f := chargingFrame(t0.Add(time.Duration(sec)*time.Second), soc)
+		f.ChargerState = state
+		s.handleChargeLifecycle(f, nil, m, ctx)
+	}
+	frame(0, "charging_active", 50)
+	first := s.charge
+	if first == nil {
+		t.Fatal("no charge opened")
+	}
+	for i, fr := range []struct {
+		sec   int
+		state string
+	}{{5, "charging_station_error"}, {10, "charging_station_error"}, {12, "charging_connecting"}, {17, "charging_active"}} {
+		frame(fr.sec, fr.state, 50.1)
+		if s.charge != first {
+			t.Fatalf("frame %d (%s): a new charge replaced the open one", i, fr.state)
+		}
+		if !charges.IsOpenLiveFinalState(s.charge.finalState) {
+			t.Fatalf("frame %d (%s): final_state %q reads as finished", i, fr.state, s.charge.finalState)
+		}
+	}
+	base := 100
+	for sec := 0; sec <= int(stationErrorGrace/time.Second)+5; sec += 5 {
+		frame(base+sec, "charging_station_error", 50.2)
+	}
+	if s.charge != first || s.charge.finalState != "charging_station_error" {
+		t.Fatalf("a run past the grace: same charge %v, final %q", s.charge == first, s.charge.finalState)
 	}
 }

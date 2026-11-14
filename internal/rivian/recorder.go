@@ -251,8 +251,10 @@ type liveCharge struct {
 	endAt      time.Time
 	endSoC     float64
 	finalState string
-	// errSince is when an unbroken run of station-error frames began; zero outside one. See noteState.
-	errSince time.Time
+	// errSince is when an unbroken run of station-error frames began; zero outside one. lastState is the last raw frame state, which
+	// finalState lags while a run is held. See noteState.
+	errSince  time.Time
+	lastState string
 
 	// Running trapezoidal integral of ChargerPowerKW over wall-clock
 	// time, in kWh. Used as the L2 energy fallback when Parallax never
@@ -324,18 +326,15 @@ type liveCharge struct {
 // letting each flap through made a session that was still adding energy read as finished.
 const stationErrorGrace = 3 * time.Minute
 
-// isStationError matches both spellings Rivian uses for the charger fault: vehicleState's "charging_station_err" and the
-// Parallax-era "charging_station_error".
+// isStationError matches Rivian's "charging_station_error" (vehicleState and Parallax agree on it). The older "charging_station_err" is
+// not held: isChargingCS treats it as terminal, so it closes the session before noteState sees it, and it has not been seen in the logs for 24 h.
 func isStationError(state string) bool {
-	switch strings.ToLower(strings.TrimSpace(state)) {
-	case "charging_station_err", "charging_station_error":
-		return true
-	}
-	return false
+	return strings.EqualFold(strings.TrimSpace(state), "charging_station_error")
 }
 
 // noteState sets finalState from a frame's charger state, holding the previous state through a short run of station-error frames.
 func (c *liveCharge) noteState(t time.Time, state string) {
+	c.lastState = state
 	if !isStationError(state) || c.finalState == "" || isStationError(c.finalState) {
 		c.errSince = time.Time{}
 		c.finalState = state
@@ -357,7 +356,7 @@ func (c *liveCharge) noteState(t time.Time, state string) {
 func (c *liveCharge) markMeaningful(t time.Time, soc, kw float64, state string) {
 	socUp := soc > c.endSoC
 	active := kw >= chargingPowerFloorKW && kw <= maxLivePowerKW
-	stateChanged := state != "" && state != c.finalState
+	stateChanged := state != "" && state != c.lastState && !(c.lastState == "" && state == c.finalState)
 	if socUp || active || stateChanged {
 		c.lastMeaningfulAt = t
 	}

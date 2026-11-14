@@ -232,6 +232,7 @@ final class ChargeInsightsTests: XCTestCase {
         XCTAssertNil(ChargeInsights.finalState("Charging"), "the last snapshot still charging says nothing about the end")
         XCTAssertEqual(ChargeInsights.finalState("NoPower"), "No power")
         XCTAssertEqual(ChargeInsights.finalState("charging_station_err"), "Interrupted")
+        XCTAssertEqual(ChargeInsights.finalState("charging_station_error"), "Interrupted")
         XCTAssertEqual(ChargeInsights.finalState("charging_complete"), "Charging complete")
         XCTAssertEqual(ChargeInsights.source("electrafi_import"), "Imported from ElectraFi")
         XCTAssertNil(ChargeInsights.source(""))
