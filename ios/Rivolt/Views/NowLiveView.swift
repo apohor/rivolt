@@ -58,14 +58,16 @@ struct NowLiveView: View {
 
     @ViewBuilder
     private var truck: some View {
-        if let url = VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light, plugPicture: appState?.designPreview.contains("plug_anim") == true) {
+        if let url = VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light, plugPicture: plugAnim) {
             AsyncImage(url: url) { phase in
                 if let image = phase.image { image.resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 180) }
             }
             .frame(maxWidth: .infinity)
-            .accessibilityHidden(true)
+            .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
         }
     }
+
+    private var plugAnim: Bool { appState?.designPreview.contains("plug_anim") == true }
 
     private var energy: some View {
         let detail = ChargingDetail.make(summary: summary, session: session, charge: charge)
