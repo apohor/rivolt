@@ -26,6 +26,9 @@ const (
 	activityMaxRows        = 2000
 	defaultRoundTripRadius = 200.0
 	defaultRoundTripGapMin = 90.0
+	// A drive shorter than this (it shows as 0.0 mi) is a stub: a bounce of the ignition, not a trip. A stub still joins a
+	// round-trip chain but is not one of its legs and is not counted in round_trip_legs; the same test the web uses.
+	stubDistanceMi = 0.05
 )
 
 // activityDrive is one drive of GET /api/activity: no coordinates and no polyline.
@@ -47,11 +50,24 @@ type activityDrive struct {
 	// durations (the parked gaps between them are not driving).
 	RoundTripLegs int     `json:"round_trip_legs,omitempty"`
 	DrivingSecs   float64 `json:"driving_seconds,omitempty"`
+	// The merged row's real legs in time order, so the app can expand it. Each leg's id works with the drive detail
+	// endpoints. Only on a merged row.
+	Legs []activityLeg `json:"legs,omitempty"`
 	// Whether a trailer was connected (the connector, not the load): the user's own correction when they made one,
 	// else what the recorder saw; null when it was never known. TrailerOverride is the correction itself (null when
 	// there is none, and always null on a merged round trip, whose legs are corrected one by one).
 	Trailer         *bool `json:"trailer"`
 	TrailerOverride *bool `json:"trailer_override"`
+}
+
+// activityLeg is one drive folded into a merged round trip. ParkedMinAfter is the minutes parked before the next
+// leg starts (an absorbed stub's time included), whole minutes, null on the last leg.
+type activityLeg struct {
+	ID             string    `json:"id"`
+	StartedAt      time.Time `json:"started_at"`
+	EndedAt        time.Time `json:"ended_at"`
+	DistanceMi     float64   `json:"distance_mi"`
+	ParkedMinAfter *float64  `json:"parked_min_after"`
 }
 
 // activityCharge is one charge of GET /api/activity: no coordinates, no place name.
@@ -95,7 +111,11 @@ type rtDrive struct {
 	rate     *float64
 	legs     int
 	drivingS float64
+	legList  []activityLeg
+	merged   bool // folded from a chain, even when only one of its drives is a real leg
 }
+
+func isStub(d drives.Drive) bool { return d.DistanceMi < stubDistanceMi }
 
 func floatPtr(v float64) *float64 { return &v }
 
@@ -200,7 +220,26 @@ func mergeChainLikeWeb(chain []rtDrive) rtDrive {
 	if m.cost != nil && energy > 0 {
 		m.rate = floatPtr(*m.cost / energy)
 	}
-	m.legs = len(chain)
+	// Stubs still bridge the chain and add their ~0 to the totals, but are not legs: the legs list and the count
+	// carry the kept drives only, and fewer than two of those is no round trip to show.
+	var kept []rtDrive
+	for _, c := range chain {
+		if !isStub(c.d) {
+			kept = append(kept, c)
+		}
+	}
+	m.merged = true
+	m.legs = max(len(kept), 1)
+	if len(kept) > 1 {
+		m.legList = make([]activityLeg, len(kept))
+		for i, c := range kept {
+			l := activityLeg{ID: c.d.ID, StartedAt: c.d.StartedAt, EndedAt: c.d.EndedAt, DistanceMi: c.d.DistanceMi}
+			if i+1 < len(kept) {
+				l.ParkedMinAfter = floatPtr(math.Round(kept[i+1].d.StartedAt.Sub(c.d.EndedAt).Minutes()))
+			}
+			m.legList[i] = l
+		}
+	}
 	m.d.Trailer, m.d.TrailerOverride = mergedTrailer(chain), nil
 	return m
 }
@@ -345,8 +384,11 @@ func handleActivity(ds *drives.Store, cs *charges.Store, settingsStore *settings
 					AvgSpeedMph: d.AvgSpeedMph, MaxSpeedMph: d.MaxSpeedMph,
 					EstimatedCost: rt.cost, EstimatedCurrency: rt.cur, EstimatedPricePerKWh: rt.rate,
 				}
+				if rt.merged {
+					a.DrivingSecs = rt.drivingS
+				}
 				if rt.legs > 1 {
-					a.RoundTripLegs, a.DrivingSecs = rt.legs, rt.drivingS
+					a.RoundTripLegs, a.Legs = rt.legs, rt.legList
 				}
 				a.Trailer, a.TrailerOverride = d.HasTrailer(), d.TrailerOverride
 				out.Drives = append(out.Drives, a)

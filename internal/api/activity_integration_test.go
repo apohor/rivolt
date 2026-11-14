@@ -99,6 +99,9 @@ func TestActivity(t *testing.T) {
 		rt.StartSoCPct != 80 || rt.EndSoCPct != 70 || !rt.EndedAt.Equal(t0.Add(time.Hour)) {
 		t.Errorf("round trip = %+v", rt)
 	}
+	if len(rt.Legs) != 2 || rt.Legs[0].ID != "act-d1" || rt.Legs[0].ParkedMinAfter == nil || rt.Legs[1].ParkedMinAfter != nil || len(d3.Legs) != 0 {
+		t.Errorf("round trip legs = %+v", rt.Legs)
+	}
 	if rt.EstimatedCost == nil || math.Abs(*rt.EstimatedCost-1.6) > 1e-9 || rt.EstimatedPricePerKWh == nil || math.Abs(*rt.EstimatedPricePerKWh-0.4) > 1e-9 || rt.EstimatedCurrency != "USD" {
 		t.Errorf("round trip cost = %v %v %q", rt.EstimatedCost, rt.EstimatedPricePerKWh, rt.EstimatedCurrency)
 	}
