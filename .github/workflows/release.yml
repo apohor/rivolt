@@ -4,8 +4,8 @@
 # on apohor/rivolt is N66). Pushing the tag starts build.yml's tag run exactly as a hand-pushed tag does: tag-validate, retag, pin-preview.
 # dry_run (the default) tags nothing: it prints the verdict and proves the token can write to this repo by creating and deleting a probe branch.
 # A FINAL tag is cut with final=true (rc empty) at the gated rc's commit: prod is an autosync app, so the tag run's bump-prod pin commit is the
-# deploy, then unpin-preview. Without final=true a final is refused. A final with no gated rc needs no_rc_reason AND the release-bypass
-# environment's approval; the bypass job commits the rc-bypass.log line to rivolt-infra first and fails the run if that push fails, so the
+# deploy, then unpin-preview. Without final=true a final is refused. A final with no gated rc needs no_rc_reason and runs the release-bypass
+# environment (main only, no required reviewer: the owner dropped it); the bypass job commits the rc-bypass.log line to rivolt-infra first and fails the run if that push fails, so the
 # tag job (which needs it) never runs without the logged line.
 name: release
 
@@ -144,7 +144,7 @@ jobs:
           gh api -X DELETE "repos/$GH_REPO/git/$ref"
           echo "the App token created and deleted $ref at ${head:0:7}: it can write to $GH_REPO" | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # A final with no gated rc: the environment's required reviewer approves (in place of the typed yes), then the log line goes to rivolt-infra
+  # A final with no gated rc: the release-bypass environment (main only, no required reviewer) stands in for the typed yes, then the log line goes to rivolt-infra
   # main BEFORE the tag. A failed push fails this job and the tag job never starts.
   bypass:
     name: bypass log
