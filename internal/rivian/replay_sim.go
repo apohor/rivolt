@@ -337,7 +337,7 @@ func (s flagsSimStore) Update(ctx context.Context, fn func(SimState) (SimState, 
 	if err != nil {
 		return fmt.Errorf("replay sim: begin: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `INSERT INTO flags (name, value, updated_by) VALUES ($1, '{}'::jsonb, 'replay_sim') ON CONFLICT (name) DO NOTHING`, simFlagName); err != nil {
 		return fmt.Errorf("replay sim: seed: %w", err)
 	}
