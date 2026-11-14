@@ -6,10 +6,11 @@ import { PeriodPicker } from "../components/PeriodPicker";
 import { axisDayIndices, barDayCount, barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, sleepWindow, toYmd, usePeriod, type Period } from "../lib/period";
 import { isActiveCharge } from "../lib/format";
 import { inDemo } from "../lib/demo";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import FirstDayCard from "../components/FirstDayCard";
+import { setupDismissed } from "../lib/setupSheet";
 import { EARLY_MONTH_TAG, EarlyMonthNote } from "../components/EarlyMonthNote";
 import MilestoneCard from "../components/MilestoneCard";
 import FirstChargeCard from "../components/FirstChargeCard";
@@ -42,12 +43,18 @@ import { useSelectedVehicle } from "../lib/selectedVehicle";
 import NowCard from "../components/NowCard";
 import { useDesignPreview } from "../lib/config";
 
+// Shown once, to new users, on preview: keep it out of the initial bundle.
+const SetupSheet = lazy(() => import("../components/SetupSheet").then((m) => ({ default: m.SetupGate })));
+
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
   // The calendar scope (Week/Month/Year/All/Custom).
   const [period, setPeriod] = usePeriod();
   // Design 1 (design_preview "now_v2"): the month strip replaces the KPI tiles. Off, the page is unchanged.
   const v2 = useDesignPreview("now_v2");
+  // The first-run setup sheet (preview only, design key first_screen): once for a connected truck, until it is finished or closed.
+  const setupOn = useDesignPreview("first_screen");
+  const [setupClosed, setSetupClosed] = useState(setupDismissed);
   const baseRange = useMemo(() => periodRange(period), [period]);
   const {
     roundTripsEnabled,
@@ -105,6 +112,7 @@ export default function HomePage() {
     staleTime: 30_000,
     retry: 1,
   });
+  const setupWanted = setupOn && !setupClosed && !inDemo() && !!rivianStatus.data?.authenticated;
   const vehicles = useQuery({
     queryKey: ["rivian", "vehicles"],
     queryFn: () => backend.vehicles(),
@@ -268,6 +276,11 @@ export default function HomePage() {
         context="Once connected, drives, charges, and live telemetry start streaming."
       />
       {!inDemo() && <ServiceNoticeBanner />}
+      {setupWanted && activeVehicleID && (
+        <Suspense fallback={null}>
+          <SetupSheet vehicleID={activeVehicleID} onClose={() => setSetupClosed(true)} />
+        </Suspense>
+      )}
       {historyEmpty && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
       {historyEmpty && <ElectraFiImportHint />}
       <PageHeader

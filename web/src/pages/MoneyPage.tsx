@@ -20,7 +20,8 @@ import { ShareNudge, readShareNudgeDismissed, rememberShareNudgeDismissed, share
 import { SavingsCard } from "../components/SavingsCard";
 import { OffpeakPrompt } from "../components/OffpeakPrompt";
 import { fetchSavings, offpeakShareOf } from "../lib/savings";
-import { kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
+import { HomeRateEstimatedContext, kindSegments, placeKindSegments, placeSegments, ReceiptRow, SplitBar } from "../components/money";
+import { useDesignPreview } from "../lib/config";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { LockedVehicleNotice } from "../components/LockedVehicle";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
@@ -122,11 +123,17 @@ export default function MoneyPage() {
   const chargesQ = useQuery({ ...chargesAllQuery(), enabled: (toConfirmN ?? 0) > 0 });
   const confirmCharges = (chargesQ.data ?? []).filter((c) => isOpenNetworkState(c.network_state));
 
+  // Preview-only (design key first_screen): while the home rate is the setup's state-average default, home-rate prices read as estimates.
+  const setupOn = useDesignPreview("first_screen");
+  const chargingQ = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000, retry: 0, enabled: setupOn && !inDemo() });
+  const homeRateEstimated = setupOn && chargingQ.data?.home_price_source === "state_average";
+
   const m = monthQ.data?.data;
   const isSample = monthQ.data?.source === "fixture";
   const months = summaryQ.data?.data.months ?? [];
 
   return (
+    <HomeRateEstimatedContext.Provider value={homeRateEstimated}>
     <div className="space-y-4" data-ui-grid="money">
       <PageHeader
         title="Money"
@@ -172,6 +179,7 @@ export default function MoneyPage() {
         <Statement vehicleID={vehicleID} toConfirm={summaryQ.data?.data.to_confirm_count ?? null} confirmCharges={confirmCharges} askShare={params.get("share") === "1"} sample={isSample} m={m} months={months} metric={metric} onMetric={setMetric} filter={filter} onFilter={setFilter} />
       ) : null}
     </div>
+    </HomeRateEstimatedContext.Provider>
   );
 }
 

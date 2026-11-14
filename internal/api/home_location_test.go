@@ -95,3 +95,54 @@ func TestHomeAddressSearchIsPhotonOnly(t *testing.T) {
 		t.Errorf("short query: %q, %d calls", w.Body.String(), len(got))
 	}
 }
+
+// The place lookup is Photon only, takes the point in the body, answers name, country and state without echoing the point, and keeps
+// Photon's URL (which carries the point) out of its errors. Synthetic point at the public sample location.
+func TestHomePlaceIsPhotonOnlyAndEchoesNoPoint(t *testing.T) {
+	body := `{"latitude":34.161,"longitude":-118.168}`
+	w := httptest.NewRecorder()
+	handleHomePlace(geocoding.NewPhotonClient(""))(w, httptest.NewRequest("POST", "/", strings.NewReader(body)))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("without Photon: %d", w.Code)
+	}
+
+	var path string
+	photon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		_, _ = w.Write([]byte(`{"features":[{"geometry":{"coordinates":[-118.168,34.161]},"properties":{"street":"Rose Bowl Drive","city":"Pasadena","state":"California","country":"United States","countrycode":"us"}}]}`))
+	}))
+	defer photon.Close()
+	w = httptest.NewRecorder()
+	handleHomePlace(geocoding.NewPhotonClient(photon.URL))(w, httptest.NewRequest("POST", "/", strings.NewReader(body)))
+	if w.Code != http.StatusOK || path != "/reverse" {
+		t.Fatalf("with Photon: %d %s (path %s)", w.Code, w.Body.String(), path)
+	}
+	for _, want := range []string{`"name":"Rose Bowl Drive, Pasadena"`, `"country_code":"US"`, `"admin1":"California"`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("missing %s in %s", want, w.Body.String())
+		}
+	}
+	if strings.Contains(w.Body.String(), "34.16") || strings.Contains(w.Body.String(), "118.16") {
+		t.Errorf("the point came back: %s", w.Body.String())
+	}
+
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"features":[]}`)) }))
+	defer empty.Close()
+	w = httptest.NewRecorder()
+	handleHomePlace(geocoding.NewPhotonClient(empty.URL))(w, httptest.NewRequest("POST", "/", strings.NewReader(body)))
+	if w.Code != http.StatusNotFound {
+		t.Errorf("nothing near: %d", w.Code)
+	}
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }))
+	defer down.Close()
+	w = httptest.NewRecorder()
+	handleHomePlace(geocoding.NewPhotonClient(down.URL))(w, httptest.NewRequest("POST", "/", strings.NewReader(body)))
+	if w.Code != http.StatusBadGateway || strings.Contains(w.Body.String(), "34.16") {
+		t.Errorf("Photon down: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	handleHomePlace(geocoding.NewPhotonClient(photon.URL))(w, httptest.NewRequest("POST", "/", strings.NewReader(`{"latitude":95,"longitude":0}`)))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("out of range: %d", w.Code)
+	}
+}

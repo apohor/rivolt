@@ -1416,6 +1416,10 @@ func New(d Deps) http.Handler {
 				r.With(homeSearchLimiter.Middleware).Post("/search", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleHomeAddressSearch(d.Photon)(w, r)
 				}))
+				// The place name and state at a point (the setup sheet's preview), Photon only; the point is in the body and is not stored.
+				r.With(homeSearchLimiter.Middleware).Post("/place", withUser(func(_ uuid.UUID, w http.ResponseWriter, r *http.Request) {
+					handleHomePlace(d.Photon)(w, r)
+				}))
 			})
 
 			// Opt-in to reading Rivian charging receipts (off by default;

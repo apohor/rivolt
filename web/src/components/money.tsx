@@ -5,7 +5,7 @@ import { hasOpenNetworkState } from "../lib/autoNetwork";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { networkNameFromSlug } from "../lib/networkRates";
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   formatMoney,
@@ -30,6 +30,18 @@ import { formatDistance, usePreferences } from "../lib/preferences";
 //   pending   → "Pending" (old home-rate DCFC stamp; not in the total)
 //   unknown   → "—"
 
+// True while the account's home rate is only the state-average default from setup (settings home_price_source "state_average"): a charge
+// priced from the home rate is then an estimate, shown like the other estimates until the user sets their own rate. MoneyPage provides it.
+export const HomeRateEstimatedContext = createContext(false);
+
+// Whether a row's price came from the home rate (not the away-from-home, likely-wrong stamp, which has its own mark).
+function fromHomeRate(r: { cost_source: string; flags: string[]; sessions?: { cost_source?: string; flags?: string[] }[] }): boolean {
+  const home = (x: { cost_source?: string; flags?: string[] }) => x.cost_source === "home_rate" && !(x.flags ?? []).includes("home_rate_away");
+  return home(r) || (r.cost_source === "mixed" && (r.sessions ?? []).some(home));
+}
+
+export const HOME_RATE_ESTIMATED_NOTE = "Priced with the state-average rate from setup. Set your own rate in Settings to replace it.";
+
 export function MoneyValue({
   r,
   currency,
@@ -44,6 +56,7 @@ export function MoneyValue({
   currency: string;
   className?: string;
 }) {
+  const homeEstimated = useContext(HomeRateEstimatedContext);
   // A matched Rivian receipt wins: its amount, solid, never dotted-estimated.
   if (r.billed_cost != null) {
     return (
@@ -77,6 +90,18 @@ export function MoneyValue({
         data-energy-estimated="true"
       >
         ~{formatMoney(r.cost, currency)}
+        <span className="ml-1 text-[11px] font-normal uppercase tracking-wide text-neutral-500">est.</span>
+      </span>
+    );
+  }
+  if (homeEstimated && g === "recorded" && fromHomeRate(r)) {
+    return (
+      <span
+        className={`underline decoration-dotted decoration-neutral-500 underline-offset-4 ${className}`}
+        title={HOME_RATE_ESTIMATED_NOTE}
+        data-home-rate-estimated="true"
+      >
+        {formatMoney(r.cost, currency)}
         <span className="ml-1 text-[11px] font-normal uppercase tracking-wide text-neutral-500">est.</span>
       </span>
     );
@@ -231,6 +256,7 @@ function kindChip(r: Receipt): { label: string; dot: string; chip: string } {
 // page, which carries the pricing editor (PATCH /api/charges/{id}/pricing).
 export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
   const { distanceUnit } = usePreferences();
+  const homeEstimated = useContext(HomeRateEstimatedContext);
   const [open, setOpen] = useState(false);
   const chip = kindChip(r);
   const g = grammarFor(r);
@@ -327,6 +353,7 @@ export function ReceiptRow({ r, currency }: { r: Receipt; currency: string }) {
                   <span data-price-label="estimated" className="font-medium text-neutral-300">Estimated · </span>
                 )}
                 {sourceLabel(r, currency)}
+                {homeEstimated && grammarFor(r) === "recorded" && fromHomeRate(r) && <span data-home-rate-estimated-label> · state average, estimated</span>}
               </span>
             )}
             {rateAction && (
