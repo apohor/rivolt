@@ -1,6 +1,12 @@
 import CoreGraphics
 import Foundation
 
+/// `GET /api/drives/{id}/postcard`: only the trimmed route is read (the share card's optional map).
+struct DrivePostcard: Decodable, Equatable {
+    struct Route: Decodable, Equatable { let segments: [String] }
+    let route: Route
+}
+
 /// The route of one drive from `GET /api/drives/{id}`, as the map draws it: the recorded GPS trace and its two ends.
 /// Held only while the drive's screen is open (never in the App Group, UserDefaults or a file). The rest of the
 /// drive row is not decoded.

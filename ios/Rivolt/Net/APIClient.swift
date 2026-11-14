@@ -463,6 +463,12 @@ actor APIClient {
         try await request("GET", "/api/drives/\(pathID(id))")
     }
 
+    /// One drive's trimmed route for the share card's optional map: both ends and the saved home cut off, polyline6 segments, no
+    /// date, time or place. 409 (no route) and 422 (too short) mean the drive has none to draw. Held in memory only.
+    func drivePostcard(id: String) async throws -> DrivePostcard {
+        try await request("GET", "/api/drives/\(pathID(id))/postcard")
+    }
+
     /// Every drive of a truck with its stored route, for the Activity map (the web's Activity map reads the same
     /// list). Rows are narrowed to `MapDrive`.
     func mapDrives(vehicleID: String) async throws -> [MapDrive] {

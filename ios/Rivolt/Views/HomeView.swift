@@ -183,7 +183,7 @@ struct HomeView: View {
                 }
             }
             .sheet(item: $sharingMilestone) { m in
-                ShareCardSheet(fileName: MoneyShareCard.fileName(kind: "milestone", date: m.achievedAt, calendar: .current)) { _ in
+                ShareCardSheet(fileName: MoneyShareCard.fileName(kind: "milestone", date: m.achievedAt, calendar: .current)) { _, _ in
                     MoneyShareCard.milestone(m, calendar: .current)
                 }
                 .followsAppearance()
