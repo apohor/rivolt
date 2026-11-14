@@ -120,6 +120,35 @@ export function cleanTrace<T extends TracePoint>(pts: T[]): T[] {
   return s;
 }
 
+// A stop is a dwell: consecutive samples that barely move but are many seconds apart (a light, a queue, a turn waiting for traffic). The
+// matcher reads the time between two points as time the truck could spend driving, so a minute-long dwell lets it route a loop round the
+// next block (a side street, a hook) and still arrive "on time". retimeWithoutDwell shortens every dwell to DWELL_KEEP_S and moves the
+// later samples back by the same amount, so the speeds the matcher sees stay those of the drive. Only the matcher's time axis changes; the
+// positions and the order do not. Samples without a time pass through.
+const DWELL_MIN_S = 10;
+const DWELL_MAX_M = 30;
+const DWELL_KEEP_S = 2;
+
+export function retimeWithoutDwell<T extends TracePoint>(pts: T[]): T[] {
+  let shift = 0;
+  return pts.map((p, i) => {
+    if (p.t == null) return p;
+    const prev = i > 0 ? pts[i - 1] : null;
+    if (prev && prev.t != null) {
+      const dt = p.t - prev.t;
+      if (dt > DWELL_MIN_S && haversine(prev, p) < DWELL_MAX_M) shift += dt - DWELL_KEEP_S;
+    }
+    return shift === 0 ? p : { ...p, t: p.t - shift };
+  });
+}
+
+// pathLengthM is the length of the polyline through the points, in meters.
+export function pathLengthM(pts: { lat: number; lon: number }[]): number {
+  let d = 0;
+  for (let i = 1; i < pts.length; i++) d += haversine(pts[i - 1], pts[i]);
+  return d;
+}
+
 // splitTraceOnGaps cuts the cleaned trace wherever consecutive
 // samples are separated by ≥ GAP_TIME_S seconds OR ≥ GAP_DIST_M
 // meters. Each cut returns the two endpoint coords so the renderer
