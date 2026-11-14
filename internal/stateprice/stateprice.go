@@ -103,7 +103,7 @@ var byName = func() map[string]string {
 }()
 
 // Lookup finds a state by its two-letter code or its full name, any case. It reports false for anything else (other countries, territories,
-// a blank). The price is in hundredths of a cent, as published.
+// a blank). PricePerKWh is US dollars per kWh, as published to the hundredth of a cent.
 func Lookup(state string) (Price, bool) {
 	k := strings.TrimSpace(state)
 	code := strings.ToUpper(k)
