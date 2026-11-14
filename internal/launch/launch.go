@@ -41,7 +41,7 @@ var Items = []Item{
 		Cleared: true, ClearedBy: "#1381", Proof: "TestProFeatureGatesAgainstPostgres"},
 	{ID: "gate-vehicles", What: "a free account shows 1 vehicle; the rest are Pro",
 		Cleared: true, ClearedBy: "#1381", Proof: "TestVehicleFilterFreeVehicle,TestVehicleListShowsEveryVehicleAndMarksTheExtras,TestLedgerParamsLimitFreeVehicle,TestProFeatureGatesAgainstPostgres"},
-	// Unbuilt Pro surfaces (trip postcard, long-form year page, widget pushes) are not listed: there is nothing to gate yet. The route
+	// Unbuilt Pro surfaces (widget pushes; every share card is free since Pro v6) are not listed: there is nothing to gate yet. The route
 	// classification carries a permanent guard test that a new Pro surface cannot ship ungated.
 
 	// Lifecycle: what a lapse, a trial end and an account deletion do.
