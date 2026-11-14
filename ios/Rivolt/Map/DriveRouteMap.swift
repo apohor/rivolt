@@ -56,7 +56,7 @@ struct DriveRouteMap: View {
                 MapMessage(text: noLocation ? DriveRouteMap.noLocationText : "No route was recorded for this drive.")
             } else if let drawing, !failed, health != .failed, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
                 // A picture of the route, not a map to explore: it never takes the detail screen's scrolling.
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 }, metric: metric, cursor: cursorCoord,
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 }, metric: metric, gapDim: state.designPreview.contains("gap_dim"), cursor: cursorCoord,
                              bottomInset: RouteMapView.bottomInset(obstacles: obstacles, mapHeight: pins.size.height))
                     .allowsHitTesting(false)
                     .accessibilityElement()
@@ -283,6 +283,7 @@ struct DriveRouteFullMap: View {
     /// The colour mode the inline map was showing.
     var initial = RouteGradient.Metric.speed
     @State private var picked: RouteGradient.Metric?
+    @Environment(AppState.self) private var state: AppState?
     @State private var health = MapHealth.ok
     @State private var routeDrawn = false
     @State private var pins = RouteMapView.Pins()
@@ -297,7 +298,7 @@ struct DriveRouteFullMap: View {
     var body: some View {
         VStack(spacing: 8) {
             RouteMapView(styleJSON: styleJSON, drawing: drawing, onHealth: { health = $0 }, onDrawn: { routeDrawn = true }, onPins: { pins = $0 },
-                         interactive: true, recenter: recenter, metric: metric,
+                         interactive: true, recenter: recenter, metric: metric, gapDim: state?.designPreview.contains("gap_dim") == true,
                          bottomInset: RouteMapView.bottomInset(obstacles: obstacles, mapHeight: pins.size.height))
                 .accessibilityElement()
                 .accessibilityLabel("Map of the drive route, full screen")
@@ -470,6 +471,8 @@ struct RouteMapView: UIViewRepresentable {
     var radar: RadarLayer?
     /// What the gradient is coloured by.
     var metric: RouteGradient.Metric = .speed
+    /// gap_dim (design preview): dropouts solid and faded in the route's own colour, not dashed grey.
+    var gapDim = false
     /// Where the timeline's cursor is: a dot over the route (nil: none).
     var cursor: RouteSnap.Coord?
     /// Space at the bottom the camera keeps clear for what is drawn over the map there (the legend card and the credit), from their measured
@@ -542,6 +545,7 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.onLongPress = onLongPress
         context.coordinator.onCenter = onCenter
         context.coordinator.onDrawnLegTags = onDrawnLegTags
+        context.coordinator.gapDim = gapDim
         context.coordinator.setStyle(styleJSON, on: map)
         context.coordinator.setCursor(cursor)
         context.coordinator.setBottomInset(bottomInset, on: map)
@@ -652,10 +656,28 @@ struct RouteMapView: UIViewRepresentable {
             // (On the gradient the glow is a wider, fainter copy of the gradient itself, added with it.)
             if !gradientOn { style.addLayer(lineLayer("glow", "pieces", color: Theme.routeGlow, width: 9, opacity: 0.18)) }
             style.addLayer(lineLayer("routed", "routed", color: Theme.routeGap, width: 2.5, opacity: 0.75))
-            let dashed = lineLayer("gaps", "gaps", color: Theme.routeGap, width: 2, opacity: 0.7)
-            dashed.lineDashPattern = NSExpression(forConstantValue: [3, 3])
-            dashed.lineCap = NSExpression(forConstantValue: "butt")
-            style.addLayer(dashed)
+            if gapDim {
+                // One solid layer per dropout (a few at most), each in the colour the route has where it begins.
+                let colors = drawing.gapColors(metric: metric, gradientOn: gradientOn, traits: map.traitCollection)
+                let width = gradientOn ? 3.5 : 3.0
+                for (i, gap) in drawing.gaps.enumerated() {
+                    var coords = [gap.from, gap.to].map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+                    let source = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-gapdim-\(i)", shape: MLNPolylineFeature(coordinates: &coords, count: 2), options: nil)
+                    style.addSource(source)
+                    let l = MLNLineStyleLayer(identifier: "\(RouteMapView.sourceID)-gapdim-\(i)", source: source)
+                    l.lineColor = NSExpression(forConstantValue: colors[i])
+                    l.lineWidth = NSExpression(forConstantValue: width)
+                    l.lineOpacity = NSExpression(forConstantValue: RouteSnap.Drawing.gapDimOpacity)
+                    l.lineCap = NSExpression(forConstantValue: "round")
+                    l.lineJoin = NSExpression(forConstantValue: "round")
+                    style.addLayer(l)
+                }
+            } else {
+                let dashed = lineLayer("gaps", "gaps", color: Theme.routeGap, width: 2, opacity: 0.7)
+                dashed.lineDashPattern = NSExpression(forConstantValue: [3, 3])
+                dashed.lineCap = NSExpression(forConstantValue: "butt")
+                style.addLayer(dashed)
+            }
             // The what-if preview: the edited stretch, dashed in the accent colour over the plan's own line.
             let previewLayer = lineLayer("preview", "preview", color: Theme.accent, width: 4, opacity: 0.95)
             previewLayer.lineDashPattern = NSExpression(forConstantValue: [2, 2])
@@ -924,6 +946,7 @@ struct RouteMapView: UIViewRepresentable {
         }
 
         private var metric = RouteGradient.Metric.speed
+        var gapDim = false
         private var keepCamera = false
         /// A colour mode was picked: the gradient layers start over in the new colours, the camera stays where it is.
         func setMetric(_ m: RouteGradient.Metric, on map: MLNMapView) {
