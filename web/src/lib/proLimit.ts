@@ -1,10 +1,10 @@
 // A free account's limits answer HTTP 402 with a code (never 403, which means signed-out or terms-required on both clients): act on
-// the code. outside_free_window carries free_days; pro_required has no more. Bodies: ios/RivoltTests/Fixtures/err_*.json.
+// the code. outside_free_window carries free_days and free_from; pro_required has no more. Bodies: ios/RivoltTests/Fixtures/err_*.json.
 
 import { ApiError } from "./api";
 
 // The 402 body: the error code, and the window in days for outside_free_window.
-export type ProLimitBody = { error: string; free_days?: number };
+export type ProLimitBody = { error: string; free_days?: number; free_from?: string };
 
 // pro_required may also name the free limit that was hit (the saved-trip cap).
 export type ProLimit = { code: "outside_free_window"; freeDays: number } | { code: "pro_required"; limit?: number };
