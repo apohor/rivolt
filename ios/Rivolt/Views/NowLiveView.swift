@@ -15,6 +15,8 @@ struct NowLiveView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var offline: Bool { summary.presence == .offline }
+    /// Streaming only while the truck is in touch: a stale or offline truck shows what it last said, never a live charge or drive.
+    private var streaming: Bool { summary.presence == .live && summary.freshness != .paused && summary.freshness != .needsReconnect }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,13 +26,13 @@ struct NowLiveView: View {
                     backButton
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Live").themeText(.title)
-                        Text("Streaming vehicle state from Rivian").themeText(.subline, color: Theme.textSecondary)
+                        Text(streaming ? "Streaming vehicle state from Rivian" : NowCard.footer(for: summary, clock: .now)).themeText(.subline, color: Theme.textSecondary)
                     }
                     .accessibilityElement(children: .combine)
                     truck
                     energy
-                    if summary.kind == .driving || liveDrive != nil { drive }
-                    if comfortRows { climate }
+                    if streaming, summary.kind == .driving || liveDrive != nil { drive }
+                    if streaming, comfortRows { climate }
                 }
                 .padding(4 * Theme.unit)
             }
@@ -66,11 +68,11 @@ struct NowLiveView: View {
 
     private var energy: some View {
         let detail = ChargingDetail.make(summary: summary, session: session, charge: charge)
-        return ThemeSection(title: "\(vehicle.name): \(offline ? "Offline" : summary.stateLabel)") {
+        return ThemeSection(title: "\(vehicle.name): \(streaming ? summary.stateLabel : NowCard.pill(for: summary, clock: .now).text)") {
             row("Battery", summary.socPct.map { "\(Int($0.rounded()))%" })
             row("Range", summary.rangeKm.map { km in "\(Int((NowFormat.usesMetric ? km : km / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi")" })
             row("Charge limit", summary.chargeTargetPct.map { "\(Int($0.rounded()))%" })
-            if let detail {
+            if streaming, let detail {
                 row("Power", detail.powerKw.map { "\(NumberText.fixed($0, $0 < 10 ? 1 : 0)) kW" })
                 row("Time left", detail.remaining.map { NowFormat.duration($0) })
                 row("Energy added", detail.energyKwh.map { "\(NowFormat.oneDecimal($0)) kWh" })

@@ -59,20 +59,22 @@ enum PlanElevation {
         "\(number(metric ? meters / 1000 : meters / metersPerMile)) \(metric ? "km" : "mi")"
     }
 
-    /// Metres climbed and descended along the profile, from the sum of its rises and falls.
-    static func climb(_ p: ElevationProfile) -> (up: Double, down: Double) {
+    /// Metres climbed and descended over the whole route: the sum of the legs' own figures (the server measures them on the full-resolution road, where the
+    /// chart's 200-point profile would read low on hills). Nil when there are no legs or any leg lacks them, so the row never shows a part as the whole.
+    static func climb(legs: [TripWeatherLeg]?) -> (up: Double, down: Double)? {
+        guard let legs, !legs.isEmpty else { return nil }
         var up = 0.0, down = 0.0
-        for i in 1..<max(1, p.points.count) {
-            let d = p.points[i][1] - p.points[i - 1][1]
-            if d > 0 { up += d } else { down -= d }
+        for leg in legs {
+            guard let c = leg.climbM, let d = leg.descentM else { return nil }
+            up += c
+            down += d
         }
         return (up, down)
     }
 
     /// "↑1,240 ft ↓980 ft", the collapsed row's figures.
-    static func climbText(_ p: ElevationProfile, metric: Bool) -> String {
-        let (up, down) = climb(p)
-        return "↑\(elevation(up, metric: metric)) ↓\(elevation(down, metric: metric))"
+    static func climbText(_ totals: (up: Double, down: Double), metric: Bool) -> String {
+        "↑\(elevation(totals.up, metric: metric)) ↓\(elevation(totals.down, metric: metric))"
     }
 
     /// "123 mi · 1,234 ft" at a share, or the range ("100 to 4,321 ft") with no cursor.

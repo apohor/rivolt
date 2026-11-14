@@ -43,6 +43,11 @@ final class NowV2UITests: XCTestCase {
         live.tap()
         XCTAssertTrue(app.descendants(matching: .any)["now-live-screen"].firstMatch.waitForExistence(timeout: 10), "Live opens")
         shot(app, "now-live-screen")
+        // The fixture truck was last heard from weeks ago: Live says so and shows no live charging or drive figures.
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Last contact'")).firstMatch.waitForExistence(timeout: 5), "an offline truck shows its last contact")
+        XCTAssertFalse(app.staticTexts["Streaming vehicle state from Rivian"].exists, "an offline truck is not streaming")
+        XCTAssertFalse(app.staticTexts["Power"].exists, "no live charging figures for an offline truck")
+        XCTAssertFalse(app.staticTexts["Time left"].exists)
         app.buttons["live-back"].firstMatch.tap()
         XCTAssertTrue(app.descendants(matching: .any)["now-month"].firstMatch.waitForExistence(timeout: 10), "Back is Now again")
     }

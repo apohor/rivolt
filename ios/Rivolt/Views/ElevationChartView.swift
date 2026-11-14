@@ -6,6 +6,8 @@ import SwiftUI
 struct ElevationChartView: View {
     let profile: ElevationProfile
     let metric: Bool
+    /// The legs' summed climb and descent, or nil when the plan cannot say (the row then shows no figures).
+    var totals: (up: Double, down: Double)? = nil
     /// Where the cursor is, 0 to 1 along the route, or nil for none.
     @Binding var share: Double?
 
@@ -32,7 +34,7 @@ struct ElevationChartView: View {
                 Text("Elevation").font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).foregroundStyle(Theme.textBody)
                 if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
                 HStack(spacing: 6) {
-                    Text(PlanElevation.climbText(profile, metric: metric)).themeText(.value, color: Theme.textSecondary)
+                    Text(totals.map { PlanElevation.climbText($0, metric: metric) } ?? "").themeText(.value, color: Theme.textSecondary)
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textTertiary)
                         .rotationEffect(.degrees(open ? 90 : 0))
                 }
@@ -43,7 +45,7 @@ struct ElevationChartView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Elevation, climbs \(PlanElevation.elevation(PlanElevation.climb(profile).up, metric: metric)), descends \(PlanElevation.elevation(PlanElevation.climb(profile).down, metric: metric))")
+        .accessibilityLabel(totals.map { "Elevation, climbs \(PlanElevation.elevation($0.up, metric: metric)), descends \(PlanElevation.elevation($0.down, metric: metric))" } ?? "Elevation")
         .accessibilityValue(open ? "Chart shown" : "Chart hidden")
         .accessibilityHint(open ? "Hides the chart" : "Shows the chart")
         .accessibilityIdentifier("plan-elevation-toggle")

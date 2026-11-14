@@ -18,12 +18,20 @@ final class PlanElevationTests: XCTestCase {
         XCTAssertNil(broken.elevationProfile, "a profile that does not decode leaves the plan whole")
     }
 
-    func testTheCollapsedRowSaysTheClimbAndTheDescent() {
-        let up = PlanElevation.climb(profile)
-        XCTAssertEqual(up.up, 200, accuracy: 0.001)
-        XCTAssertEqual(up.down, 100, accuracy: 0.001)
-        XCTAssertEqual(PlanElevation.climbText(profile, metric: true), "↑200 m ↓100 m")
-        XCTAssertEqual(PlanElevation.climbText(profile, metric: false), "↑656 ft ↓328 ft")
+    func testTheCollapsedRowSumsTheLegsOwnClimbAndDescent() throws {
+        let legs = try JSON.decoder().decode([TripWeatherLeg].self, from: Data(#"[{"multiplier":1,"climb_m":700,"descent_m":400},{"multiplier":1,"climb_m":550,"descent_m":280}]"#.utf8))
+        let totals = try XCTUnwrap(PlanElevation.climb(legs: legs))
+        XCTAssertEqual(totals.up, 1250, accuracy: 0.001)
+        XCTAssertEqual(totals.down, 680, accuracy: 0.001)
+        XCTAssertEqual(PlanElevation.climbText(totals, metric: true), "↑1,250 m ↓680 m")
+        XCTAssertEqual(PlanElevation.climbText(totals, metric: false), "↑4,101 ft ↓2,231 ft")
+    }
+
+    func testAnyLegWithoutItsClimbMeansNoFigures() throws {
+        let legs = try JSON.decoder().decode([TripWeatherLeg].self, from: Data(#"[{"multiplier":1,"climb_m":700,"descent_m":400},{"multiplier":1}]"#.utf8))
+        XCTAssertNil(PlanElevation.climb(legs: legs), "a part is never shown as the whole")
+        XCTAssertNil(PlanElevation.climb(legs: []))
+        XCTAssertNil(PlanElevation.climb(legs: nil))
     }
 
     func testTheChartAndTheMapTapNeedThePreviewKey() {

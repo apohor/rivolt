@@ -125,13 +125,17 @@
       "multiplier": 1.12,
       "temp_c": 3,
       "air_temp_c": 3,
-      "headwind_kph": 24
+      "headwind_kph": 24,
+      "climb_m": 700,
+      "descent_m": 400
      },
      {
       "multiplier": 1.05,
       "temp_c": -4,
       "air_temp_c": -4,
-      "headwind_kph": -16
+      "headwind_kph": -16,
+      "climb_m": 550,
+      "descent_m": 280
      }
     ]
    },

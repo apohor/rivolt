@@ -195,7 +195,7 @@ struct TripPlanResult: View {
                 }
             }
             if let profile = PlanElevation.shown(plan.elevationProfile, designPreview: state.designPreview) {
-                ElevationChartView(profile: profile, metric: metric, share: Binding(get: { model.elevationCursor }, set: { model.elevationCursor = $0 }))
+                ElevationChartView(profile: profile, metric: metric, totals: PlanElevation.climb(legs: plan.weatherAdjustment?.legs), share: Binding(get: { model.elevationCursor }, set: { model.elevationCursor = $0 }))
             }
             if TripPlanLogic.offersDrivingPerDay(route), !state.isDemo { DrivingPerDayRow(model: model) }
             if TripPlanLogic.isLongDrive(route), !state.isDemo { LongDriveSection(model: model, metric: metric) }
