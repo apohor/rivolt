@@ -337,6 +337,15 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       return json(route, { version: 1, generated_at: iso(0), tz: "UTC", pack_kwh: 135, windows: { "7d": w(7, 0.9), "30d": w(30, 1.1) }, daily });
     }
     if (p === `/api/state/${VEHICLE_ID}`) return json(route, vehicleState(scenario));
+    if (p === `/api/live-session/${VEHICLE_ID}`) {
+      // The open charge in progress, at the state's own figures (52 % and 11 kW). Only with liveSamples: the other specs keep today's 404.
+      if (!liveSamples || scenario !== "charging") return json(route, { error: "not stubbed" }, 404);
+      return json(route, {
+        at: iso(5_000), vehicle_id: VEHICLE_ID, active: true, vehicle_charger_state: "charging_active", start_time: iso(3_600_000),
+        time_elapsed_seconds: 3600, time_remaining_seconds: 5400, power_kw: 11, kilometers_charged_per_hour: 60, range_added_km: 60,
+        total_charged_energy_kwh: 11, soc_pct: 52, current_price: "0", current_currency: "USD", is_free_session: false, is_rivian_charger: false,
+      });
+    }
     if (p === `/api/live-drive/${VEHICLE_ID}`) {
       if (scenario !== "driving") return route.fulfill({ status: 204 });
       return json(route, {
@@ -401,7 +410,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
           const base = { VehicleID: VEHICLE_ID, At: new Date(t).toISOString(), RangeMi: 200, OdometerMi: 1000, ChargeLimitPct: 80, InsideTempC: 20, OutsideTempC: 12, Source: "live" };
           out.push(scenario === "driving"
             ? { ...base, BatteryLevelPct: 60 - i * 0.05, Lat: 40.2 + ((t - now) / 600_000) * 0.02, Lon: -100.3 + ((t - now) / 600_000) * 0.025 + 0.002 * Math.sin(i / 3), SpeedMph: 45, ShiftState: "D", ChargingState: "", ChargerPowerKW: 0 }
-            : { ...base, BatteryLevelPct: 40 + i * 0.2, Lat: 40, Lon: -100, SpeedMph: 0, ShiftState: "P", ChargingState: "charging_active", ChargerPowerKW: 11 - Math.min(4, i / 30), pack_temp_avg_c: 24 + i * 0.05, pack_temp_min_c: 22 + i * 0.05, pack_temp_max_c: 26 + i * 0.05 });
+            : { ...base, BatteryLevelPct: 52 - ((now - t) / 30_000) * 0.1, Lat: 40, Lon: -100, SpeedMph: 0, ShiftState: "P", ChargingState: "charging_active", ChargerPowerKW: 11 - 4 * Math.min(1, (now - t) / 3_600_000), pack_temp_avg_c: 30 - ((now - t) / 3_600_000) * 6, pack_temp_min_c: 28 - ((now - t) / 3_600_000) * 6, pack_temp_max_c: 32 - ((now - t) / 3_600_000) * 6 });
         }
         return json(route, out);
       }

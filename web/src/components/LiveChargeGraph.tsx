@@ -65,7 +65,7 @@ export function LiveChargeGraph({ vehicleId }: { vehicleId: string }) {
         {data.pack ? (
           <div data-testid="live-pack-temp" className="text-xs text-neutral-300" title="Battery pack temperature: average, with the coolest and warmest cell group">
             <span className="text-neutral-500">Pack </span>
-            <span className="tabular-nums font-medium" style={{ color: "#a78bfa" }}>{fmt(data.pack.avg)}</span>
+            <span className="tabular-nums font-medium text-neutral-100">{fmt(data.pack.avg)}</span>
             {data.pack.min !== undefined && data.pack.max !== undefined && data.pack.max !== 0 ? (
               <span className="tabular-nums text-neutral-500"> · {fmt(data.pack.min)} to {fmt(data.pack.max)}</span>
             ) : null}
