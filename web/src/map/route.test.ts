@@ -180,4 +180,12 @@ describe("gapProgress on a track that passes a place twice", () => {
     expect(rs[0][1] - rs[0][0]).toBeLessThan(0.2);
     expect(rs[1][1] - rs[1][0]).toBeLessThan(0.2);
   });
+
+  it("is not fooled by a fix a little nearer the other pass", () => {
+    // The return pass runs ~6 m north of the way out; the dropout end is 1 m from it and 5 m from the way out.
+    const out: [number, number][] = [[0, 0], [0, 0.01], [0, 0.02], [0, 0.03], [0, 0.04]];
+    const back: [number, number][] = [[5.4e-5, 0.03], [5.4e-5, 0.02], [5.4e-5, 0.01], [5.4e-5, 0]];
+    const [r] = gapProgress([...out, ...back], [{ from: [4.5e-5, 0.02], to: [0, 0.03] }]);
+    expect(r[1] - r[0]).toBeLessThan(0.2);
+  });
 });

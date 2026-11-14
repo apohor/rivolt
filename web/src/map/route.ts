@@ -150,12 +150,13 @@ export function gapProgress(track: LatLng[], gaps: { from: LatLng; to: LatLng }[
   }
   const total = cum[cum.length - 1];
   if (!(total > 0)) return [];
-  // The vertices at (about) the least distance from q: on a drive that passes a place twice, both passes qualify.
+  // The vertices near the least distance from q (within 1.5x, or 50 m more): on a drive that passes a place twice, both passes qualify.
+  const SLACK = 50 / 111320;
   const candidates = (q: LatLng) => {
     const d = track.map((t) => Math.hypot(t[0] - q[0], (t[1] - q[1]) * Math.cos((q[0] * Math.PI) / 180)));
     const least = Math.min(...d);
     const out: number[] = [];
-    d.forEach((x, i) => { if (x <= least * 1.5 + 1e-9) out.push(i); });
+    d.forEach((x, i) => { if (x <= Math.max(least * 1.5, least + SLACK) + 1e-9) out.push(i); });
     return out;
   };
   // A dropout joins two vertices in drive order: of the pairs (from at i, to at j >= i) take the shortest stretch of track between them.
