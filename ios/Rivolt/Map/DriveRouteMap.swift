@@ -560,7 +560,7 @@ struct RouteMapView: UIViewRepresentable {
             let legTags: [MLNPointFeature] = d.legTags.enumerated().map { i, t in
                 let f = MLNPointFeature()
                 f.coordinate = CLLocationCoordinate2D(latitude: t.coord.lat, longitude: t.coord.lon)
-                f.attributes = ["i": i, "t": MapGlyphs.drawable(t.text)]
+                f.attributes = ["i": i, "t": MapGlyphs.drawable(t.text), "a": "left"]
                 return f
             }
             // The picked pin again on its own, so it can be drawn over the rest: a stop, or past the stops a charger along the route.
@@ -589,6 +589,7 @@ struct RouteMapView: UIViewRepresentable {
         override func styleLoaded(_ map: MLNMapView, _ style: MLNStyle) {
             MapLoadWatch.clear(style, prefix: RouteMapView.sourceID)
             sources = [:]
+            legTagSides = []
             for (name, shape) in Self.shapes(drawing) {
                 let s = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-\(name)", shape: shape, options: nil)
                 style.addSource(s)
@@ -665,16 +666,20 @@ struct RouteMapView: UIViewRepresentable {
                 text.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0, dy: -1.1)))
                 style.addLayer(text)
                 // The weather on each leg, as a label beside the line: a label that would lie over another is left out by the map itself.
-                let weather = MLNSymbolStyleLayer(identifier: "\(RouteMapView.sourceID)-legtags", source: sources["legtags"]!)
-                weather.text = NSExpression(forKeyPath: "t")
-                weather.textFontNames = NSExpression(forConstantValue: ["Noto Sans Medium"])
-                weather.textFontSize = NSExpression(forConstantValue: ThemeTokens.typeMapCaption)
-                weather.textColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
-                weather.textHaloColor = NSExpression(forConstantValue: UIColor(Theme.background))
-                weather.textHaloWidth = NSExpression(forConstantValue: 2)
-                weather.textAnchor = NSExpression(forConstantValue: "left")
-                weather.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0.9, dy: 0)))
-                style.addLayer(weather)
+                // Right of its point (`a` = left) unless the coordinator found no room there: then a second layer draws it left of the point.
+                for (id, side, dx) in [("legtags", "left", 0.9), ("legtags-r", "right", -0.9)] {
+                    let weather = MLNSymbolStyleLayer(identifier: "\(RouteMapView.sourceID)-\(id)", source: sources["legtags"]!)
+                    weather.predicate = NSPredicate(format: "a == %@", side)
+                    weather.text = NSExpression(forKeyPath: "t")
+                    weather.textFontNames = NSExpression(forConstantValue: ["Noto Sans Medium"])
+                    weather.textFontSize = NSExpression(forConstantValue: ThemeTokens.typeMapCaption)
+                    weather.textColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
+                    weather.textHaloColor = NSExpression(forConstantValue: UIColor(Theme.background))
+                    weather.textHaloWidth = NSExpression(forConstantValue: 2)
+                    weather.textAnchor = NSExpression(forConstantValue: side)
+                    weather.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: dx, dy: 0)))
+                    style.addLayer(weather)
+                }
                 let ring = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-stop-focus", source: sources["focus"]!)
                 ring.circleColor = NSExpression(forConstantValue: UIColor(Theme.accent))
                 ring.circleRadius = NSExpression(forConstantValue: 12)
@@ -763,7 +768,7 @@ struct RouteMapView: UIViewRepresentable {
                 onStop?(i)
             } else if let j = map.visibleFeatures(in: box, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-along"]).first?.attribute(forKey: "i") as? Int {
                 onStop?(drawing.stops.count + j)
-            } else if let k = map.visibleFeatures(in: box, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-legtags"]).first?.attribute(forKey: "i") as? Int {
+            } else if let k = map.visibleFeatures(in: box, styleLayerIdentifiers: Self.legTagLayers).first?.attribute(forKey: "i") as? Int {
                 onLegTag?(k)
             } else if let onTapAt {
                 let c = map.convert(p, toCoordinateFrom: map)
@@ -781,6 +786,7 @@ struct RouteMapView: UIViewRepresentable {
             drawing = d
             guard !sources.isEmpty else { return }
             for (name, shape) in Self.shapes(d) { sources[name]?.shape = shape }
+            legTagSides = []
             // The snapped line replaced the recorded one: its runs (and so its gradient layers) are different ones. Start the map's layers over.
             if runsChanged, let style = map.style { styleLoaded(map, style) }
             // Picking a stop only moves the ring: the camera stays where the person left it, except that on a map that can be panned a stop
@@ -790,10 +796,35 @@ struct RouteMapView: UIViewRepresentable {
 
         override func resized(_ map: MLNMapView) { fit(map) }
 
+        private static let legTagLayers: Set<String> = ["\(RouteMapView.sourceID)-legtags", "\(RouteMapView.sourceID)-legtags-r"]
+
+        /// Which side of its point each leg label is drawn on (`a` on the feature): left of the point when the room to its right is too short for the text.
+        private var legTagSides: [String] = []
+        private func reflowLegTags(_ map: MLNMapView) {
+            let w = map.bounds.width
+            guard w > 0, let source = sources["legtags"] else { return }
+            // About 6.4 pt a character at the caption size, plus the 0.9 em gap and a margin.
+            let sides = drawing.legTags.map { t -> String in
+                let x = map.convert(CLLocationCoordinate2D(latitude: t.coord.lat, longitude: t.coord.lon), toPointTo: map).x
+                let room = CGFloat(t.text.count) * 6.4 + 10 + 8
+                return x + room > w && x > w / 2 ? "right" : "left"
+            }
+            guard sides != legTagSides, sides.count == drawing.legTags.count else { return }
+            legTagSides = sides
+            let tags: [MLNPointFeature] = drawing.legTags.enumerated().map { i, t in
+                let f = MLNPointFeature()
+                f.coordinate = CLLocationCoordinate2D(latitude: t.coord.lat, longitude: t.coord.lon)
+                f.attributes = ["i": i, "t": MapGlyphs.drawable(t.text), "a": sides[i]]
+                return f
+            }
+            source.shape = MLNShapeCollectionFeature(shapes: tags)
+        }
+
         private var drawnLegTags: [DrawnLabel]?
         override func rendered(_ map: MLNMapView) {
+            reflowLegTags(map)
             guard let onDrawnLegTags else { return }
-            let drawn = map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: ["\(RouteMapView.sourceID)-legtags"]).compactMap { f -> DrawnLabel? in
+            let drawn = map.visibleFeatures(in: map.bounds, styleLayerIdentifiers: Self.legTagLayers).compactMap { f -> DrawnLabel? in
                 guard let text = f.attribute(forKey: "t") as? String else { return nil }
                 return DrawnLabel(point: map.convert(f.coordinate, toPointTo: map), text: text)
             }
