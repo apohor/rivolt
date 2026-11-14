@@ -3,7 +3,7 @@
 // out (no map library): both the MapLibre and the older Leaflet maps draw its result. Coordinates are [lat, lon] throughout.
 import { decodePolyline } from "../lib/polyline";
 import { valhallaBase, ensureConfig } from "../lib/config";
-import { cleanTrace, classifySegment, splitTraceOnGaps, haversine, type TraceGap } from "../lib/trace";
+import { cleanTrace, classifySegment, splitTraceOnGaps, haversine, pathLengthM, retimeWithoutDwell, type TraceGap } from "../lib/trace";
 
 // SnapPoint is the per-sample shape consumed by the snap pipeline.
 // Caller fills in {lat, lon}; t (unix seconds) and s (speed mph) are
@@ -64,6 +64,9 @@ export async function valhallaRoutePair(
 // `tracepoints` array (one entry per input shape point) mapping each
 // input point to its matching index, which is how we know where the
 // matcher gave up.
+const MAX_MATCH_RATIO = 1.35;
+const MIN_RATIO_POINTS = 10;
+
 async function valhallaSnap(
   pts: SnapPoint[],
   signal: AbortSignal,
@@ -79,6 +82,8 @@ async function valhallaSnap(
       trace.push(pts[pts.length - 1]);
     }
   }
+  // The matcher gets the trace on a time axis without the stops' dwell, see retimeWithoutDwell.
+  trace = retimeWithoutDwell(trace);
   const body = {
     shape: trace.map((p) =>
       Number.isFinite(p.t)
@@ -136,6 +141,13 @@ async function valhallaSnap(
       gaps.push({ from: [a.lat, a.lon], to: [b.lat, b.lon] });
     }
     const valid = chunks.filter((c) => c.length > 1);
+    // A match much longer than the trace it explains has invented a detour (a loop round a block): the recorded line is the better
+    // picture, so report no match and the caller draws the raw trace. A trace this short or sparse has no stable ratio to judge by.
+    if (trace.length >= MIN_RATIO_POINTS) {
+      const matched = valid.reduce((n, c) => n + pathLengthM(c.map(([lat, lon]) => ({ lat, lon }))), 0);
+      const recorded = pathLengthM(trace);
+      if (recorded > 0 && matched > recorded * MAX_MATCH_RATIO) return null;
+    }
     return valid.length > 0 ? { chunks: valid, gaps } : null;
   } catch {
     return null;
