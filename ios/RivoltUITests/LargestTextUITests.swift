@@ -34,6 +34,11 @@ final class LargestTextUITests: XCTestCase {
         XCTAssertFalse(theme.frame.intersects(more.frame), "the switch and More are apart")
         XCTAssertFalse(theme.frame.intersects(profile.frame), "the switch and the person icon are apart")
         XCTAssertFalse(more.frame.intersects(profile.frame))
+        let wordmark = app.staticTexts["Rivolt"].firstMatch
+        XCTAssertTrue(wordmark.waitForExistence(timeout: 10), "the wordmark is in the top bar")
+        XCTAssertFalse(wordmark.frame.intersects(theme.frame), "the wordmark and the switch are apart")
+        XCTAssertFalse(wordmark.frame.intersects(more.frame), "the wordmark and More are apart")
+        XCTAssertFalse(wordmark.frame.intersects(profile.frame), "the wordmark and the person icon are apart")
         let picker = app.buttons["Switch vehicle"].firstMatch
         let pill = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Offline' OR label CONTAINS 'Last seen' OR label CONTAINS 'Charging'")).firstMatch
         XCTAssertTrue(picker.waitForExistence(timeout: 10), "the truck picker is there")

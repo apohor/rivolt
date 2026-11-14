@@ -48,9 +48,9 @@ struct ChargingDetail: Equatable {
             toTargetPct: toTarget,
             rateKmPerHour: s.flatMap { $0.kilometersChargedPerHour > 0 ? $0.kilometersChargedPerHour : nil },
             rangeAddedKm: s.flatMap { $0.rangeAddedKm > 0 ? $0.rangeAddedKm : nil },
-            energyKwh: s.flatMap { $0.totalChargedEnergyKwh > 0 ? $0.totalChargedEnergyKwh : nil },
+            energyKwh: s.flatMap { $0.totalChargedEnergyKwh > 0 ? $0.totalChargedEnergyKwh : nil } ?? openCharge(charge, summary: summary).flatMap { $0.energyAddedKwh > 0 ? $0.energyAddedKwh : nil } ?? addedFromBattery(summary),
             elapsed: s.flatMap { $0.timeElapsedSeconds > 0 ? $0.timeElapsedSeconds : nil },
-            remaining: s.flatMap { $0.timeRemainingSeconds > 0 ? $0.timeRemainingSeconds : nil },
+            remaining: s.flatMap { $0.timeRemainingSeconds > 0 ? $0.timeRemainingSeconds : nil } ?? summary.chargeEta.map { TimeInterval($0.minutes) * 60 },
             cost: cost(of: s, summary: summary, charge: charge),
             place: charge?.placeLabel,
             haveLiveData: live
@@ -76,6 +76,12 @@ struct ChargingDetail: Equatable {
             return .estimate(amount: est, currency: cur)
         }
         return s.isFreeSession ? .free : nil
+    }
+
+    /// What the Now card's readout says was added: the battery's own gain so far over the pack size.
+    private static func addedFromBattery(_ summary: NowSummary) -> Double? {
+        guard let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 else { return nil }
+        return added / 100 * pack
     }
 
     private static func usableCurrency(_ c: String?) -> String? {
