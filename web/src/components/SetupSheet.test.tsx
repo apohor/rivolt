@@ -116,6 +116,11 @@ describe("SetupSheet", () => {
     await waitFor(() => expect(screen.getByText(/Step 1 of 3/)).toBeInTheDocument());
   });
 
+  it("opens with focus on the heading, not on Close", () => {
+    renderSheet();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Set up Rivolt" }));
+  });
+
   it("a backdrop tap or Escape closes it for this visit only; Close remembers", async () => {
     stubFetchRoutes({
       "/api/settings/rivian-receipts": { body: { opt_in: false, available: true } },
