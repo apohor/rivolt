@@ -1,6 +1,7 @@
 package push
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,23 @@ func TestLeftOpenIsOptInPerDevice(t *testing.T) {
 	// Nothing else turns it on.
 	if apnsSelector("left_open", Preferences{OnChargingDone: true, OnAnomaly: true, OnSoftwareUpdate: true, OnPlugInReminder: true, OnMilestones: true}) {
 		t.Error("another switch turned the left-open alert on")
+	}
+}
+
+// Every kind the app's switches can select must be storable as an app notification, or the send is dropped after the switch said yes
+// (left_open and tire_low were: notificationKinds did not list them).
+func TestEveryAPNsSelectableKindCanBeStored(t *testing.T) {
+	var all Preferences
+	v := reflect.ValueOf(&all).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		if v.Field(i).Kind() == reflect.Bool {
+			v.Field(i).SetBool(true)
+		}
+	}
+	kinds := []string{"charging_done", "plug_in_reminder", "anomaly", "software_update", "milestone", "left_open", "tire_low", "trip_recap"}
+	for _, k := range kinds {
+		if apnsSelector(k, all) && !notificationKinds[k] {
+			t.Errorf("kind %q is routed to app devices but cannot be stored as a notification", k)
+		}
 	}
 }
