@@ -172,6 +172,10 @@ private final class FakeValhalla: RouteSnapSource, @unchecked Sendable {
     /// Answers with the road plus a loop of about a kilometre, as a matcher does that fills a stop's dwell.
     let detour: Bool
     private var _body: ValhallaTraceRequest?
+    private var _radii: [Int] = []
+    var radii: [Int] { lock.withLock { _radii } }
+    /// Distance the matcher reports for input point i at a given radius; nil leaves the field out.
+    var distanceAt: ((Int, Int) -> Double)?
     var body: ValhallaTraceRequest? { lock.withLock { _body } }
 
     init(failTrace: Bool = false, routeOK: Bool = false, detour: Bool = false) {
@@ -181,14 +185,15 @@ private final class FakeValhalla: RouteSnapSource, @unchecked Sendable {
     }
 
     func valhallaTrace(_ body: ValhallaTraceRequest) async throws -> ValhallaTraceResponse {
-        lock.withLock { _traces += 1; _body = body }
+        lock.withLock { _traces += 1; _body = body; _radii.append(body.traceOptions.searchRadius) }
         if failTrace { throw APIError.server(status: 500, message: "no") }
         var snapped = body.shape.map { C(lat: $0.lat, lon: $0.lon + 0.0001) }
         if detour, let mid = snapped.indices.dropFirst(snapped.count / 2).first {
             let c = snapped[mid]
             snapped.insert(contentsOf: [C(lat: c.lat, lon: c.lon + 0.01), C(lat: c.lat + 0.005, lon: c.lon + 0.01), C(lat: c.lat + 0.005, lon: c.lon)], at: mid + 1)
         }
-        let tracepoints: [ValhallaTraceResponse.Tracepoint?] = body.shape.map { _ in ValhallaTraceResponse.Tracepoint(matchingsIndex: 0) }
+        let radius = body.traceOptions.searchRadius
+        let tracepoints: [ValhallaTraceResponse.Tracepoint?] = body.shape.indices.map { i in ValhallaTraceResponse.Tracepoint(matchingsIndex: 0, distance: distanceAt?(radius, i)) }
         return ValhallaTraceResponse(matchings: [ValhallaTraceResponse.Matching(geometry: encode(snapped))], tracepoints: tracepoints)
     }
 
@@ -235,6 +240,36 @@ final class RouteSnapSnappingTests: XCTestCase {
     func testAMatchThatInventsADetourKeepsTheRecordedLine() async {
         let snapped = await RouteSnap.snap(path(straight(20)), source: FakeValhalla(detour: true))
         XCTAssertNil(snapped)
+    }
+
+    func testARunOfFarSnapsIsRetriedWithATighterRadius() async {
+        let v = FakeValhalla()
+        // At the wide radius points 8-11 land 80 m away (a side-street loop); at 50 m the matcher stays on the road.
+        v.distanceAt = { radius, i in radius > 50 && (8...11).contains(i) ? 80 : 3 }
+        let snapped = await RouteSnap.snap(path(straight(20)), source: v)
+        XCTAssertNotNil(snapped)
+        XCTAssertEqual(v.radii, [100, 50])
+    }
+
+    func testAShortFarRunIsNotRetried() async {
+        let v = FakeValhalla()
+        v.distanceAt = { _, i in i == 8 || i == 9 ? 80 : 3 }
+        _ = await RouteSnap.snap(path(straight(20)), source: v)
+        XCTAssertEqual(v.radii, [100])
+    }
+
+    func testTheFirstMatchStandsWhenTheRetryIsNoBetter() async {
+        let v = FakeValhalla()
+        v.distanceAt = { _, i in (8...11).contains(i) ? 80 : 3 }
+        let snapped = await RouteSnap.snap(path(straight(20)), source: v)
+        XCTAssertNotNil(snapped)
+        XCTAssertEqual(v.radii, [100, 50])
+    }
+
+    func testFarRunIsTheLongestRunOverFortyMetres() {
+        let tps: [ValhallaTraceResponse.Tracepoint?] = [3, 50, 60, 3, 41, 90, 70, 45, 3].map { .init(matchingsIndex: 0, distance: $0) }
+        XCTAssertEqual(RouteSnap.farRun(tps), 4)
+        XCTAssertEqual(RouteSnap.farRun([nil, .init(matchingsIndex: 0)]), 0)
     }
 
     func testAFailedMatchKeepsTheRecordedLine() async {

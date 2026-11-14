@@ -67,10 +67,47 @@ export async function valhallaRoutePair(
 const MAX_MATCH_RATIO = 1.35;
 const MIN_RATIO_POINTS = 10;
 
+// A run of this many input points in a row that the matcher moved further than FAR_SNAP_M is a side-street detour: at a slow turn
+// the 100 m search radius lets it pick a loop through the neighbouring streets, which the whole-trace ratio guard cannot see.
+// A retry with the tighter radius keeps the match on the road the car was on.
+const FAR_SNAP_M = 40;
+const FAR_RUN_POINTS = 3;
+const SEARCH_RADIUS_M = 100;
+const RETRY_RADIUS_M = 50;
+
+type Snapped = { chunks: [number, number][][]; gaps: TraceGap[]; farRun: number };
+
+// farRunOf is the longest run of consecutive tracepoints the matcher placed more than FAR_SNAP_M from their input point.
+export function farRunOf(tps: ({ distance?: number } | null)[]): number {
+  let best = 0;
+  let run = 0;
+  for (const tp of tps) {
+    if (tp && typeof tp.distance === "number" && tp.distance > FAR_SNAP_M) {
+      run++;
+      if (run > best) best = run;
+    } else {
+      run = 0;
+    }
+  }
+  return best;
+}
+
 async function valhallaSnap(
   pts: SnapPoint[],
   signal: AbortSignal,
 ): Promise<{ chunks: [number, number][][]; gaps: TraceGap[] } | null> {
+  const first = await valhallaSnapAt(pts, signal, SEARCH_RADIUS_M);
+  if (!first) return null;
+  if (first.farRun < FAR_RUN_POINTS) return first;
+  const retry = await valhallaSnapAt(pts, signal, RETRY_RADIUS_M);
+  return retry && retry.farRun < first.farRun ? retry : first;
+}
+
+async function valhallaSnapAt(
+  pts: SnapPoint[],
+  signal: AbortSignal,
+  searchRadius: number,
+): Promise<Snapped | null> {
   const base = valhallaBase();
   if (base === "" || pts.length < 2) return null;
   const MAX_TRACE = 1500;
@@ -92,7 +129,7 @@ async function valhallaSnap(
     ),
     costing: "auto",
     shape_match: "walk_or_snap",
-    trace_options: { search_radius: 100, gps_accuracy: 25 },
+    trace_options: { search_radius: searchRadius, gps_accuracy: 25 },
     format: "osrm",
   };
   try {
@@ -106,7 +143,7 @@ async function valhallaSnap(
     const j = (await r.json()) as {
       code?: string;
       matchings?: { geometry?: string; confidence?: number }[];
-      tracepoints?: ({ matchings_index: number } | null)[];
+      tracepoints?: ({ matchings_index: number; distance?: number } | null)[];
     };
     const matchings = j.matchings ?? [];
     const tps = j.tracepoints ?? [];
@@ -148,7 +185,7 @@ async function valhallaSnap(
       const recorded = pathLengthM(trace);
       if (recorded > 0 && matched > recorded * MAX_MATCH_RATIO) return null;
     }
-    return valid.length > 0 ? { chunks: valid, gaps } : null;
+    return valid.length > 0 ? { chunks: valid, gaps, farRun: farRunOf(tps) } : null;
   } catch {
     return null;
   }
