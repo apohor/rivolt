@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SetupSheet } from "./SetupSheet";
+import { SetupGate, SetupSheet } from "./SetupSheet";
 import { stubFetchRoutes } from "../test/fetchRoutes";
 
 // Synthetic: the public sample point, never a real home.
@@ -114,5 +114,78 @@ describe("SetupSheet", () => {
     });
     renderSheet();
     await waitFor(() => expect(screen.getByText(/Step 1 of 3/)).toBeInTheDocument());
+  });
+
+  it("a backdrop tap or Escape closes it for this visit only; Close remembers", async () => {
+    stubFetchRoutes({
+      "/api/settings/rivian-receipts": { body: { opt_in: false, available: true } },
+      "/api/settings/home-location": { body: HOME_SET },
+    });
+    const onClose = vi.fn();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={qc}><SetupSheet vehicleID="v1" onClose={onClose} /></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByText(/Home is set/)).toBeInTheDocument());
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(document.querySelector("[data-setup-sheet]")!.parentElement!);
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(window.localStorage.getItem("rivolt.setup.dismissed")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(window.localStorage.getItem("rivolt.setup.dismissed")).toBe("1");
+  });
+
+  async function toReceipts(receipts: { status?: number; body: unknown }) {
+    stubFetchRoutes({
+      "/api/settings/rivian-receipts": receipts,
+      "/api/settings/home-location": { body: HOME_SET },
+      "/api/settings/charging": { body: { home_price_per_kwh: 0.3, home_currency: "USD", home_price_source: "user" } },
+      "/api/settings/home-location/place": { body: PLACE },
+    });
+    renderSheet();
+    await waitFor(() => expect(screen.getByText(/Home is set/)).toBeInTheDocument());
+  }
+
+  it("shows a done state when receipts are already on", async () => {
+    await toReceipts({ body: { opt_in: true, available: true } });
+    for (let n = 0; n < 3; n++) fireEvent.click(await screen.findByRole("button", { name: /^(Next|Not now|Use|Done)/ }));
+    await waitFor(() => expect(document.querySelector("[data-setup-receipts-done]")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Show my charging history" })).toBeNull();
+  });
+
+  it("hides the receipts step when its read fails", async () => {
+    await toReceipts({ status: 500, body: "x" });
+    await waitFor(() => expect(screen.getByText(/Step 1 of 3/)).toBeInTheDocument());
+  });
+});
+
+describe("SetupGate", () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+  const gate = () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(<QueryClientProvider client={qc}><SetupGate vehicleID="v1" onClose={() => {}} /></QueryClientProvider>);
+  };
+  const base = { "/api/settings/rivian-receipts": { body: { opt_in: false, available: true } }, "/api/settings/home-location/place": { body: PLACE } };
+
+  it("never shows for an account with home and a rate already set", async () => {
+    const f = stubFetchRoutes({ ...base, "/api/settings/home-location": { body: HOME_SET }, "/api/settings/charging": { body: { home_price_per_kwh: 0.3, home_currency: "USD", home_price_source: "user" } } });
+    gate();
+    await waitFor(() => expect(f).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.querySelector("[data-setup-sheet]")).toBeNull();
+  });
+
+  it("shows for a new account with no home, and stays when home gets saved", async () => {
+    stubFetchRoutes({ ...base, "/api/settings/home-location": { body: HOME_UNSET }, "/api/settings/charging": { body: { home_price_per_kwh: 0, home_currency: "USD" } } });
+    gate();
+    await waitFor(() => expect(document.querySelector("[data-setup-sheet]")).not.toBeNull());
+  });
+
+  it("shows when home is set but no rate is", async () => {
+    stubFetchRoutes({ ...base, "/api/settings/home-location": { body: HOME_SET }, "/api/settings/charging": { body: { home_price_per_kwh: 0, home_currency: "USD" } } });
+    gate();
+    await waitFor(() => expect(document.querySelector("[data-setup-sheet]")).not.toBeNull());
   });
 });

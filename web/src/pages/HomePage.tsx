@@ -44,7 +44,7 @@ import NowCard from "../components/NowCard";
 import { useDesignPreview } from "../lib/config";
 
 // Shown once, to new users, on preview: keep it out of the initial bundle.
-const SetupSheet = lazy(() => import("../components/SetupSheet").then((m) => ({ default: m.SetupSheet })));
+const SetupSheet = lazy(() => import("../components/SetupSheet").then((m) => ({ default: m.SetupGate })));
 
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
@@ -112,6 +112,7 @@ export default function HomePage() {
     staleTime: 30_000,
     retry: 1,
   });
+  const setupWanted = setupOn && !setupClosed && !inDemo() && !!rivianStatus.data?.authenticated;
   const vehicles = useQuery({
     queryKey: ["rivian", "vehicles"],
     queryFn: () => backend.vehicles(),
@@ -275,7 +276,7 @@ export default function HomePage() {
         context="Once connected, drives, charges, and live telemetry start streaming."
       />
       {!inDemo() && <ServiceNoticeBanner />}
-      {setupOn && !setupClosed && !inDemo() && !!rivianStatus.data?.authenticated && activeVehicleID && (
+      {setupWanted && activeVehicleID && (
         <Suspense fallback={null}>
           <SetupSheet vehicleID={activeVehicleID} onClose={() => setSetupClosed(true)} />
         </Suspense>

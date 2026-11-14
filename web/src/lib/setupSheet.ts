@@ -62,3 +62,9 @@ export function parseRate(text: string): number | null {
   if (!Number.isFinite(n) || n <= 0 || n > 5) return null;
   return n;
 }
+
+// The sheet is for an account with something left to set: no home yet, or no home rate. Home and rate both set means it never shows.
+export function setupNeeded(home: { set?: boolean } | null | undefined, charging: { home_price_per_kwh?: number } | null | undefined): boolean {
+  if (!home || !charging) return false;
+  return !home.set || !(Number(charging.home_price_per_kwh) > 0);
+}

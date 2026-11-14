@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { StatePrice } from "./api";
-import { parseRate, placeLabel, priceCitation, priceDefault, rateText, truckPosition } from "./setupSheet";
+import { parseRate, placeLabel, priceCitation, priceDefault, rateText, truckPosition, setupNeeded } from "./setupSheet";
 
 const price: StatePrice = {
   state: "CA",
@@ -42,5 +42,15 @@ describe("setup sheet helpers", () => {
     expect(parseRate("0")).toBeNull();
     expect(parseRate("abc")).toBeNull();
     expect(parseRate("14")).toBeNull();
+  });
+});
+
+describe("setupNeeded", () => {
+  it("is false only when home and a rate are both set, or while either is unknown", () => {
+    expect(setupNeeded({ set: true }, { home_price_per_kwh: 0.3 })).toBe(false);
+    expect(setupNeeded({ set: false }, { home_price_per_kwh: 0.3 })).toBe(true);
+    expect(setupNeeded({ set: true }, { home_price_per_kwh: 0 })).toBe(true);
+    expect(setupNeeded(undefined, { home_price_per_kwh: 0 })).toBe(false);
+    expect(setupNeeded({ set: false }, null)).toBe(false);
   });
 });

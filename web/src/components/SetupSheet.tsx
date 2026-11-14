@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { useIosAppUrl } from "../lib/config";
 import { pushSupported, subscribeThisDevice } from "../lib/push";
-import { parseRate, placeLabel, priceCitation, priceDefault, rateText, rememberSetupDismissed, truckPosition } from "../lib/setupSheet";
+import { setupNeeded, parseRate, placeLabel, priceCitation, priceDefault, rateText, rememberSetupDismissed, truckPosition } from "../lib/setupSheet";
 import { ChargeMap } from "../map/ChargeMap";
 
 const ring = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300";
@@ -13,12 +13,23 @@ const solid = `rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-whit
 
 type StepID = "home" | "price" | "notify" | "receipts";
 
+// The sheet only for an account with something left to set (no home, or no home rate); one with both never sees it. Decided once, from
+// the first answers, so saving home inside the sheet does not take it away mid-step.
+export function SetupGate({ vehicleID, onClose }: { vehicleID: string; onClose: () => void }) {
+  const home = useQuery({ queryKey: ["settings", "homeLocation"], queryFn: () => backend.homeLocationGet(), staleTime: 60_000, retry: 0 });
+  const charging = useQuery({ queryKey: ["charging-settings"], queryFn: () => backend.getChargingSettings(), staleTime: 60_000, retry: 0 });
+  const [need, setNeed] = useState<boolean | null>(null);
+  if (need === null && home.data && charging.data) setNeed(setupNeeded(home.data, charging.data));
+  return need ? <SetupSheet vehicleID={vehicleID} onClose={onClose} /> : null;
+}
+
 // The first-run setup sheet (design first-screen §3): home, electricity price, notifications and, where the operator allows it, Rivian
 // charging history. Every step is one tap on a smart default and each has "Not now". It never saves anything until a button says so.
 export function SetupSheet({ vehicleID, onClose }: { vehicleID: string; onClose: () => void }) {
   const receipts = useQuery({ queryKey: ["rivian-receipts"], queryFn: () => backend.rivianReceiptsGet(), retry: 0, staleTime: 60_000 });
   // Receipts are the operator's switch: where it is off the step does not exist.
-  const steps: StepID[] = receipts.data?.available === false ? ["home", "price", "notify"] : ["home", "price", "notify", "receipts"];
+  // (a failed read hides it too: a step that cannot say whether it is on has nothing to offer).
+  const steps: StepID[] = receipts.data?.available === false || receipts.isError ? ["home", "price", "notify"] : ["home", "price", "notify", "receipts"];
   const [i, setI] = useState(0);
   const step = steps[Math.min(i, steps.length - 1)];
   const last = i >= steps.length - 1;
@@ -28,17 +39,19 @@ export function SetupSheet({ vehicleID, onClose }: { vehicleID: string; onClose:
     onClose();
   };
   const next = () => (last ? finish() : setI(i + 1));
+  // A stray tap on the backdrop or Escape closes it for this visit only; Close and finishing the steps are the answers that stick.
+  const later = () => onClose();
   useEffect(() => {
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") finish();
+      if (e.key === "Escape") later();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return createPortal(
-    <div className="fixed inset-0 z-[1200] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={finish}>
+    <div className="fixed inset-0 z-[1200] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={later}>
       <div
         role="dialog"
         aria-modal="true"
@@ -283,6 +296,7 @@ function NotifyStep({ onNext }: { onNext: () => void }) {
 // Step 4. Receipts are off unless this button is pressed; the privacy line sits beside it.
 function ReceiptsStep({ onNext }: { onNext: () => void }) {
   const qc = useQueryClient();
+  const state = useQuery({ queryKey: ["rivian-receipts"], queryFn: () => backend.rivianReceiptsGet(), retry: 0, staleTime: 60_000 });
   const on = useMutation({
     mutationFn: () => backend.rivianReceiptsPut(true),
     onSuccess: (r) => {
@@ -290,6 +304,14 @@ function ReceiptsStep({ onNext }: { onNext: () => void }) {
       onNext();
     },
   });
+  if (state.data?.opt_in) {
+    return (
+      <StepFrame title="Your Rivian charging history">
+        <p data-setup-receipts-done className="text-sm text-neutral-300">Charging history is on. You can turn it off in Settings, which deletes the stored receipts.</p>
+        <button type="button" className={solid} onClick={onNext}>Done</button>
+      </StepFrame>
+    );
+  }
   return (
     <StepFrame title="Your Rivian charging history">
       <p className="text-sm text-neutral-400">
