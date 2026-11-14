@@ -31,6 +31,7 @@ var fixturesCheckedElsewhere = map[string]string{
 	"demo_trips.json":                "the demo's sample trip list, the embedded bytes verbatim, checked in demo_trip_fixtures_test.go",
 	"demo_trip_plan_single.json":     "a demo sample trip's stored plan, the embedded bytes verbatim, checked in demo_trip_fixtures_test.go",
 	"demo_trip_plan_two_days.json":   "a demo sample trip's stored two-day plan, the embedded bytes verbatim, checked in demo_trip_fixtures_test.go",
+	"samples_round_trip.json":        "the legs' samples (the same fields as GET /api/samples) for the round-trip fixture, read by RoundTripLegsTests and RoundTripUITests",
 }
 
 func fixtureNames(t *testing.T) []string {

@@ -1,0 +1,10 @@
+{
+ "VehicleID": "veh-fixture",
+ "StartedAt": "2026-09-11T09:33:00Z",
+ "EndedAt": "2026-09-11T09:50:00Z",
+ "StartLat": 34.13,
+ "StartLon": -118.15,
+ "EndLat": 34.11,
+ "EndLon": -118.1,
+ "RoutePolyline": "o_ioEndcpUjJuc@jJ_b@hJk`@jJu^jJa]jJbTjJa]jJu^hJk`@jJ_b@jJuc@"
+}

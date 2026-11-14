@@ -56,7 +56,7 @@ struct ActivityDetailView: View {
                 if case .drive(let d) = item, d.hasTrailer {
                     Text("Trailer connected. This drive is left out of the efficiency figures.").themeText(.subline, color: Theme.textTertiary)
                 }
-                if case .drive = item { DriveRouteMap(phase: driveDetail.phase, cursor: scrub, cursorReadout: scrubReadout) }
+                if case .drive = item { DriveRouteMap(phase: driveDetail.phase, legs: driveDetail.legs, cursor: scrub, cursorReadout: scrubReadout) }
                 if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id, startedAt: c.startedAt, vehicleID: c.vehicleId, row: chargeRow.phase, calendar: calendar) }
                 let columns = typeSize.isAccessibilitySize
                     ? [GridItem(.flexible())]
@@ -64,6 +64,7 @@ struct ActivityDetailView: View {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(tiles) { KpiTileView(tile: $0) }
                 }
+                if case .drive(let d) = item, let legs = d.legs, legs.count > 1 { RoundTripLegsCard(legs: legs, calendar: calendar) }
                 if case .drive(let d) = item {
                     DriveTimelineCard(drive: d, phase: driveDetail.phase, data: driveDetail.timeline, calendar: calendar, onCursor: { scrub = $0 })
                 }

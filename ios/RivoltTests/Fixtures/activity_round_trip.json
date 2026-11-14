@@ -1,0 +1,45 @@
+{
+ "drives": [
+  {
+   "id": "rt-leg-1",
+   "vehicle_id": "veh-fixture",
+   "started_at": "2026-09-11T09:00:00Z",
+   "ended_at": "2026-09-11T10:30:00Z",
+   "distance_mi": 35.3,
+   "energy_used_kwh": 14.2,
+   "start_soc_pct": 80,
+   "end_soc_pct": 66,
+   "avg_speed_mph": 38.0,
+   "max_speed_mph": 64,
+   "estimated_cost": null,
+   "estimated_currency": null,
+   "estimated_price_per_kwh": null,
+   "round_trip_legs": 3,
+   "driving_seconds": 3480,
+   "legs": [
+    {
+     "id": "rt-leg-1",
+     "started_at": "2026-09-11T09:00:00Z",
+     "ended_at": "2026-09-11T09:20:00Z",
+     "distance_mi": 12.4,
+     "parked_min_after": 13.0
+    },
+    {
+     "id": "rt-leg-2",
+     "started_at": "2026-09-11T09:33:00Z",
+     "ended_at": "2026-09-11T09:50:00Z",
+     "distance_mi": 9.1,
+     "parked_min_after": 19.0
+    },
+    {
+     "id": "rt-leg-3",
+     "started_at": "2026-09-11T10:09:00Z",
+     "ended_at": "2026-09-11T10:30:00Z",
+     "distance_mi": 13.8,
+     "parked_min_after": null
+    }
+   ]
+  }
+ ],
+ "charges": []
+}

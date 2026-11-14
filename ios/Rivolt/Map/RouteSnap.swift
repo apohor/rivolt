@@ -412,6 +412,19 @@ enum RouteSnap {
         return Coord(lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f)
     }
 
+    /// A round trip's legs drawn as one: every leg's line and colours, the first leg's start and the last leg's end.
+    static func merge(_ legs: [Drawing]) -> Drawing? {
+        guard let first = legs.first, let last = legs.last else { return nil }
+        return Drawing(pieces: legs.flatMap(\.pieces), routedGaps: legs.flatMap(\.routedGaps), gaps: legs.flatMap(\.gaps),
+                       start: first.start, end: last.end ?? last.pieces.last?.coords.last, hasSpeed: legs.contains { $0.hasSpeed },
+                       runs: legs.flatMap(\.runs))
+    }
+
+    /// "13 min" or "1 h 5 min": how long the truck sat at a round trip's stop.
+    static func parkedText(minutes: Int) -> String {
+        minutes < 60 ? "\(minutes) min" : (minutes % 60 == 0 ? "\(minutes / 60) h" : "\(minutes / 60) h \(minutes % 60) min")
+    }
+
     /// The recorded trace as drawn before (or without) snapping.
     static func raw(_ path: Path) -> Drawing {
         let coords = path.points.map { Coord(lat: $0.lat, lon: $0.lon) }

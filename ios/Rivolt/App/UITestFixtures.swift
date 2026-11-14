@@ -65,6 +65,9 @@ final class FixtureURLProtocol: URLProtocol {
         // The preview-only designs: off unless the UI test asks for the theme switch.
         case ("GET", "/api/config"): let args = ProcessInfo.processInfo.arguments
             return args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
+        // The round-trip launch: one merged drive of three real legs (a zero-distance stub between two of them left out), each leg's own route and the samples.
+        case ("GET", "/api/activity") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "activity_round_trip"
+        case ("GET", "/api/samples") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "samples_round_trip"
         case ("GET", "/api/activity"): return "activity"
         // The Activity map's two lists (empty: the UI test counts how often they are read).
         case ("GET", "/api/drives"): return "drives_list"
@@ -81,6 +84,7 @@ final class FixtureURLProtocol: URLProtocol {
             // The stays near where a day's driving runs out, and the two days with a night at one (not spelled as paths: see startLoading).
             if method == "POST", path.hasSuffix("/trips/overnight-candidates") { return "trip_overnight_candidates" }
             if method == "POST", path.hasSuffix("/trips/plan-multiday") { return "trip_plan_multiday_apart" }
+            if method == "GET", path.hasPrefix("/api/drives/rt-leg-"), ProcessInfo.processInfo.arguments.contains("-uitest-round-trip") { return "drive_" + path.dropFirst("/api/drives/".count) }
             // One charge's row (not the lists under the same path).
             if method == "GET", path.hasPrefix("/api/charges/"), !path.hasSuffix("/to-confirm"), !path.hasSuffix("/clusters") { return "charge_one" }
             return nil
