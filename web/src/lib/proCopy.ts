@@ -75,7 +75,7 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
           action: state.source === "stripe" ? "Resubscribe" : "Manage subscription",
         };
       if (state.source === "apple") return { title: `Rivolt Pro${state.periodEnd ? `, renews ${planDate(state.periodEnd)}` : ""}`, line: "Billed through Apple.", action: "Manage subscription" };
-      if (state.source === "stripe") return { title: `Rivolt Pro${state.periodEnd ? `, renews ${planDate(state.periodEnd)}` : ""}`, line: "Billed through Stripe, $34.99 a year or $3.99 a month.", action: "Manage subscription" };
+      if (state.source === "stripe") return { title: `Rivolt Pro${state.periodEnd ? `, renews ${planDate(state.periodEnd)}` : ""}`, line: "Billed through Stripe.", action: "Manage subscription" };
       if (state.source === "founding")
         return {
           title: `Rivolt Pro, free until ${planDate(state.periodEnd) || "the end of the year"}`,
