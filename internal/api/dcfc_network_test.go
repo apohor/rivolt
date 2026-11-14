@@ -186,7 +186,9 @@ func (f *fakeApplier) ApplyNetworkRate(_ context.Context, slug, network, currenc
 	return f.n, nil
 }
 
-func strconvF(v float64) string { return strings.TrimSpace(strings.Replace(string(mustJSON(v)), "\"", "", -1)) }
+func strconvF(v float64) string {
+	return strings.TrimSpace(strings.Replace(string(mustJSON(v)), "\"", "", -1))
+}
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 

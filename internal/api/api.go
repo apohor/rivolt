@@ -1632,6 +1632,11 @@ func New(d Deps) http.Handler {
 			r.With(win, driveRow).Get("/drives/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveGet(d.Drives.For(uid), d.Charges.For(uid), d.Settings.For(uid))(w, r)
 			}))
+			// A finished drive's share-card data (drive_postcard.go): date, distance and the route cut on the server like a shared
+			// plan. Free on every tier (Pro v6); it carries the drive's own history window like the drive itself.
+			r.With(win, driveRow, ls.user("drive-postcard", 30).Middleware).Get("/drives/{id}/postcard", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+				handleDrivePostcard(d.Drives.For(uid), d.Settings.For(uid), uid.String())(w, r)
+			}))
 			// Efficiency analysis: AI-driven breakdown of what drove
 			// efficiency variance for a drive, with actionable
 			// recommendations.

@@ -36,6 +36,7 @@ var routeClasses = map[string]windowClass{
 	"GET /api/drives":                     {"windowed", ""},
 	"GET /api/drives/route-thumbs":        {"windowed", ""},
 	"GET /api/drives/{id}":                {"windowed", ""},
+	"GET /api/drives/{id}/postcard":       {"windowed", "the drive's own window; free on every tier (a share card)"},
 	"GET /api/drives/{id}/efficiency":     {"windowed", ""},
 	"POST /api/drives/{id}/efficiency":    {"windowed", ""},
 	"GET /api/drives/{id}/weather":        {"windowed", ""},

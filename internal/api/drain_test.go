@@ -21,7 +21,7 @@ func TestBuildDrain_WindowsSufficiencyAndDaily(t *testing.T) {
 			"2026-10-14": {ParkH: 13, DropPct: 0.5, ObsH: 14, AwakeH: 0.5, ChargingH: 1, Sleeps: 2, Quick: 1},
 			"2026-10-13": {ParkH: 20, DropPct: 0.9, ObsH: 22, AwakeH: 1.0, Sleeps: 3},
 			"2026-10-12": {ParkH: 1, DropPct: 0.05}, // under 12 h: excluded
-			"2026-10-11": {ParkH: 8, DropPct: 2.0},   // 3-12 h: still excluded from the bar
+			"2026-10-11": {ParkH: 8, DropPct: 2.0},  // 3-12 h: still excluded from the bar
 		},
 		W7:  drainAgg{ParkH: 26, DropPct: 1.15, ObsH: 28, AwakeH: 1.5, Sleeps: 5, Quick: 1},
 		W30: drainAgg{ParkH: 26, DropPct: 1.15, ObsH: 28, AwakeH: 1.5, Sleeps: 5, Quick: 1}, // under 72 h

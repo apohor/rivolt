@@ -228,8 +228,18 @@ func TestShareCardRoutesCarryNoGate(t *testing.T) {
 		"POST /api/trips/saved/{id}/share": false,
 		"POST /api/public/trips/share":     false,
 	}
+	// A drive's postcard carries the drive's own history window and vehicle rules (it is that drive's data), but never a plan gate.
+	planOnly := map[string]bool{"GET /api/drives/{id}/postcard": false}
 	err := chi.Walk(contractRouter(t), func(method, route string, _ http.Handler, mws ...func(http.Handler) http.Handler) error {
 		key := method + " " + route
+		if _, ok := planOnly[key]; ok {
+			planOnly[key] = true
+			for _, g := range []string{"proOnlyMiddleware", "ProMiddleware", "multidayProMiddleware"} {
+				if hasMiddlewareNamed(mws, g) {
+					t.Errorf("%s is a share-card route and carries %s: share cards are free on every tier", key, g)
+				}
+			}
+		}
 		if _, ok := want[key]; !ok {
 			return nil
 		}
@@ -243,6 +253,9 @@ func TestShareCardRoutesCarryNoGate(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for k, seen := range planOnly {
+		want[k] = seen
 	}
 	for k, seen := range want {
 		if !seen {
