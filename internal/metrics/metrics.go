@@ -1404,7 +1404,7 @@ func New() *Metrics {
 var LeaseShedChoices = []string{"idle", "awake", "deferred"}
 
 // ImportSources are the source label values of the rivolt_history_import_* counters; "unknown" is a refusal before the form named a source.
-var ImportSources = []string{"tezlab", "abrp", "unknown"}
+var ImportSources = []string{"tezlab", "abrp", "electrafi", "unknown"}
 
 // ImportRejectReasons are the reason label values of rivolt_history_import_rejected_total.
 var ImportRejectReasons = []string{"unknown_header", "bad_row", "size", "parse"}

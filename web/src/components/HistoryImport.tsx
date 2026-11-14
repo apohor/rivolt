@@ -6,6 +6,7 @@ import {
   MAX_IMPORT_FILES,
   MAX_IMPORT_MB,
   SOURCES,
+  importSourceLabel,
   browserTZ,
   chargesText,
   drivesText,
@@ -382,7 +383,7 @@ export function ImportsListCard() {
         {rows.length > 0 && (
           <ul className="divide-y divide-neutral-800">
             {rows.map((r) => {
-              const label = SOURCES.find((s) => s.id === r.source)?.label ?? r.source;
+              const label = importSourceLabel(r.source);
               return (
                 <li key={r.id} className="space-y-2 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">

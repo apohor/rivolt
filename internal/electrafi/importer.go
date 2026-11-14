@@ -23,11 +23,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
@@ -52,6 +55,10 @@ type Result struct {
 	// recorder's row is authoritative; importing it again would double
 	// count the trip or the kWh).
 	SkippedLive int
+	// SkippedExisting counts derived drives and charges not written because a row already covers them: the same session imported before
+	// (same id), or any other drive or charge that overlaps it (another app's import, an earlier file). Only set when the import
+	// belongs to a batch (Importer.ImportID).
+	SkippedExisting int `json:"skipped_existing,omitempty"`
 	// SamplesPastRetention counts raw samples left out because they are older
 	// than the install's sample retention (Importer.SampleFrom): importing them
 	// would recreate a dropped partition only for the next sweep to delete it.
@@ -84,6 +91,11 @@ type Importer struct {
 	// Result.SamplesPastRetention; the drives and charges derived from the same
 	// rows are unaffected.
 	SampleFrom time.Time
+	// ImportID, when set, is the imports batch (imports.Store.Begin) the derived drives and charges belong to. They are then written
+	// insert-only (a row that exists is left as it is, so a re-import never overwrites what the user edited) and skipped when another
+	// drive or charge already covers them, and Undo of the batch removes them. Zero keeps the library behavior: upsert by stable id.
+	// Raw samples are not part of the batch either way.
+	ImportID uuid.UUID
 	// OnProgress, when non-nil, is called periodically during a
 	// single file import with a phase label and a row count so an
 	// HTTP handler can emit heartbeats to the client. The callback
@@ -134,6 +146,15 @@ func (i *Importer) loc() *time.Location {
 	return time.UTC
 }
 
+// ErrMissingColumn is wrapped by the error ImportReader returns when the header lacks a column the importer needs.
+var ErrMissingColumn = errors.New("missing required column")
+
+// MissingColumnError is that error with the column's name (one of the importer's fixed required names).
+type MissingColumnError struct{ Column string }
+
+func (e *MissingColumnError) Error() string { return fmt.Sprintf("%s %q", ErrMissingColumn, e.Column) }
+func (e *MissingColumnError) Unwrap() error { return ErrMissingColumn }
+
 // Import reads path and upserts the derived drives & charges. Safe to
 // run multiple times over the same file — session IDs are deterministic.
 func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
@@ -164,7 +185,7 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		"speed", "shift_state", "charging_state", "driveNumber", "chargeNumber"}
 	for _, k := range required {
 		if _, ok := idx[k]; !ok {
-			return Result{}, fmt.Errorf("missing required column %q", k)
+			return Result{}, &MissingColumnError{Column: k}
 		}
 	}
 
@@ -230,9 +251,11 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 			continue
 		}
 
-		if !i.SampleFrom.IsZero() && s.at.Before(i.SampleFrom) {
+		// A batch writes sessions only: Undo must take back everything the import wrote, and a raw sample carries no batch id. The drive
+		// keeps its route (routePolyline).
+		if i.ImportID == uuid.Nil && !i.SampleFrom.IsZero() && s.at.Before(i.SampleFrom) {
 			pastRetained++
-		} else if i.Samples != nil {
+		} else if i.ImportID == uuid.Nil && i.Samples != nil {
 			sampleBuf = append(sampleBuf, samples.Sample{
 				VehicleID:       vehicleID,
 				At:              s.at,
@@ -296,7 +319,8 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 	// vehicle_state but don't anchor any drive (the SPA joins drive →
 	// samples by time window, not by drive_number).
 	const minParkedWindow = 30 * time.Minute
-	driveRowsEmitted, chargeRowsEmitted, skippedLive := 0, 0, 0
+	skippedLive, skippedExisting := 0, 0
+	var driveRows []drives.Drive
 	for _, snaps := range driveGroups {
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
 		for _, sub := range splitFrozenGPS(snaps, minParkedWindow) {
@@ -307,6 +331,9 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 			// into the drive row that the dashboard will then aggregate as
 			// if it were real.
 			d := deriveDrive(id, vehicleID, sub, i.PackKWh)
+			if i.ImportID != uuid.Nil {
+				d.RoutePolyline = routePolyline(sub)
+			}
 			covered, err := i.liveCovered(ctx, "drive", d.StartedAt, d.EndedAt)
 			if err != nil {
 				return Result{}, fmt.Errorf("live overlap check for drive %s: %w", id, err)
@@ -315,15 +342,10 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 				skippedLive++
 				continue
 			}
-			if err := i.Drives.Upsert(ctx, d); err != nil {
-				return Result{}, fmt.Errorf("upsert drive %s: %w", id, err)
-			}
-			driveRowsEmitted++
+			driveRows = append(driveRows, d)
 		}
 	}
-	if i.OnProgress != nil {
-		i.OnProgress("persist_charges", len(chargeGroups))
-	}
+	var chargeRows []charges.Charge
 	for _, snaps := range chargeGroups {
 		sort.Slice(snaps, func(i, j int) bool { return snaps[i].at.Before(snaps[j].at) })
 		id := stableID(vehicleID, "c", snaps[0].at)
@@ -336,10 +358,61 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 			skippedLive++
 			continue
 		}
-		if err := i.Charges.Upsert(ctx, c); err != nil {
-			return Result{}, fmt.Errorf("upsert charge %s: %w", id, err)
+		chargeRows = append(chargeRows, c)
+	}
+
+	// With a batch, "already there" is decided against what existed before this file, for all sessions at once, so two sessions of
+	// one file never hide each other; the inserts below are insert-only on top of that.
+	if i.ImportID != uuid.Nil {
+		var err error
+		if driveRows, err = dropCovered(ctx, vehicleID, driveRows, func(d drives.Drive) (time.Time, time.Time) { return d.StartedAt, d.EndedAt },
+			i.Drives.CoversBatch, &skippedExisting); err != nil {
+			return Result{}, fmt.Errorf("overlap check for drives: %w", err)
 		}
-		chargeRowsEmitted++
+		if chargeRows, err = dropCovered(ctx, vehicleID, chargeRows, func(c charges.Charge) (time.Time, time.Time) { return c.StartedAt, c.EndedAt },
+			i.Charges.CoversBatch, &skippedExisting); err != nil {
+			return Result{}, fmt.Errorf("overlap check for charges: %w", err)
+		}
+	}
+	driveRowsEmitted, chargeRowsEmitted := 0, 0
+	for _, d := range driveRows {
+		if i.ImportID == uuid.Nil {
+			if err := i.Drives.Upsert(ctx, d); err != nil {
+				return Result{}, fmt.Errorf("upsert drive %s: %w", d.ID, err)
+			}
+			driveRowsEmitted++
+			continue
+		}
+		added, err := i.Drives.InsertImported(ctx, i.ImportID, d, nil)
+		if err != nil {
+			return Result{}, fmt.Errorf("insert drive %s: %w", d.ID, err)
+		}
+		if added {
+			driveRowsEmitted++
+		} else {
+			skippedExisting++
+		}
+	}
+	if i.OnProgress != nil {
+		i.OnProgress("persist_charges", len(chargeGroups))
+	}
+	for _, c := range chargeRows {
+		if i.ImportID == uuid.Nil {
+			if err := i.Charges.Upsert(ctx, c); err != nil {
+				return Result{}, fmt.Errorf("upsert charge %s: %w", c.ID, err)
+			}
+			chargeRowsEmitted++
+			continue
+		}
+		added, err := i.Charges.InsertImported(ctx, i.ImportID, c, nil)
+		if err != nil {
+			return Result{}, fmt.Errorf("insert charge %s: %w", c.ID, err)
+		}
+		if added {
+			chargeRowsEmitted++
+		} else {
+			skippedExisting++
+		}
 	}
 
 	return Result{
@@ -351,8 +424,62 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		SkippedRows: skipped,
 		SkippedLive: skippedLive,
 
+		SkippedExisting:      skippedExisting,
 		SamplesPastRetention: pastRetained,
 	}, nil
+}
+
+// maxRoutePoints bounds the stored route of one imported drive.
+const maxRoutePoints = 400
+
+// routePolyline is the drive's GPS path from its polling rows (polyline5, like a recorded drive's: drives.DecodeRoute reads it), thinned to maxRoutePoints and without
+// rows that carry no fix. Empty when fewer than two points remain.
+func routePolyline(snaps []snapshot) string {
+	pts := make([][2]float64, 0, len(snaps))
+	for _, s := range snaps {
+		if (s.lat != 0 || s.lon != 0) && math.Abs(s.lat) <= 90 && math.Abs(s.lon) <= 180 {
+			pts = append(pts, [2]float64{s.lat, s.lon})
+		}
+	}
+	if len(pts) < 2 {
+		return ""
+	}
+	if len(pts) > maxRoutePoints {
+		thin := make([][2]float64, 0, maxRoutePoints)
+		for k := 0; k < maxRoutePoints-1; k++ {
+			thin = append(thin, pts[k*(len(pts)-1)/(maxRoutePoints-1)])
+		}
+		pts = append(thin, pts[len(pts)-1])
+	}
+	return drives.EncodeRoute(pts)
+}
+
+// coversChunk is how many sessions one Covers query takes (the stores' CoversBatch advice).
+const coversChunk = 1000
+
+// dropCovered returns the rows no existing session of the vehicle covers, adding the ones it drops to *dropped.
+func dropCovered[T any](ctx context.Context, vehicleID string, rows []T, span func(T) (time.Time, time.Time),
+	covers func(context.Context, string, []time.Time, []time.Time) ([]bool, error), dropped *int) ([]T, error) {
+	keep := make([]T, 0, len(rows))
+	for from := 0; from < len(rows); from += coversChunk {
+		chunk := rows[from:min(from+coversChunk, len(rows))]
+		starts, ends := make([]time.Time, len(chunk)), make([]time.Time, len(chunk))
+		for k, r := range chunk {
+			starts[k], ends[k] = span(r)
+		}
+		got, err := covers(ctx, vehicleID, starts, ends)
+		if err != nil {
+			return nil, err
+		}
+		for k, r := range chunk {
+			if got[k] {
+				*dropped++
+			} else {
+				keep = append(keep, r)
+			}
+		}
+	}
+	return keep, nil
 }
 
 // splitFrozenGPS partitions a time-sorted snapshot group into sub-

@@ -20,6 +20,17 @@ export const SOURCES: SourceInfo[] = [
   },
 ];
 
+// The Imports list gets the batch's own source name from the server ("tezlab_import"), which is not the id the picker uses; ElectraFi has
+// no picker entry (its upload is the older Settings flow) but its batches show here.
+const BATCH_SOURCE_LABELS: Record<string, string> = {
+  tezlab_import: "TezLab",
+  abrp_import: "A Better Routeplanner",
+  electrafi_import: "ElectraFi",
+};
+export function importSourceLabel(source: string): string {
+  return BATCH_SOURCE_LABELS[source] ?? SOURCES.find((s) => s.id === source)?.label ?? source;
+}
+
 export const MAX_IMPORT_MB = 50;
 export const MAX_IMPORT_FILES = 4;
 

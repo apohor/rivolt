@@ -779,6 +779,9 @@ func (s *Store) LatestOpenLive(ctx context.Context, rivianVehicleID string) (*Dr
 // DecodeRoute decodes a stored route polyline (precision 5) to [lat, lon] points.
 func DecodeRoute(s string) [][2]float64 { return decodePolyline5(s) }
 
+// EncodeRoute is DecodeRoute's inverse: [lat, lon] points to a stored route polyline (precision 5).
+func EncodeRoute(pts [][2]float64) string { return encodePolyline5(pts) }
+
 // StaleOpenDrive is a live drive row still marked open whose last write is old.
 type StaleOpenDrive struct {
 	ExternalID      string
