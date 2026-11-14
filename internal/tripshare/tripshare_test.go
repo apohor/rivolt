@@ -294,3 +294,42 @@ func TestLegacyPlanWithoutSourceFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestTrimDriveCutsEndsAndHome(t *testing.T) {
+	line := eastLine(36.0123, -115.0371, 1000, 60) // 59 km
+	home := &Circle{Lat: line[30][0], Lon: line[30][1], RadiusM: 500}
+	tr, err := TrimDrive(line, home, 4000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Start.Lat == line[0][0] || tr.Start.Lon == line[0][1] || tr.End.Lat == line[59][0] {
+		t.Errorf("ends not rounded: %+v %+v", tr.Start, tr.End)
+	}
+	if len(tr.Segments) != 2 {
+		t.Fatalf("home mid-route should split the line in two: %d segments", len(tr.Segments))
+	}
+	for _, c := range []Circle{{line[0][0], line[0][1], 4000}, {line[59][0], line[59][1], 4000}, {home.Lat, home.Lon, 4000}} {
+		for _, s := range tr.Segments {
+			for _, p := range maps.DecodePolyline6(s) {
+				if d := DistM(c.Lat, c.Lon, p[0], p[1]); d < c.RadiusM-1 {
+					t.Fatalf("a kept point is %.0f m from a private place (cut %.0f)", d, c.RadiusM)
+				}
+			}
+		}
+	}
+	b, _ := json.Marshal(tr)
+	for _, bad := range []string{"vehicle", "cost", "user"} {
+		if strings.Contains(strings.ToLower(string(b)), bad) {
+			t.Errorf("trim carries %q", bad)
+		}
+	}
+}
+
+func TestTrimDriveRefusals(t *testing.T) {
+	if _, err := TrimDrive(nil, nil, 4000); err != ErrNoRoute {
+		t.Errorf("no line: %v", err)
+	}
+	if _, err := TrimDrive(eastLine(36, -115, 500, 10), nil, 4000); err != ErrTooShort { // 4.5 km, both ends cut
+		t.Errorf("short drive: %v", err)
+	}
+}
