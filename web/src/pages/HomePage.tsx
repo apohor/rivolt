@@ -43,7 +43,7 @@ import { useSelectedVehicle } from "../lib/selectedVehicle";
 import NowCard from "../components/NowCard";
 import { useDesignPreview } from "../lib/config";
 
-// Shown once, to new users, on preview: keep it out of the initial bundle.
+// Shown once, to an account still missing a home or a home rate, on preview: keep it out of the initial bundle.
 const SetupSheet = lazy(() => import("../components/SetupSheet").then((m) => ({ default: m.SetupGate })));
 
 export default function HomePage() {
