@@ -29,6 +29,9 @@ func TestTagValidateGatesFinals(t *testing.T) {
 	if n := strings.Index(step[10:], "- name:"); n > 0 {
 		step = step[:n+10]
 	}
+	if !strings.Contains(j, "statuses: read") {
+		t.Error("tag-validate can't read the commit status without statuses: read")
+	}
 	for _, want := range []string{"steps.kind.outputs.kind == 'final'", ".github/ci/final-gate.sh", "INFRA_TOKEN"} {
 		if !strings.Contains(step, want) {
 			t.Errorf("final-gate step lacks %q", want)

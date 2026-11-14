@@ -1655,6 +1655,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      statuses: read # final-gate.sh reads qa/rc-gate from the commit status
     outputs:
       # final (vX.Y.Z: promoted to prod) or rc (vX.Y.Z-rc.N: published for the gate, never promoted).
       kind: ${{ steps.kind.outputs.kind }}
