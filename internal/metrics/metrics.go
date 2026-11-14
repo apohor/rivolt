@@ -230,6 +230,8 @@ type Metrics struct {
 	ReceiptEnergyTotal    *prometheus.CounterVec
 	// ReceiptsSyncTotal counts receipts summaries passes by trigger (forward, sweep, close, details: the sweep's details-only tail) and outcome (ok, skipped, not_owner, error). Created at 0.
 	ReceiptsSyncTotal *prometheus.CounterVec
+	// ReceiptsEnabledUsers is how many users with a Rivian session passed the receipts gate (operator flag and own opt-in) at the last sweep; 0 means the sync has nobody to run for.
+	ReceiptsEnabledUsers prometheus.Gauge
 	ReceiptEnergyDeltaPct prometheus.Histogram
 	// SessionDecrypts counts decrypts of a stored Rivian session by call site (SessionDecryptSites; any other label is "other"); no user id.
 	// TokensLoadedUnheld is how many clients in this pod's account registry hold a session token for a user whose group this pod does not
@@ -546,6 +548,10 @@ func New() *Metrics {
 			Name: "rivolt_receipt_energy_total",
 			Help: "Matched Rivian receipts the receipt-energy check looked at, by outcome (applied, would_apply in observe mode, home, no_detail, no_energy, open, below_recorded, above_tail_limit).",
 		}, []string{"outcome"}),
+		ReceiptsEnabledUsers: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_receipts_enabled_users",
+			Help: "Users with a Rivian session that passed the receipts gate (rivian_receipts flag and the user's own opt-in) at the last sweep.",
+		}),
 		ReceiptsSyncTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_receipts_sync_total",
 			Help: "Rivian receipts summaries passes by trigger (forward, sweep, close, details: the sweep's details-only tail) and outcome (ok, skipped, not_owner, error).",
@@ -1205,6 +1211,7 @@ func New() *Metrics {
 		m.TakeoverLocalOnlyTotal,
 		m.ReceiptEnergyTotal,
 		m.ReceiptsSyncTotal,
+		m.ReceiptsEnabledUsers,
 		m.ReceiptEnergyDeltaPct,
 		m.SessionDecrypts,
 		m.TokensLoadedUnheld,
