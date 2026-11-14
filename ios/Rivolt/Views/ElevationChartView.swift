@@ -11,10 +11,48 @@ struct ElevationChartView: View {
 
     private static let step = 0.02
 
+    /// Collapsed to one row until a tap opens the chart; the choice is kept on this iPhone.
+    @AppStorage("rivolt.elevationOpen") private var open = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
         let total = PlanElevation.total(profile)
         let readout = PlanElevation.readout(profile, share: share, metric: metric)
-        ThemeSection(title: "Elevation") {
+        VStack(alignment: .leading, spacing: 0) {
+            toggleRow
+            if open { expanded(total: total, readout: readout) }
+        }
+        .themeCard(padding: 0)
+    }
+
+    private var toggleRow: some View {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 8))
+        return Button { withAnimation(.easeOut(duration: 0.2)) { open.toggle() } } label: {
+            layout {
+                Text("Elevation").font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).foregroundStyle(Theme.textBody)
+                if !typeSize.isAccessibilitySize { Spacer(minLength: 8) }
+                HStack(spacing: 6) {
+                    Text(PlanElevation.climbText(profile, metric: metric)).themeText(.value, color: Theme.textSecondary)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                }
+            }
+            .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2.5 * Theme.unit)
+            .frame(minHeight: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Elevation, climbs \(PlanElevation.elevation(PlanElevation.climb(profile).up, metric: metric)), descends \(PlanElevation.elevation(PlanElevation.climb(profile).down, metric: metric))")
+        .accessibilityValue(open ? "Chart shown" : "Chart hidden")
+        .accessibilityHint(open ? "Hides the chart" : "Shows the chart")
+        .accessibilityIdentifier("plan-elevation-toggle")
+    }
+
+    @ViewBuilder
+    private func expanded(total: Double, readout: String) -> some View {
+        Rectangle().fill(Theme.border).frame(height: 1)
+        VStack(alignment: .leading, spacing: 8) {
             readoutText(readout)
             chart(total: total)
                 .frame(height: 110)
@@ -32,6 +70,7 @@ struct ElevationChartView: View {
             Text(PlanElevation.context).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             Text(LegWeather.terrainCredit).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
         }
+        .padding(4 * Theme.unit)
     }
 
     private func readoutText(_ text: String) -> some View {

@@ -48,6 +48,7 @@ struct HomeView: View {
     @State private var pickedLocked = false
 
     /// The redesigned Now (design_preview key ios_now_v2, apart from the web's now_v2); off on prod, so the screen is the one it always was.
+    @State private var showLive = false
     private var v2: Bool { state.designPreview.contains("ios_now_v2") }
 
     private var selected: Vehicle? {
@@ -75,7 +76,8 @@ struct HomeView: View {
                             if haveData {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
                                         session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil,
-                                        v2: v2, images: vehicle.images, fullChargeRange: v2 ? coldRange?.fullChargeRange : nil)
+                                        v2: v2, images: vehicle.images, fullChargeRange: v2 ? coldRange?.fullChargeRange : nil,
+                                        onLive: v2 ? { showLive = true } : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -127,6 +129,15 @@ struct HomeView: View {
             }
             .background(ThemePageBackground().ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: $showLive) {
+                if let vehicle = selected {
+                    let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
+                    NowLiveView(vehicle: vehicle, summary: summary, session: summary.freshness != .stale ? session : nil,
+                                liveDrive: summary.freshness != .stale ? liveDrive : nil, charge: summary.freshness != .stale ? latestCharge : nil,
+                                images: vehicle.images) { showLive = false }
+                        .toolbar(.hidden, for: .navigationBar)
+                }
+            }
             .refreshable { await load(force: true) }
             .task { await load() }
             .task { await loadRivian() }

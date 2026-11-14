@@ -37,12 +37,15 @@ struct ThemeLogo: View {
 struct ThemeTopBar<Trailing: View>: View {
     var title = "Rivolt"
     @ViewBuilder var trailing: Trailing
+    @Environment(AppState.self) private var state: AppState?
 
     var body: some View {
         HStack(spacing: ThemeTokens.logoWordmarkGap) {
             ThemeLogo(size: ThemeTokens.logoSize)
             Text(title).font(Theme.sans(16, .semibold, relativeTo: .headline)).tracking(ThemeTokens.logoWordmarkTracking * 16)
                 .foregroundStyle(Theme.textPrimary)
+            // The web's ThemeSwitch sits beside the wordmark; here with the Now redesign (design_preview key ios_now_v2).
+            if state?.designPreview.contains("ios_now_v2") == true { ThemeModeSwitch() }
             Spacer(minLength: 8)
             trailing
         }
@@ -176,5 +179,24 @@ struct ThemeStepper: View {
         } else {
             label.accessibilityLabel(spokenTitle ?? title).accessibilityAddTraits(.isHeader)
         }
+    }
+}
+
+/// A sun or moon in the top bar: one tap flips light and dark (the account menu and Settings keep Auto). Shows what a tap switches to.
+struct ThemeModeSwitch: View {
+    @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let toLight = scheme == .dark
+        Button { appearance = toLight ? .light : .dark } label: {
+            Image(systemName: toLight ? "sun.max" : "moon").font(.body).foregroundStyle(Theme.textSecondary)
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(toLight ? "Switch to light" : "Switch to dark")
+        .accessibilityIdentifier("theme-switch")
     }
 }

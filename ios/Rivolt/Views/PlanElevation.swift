@@ -59,6 +59,22 @@ enum PlanElevation {
         "\(number(metric ? meters / 1000 : meters / metersPerMile)) \(metric ? "km" : "mi")"
     }
 
+    /// Metres climbed and descended along the profile, from the sum of its rises and falls.
+    static func climb(_ p: ElevationProfile) -> (up: Double, down: Double) {
+        var up = 0.0, down = 0.0
+        for i in 1..<max(1, p.points.count) {
+            let d = p.points[i][1] - p.points[i - 1][1]
+            if d > 0 { up += d } else { down -= d }
+        }
+        return (up, down)
+    }
+
+    /// "↑1,240 ft ↓980 ft", the collapsed row's figures.
+    static func climbText(_ p: ElevationProfile, metric: Bool) -> String {
+        let (up, down) = climb(p)
+        return "↑\(elevation(up, metric: metric)) ↓\(elevation(down, metric: metric))"
+    }
+
     /// "123 mi · 1,234 ft" at a share, or the range ("100 to 4,321 ft") with no cursor.
     static func readout(_ p: ElevationProfile, share: Double?, metric: Bool) -> String {
         if let share { return "\(distance(share * total(p), metric: metric)) · \(elevation(height(p, at: share), metric: metric))" }

@@ -159,6 +159,9 @@ final class PlanSheetUITests: XCTestCase {
         // In view means below the pinned header and above the tab bar, not just on screen. Drags stay inside the details (under the header).
         for _ in 0..<12 {
             if grabber.value as? String != "full" { grabber.tap() }
+            // The chart is one row until opened (the choice is kept, so it may already be open).
+            let toggle = app.buttons["plan-elevation-toggle"].firstMatch
+            if !chart.exists, toggle.exists, toggle.isHittable { toggle.tap() }
             let high = chart.exists && chart.frame.minY < 420
             if chart.exists && !high && chart.frame.maxY <= window.frame.maxY - 120 { break }
             let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: high ? 0.55 : 0.85))

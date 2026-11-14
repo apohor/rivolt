@@ -22,6 +22,8 @@ struct NowCard: View {
     var images: [VehicleImage]?
     /// "Full charge today ≈ X", the user's own range at today's temperature (the server's cold-range answer), in the display unit.
     var fullChargeRange: Int?
+    /// Opens the Live screen (the web's Live button on the hero), with the Now redesign.
+    var onLive: (() -> Void)?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -67,6 +69,7 @@ struct NowCard: View {
     private var heroV2: some View {
         let showRows = driving || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || chargingRowsV2
         return VStack(alignment: .leading, spacing: 12) {
+            if let onLive { liveButton(onLive) }
             VStack(alignment: .leading, spacing: 12) {
                 heroGaugeV2
                 if let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
@@ -79,6 +82,28 @@ struct NowCard: View {
             if temperaturesLine != nil { temperatures }
         }
         .themeHero(live: liveKind, critical: critical)
+    }
+
+    /// The pill that opens Live: a bordered button with a pulse dot while charging or driving, as the web's.
+    private func liveButton(_ action: @escaping () -> Void) -> some View {
+        HStack {
+            Spacer(minLength: 0)
+            Button(action: action) {
+                HStack(spacing: 8) {
+                    if (charging || driving) && isLive { Circle().fill(Theme.accent).frame(width: 8, height: 8) }
+                    Text("Live").font(Theme.sans(ThemeTokens.typeSubline, .medium, relativeTo: .footnote)).foregroundStyle(Theme.textPrimary)
+                    Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.textSecondary)
+                }
+                .padding(.horizontal, 16).frame(minWidth: 44, minHeight: 44)
+                .background(Theme.card, in: Capsule())
+                .overlay(Capsule().strokeBorder(Theme.borderStrong, lineWidth: 1))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Live")
+            .accessibilityHint("Opens the live telemetry")
+            .accessibilityIdentifier("now-live-link")
+        }
     }
 
     /// Charging to the limit and what that buys, or the user's own full-charge range; as the web's hero.

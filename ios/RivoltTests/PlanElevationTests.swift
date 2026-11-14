@@ -18,6 +18,14 @@ final class PlanElevationTests: XCTestCase {
         XCTAssertNil(broken.elevationProfile, "a profile that does not decode leaves the plan whole")
     }
 
+    func testTheCollapsedRowSaysTheClimbAndTheDescent() {
+        let up = PlanElevation.climb(profile)
+        XCTAssertEqual(up.up, 200, accuracy: 0.001)
+        XCTAssertEqual(up.down, 100, accuracy: 0.001)
+        XCTAssertEqual(PlanElevation.climbText(profile, metric: true), "↑200 m ↓100 m")
+        XCTAssertEqual(PlanElevation.climbText(profile, metric: false), "↑656 ft ↓328 ft")
+    }
+
     func testTheChartAndTheMapTapNeedThePreviewKey() {
         XCTAssertNil(PlanElevation.shown(profile, designPreview: []), "no key: no chart, and onCursorShare is nil so the map adds no tap")
         XCTAssertNil(PlanElevation.shown(profile, designPreview: ["now_v2"]))
