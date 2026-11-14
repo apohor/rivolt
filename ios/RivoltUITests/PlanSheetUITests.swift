@@ -151,6 +151,18 @@ final class PlanSheetUITests: XCTestCase {
         }
     }
 
+    /// At the largest sizes the trip's name wraps in full at the full detent: it is not cut to two lines with an ellipsis (#2136).
+    func testAtAX3TheTripTitleWrapsInFull() throws {
+        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let grabber = open("Two days to Spokane", in: app)
+        for _ in 0..<3 where grabber.value as? String != "full" { grabber.tap() }
+        expect(grabber, "full", "the sheet is at full")
+        let title = app.descendants(matching: .any)["plan-sheet-title"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "the title is in the header")
+        let lines = title.frame.height / UIFont.preferredFont(forTextStyle: .title2).lineHeight
+        XCTAssertGreaterThan(lines, 2.5, "at AX3 the name shows more than two lines (\(title.frame))")
+    }
+
     /// Brings the elevation chart into view by opening the sheet and scrolling its details, and returns it.
     private func chart(in app: XCUIApplication, grabber: XCUIElement) -> XCUIElement {
         let chart = app.descendants(matching: .any)["plan-elevation-chart"].firstMatch
@@ -204,6 +216,21 @@ final class PlanSheetUITests: XCTestCase {
         chart.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)).tap()
         XCTAssertNotEqual(chart.value as? String ?? "", first, "a second tap moved the cursor")
         expect(grabber, sheet, "a tap on the chart leaves the sheet")
+    }
+
+    /// The terrain credit is on the plan once, with the elevation row collapsed and with it open.
+    func testTheTerrainCreditIsOnThePlanOnceCollapsedAndOpen() throws {
+        let app = launch(["-uitest-ios-elevation"])
+        let grabber = open("Seattle to Spokane", in: app)
+        let credit = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Terrain: USGS'"))
+        if grabber.value as? String != "full" { grabber.tap() }
+        let toggle = app.buttons["plan-elevation-toggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        if toggle.value as? String == "Chart shown" { toggle.tap() }
+        XCTAssertEqual(toggle.value as? String, "Chart hidden", "the chart starts collapsed")
+        XCTAssertEqual(credit.count, 1, "collapsed: the climb figures show with the credit, once")
+        _ = chart(in: app, grabber: grabber)
+        XCTAssertEqual(credit.count, 1, "open: still one credit, not one under the chart and one under the stops")
     }
 
     /// A vertical swipe that starts on the chart scrolls the details (a row below the chart moves, the sheet stays) and leaves the cursor.

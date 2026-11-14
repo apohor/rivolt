@@ -203,8 +203,8 @@ struct TripPlanResult: View {
                 StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric, weather: PlanRouteLogic.Weather(plan)) { model.focusedStop = $0 }
                 if route.chargingStops.isEmpty { Text(TripPlanLogic.noStopsLine(route)).themeText(.value, color: Theme.textSecondary) }
             }
-            // The terrain credit once per plan, where the stops' climb lines are (the elevation chart carries its own).
-            if PlanElevation.shown(plan.elevationProfile, designPreview: state.designPreview) == nil, LegWeather.showsClimb(plan.weatherAdjustment?.legs) {
+            // The terrain credit once per plan, wherever the climb shows: the elevation row (collapsed or open) and the stops' climb lines.
+            if PlanElevation.shown(plan.elevationProfile, designPreview: state.designPreview) != nil || LegWeather.showsClimb(plan.weatherAdjustment?.legs) {
                 Text(LegWeather.terrainCredit).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("plan-terrain-credit")
             }

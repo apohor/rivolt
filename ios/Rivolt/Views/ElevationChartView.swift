@@ -70,7 +70,6 @@ struct ElevationChartView: View {
                     }
                 }
             Text(PlanElevation.context).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-            Text(LegWeather.terrainCredit).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(4 * Theme.unit)
     }
