@@ -521,3 +521,50 @@ func TestStatementSavingsMatchesTheEndpoint(t *testing.T) {
 		t.Errorf("figures: moved %v kWh, saved %v; want 90 and 10.80", got.MovedKWh, *got.CouldHaveSaved)
 	}
 }
+
+// GET /api/ledger/coach: the window ends with the current month, the figures
+// carry their "estimated" label, and bad input is a 400.
+func TestLedgerCoach(t *testing.T) {
+	uid := uuid.New()
+	chi, _ := time.LoadLocation("America/Chicago")
+	home := &ledger.LatLon{Lat: 34.161, Lon: -118.168}
+	mk := func(id string, day int) ledger.Charge {
+		st := time.Date(2026, 10, day, 18, 0, 0, 0, chi).UTC()
+		kwh, peak, cost, rate, act := 30.0, 7.4, 6.30, 0.21, 4*3600.0
+		lat, lon := home.Lat, home.Lon
+		return ledger.Charge{ID: id, VehicleID: "veh-1", StartedAt: st, EndedAt: st.Add(14 * time.Hour), CreatedAt: st,
+			EnergyKWh: &kwh, PeakKW: &peak, Cost: &cost, PricePerKWh: &rate, Currency: "USD", CostSource: "home_rate",
+			ActiveSeconds: &act, FinalState: "charging_complete", Source: "live", Lat: &lat, Lon: &lon}
+	}
+	f := &fakeLedgerData{charges: []ledger.Charge{mk("a", 2), mk("b", 9), mk("c", 16)}}
+	a := f.api(time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC))
+	a.config = func(context.Context, uuid.UUID) (ledger.Config, error) {
+		return ledger.Config{Currency: "USD", HomeRate: 0.21, Home: home, HomeRateEstimated: true}, nil
+	}
+	sch, e := offpeak.Normalize(offpeak.Schedule{TZ: "America/Chicago", Windows: []offpeak.Window{{Days: "weekdays", Start: "21:00", End: "06:00", Rate: 0.09}}})
+	if e != nil {
+		t.Fatal(e)
+	}
+	a.schedule = func(context.Context, uuid.UUID) offpeak.Schedule { return sch }
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { a.coach(uid, w, r) })
+
+	rec := ledgerGET(t, h, uid, "/api/ledger/coach")
+	var b ledger.Coach
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil || rec.Code != 200 {
+		t.Fatalf("%d %v %s", rec.Code, err, rec.Body.String())
+	}
+	if len(b.Months) != 3 || b.Months[2] != "2026-10" || b.TZ != "America/Chicago" {
+		t.Errorf("window: %+v", b.Months)
+	}
+	if b.CostPerKWh.Needs != "" || !b.CostPerKWh.Home.Estimated || b.CostPerKWh.Home.PerKWh == nil || *b.CostPerKWh.Home.PerKWh != 0.21 {
+		t.Errorf("cost per kWh: %+v", b.CostPerKWh)
+	}
+	if b.CostPer100.Needs != "more_driving" {
+		t.Errorf("cost per 100: %+v", b.CostPer100)
+	}
+	for _, u := range []string{"?months=0", "?months=13", "?months=x"} {
+		if rec := ledgerGET(t, h, uid, "/api/ledger/coach"+u); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d", u, rec.Code)
+		}
+	}
+}

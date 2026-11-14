@@ -1775,6 +1775,7 @@ func New(d Deps) http.Handler {
 				r.With(win, freeVeh).Get("/summary", withUser(la.summary))
 				r.With(win, freeVeh).Get("/trips", withUser(la.trips))
 				r.With(win, freeVeh).Get("/savings", withUser(la.savings))
+				r.With(win, freeVeh).Get("/coach", withUser(la.coach))
 			})
 			r.With(win, freeVeh, gz).Get("/samples", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSamples(d.Samples.For(uid))(w, r)

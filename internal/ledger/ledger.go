@@ -186,6 +186,9 @@ type Config struct {
 	HomeRate float64
 	// Home is the saved home location; nil = not set.
 	Home *LatLon
+	// HomeRateEstimated is true while the home rate is the setup's state-average default, not a rate the user typed: figures priced from it are
+	// estimates. Only the coach reads it; the statement marks the same thing client-side.
+	HomeRateEstimated bool
 	// Billed turns on the billed_* fields (Rivian receipts) for this user:
 	// the rivian_receipts flag. Off, none of them appear.
 	Billed bool
