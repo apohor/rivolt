@@ -119,6 +119,33 @@ enum RouteSnap {
         return (segs.filter { $0.count >= 2 }, gaps)
     }
 
+    // A dwell is consecutive samples that barely move but are many seconds apart (a light, a queue). The matcher reads that time as time the
+    // truck could spend driving, so a minute-long stop lets it route a loop round the next block and still arrive "on time". The matcher's
+    // time axis cuts every dwell to `dwellKeepS` and moves the later samples back; positions and order are unchanged (web: retimeWithoutDwell).
+    static let dwellMinS = 10.0
+    static let dwellMaxM = 30.0
+    static let dwellKeepS = 2.0
+    /// A match longer than this many times the trace it explains has invented a detour; the recorded line is drawn instead.
+    static let maxMatchRatio = 1.35
+    static let minRatioPoints = 10
+
+    static func retimeWithoutDwell(_ pts: [Point]) -> [Point] {
+        var shift = 0.0
+        return pts.enumerated().map { i, p in
+            guard let t = p.t else { return p }
+            if i > 0, let pt = pts[i - 1].t, t - pt > dwellMinS, haversine(pts[i - 1], p) < dwellMaxM { shift += (t - pt) - dwellKeepS }
+            guard shift != 0 else { return p }
+            var q = p
+            q.t = t - shift
+            return q
+        }
+    }
+
+    static func pathLengthM(_ pts: [Coord]) -> Double {
+        guard pts.count > 1 else { return 0 }
+        return (1..<pts.count).reduce(0) { $0 + haversine(Point(lat: pts[$1 - 1].lat, lon: pts[$1 - 1].lon), Point(lat: pts[$1].lat, lon: pts[$1].lon)) }
+    }
+
     enum Quality: Equatable { case trivial, short, normal }
 
     /// Short, sparse stretches are drawn as recorded: a matcher would invent a road for them.
@@ -494,6 +521,7 @@ extension RouteSnap {
             traced = traced.enumerated().filter { $0.offset % step == 0 }.map(\.element)
             if traced.last != pts.last, let last = pts.last { traced.append(last) }
         }
+        traced = retimeWithoutDwell(traced)
         let body = ValhallaTraceRequest(shape: traced.map { .init(lat: $0.lat, lon: $0.lon, time: $0.t) })
         guard let r = try? await source.valhallaTrace(body), let matchings = r.matchings, !matchings.isEmpty else { return nil }
         let chunks = matchings.map { m in m.geometry.map { DriveRoute.decode($0, precision: 6) } ?? [] }
@@ -512,6 +540,11 @@ extension RouteSnap {
             }
         }
         let valid = chunks.filter { $0.count > 1 }
+        if traced.count >= minRatioPoints {
+            let matched = valid.reduce(0) { $0 + pathLengthM($1) }
+            let recorded = pathLengthM(traced.map { Coord(lat: $0.lat, lon: $0.lon) })
+            if recorded > 0, matched > recorded * maxMatchRatio { return nil }
+        }
         return valid.isEmpty ? nil : (valid, gaps)
     }
 

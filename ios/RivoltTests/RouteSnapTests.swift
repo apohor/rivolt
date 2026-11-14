@@ -169,16 +169,25 @@ private final class FakeValhalla: RouteSnapSource, @unchecked Sendable {
     var traces: Int { lock.withLock { _traces } }
     let failTrace: Bool
     let routeOK: Bool
+    /// Answers with the road plus a loop of about a kilometre, as a matcher does that fills a stop's dwell.
+    let detour: Bool
+    private var _body: ValhallaTraceRequest?
+    var body: ValhallaTraceRequest? { lock.withLock { _body } }
 
-    init(failTrace: Bool = false, routeOK: Bool = false) {
+    init(failTrace: Bool = false, routeOK: Bool = false, detour: Bool = false) {
         self.failTrace = failTrace
         self.routeOK = routeOK
+        self.detour = detour
     }
 
     func valhallaTrace(_ body: ValhallaTraceRequest) async throws -> ValhallaTraceResponse {
-        lock.withLock { _traces += 1 }
+        lock.withLock { _traces += 1; _body = body }
         if failTrace { throw APIError.server(status: 500, message: "no") }
-        let snapped = body.shape.map { C(lat: $0.lat, lon: $0.lon + 0.0001) }
+        var snapped = body.shape.map { C(lat: $0.lat, lon: $0.lon + 0.0001) }
+        if detour, let mid = snapped.indices.dropFirst(snapped.count / 2).first {
+            let c = snapped[mid]
+            snapped.insert(contentsOf: [C(lat: c.lat, lon: c.lon + 0.01), C(lat: c.lat + 0.005, lon: c.lon + 0.01), C(lat: c.lat + 0.005, lon: c.lon)], at: mid + 1)
+        }
         let tracepoints: [ValhallaTraceResponse.Tracepoint?] = body.shape.map { _ in ValhallaTraceResponse.Tracepoint(matchingsIndex: 0) }
         return ValhallaTraceResponse(matchings: [ValhallaTraceResponse.Matching(geometry: encode(snapped))], tracepoints: tracepoints)
     }
@@ -205,6 +214,27 @@ final class RouteSnapSnappingTests: XCTestCase {
         XCTAssertTrue(d.hasSpeed)
         // Snapped, not the recorded points.
         XCTAssertEqual(d.pieces[0].coords[0].lon, -96.797 + 0.0001, accuracy: 1e-6)
+    }
+
+    func testTheMatcherGetsATimeAxisWithoutTheStopsDwell() async throws {
+        // Twenty points ~111 m apart, 10 s apart, with a minute-long stop at a light after the tenth that moves the truck 5 m.
+        var pts = straight(20)
+        for i in 10..<20 { pts[i].t! += 60 }
+        pts[10] = P(lat: pts[9].lat + 0.00005, lon: pts[9].lon, t: pts[10].t, s: 0)
+        let v = FakeValhalla()
+        _ = await RouteSnap.snap(path(pts), source: v)
+        let shape = try XCTUnwrap(v.body).shape
+        XCTAssertEqual(shape.count, 20)
+        for i in 1..<shape.count {
+            let dt = try XCTUnwrap(shape[i].time) - XCTUnwrap(shape[i - 1].time)
+            let m = RouteSnap.haversine(P(lat: shape[i - 1].lat, lon: shape[i - 1].lon), P(lat: shape[i].lat, lon: shape[i].lon))
+            XCTAssertFalse(dt > 10 && m < 30, "step \(i): \(dt) s for \(m) m")
+        }
+    }
+
+    func testAMatchThatInventsADetourKeepsTheRecordedLine() async {
+        let snapped = await RouteSnap.snap(path(straight(20)), source: FakeValhalla(detour: true))
+        XCTAssertNil(snapped)
     }
 
     func testAFailedMatchKeepsTheRecordedLine() async {
