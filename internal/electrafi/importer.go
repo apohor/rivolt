@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -33,7 +34,6 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
-	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/samples"
 )
 
@@ -432,12 +432,12 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 // maxRoutePoints bounds the stored route of one imported drive.
 const maxRoutePoints = 400
 
-// routePolyline is the drive's GPS path from its polling rows (polyline6, like a recorded drive's), thinned to maxRoutePoints and without
+// routePolyline is the drive's GPS path from its polling rows (polyline5, like a recorded drive's: drives.DecodeRoute reads it), thinned to maxRoutePoints and without
 // rows that carry no fix. Empty when fewer than two points remain.
 func routePolyline(snaps []snapshot) string {
 	pts := make([][2]float64, 0, len(snaps))
 	for _, s := range snaps {
-		if s.lat != 0 || s.lon != 0 {
+		if (s.lat != 0 || s.lon != 0) && math.Abs(s.lat) <= 90 && math.Abs(s.lon) <= 180 {
 			pts = append(pts, [2]float64{s.lat, s.lon})
 		}
 	}
@@ -451,7 +451,7 @@ func routePolyline(snaps []snapshot) string {
 		}
 		pts = append(thin, pts[len(pts)-1])
 	}
-	return maps.EncodePolyline6(pts)
+	return drives.EncodeRoute(pts)
 }
 
 // coversChunk is how many sessions one Covers query takes (the stores' CoversBatch advice).

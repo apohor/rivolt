@@ -2,11 +2,12 @@ package electrafi
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/apohor/rivolt/internal/maps"
+	"github.com/apohor/rivolt/internal/drives"
 )
 
 // A7: sessions the live recorder already captured are not imported
@@ -49,11 +50,11 @@ func TestRoutePolyline(t *testing.T) {
 	for k := 0; k < 1000; k++ {
 		snaps = append(snaps, snapshot{lat: 34.161 + float64(k)*1e-4, lon: -118.168 + float64(k)*1e-4})
 	}
-	got := maps.DecodePolyline6(routePolyline(snaps))
+	got := drives.DecodeRoute(routePolyline(snaps))
 	if len(got) != maxRoutePoints {
 		t.Fatalf("%d points, want %d", len(got), maxRoutePoints)
 	}
-	if got[0][0] < 34.160 || got[0][0] > 34.162 || got[len(got)-1][0] < 34.26 {
+	if math.Abs(got[0][0]-34.161) > 1e-4 || math.Abs(got[0][1]+118.168) > 1e-4 || math.Abs(got[len(got)-1][0]-34.2609) > 1e-4 {
 		t.Errorf("route ends = %v .. %v, want the first and last rows", got[0], got[len(got)-1])
 	}
 	if p := routePolyline([]snapshot{{lat: 34.1, lon: -118.1}, {}}); p != "" {
