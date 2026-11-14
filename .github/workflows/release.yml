@@ -3,7 +3,10 @@
 # rc tag at the verdict's SHA with the rivolt-infra GitHub App's token (a GITHUB_TOKEN tag push does not start the tag build; the App's installation
 # on apohor/rivolt is N66). Pushing the tag starts build.yml's tag run exactly as a hand-pushed tag does: tag-validate, retag, pin-preview.
 # dry_run (the default) tags nothing: it prints the verdict and proves the token can write to this repo by creating and deleting a probe branch.
-# FINAL tags are still refused here: a final needs prod's sync, which is ship-release.sh until prod is an autosync app (design PR 6).
+# A FINAL tag is cut with final=true (rc empty) at the gated rc's commit: prod is an autosync app, so the tag run's bump-prod pin commit is the
+# deploy, then unpin-preview. Without final=true a final is refused. A final with no gated rc needs no_rc_reason AND the release-bypass
+# environment's approval; the bypass job commits the rc-bypass.log line to rivolt-infra first and fails the run if that push fails, so the
+# tag job (which needs it) never runs without the logged line.
 name: release
 
 on:
@@ -21,6 +24,11 @@ on:
         description: "Final tag: the number of the rc qa gated (the final is cut at that rc's commit)"
         required: false
         type: string
+      final:
+        description: "Cut the final tag vX.Y.Z (rc empty) at the gated rc's commit. Untick = a final is refused"
+        required: false
+        type: boolean
+        default: false
       no_rc_reason:
         description: "Final tag without a gated rc: the real reason (logged; emergency only)"
         required: false
@@ -94,6 +102,7 @@ jobs:
           RC: ${{ inputs.rc }}
           GATED_RC: ${{ inputs.gated_rc }}
           NO_RC_REASON: ${{ inputs.no_rc_reason }}
+          FINAL_BY_WORKFLOW: ${{ inputs.final }}
           SHA: ${{ inputs.sha }}
           INFRA_DIR: ${{ github.workspace }}/infra
         run: bash .github/ci/release-verdict.sh
@@ -135,10 +144,46 @@ jobs:
           gh api -X DELETE "repos/$GH_REPO/git/$ref"
           echo "the App token created and deleted $ref at ${head:0:7}: it can write to $GH_REPO" | tee -a "$GITHUB_STEP_SUMMARY"
 
+  # A final with no gated rc: the environment's required reviewer approves (in place of the typed yes), then the log line goes to rivolt-infra
+  # main BEFORE the tag. A failed push fails this job and the tag job never starts.
+  bypass:
+    name: bypass log
+    if: ${{ !inputs.dry_run && inputs.final && inputs.no_rc_reason != '' && inputs.gated_rc == '' && inputs.rc == '' && github.ref == 'refs/heads/main' && needs.verdict.outputs.refused == 'false' }}
+    needs: verdict
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release-bypass
+    steps:
+      - name: Token for rivolt-infra (GitHub App, write)
+        id: infra-write
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RIVOLT_INFRA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RIVOLT_INFRA_APP_KEY }}
+          owner: apohor
+          repositories: rivolt-infra
+          permission-contents: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/ci
+      - name: Checkout rivolt-infra
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: apohor/rivolt-infra
+          token: ${{ steps.infra-write.outputs.token }}
+          path: infra
+      - name: Log the bypass on rivolt-infra main
+        env:
+          TAG: ${{ needs.verdict.outputs.tag }}
+          SHA: ${{ needs.verdict.outputs.sha }}
+          REASON: ${{ inputs.no_rc_reason }}
+        run: bash .github/ci/bypass-log.sh infra
+
   tag:
     name: tag
-    if: ${{ !inputs.dry_run && github.ref == 'refs/heads/main' }}
-    needs: verdict
+    # The bypass job is skipped unless this is a no-rc final; when it runs it must have succeeded (the log line is on main).
+    if: ${{ !cancelled() && !inputs.dry_run && github.ref == 'refs/heads/main' && needs.verdict.result == 'success' && (needs.bypass.result == 'success' || needs.bypass.result == 'skipped') }}
+    needs: [verdict, bypass]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -159,11 +204,16 @@ jobs:
           SHA: ${{ needs.verdict.outputs.sha }}
         run: |
           set -euo pipefail
-          case "$TAG" in v*-rc.*) ;; *) echo "::error::this job cuts release candidates only, got '$TAG'"; exit 1 ;; esac
+          case "$TAG" in
+            v*-rc.*) ;;
+            v*-*) echo "::error::not a release tag: '$TAG'"; exit 1 ;;
+            v*) [ "${{ inputs.final }}" = true ] || { echo "::error::a final tag needs final=true, got '$TAG'"; exit 1; } ;;
+            *) echo "::error::not a release tag: '$TAG'"; exit 1 ;;
+          esac
           [[ $SHA =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no commit from the verdict"; exit 1; }
           obj=$(gh api -X POST "repos/$GH_REPO/git/tags" -f tag="$TAG" -f message="$TAG" -f object="$SHA" -f type=commit --jq .sha)
           gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$obj" --jq .ref
           # The tag must resolve to the verdict's commit (a refused create above already failed the step).
           got=$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)
           [ "$got" = "$SHA" ] || { echo "::error::$TAG resolves to $got, not $SHA"; exit 1; }
-          echo "tagged $TAG at ${SHA:0:7}; the tag build starts by itself (tag-validate, retag, pin-preview)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "tagged $TAG at ${SHA:0:7}; the tag build starts by itself (tag-validate, retag, then pin-preview for an rc or bump-prod and unpin-preview for a final)" | tee -a "$GITHUB_STEP_SUMMARY"

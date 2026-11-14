@@ -37,8 +37,10 @@ if [ -n "$RC" ]; then
   [[ $RC =~ ^[1-9][0-9]*$ ]] || { refuse "rc '$RC' is not a positive number"; finish; }
   TAG="$VERSION-rc.$RC"
 else TAG=$VERSION; fi
-# The workflow cuts release candidates only. A final also needs prod's sync, which is still ship-release.sh until prod is an autosync app.
-if [ -z "$RC" ] && [ "${FINAL_BY_WORKFLOW:-}" != true ]; then refuse "a final tag is not cut by this workflow yet (prod is not an autosync app): use ship-release.sh $VERSION"; fi
+# A final is cut only on request (final=true): the workflow's default is the release candidate. It takes the gated rc or a no_rc_reason, never both.
+if [ -z "$RC" ] && [ "${FINAL_BY_WORKFLOW:-}" != true ]; then refuse "a final tag needs final=true (or give rc=N for a release candidate)"; fi
+if [ -n "$RC" ] && [ "${FINAL_BY_WORKFLOW:-}" = true ]; then refuse "rc=$RC and final=true together: a release is one or the other"; fi
+if [ -n "$GATED_RC" ] && [ -n "$NO_RC_REASON" ]; then refuse "gated_rc and no_rc_reason together: a final promotes the gated rc or is a logged bypass, not both"; fi
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then refuse "tag $TAG already exists (v* tags are immutable)"; fi
 
 FULL=$(git rev-parse -q --verify "${SHA:-origin/main}^{commit}") || { refuse "sha '${SHA:-origin/main}' is not a commit"; finish; }

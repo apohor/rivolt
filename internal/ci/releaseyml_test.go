@@ -38,3 +38,23 @@ func TestTagValidateGatesFinals(t *testing.T) {
 		}
 	}
 }
+
+// A final tag needs final=true; one with no gated rc passes through the release-bypass environment and its log job before the tag job.
+func TestReleaseFinalPath(t *testing.T) {
+	tag := jobOf(t, "release.yml", "tag")
+	bypass := jobOf(t, "release.yml", "bypass")
+	if !strings.Contains(bypass, "environment: release-bypass") || !strings.Contains(bypass, "bypass-log.sh") {
+		t.Error("the bypass job must run in the release-bypass environment and write the log")
+	}
+	if !strings.Contains(bypass, "inputs.gated_rc == ''") {
+		t.Error("a final that names a gated rc must not log a bypass")
+	}
+	for _, want := range []string{"needs: [verdict, bypass]", "needs.bypass.result == 'success'", "needs.bypass.result == 'skipped'", "inputs.final"} {
+		if !strings.Contains(tag, want) {
+			t.Errorf("tag job lacks %q", want)
+		}
+	}
+	if !strings.Contains(jobOf(t, "release.yml", "verdict"), "FINAL_BY_WORKFLOW: ${{ inputs.final }}") {
+		t.Error("the verdict is not told final=true")
+	}
+}
