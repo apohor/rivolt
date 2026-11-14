@@ -151,16 +151,20 @@ final class PlanSheetUITests: XCTestCase {
         }
     }
 
-    /// At the largest sizes the trip's name wraps in full at the full detent: it is not cut to two lines with an ellipsis (#2136).
-    func testAtAX3TheTripTitleWrapsInFull() throws {
+    /// At the largest sizes the trip's name is cut to two lines above the full detent and wraps in whole at it (#2136). The runner is not at AX3
+    /// itself, so the check is the title's own height at half against full: with `lineLimit(2)` at both, the two are equal.
+    func testAtAX3TheTripTitleIsTallerAtFullThanAtHalf() throws {
         let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         let grabber = open("Two days to Spokane", in: app)
-        for _ in 0..<3 where grabber.value as? String != "full" { grabber.tap() }
-        expect(grabber, "full", "the sheet is at full")
+        grabber.tap()
+        expect(grabber, "half", "the grabber raises it to half")
         let title = app.descendants(matching: .any)["plan-sheet-title"].firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10), "the title is in the header")
-        let lines = title.frame.height / UIFont.preferredFont(forTextStyle: .title2).lineHeight
-        XCTAssertGreaterThan(lines, 2.5, "at AX3 the name shows more than two lines (\(title.frame))")
+        let atHalf = title.frame.height
+        grabber.tap()
+        expect(grabber, "full", "the grabber raises it to full")
+        let atFull = title.frame.height
+        XCTAssertGreaterThan(atFull, atHalf + 20, "the name of the trip shows more lines at full (\(atFull) pt) than at half (\(atHalf) pt)")
     }
 
     /// Brings the elevation chart into view by opening the sheet and scrolling its details, and returns it.
