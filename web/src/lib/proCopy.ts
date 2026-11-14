@@ -53,7 +53,7 @@ export function firstCharge(state: PlanState): string {
 // The renewal sentence for the choice, directly above the button next to an unticked box (compliance B1/B2).
 export function consentText(i: Interval, state: PlanState): string {
   const o = PRO.options[i === "year" ? "year" : "month"];
-  return `I understand that Rivolt Pro renews automatically at ${o.price} ${o.unit} until I cancel, that the first charge is ${firstCharge(state)}, and that I can cancel in one step from Settings → Account → Plan. 14-day refund on the first charge, no questions.`;
+  return `I understand that Rivolt Pro renews automatically at ${o.price} ${o.unit} until I cancel, that the first charge is ${firstCharge(state)}, and that I can cancel in one step from Settings → Account → Plan. 7-day refund on the first charge, no questions.`;
 }
 
 // The Settings plan card, one state at a time: [title, line, action | null].

@@ -36,7 +36,7 @@ Rivolt was free during its public beta. From November 16, 2026 the hosted servic
 - **Renewal.** A subscription renews automatically at the end of each period, at the price shown when you subscribed, until you cancel. For yearly plans bought on the web we email a reminder at least 30 days before each renewal.
 - **Cancelling.** On the web, Settings → Account → Plan opens Stripe's customer portal and cancels in one step, no questions asked; in the app, cancel in your Apple subscriptions. Cancelling stops the next charge; Pro stays on until the period you paid for ends.
 - **Price changes.** We will email you at least 30 days before a price change applies to you, and you can cancel before it does.
-- **Refunds.** Web purchases: a full refund within 14 days of the first charge, no questions asked, by emailing support@rivolt.dev. Apple purchases: Apple decides refunds under its own terms; ask Apple. Either way, the pro-rata refund in section 2 applies if the service stops or Rivian access is lost for 30 consecutive days.
+- **Refunds.** Web purchases: a full refund within 7 days of the first charge, no questions asked, by emailing support@rivolt.dev. Apple purchases: Apple decides refunds under its own terms; ask Apple. Either way, the pro-rata refund in section 2 applies if the service stops or Rivian access is lost for 30 consecutive days.
 - **If Pro ends** (you cancel, a payment fails after a 7-day grace period, or the free year ends), your account goes back to the free tier. Nothing is deleted: history outside the free window stays stored, stays in the free export, and reappears if you subscribe again.
 - **Deleting your account** cancels any web subscription; cancel an Apple subscription yourself first, because Apple does not let us.
 

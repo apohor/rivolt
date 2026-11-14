@@ -166,7 +166,7 @@ Plan choices (two options, nothing pre-selected):
 - Monthly: $3.99 a month
 
 
-Web consent line, directly above the checkout button, with an unticked box: "I understand that Rivolt Pro renews automatically at $34.99 a year [or $3.99 a month] until I cancel, that the first charge is {first_charge}, and that I can cancel in one step from Settings → Account → Plan. 14-day refund on the first charge, no questions. Terms · Privacy"
+Web consent line, directly above the checkout button, with an unticked box: "I understand that Rivolt Pro renews automatically at $34.99 a year [or $3.99 a month] until I cancel, that the first charge is {first_charge}, and that I can cancel in one step from Settings → Account → Plan. 7-day refund on the first charge, no questions. Terms · Privacy"
 No trial (owner decision). iPhone line under the plans: "Renews automatically until cancelled. Cancel at least 24 hours before the end of any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
 Rule for {first_charge} (lead's decision, DA's rule): an account still inside its free founding year that subscribes starts billing when that free period ends, so no free days are lost. The phrase is generated from the actual Stripe Checkout session, "on {period_end}" when the session carries a billing start date, "today" otherwise; never hard-coded, with a test that the line and the session agree.
 Checkout button: "Subscribe: $34.99 a year, renews yearly" / "Subscribe: $3.99 a month, renews monthly"
