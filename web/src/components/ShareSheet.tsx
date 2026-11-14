@@ -140,7 +140,7 @@ export function ShareSheet({
             <input type="checkbox" className="mt-1 accent-emerald-500" checked={includeMap} onChange={(e) => setIncludeMap(e.target.checked)} />
             <span>
               Include map
-              <span className="block text-xs text-neutral-400">Draws the route as a line. The start and end are cut off, so your home is never shown. No labels.</span>
+              <span className="block text-xs text-neutral-400">Draws the route as a line. The start and end are cut off, and so is the area around your saved home. No labels.</span>
             </span>
           </label>
         )}

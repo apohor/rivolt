@@ -35,6 +35,18 @@ describe("ShareTripButton map toggle", () => {
     expect(postcard).toHaveBeenCalledWith("d1", expect.anything());
   });
 
+  it("does not carry one drive's route over to the next", async () => {
+    postcard.mockResolvedValueOnce({ version: 1, distance_mi: 5, route: { segments: ["abc"] } });
+    const { rerender } = render(<ShareTripButton drive={drive} />);
+    open();
+    expect(await screen.findByLabelText(/Include map/)).toBeTruthy();
+    // The next drive's fetch stays pending: its sheet must not offer drive A's route meanwhile.
+    postcard.mockReturnValueOnce(new Promise(() => {}));
+    rerender(<ShareTripButton drive={{ ...drive, ID: "d2" } as Drive} />);
+    await waitFor(() => expect(postcard).toHaveBeenCalledWith("d2", expect.anything()));
+    expect(screen.queryByLabelText(/Include map/)).toBeNull();
+  });
+
   it("has no toggle when the flag is off, and never asks the server", async () => {
     flag.on = false;
     render(<ShareTripButton drive={drive} />);

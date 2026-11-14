@@ -15,16 +15,20 @@ export function ShareTripButton({ drive }: { drive: Drive }) {
   // The optional map (design-preview flag share_map): the server's trimmed route, fetched when the sheet opens. A drive
   // with no usable route (no_route, too_short, outside the free window) or a failed fetch simply has no toggle.
   const mapFlag = useDesignPreview("share_map");
-  const [segments, setSegments] = useState<string[] | null>(null);
+  // Kept with the drive it belongs to: this button is reused as the page moves between drives, so another drive's route
+  // is never taken for this one while its own is still loading.
+  const [loaded, setLoaded] = useState<{ id: string; segments: string[] } | null>(null);
   useEffect(() => {
     if (!open || !mapFlag || sample) return;
     const ac = new AbortController();
+    setLoaded(null);
     backend
       .drivePostcard(drive.ID, ac.signal)
-      .then((p) => setSegments(p.route.segments.length > 0 ? p.route.segments : null))
-      .catch(() => setSegments(null));
+      .then((p) => setLoaded(p.route.segments.length > 0 ? { id: drive.ID, segments: p.route.segments } : null))
+      .catch(() => setLoaded(null));
     return () => ac.abort();
   }, [open, mapFlag, sample, drive.ID]);
+  const segments = loaded && loaded.id === drive.ID ? loaded.segments : null;
   const build = useCallback(
     (includeCost: boolean, _includeOffpeak: boolean, includeMap: boolean) => buildTripShareModel(drive, { includeCost, sample, mapSegments: includeMap ? segments : null }),
     [drive, sample, segments],
