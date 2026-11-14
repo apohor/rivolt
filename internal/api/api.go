@@ -1330,6 +1330,8 @@ func New(d Deps) http.Handler {
 				}))
 				// Networks' membership terms: sourced facts with their check date.
 				r.Get("/membership-terms", handleMembershipTerms(time.Now))
+				// A state's average residential price, dated and cited: the setup's default for the home rate (US only).
+				r.Get("/state-price", handleStatePrice)
 				// The user's off-peak electricity schedule (times and rates).
 				r.Get("/offpeak", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 					handleOffpeakGet(d.Settings.For(uid))(w, r)

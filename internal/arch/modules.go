@@ -21,7 +21,7 @@ var modules = map[string]string{
 	"internal/testpg": "platform", "internal/rolltest": "platform", "internal/integration": "platform", "internal/ci": "platform",
 	"internal/arch": "platform",
 	// Leaves with no in-repo imports that several modules use: mail transport, the app link, the LLM adapters, the electricity schedule.
-	"internal/email": "platform", "internal/iosapp": "platform", "internal/ai": "platform", "internal/offpeak": "platform",
+	"internal/email": "platform", "internal/iosapp": "platform", "internal/ai": "platform", "internal/offpeak": "platform", "internal/stateprice": "platform",
 
 	// ingest: the Rivian wire and connector.
 	"internal/rivian": "ingest", "internal/leases": "ingest", "internal/fence": "ingest", "internal/forward": "ingest",
