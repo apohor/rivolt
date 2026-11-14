@@ -526,8 +526,35 @@ extension RouteSnap {
                        hasSpeed: recorded.contains { $0.s?.isFinite == true }, runs: allRuns)
     }
 
-    /// One trace_route call: the matched sub-routes, and the unmatched stretches between them (in input points).
+    /// A run of this many input points in a row moved further than `farSnapM` is a side-street detour: at a slow turn the
+    /// 100 m search radius lets the matcher pick a loop through the neighbouring streets, which the whole-trace ratio guard
+    /// cannot see. A retry with the tighter radius keeps the match on the road the car was on.
+    static let farSnapM = 40.0
+    static let farRunPoints = 3
+    static let searchRadiusM = 100
+    static let retryRadiusM = 50
+
+    /// The longest run of consecutive tracepoints the matcher placed more than `farSnapM` from their input point.
+    static func farRun(_ tps: [ValhallaTraceResponse.Tracepoint?]) -> Int {
+        var best = 0, run = 0
+        for tp in tps {
+            if let d = tp?.distance, d > farSnapM { run += 1; best = max(best, run) } else { run = 0 }
+        }
+        return best
+    }
+
+    /// One trace_route call, retried once with a tighter search radius when the first match detours.
     static func trace(_ pts: [Point], source: some RouteSnapSource) async -> (chunks: [[Coord]], gaps: [Gap])? {
+        guard let first = await trace(pts, source: source, radius: searchRadiusM) else { return nil }
+        guard first.farRun >= farRunPoints else { return (first.chunks, first.gaps) }
+        if let retry = await trace(pts, source: source, radius: retryRadiusM), retry.farRun < first.farRun {
+            return (retry.chunks, retry.gaps)
+        }
+        return (first.chunks, first.gaps)
+    }
+
+    /// One trace_route call: the matched sub-routes, and the unmatched stretches between them (in input points).
+    private static func trace(_ pts: [Point], source: some RouteSnapSource, radius: Int) async -> (chunks: [[Coord]], gaps: [Gap], farRun: Int)? {
         var traced = pts
         if traced.count > maxTrace {
             let step = Int((Double(traced.count) / Double(maxTrace)).rounded(.up))
@@ -535,7 +562,8 @@ extension RouteSnap {
             if traced.last != pts.last, let last = pts.last { traced.append(last) }
         }
         traced = retimeWithoutDwell(traced)
-        let body = ValhallaTraceRequest(shape: traced.map { .init(lat: $0.lat, lon: $0.lon, time: $0.t) })
+        var body = ValhallaTraceRequest(shape: traced.map { .init(lat: $0.lat, lon: $0.lon, time: $0.t) })
+        body.traceOptions.searchRadius = radius
         guard let r = try? await source.valhallaTrace(body), let matchings = r.matchings, !matchings.isEmpty else { return nil }
         let chunks = matchings.map { m in m.geometry.map { DriveRoute.decode($0, precision: 6) } ?? [] }
         let tps = r.tracepoints ?? []
@@ -558,7 +586,7 @@ extension RouteSnap {
             let recorded = pathLengthM(traced.map { Coord(lat: $0.lat, lon: $0.lon) })
             if recorded > 0, matched > recorded * maxMatchRatio { return nil }
         }
-        return valid.isEmpty ? nil : (valid, gaps)
+        return valid.isEmpty ? nil : (valid, gaps, farRun(tps))
     }
 
     /// A road-following line between a gap's ends, or nil.

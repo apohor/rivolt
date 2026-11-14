@@ -37,21 +37,22 @@ struct ValhallaTraceRequest: Encodable {
     }
 
     struct TraceOptions: Encodable {
-        let searchRadius = 100
+        var searchRadius = 100
         let gpsAccuracy = 25
     }
 
     let shape: [Point]
     let costing = "auto"
     let shapeMatch = "walk_or_snap"
-    let traceOptions = TraceOptions()
+    var traceOptions = TraceOptions()
     let format = "osrm"
 }
 
 /// The OSRM-format answer: the matched sub-routes (polyline6) and, per input point, which one it landed in.
 struct ValhallaTraceResponse: Decodable {
     struct Matching: Decodable { let geometry: String? }
-    struct Tracepoint: Decodable { let matchingsIndex: Int }
+    /// `distance` is how far the matcher moved the input point onto the road, in metres.
+    struct Tracepoint: Decodable { let matchingsIndex: Int; var distance: Double? = nil }
 
     let matchings: [Matching]?
     let tracepoints: [Tracepoint?]?

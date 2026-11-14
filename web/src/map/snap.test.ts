@@ -5,7 +5,7 @@ vi.mock("../lib/config", () => ({
   valhallaBase: () => "/api/maps/valhalla",
 }));
 
-import { snapToRoads, type SnapPoint } from "./snap";
+import { farRunOf, snapToRoads, type SnapPoint } from "./snap";
 
 // Synthetic, not a recorded drive: a straight road east at ~13 m/s with a 60 s stop at a light halfway, one sample every 7 s.
 const LAT0 = 40;
@@ -47,11 +47,13 @@ function encode6(coords: [number, number][]): string {
   return out;
 }
 
-let bodies: { shape: { lat: number; lon: number; time?: number }[] }[];
+let bodies: { shape: { lat: number; lon: number; time?: number }[]; trace_options: { search_radius: number } }[];
+let distanceAt: ((radius: number, i: number) => number) | undefined;
 let reply: (shape: { lat: number; lon: number }[]) => [number, number][];
 
 beforeEach(() => {
   bodies = [];
+  distanceAt = undefined;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_url: string, init: { body: string }) => {
@@ -63,7 +65,10 @@ beforeEach(() => {
         json: async () => ({
           code: "Ok",
           matchings: [{ geometry: encode6(geom), confidence: 1 }],
-          tracepoints: b.shape.map(() => ({ matchings_index: 0 })),
+          tracepoints: b.shape.map((_: unknown, i: number) => ({
+            matchings_index: 0,
+            ...(distanceAt ? { distance: distanceAt(b.trace_options.search_radius, i) } : {}),
+          })),
         }),
       };
     }),
@@ -107,5 +112,37 @@ describe("snapToRoads", () => {
     reply = (shape) => shape.map((p) => [p.lat + 0.00002, p.lon]);
     const plan = await snapToRoads(road(), new AbortController().signal);
     expect(plan!.segments.some((s) => !s.raw)).toBe(true);
+  });
+
+  it("retries with a tighter radius when the matcher moves a run of points far", async () => {
+    reply = (shape) => shape.map((p) => [p.lat, p.lon]);
+    // At the wide radius points 10-13 snap 80 m away (a side-street loop); at 50 m the matcher stays on the road.
+    distanceAt = (radius, i) => (radius > 50 && i >= 10 && i <= 13 ? 80 : 3);
+    const plan = await snapToRoads(road(), new AbortController().signal);
+    expect(bodies.map((b) => b.trace_options.search_radius)).toEqual([100, 50]);
+    expect(plan!.segments.some((s) => !s.raw)).toBe(true);
+  });
+
+  it("does not retry for a short far run or a clean match", async () => {
+    reply = (shape) => shape.map((p) => [p.lat, p.lon]);
+    distanceAt = (_r, i) => (i === 10 || i === 11 ? 80 : 3);
+    await snapToRoads(road(), new AbortController().signal);
+    expect(bodies).toHaveLength(1);
+  });
+
+  it("keeps the first match when the retry is no better", async () => {
+    reply = (shape) => shape.map((p) => [p.lat, p.lon]);
+    distanceAt = (_r, i) => (i >= 10 && i <= 13 ? 80 : 3);
+    const plan = await snapToRoads(road(), new AbortController().signal);
+    expect(bodies).toHaveLength(2);
+    expect(plan!.segments.some((s) => !s.raw)).toBe(true);
+  });
+});
+
+describe("farRunOf", () => {
+  it("finds the longest run over 40 m", () => {
+    const d = [3, 50, 60, 3, 41, 90, 70, 45, 3].map((distance) => ({ distance }));
+    expect(farRunOf(d)).toBe(4);
+    expect(farRunOf([null, { distance: 41 }, null, {}])).toBe(1);
   });
 });
