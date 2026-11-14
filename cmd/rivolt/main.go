@@ -701,9 +701,9 @@ func runServer() {
 		}
 	}
 
-	// StoreKit (Pro 5): only when RIVOLT_APPLE_IAP_BUNDLE_ID is set; without it the routes do not exist. With billing on, the product list is required.
+	// StoreKit (Pro 5): only when RIVOLT_APPLE_IAP_BUNDLE_ID is set; without it the routes do not exist. Where the iPhone app sells (RIVOLT_BILLING_IOS on), the product list is required.
 	// A half-configured deployment stops here rather than accepting any product under the bundle.
-	appleIAP, appleErr := applebill.ConfigFromEnv(os.Getenv, rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING")))
+	appleIAP, appleErr := applebill.ConfigFromEnv(os.Getenv, rivian.ParseBoolEnv(os.Getenv("RIVOLT_BILLING_IOS")))
 	if appleErr != nil {
 		logger.Error("StoreKit is misconfigured; refusing to start", "err", appleErr.Error())
 		os.Exit(1)
