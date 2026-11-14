@@ -164,3 +164,20 @@ describe("setDriveRoute with dimmed dropouts", () => {
     expect(m.layers.get("rivolt-drive-gap")!.paint["line-dasharray"]).toEqual([3, 3]);
   });
 });
+
+describe("gapProgress on a track that passes a place twice", () => {
+  it("keeps the range to the dropout, not the stretch between two passes", () => {
+    // Out along lon 0..4 and back along the same road (lon 4..0): a dropout between lon 3 and 4 on the way out.
+    const track: [number, number][] = [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 3], [0, 2], [0, 1], [0, 0]];
+    const [r] = gapProgress(track, [{ from: [0, 3], to: [0, 4] }]);
+    expect(r[1] - r[0]).toBeCloseTo(0.125, 2);
+    expect(r[0]).toBeCloseTo(0.375, 2);
+  });
+
+  it("finds a dropout on the way back by its own ends", () => {
+    const track: [number, number][] = [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4], [0, 3], [0, 2], [0, 1], [0, 0]];
+    const rs = gapProgress(track, [{ from: [0, 3], to: [0, 4] }, { from: [0, 2], to: [0, 1] }]);
+    expect(rs[0][1] - rs[0][0]).toBeLessThan(0.2);
+    expect(rs[1][1] - rs[1][0]).toBeLessThan(0.2);
+  });
+});

@@ -150,19 +150,27 @@ export function gapProgress(track: LatLng[], gaps: { from: LatLng; to: LatLng }[
   }
   const total = cum[cum.length - 1];
   if (!(total > 0)) return [];
-  const near = (q: LatLng) => {
-    let best = 0;
-    let bd = Infinity;
-    for (let i = 0; i < track.length; i++) {
-      const d = Math.hypot(track[i][0] - q[0], (track[i][1] - q[1]) * Math.cos((q[0] * Math.PI) / 180));
-      if (d < bd) { bd = d; best = i; }
-    }
-    return cum[best] / total;
+  // The vertices at (about) the least distance from q: on a drive that passes a place twice, both passes qualify.
+  const candidates = (q: LatLng) => {
+    const d = track.map((t) => Math.hypot(t[0] - q[0], (t[1] - q[1]) * Math.cos((q[0] * Math.PI) / 180)));
+    const least = Math.min(...d);
+    const out: number[] = [];
+    d.forEach((x, i) => { if (x <= least * 1.5 + 1e-9) out.push(i); });
+    return out;
   };
+  // A dropout joins two vertices in drive order: of the pairs (from at i, to at j >= i) take the shortest stretch of track between them.
   return gaps.map((g) => {
-    const a = near(g.from);
-    const b = near(g.to);
-    return [Math.min(a, b), Math.max(a, b)] as [number, number];
+    const from = candidates(g.from);
+    const to = candidates(g.to);
+    let best: [number, number] | null = null;
+    for (const a of from) {
+      for (const b of to) {
+        const [lo, hi] = a <= b ? [a, b] : [b, a];
+        if (best === null || cum[hi] - cum[lo] < cum[best[1]] - cum[best[0]]) best = [lo, hi];
+      }
+    }
+    const [lo, hi] = best ?? [0, 0];
+    return [cum[lo] / total, cum[hi] / total] as [number, number];
   });
 }
 
