@@ -3,7 +3,7 @@
 # hand-pushed final meets the same rule as ship-release.sh and release.yml. The final's commit must be a release candidate's commit
 # (vX.Y.Z-rc.N at SHA), that rc's qa/rc-gate status must be success, and preview must be running its image (preview and admin-preview values).
 # Without an rc at SHA the only way through is a logged bypass: rivolt-infra's ops/release/rc-bypass.log holds a line for this tag at this
-# SHA (the release-bypass environment approval writes it before the tag; ship-release.sh NO_RC writes it too). It fails closed: anything it
+# SHA (the workflow's bypass job writes it before the tag; ship-release.sh NO_RC writes it too). It fails closed: anything it
 # cannot read refuses the tag.
 # Env: GH_REPO (this repo), INFRA_REPO (rivolt-infra), GH_TOKEN (read this repo), INFRA_TOKEN (read rivolt-infra), RC_TAG_REFS (test only: the
 # `git ls-remote --tags` lines to use instead of asking origin).

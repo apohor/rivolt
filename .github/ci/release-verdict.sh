@@ -71,7 +71,7 @@ if [ -z "$RC" ]; then
   if [ -z "$GATED_RC" ]; then
     if [ -z "$NO_RC_REASON" ]; then refuse "name the gated rc (gated_rc) or give a no_rc_reason"
     elif ! why=$(python3 -I "$CTL" no-rc-check "$NO_RC_REASON" 2>&1); then refuse "$why"
-    else note "no gated rc, reason accepted: '$NO_RC_REASON'. The real run needs the release-bypass environment approval and the rc-bypass.log line first"; fi
+    else note "no gated rc, reason accepted: '$NO_RC_REASON'. The real run runs in the release-bypass environment (main only, no reviewer) and writes the rc-bypass.log line first"; fi
   else
     [[ $GATED_RC =~ ^[1-9][0-9]*$ ]] || { refuse "gated_rc '$GATED_RC' is not a positive number"; finish; }
     RCTAG="$VERSION-rc.$GATED_RC"
