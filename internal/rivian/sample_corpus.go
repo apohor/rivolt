@@ -797,6 +797,7 @@ func NewSampleReplayFeed(pool *sql.DB, backfill time.Duration, logger *slog.Logg
 				WHERE v.rivian_vehicle_id = $1`, vehicleID).Scan(&at)
 			return at.Time, err
 		}
+		f.summaries = replayChargeSummaries(pool)
 	}
 	logger.Info("replay corpus: generated sample truck", "seed", SampleSeed,
 		"days", sampleDays, "loop", f.timeline.period().Round(time.Hour).String())
