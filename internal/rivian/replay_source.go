@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/charges"
 )
 
 // FrameSource feeds a StateMonitor full-snapshot State frames in place
@@ -879,7 +881,7 @@ func replayChargeSummaries(pool *sql.DB) func(ctx context.Context, vehicleID str
 	}
 	return func(ctx context.Context, vehicleID string) ([]SessionSummary, error) {
 		rows, err := pool.QueryContext(ctx, `
-			SELECT c.id, c.started_at, c.ended_at, c.energy_added_kwh
+			SELECT c.id, c.started_at, c.ended_at, c.energy_added_kwh, COALESCE(c.final_state, '')
 			  FROM charges c JOIN vehicles v ON v.id = c.vehicle_id
 			 WHERE v.rivian_vehicle_id = $1 AND c.source = 'live'
 			   AND c.ended_at IS NOT NULL AND c.ended_at > c.started_at AND c.energy_added_kwh > 0
@@ -894,8 +896,12 @@ func replayChargeSummaries(pool *sql.DB) func(ctx context.Context, vehicleID str
 			var id uuid.UUID
 			var start, end time.Time
 			var kwh float64
-			if err := rows.Scan(&id, &start, &end, &kwh); err != nil {
+			var final string
+			if err := rows.Scan(&id, &start, &end, &kwh, &final); err != nil {
 				return nil, err
+			}
+			if charges.IsOpenLiveFinalState(final) {
+				continue // still charging: the recorder moves ended_at on every frame, so a pause in frames must not make it a finished session
 			}
 			cost := math.Round(kwh*replayReceiptRatePerKWh*100) / 100
 			km := kwh * 2.5

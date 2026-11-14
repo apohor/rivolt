@@ -33,6 +33,7 @@ func TestReplayChargeSummariesFromRecordedCharges(t *testing.T) {
 	for _, c := range []charges.Charge{
 		mk("live_demo_c_1", demo, 0, 40, "charging_complete"),
 		mk("live_demo_c_2", demo, 90*time.Minute, 0, "charging_complete"),
+		mk("live_demo_c_3", demo, 150*time.Minute, 25, "charging_active"),
 		mk("live_other_c_1", "rv-other", 0, 30, "charging_complete"),
 	} {
 		if err := store.Upsert(ctx, c); err != nil {
