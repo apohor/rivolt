@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -91,6 +92,70 @@ type yearResponse struct {
 	Model               string          `json:"model,omitempty"` // only when every truck on the account is the same model
 	Cost                *yearCost       `json:"cost,omitempty"`
 	CostPerMile         float64         `json:"cost_per_mile,omitempty"` // in Cost.Currency; omitted with Cost
+
+	// Detail is the long-form year page, only with ?detail=1. Same rules as the card: months, never days; no places.
+	Detail *yearDetail `json:"detail,omitempty"`
+}
+
+// yearDetail is the long-form page's data: one row per month that had a drive or a charge (ascending), the longest drives by miles
+// (month only, no place or day) and the month with the most miles. No money: cost stays the card's optional field.
+type yearDetail struct {
+	Months        []yearMonth      `json:"months"`
+	LongestDrives []yearMonthMiles `json:"longest_drives"`
+	BusiestMonth  string           `json:"busiest_month,omitempty"` // "2026-03", the month with the most miles
+}
+
+type yearMonth struct {
+	Month       string  `json:"month"`
+	DriveCount  int     `json:"drive_count"`
+	Miles       float64 `json:"miles"`
+	KWh         float64 `json:"kwh"`
+	ChargeCount int     `json:"charge_count"`
+}
+
+const yearDetailLongest = 5
+
+// computeYearDetail is the pure part of the detail block.
+func computeYearDetail(ds []drives.Drive, cs []yearCharge) *yearDetail {
+	byMonth := map[string]*yearMonth{}
+	row := func(m string) *yearMonth {
+		if byMonth[m] == nil {
+			byMonth[m] = &yearMonth{Month: m}
+		}
+		return byMonth[m]
+	}
+	var longest []yearMonthMiles
+	for _, d := range ds {
+		m := row(d.StartedAt.UTC().Format("2006-01"))
+		m.DriveCount++
+		m.Miles += d.DistanceMi
+		m.KWh += d.EnergyUsedKWh
+		if d.DistanceMi > 0 {
+			longest = append(longest, yearMonthMiles{Miles: d.DistanceMi, Month: m.Month})
+		}
+	}
+	for _, c := range cs {
+		if c.month != "" {
+			row(c.month).ChargeCount++
+		}
+	}
+	out := &yearDetail{Months: []yearMonth{}, LongestDrives: []yearMonthMiles{}}
+	for _, m := range byMonth {
+		out.Months = append(out.Months, *m)
+	}
+	sort.Slice(out.Months, func(i, j int) bool { return out.Months[i].Month < out.Months[j].Month })
+	var best float64
+	for _, m := range out.Months {
+		if m.Miles > best {
+			best, out.BusiestMonth = m.Miles, m.Month
+		}
+	}
+	sort.SliceStable(longest, func(i, j int) bool { return longest[i].Miles > longest[j].Miles })
+	if len(longest) > yearDetailLongest {
+		longest = longest[:yearDetailLongest]
+	}
+	out.LongestDrives = append(out.LongestDrives, longest...)
+	return out
 }
 
 // yearCharge is the part of a charge the card needs.
@@ -101,6 +166,7 @@ type yearCharge struct {
 	energyEst bool
 	kwh       float64
 	where     string // "home" | "away" | "fast" | "" (could not be placed)
+	month     string // "2026-03", UTC, the month the charge began
 }
 
 // yearExtras are the figures that do not come from the drives or the charges.
@@ -281,7 +347,7 @@ func handleYearInRivolt(pool *sql.DB, uid uuid.UUID, ds *drives.Store, cs *charg
 				if c.Cost <= 0 {
 					cur = c.EstimatedCurrency
 				}
-				yc = append(yc, yearCharge{cost: c.Cost, estimated: c.EstimatedCost, currency: cur, energyEst: c.EnergyEstimated, kwh: c.EnergyAddedKWh, where: where})
+				yc = append(yc, yearCharge{cost: c.Cost, estimated: c.EstimatedCost, currency: cur, energyEst: c.EnergyEstimated, kwh: c.EnergyAddedKWh, where: where, month: c.StartedAt.UTC().Format("2006-01")})
 			}
 		}
 		if reason := yearGate(now, createdAt, len(yd), len(yc)); reason != "" {
@@ -350,7 +416,11 @@ SELECT w.temp_c, d.started_at
 			ms = append(ms, m)
 		}
 		x.model = commonModel(ms)
-		resp(computeYear(year, yd, yc, x))
+		out := computeYear(year, yd, yc, x)
+		if r.URL.Query().Get("detail") == "1" {
+			out.Detail = computeYearDetail(yd, yc)
+		}
+		resp(out)
 	}
 }
 
