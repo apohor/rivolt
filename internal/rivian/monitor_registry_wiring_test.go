@@ -84,7 +84,7 @@ func TestSettersAfterMonitorsStartedAreCounted(t *testing.T) {
 }
 
 // main.go's order: the boot hydrate sweep builds a monitor for every user with a session, and a monitor copies most of what the
-// registry holds at that moment. So every registry setter must come before the first monitorRegistry.Start in main.go, except the two
+// registry holds at that moment. So every registry setter must come before the first monitorRegistry.Start in main.go, except the four
 // that monitors read through the registry (SetFence, SetScheduleObserver, SetRolloutObserver, SetVehicleInfoDeferredObserver). This reads the source text: main() is straight-line code,
 // so text order is call order. It is what would have caught SetRouteFiller sitting after the sweep.
 func TestMainWiresTheRegistryBeforeTheBootSweepStartsMonitors(t *testing.T) {
