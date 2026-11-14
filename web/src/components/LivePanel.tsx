@@ -10,6 +10,9 @@ import { num, pct } from "../lib/format";
 import { formatMoney } from "../lib/ledger";
 import { pickImageForState, useIsLight } from "../lib/vehicleImage";
 import { formatTemperature, usePreferences } from "../lib/preferences";
+import { useDesignPreview } from "../lib/config";
+import { LiveChargeGraph } from "./LiveChargeGraph";
+import { LiveDriveTrail } from "./LiveDriveTrail";
 
 // Unit conversions. Backend speaks SI at the wire.
 const kmToMi = (km: number) => km * 0.6213711922;
@@ -551,6 +554,8 @@ function ChargingDetail({
   // charging per vehicleState) but swap in an explanation block
   // instead of a grid full of em-dashes.
   const haveLiveData = !!ls && (ls.active || ls.power_kw > 0 || ls.total_charged_energy_kwh > 0);
+  // Design "live_v2": the charge so far as a graph, only while energy is actually flowing (not plugged in and waiting).
+  const liveV2 = useDesignPreview("live_v2");
 
   return (
     <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
@@ -661,6 +666,7 @@ function ChargingDetail({
           Live-session fetch failed: {String(sess.error)}
         </p>
       ) : null}
+      {liveV2 && isActiveState ? <LiveChargeGraph vehicleId={vehicle.id} /> : null}
     </div>
   );
 }
@@ -833,6 +839,8 @@ function DrivingDetail({
     retry: 1,
   });
   const d = q.data;
+  // Design "live_v2": the drive so far on a map.
+  const liveV2 = useDesignPreview("live_v2");
   // Current speed comes straight from vehicleState — the session
   // snapshot only carries aggregates (avg/max). Showing "now" next to
   // "avg / max" gives an at-a-glance sense of pace.
@@ -899,6 +907,7 @@ function DrivingDetail({
           Live-drive fetch failed: {String(q.error)}
         </p>
       ) : null}
+      {liveV2 ? <LiveDriveTrail vehicleId={vehicle.id} startedAt={d.started_at} lat={state.latitude} lon={state.longitude} /> : null}
     </div>
   );
 }
