@@ -31,6 +31,11 @@ var fixturesCheckedElsewhere = map[string]string{
 	"demo_trips.json":                "the demo's sample trip list, the embedded bytes verbatim, checked in demo_trip_fixtures_test.go",
 	"demo_trip_plan_single.json":     "a demo sample trip's stored plan, the embedded bytes verbatim, checked in demo_trip_fixtures_test.go",
 	"demo_trip_plan_two_days.json":   "a demo sample trip's stored two-day plan, the embedded bytes verbatim, checked in demo_trip_fixtures_test.go",
+	"activity_round_trip.json":       "the iPhone round-trip detail's fixture (3 legs and a stub the row leaves out, made-up places) in the legs[] shape agreed for #2148; move it to iosFixtureTargets (activityResponse) when that lands",
+	"drive_rt-leg-1.json":            "a drive row's route for the round-trip fixture (the same fields as GET /api/drives/{id}), read by RoundTripLegsTests and RoundTripUITests",
+	"drive_rt-leg-2.json":            "a drive row's route for the round-trip fixture (the same fields as GET /api/drives/{id}), read by RoundTripLegsTests and RoundTripUITests",
+	"drive_rt-leg-3.json":            "a drive row's route for the round-trip fixture (the same fields as GET /api/drives/{id}), read by RoundTripLegsTests and RoundTripUITests",
+	"samples_round_trip.json":        "the legs' samples (the same fields as GET /api/samples) for the round-trip fixture, read by RoundTripLegsTests and RoundTripUITests",
 }
 
 func fixtureNames(t *testing.T) []string {
