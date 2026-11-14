@@ -207,10 +207,13 @@ export type StubOptions = {
   historyImport?: boolean;
   // features.trip_share (RIVOLT_TRIP_SHARE).
   tripShare?: boolean;
+  // Live v2: an open charge row (charging_active) and samples that look like a charge in progress (battery climbing, pack temperature)
+  // or a drive in progress (the position moving), so the Live page's graph and map have something to draw.
+  liveSamples?: boolean;
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [] } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false } = opts;
   const month = currentMonth(new Date(e2eNow()));
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -379,6 +382,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/charges") {
       return json(route, [
+        ...(liveSamples && scenario === "charging" ? [charge(9, 0, { StartedAt: iso(3_600_000), EndedAt: iso(0), FinalState: "charging_active", StartSoCPct: 40, EndSoCPct: 52, MaxPowerKW: 11 })] : []),
         charge(1, 0.5),
         charge(2, 2, { MaxPowerKW: 150, Cost: 18.2, CostSource: "network_estimate", PricePerKWh: 0.4, Lat: 40.9, Lon: -100.9 }),
         charge(3, 4, { Cost: 0, CostSource: "", PricePerKWh: 0, Lat: 41.2, Lon: -100.5 }),
@@ -391,6 +395,16 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       const since = Date.parse(url.searchParams.get("since") || "") || e2eNow() - 3_600_000;
       const until = Date.parse(url.searchParams.get("until") || "") || since + 3_600_000;
       const out: Record<string, unknown>[] = [];
+      if (liveSamples) {
+        const now = e2eNow();
+        for (let t = since, i = 0; t <= Math.min(until, now) && i < 400; t += 30_000, i++) {
+          const base = { VehicleID: VEHICLE_ID, At: new Date(t).toISOString(), RangeMi: 200, OdometerMi: 1000, ChargeLimitPct: 80, InsideTempC: 20, OutsideTempC: 12, Source: "live" };
+          out.push(scenario === "driving"
+            ? { ...base, BatteryLevelPct: 60 - i * 0.05, Lat: 40.2 + ((t - now) / 600_000) * 0.02, Lon: -100.3 + ((t - now) / 600_000) * 0.025 + 0.002 * Math.sin(i / 3), SpeedMph: 45, ShiftState: "D", ChargingState: "", ChargerPowerKW: 0 }
+            : { ...base, BatteryLevelPct: 40 + i * 0.2, Lat: 40, Lon: -100, SpeedMph: 0, ShiftState: "P", ChargingState: "charging_active", ChargerPowerKW: 11 - Math.min(4, i / 30), pack_temp_avg_c: 24 + i * 0.05, pack_temp_min_c: 22 + i * 0.05, pack_temp_max_c: 26 + i * 0.05 });
+        }
+        return json(route, out);
+      }
       for (let t = since, i = 0; t <= until && i < 400; t += 30_000, i++) {
         const k = i / 60;
         out.push({
