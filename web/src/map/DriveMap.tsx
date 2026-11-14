@@ -5,14 +5,14 @@
 // the map is unavailable and leaves the rest of the page standing.
 import { useEffect, useMemo, useRef } from "react";
 import type { Map as MLMap, Marker } from "maplibre-gl";
-import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
+import { ensureConfig, tilesPMTilesURL, useDesignPreview, valhallaBase } from "../lib/config";
 import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
 import { loadMapLibre } from "./loader";
 import { webglAvailable } from "./webgl";
 import { styleFor } from "./base";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import { BASEMAP_ATTRIBUTION, type MapFlavor } from "./style";
-import { boundsOf, firstLabelLayer, setDriveGradient, setDriveRoute, type LatLng } from "./route";
+import { boundsOf, firstLabelLayer, gapProgress, setDriveGradient, setDriveRoute, type LatLng } from "./route";
 import { snapToRoads, type SnapPoint } from "./snap";
 import { displayTimeZone } from "../lib/format";
 import { localUnits } from "../lib/preferences";
@@ -50,6 +50,8 @@ export function DriveMap({
   // Round-trip stops between legs: a pin with its label ("Parked 13 min"). Memoise: a new array rebuilds the map.
   stops?: { lat: number; lon: number; label: string }[];
 }) {
+  // gap_dim (design preview): dropouts drawn solid and faded in the route's own colour instead of dashed neutral.
+  const gapDim = useDesignPreview("gap_dim");
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
   // Where the legend card goes on a phone: directly under the map.
@@ -174,7 +176,9 @@ export function DriveMap({
       };
       const applyMode = () => {
         refreshLegend();
-        if (styleReady) setDriveGradient(map, gradient().stops);
+        if (!styleReady) return;
+        if (gapDim && gaps.length > 0) draw();
+        else setDriveGradient(map, gradient().stops);
       };
       if (!(phone && legend)) map.addControl(picker, "top-right");
       cleanups.push(onAppMapFlavor((f) => { setFlavor(f); }));
@@ -241,7 +245,7 @@ export function DriveMap({
       // Not map.isStyleLoaded(): that is false while any source is loading a tile, which dropped route updates made in that time.
       const draw = () => {
         const g = gradient();
-        setDriveRoute(map, { track: hasSpread ? track : [], stops: g.stops, routedGaps, gaps }, flavor, firstLabelLayer(map));
+        setDriveRoute(map, { track: hasSpread ? track : [], stops: g.stops, routedGaps, gaps, gapRanges: gapDim && gaps.length > 0 ? gapProgress(track, gaps) : undefined }, flavor, firstLabelLayer(map));
         refreshLegend();
         updatePills(true);
         drawn.markDrawn();
@@ -341,7 +345,7 @@ export function DriveMap({
     return () => { for (const c of cleanups.reverse()) c(); };
     // points is an array derived upstream; re-run only when its identity or the endpoints change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds, packKWh, stops]);
+  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds, packKWh, stops, gapDim]);
 
   // The scrub dot and its readout follow cursorTime without rebuilding the map.
   useEffect(() => {

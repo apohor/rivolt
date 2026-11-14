@@ -11,6 +11,7 @@ vi.mock("../lib/config", () => ({
   tilesGlyphsURL: () => "/api/maps/glyphs/{fontstack}/{range}.pbf",
   tilesDEM: () => ({ url: "/api/maps/dem/{z}/{x}/{y}.png", minZoom: 3, maxZoom: 10 }),
   valhallaBase: () => "",
+  useDesignPreview: () => false,
 }));
 
 import { DriveMap } from "./DriveMap";

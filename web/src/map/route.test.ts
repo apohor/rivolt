@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boundsOf, routeData, setDriveGradient, setDriveRoute, speedColor, speedRuns, type LatLng } from "./route";
+import { boundsOf, clearRanges, colorAtProgress, gapProgress, routeData, setDriveGradient, setDriveRoute, speedColor, speedRuns, type LatLng } from "./route";
 import { SPEED_BUCKETS } from "../lib/speedBuckets";
 
 const line: LatLng[] = [[40, -100], [40.1, -100.1], [40.2, -100.2], [40.3, -100.3]];
@@ -86,5 +86,81 @@ describe("setDriveRoute", () => {
     const m = fake();
     setDriveRoute(m as never, { track: [[10, 10]], stops }, "dark");
     expect((m.sources.get("rivolt-track")!.data as { features: unknown[] }).features).toHaveLength(0);
+  });
+});
+
+describe("gap_dim helpers", () => {
+  const stops: (number | string)[] = [0, "#aaa", 0.5, "#bbb", 1, "#ccc"];
+
+  it("colorAtProgress takes the last stop at or before p", () => {
+    expect(colorAtProgress(stops, 0.2)).toBe("#aaa");
+    expect(colorAtProgress(stops, 0.5)).toBe("#bbb");
+    expect(colorAtProgress(stops, 1)).toBe("#ccc");
+  });
+
+  it("clearRanges blanks a range with hard edges and keeps stops ascending", () => {
+    const out = clearRanges(stops, [[0.3, 0.4]]);
+    const ps = out.filter((_, i) => i % 2 === 0).map(Number);
+    expect([...ps].sort((a, b) => a - b)).toEqual(ps);
+    expect(new Set(ps).size).toBe(ps.length);
+    expect(out).toContain("rgba(0,0,0,0)");
+    expect(out.slice(0, 2)).toEqual([0, "#aaa"]);
+    expect(out.slice(-2)).toEqual([1, "#ccc"]);
+  });
+
+  it("clearRanges drops stops inside the range and passes through with no ranges", () => {
+    expect(clearRanges(stops, [])).toBe(stops);
+    expect(clearRanges(stops, [[0.4, 0.6]]).filter((_, i) => i % 2 === 0)).not.toContain(0.5);
+  });
+
+  it("gapProgress maps a dropout to the track's progress", () => {
+    const track: [number, number][] = [[0, 0], [0, 1], [0, 2], [0, 3], [0, 4]];
+    const [r] = gapProgress(track, [{ from: [0, 1], to: [0, 3] }]);
+    expect(r[0]).toBeCloseTo(0.25, 2);
+    expect(r[1]).toBeCloseTo(0.75, 2);
+  });
+});
+
+describe("setDriveRoute with dimmed dropouts", () => {
+  const track: LatLng[] = [[10, 10], [10.1, 10.1], [10.2, 10.2], [10.3, 10.3]];
+  const stops = [0, "#2b7de9", 1, "#f0a000"];
+  const gaps = [{ from: track[1], to: track[2] }];
+  function fake() {
+    const layers = new Map<string, { paint: Record<string, unknown>; filter?: unknown }>();
+    const sources = new Map<string, { setData: (d: unknown) => void }>();
+    return {
+      layers,
+      getSource: (id: string) => sources.get(id),
+      addSource: (id: string) => { sources.set(id, { setData: () => {} }); },
+      getLayer: (id: string) => (layers.has(id) ? {} : undefined),
+      addLayer: (l: { id: string; paint: Record<string, unknown>; filter?: unknown }) => { layers.set(l.id, l); },
+      removeLayer: (id: string) => { layers.delete(id); },
+      setPaintProperty: () => {},
+    };
+  }
+
+  it("draws a dropout solid, faded and in the route's colour, and clears the track under it", () => {
+    const m = fake();
+    setDriveRoute(m as never, { track, stops, gaps, gapRanges: gapProgress(track, gaps) }, "light");
+    const gap = m.layers.get("rivolt-drive-gap")!.paint;
+    expect(gap["line-dasharray"]).toBeUndefined();
+    expect(gap["line-opacity"]).toBe(0.35);
+    expect(gap["line-width"]).toBe(4.6);
+    expect(JSON.stringify(m.layers.get("rivolt-track-main")!.paint["line-gradient"])).toContain("rgba(0,0,0,0)");
+    expect(m.layers.get("rivolt-drive-gapcase")!.filter).toEqual(["==", ["get", "kind"], "routed"]);
+  });
+
+  it("rebuilds the dashed layers into dimmed ones when the dropouts arrive after the first draw", () => {
+    const m = fake();
+    setDriveRoute(m as never, { track, stops }, "light");
+    expect(m.layers.get("rivolt-drive-gap")!.paint["line-dasharray"]).toEqual([3, 3]);
+    setDriveRoute(m as never, { track, stops, gaps, gapRanges: gapProgress(track, gaps) }, "light");
+    expect(m.layers.get("rivolt-drive-gap")!.paint["line-dasharray"]).toBeUndefined();
+  });
+
+  it("without the flag it keeps the dashed neutral dropout", () => {
+    const m = fake();
+    setDriveRoute(m as never, { track, stops, gaps }, "light");
+    expect(m.layers.get("rivolt-drive-gap")!.paint["line-dasharray"]).toEqual([3, 3]);
   });
 });
