@@ -30,7 +30,7 @@ import { collapseRoundTrips, driveDurationSeconds, driveHasTrailer } from "../li
 import { cleanTrack } from "../lib/driveTrack";
 import { TrailerControl } from "../components/TrailerControl";
 import { analyzeDrivePower } from "../lib/power";
-import { useGPSThresholds } from "../lib/config";
+import { useDesignPreview, useGPSThresholds } from "../lib/config";
 import { usePreferences } from "../lib/preferences";
 
 export default function DriveDetailPage() {
@@ -392,9 +392,11 @@ export default function DriveDetailPage() {
   // normal and must not flag an otherwise-good track, so we only warn
   // when a meaningful share of the drive's fixes are stale and report
   // the worst such age. A frozen-fix drive trips this at ~100%.
+  // gap_dim (design preview): a drive needs 60% stale fixes, not 30%, before the badge shows.
+  const gapDim = useDesignPreview("gap_dim");
   const fixAgeSeconds = useMemo(() => {
     const STALE_S = 5 * 60; // per-sample staleness floor; mirrors DriveMap's badge threshold
-    const STALE_FRACTION = 0.3;
+    const STALE_FRACTION = gapDim ? 0.6 : 0.3;
     let withFix = 0;
     let stale = 0;
     let worstStale = 0;
@@ -410,7 +412,7 @@ export default function DriveDetailPage() {
     }
     if (withFix === 0 || stale / withFix < STALE_FRACTION) return null;
     return worstStale;
-  }, [mapPathSamples]);
+  }, [mapPathSamples, gapDim]);
 
   // Physics-based power totals — share the same model the timeline
   // ribbon uses so the "Regen recovered" stat tile and the chart's

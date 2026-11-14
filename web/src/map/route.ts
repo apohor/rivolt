@@ -86,7 +86,94 @@ export type DriveRoute = {
   // Where the match gave up: road-routed fills (solid) and true dropouts (dashed), drawn neutral over the track.
   routedGaps?: LatLng[][];
   gaps?: { from: LatLng; to: LatLng }[];
+  // gap_dim: where the dropouts fall along the track, as [from, to] line progress. When set, the track is cleared there and each dropout is
+  // drawn solid in the colour the route has at that point, faded, instead of the neutral dashes.
+  gapRanges?: [number, number][];
 };
+
+// Whether a map's drive layers were last built with the dropouts dimmed.
+const dimmed = new WeakMap<object, boolean>();
+const CLEAR = "rgba(0,0,0,0)";
+const EDGE = 1e-7;
+
+// colorAtProgress is the colour a [progress, colour, ...] stop list gives at p (the last stop at or before it: steps are good enough for a fade).
+export function colorAtProgress(stops: (number | string)[], p: number): string {
+  let c = String(stops[1] ?? ROUTE_NEUTRAL);
+  for (let i = 0; i + 1 < stops.length; i += 2) {
+    if (Number(stops[i]) <= p) c = String(stops[i + 1]);
+  }
+  return c;
+}
+
+// clearRanges returns the stops with each [from, to] progress range made fully transparent, with hard edges.
+export function clearRanges(stops: (number | string)[], ranges: [number, number][]): (number | string)[] {
+  const rs = ranges.filter(([a, b]) => b - a > 4 * EDGE).sort((x, y) => x[0] - y[0]);
+  if (rs.length === 0) return stops;
+  const out: (number | string)[] = [];
+  let last = -1;
+  const push = (p: number, c: string) => {
+    if (p <= last) return;
+    out.push(p, c);
+    last = p;
+  };
+  let k = 0;
+  for (let i = 0; i + 1 < stops.length; i += 2) {
+    const p = Number(stops[i]);
+    while (k < rs.length && rs[k][1] <= p) {
+      const [a, b] = rs[k++];
+      push(a, colorAtProgress(stops, a));
+      push(a + EDGE, CLEAR);
+      push(b - EDGE, CLEAR);
+      push(b, colorAtProgress(stops, b));
+    }
+    if (rs.slice(k).some(([a, b]) => p > a && p < b)) continue;
+    push(p, String(stops[i + 1]));
+  }
+  while (k < rs.length) {
+    const [a, b] = rs[k++];
+    push(a, colorAtProgress(stops, a));
+    push(a + EDGE, CLEAR);
+    push(b - EDGE, CLEAR);
+    push(b, colorAtProgress(stops, b));
+  }
+  return out;
+}
+
+// gapProgress locates each dropout on the track as [from, to] line progress, by the track vertices nearest its ends.
+export function gapProgress(track: LatLng[], gaps: { from: LatLng; to: LatLng }[]): [number, number][] {
+  if (track.length < 2) return [];
+  const cum = [0];
+  for (let i = 1; i < track.length; i++) {
+    const dLat = track[i][0] - track[i - 1][0];
+    const dLon = (track[i][1] - track[i - 1][1]) * Math.cos((track[i][0] * Math.PI) / 180);
+    cum.push(cum[i - 1] + Math.hypot(dLat, dLon));
+  }
+  const total = cum[cum.length - 1];
+  if (!(total > 0)) return [];
+  // The vertices near the least distance from q (within 1.5x, or 50 m more): on a drive that passes a place twice, both passes qualify.
+  const SLACK = 50 / 111320;
+  const candidates = (q: LatLng) => {
+    const d = track.map((t) => Math.hypot(t[0] - q[0], (t[1] - q[1]) * Math.cos((q[0] * Math.PI) / 180)));
+    const least = Math.min(...d);
+    const out: number[] = [];
+    d.forEach((x, i) => { if (x <= Math.max(least * 1.5, least + SLACK) + 1e-9) out.push(i); });
+    return out;
+  };
+  // A dropout joins two vertices in drive order: of the pairs (from at i, to at j >= i) take the shortest stretch of track between them.
+  return gaps.map((g) => {
+    const from = candidates(g.from);
+    const to = candidates(g.to);
+    let best: [number, number] | null = null;
+    for (const a of from) {
+      for (const b of to) {
+        const [lo, hi] = a <= b ? [a, b] : [b, a];
+        if (best === null || cum[hi] - cum[lo] < cum[best[1]] - cum[best[0]]) best = [lo, hi];
+      }
+    }
+    const [lo, hi] = best ?? [0, 0];
+    return [cum[lo] / total, cum[hi] / total] as [number, number];
+  });
+}
 
 const gradientExpr = (stops: (number | string)[]) => ["interpolate", ["linear"], ["line-progress"], ...stops] as never;
 
@@ -97,7 +184,14 @@ export function setDriveRoute(map: MLMap, r: DriveRoute, flavor: "dark" | "light
     type: "FeatureCollection" as const,
     features: r.track.length >= 2 ? [{ type: "Feature" as const, geometry: { type: "LineString" as const, coordinates: r.track.map(lonlat) }, properties: {} }] : [],
   };
+  const dim = !!r.gapRanges && r.gapRanges.length > 0;
   const fills = routeData({ runs: [], routedGaps: r.routedGaps, gaps: r.gaps });
+  if (dim) {
+    r.gapRanges!.forEach(([a, b], i) => {
+      const f = fills.features.filter((x) => x.properties.kind === "gap")[i];
+      if (f) f.properties.color = colorAtProgress(r.stops, (a + b) / 2);
+    });
+  }
   const ts = map.getSource(TRACK_SOURCE) as GeoJSONSource | undefined;
   if (ts) ts.setData(trackData as never);
   else map.addSource(TRACK_SOURCE, { type: "geojson", lineMetrics: true, data: trackData as never });
@@ -105,17 +199,28 @@ export function setDriveRoute(map: MLMap, r: DriveRoute, flavor: "dark" | "light
   if (rs) rs.setData(fills as never);
   else map.addSource(ROUTE_SOURCE, { type: "geojson", data: fills as never });
   const round = { "line-cap": "round", "line-join": "round" } as const;
-  const grad = gradientExpr(r.stops);
+  const cleared = dim ? clearRanges(r.stops, r.gapRanges!) : r.stops;
+  const grad = gradientExpr(cleared);
+  const casingGrad = dim ? gradientExpr(clearRanges([0, CASING[flavor], 1, CASING[flavor]], r.gapRanges!)) : undefined;
+  // The layers are made before the dropouts are known (they come with the road match), so a change in whether any are dimmed rebuilds them.
+  if (map.getLayer(DRIVE_LAYERS[5]) && dim !== (dimmed.get(map) ?? false)) {
+    for (const id of [...DRIVE_LAYERS].reverse()) if (map.getLayer(id)) map.removeLayer(id);
+  }
+  dimmed.set(map, dim);
   if (!map.getLayer(DRIVE_LAYERS[0])) {
     const dark = flavor === "dark";
     map.addLayer({ id: DRIVE_LAYERS[0], type: "line", source: TRACK_SOURCE, layout: round, paint: { "line-width": 14, "line-blur": 9, "line-opacity": dark ? 0.5 : 0.3, "line-gradient": grad } }, beforeId);
-    map.addLayer({ id: DRIVE_LAYERS[1], type: "line", source: TRACK_SOURCE, layout: round, paint: { "line-width": 8, "line-color": CASING[flavor], "line-opacity": 0.92 } }, beforeId);
+    map.addLayer({ id: DRIVE_LAYERS[1], type: "line", source: TRACK_SOURCE, layout: round, paint: { "line-width": 8, ...(casingGrad ? { "line-gradient": casingGrad } : { "line-color": CASING[flavor] }), "line-opacity": 0.92 } }, beforeId);
     map.addLayer({ id: DRIVE_LAYERS[2], type: "line", source: TRACK_SOURCE, layout: round, paint: { "line-width": 4.6, "line-gradient": grad } }, beforeId);
-    map.addLayer({ id: DRIVE_LAYERS[3], type: "line", source: ROUTE_SOURCE, filter: ["in", ["get", "kind"], ["literal", ["routed", "gap"]]], layout: round, paint: { "line-width": 7, "line-color": CASING[flavor], "line-opacity": 0.92 } }, beforeId);
+    map.addLayer({ id: DRIVE_LAYERS[3], type: "line", source: ROUTE_SOURCE, filter: dim ? ["==", ["get", "kind"], "routed"] : ["in", ["get", "kind"], ["literal", ["routed", "gap"]]], layout: round, paint: { "line-width": 7, "line-color": CASING[flavor], "line-opacity": 0.92 } }, beforeId);
     map.addLayer({ id: DRIVE_LAYERS[4], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "routed"], layout: round, paint: { "line-color": ROUTE_NEUTRAL, "line-width": 2.5, "line-opacity": 0.8 } }, beforeId);
-    map.addLayer({ id: DRIVE_LAYERS[5], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "gap"], paint: { "line-color": ROUTE_NEUTRAL, "line-width": 2, "line-opacity": 0.8, "line-dasharray": [3, 3] } }, beforeId);
+    map.addLayer({
+      id: DRIVE_LAYERS[5], type: "line", source: ROUTE_SOURCE, filter: ["==", ["get", "kind"], "gap"],
+      ...(dim ? { layout: round } : {}),
+      paint: dim ? { "line-color": ["get", "color"], "line-width": 4.6, "line-opacity": 0.35 } : { "line-color": ROUTE_NEUTRAL, "line-width": 2, "line-opacity": 0.8, "line-dasharray": [3, 3] },
+    } as never, beforeId);
   } else {
-    setDriveGradient(map, r.stops);
+    setDriveGradient(map, cleared);
   }
 }
 
