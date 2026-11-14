@@ -6,6 +6,7 @@ import { CarSketch } from "./CarSketch";
 import { useColdRange } from "./AmbientTempLine";
 import { pickImageForNow, useIsLight, type PlacedImage } from "../lib/vehicleImage";
 import { useAmbientTemp } from "../lib/ambientTemp";
+import { useDesignPreview } from "../lib/config";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { clock, type NowView } from "../lib/nowState";
 
@@ -112,7 +113,9 @@ export default function NowHeroV2({
       ? formatTemperature(ambient.temp_c, temperatureUnit)
       : null;
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
-  const carUrl = pickImageForNow(images, charging ? "charging" : view.kind, light, view.powerKw);
+  // Design "plug_anim": the side-charging picture whenever the cable is in.
+  const plugPicture = useDesignPreview("plug_anim");
+  const carUrl = pickImageForNow(images, charging ? "charging" : view.kind, light, view.powerKw, plugPicture);
   // A Rivian image that fails to load (moved or blocked) gives way to the drawn truck instead of a broken picture.
   const [failedUrl, setFailedUrl] = useState("");
   const [info, setInfo] = useState(false);

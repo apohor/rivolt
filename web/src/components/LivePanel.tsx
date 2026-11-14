@@ -142,13 +142,15 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   // The vehicle's owner server did not answer (a 503 with Retry-After): a calm line, the last values stay, and the poll carries on.
   const reconnecting = state.isError && isReconnecting(state.error);
   const failed = state.isError && !reconnecting;
+  // Design "plug_anim": the side-charging picture whenever the cable is in.
+  const plugPicture = useDesignPreview("plug_anim");
 
   // Pick the configurator image that matches the current vehicle
   // state — charging shows side-charging, driving shows in-use,
   // frunk open shows front, liftgate/tonneau shows rear, etc.
   // An image that fails to load (moved or blocked) is dropped, no broken picture; the image_url fallback gets its turn.
   const [badUrls, setBadUrls] = useState<string[]>([]);
-  const heroUrl = [pickImageForState(vehicle.images, s, light), vehicle.image_url || ""].find((u) => u && !badUrls.includes(u)) || "";
+  const heroUrl = [pickImageForState(vehicle.images, s, light, plugPicture), vehicle.image_url || ""].find((u) => u && !badUrls.includes(u)) || "";
 
   return (
     <Card
