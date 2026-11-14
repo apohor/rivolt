@@ -254,7 +254,7 @@ export default function LandingPage() {
                 <b>Coming next</b>
               </p>
               <h2 id="lp-next-h">
-                Rivolt <em>Pro</em> and the <em>iPhone</em> app.
+                The <em>iPhone</em> app.
               </h2>
             </div>
             <div className="lp-bento" style={{ maxWidth: 860 }}>
