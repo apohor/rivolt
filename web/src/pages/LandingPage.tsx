@@ -63,6 +63,18 @@ function Tile({ icon, title, children }: { icon: React.ReactNode; title: React.R
   );
 }
 
+function Claim({ title, body, children }: { title: React.ReactNode; body: string; children?: React.ReactNode }) {
+  return (
+    <article className="lp-tile rv">
+      <div>
+        <h3>{title}</h3>
+        <p>{body}</p>
+        {children}
+      </div>
+    </article>
+  );
+}
+
 export default function LandingPage() {
   const { demoEnabled, signupEnabled } = getConfig().features;
   const hosted = /(^|\.)rivolt\.dev$/.test(window.location.hostname);
