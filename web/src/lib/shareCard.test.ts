@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as config from "./config";
 import type { Drive, MilestoneItem } from "./api";
 import type { LedgerMonth } from "./ledger";
-import { buildMilestoneShareModel, buildMonthShareModel, buildTripShareModel, shareFileName, shareFooter, SHARE_FOOTER } from "./shareCard";
+import { buildMilestoneShareModel, buildMonthShareModel, buildTripShareModel, paintShareCard, shareFileName, shareFooter, SHARE_FOOTER } from "./shareCard";
 
 const month = {
   period: "2026-10",
@@ -105,5 +105,75 @@ describe("the share card footer names the app only once it is on the App Store",
     withUrl("https://apps.apple.com/us/app/rivolt/id1234567890");
     expect(shareFooter()).toEqual(["Made with Rivolt · rivolt.dev · iPhone app on the App Store", "Unofficial. Not affiliated with Rivian."]);
     vi.restoreAllMocks();
+  });
+});
+
+// A minimal polyline6 encoder for the fixtures (points are [lat, lon]).
+function enc6(points: [number, number][]): string {
+  let out = "";
+  let pl = 0;
+  let pn = 0;
+  const put = (v: number) => {
+    let x = v < 0 ? ~(v << 1) : v << 1;
+    while (x >= 0x20) {
+      out += String.fromCharCode((0x20 | (x & 0x1f)) + 63);
+      x >>= 5;
+    }
+    out += String.fromCharCode(x + 63);
+  };
+  for (const [lat, lon] of points) {
+    const a = Math.round(lat * 1e6);
+    const o = Math.round(lon * 1e6);
+    put(a - pl);
+    put(o - pn);
+    pl = a;
+    pn = o;
+  }
+  return out;
+}
+
+describe("trip card map", () => {
+  const segs = [enc6([[34.1, -118.2], [34.12, -118.18], [34.13, -118.15]]), enc6([[34.2, -118.1], [34.22, -118.05]])];
+
+  it("carries a map only when segments are given, and nothing else changes", () => {
+    const off = buildTripShareModel(drive, { includeCost: false, sample: false });
+    expect("map" in off).toBe(false);
+    expect("map" in buildTripShareModel(drive, { includeCost: false, sample: false, mapSegments: [] })).toBe(false);
+    expect("map" in buildTripShareModel(drive, { includeCost: false, sample: false, mapSegments: null })).toBe(false);
+    const on = buildTripShareModel(drive, { includeCost: false, sample: false, mapSegments: segs });
+    expect(on.map).toEqual({ segments: segs });
+    expect({ ...on, map: undefined }).toEqual({ ...off, map: undefined });
+  });
+
+  function paint(model: ReturnType<typeof buildTripShareModel>) {
+    const calls: string[] = [];
+    const g = new Proxy(
+      { measureText: (t: string) => ({ width: t.length * 10 }) },
+      {
+        get: (t, k: string) => (k in t ? (t as never)[k] : (...a: unknown[]) => void calls.push(`${k}(${a.join(",")})`)),
+        set: () => true,
+      },
+    );
+    const canvas = { getContext: () => g } as unknown as HTMLCanvasElement;
+    expect(paintShareCard(canvas, model)).toBe(true);
+    return calls;
+  }
+
+  it("draws each segment as its own path, joined to nothing, with no extra text", () => {
+    const base = paint(buildTripShareModel(drive, { includeCost: false, sample: false }));
+    const withMap = paint(buildTripShareModel(drive, { includeCost: false, sample: false, mapSegments: segs }));
+    expect(base.filter((c) => c.startsWith("stroke")).length).toBe(0);
+    expect(withMap.filter((c) => c.startsWith("beginPath")).length).toBe(2);
+    expect(withMap.filter((c) => c.startsWith("moveTo")).length).toBe(2);
+    expect(withMap.filter((c) => c.startsWith("lineTo")).length).toBe(3);
+    expect(withMap.filter((c) => c.startsWith("stroke")).length).toBe(2);
+    // The same words are painted with and without the map: no label, date or time is added.
+    const words = (cs: string[]) => cs.filter((c) => c.startsWith("fillText")).map((c) => c.replace(/,[\d.]+,[\d.]+\)$/, ")"));
+    expect(words(withMap)).toEqual(words(base));
+  });
+
+  it("an undecodable or one-point segment draws nothing and keeps the normal card", () => {
+    const calls = paint(buildTripShareModel(drive, { includeCost: false, sample: false, mapSegments: ["", enc6([[34.1, -118.2]])] }));
+    expect(calls.filter((c) => c.startsWith("stroke")).length).toBe(0);
   });
 });
