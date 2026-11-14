@@ -75,7 +75,7 @@ struct NowLiveView: View {
             if streaming, let detail {
                 row("Power", detail.powerKw.map { "\(NumberText.fixed($0, $0 < 10 ? 1 : 0)) kW" })
                 row("Time left", detail.remaining.map { NowFormat.duration($0) })
-                row("Energy added", detail.energyKwh.map { "\(NowFormat.oneDecimal($0)) kWh" })
+                row("Energy added", detail.energyKwh.map { "\(detail.energyEstimated ? "≈ " : "")\(NowFormat.oneDecimal($0)) kWh" })
                 row("Cost so far", detail.cost.map { NowFormat.costText($0) })
             }
         }
