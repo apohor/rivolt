@@ -672,8 +672,9 @@ struct RouteMapView: UIViewRepresentable {
                 weather.textColor = NSExpression(forConstantValue: UIColor(Theme.textPrimary))
                 weather.textHaloColor = NSExpression(forConstantValue: UIColor(Theme.background))
                 weather.textHaloWidth = NSExpression(forConstantValue: 2)
-                weather.textAnchor = NSExpression(forConstantValue: "left")
-                weather.textOffset = NSExpression(forConstantValue: NSValue(cgVector: CGVector(dx: 0.9, dy: 0)))
+                // Beside the point, on whichever side fits: a label near the map's right edge flips to the left of its point instead of being cut off.
+                weather.textVariableAnchor = NSExpression(forConstantValue: ["left", "right"])
+                weather.textRadialOffset = NSExpression(forConstantValue: 0.9)
                 style.addLayer(weather)
                 let ring = MLNCircleStyleLayer(identifier: "\(RouteMapView.sourceID)-stop-focus", source: sources["focus"]!)
                 ring.circleColor = NSExpression(forConstantValue: UIColor(Theme.accent))
