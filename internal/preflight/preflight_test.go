@@ -473,7 +473,7 @@ func TestPreflightAppleOffIsAPass(t *testing.T) {
 // A bundle id with no product list and billing on would accept any product under the bundle: still a problem with iOS billing off.
 func TestPreflightAppleBundleWithoutProductsIsAProblem(t *testing.T) {
 	in := okInput()
-	in.Getenv = env(map[string]string{"RIVOLT_BILLING": "1", "RIVOLT_BILLING_IOS": "", "RIVOLT_APPLE_IAP_PRODUCTS": ""})
+	in.Getenv = env(map[string]string{"RIVOLT_BILLING": "", "RIVOLT_BILLING_IOS": "", "RIVOLT_APPLE_IAP_PRODUCTS": ""})
 	r := Run(context.Background(), in)
 	if !strings.Contains(strings.Join(r.Problems, "\n"), "RIVOLT_APPLE_IAP_PRODUCTS is required") {
 		t.Errorf("bundle without products must be a problem: %v", r.Problems)
