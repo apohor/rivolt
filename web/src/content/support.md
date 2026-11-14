@@ -7,7 +7,7 @@ Bug reports and feature requests are also welcome on [GitHub](https://github.com
 ## Common questions
 
 **What is Rivolt?**
-An open-source companion for Rivian owners, free during the beta. It records your truck's drives and charges, prices each charge, using what Rivian billed where it billed, otherwise your rate or a labelled estimate, and shows where each figure came from. It works on the web at rivolt.dev and as an iPhone app.
+An open-source companion for Rivian owners with a free tier and a paid Rivolt Pro plan. It records your truck's drives and charges, prices each charge, using what Rivian billed where it billed, otherwise your rate or a labelled estimate, and shows where each figure came from. It works on the web at rivolt.dev and as an iPhone app.
 
 **Is it official?**
 No. Rivolt is independent and is not affiliated with, endorsed by or sponsored by Rivian. It reads data through Rivian's unofficial API, which Rivian can change or block at any time, so Rivolt can break.
@@ -17,6 +17,19 @@ Sign in to rivolt.dev and add your Rivian account on the Connect step. We recomm
 
 **I connected, but I don't see my truck or any data.**
 The usual cause is a driver account whose invite has not been accepted yet: sign in to the Rivian app on a phone with that account once, then tap Check again in Rivolt. Drives and charges appear as the truck is used.
+
+## Free and Pro
+
+**What is free?**
+Now, Activity, Money and Truck for the last 12 months; the monthly statement and its email, with a CSV download for each of the three months the statement shows; a single-day trip planner with charging stops; three saved trips; trip share links; all share cards; the small Now widget and the charging Live Activity on iPhone; imports from ElectraFi, TezLab and ABRP; every alert (charge done, plug-in reminder, left open, software updates, anomalies); and the full export of everything Rivolt holds, including history older than 12 months. If you have more than one vehicle, the free plan keeps recording every drive and charge on all of them but shows one at a time (you choose which); every vehicle stays in your full export, and Pro shows them all.
+
+**What does Pro cost?**
+Rivolt Pro is $3.99 a month or $34.99 a year. Subscribe on the web; iPhone purchase coming soon. It adds unlimited history and trends, range near a temperature, forecast radar along the route, multi-day plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual after a trip, unlimited saved trips, every vehicle shown, and every iPhone widget except the small Now widget. Accounts that existed when Pro launched have it free for a year; we emailed each of them the date it ends. Prices are in US dollars; web payments are through Stripe, and Rivolt never sees your card. Web purchases need a US billing address for now.
+
+**What happens if I stop paying?**
+Nothing is deleted. Your account goes back to the free tier: the last 12 months stay visible, everything older stays stored and stays in the free export, and it all reappears if you subscribe again. Cancel on the web from Settings → Account → Plan (it opens Stripe's portal, no questions asked) or on iPhone from your Apple subscriptions. Web subscriptions can be refunded within 14 days by emailing us; Apple handles refunds for purchases made in the app. If Rivolt cannot reach Rivian for 30 consecutive days, or we stop the service, we refund the unused part of your Pro period.
+
+## More questions
 
 **Does Rivolt wake my truck?**
 Rivolt sends no commands to your truck (no locks, climate or charging controls). Reading its data can occasionally wake it.
