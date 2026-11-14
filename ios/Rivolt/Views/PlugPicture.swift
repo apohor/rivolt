@@ -43,6 +43,7 @@ private struct PlugPictureOverlay: ViewModifier {
                                 guard !reduceMotion else { pulse = true; return }
                                 withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) { pulse = true }
                             }
+                            .onDisappear { pulse = false }
                     }
                 }
                 .overlay(alignment: .topTrailing) {
