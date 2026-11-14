@@ -6,11 +6,10 @@ import { PeriodPicker } from "../components/PeriodPicker";
 import { axisDayIndices, barDayCount, barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, sleepWindow, toYmd, usePeriod, type Period } from "../lib/period";
 import { isActiveCharge } from "../lib/format";
 import { inDemo } from "../lib/demo";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import FirstDayCard from "../components/FirstDayCard";
-import { SetupSheet } from "../components/SetupSheet";
 import { setupDismissed } from "../lib/setupSheet";
 import { EARLY_MONTH_TAG, EarlyMonthNote } from "../components/EarlyMonthNote";
 import MilestoneCard from "../components/MilestoneCard";
@@ -43,6 +42,9 @@ import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
 import NowCard from "../components/NowCard";
 import { useDesignPreview } from "../lib/config";
+
+// Shown once, to new users, on preview: keep it out of the initial bundle.
+const SetupSheet = lazy(() => import("../components/SetupSheet").then((m) => ({ default: m.SetupSheet })));
 
 export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
@@ -274,7 +276,9 @@ export default function HomePage() {
       />
       {!inDemo() && <ServiceNoticeBanner />}
       {setupOn && !setupClosed && !inDemo() && !!rivianStatus.data?.authenticated && activeVehicleID && (
-        <SetupSheet vehicleID={activeVehicleID} onClose={() => setSetupClosed(true)} />
+        <Suspense fallback={null}>
+          <SetupSheet vehicleID={activeVehicleID} onClose={() => setSetupClosed(true)} />
+        </Suspense>
       )}
       {historyEmpty && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
       {historyEmpty && <ElectraFiImportHint />}
