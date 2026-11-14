@@ -38,6 +38,8 @@ struct AccountMenu: View {
     private var settingsButton: some View {
         Button { showSettings = true } label: {
             Image(systemName: "person.crop.circle").font(.title3).foregroundStyle(Theme.textSecondary)
+                // The icon stays inside its tap square at the largest text sizes (two of them side by side would overlap).
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .frame(width: AccountMenuLogic.tapSize, height: AccountMenuLogic.tapSize)
                 .contentShape(Rectangle())
         }
@@ -51,6 +53,7 @@ struct AccountMenu: View {
             Button("Refresh", action: onRefresh)
         } label: {
             Image(systemName: "ellipsis.circle").font(.title3).foregroundStyle(Theme.textSecondary)
+                .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
                 .frame(width: AccountMenuLogic.tapSize, height: AccountMenuLogic.tapSize)
                 .contentShape(Rectangle())
         }

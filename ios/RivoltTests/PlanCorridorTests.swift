@@ -64,10 +64,11 @@ final class PlanCorridorTests: XCTestCase {
         XCTAssertEqual(MapLayer.allCases.map(\.kind), ["dcfc", "l2", "hotels", "camp"], "the server's own layer kinds")
     }
 
-    func testFastIsOnToBeginWithEachChipTogglesOnItsOwnAndAllOffMeansNoPinsAndNoRequest() async {
+    func testNoLayerIsOnToBeginWithEachChipTogglesOnItsOwnAndAllOffMeansNoPinsAndNoRequest() async {
         let src = Fake()
         let m = TripPlanModel()
-        XCTAssertEqual(m.layers, [.chargers], "Fast is on to begin with")
+        XCTAssertTrue(m.layers.isEmpty, "every layer is off to begin with, as on the web")
+        await m.setLayer(.chargers, on: true, source: src)
         await m.setLayer(.hotels, on: true, source: src)
         XCTAssertEqual(m.layers, [.chargers, .hotels], "another chip on does not turn Fast off")
         await m.setLayer(.chargers, on: false, source: src)

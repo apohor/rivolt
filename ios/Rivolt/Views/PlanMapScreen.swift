@@ -351,7 +351,7 @@ struct PlanLayerChips: View {
                 }
             }
             .task { await loadPreferred() }
-            // Fast is on from the start: its pins are asked for when the route arrives, and again when the route changes.
+            // A layer that is on has its pins asked for when the route arrives, and again when the route changes (none is on from the start).
             .task(id: model.plan?.best) { await model.prepareLayers(source: state.client) }
         }
     }

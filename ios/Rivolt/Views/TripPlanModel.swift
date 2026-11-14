@@ -288,10 +288,10 @@ final class TripPlanModel {
 
     // MARK: Map layers (corridor layers)
 
-    /// The layer chips that are on. Each toggles on its own; Fast is on to begin with, and with every one off there are no pins and no request.
+    /// The layer chips that are on. Each toggles on its own; all start off, as on the web, and with every one off there are no pins and no request.
     /// The Weather toggle on the map: on to begin with (the planner settings will set its default). The tags in the itinerary stay whatever it says.
     var weatherOn = true
-    private(set) var layers: Set<MapLayer> = [.chargers]
+    private(set) var layers: Set<MapLayer> = []
     /// Show only the fast chargers of the networks the person prefers (hotels and campgrounds are unaffected).
     private(set) var preferredOnly = false
     /// The slugs of the networks marked "Prefer in planner" in Settings.
@@ -346,7 +346,7 @@ final class TripPlanModel {
         await refreshLayers(source: source)
     }
 
-    /// Searches along the plan's route for the layers that are on (Fast is on from the start): called when a route arrives or changes. Nothing is
+    /// Searches along the plan's route for the layers that are on (none is on from the start): called when a route arrives or changes. Nothing is
     /// asked when every layer is off.
     func reloadLayers(source: some CorridorLayersSource) async {
         await refreshLayers(source: source)
