@@ -34,6 +34,7 @@ export function ChargeMap({
   dc = false,
   recorded = false,
   ownLabel,
+  zoom = 16,
 }: {
   // #906: the user said the charge happened where the truck was: the recorded position is the pin, never a snap to a public charger.
   recorded?: boolean;
@@ -46,6 +47,8 @@ export function ChargeMap({
   lat: number;
   lon: number;
   height?: number;
+  // Street level by default; the setup sheet pulls back so a pin in a car park still shows its roads.
+  zoom?: number;
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -68,7 +71,7 @@ export function ChargeMap({
     (async () => {
       const [ml] = await Promise.all([loadMapLibre(), ensureConfig()]);
       if (!alive || !el.isConnected) return;
-      const m = mountBaseMap(ml, el, { center: [lon, lat], zoom: 16 });
+      const m = mountBaseMap(ml, el, { center: [lon, lat], zoom });
       const { map } = m;
       cleanups.push(() => { rePin.current = null; m.dispose(); });
 
@@ -205,7 +208,7 @@ export function ChargeMap({
       });
     })().catch((err) => console.warn("map failed to start:", err instanceof Error ? err.message : err));
     return () => { for (const c of cleanups.reverse()) c(); };
-  }, [supported, lat, lon]);
+  }, [supported, lat, lon, zoom]);
 
   if (!supported) return <MapUnavailable height={height} note="The charge's figures beside it are unaffected." />;
   return <div ref={ref} className="rounded-lg overflow-hidden border border-neutral-800" style={{ height }} />;

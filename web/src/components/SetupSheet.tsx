@@ -33,7 +33,7 @@ export function SetupSheet({ vehicleID, onClose }: { vehicleID: string; onClose:
   const [i, setI] = useState(0);
   const step = steps[Math.min(i, steps.length - 1)];
   const last = i >= steps.length - 1;
-  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
   const finish = () => {
     rememberSetupDismissed();
     onClose();
@@ -42,7 +42,8 @@ export function SetupSheet({ vehicleID, onClose }: { vehicleID: string; onClose:
   // A stray tap on the backdrop or Escape closes it for this visit only; Close and finishing the steps are the answers that stick.
   const later = () => onClose();
   useEffect(() => {
-    closeRef.current?.focus();
+    // The heading takes focus, not Close: a sheet that opens with a ring on its dismiss button reads as an error.
+    titleRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") later();
     };
@@ -62,10 +63,10 @@ export function SetupSheet({ vehicleID, onClose }: { vehicleID: string; onClose:
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 id="setup-title" className="text-lg font-semibold text-neutral-50">Set up Rivolt</h2>
+            <h2 id="setup-title" ref={titleRef} tabIndex={-1} className="text-lg font-semibold text-neutral-50 focus:outline-none">Set up Rivolt</h2>
             <p data-setup-progress className="mt-1 text-xs text-neutral-500">Step {Math.min(i, steps.length - 1) + 1} of {steps.length}. Each one is optional and can be changed later in Settings.</p>
           </div>
-          <button ref={closeRef} type="button" className={btn} onClick={finish}>Close</button>
+          <button type="button" className={btn} onClick={finish}>Close</button>
         </div>
         {step === "home" && <HomeStep vehicleID={vehicleID} onNext={next} />}
         {step === "price" && <PriceStep onNext={next} />}
@@ -122,7 +123,7 @@ function HomeStep({ vehicleID, onNext }: { vehicleID: string; onNext: () => void
     <StepFrame title="Is your truck at home now?">
       {pos ? (
         <>
-          <ChargeMap lat={pos.lat} lon={pos.lon} height={160} recorded />
+          <ChargeMap lat={pos.lat} lon={pos.lon} height={160} zoom={15} recorded />
           <p data-setup-place className="text-sm text-neutral-300">
             {place.isPending ? "Looking up the place…" : place.data ? placeLabel(place.data) : "The truck's current position"}
           </p>
