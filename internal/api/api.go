@@ -1219,6 +1219,9 @@ func New(d Deps) http.Handler {
 					now:     time.Now,
 				}
 				r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/now", withUser(na.handle))
+				// The home-screen widget's one call (free; not the Pro widget pushes): the newest stored row, Postgres only (never a Rivian call).
+				ga := glanceAPI{row: newGlanceRow(d.DB), connection: na.connection, now: time.Now}
+				r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/glance", withUser(ga.handle))
 			}
 			// Parked-drain card (B8): per-vehicle drain, idle-awake and
 			// sleep stats from vehicle_state. Read-only.
