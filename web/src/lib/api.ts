@@ -455,6 +455,19 @@ export type Drive = {
   // Set by collapseRoundTrips on a row it merged: how many recorded drives
   // it holds. Counts (Now, Money, the API) are of recorded drives.
   round_trip_legs?: number;
+  // Set with round_trip_legs: the real legs in order (no zero-distance stubs), each with the minutes parked before the next.
+  round_trip_leg_list?: RoundTripLeg[];
+};
+
+export type RoundTripLeg = {
+  ID: string;
+  StartedAt: string;
+  EndedAt: string;
+  DistanceMi: number;
+  EndLat: number;
+  EndLon: number;
+  // Minutes parked between this leg's end and the next real leg's start; null on the last leg.
+  parkedMinAfter: number | null;
 };
 
 // PackHealthSample is one derived effective-pack-capacity reading

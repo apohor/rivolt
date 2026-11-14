@@ -1,4 +1,4 @@
-import type { Drive } from "./api";
+import type { Drive, RoundTripLeg } from "./api";
 import { durationSeconds } from "./format";
 
 // driveDurationSeconds returns the time actually spent driving. For a
@@ -103,6 +103,7 @@ export function collapseRoundTrips(
 function mergeChain(chain: Drive[]): Drive {
   if (chain.length === 1) return chain[0];
   const last = chain[chain.length - 1];
+  const legs = roundTripLegs(chain);
 
   let totalDist = 0,
     maxSpd = 0,
@@ -153,12 +154,37 @@ function mergeChain(chain: Drive[]): Drive {
     estimated_cost: cost,
     estimated_currency: cur,
     estimated_price_per_kwh: rate,
-    round_trip_legs: chain.length,
+    // Real legs only: a zero-distance stub is not a leg, so "round trip, 4 drives" reads 3 when one of the four is a stub.
+    round_trip_legs: legs.length,
+    round_trip_leg_list: legs,
     // A round trip had a trailer when any leg did, and none when some leg is known to have had none. The legs are
     // corrected one by one, so the merged row carries no correction of its own.
     Trailer: chain.some((d) => driveHasTrailer(d) === true) ? true : chain.some((d) => driveHasTrailer(d) === false) ? false : null,
     TrailerOverride: null,
   };
+}
+
+// A leg shorter than this (a creep at a stop, a phantom start) is a stub: it adds nothing to the totals and is not listed.
+export const STUB_LEG_MILES = 0.05;
+
+// roundTripLegs lists the real legs of a merged chain, in order, with the minutes parked after each (to the next real leg's start, so a
+// dropped stub's time is absorbed); null after the last. The merge rule itself is untouched: stubs still sit in the chain.
+export function roundTripLegs(chain: Drive[]): RoundTripLeg[] {
+  const real = chain.filter((d) => d.DistanceMi >= STUB_LEG_MILES);
+  return real.map((d, i) => {
+    const next = real[i + 1];
+    return {
+      ID: d.ID,
+      StartedAt: d.StartedAt,
+      EndedAt: d.EndedAt,
+      DistanceMi: d.DistanceMi,
+      EndLat: d.EndLat,
+      EndLon: d.EndLon,
+      parkedMinAfter: next
+        ? Math.max(0, Math.round((new Date(next.StartedAt).getTime() - new Date(d.EndedAt).getTime()) / 60_000))
+        : null,
+    };
+  });
 }
 
 // Great-circle distance in meters on a spherical earth. Missing

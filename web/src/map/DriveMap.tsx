@@ -19,7 +19,7 @@ import { localUnits } from "../lib/preferences";
 import { cumulativeMiles, formatValue, gradientStops, percentileRange, RAMPS, seriesFor, type Mode, type Sample } from "./metrics";
 import { placePills, setPills, startPillText } from "./pills";
 import { watchDrawn } from "./drawn";
-import { cursorElement, flavorControl, foldCredits, modeLegend, pinElement, readoutElement, stalenessBadge, tilesNotice } from "./controls";
+import { cursorElement, flavorControl, foldCredits, modeLegend, pinElement, readoutElement, stalenessBadge, stopElement, tilesNotice } from "./controls";
 
 // alt (metres), soc (battery percent) and odo (odometer, miles) feed the Elevation and Efficiency modes; without them those modes are hidden.
 type Point = { lat: number; lon: number; t?: number; s?: number; alt?: number; soc?: number; odo?: number };
@@ -33,6 +33,7 @@ export function DriveMap({
   onCursorChange,
   fixAgeSeconds,
   packKWh,
+  stops,
 }: {
   points: Point[];
   start?: Point;
@@ -46,6 +47,8 @@ export function DriveMap({
   fixAgeSeconds?: number | null;
   // The pack's size in kWh, for the Efficiency mode (battery change against distance); without it that mode is hidden.
   packKWh?: number;
+  // Round-trip stops between legs: a pin with its label ("Parked 13 min"). Memoise: a new array rebuilds the map.
+  stops?: { lat: number; lon: number; label: string }[];
 }) {
   const supported = useMemo(() => webglAvailable(), []);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -233,6 +236,9 @@ export function DriveMap({
       const markers: Marker[] = [];
       if (lineStart) markers.push(new ml.Marker({ element: pinElement("#10b981", sameSpot ? "Start / End" : "Start") }).setLngLat([lineStart.lon, lineStart.lat]).addTo(map));
       if (lineEnd && !sameSpot) markers.push(new ml.Marker({ element: pinElement("#f43f5e", "End") }).setLngLat([lineEnd.lon, lineEnd.lat]).addTo(map));
+      for (const s of stops ?? []) {
+        if (Number.isFinite(s.lat) && Number.isFinite(s.lon) && (s.lat !== 0 || s.lon !== 0)) markers.push(new ml.Marker({ element: stopElement(s.label) }).setLngLat([s.lon, s.lat]).addTo(map));
+      }
       cleanups.push(() => markers.forEach((m) => m.remove()));
 
       // Hover to time: the nearest timestamped sample within 28 px of the pointer.
@@ -316,7 +322,7 @@ export function DriveMap({
     return () => { for (const c of cleanups.reverse()) c(); };
     // points is an array derived upstream; re-run only when its identity or the endpoints change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds, packKWh]);
+  }, [supported, points, start?.lat, start?.lon, end?.lat, end?.lon, fixAgeSeconds, packKWh, stops]);
 
   // The scrub dot and its readout follow cursorTime without rebuilding the map.
   useEffect(() => {

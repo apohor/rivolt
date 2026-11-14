@@ -4,12 +4,12 @@ import { pickAnchor } from "../lib/driveAnchor";
 import { formatMoney } from "../lib/ledger";
 import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { ProLimitNotice } from "../components/ProLimitNotice";
 import { proLimitOf } from "../lib/proLimit";
 import { forVehicle } from "../lib/vehicleSamples";
-import { backend, ApiError, type DriveWeatherSeries, type Sample, DETAIL_SAMPLE_LIMIT } from "../lib/api";
+import { backend, ApiError, type DriveWeatherSeries, type RoundTripLeg, type Sample, DETAIL_SAMPLE_LIMIT } from "../lib/api";
 import { Card, ErrorBox, PageHeader, Spinner } from "../components/ui";
 // Lazy-load DriveMap so the Leaflet + Protomaps bundle only ships
 // when a drive is actually opened.
@@ -20,6 +20,7 @@ import { DriveTimeline } from "../components/DriveTimeline";
 import { ShareTripButton } from "../components/ShareButtons";
 import { EfficiencyExplainerCard } from "../components/EfficiencyExplainerCard";
 import {
+  displayTimeZone,
   formatDateTime,
   formatDuration,
   num,
@@ -110,6 +111,17 @@ export default function DriveDetailPage() {
     staleTime: 5 * 60_000,
     retry: 0,
   });
+  // A merged round trip carries the id of its first leg only; each real leg's own route and samples are asked for by the leg's id, so the
+  // detail draws every leg, not just the first.
+  const legs = (driveRow?.round_trip_legs ?? 1) > 1 ? driveRow?.round_trip_leg_list : undefined;
+  const legRoutes = useQueries({
+    queries: (legs ?? []).map((l) => ({
+      queryKey: ["drives", "one", l.ID],
+      queryFn: () => backend.drive(l.ID),
+      staleTime: 5 * 60_000,
+      retry: 0,
+    })),
+  });
   const drive = useMemo(
     () => (driveRow ? { ...driveRow, RoutePolyline: one.data?.RoutePolyline || driveRow.RoutePolyline } : undefined),
     [driveRow, one.data?.RoutePolyline],
@@ -123,9 +135,25 @@ export default function DriveDetailPage() {
   // drops the first 60–90 seconds of a trip: the first sample arrives
   // with the car already at highway speed, far from home.
   const samples = useQuery({
-    queryKey: ["samples", "drive", id],
+    queryKey: ["samples", "drive", id, legs ? legs.map((l) => l.ID).join(",") : ""],
     enabled: !!drive,
     queryFn: () => {
+      if (legs && legs.length > 1) {
+        // One request per leg (each its own window), so the parked gaps between legs cost no sample budget and every leg gets its full share.
+        return Promise.all(
+          legs.map((l) =>
+            backend
+              .samples(new Date(new Date(l.StartedAt).getTime() - 10 * 60_000), DETAIL_SAMPLE_LIMIT, new Date(new Date(l.EndedAt).getTime() + 10 * 60_000), drive!.VehicleID)
+              .then((r) => forVehicle(r, drive!.VehicleID)),
+          ),
+        ).then((parts) => {
+          const seen = new Set<string>();
+          return parts
+            .flat()
+            .filter((p) => (seen.has(p.At) ? false : (seen.add(p.At), true)))
+            .sort((a, b) => new Date(a.At).getTime() - new Date(b.At).getTime());
+        });
+      }
       const startMs = new Date(drive!.StartedAt).getTime();
       const endMs = new Date(drive!.EndedAt).getTime();
       const since = new Date(startMs - 10 * 60_000);
@@ -272,12 +300,27 @@ export default function DriveDetailPage() {
       if (viewWindow && (t < viewWindow[0] || t > viewWindow[1])) return false;
       return true;
     });
-    let head = 0;
-    while (head < inWindow.length && inWindow[head].ShiftState === "P") head++;
-    let tail = inWindow.length;
-    while (tail > head && inWindow[tail - 1].ShiftState === "P") tail--;
-    return inWindow.slice(head, tail);
-  }, [drive, driveSamples, viewWindow]);
+    const trim = (xs: Sample[]) => {
+      let head = 0;
+      while (head < xs.length && xs[head].ShiftState === "P") head++;
+      let tail = xs.length;
+      while (tail > head && xs[tail - 1].ShiftState === "P") tail--;
+      return xs.slice(head, tail);
+    };
+    // A round trip trims each leg on its own and leaves out what was recorded while parked between them, so a parked frame with a stale
+    // position cannot draw a spur at a stop.
+    if (legs && legs.length > 1) {
+      return legs.flatMap((l) => {
+        const a = new Date(l.StartedAt).getTime();
+        const b = new Date(l.EndedAt).getTime();
+        return trim(inWindow.filter((p) => {
+          const t = new Date(p.At).getTime();
+          return t >= a && t <= b;
+        }));
+      });
+    }
+    return trim(inWindow);
+  }, [drive, driveSamples, viewWindow, legs]);
 
   // Stable map points: DriveMap's effect tears the map down whenever
   // its `points` array identity changes, so we MUST memoize the
@@ -306,6 +349,21 @@ export default function DriveDetailPage() {
     [mapTrackSamples],
   );
 
+  // Where the truck parked between legs, labelled with how long: the stop is the end of the leg (its last drawn fix, else the leg's recorded end).
+  const mapStops = useMemo(() => {
+    if (!legs || legs.length < 2 || viewWindow) return undefined;
+    return legs.slice(0, -1).flatMap((l) => {
+      if (l.parkedMinAfter == null) return [];
+      const endMs = new Date(l.EndedAt).getTime();
+      let at = { lat: l.EndLat, lon: l.EndLon };
+      for (const p of mapTrackSamples) {
+        const t = new Date(p.At).getTime();
+        if (t <= endMs && (p.Lat !== 0 || p.Lon !== 0)) at = { lat: p.Lat, lon: p.Lon };
+      }
+      return [{ ...at, label: `Parked ${parkedText(l.parkedMinAfter)}` }];
+    });
+  }, [legs, mapTrackSamples, viewWindow]);
+
   // The pack's size as this drive's own figures imply it (energy used over the share of the battery it took), so the map's efficiency colours
   // agree with the drive's headline mi/kWh. Absent when the drive used under 5 points of battery (too coarse to say).
   const mapPackKWh = useMemo(() => {
@@ -316,9 +374,15 @@ export default function DriveDetailPage() {
 
   // A drive with no samples (a gap or an import) still has its stored route: draw the map from that, without
   // speed colouring or a cursor, since there are no samples to colour or point at.
+  const legRouteKey = legRoutes.map((q) => q.data?.RoutePolyline ?? "").join("|");
   const storedRoutePoints = useMemo(
-    () => decodePolyline(drive?.RoutePolyline).map(([lat, lon]) => ({ lat, lon })),
-    [drive?.RoutePolyline],
+    () =>
+      (legs ? legRoutes.map((q) => q.data?.RoutePolyline) : [drive?.RoutePolyline]).flatMap((poly) =>
+        decodePolyline(poly).map(([lat, lon]) => ({ lat, lon })),
+      ),
+    // legRoutes is a new array each render; its content is what legRouteKey names.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [drive?.RoutePolyline, legs, legRouteKey],
   );
   const hasStoredRoute = storedRoutePoints.length >= 2;
 
@@ -472,7 +536,7 @@ export default function DriveDetailPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Drive"
+        title={legs && legs.length > 1 ? "Round trip" : "Drive"}
         subtitle={`${formatDateTime(drive.StartedAt)} → ${formatDateTime(drive.EndedAt)}`}
         actions={
           <span className="flex items-center gap-4">
@@ -550,6 +614,8 @@ export default function DriveDetailPage() {
           chart) — see its CursorReadout. It's the single moment inspector
           for the timeline and the route map alike. */}
 
+      {legs && legs.length > 1 ? <LegsCard legs={legs} /> : null}
+
       <Card title="Drive timeline">
         {samples.isLoading ? (
           <Spinner />
@@ -626,6 +692,7 @@ export default function DriveDetailPage() {
             }
             fixAgeSeconds={fixAgeSeconds}
             packKWh={mapPackKWh}
+            stops={mapStops}
           />
           </Suspense>
         )}
@@ -642,6 +709,39 @@ export default function DriveDetailPage() {
 
       {drive && !demo ? <EfficiencyExplainerCard driveId={drive.ID} /> : null}
     </div>
+  );
+}
+
+// "13 min", "1 h 5 min": how long the truck sat between two legs.
+function parkedText(min: number): string {
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
+const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: displayTimeZone() });
+
+// A merged round trip's legs in order, with the parked time between them. The figures above are their sum.
+function LegsCard({ legs }: { legs: RoundTripLeg[] }) {
+  return (
+    <Card title={`${legs.length} legs`}>
+      <ol data-round-trip-leg-list className="space-y-1 text-sm">
+        {legs.map((l, i) => (
+          <li key={l.ID}>
+            <div data-leg className="flex items-baseline justify-between gap-2">
+              <span className="text-neutral-200">
+                Leg {i + 1} <span className="text-neutral-500">· {clock(l.StartedAt)}–{clock(l.EndedAt)}</span>
+              </span>
+              <span className="tabular-nums text-neutral-300">{num(l.DistanceMi, 1, "mi")}</span>
+            </div>
+            {l.parkedMinAfter != null ? (
+              <div data-leg-parked className="py-1 pl-3 text-xs text-amber-300/90">
+                Parked {parkedText(l.parkedMinAfter)}
+              </div>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </Card>
   );
 }
 

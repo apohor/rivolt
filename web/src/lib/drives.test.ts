@@ -133,3 +133,30 @@ describe("collapseRoundTrips origin anchoring", () => {
     expect(out).toHaveLength(2);
   });
 });
+
+describe("round-trip legs", () => {
+  const at = (hhmm: string) => `2026-07-16T${hhmm}:00Z`;
+  const home = A;
+  const stopA = B;
+  const stopB = X;
+  // home -> A, a zero-distance stub at A, A -> B, B -> home.
+  const chain = () => [
+    drive({ ID: "l3", StartedAt: at("15:06"), EndedAt: at("15:13"), DistanceMi: 3.3, StartLat: stopB.lat, StartLon: stopB.lon, EndLat: home.lat, EndLon: home.lon }),
+    drive({ ID: "l2", StartedAt: at("14:37"), EndedAt: at("14:47"), DistanceMi: 3.3, StartLat: stopA.lat, StartLon: stopA.lon, EndLat: stopB.lat, EndLon: stopB.lon }),
+    drive({ ID: "stub", StartedAt: at("14:30"), EndedAt: at("14:31"), DistanceMi: 0, StartLat: stopA.lat, StartLon: stopA.lon, EndLat: stopA.lat, EndLon: stopA.lon }),
+    drive({ ID: "l1", StartedAt: at("14:17"), EndedAt: at("14:24"), DistanceMi: 3.1, StartLat: home.lat, StartLon: home.lon, EndLat: stopA.lat, EndLon: stopA.lon }),
+  ];
+
+  it("lists the real legs in order and counts three, not four", () => {
+    const out = collapseRoundTrips(chain(), RADIUS, GAP);
+    expect(out).toHaveLength(1);
+    expect(out[0].round_trip_legs).toBe(3);
+    expect(out[0].round_trip_leg_list?.map((l) => l.ID)).toEqual(["l1", "l2", "l3"]);
+    expect(out[0].DistanceMi).toBeCloseTo(9.7, 5);
+  });
+
+  it("measures the parked time to the next real leg, absorbing the stub, and none after the last", () => {
+    const legs = collapseRoundTrips(chain(), RADIUS, GAP)[0].round_trip_leg_list!;
+    expect(legs.map((l) => l.parkedMinAfter)).toEqual([13, 19, null]);
+  });
+});
