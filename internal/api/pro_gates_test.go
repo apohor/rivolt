@@ -163,9 +163,10 @@ func TestVehicleGatesFailOpenWithoutAPlan(t *testing.T) {
 	}
 }
 
-// proSurfaceRE names the Pro surfaces that are not built yet (the trip postcard, the long-form year page, widget pushes). A route or
-// handler whose name matches must carry the Pro gate, or CI fails: a new Pro surface cannot ship ungated.
-var proSurfaceRE = regexp.MustCompile(`(?i)postcard|year[-_]?page|widget`)
+// proSurfaceRE names the Pro surfaces that are not built yet (widget pushes). A route or handler whose name matches must carry the Pro
+// gate, or CI fails: a new Pro surface cannot ship ungated. Pro v6 made every share card free (statement, milestone, year, trip
+// postcard, long-form year page), so those names are deliberately not here.
+var proSurfaceRE = regexp.MustCompile(`(?i)widget`)
 
 // ungatedProSurface reports whether a route (by method, path and handler name) is a Pro surface that is not behind a Pro gate.
 func ungatedProSurface(route, handlerName string, gated bool) bool {
@@ -191,10 +192,9 @@ func TestUnbuiltProSurfacesCannotShipUngated(t *testing.T) {
 		route, handler string
 		gated, want    bool
 	}{
-		{"GET /api/trips/saved/{id}/postcard", "x", false, true},
-		{"GET /api/trips/saved/{id}/postcard", "x", true, false},
-		{"GET /api/year-page", "x", false, true},
-		{"GET /api/year_page/{year}", "x", false, true},
+		{"GET /api/trips/saved/{id}/postcard", "x", false, false}, // share cards are free (Pro v6)
+		{"GET /api/year-page", "x", false, false},
+		{"GET /api/year_page/{year}", "x", false, false},
 		{"POST /api/push/widget", "x", false, true},
 		{"GET /api/year-in-rivolt", "handleYear", false, false}, // the year card is free
 		{"GET /api/share/statement", "handleStatementCard", false, false},
@@ -208,12 +208,46 @@ func TestUnbuiltProSurfacesCannotShipUngated(t *testing.T) {
 	err := chi.Walk(contractRouter(t), func(method, route string, h http.Handler, mws ...func(http.Handler) http.Handler) error {
 		gated := hasMiddlewareNamed(mws, "proOnlyMiddleware") || hasMiddlewareNamed(mws, "ProMiddleware")
 		if ungatedProSurface(method+" "+route, handlerName(h), gated) {
-			t.Errorf("%s %s (%s) is a Pro surface (postcard, year page or widget push) without the Pro gate: mount it behind proOnlyMiddleware", method, route, handlerName(h))
+			t.Errorf("%s %s (%s) is a Pro surface (widget push) without the Pro gate: mount it behind proOnlyMiddleware", method, route, handlerName(h))
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Pro v6: every share card is free, on every tier. The routes that serve a card's figures or make its link carry no plan, window or
+// vehicle gate, so a free account, a lapsed Pro account and a Pro account get the same answer.
+func TestShareCardRoutesCarryNoGate(t *testing.T) {
+	gates := []string{"proOnlyMiddleware", "ProMiddleware", "multidayProMiddleware", "freeVehicleMiddleware", "rowVehicleMiddleware", "vehicleGateMiddleware", "historyWindowMiddleware"}
+	want := map[string]bool{
+		"GET /api/year-in-rivolt":          false,
+		"GET /api/milestones":              false,
+		"POST /api/milestones/dismiss":     false,
+		"POST /api/trips/saved/{id}/share": false,
+		"POST /api/public/trips/share":     false,
+	}
+	err := chi.Walk(contractRouter(t), func(method, route string, _ http.Handler, mws ...func(http.Handler) http.Handler) error {
+		key := method + " " + route
+		if _, ok := want[key]; !ok {
+			return nil
+		}
+		want[key] = true
+		for _, g := range gates {
+			if hasMiddlewareNamed(mws, g) {
+				t.Errorf("%s is a share-card route and carries %s: share cards are free on every tier", key, g)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, seen := range want {
+		if !seen {
+			t.Errorf("%s is not mounted in the contract router; the share-card gate test no longer covers it", k)
+		}
 	}
 }
 
