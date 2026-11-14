@@ -18,11 +18,12 @@ import (
 
 // drivePostcard is GET /api/drives/{id}/postcard: what the Activity "Share trip" card draws a finished drive from. The route is cut on
 // the server with the trip-share code (both ends and the saved home), so the client never holds the untrimmed line and trims nothing.
-// It carries no vehicle id, no cost, no energy and no time of day: the date, the distance and the trimmed route.
+// It carries no vehicle id, no cost, no energy and no date or time: the client formats the drive's own started_at in the viewer's
+// timezone (the server has no account timezone, and a UTC date would mislabel an evening drive), and the distance is whole miles, so
+// distance minus the visible length does not give the hidden road at the ends.
 type drivePostcard struct {
 	Version    int                `json:"version"`
-	Date       string             `json:"date"` // "2026-03-05", UTC
-	DistanceMi float64            `json:"distance_mi"`
+	DistanceMi float64            `json:"distance_mi"` // whole miles
 	Start      tripshare.Area     `json:"start"`
 	End        tripshare.Area     `json:"end"`
 	Route      tripshare.RouteOut `json:"route"`
@@ -74,8 +75,7 @@ func handleDrivePostcard(store *drives.Store, settingsStore *settings.Store, use
 		w.Header().Set("Cache-Control", "private, no-store")
 		writeJSON(w, http.StatusOK, drivePostcard{
 			Version:    1,
-			Date:       d.StartedAt.UTC().Format("2006-01-02"),
-			DistanceMi: math.Round(d.DistanceMi*10) / 10,
+			DistanceMi: math.Round(d.DistanceMi),
 			Start:      trim.Start,
 			End:        trim.End,
 			Route:      tripshare.RouteOut{Segments: trim.Segments},

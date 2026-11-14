@@ -21,7 +21,7 @@ import (
 	"github.com/apohor/rivolt/internal/tripshare"
 )
 
-// GET /api/drives/{id}/postcard: the route is cut on the server, the answer holds the date, the distance, the rounded ends and the
+// GET /api/drives/{id}/postcard: the route is cut on the server, the answer holds the whole-mile distance, the rounded ends and the
 // trimmed line and nothing else, a drive with no route or too short a route is refused, and another account's drive is not found.
 func TestDrivePostcard(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
@@ -83,7 +83,7 @@ func TestDrivePostcard(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &pc); err != nil {
 		t.Fatal(err)
 	}
-	if pc.Date != "2026-03-05" || pc.DistanceMi != 36.6 || pc.Version != 1 {
+	if pc.DistanceMi != 37 || pc.Version != 1 || strings.Contains(body, "date") || strings.Contains(body, "2026") {
 		t.Errorf("figures: %+v", pc)
 	}
 	if pc.Start.Lat == line[0][0] || pc.End.Lon == line[59][1] {
