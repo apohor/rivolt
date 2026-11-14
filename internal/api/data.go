@@ -233,7 +233,7 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 				if errors.Is(err, electrafi.ErrMissingColumn) {
 					reason = "unknown_header"
 				}
-				electrafiRejected(d, reason)
+				electrafiRejected(r.Context(), d, reason, err)
 				if firstErr == "" {
 					firstErr = fh.Filename + ": " + err.Error()
 				}
@@ -272,10 +272,18 @@ const (
 )
 
 // electrafiRejected counts a file the ElectraFi import refused or had to take back.
-func electrafiRejected(d Deps, reason string) {
+// It logs the same "history import refused" line the other sources do (the rejected counter's alert points at it); missing is the
+// required column the file lacked, from the importer's fixed list, never a header cell the user wrote.
+func electrafiRejected(ctx context.Context, d Deps, reason string, err error) {
 	if d.Metrics != nil {
 		d.Metrics.HistoryImportRejected.WithLabelValues(electrafiMetricSource, reason).Inc()
 	}
+	missing := ""
+	var mc *electrafi.MissingColumnError
+	if errors.As(err, &mc) {
+		missing = mc.Column
+	}
+	slog.WarnContext(ctx, "history import refused", "source", electrafiMetricSource, "reason", reason, "missing", missing)
 }
 
 // handleDataBackup streams a single JSON bundle containing every

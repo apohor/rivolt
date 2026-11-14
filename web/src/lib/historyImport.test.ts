@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./api";
-import { addedSummary, doneBanner, importFailure, skipLabel, undoWarning, warningText } from "./historyImport";
+import { addedSummary, doneBanner, importFailure, importSourceLabel, skipLabel, undoWarning, warningText } from "./historyImport";
 
 describe("history import copy", () => {
   it("says what was added and what undo removes", () => {
@@ -50,5 +50,15 @@ describe("doneBanner", () => {
   it("says Added until the import is undone, then Removed", () => {
     expect(doneBanner({ drives: 60, charges: 20 })).toEqual({ text: "Added 60 drives, 20 charges.", undone: false });
     expect(doneBanner({ drives: 60, charges: 20 }, "2026-11-12T16:00:00Z")).toEqual({ text: "Removed 60 drives, 20 charges.", undone: true });
+  });
+});
+
+describe("importSourceLabel", () => {
+  it("names every batch source the server writes, and falls back to the raw name", () => {
+    expect(importSourceLabel("electrafi_import")).toBe("ElectraFi");
+    expect(importSourceLabel("tezlab_import")).toBe("TezLab");
+    expect(importSourceLabel("abrp_import")).toBe("A Better Routeplanner");
+    expect(importSourceLabel("tezlab")).toBe("TezLab");
+    expect(importSourceLabel("other_import")).toBe("other_import");
   });
 });

@@ -33,6 +33,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/samples"
 )
 
@@ -148,6 +149,12 @@ func (i *Importer) loc() *time.Location {
 // ErrMissingColumn is wrapped by the error ImportReader returns when the header lacks a column the importer needs.
 var ErrMissingColumn = errors.New("missing required column")
 
+// MissingColumnError is that error with the column's name (one of the importer's fixed required names).
+type MissingColumnError struct{ Column string }
+
+func (e *MissingColumnError) Error() string { return fmt.Sprintf("%s %q", ErrMissingColumn, e.Column) }
+func (e *MissingColumnError) Unwrap() error { return ErrMissingColumn }
+
 // Import reads path and upserts the derived drives & charges. Safe to
 // run multiple times over the same file — session IDs are deterministic.
 func (i *Importer) Import(ctx context.Context, path string) (Result, error) {
@@ -178,7 +185,7 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		"speed", "shift_state", "charging_state", "driveNumber", "chargeNumber"}
 	for _, k := range required {
 		if _, ok := idx[k]; !ok {
-			return Result{}, fmt.Errorf("%w %q", ErrMissingColumn, k)
+			return Result{}, &MissingColumnError{Column: k}
 		}
 	}
 
@@ -244,9 +251,11 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 			continue
 		}
 
-		if !i.SampleFrom.IsZero() && s.at.Before(i.SampleFrom) {
+		// A batch writes sessions only: Undo must take back everything the import wrote, and a raw sample carries no batch id. The drive
+		// keeps its route (routePolyline).
+		if i.ImportID == uuid.Nil && !i.SampleFrom.IsZero() && s.at.Before(i.SampleFrom) {
 			pastRetained++
-		} else if i.Samples != nil {
+		} else if i.ImportID == uuid.Nil && i.Samples != nil {
 			sampleBuf = append(sampleBuf, samples.Sample{
 				VehicleID:       vehicleID,
 				At:              s.at,
@@ -322,6 +331,9 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 			// into the drive row that the dashboard will then aggregate as
 			// if it were real.
 			d := deriveDrive(id, vehicleID, sub, i.PackKWh)
+			if i.ImportID != uuid.Nil {
+				d.RoutePolyline = routePolyline(sub)
+			}
 			covered, err := i.liveCovered(ctx, "drive", d.StartedAt, d.EndedAt)
 			if err != nil {
 				return Result{}, fmt.Errorf("live overlap check for drive %s: %w", id, err)
@@ -415,6 +427,31 @@ func (i *Importer) ImportReader(ctx context.Context, name string, src io.Reader)
 		SkippedExisting:      skippedExisting,
 		SamplesPastRetention: pastRetained,
 	}, nil
+}
+
+// maxRoutePoints bounds the stored route of one imported drive.
+const maxRoutePoints = 400
+
+// routePolyline is the drive's GPS path from its polling rows (polyline6, like a recorded drive's), thinned to maxRoutePoints and without
+// rows that carry no fix. Empty when fewer than two points remain.
+func routePolyline(snaps []snapshot) string {
+	pts := make([][2]float64, 0, len(snaps))
+	for _, s := range snaps {
+		if s.lat != 0 || s.lon != 0 {
+			pts = append(pts, [2]float64{s.lat, s.lon})
+		}
+	}
+	if len(pts) < 2 {
+		return ""
+	}
+	if len(pts) > maxRoutePoints {
+		thin := make([][2]float64, 0, maxRoutePoints)
+		for k := 0; k < maxRoutePoints-1; k++ {
+			thin = append(thin, pts[k*(len(pts)-1)/(maxRoutePoints-1)])
+		}
+		pts = append(thin, pts[len(pts)-1])
+	}
+	return maps.EncodePolyline6(pts)
 }
 
 // coversChunk is how many sessions one Covers query takes (the stores' CoversBatch advice).

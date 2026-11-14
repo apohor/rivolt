@@ -103,6 +103,14 @@ func TestElectrafiImportIsABatch(t *testing.T) {
 		t.Errorf("%d charges carry the import id", n)
 	}
 
+	// A batch writes sessions only (Undo can take back everything it wrote); the drive keeps its route.
+	if n := e.count(`SELECT count(*) FROM vehicle_state WHERE user_id = $1`, e.uid); n != 0 {
+		t.Errorf("%d raw samples written by a batch import, want 0", n)
+	}
+	if n := e.count(`SELECT count(*) FROM drives WHERE user_id = $1 AND import_id = $2 AND coalesce(route_polyline, '') <> ''`, e.uid, batch); n != 1 {
+		t.Errorf("%d imported drives with a route, want 1", n)
+	}
+
 	// The same file again: refused, with the batch to undo, and nothing new.
 	ev = e.efEvents(fileA)
 	errs := efFind(ev, "error")
