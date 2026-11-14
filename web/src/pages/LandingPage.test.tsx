@@ -99,13 +99,17 @@ describe("LandingPage", () => {
     const approved = [
       "Free and Pro",
       "Free to start",
-      "Free",
       "What is free, what Pro costs, what happens if you stop",
       "Self-hosting is complete and free.",
       "$3.99 a month or $34.99 a year",
       "the last 12 months",
     ].sort((a, b) => b.length - a.length);
-    const unapproved = approved.reduce((t, phrase) => t.split(phrase).join(""), text);
+    // The Free plan tile heading is the one bare "Free" allowed on the page.
+    const freeHeadings = screen.getAllByRole("heading", { name: "Free" });
+    expect(freeHeadings).toHaveLength(1);
+    const unapproved = approved
+      .reduce((t, phrase) => t.split(phrase).join(""), text)
+      .replace(freeHeadings[0].textContent ?? "", "");
     expect(unapproved).not.toMatch(/real-?time|battery-friendly/i);
     expect(unapproved).not.toMatch(/rivian'?s app (doesn|does not|shows|has no)/i);
     expect(unapproved).not.toMatch(/free|beta|trial|\/mo\b|per month/i);
