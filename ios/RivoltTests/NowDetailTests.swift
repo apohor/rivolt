@@ -33,6 +33,11 @@ final class NowDetailTests: XCTestCase {
         XCTAssertEqual(d.remaining, TimeInterval(eta.minutes) * 60, "Time left is not a dash while the chip shows an estimate")
         XCTAssertEqual(try XCTUnwrap(d.energyKwh), try gainKwh(sum), accuracy: 0.001)
         let withRow = try XCTUnwrap(ChargingDetail.make(summary: sum, session: nil, charge: try chargeRow(sum, kwh: 4.2)))
+        XCTAssertTrue(d.energyEstimated && withRow.energyEstimated, "a figure that is not the session's own total is marked as an estimate")
+        let session = LiveSession(active: true, totalChargedEnergyKwh: 5.6)
+        let own = try XCTUnwrap(ChargingDetail.make(summary: sum, session: session, charge: nil))
+        XCTAssertEqual(own.energyKwh, 5.6)
+        XCTAssertFalse(own.energyEstimated, "the session's own total is exact")
         XCTAssertEqual(withRow.energyKwh, 4.2, "the open charge row's energy comes before the battery's gain")
     }
 
@@ -177,7 +182,7 @@ final class NowDetailTests: XCTestCase {
     }
 
     func testNoPowerReadingIsLeftOutNotSpokenAsZero() {
-        let d = ChargingDetail(powerKw: nil, socPct: 50, targetPct: 80, toTargetPct: 30, rateKmPerHour: nil, rangeAddedKm: nil, energyKwh: nil,
+        let d = ChargingDetail(powerKw: nil, socPct: 50, targetPct: 80, toTargetPct: 30, rateKmPerHour: nil, rangeAddedKm: nil, energyKwh: nil, energyEstimated: false,
                                elapsed: nil, remaining: nil, cost: nil, place: nil, haveLiveData: false)
         XCTAssertFalse(d.spoken.contains("kilowatts"))
         XCTAssertTrue(d.spoken.contains("Waiting for the first reading"))
@@ -191,7 +196,7 @@ final class NowDetailTests: XCTestCase {
 
     func testSpokenUnitsMatchTheScreenAndPlacesReadAsWords() {
         func charge(_ place: String?) -> ChargingDetail {
-            ChargingDetail(powerKw: 7, socPct: 50, targetPct: 80, toTargetPct: 30, rateKmPerHour: nil, rangeAddedKm: nil, energyKwh: nil,
+            ChargingDetail(powerKw: 7, socPct: 50, targetPct: 80, toTargetPct: 30, rateKmPerHour: nil, rangeAddedKm: nil, energyKwh: nil, energyEstimated: false,
                            elapsed: nil, remaining: nil, cost: nil, place: place, haveLiveData: false)
         }
         XCTAssertTrue(charge("Home").spoken.hasPrefix("Charging session at home."))

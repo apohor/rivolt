@@ -21,6 +21,8 @@ struct ChargingDetail: Equatable {
     let rateKmPerHour: Double?
     let rangeAddedKm: Double?
     let energyKwh: Double?
+    /// The energy is our own figure (the open charge row, or the battery's gain times the pack), not the session's total: shown with a "≈".
+    let energyEstimated: Bool
     let elapsed: TimeInterval?
     let remaining: TimeInterval?
     let cost: Cost?
@@ -41,6 +43,8 @@ struct ChargingDetail: Equatable {
             return target - soc
         }()
         let live = s.map { $0.active || $0.powerKw > 0 || $0.totalChargedEnergyKwh > 0 } ?? false
+        let sessionEnergy: Double? = s.flatMap { $0.totalChargedEnergyKwh > 0 ? $0.totalChargedEnergyKwh : nil }
+        let fallbackEnergy: Double? = openCharge(charge, summary: summary).flatMap { $0.energyAddedKwh > 0 ? $0.energyAddedKwh : nil } ?? addedFromBattery(summary)
         return ChargingDetail(
             powerKw: power,
             socPct: soc,
@@ -48,7 +52,8 @@ struct ChargingDetail: Equatable {
             toTargetPct: toTarget,
             rateKmPerHour: s.flatMap { $0.kilometersChargedPerHour > 0 ? $0.kilometersChargedPerHour : nil },
             rangeAddedKm: s.flatMap { $0.rangeAddedKm > 0 ? $0.rangeAddedKm : nil },
-            energyKwh: s.flatMap { $0.totalChargedEnergyKwh > 0 ? $0.totalChargedEnergyKwh : nil } ?? openCharge(charge, summary: summary).flatMap { $0.energyAddedKwh > 0 ? $0.energyAddedKwh : nil } ?? addedFromBattery(summary),
+            energyKwh: sessionEnergy ?? fallbackEnergy,
+            energyEstimated: sessionEnergy == nil && fallbackEnergy != nil,
             elapsed: s.flatMap { $0.timeElapsedSeconds > 0 ? $0.timeElapsedSeconds : nil },
             remaining: s.flatMap { $0.timeRemainingSeconds > 0 ? $0.timeRemainingSeconds : nil } ?? summary.chargeEta.map { TimeInterval($0.minutes) * 60 },
             cost: cost(of: s, summary: summary, charge: charge),
