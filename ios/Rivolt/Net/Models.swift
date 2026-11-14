@@ -33,8 +33,10 @@ struct AuthUser: Decodable, Equatable {
     var planEndedDate: String? = nil
     /// False on a self-hosted or billing-off server: no paywall, price or Manage control.
     var billingEnabled: Bool? = nil
-    /// 90 on free, nil (unlimited) otherwise.
+    /// The free window's length in days (it changes through the month), nil (unlimited) on Pro.
     var historyDays: Int? = nil
+    /// The first day the free window shows, "YYYY-MM-DD" (UTC); nil on Pro.
+    var historyFrom: String? = nil
     /// The Terms the server wants accepted; absent on a server without the gate.
     var terms: Terms? = nil
 

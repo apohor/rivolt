@@ -6,7 +6,7 @@ import { proLimitOf, proLimitText, retryUnlessLimit } from "./proLimit";
 
 describe("a free account's limits (HTTP 402)", () => {
   it("reads the code, from the server's bodies", () => {
-    expect(proLimitOf(new ApiError(402, outside))).toEqual({ code: "outside_free_window", freeDays: 90 });
+    expect(proLimitOf(new ApiError(402, outside))).toEqual({ code: "outside_free_window", freeDays: 395 });
     expect(proLimitOf(new ApiError(402, required))).toEqual({ code: "pro_required" });
   });
 
