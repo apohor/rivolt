@@ -296,6 +296,10 @@ type Deps struct {
 	// Settings toggle for the reminders is mounted only then, so it never shows as switched on
 	// where nothing is sent. The signed unsubscribe links are always mounted.
 	RivianExpiryEmails bool
+	// BillingIOS is RIVOLT_BILLING_IOS: whether the iPhone app is told the server sells (billing_enabled in /api/auth/me and the StoreKit
+	// products in /api/app/config). Off by default, so turning RIVOLT_BILLING on for the web keeps the app's purchase UI hidden until
+	// in-app purchase works. Only the purchase path is hidden; plan, founding and free-window limits are the server's and unchanged.
+	BillingIOS bool
 	// FailLimiterKey is the HMAC key for the limiter's Redis key names (FailLimiterKey of the
 	// server's secret); without it the limiters stay per pod.
 	FailLimiterKey []byte
@@ -796,7 +800,7 @@ func New(d Deps) http.Handler {
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.logoutHandler())
-				r.Get("/me", handleMeEnrichedPlan(d.Auth, d.DB, d.AdminDisabled, d.unitsFor(), d.passkeyAPI() != nil && !d.AdminOnly, d.Entitlements))
+				r.Get("/me", handleMeEnrichedPlan(d.Auth, d.DB, d.AdminDisabled, d.unitsFor(), d.passkeyAPI() != nil && !d.AdminOnly, d.Entitlements, d.BillingIOS))
 				if d.Sessions != nil && !d.AdminOnly {
 					r.Get("/sessions", d.Sessions.List)
 					r.Post("/sessions/revoke-others", d.Sessions.RevokeOthers)

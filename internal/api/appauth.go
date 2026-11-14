@@ -88,7 +88,7 @@ func handleAppConfig(d Deps) http.HandlerFunc {
 		}
 		// Only a server that is selling: StoreKit products can be configured while RIVOLT_BILLING is off (during setup, after a rollback),
 		// and a Subscribe button there would let a user pay Apple for Pro that everyone already has.
-		if t := d.AppleIAPTransaction; t != nil && t.Config != nil && len(t.Config.Products) > 0 && d.Entitlements.Billing() {
+		if t := d.AppleIAPTransaction; t != nil && t.Config != nil && len(t.Config.Products) > 0 && d.Entitlements.Billing() && d.BillingIOS {
 			ids := make([]string, 0, len(t.Config.Products))
 			for id := range t.Config.Products {
 				ids = append(ids, id)

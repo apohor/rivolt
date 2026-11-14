@@ -14,6 +14,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/entitlements"
+	"github.com/apohor/rivolt/internal/logging"
 )
 
 func newMeAuth(t *testing.T) *auth.Service {
@@ -144,12 +145,53 @@ func meAs(t *testing.T, uid uuid.UUID, e *entitlements.Service) map[string]any {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil).WithContext(auth.WithUser(context.Background(), uid))
 	rec := httptest.NewRecorder()
-	handleMeEnrichedPlan(newMeAuth(t), nil, false, nil, false, e)(rec, req)
+	handleMeEnrichedPlan(newMeAuth(t), nil, false, nil, false, e, false)(rec, req)
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("%v: %s", err, rec.Body.String())
 	}
 	return body
+}
+
+// RIVOLT_BILLING_IOS: with billing on, the iPhone app (a bearer token) is told billing_enabled false unless the switch is on, so its
+// purchase UI stays hidden; the web (a cookie) sees true either way, and the plan fields are the same for both.
+func TestAuthMeBillingEnabledForTheApp(t *testing.T) {
+	db := sql.OpenDB(meNoDB{})
+	defer db.Close()
+	demo := uuid.New() // the demo account answers billing on without a lookup
+	on := entitlements.New(db, entitlements.Config{Billing: true, Demo: demo})
+	me := func(bearer, iosBilling bool) map[string]any {
+		ctx := auth.WithUser(context.Background(), demo)
+		if bearer {
+			ctx = logging.WithAuthMethod(ctx, logging.AuthBearer)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil).WithContext(ctx)
+		rec := httptest.NewRecorder()
+		handleMeEnrichedPlan(newMeAuth(t), nil, false, nil, false, on, iosBilling)(rec, req)
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("%v: %s", err, rec.Body.String())
+		}
+		return body
+	}
+	for _, c := range []struct {
+		name        string
+		bearer, ios bool
+		billing     bool
+	}{
+		{"web, switch off", false, false, true},
+		{"app, switch off", true, false, false},
+		{"app, switch on", true, true, true},
+		{"web, switch on", false, true, true},
+	} {
+		got := me(c.bearer, c.ios)
+		if got["billing_enabled"] != c.billing {
+			t.Errorf("%s: billing_enabled %v, want %v", c.name, got["billing_enabled"], c.billing)
+		}
+		if got["plan"] != "pro" || got["plan_source"] != "demo" {
+			t.Errorf("%s: the plan fields must not change: %v", c.name, got)
+		}
+	}
 }
 
 // The plan fields of /api/auth/me (Rivolt Pro): billing off is Pro for everyone with billing_enabled false, so clients hide every paywall;

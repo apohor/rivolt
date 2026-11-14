@@ -110,14 +110,15 @@ func TestAppConfigCarriesTheStoreKitProducts(t *testing.T) {
 	both := map[string]bool{"test.pro.year": true, "test.pro.month": true}
 	billingOn := entitlements.New(new(sql.DB), entitlements.Config{Billing: true}) // never queried here: only Billing() is read
 	billingOff := entitlements.New(nil, entitlements.Config{})
-	with := get(Deps{Entitlements: billingOn, AppleIAPTransaction: cfg(both)})
+	with := get(Deps{Entitlements: billingOn, AppleIAPTransaction: cfg(both), BillingIOS: true})
 	if !strings.Contains(with, `"iap":{"environment":"Sandbox","products":["test.pro.month","test.pro.year"]}`) {
 		t.Errorf("billing on, StoreKit configured: %s", with)
 	}
 	for name, d := range map[string]Deps{
 		"no StoreKit":                        {Entitlements: billingOn},
 		"no config":                          {Entitlements: billingOn, AppleIAPTransaction: &applebill.Transaction{}},
-		"billing on, no product ids":         {Entitlements: billingOn, AppleIAPTransaction: cfg(nil)},
+		"billing on, no product ids":         {Entitlements: billingOn, AppleIAPTransaction: cfg(nil), BillingIOS: true},
+		"billing on, iOS billing OFF":        {Entitlements: billingOn, AppleIAPTransaction: cfg(both)},
 		"billing OFF, products configured":   {Entitlements: billingOff, AppleIAPTransaction: cfg(both)},
 		"no entitlement service, configured": {AppleIAPTransaction: cfg(both)},
 	} {

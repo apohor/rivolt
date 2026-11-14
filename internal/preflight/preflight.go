@@ -229,6 +229,7 @@ func Run(ctx context.Context, in Input) *Report {
 
 	r.line("== Billing settings (names and present or absent only, never values)")
 	r.line("  RIVOLT_BILLING: %s", map[bool]string{true: "on", false: "off"}[billingOn])
+	r.line("  RIVOLT_BILLING_IOS: %s (the iPhone app is told billing_enabled and the StoreKit products only when on; off keeps its purchase UI hidden)", map[bool]string{true: "on", false: "off"}[parseBool(get("RIVOLT_BILLING_IOS"))])
 	if billingOn {
 		r.warn("billing is already on")
 	}
