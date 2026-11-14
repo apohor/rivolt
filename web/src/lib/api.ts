@@ -1689,6 +1689,9 @@ export const backend = {
   // Operational flags. GET returns both flags' state (kill switch
   // + trip planner); each PUT flips one. Admin-only on the server.
   adminFlagsGet: () => api.get<AdminFlagsState>("/api/admin/kill-switch"),
+  // Preview's simulated drive and charge (the routes exist on the preview admin site only; elsewhere both answer 404).
+  adminSimGet: () => api.get<{ active: AdminSimRun | null }>("/api/admin/sim"),
+  adminSimStart: (kind: "drive" | "charge") => api.post<{ active: AdminSimRun | null }>(`/api/admin/sim/${kind}`),
   adminFlagsKillPut: (paused: boolean, reason: string) =>
     api.put<AdminFlagsState>("/api/admin/kill-switch", { paused, reason }),
   adminFlagsTripPlannerPut: (enabled: boolean) =>
@@ -2565,6 +2568,8 @@ export type TermsState = { current: string; accepted: string | null; accepted_at
 // AdminFlagsState is the response shape from GET /api/admin/kill-switch.
 // Carries every operational flag — currently the Rivian-upstream kill
 // switch and the trip-planner feature flag — with their audit fields.
+export type AdminSimRun = { id: string; kind: "drive" | "charge"; start: string; end: string; added_mi: number };
+
 export type AdminFlagsState = {
   kill_switch: { paused: boolean; reason?: string; actor?: string };
   trip_planner: { enabled: boolean; actor?: string };

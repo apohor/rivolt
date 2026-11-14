@@ -10,6 +10,7 @@ import { UsersList } from "../components/admin/UsersList";
 import AddUser from "../components/admin/AddUser";
 import { SignupsNext } from "../components/AdminSignupsNext";
 import { FlagsNext } from "../components/AdminFlagsNext";
+import { AdminSimCard } from "../components/AdminSimCard";
 import { AuditNext } from "../components/AdminAuditNext";
 import { HomeNext } from "../components/AdminHomeNext";
 import { AIProvidersPanel, RecapWeatherPanel, GPSAccuracyPanel } from "./SettingsPage";
@@ -145,7 +146,12 @@ function AdminTabs({ currentUserID }: { currentUserID: string }) {
           <AIProvidersPanel />
         </Card>
       )}
-      {view === "operations" && <FlagsNext />}
+      {view === "operations" && (
+        <div className="space-y-4">
+          <FlagsNext />
+          <AdminSimCard />
+        </div>
+      )}
       {view === "audit" && <AuditNext />}
       {view === "tuning" && (
         <div className="space-y-4">

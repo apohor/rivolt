@@ -160,7 +160,10 @@ type ReplayFeed struct {
 	// summaries lists the demo vehicle's recorded charges as the session summaries Rivian would bill (replayChargeSummaries); nil
 	// means this feed serves none.
 	summaries func(ctx context.Context, vehicleID string) ([]SessionSummary, error)
-	logger    *slog.Logger
+	// sim, when set, plays simulated runs in place of the schedule (replay_sim.go); simHook decorates their frames.
+	sim     *simSource
+	simHook func(run SimRun, st *State)
+	logger  *slog.Logger
 }
 
 // Stream replays frames for vehicleID from where its recording left off
@@ -232,6 +235,9 @@ func (f *ReplayFeed) frames(ctx context.Context, from, to time.Time) ([]State, e
 		for _, st := range fs {
 			out = append(out, f.timeline.place(st, seg))
 		}
+	}
+	if f.sim != nil {
+		out = f.withSim(ctx, from, to, out)
 	}
 	return out, nil
 }

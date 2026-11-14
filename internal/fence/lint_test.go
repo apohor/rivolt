@@ -45,6 +45,7 @@ var notYetGuarded = map[string]string{}
 
 // notOwnerSide is permanent. Each entry names who calls it.
 var notOwnerSide = map[string]string{
+	"rivian.flagsSimStore.Update":          "operator command (preview admin: start a simulated drive or charge): books a run in a flags row that is shared by the admin and api pods, not a vehicle group's owner state",
 	"tripshare.Store.Create":               "user action (share link): an account's own link row, not vehicle owner state",
 	"tripshare.Store.Revoke":               "user action (share link): an account's own link row, not vehicle owner state",
 	"tripshare.Store.Sweep":                "singleton maintenance job (daily): deletes link rows that ended over 30 days ago; idempotent on every replica",
