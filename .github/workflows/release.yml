@@ -55,6 +55,12 @@ jobs:
       sha: ${{ steps.verdict.outputs.sha }}
       refused: ${{ steps.verdict.outputs.refused }}
     steps:
+      # Tags and probe refs are cut only from a run on main: a dispatch on another branch would run that branch's copy of this file.
+      - name: Main only
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::release.yml cuts tags only from main; this run is on ${{ github.ref }}"
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
@@ -102,7 +108,7 @@ jobs:
   # head of main, then delete it. A failure here is the N66 installation or permission not being in place.
   probe:
     name: token probe (dry run)
-    if: ${{ inputs.dry_run }}
+    if: ${{ inputs.dry_run && github.ref == 'refs/heads/main' }}
     needs: verdict
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -131,7 +137,7 @@ jobs:
 
   tag:
     name: tag
-    if: ${{ !inputs.dry_run }}
+    if: ${{ !inputs.dry_run && github.ref == 'refs/heads/main' }}
     needs: verdict
     runs-on: ubuntu-latest
     timeout-minutes: 10
