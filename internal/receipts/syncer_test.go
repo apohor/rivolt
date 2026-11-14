@@ -382,3 +382,17 @@ func TestSweepCountsTheDetailsOnlyTail(t *testing.T) {
 		t.Errorf("detail calls = %d, want 1", len(a.detailCalls))
 	}
 }
+
+func TestSweepReportsHowManyUsersPassTheGate(t *testing.T) {
+	st := &fakeStore{claimOK: false}
+	a, b, c := uuid.New(), uuid.New(), uuid.New()
+	s := newSyncer(st, fakeRegistry{&fakeAcct{}}, func(u uuid.UUID) bool { return u != c }, nil, nil)
+	s.sleep = func(context.Context, time.Duration) {}
+	s.users = func(context.Context) ([]uuid.UUID, error) { return []uuid.UUID{a, b, c}, nil }
+	got := -1
+	s.SetObserveEnabled(func(n int) { got = n })
+	s.sweep(context.Background())
+	if got != 2 {
+		t.Errorf("enabled users = %d, want 2", got)
+	}
+}

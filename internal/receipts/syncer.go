@@ -83,6 +83,8 @@ type Syncer struct {
 
 	// observe counts one summaries pass by trigger and outcome (nil: not counted).
 	observe func(trigger, outcome string)
+	// observeEnabled gets the number of listed users that passed the gate, once per sweep.
+	observeEnabled func(n int)
 
 	// receipt energy (energy.go)
 	energyMode    string
@@ -107,6 +109,9 @@ var (
 
 // SetObserve installs the counter hook for summaries passes (before Run and before the first charge close).
 func (s *Syncer) SetObserve(f func(trigger, outcome string)) { s.observe = f }
+
+// SetObserveEnabled installs the per-sweep count of users that passed the gate (before Run).
+func (s *Syncer) SetObserveEnabled(f func(n int)) { s.observeEnabled = f }
 
 // syncAs is Sync for a summaries pass that is counted under trigger.
 func (s *Syncer) syncAs(ctx context.Context, trigger string, uid uuid.UUID, minInterval time.Duration, summariesOnly bool) (Result, error) {
@@ -380,6 +385,15 @@ func (s *Syncer) sweep(ctx context.Context) {
 	if err != nil {
 		s.logger.Warn("receipts: list users failed", "err", err.Error())
 		return
+	}
+	if s.observeEnabled != nil {
+		n := 0
+		for _, uid := range uids {
+			if s.enabled == nil || s.enabled(uid) {
+				n++
+			}
+		}
+		s.observeEnabled(n)
 	}
 	rand.Shuffle(len(uids), func(i, j int) { uids[i], uids[j] = uids[j], uids[i] })
 	for _, uid := range uids {

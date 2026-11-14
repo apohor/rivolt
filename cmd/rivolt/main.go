@@ -1753,6 +1753,7 @@ func runServer() {
 				}
 			}
 			receiptSyncer.SetObserve(func(trigger, outcome string) { appMetrics.ReceiptsSyncTotal.WithLabelValues(trigger, outcome).Inc() })
+			receiptSyncer.SetObserveEnabled(func(n int) { appMetrics.ReceiptsEnabledUsers.Set(float64(n)) })
 			receiptSyncer.SetFence(&liveFence) // before Run and before the first charge close; it reads the lease store once installed
 			role.start("receipt_sync", func() { receiptSyncer.Run(ctx) })
 			logger.Info("rivian receipts sync enabled (per-user flag rivian_receipts)")
