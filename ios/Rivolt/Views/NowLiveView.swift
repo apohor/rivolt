@@ -13,6 +13,7 @@ struct NowLiveView: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(AppState.self) private var appState: AppState?
 
     private var offline: Bool { summary.presence == .offline }
     /// Streaming only while the truck is in touch: a stale or offline truck shows what it last said, never a live charge or drive.
@@ -57,7 +58,7 @@ struct NowLiveView: View {
 
     @ViewBuilder
     private var truck: some View {
-        if let url = VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light) {
+        if let url = VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light, plugPicture: appState?.designPreview.contains("plug_anim") == true) {
             AsyncImage(url: url) { phase in
                 if let image = phase.image { image.resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 180) }
             }

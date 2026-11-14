@@ -30,6 +30,14 @@ final class NowV2Tests: XCTestCase {
         XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: nil, light: false)?.absoluteString, "https://i.example/tq")
     }
 
+    func testPlugAnimShowsTheChargingViewWheneverPluggedIn() {
+        let images = [img("https://i.example/tq", "three-quarter"), img("https://i.example/chg", "side-charging")]
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .plugged, powerKw: nil, light: false, plugPicture: true)?.absoluteString, "https://i.example/chg")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: 0, light: false, plugPicture: true)?.absoluteString, "https://i.example/chg")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .parked, powerKw: nil, light: false, plugPicture: true)?.absoluteString, "https://i.example/tq")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .plugged, powerKw: nil, light: false)?.absoluteString, "https://i.example/tq", "flag off: today's picture")
+    }
+
     func testMissingPlacementFallsBackAndInteriorIsNeverShown() {
         XCTAssertEqual(VehiclePicture.forNow([img("https://i.example/front", "front")], kind: .charging, powerKw: 11, light: false)?.absoluteString, "https://i.example/front")
         XCTAssertNil(VehiclePicture.forNow([img("https://i.example/in", "interior-front")], kind: .parked, powerKw: nil, light: false))
