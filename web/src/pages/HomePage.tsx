@@ -10,6 +10,8 @@ import { useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import FirstDayCard from "../components/FirstDayCard";
+import { SetupSheet } from "../components/SetupSheet";
+import { setupDismissed } from "../lib/setupSheet";
 import { EARLY_MONTH_TAG, EarlyMonthNote } from "../components/EarlyMonthNote";
 import MilestoneCard from "../components/MilestoneCard";
 import FirstChargeCard from "../components/FirstChargeCard";
@@ -48,6 +50,9 @@ export default function HomePage() {
   const [period, setPeriod] = usePeriod();
   // Design 1 (design_preview "now_v2"): the month strip replaces the KPI tiles. Off, the page is unchanged.
   const v2 = useDesignPreview("now_v2");
+  // The first-run setup sheet (preview only, design key first_screen): once for a connected truck, until it is finished or closed.
+  const setupOn = useDesignPreview("first_screen");
+  const [setupClosed, setSetupClosed] = useState(setupDismissed);
   const baseRange = useMemo(() => periodRange(period), [period]);
   const {
     roundTripsEnabled,
@@ -268,6 +273,9 @@ export default function HomePage() {
         context="Once connected, drives, charges, and live telemetry start streaming."
       />
       {!inDemo() && <ServiceNoticeBanner />}
+      {setupOn && !setupClosed && !inDemo() && !!rivianStatus.data?.authenticated && activeVehicleID && (
+        <SetupSheet vehicleID={activeVehicleID} onClose={() => setSetupClosed(true)} />
+      )}
       {historyEmpty && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
       {historyEmpty && <ElectraFiImportHint />}
       <PageHeader

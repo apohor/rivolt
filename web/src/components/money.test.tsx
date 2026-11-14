@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ReceiptRow } from "./money";
+import { HomeRateEstimatedContext, ReceiptRow } from "./money";
 import { grammarFor, needsPrice, sourceLabel, type Receipt, type ReceiptSession } from "../lib/ledger";
 
 const base: Omit<ReceiptSession, "charge_id" | "cost" | "cost_source" | "flags" | "peak_kw" | "kwh" | "price_per_kwh"> = {
@@ -98,5 +98,57 @@ describe("mixed receipt (contract §10)", () => {
     expect(grammarFor(away)).toBe("suspect");
     renderRow(away);
     expect(screen.getByRole("link", { name: "Fix price →" })).toHaveAttribute("href", "/charges/a1");
+  });
+});
+
+describe("home rate from the state average (setup)", () => {
+  afterEach(cleanup);
+  const homeRow: Receipt = {
+    ...mixed,
+    receipt_id: "rcpt_h1",
+    kind: "ac",
+    place: "home",
+    km_from_home: null,
+    spans_days: 1,
+    cost: 4.2,
+    cost_source: "home_rate",
+    rate: 0.3,
+    network: null,
+    session_count: 1,
+    unpriced_sessions: 0,
+    flags: [],
+    sessions: [{ ...base, charge_id: "h1", kwh: 14, peak_kw: 7, cost: 4.2, price_per_kwh: 0.3, kind: "ac", place: "home", cost_source: "home_rate", flags: [] }],
+  };
+  const renderWith = (on: boolean, r: Receipt) =>
+    render(
+      <QueryClientProvider client={new QueryClient()}><MemoryRouter>
+        <HomeRateEstimatedContext.Provider value={on}>
+          <ul>
+            <ReceiptRow r={r} currency="USD" />
+          </ul>
+        </HomeRateEstimatedContext.Provider>
+      </MemoryRouter></QueryClientProvider>,
+    );
+
+  it("marks a home-rate price estimated while the rate is the state average, and says why", () => {
+    const { container } = renderWith(true, homeRow);
+    expect(container.querySelector("[data-home-rate-estimated]")).not.toBeNull();
+    expect(screen.getByText("est.")).toBeInTheDocument();
+    expect(screen.getByText(/state average, estimated/)).toBeInTheDocument();
+  });
+
+  it("leaves the price solid once the user's own rate is in (and by default)", () => {
+    const { container } = renderWith(false, homeRow);
+    expect(container.querySelector("[data-home-rate-estimated]")).toBeNull();
+    expect(screen.queryByText("est.")).toBeNull();
+    expect(screen.queryByText(/state average/)).toBeNull();
+  });
+
+  it("does not touch a billed price or an away-from-home one", () => {
+    const billed: Receipt = { ...homeRow, cost_source: "rivian", sessions: [{ ...homeRow.sessions[0], cost_source: "rivian" }] };
+    expect(renderWith(true, billed).container.querySelector("[data-home-rate-estimated]")).toBeNull();
+    cleanup();
+    const away: Receipt = { ...homeRow, flags: ["home_rate_away"], sessions: [{ ...homeRow.sessions[0], flags: ["home_rate_away"] }] };
+    expect(renderWith(true, away).container.querySelector("[data-home-rate-estimated]")).toBeNull();
   });
 });

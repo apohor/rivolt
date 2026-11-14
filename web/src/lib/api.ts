@@ -604,11 +604,26 @@ export type Charge = {
 export type ChargingSettings = {
   home_price_per_kwh: number;
   home_currency: string;
+  // Where the home rate came from: "state_average" (the setup's one-tap default; prices from it are estimates), "user", or "" (no rate).
+  // Read only on a full PUT (the server keeps its own); a PATCH sets it with the rate.
+  home_price_source?: "state_average" | "user" | "";
   // Inputs for the gas-equivalent chip on the trip planner. Zero on
   // either input hides the chip.
   gas_price_per_gallon: number;
   comparison_mpg: number;
 };
+
+// StatePrice is the state-average residential price the setup offers as a one-tap home rate (GET /api/settings/charging/state-price).
+export type StatePrice = {
+  state: string;
+  name: string;
+  price_per_kwh: number;
+  currency: string;
+  source: { name: string; url: string; period: string; released: string; checked: string };
+};
+
+// HomePlace is what the self-hosted geocoder calls a point (POST /api/settings/home-location/place); the point is not echoed.
+export type HomePlace = { name: string; country_code: string; admin1: string };
 
 // ChargingNetwork is one entry in the user's price book for fast /
 // public charging — a friendly name and a default rate the UI can
@@ -1537,6 +1552,21 @@ export const backend = {
       return parsed as ChargingSettings;
     }),
   // The off-peak schedule: windows of the week with their own rate. PUT replaces it; an empty list clears it.
+  // The home rate alone, merged into the stored settings. A source is sent only with a rate: "state_average" for the setup default, left out
+  // for a rate the user typed (the server records it as theirs).
+  patchChargingRate: (rate: { home_price_per_kwh: number; home_price_source?: "state_average" | "user" }) =>
+    api.patch<ChargingSettings>("/api/settings/charging/", rate),
+  // The state's average price, or null where there is none (not the US, unknown state): the sheet then asks for the user's own rate.
+  statePrice: (country: string, state: string) =>
+    api
+      .get<StatePrice>(`/api/settings/charging/state-price?country=${encodeURIComponent(country)}&state=${encodeURIComponent(state)}`)
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }),
+  homePlace: (latitude: number, longitude: number) => api.post<HomePlace>("/api/settings/home-location/place", { latitude, longitude }),
+  rivianReceiptsGet: () => api.get<{ opt_in: boolean; available: boolean }>("/api/settings/rivian-receipts"),
+  rivianReceiptsPut: (optIn: boolean) => api.put<{ opt_in: boolean; available: boolean }>("/api/settings/rivian-receipts", { opt_in: optIn }),
   getOffpeak: () => api.get<OffpeakSchedule>("/api/settings/charging/offpeak"),
   setOffpeak: (cfg: OffpeakSchedule) => api.put<OffpeakSchedule>("/api/settings/charging/offpeak", cfg),
   // "My electricity is one flat rate": stops the off-peak estimates (savings, the share line, the statement saving); the schedule stays.

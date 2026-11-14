@@ -83,17 +83,7 @@ func (c *PhotonClient) Search(ctx context.Context, name string, count int) ([]Re
 			Geometry struct {
 				Coordinates [2]float64 `json:"coordinates"` // [lon, lat]
 			} `json:"geometry"`
-			Properties struct {
-				Name        string `json:"name"`
-				HouseNumber string `json:"housenumber"`
-				Street      string `json:"street"`
-				City        string `json:"city"`
-				State       string `json:"state"`
-				Country     string `json:"country"`
-				CountryCode string `json:"countrycode"`
-				Postcode    string `json:"postcode"`
-				Type        string `json:"type"`
-			} `json:"properties"`
+			Properties photonProps `json:"properties"`
 		} `json:"features"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -105,42 +95,97 @@ func (c *PhotonClient) Search(ctx context.Context, name string, count int) ([]Re
 		if len(out) == count {
 			break
 		}
-		p := f.Properties
-		// Build a label that reads naturally regardless of result
-		// type: "123 Main St" for a housenumber, "Main St" for a
-		// street, "Austin" for a city, the raw name otherwise.
-		var label string
-		switch {
-		case p.HouseNumber != "" && p.Street != "":
-			label = p.HouseNumber + " " + p.Street
-		case p.Street != "":
-			label = p.Street
-		case p.Name != "":
-			label = p.Name
-		case p.City != "":
-			label = p.City
-		default:
-			label = strings.TrimSpace(strings.Join([]string{p.City, p.State, p.Country}, ", "))
-		}
-		// City row when result is a street/housenumber; helpful
-		// disambiguation surface back to the SPA's existing UI.
-		if (p.HouseNumber != "" || p.Street != "") && p.City != "" && !strings.Contains(label, p.City) {
-			label = label + ", " + p.City
-		}
-		r := Result{
-			Name:        label,
-			Latitude:    f.Geometry.Coordinates[1],
-			Longitude:   f.Geometry.Coordinates[0],
-			Country:     p.Country,
-			CountryCode: strings.ToUpper(p.CountryCode),
-			Admin1:      p.State,
-		}
+		r := resultFromProps(f.Properties, f.Geometry.Coordinates[1], f.Geometry.Coordinates[0])
 		if duplicateOf(out, r) {
 			continue
 		}
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+// photonProps are the Photon feature properties both Search and Reverse read.
+type photonProps struct {
+	Name        string `json:"name"`
+	HouseNumber string `json:"housenumber"`
+	Street      string `json:"street"`
+	City        string `json:"city"`
+	State       string `json:"state"`
+	Country     string `json:"country"`
+	CountryCode string `json:"countrycode"`
+	Postcode    string `json:"postcode"`
+	Type        string `json:"type"`
+}
+
+// resultFromProps maps one Photon feature onto a Result. The label reads naturally whatever the result type: "123 Main St" for a
+// housenumber, "Main St" for a street, "Austin" for a city, the raw name otherwise, and a street result gains its city.
+func resultFromProps(p photonProps, lat, lon float64) Result {
+	var label string
+	switch {
+	case p.HouseNumber != "" && p.Street != "":
+		label = p.HouseNumber + " " + p.Street
+	case p.Street != "":
+		label = p.Street
+	case p.Name != "":
+		label = p.Name
+	case p.City != "":
+		label = p.City
+	default:
+		label = strings.TrimSpace(strings.Join([]string{p.City, p.State, p.Country}, ", "))
+	}
+	if (p.HouseNumber != "" || p.Street != "") && p.City != "" && !strings.Contains(label, p.City) {
+		label = label + ", " + p.City
+	}
+	return Result{
+		Name:        label,
+		Latitude:    lat,
+		Longitude:   lon,
+		Country:     p.Country,
+		CountryCode: strings.ToUpper(p.CountryCode),
+		Admin1:      p.State,
+	}
+}
+
+// Reverse names the place at a point through Photon's /reverse endpoint: the nearest feature, mapped like a Search result. A point with
+// nothing near it is (nil, nil); a disabled client or an upstream failure is an error the caller treats as "no label".
+func (c *PhotonClient) Reverse(ctx context.Context, lat, lon float64) (*Result, error) {
+	if !c.Enabled() {
+		return nil, nil
+	}
+	q := url.Values{}
+	q.Set("lat", strconv.FormatFloat(lat, 'f', 5, 64))
+	q.Set("lon", strconv.FormatFloat(lon, 'f', 5, 64))
+	q.Set("limit", "1")
+	q.Set("lang", "en")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/reverse?"+q.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("photon: build request: %w", err)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("photon: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("photon: upstream HTTP %d", resp.StatusCode)
+	}
+	var body struct {
+		Features []struct {
+			Geometry struct {
+				Coordinates [2]float64 `json:"coordinates"` // [lon, lat]
+			} `json:"geometry"`
+			Properties photonProps `json:"properties"`
+		} `json:"features"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 1<<20)).Decode(&body); err != nil {
+		return nil, fmt.Errorf("photon: decode: %w", err)
+	}
+	if len(body.Features) == 0 {
+		return nil, nil
+	}
+	f := body.Features[0]
+	r := resultFromProps(f.Properties, f.Geometry.Coordinates[1], f.Geometry.Coordinates[0])
+	return &r, nil
 }
 
 // sameResultM is how close two results with the same label must be to count as one place.

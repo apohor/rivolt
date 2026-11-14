@@ -233,6 +233,41 @@ func handleHomeAddressSearch(photon *geocoding.PhotonClient) http.HandlerFunc {
 	}
 }
 
+// handleHomePlace serves POST /api/settings/home-location/place {"latitude": ..., "longitude": ...}: what the self-hosted Photon calls the
+// place at a point, for the setup sheet's "is this your home?" preview and the state its price default comes from. Photon only (404
+// without it, and 404 when nothing is near the point). The point travels in the body, is not echoed back and is never logged; an upstream
+// error is a bare 502 (Photon's error carries the URL). Nothing is stored.
+func handleHomePlace(photon *geocoding.PhotonClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !photon.Enabled() {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "place lookup isn't available on this server"})
+			return
+		}
+		var body struct {
+			Latitude  float64 `json:"latitude"`
+			Longitude float64 `json:"longitude"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if err := settings.ValidateHomeLocation(settings.HomeLocation{Set: true, Latitude: body.Latitude, Longitude: body.Longitude}); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		res, err := photon.Reverse(r.Context(), body.Latitude, body.Longitude)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]any{"error": "place lookup failed"})
+			return
+		}
+		if res == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "no place here"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"name": res.Name, "country_code": res.CountryCode, "admin1": res.Admin1})
+	}
+}
+
 // handlePlannerPrefsGet returns the user's saved trip-planner
 // defaults: drive mode, Tesla adapter and the Trip planner settings page's fields, every one filled in (the defaults for ones never set).
 // Used by the SPA to pre-fill the per-trip form and the map.
