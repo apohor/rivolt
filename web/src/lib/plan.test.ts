@@ -21,7 +21,7 @@ describe("planState from the server's fixtures", () => {
   });
 
   it("tells free, each paid source and a founding year apart", () => {
-    expect(planState(free)).toEqual({ kind: "free" });
+    expect(planState(free)).toMatchObject({ kind: "free" });
     // No new account gets a trial; an old trial row reads as Pro granted to the account, with nothing about a trial.
     expect(planState(trial)).toMatchObject({ kind: "pro", source: "grant" });
     expect(planState(stripe)).toMatchObject({ kind: "pro", source: "stripe", periodEnd: "2026-12-01" });
@@ -31,8 +31,8 @@ describe("planState from the server's fixtures", () => {
   });
 
   it("takes a lapse from plan_ended_at, not from a date in the past", () => {
-    expect(planState(lapsed)).toEqual({ kind: "lapsed", endedOn: "2026-10-01", endedSource: "stripe" });
-    expect(planState({ ...free, plan_period_end: "2020-01-01T00:00:00Z" })).toEqual({ kind: "free" });
+    expect(planState(lapsed)).toMatchObject({ kind: "lapsed", endedOn: "2026-10-01", endedSource: "stripe" });
+    expect(planState({ ...free, plan_period_end: "2020-01-01T00:00:00Z" })).toMatchObject({ kind: "free" });
   });
 
   it("never shows a malformed date", () => {
@@ -70,5 +70,17 @@ describe("B8: one billing instant, one date everywhere", () => {
   it("a lapse reads the ended date", () => {
     const st = planState({ plan: "free", billing_enabled: true, history_days: 90, plan_date_basis: "utc_date", plan_ended_at: "2026-11-06T02:52:00Z", plan_ended_date: "2026-11-06", plan_ended_source: "stripe" } as never);
     expect(st).toMatchObject({ kind: "lapsed", endedOn: "2026-11-06" });
+  });
+});
+
+describe("the free window in the plan copy", () => {
+  it("comes from the server's fields and never names a number of its own", async () => {
+    const { planCardCopy, lapseBanner, PRO } = await import("./proCopy");
+    const st = planState({ plan: "free", billing_enabled: true, history_days: 395, history_from: "2025-11-01" } as never);
+    expect(planCardCopy(st)?.line).toBe("Recording, alerts, history since November 1, 2025 and the full export, always.");
+    expect(PRO.included(st.kind === "free" ? st.window : undefined)[0]).toBe("Unlimited history and trends (free: since November 1, 2025)");
+    const lapsed = planState({ plan: "free", billing_enabled: true, history_days: 380, plan_ended_at: "2026-11-06T02:52:00Z", plan_date_basis: "utc_date", plan_ended_date: "2026-11-06" } as never);
+    expect(lapseBanner(lapsed)).toContain("Showing the last 380 days.");
+    for (const t of [planCardCopy(planState({ plan: "free", billing_enabled: true } as never))?.line ?? "", PRO.included().join(" "), lapseBanner({ kind: "lapsed", endedOn: null, endedSource: null })]) expect(t).not.toMatch(/\b90\b/);
   });
 });

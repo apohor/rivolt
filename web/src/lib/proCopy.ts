@@ -2,15 +2,36 @@
 // lands this is LAUNCH-BLOCKING to re-verify against the merged text). Prices are the plan's. The iPhone twin is ProCopy in
 // ios/Rivolt/Views/ProPaywall.swift.
 
-import { planDate, type PlanState } from "./plan";
+import { planDate, type FreeWindow, type PlanState } from "./plan";
 
 export type Interval = "month" | "year";
+
+// The free window in words, from the server's numbers: "since November 1, 2025", else "the last N days", else no number.
+export function windowShort(w?: FreeWindow): string {
+  const d = planDate(w?.from);
+  if (d) return `since ${d}`;
+  return w?.days ? `the last ${w.days} days` : "recent history only";
+}
+
+// "history since November 1, 2025", for sentences that name what the free plan shows.
+export function windowHistory(w?: FreeWindow): string {
+  const d = planDate(w?.from);
+  if (d) return `history since ${d}`;
+  return w?.days ? `the last ${w.days} days` : "recent history";
+}
+
+// Why a record is hidden, for a 402 outside_free_window (the body's own numbers win over the account's).
+export function windowOlderThan(w?: FreeWindow): string {
+  const d = planDate(w?.from);
+  if (d) return `This is from before ${d}, as far back as the free plan shows.`;
+  return w?.days ? `This is older than the last ${w.days} days that the free plan shows.` : "This is older than the history the free plan shows.";
+}
 
 export const PRO = {
   title: "Rivolt Pro",
   subtitle: "Full history, multi-day trips and widgets, from $3.99 a month.",
-  included: [
-    "Unlimited history and trends (free: the last 90 days)",
+  included: (w?: FreeWindow) => [
+    `Unlimited history and trends (free: ${windowShort(w)})`,
     "Range near a temperature",
     "Multi-day trip plans with hotel and campground overnights",
     "Re-plan from where the truck is, and plan-vs-actual after the trip",
@@ -62,7 +83,7 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
     case "off":
       return null;
     case "free":
-      return { title: "Free", line: "Recording, alerts, the last 90 days and the full export, always.", action: "See Pro" };
+      return { title: "Free", line: `Recording, alerts, ${windowHistory(state.window)} and the full export, always.`, action: "See Pro" };
     case "pro":
       // A failed payment comes first: it is the one that needs the person to do something (web only: Apple handles its own).
       if (state.graceEnds && state.source === "stripe")
@@ -86,7 +107,7 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
     case "lapsed":
       return {
         title: `Your Pro ended${planDate(state.endedOn) ? ` on ${planDate(state.endedOn)}` : ""}`,
-        line: "Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).",
+        line: `Showing ${windowHistory(state.window)}. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`,
         action: "Keep Pro",
       };
   }
@@ -101,7 +122,7 @@ export function graceBanner(state: PlanState): string | null {
 // The lapse banner (dismissable, on Now and in Settings).
 export function lapseBanner(state: PlanState): string {
   const on = state.kind === "lapsed" ? planDate(state.endedOn) : "";
-  return `Your Pro ended${on ? ` on ${on}` : ""}. Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`;
+  return `Your Pro ended${on ? ` on ${on}` : ""}. Showing ${windowHistory(state.kind === "lapsed" ? state.window : undefined)}. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`;
 }
 
 // Shown in the delete-account flow of an account paying through the App Store: the server cannot cancel an Apple subscription, so the

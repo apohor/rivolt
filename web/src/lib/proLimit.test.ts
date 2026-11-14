@@ -6,7 +6,9 @@ import { proLimitOf, proLimitText, retryUnlessLimit } from "./proLimit";
 
 describe("a free account's limits (HTTP 402)", () => {
   it("reads the code, from the server's bodies", () => {
-    expect(proLimitOf(new ApiError(402, outside))).toEqual({ code: "outside_free_window", freeDays: 395 });
+    expect(proLimitOf(new ApiError(402, outside))).toEqual({ code: "outside_free_window", freeDays: 395, freeFrom: "2025-11-01" });
+    expect(proLimitOf(new ApiError(402, { error: "outside_free_window", free_days: 395, free_from: "2025-11-01" }))).toEqual({ code: "outside_free_window", freeDays: 395, freeFrom: "2025-11-01" });
+    expect(proLimitOf(new ApiError(402, { error: "outside_free_window" }))).toEqual({ code: "outside_free_window" });
     expect(proLimitOf(new ApiError(402, required))).toEqual({ code: "pro_required" });
   });
 
@@ -18,7 +20,10 @@ describe("a free account's limits (HTTP 402)", () => {
   });
 
   it("says why and that nothing is lost", () => {
-    expect(proLimitText({ code: "outside_free_window", freeDays: 90 })).toMatch(/last 90 days.*kept.*export/);
+    expect(proLimitText({ code: "outside_free_window", freeDays: 395 })).toMatch(/last 395 days.*kept.*export/);
+    expect(proLimitText({ code: "outside_free_window", freeDays: 395, freeFrom: "2025-11-01" })).toMatch(/before November 1, 2025.*kept.*export/);
+    expect(proLimitText({ code: "outside_free_window" }, { days: 380, from: null })).toMatch(/last 380 days/);
+    expect(proLimitText({ code: "outside_free_window" })).not.toMatch(/\d/);
     expect(proLimitText({ code: "pro_required" })).toMatch(/kept either way/);
   });
 

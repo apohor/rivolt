@@ -39,8 +39,8 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
   });
 
   it("shows the free state and opens the sheet", async () => {
-    renderWith(free, <PlanCard />);
-    expect(await screen.findByText("Recording, alerts, the last 90 days and the full export, always.")).toBeInTheDocument();
+    renderWith({ ...free, history_days: 395, history_from: "2025-11-01" }, <PlanCard />);
+    expect(await screen.findByText("Recording, alerts, history since November 1, 2025 and the full export, always.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "See Pro" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
@@ -70,8 +70,8 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
   });
 
   it("a 402 limit says why, that nothing is lost, and offers Pro only where the server bills", async () => {
-    const a = renderWith(free, <ProLimitNotice limit={{ code: "outside_free_window", freeDays: 90 }} />);
-    expect(await screen.findByText(/older than the last 90 days/)).toBeInTheDocument();
+    const a = renderWith(free, <ProLimitNotice limit={{ code: "outside_free_window", freeDays: 395 }} />);
+    expect(await screen.findByText(/older than the last 395 days/)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "See Pro" })).toBeInTheDocument();
     a.unmount();
     renderWith(billingOff, <ProLimitNotice limit={{ code: "pro_required" }} />);

@@ -29,7 +29,7 @@ describe("ProSheet", () => {
   it("shows the title, the inclusions and both prices before any button, with nothing pre-selected", () => {
     renderSheet(free);
     expect(screen.getByText(PRO.title)).toBeInTheDocument();
-    for (const x of PRO.included) expect(screen.getByText(x)).toBeInTheDocument();
+    for (const x of PRO.included(free.kind === "free" ? free.window : undefined)) expect(screen.getByText(x)).toBeInTheDocument();
     expect(screen.getByText("$34.99")).toBeInTheDocument();
     expect(screen.getByText("$3.99")).toBeInTheDocument();
     for (const r of screen.getAllByRole("radio")) expect(r).not.toBeChecked();

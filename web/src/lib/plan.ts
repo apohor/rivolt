@@ -22,6 +22,7 @@ export type PlanFields = Pick<
   | "plan_ended_date"
   | "billing_enabled"
   | "history_days"
+  | "history_from"
 >;
 
 // B8: one billing instant must show one date everywhere. Stripe (and the founding year) show the UTC calendar date of the instant, so with the
@@ -33,12 +34,20 @@ function shown(me: PlanFields, instant: string | null | undefined, date: string 
 
 export type PlanState =
   | { kind: "off" } // billing is off: everything is on, nothing mentions a plan
-  | { kind: "free" } // never had Pro
+  | { kind: "free"; window?: FreeWindow } // never had Pro
   // cancelsAt: set to not renew, Pro stays on until then. graceEnds: a renewal payment failed, Pro stays on until then (7 days).
   | { kind: "pro"; source: "apple" | "stripe" | "founding" | "grant"; periodEnd: string | null; cancelsAt?: string | null; graceEnds?: string | null }
-  | { kind: "lapsed"; endedOn: string | null; endedSource: string | null }; // had Pro or a trial, now on the free window
+  | { kind: "lapsed"; endedOn: string | null; endedSource: string | null; window?: FreeWindow }; // had Pro or a trial, now on the free window
 
 const DAY = 86_400_000;
+
+// The free plan's history window as the server reports it (history_days, history_from on /api/auth/me): the first day it shows moves on the first
+// of each month, so the app never carries a length of its own. Absent fields (an older server, not read yet) name no number.
+export type FreeWindow = { days?: number | null; from?: string | null };
+
+export function freeWindowOf(me: Pick<PlanFields, "history_days" | "history_from"> | null | undefined): FreeWindow {
+  return { days: me?.history_days ?? null, from: me?.history_from ?? null };
+}
 
 export function planState(me: PlanFields | null | undefined): PlanState {
   if (!me || me.plan === undefined || me.billing_enabled !== true) return { kind: "off" };
@@ -55,8 +64,9 @@ export function planState(me: PlanFields | null | undefined): PlanState {
       graceEnds: shown(me, me.plan_grace_ends, me.plan_grace_ends_date),
     };
   }
-  if (me.plan_ended_at) return { kind: "lapsed", endedOn: shown(me, me.plan_ended_at, me.plan_ended_date), endedSource: me.plan_ended_source ?? null };
-  return { kind: "free" };
+  const window = freeWindowOf(me);
+  if (me.plan_ended_at) return { kind: "lapsed", endedOn: shown(me, me.plan_ended_at, me.plan_ended_date), endedSource: me.plan_ended_source ?? null, window };
+  return { kind: "free", window };
 }
 
 // "March 4, 2027" in the reader's language; "" when the value is not a date. A bare calendar date ("2027-03-04", the server's UTC date) is shown as

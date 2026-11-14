@@ -101,7 +101,7 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
         <div>
           <h3 className="text-sm font-semibold text-neutral-200">What's included</h3>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-neutral-300">
-            {PRO.included.map((x) => <li key={x}>{x}</li>)}
+            {PRO.included(state.kind === "free" || state.kind === "lapsed" ? state.window : undefined).map((x) => <li key={x}>{x}</li>)}
           </ul>
         </div>
 
