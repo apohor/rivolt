@@ -364,3 +364,21 @@ func TestSyncOnRequestMakesNoDetailCalls(t *testing.T) {
 		t.Errorf("details-only pass: err %v, %d detail calls, want 3", err, len(a.detailCalls))
 	}
 }
+
+// A sweep whose summaries claim is held still runs the details-only tail, and that pass is counted under trigger=details.
+func TestSweepCountsTheDetailsOnlyTail(t *testing.T) {
+	a := &fakeAcct{}
+	s, _ := newTestSyncer(nil, a, true)
+	s.st = &claimOnceStore{fakeStore: &fakeStore{claimOK: true, needDetail: []string{"a"}}, taken: true}
+	uid := uuid.New()
+	s.users = func(context.Context) ([]uuid.UUID, error) { return []uuid.UUID{uid}, nil }
+	got := map[string]int{}
+	s.SetObserve(func(trigger, outcome string) { got[trigger+"/"+outcome]++ })
+	s.sweep(context.Background())
+	if got["sweep/skipped"] != 1 || got["details/ok"] != 1 || len(got) != 2 {
+		t.Errorf("counted %v, want sweep/skipped 1 and details/ok 1", got)
+	}
+	if len(a.detailCalls) != 1 {
+		t.Errorf("detail calls = %d, want 1", len(a.detailCalls))
+	}
+}
