@@ -6,6 +6,7 @@ import { inDemo, listPath } from "../lib/demo";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
+import { legsSummary, parkedText } from "../lib/legsSummary";
 import { ProLimitNotice } from "../components/ProLimitNotice";
 import { proLimitOf } from "../lib/proLimit";
 import { forVehicle } from "../lib/vehicleSamples";
@@ -714,36 +715,64 @@ export default function DriveDetailPage() {
   );
 }
 
-// "13 min", "1 h 5 min": how long the truck sat between two legs.
-function parkedText(min: number): string {
-  if (min < 60) return `${min} min`;
-  return `${Math.floor(min / 60)} h ${min % 60} min`;
-}
-
 const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: displayTimeZone() });
 
-// A merged round trip's legs in order, with the parked time between them. The figures above are their sum.
+// A merged round trip's legs in order, with the parked time between them. The figures above are their sum. One row until a tap opens the list; the
+// choice is kept in this browser.
+const LEGS_OPEN_KEY = "rivolt.legsOpen";
+
 function LegsCard({ legs }: { legs: RoundTripLeg[] }) {
+  const [open, setOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem(LEGS_OPEN_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    try {
+      window.localStorage.setItem(LEGS_OPEN_KEY, next ? "1" : "0");
+    } catch {
+      /* private mode: the choice only lasts this visit */
+    }
+  };
+  const summary = legsSummary(legs);
   return (
-    <Card title={`${legs.length} legs`}>
-      <ol data-round-trip-leg-list className="space-y-1 text-sm">
-        {legs.map((l, i) => (
-          <li key={l.ID}>
-            <div data-leg className="flex items-baseline justify-between gap-2">
-              <span className="text-neutral-200">
-                Leg {i + 1} <span className="text-neutral-500">· {clock(l.StartedAt)}–{clock(l.EndedAt)}</span>
-              </span>
-              <span className="tabular-nums text-neutral-300">{num(l.DistanceMi, 1, "mi")}</span>
-            </div>
-            {l.parkedMinAfter != null ? (
-              <div data-leg-parked className="py-1 pl-3 text-xs text-amber-300/90">
-                Parked {parkedText(l.parkedMinAfter)}
+    <section data-legs-card className="rounded-xl border border-neutral-800 bg-neutral-900/50 scroll-mt-20">
+      <button
+        type="button"
+        data-legs-toggle
+        aria-expanded={open}
+        aria-controls="round-trip-legs-list"
+        aria-label={summary}
+        onClick={toggle}
+        className="flex min-h-[44px] w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm"
+      >
+        <span className="text-neutral-200">{summary}</span>
+        <span aria-hidden className={`text-neutral-500 transition-transform ${open ? "rotate-90" : ""}`}>›</span>
+      </button>
+      <div id="round-trip-legs-list" hidden={!open} className="border-t border-neutral-800 p-4">
+        <ol data-round-trip-leg-list className="space-y-1 text-sm">
+          {legs.map((l, i) => (
+            <li key={l.ID}>
+              <div data-leg className="flex items-baseline justify-between gap-2">
+                <span className="text-neutral-200">
+                  Leg {i + 1} <span className="text-neutral-500">· {clock(l.StartedAt)}–{clock(l.EndedAt)}</span>
+                </span>
+                <span className="tabular-nums text-neutral-300">{num(l.DistanceMi, 1, "mi")}</span>
               </div>
-            ) : null}
-          </li>
-        ))}
-      </ol>
-    </Card>
+              {l.parkedMinAfter != null ? (
+                <div data-leg-parked className="py-1 pl-3 text-xs text-amber-300/90">
+                  Parked {parkedText(l.parkedMinAfter)}
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
   );
 }
 
