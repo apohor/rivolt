@@ -276,6 +276,7 @@ type Notification struct {
 // notificationKinds are the kinds that are sent to the app.
 var notificationKinds = map[string]bool{
 	"charging_done": true, "plug_in_reminder": true, "anomaly": true, "software_update": true, "milestone": true,
+	"left_open": true, "tire_low": true,
 	"test": true, // the user's own "send a test" (SendAPNsTest)
 }
 
