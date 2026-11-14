@@ -158,7 +158,7 @@ type ReplayFeed struct {
 	// summaries lists the demo vehicle's recorded charges as the session summaries Rivian would bill (replayChargeSummaries); nil
 	// means this feed serves none.
 	summaries func(ctx context.Context, vehicleID string) ([]SessionSummary, error)
-	logger       *slog.Logger
+	logger    *slog.Logger
 }
 
 // Stream replays frames for vehicleID from where its recording left off
