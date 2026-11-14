@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +29,7 @@ import (
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/electrafi"
 	"github.com/apohor/rivolt/internal/histfloor"
+	"github.com/apohor/rivolt/internal/imports"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/samples"
 	"github.com/apohor/rivolt/internal/vehiclelease"
@@ -84,6 +87,19 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 		files := r.MultipartForm.File["file"]
 		if len(files) == 0 {
 			http.Error(w, "no files uploaded under field 'file'", http.StatusBadRequest)
+			return
+		}
+		is, err := imports.New(d.DB, uid)
+		if err != nil {
+			http.Error(w, "import unavailable: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		var vehicleRow *uuid.UUID
+		var vr uuid.UUID
+		if err := d.DB.QueryRowContext(r.Context(), `SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2`, uid, rivianVehicleID).Scan(&vr); err == nil {
+			vehicleRow = &vr
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "vehicle lookup: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		imp := &electrafi.Importer{
@@ -145,6 +161,48 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 				emit(map[string]any{"event": "error", "file": fh.Filename, "error": "open: " + err.Error()})
 				continue
 			}
+			// One batch per file, keyed by the hash of its bytes: the same file again is refused ("already imported", with the batch to
+			// undo), and Undo takes back every drive and charge it brought. The user's filename is not stored.
+			sum := sha256.New()
+			size, err := io.Copy(sum, f)
+			if err == nil {
+				_, err = f.Seek(0, io.SeekStart)
+			}
+			if err != nil {
+				_ = f.Close()
+				if firstErr == "" {
+					firstErr = fh.Filename + ": read: " + err.Error()
+				}
+				emit(map[string]any{"event": "error", "file": fh.Filename, "error": "read: " + err.Error()})
+				continue
+			}
+			batch := imports.Batch{Source: electrafiBatchSource, Ext: "csv", SHA256: hex.EncodeToString(sum.Sum(nil)), Bytes: size, VehicleID: vehicleRow,
+				Metadata: map[string]any{"tz": tz, "files": 1}}
+			if imp.PackKWh > 0 {
+				batch.Metadata["pack_kwh"] = imp.PackKWh
+			}
+			if d.Metrics != nil {
+				d.Metrics.HistoryImportAttempts.WithLabelValues(electrafiMetricSource).Inc()
+			}
+			importID, err := is.Begin(r.Context(), batch)
+			var dup *imports.AlreadyImported
+			if errors.As(err, &dup) {
+				_ = f.Close()
+				if firstErr == "" {
+					firstErr = fh.Filename + ": this file was already imported"
+				}
+				emit(map[string]any{"event": "error", "file": fh.Filename, "error": "this file was already imported", "code": "already_imported", "id": dup.ID, "at": dup.At})
+				continue
+			}
+			if err != nil {
+				_ = f.Close()
+				if firstErr == "" {
+					firstErr = fh.Filename + ": " + err.Error()
+				}
+				emit(map[string]any{"event": "error", "file": fh.Filename, "error": "could not start the import, try again"})
+				continue
+			}
+			imp.ImportID = importID
 			emit(map[string]any{"event": "file_start", "index": i, "file": fh.Filename})
 			// Heartbeat inside a single file. Large CSVs have 20k+
 			// rows and can easily spend >60s parsing + inserting;
@@ -163,11 +221,32 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			res, err := imp.ImportReader(r.Context(), fh.Filename, f)
 			_ = f.Close() // read-only upload
 			if err != nil {
+				// Part way: take back what this file wrote (its batch frees the hash for a retry). The request may be the thing that
+				// ended, so the cleanup does not use its context.
+				undoCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), time.Minute)
+				_, uerr := is.Undo(undoCtx, importID)
+				cancel()
+				if uerr != nil {
+					slog.ErrorContext(r.Context(), "electrafi import: undo after failure", "err", logging.ScrubErr(uerr))
+				}
+				reason := "parse"
+				if errors.Is(err, electrafi.ErrMissingColumn) {
+					reason = "unknown_header"
+				}
+				electrafiRejected(d, reason)
 				if firstErr == "" {
 					firstErr = fh.Filename + ": " + err.Error()
 				}
 				emit(map[string]any{"event": "error", "file": fh.Filename, "error": err.Error()})
 				continue
+			}
+			if err := is.Finish(r.Context(), importID, imports.Counts{Rows: res.Rows, Drives: res.Drives, Charges: res.Charges, Skipped: res.SkippedLive + res.SkippedExisting}); err != nil {
+				slog.ErrorContext(r.Context(), "electrafi import: finish", "err", logging.ScrubErr(err))
+			}
+			if d.Metrics != nil {
+				d.Metrics.HistoryImportCommits.WithLabelValues(electrafiMetricSource).Inc()
+				d.Metrics.HistoryImportRows.WithLabelValues(electrafiMetricSource, "drives").Add(float64(res.Drives))
+				d.Metrics.HistoryImportRows.WithLabelValues(electrafiMetricSource, "charges").Add(float64(res.Charges))
 			}
 			results = append(results, res)
 			emit(map[string]any{"event": "file_done", "index": i, "result": res})
@@ -182,6 +261,20 @@ func handleImportElectrafi(d Deps) http.HandlerFunc {
 			return
 		}
 		emit(map[string]any{"event": "done", "files": results, "error": firstErr})
+	}
+}
+
+// electrafiBatchSource is the imports.source of an ElectraFi upload (and drives.source of its rows); electrafiMetricSource is its label on
+// the rivolt_history_import_* counters, as "tezlab" and "abrp" are for theirs.
+const (
+	electrafiBatchSource  = "electrafi_import"
+	electrafiMetricSource = "electrafi"
+)
+
+// electrafiRejected counts a file the ElectraFi import refused or had to take back.
+func electrafiRejected(d Deps, reason string) {
+	if d.Metrics != nil {
+		d.Metrics.HistoryImportRejected.WithLabelValues(electrafiMetricSource, reason).Inc()
 	}
 }
 
