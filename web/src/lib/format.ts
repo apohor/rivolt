@@ -91,6 +91,7 @@ export function formatChargeState(s: string): string {
     case "NoPower":
       return "No power";
     case "charging_station_err":
+    case "charging_station_error":
       return "Interrupted";
     default:
       // Fallback: turn snake_case into Sentence case.

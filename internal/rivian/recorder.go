@@ -251,6 +251,10 @@ type liveCharge struct {
 	endAt      time.Time
 	endSoC     float64
 	finalState string
+	// errSince is when an unbroken run of station-error frames began; zero outside one. lastState is the last raw frame state, which
+	// finalState lags while a run is held. See noteState.
+	errSince  time.Time
+	lastState string
 
 	// Running trapezoidal integral of ChargerPowerKW over wall-clock
 	// time, in kWh. Used as the L2 energy fallback when Parallax never
@@ -317,6 +321,33 @@ type liveCharge struct {
 	floorNoted atomic.Bool
 }
 
+// stationErrorGrace is how long a run of station-error frames may last before it becomes the charge's final state. A home EVSE that
+// flaps (error, connecting, active within seconds) is still charging; the open-charge predicates only know the active states, so
+// letting each flap through made a session that was still adding energy read as finished.
+const stationErrorGrace = 3 * time.Minute
+
+// isStationError matches Rivian's "charging_station_error" (vehicleState and Parallax agree on it). The older "charging_station_err" is
+// not held: isChargingCS treats it as terminal, so it closes the session before noteState sees it, and it has not been seen in the logs for 24 h.
+func isStationError(state string) bool {
+	return strings.EqualFold(strings.TrimSpace(state), "charging_station_error")
+}
+
+// noteState sets finalState from a frame's charger state, holding the previous state through a short run of station-error frames.
+func (c *liveCharge) noteState(t time.Time, state string) {
+	c.lastState = state
+	if !isStationError(state) || c.finalState == "" || isStationError(c.finalState) {
+		c.errSince = time.Time{}
+		c.finalState = state
+		return
+	}
+	if c.errSince.IsZero() {
+		c.errSince = t
+	}
+	if t.Sub(c.errSince) >= stationErrorGrace {
+		c.finalState = state
+	}
+}
+
 // markMeaningful bumps lastMeaningfulAt if the incoming frame
 // represents real activity: SoC ticked up, charger power was above
 // the idle floor, or chargerState transitioned. Sticky-replay frames
@@ -325,7 +356,7 @@ type liveCharge struct {
 func (c *liveCharge) markMeaningful(t time.Time, soc, kw float64, state string) {
 	socUp := soc > c.endSoC
 	active := kw >= chargingPowerFloorKW && kw <= maxLivePowerKW
-	stateChanged := state != "" && state != c.finalState
+	stateChanged := state != "" && state != c.lastState && !(c.lastState == "" && state == c.finalState)
 	if socUp || active || stateChanged {
 		c.lastMeaningfulAt = t
 	}
@@ -1383,7 +1414,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 			}
 			s.charge.markMeaningful(curr.At, curr.BatteryLevelPct, curr.ChargerPowerKW, curr.ChargerState)
 			s.charge.endSoC = curr.BatteryLevelPct
-			s.charge.finalState = curr.ChargerState
+			s.charge.noteState(curr.At, curr.ChargerState)
 			s.charge.noteLimit(curr.ChargeTargetPct)
 			if curr.ChargerPowerKW > s.charge.maxPower && curr.ChargerPowerKW <= maxLivePowerKW {
 				s.charge.maxPower = curr.ChargerPowerKW
@@ -1437,7 +1468,7 @@ func (s *liveSessions) handleChargeLifecycle(curr, prev *State, m *StateMonitor,
 		}
 		s.charge.noteLimit(curr.ChargeTargetPct)
 		s.charge.endSoC = curr.BatteryLevelPct
-		s.charge.finalState = curr.ChargerState
+		s.charge.noteState(curr.At, curr.ChargerState)
 		m.touchLiveCharge(ctx, curr.VehicleID, s.charge)
 		return s.charge.number
 	}

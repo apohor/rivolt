@@ -167,7 +167,7 @@ struct ChargeInsights: Equatable {
         case "Stopped": return "Stopped"
         case "Starting": return "Starting"
         case "NoPower": return "No power"
-        case "charging_station_err": return "Interrupted"
+        case "charging_station_err", "charging_station_error": return "Interrupted"
         default:
             let words = raw.replacingOccurrences(of: "_", with: " ").split(separator: " ").joined(separator: " ")
             return words.prefix(1).uppercased() + words.dropFirst()

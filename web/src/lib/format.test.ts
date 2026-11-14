@@ -57,6 +57,7 @@ describe("formatChargeState", () => {
     expect(formatChargeState("Complete")).toBe("Complete");
     expect(formatChargeState("NoPower")).toBe("No power");
     expect(formatChargeState("charging_station_err")).toBe("Interrupted");
+    expect(formatChargeState("charging_station_error")).toBe("Interrupted");
   });
   it("sentence-cases unknown snake_case values", () => {
     expect(formatChargeState("some_other_state")).toBe("Some other state");
