@@ -77,4 +77,12 @@ final class RoundTripLegsTests: XCTestCase {
         let d = try XCTUnwrap(Fixture.decode(ActivityResponse.self, "activity").drives.first { $0.id == "drv-2a" })
         XCTAssertNil(d.legs, "an old server sends no legs: the first leg's drawing stays")
     }
+
+    func testTheTrailerLineIsOneShortLine() throws {
+        var d = try row()
+        d.trailer = true
+        XCTAssertEqual(ActivityDetailView.trailerLine(d), "Trailer: yes (not in efficiency)")
+        d.trailer = nil
+        XCTAssertEqual(ActivityDetailView.trailerLine(d), "Trailer: none")
+    }
 }

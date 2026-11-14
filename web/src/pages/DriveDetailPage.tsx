@@ -28,7 +28,7 @@ import {
 } from "../lib/format";
 import { collapseRoundTrips, driveDurationSeconds, driveHasTrailer } from "../lib/drives";
 import { cleanTrack } from "../lib/driveTrack";
-import { TrailerControl } from "../components/TrailerControl";
+import { TrailerControl, TrailerInline } from "../components/TrailerControl";
 import { analyzeDrivePower } from "../lib/power";
 import { useDesignPreview, useGPSThresholds } from "../lib/config";
 import { usePreferences } from "../lib/preferences";
@@ -394,6 +394,7 @@ export default function DriveDetailPage() {
   // the worst such age. A frozen-fix drive trips this at ~100%.
   // gap_dim (design preview): a drive needs 60% stale fixes, not 30%, before the badge shows.
   const gapDim = useDesignPreview("gap_dim");
+  const trailerInline = useDesignPreview("trailer_inline");
   const fixAgeSeconds = useMemo(() => {
     const STALE_S = 5 * 60; // per-sample staleness floor; mirrors DriveMap's badge threshold
     const STALE_FRACTION = gapDim ? 0.6 : 0.3;
@@ -553,7 +554,13 @@ export default function DriveDetailPage() {
         }
       />
 
-      {driveHasTrailer(drive) === true && (
+      {trailerInline ? (
+        (drive.round_trip_legs ?? 1) <= 1 ? (
+          <div className="-mt-3">
+            <TrailerInline drive={drive} canChange={!demo} />
+          </div>
+        ) : null
+      ) : driveHasTrailer(drive) === true && (
         <p data-drive-trailer className="text-xs text-neutral-400">
           Trailer connected. This drive is left out of the efficiency figures.
         </p>
@@ -707,7 +714,7 @@ export default function DriveDetailPage() {
         />
       ) : null}
 
-      {drive && !demo && (drive.round_trip_legs ?? 1) <= 1 ? <TrailerControl drive={drive} /> : null}
+      {!trailerInline && drive && !demo && (drive.round_trip_legs ?? 1) <= 1 ? <TrailerControl drive={drive} /> : null}
 
       {drive && !demo ? <EfficiencyExplainerCard driveId={drive.ID} /> : null}
     </div>
