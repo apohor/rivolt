@@ -1691,6 +1691,28 @@ jobs:
           [ -s "$f" ] || { echo "::error::${TAG} is a final tag but ${f} is missing or empty in the tagged commit. Add the hand-written notes, merge, and tag that commit."; exit 1; }
           echo "OK: ${f} exists ($(wc -l < "$f") lines)."
 
+      # A final must be the commit qa gated as a release candidate, however the tag got pushed (ship-release.sh, release.yml or by hand): the rc at
+      # this SHA, qa/rc-gate success, preview on its image. No rc at this SHA passes only with a rc-bypass.log line for the tag in rivolt-infra
+      # (.github/ci/final-gate.sh). The infra token only reads; without it the check can't read the values and the tag is refused.
+      - name: Token to read rivolt-infra (GitHub App)
+        id: infra-read
+        if: steps.kind.outputs.kind == 'final' && vars.RIVOLT_INFRA_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RIVOLT_INFRA_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RIVOLT_INFRA_APP_KEY }}
+          owner: apohor
+          repositories: rivolt-infra
+          permission-contents: read
+      - name: Require the gated release candidate (final tags)
+        if: steps.kind.outputs.kind == 'final'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INFRA_TOKEN: ${{ steps.infra-read.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          INFRA_REPO: apohor/rivolt-infra
+        run: bash .github/ci/final-gate.sh "${{ github.ref_name }}" "${{ github.sha }}"
+
       - name: Confirm SHA has a successful build run
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
