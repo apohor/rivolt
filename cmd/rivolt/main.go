@@ -3946,6 +3946,28 @@ func (s *sleepMetrics) OnParallaxReplayIgnored(topic string) {
 	s.m.ParallaxReplaysIgnoredTotal.WithLabelValues(topic).Inc()
 }
 
+// OnNavFrame implements rivian.NavObserver. topic is the RVM name; the label
+// is its last segment, one of two fixed values. Size and count only.
+func (s *sleepMetrics) OnNavFrame(topic string, payloadBytes int) {
+	if s == nil || s.m == nil {
+		return
+	}
+	label := "trip_progress"
+	if strings.HasSuffix(topic, "trip_info") {
+		label = "trip_info"
+	}
+	s.m.NavFramesTotal.WithLabelValues(label).Inc()
+	s.m.NavFrameBytesTotal.WithLabelValues(label).Add(float64(payloadBytes))
+}
+
+// OnNavRejected implements rivian.NavObserver: the server refused the navigation topics and they were latched off.
+func (s *sleepMetrics) OnNavRejected() {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.NavRejectedTotal.Inc()
+}
+
 // rivianResultMetrics counts each Rivian call's outcome by operation and
 // class (rivolt_rivian_results_total); same dependency direction as
 // breakerMetrics.

@@ -580,6 +580,21 @@ const (
 	rvmBatteryChars = "energy.high_voltage.battery_characteristics"
 )
 
+// The two navigation topics carry the active trip: trip_info holds the
+// route (so the destination), trip_progress the legs' remaining distance,
+// time and the car's position. A destination is a precise location, so
+// these are only ever counted (see NavCountRVMs); no payload byte is read.
+const (
+	rvmNavTripInfo     = "navigation.navigation_service.trip_info"
+	rvmNavTripProgress = "navigation.navigation_service.trip_progress"
+)
+
+// NavCountRVMs are the navigation topics subscribed when RIVOLT_NAV_COUNT
+// is on, to count frames and payload bytes per topic and nothing else.
+var NavCountRVMs = []string{rvmNavTripInfo, rvmNavTripProgress}
+
+func isNavRVM(rvm string) bool { return rvm == rvmNavTripInfo || rvm == rvmNavTripProgress }
+
 // CaptureRVMs are the read topics carried on the drive-dynamics
 // subscription only under the preview capture flag, so prod isn't
 // subscribed to them yet. alarm + 12V health are decoded from the APK
@@ -939,6 +954,35 @@ type DriveDynamicsFrame struct {
 	ValueOK     bool
 	Payload     string
 	TimestampMs int64
+	// PayloadBytes is the decoded size of a navigation frame, whose Payload,
+	// Value and ValueOK are left empty on purpose (count only).
+	PayloadBytes int
+	// NavRejected is set on a synthetic frame (no RVM) when the server
+	// refused a subscription that carried the navigation topics and they
+	// were dropped from the next connect.
+	NavRejected bool
+}
+
+// errParallaxSubscription marks a GraphQL error on the ParallaxMessages
+// subscription.
+var errParallaxSubscription = errors.New("parallax subscription error")
+
+// driveDynamicsFrameOf builds the frame for one message. A navigation
+// topic is count only: its payload is neither decoded nor carried, just
+// sized from the base64 length.
+func driveDynamicsFrameOf(rvm, payload, timestamp string) DriveDynamicsFrame {
+	if isNavRVM(rvm) {
+		return DriveDynamicsFrame{RVM: rvm, PayloadBytes: base64.StdEncoding.DecodedLen(len(payload))}
+	}
+	// Don't gate on a successful varint decode — a topic whose shape isn't
+	// RE'd yet (power.state) must still reach the shadow so its raw payload
+	// gets logged for offline decoding.
+	v, ok := decodeSingleVarint(payload)
+	var ts int64
+	if s := strings.Trim(timestamp, `"`); s != "" {
+		ts, _ = strconv.ParseInt(s, 10, 64)
+	}
+	return DriveDynamicsFrame{RVM: rvm, Value: v, ValueOK: ok, Payload: payload, TimestampMs: ts}
 }
 
 // DriveDynamicsCallback receives each decoded drive-dynamics frame.
@@ -968,6 +1012,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		return errors.New("rivian: callback is required")
 	}
 	var bo reconnectBackoff
+	navOff := false // latched when the server refuses a subscription that carried the navigation topics
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -977,8 +1022,17 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 			rvmRange, rvmTires, rvmCabinTemps, rvmClosures, rvmLocks,
 			rvmChargingStatus, rvmOtaDeploy, rvmTimeEstimation,
 		}
+		carriedNav := false
 		if extra != nil {
-			rvms = append(rvms, extra()...)
+			for _, r := range extra() {
+				if isNavRVM(r) {
+					if navOff {
+						continue
+					}
+					carriedNav = true
+				}
+				rvms = append(rvms, r)
+			}
 		}
 		bo.start()
 		err := c.runGenericSubscription(ctx, userTok, subParams{
@@ -992,21 +1046,13 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 				return nil
 			}
 			if len(p.Errors) > 0 {
-				return fmt.Errorf("parallax subscription error: %s", p.Errors[0].Message)
+				return fmt.Errorf("%w: %s", errParallaxSubscription, p.Errors[0].Message)
 			}
 			msg := p.Data.ParallaxMessages
 			if msg.Payload == "" {
 				return nil
 			}
-			// Don't gate on a successful varint decode — a topic whose
-			// shape isn't RE'd yet (power.state) must still reach the
-			// shadow so its raw payload gets logged for offline decoding.
-			v, ok := decodeSingleVarint(msg.Payload)
-			var ts int64
-			if s := strings.Trim(string(msg.Timestamp), `"`); s != "" {
-				ts, _ = strconv.ParseInt(s, 10, 64)
-			}
-			cb(DriveDynamicsFrame{RVM: msg.RVM, Value: v, ValueOK: ok, Payload: msg.Payload, TimestampMs: ts})
+			cb(driveDynamicsFrameOf(msg.RVM, msg.Payload, string(msg.Timestamp)))
 			return nil
 		})
 		if err == nil {
@@ -1014,6 +1060,13 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 		}
 		if errors.Is(err, errWSUnauthenticated) {
 			return err
+		}
+		if carriedNav && (errors.Is(err, errParallaxSubscription) || errors.Is(err, errWSServerError)) {
+			// The server refused a subscription that carried the
+			// navigation topics (a gate, say). They share it with gear and
+			// charging status, so drop them for good rather than loop.
+			navOff = true
+			cb(DriveDynamicsFrame{NavRejected: true})
 		}
 		wait := bo.next()
 		select {
