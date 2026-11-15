@@ -139,6 +139,19 @@ export function clearRanges(stops: (number | string)[], ranges: [number, number]
   return out;
 }
 
+// chainGaps joins dropouts that meet end to start (a long hole with sparse samples is cut into one gap per sample pair) into one line each,
+// with the index of the first gap of the chain. Drawn separately, round caps overlap at the faded opacity and leave a darker dot at every joint.
+export function chainGaps(gaps: { from: LatLng; to: LatLng }[]): { coords: LatLng[]; first: number }[] {
+  const same = (a: LatLng, b: LatLng) => Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9;
+  const out: { coords: LatLng[]; first: number }[] = [];
+  gaps.forEach((g, i) => {
+    const last = out[out.length - 1];
+    if (last && same(last.coords[last.coords.length - 1], g.from)) last.coords.push(g.to);
+    else out.push({ coords: [g.from, g.to], first: i });
+  });
+  return out;
+}
+
 // gapProgress locates each dropout on the track as [from, to] line progress, by the track vertices nearest its ends.
 export function gapProgress(track: LatLng[], gaps: { from: LatLng; to: LatLng }[]): [number, number][] {
   if (track.length < 2) return [];
@@ -187,10 +200,12 @@ export function setDriveRoute(map: MLMap, r: DriveRoute, flavor: "dark" | "light
   const dim = !!r.gapRanges && r.gapRanges.length > 0;
   const fills = routeData({ runs: [], routedGaps: r.routedGaps, gaps: r.gaps });
   if (dim) {
-    r.gapRanges!.forEach(([a, b], i) => {
-      const f = fills.features.filter((x) => x.properties.kind === "gap")[i];
-      if (f) f.properties.color = colorAtProgress(r.stops, (a + b) / 2);
-    });
+    // One line per run of chained dropouts, in the colour where its first one is.
+    fills.features = fills.features.filter((x) => x.properties.kind !== "gap");
+    for (const c of chainGaps(r.gaps ?? [])) {
+      const range = r.gapRanges![c.first];
+      fills.features.push({ type: "Feature", geometry: { type: "LineString", coordinates: c.coords.map(lonlat) }, properties: { kind: "gap", color: range ? colorAtProgress(r.stops, (range[0] + range[1]) / 2) : ROUTE_NEUTRAL } });
+    }
   }
   const ts = map.getSource(TRACK_SOURCE) as GeoJSONSource | undefined;
   if (ts) ts.setData(trackData as never);

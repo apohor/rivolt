@@ -5,6 +5,20 @@ extension RouteSnap.Drawing {
     /// Opacity and width of a dimmed dropout (the web's 35%, at the track's own width).
     static let gapDimOpacity = 0.35
 
+    /// Dropouts that meet end to start (a long hole with sparse samples is cut into one gap per sample pair) as one line each, with the index of
+    /// the chain's first gap. Drawn as separate layers their round caps overlap at the faded opacity and leave a darker dot at every joint.
+    func gapChains() -> [(coords: [RouteSnap.Coord], first: Int)] {
+        var out: [(coords: [RouteSnap.Coord], first: Int)] = []
+        for (i, gap) in gaps.enumerated() {
+            if let last = out.last?.coords.last, abs(last.lat - gap.from.lat) < 1e-9, abs(last.lon - gap.from.lon) < 1e-9 {
+                out[out.count - 1].coords.append(gap.to)
+            } else {
+                out.append((coords: [gap.from, gap.to], first: i))
+            }
+        }
+        return out
+    }
+
     /// The colour at each gap's start: the nearest end of a gradient run (its value on the ramp), or of a speed piece (its bucket's colour).
     func gapColors(metric: RouteGradient.Metric, gradientOn: Bool, traits: UITraitCollection) -> [UIColor] {
         func dist2(_ a: RouteSnap.Coord, _ b: RouteSnap.Coord) -> Double {

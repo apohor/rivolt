@@ -660,12 +660,12 @@ struct RouteMapView: UIViewRepresentable {
                 // One solid layer per dropout (a few at most), each in the colour the route has where it begins.
                 let colors = drawing.gapColors(metric: metric, gradientOn: gradientOn, traits: map.traitCollection)
                 let width = gradientOn ? 3.5 : 3.0
-                for (i, gap) in drawing.gaps.enumerated() {
-                    var coords = [gap.from, gap.to].map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
-                    let source = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-gapdim-\(i)", shape: MLNPolylineFeature(coordinates: &coords, count: 2), options: nil)
+                for (i, chain) in drawing.gapChains().enumerated() {
+                    var coords = chain.coords.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+                    let source = MLNShapeSource(identifier: "\(RouteMapView.sourceID)-gapdim-\(i)", shape: MLNPolylineFeature(coordinates: &coords, count: UInt(coords.count)), options: nil)
                     style.addSource(source)
                     let l = MLNLineStyleLayer(identifier: "\(RouteMapView.sourceID)-gapdim-\(i)", source: source)
-                    l.lineColor = NSExpression(forConstantValue: colors[i])
+                    l.lineColor = NSExpression(forConstantValue: colors[chain.first])
                     l.lineWidth = NSExpression(forConstantValue: width)
                     l.lineOpacity = NSExpression(forConstantValue: RouteSnap.Drawing.gapDimOpacity)
                     l.lineCap = NSExpression(forConstantValue: "round")

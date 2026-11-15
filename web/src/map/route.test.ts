@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boundsOf, clearRanges, colorAtProgress, gapProgress, routeData, setDriveGradient, setDriveRoute, speedColor, speedRuns, type LatLng } from "./route";
+import { boundsOf, chainGaps, clearRanges, colorAtProgress, gapProgress, routeData, setDriveGradient, setDriveRoute, speedColor, speedRuns, type LatLng } from "./route";
 import { SPEED_BUCKETS } from "../lib/speedBuckets";
 
 const line: LatLng[] = [[40, -100], [40.1, -100.1], [40.2, -100.2], [40.3, -100.3]];
@@ -187,5 +187,20 @@ describe("gapProgress on a track that passes a place twice", () => {
     const back: [number, number][] = [[5.4e-5, 0.03], [5.4e-5, 0.02], [5.4e-5, 0.01], [5.4e-5, 0]];
     const [r] = gapProgress([...out, ...back], [{ from: [4.5e-5, 0.02], to: [0, 0.03] }]);
     expect(r[1] - r[0]).toBeLessThan(0.2);
+  });
+});
+
+describe("chainGaps", () => {
+  it("joins dropouts that meet end to start and keeps separate ones apart", () => {
+    const g = [
+      { from: [1, 1], to: [2, 2] },
+      { from: [2, 2], to: [3, 3] },
+      { from: [5, 5], to: [6, 6] },
+    ] as { from: [number, number]; to: [number, number] }[];
+    expect(chainGaps(g)).toEqual([
+      { coords: [[1, 1], [2, 2], [3, 3]], first: 0 },
+      { coords: [[5, 5], [6, 6]], first: 2 },
+    ]);
+    expect(chainGaps([])).toEqual([]);
   });
 });
