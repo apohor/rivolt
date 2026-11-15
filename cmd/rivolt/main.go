@@ -3068,7 +3068,8 @@ func runServer() {
 	// calls NOAA. RIVOLT_RADAR_UPSTREAM overrides the GeoServer (default https://opengeo.ncep.noaa.gov/geoserver).
 	var radarHandler, demoRadarHandler http.Handler
 	if os.Getenv("RIVOLT_RADAR") == "1" {
-		rcfg := radar.Config{BaseURL: strings.TrimSpace(os.Getenv("RIVOLT_RADAR_UPSTREAM")), Prefix: redisKeyPrefix}
+		rcfg := radar.Config{BaseURL: strings.TrimSpace(os.Getenv("RIVOLT_RADAR_UPSTREAM")), Prefix: redisKeyPrefix,
+			Smooth: slices.Contains(api.ParseDesignPreview(os.Getenv("RIVOLT_DESIGN_PREVIEW")), radar.SmoothKey)}
 		if sharedRedis != nil {
 			rcfg.Redis = sharedRedis
 		}

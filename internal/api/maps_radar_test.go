@@ -111,3 +111,15 @@ func TestRadarIsRateLimitedPerUser(t *testing.T) {
 		t.Errorf("another user: %d, want 200 (the limit is per user)", code)
 	}
 }
+
+func TestRadarMaxZoomIsRaisedOnlyByTheSmoothKey(t *testing.T) {
+	for _, tc := range []struct {
+		keys []string
+		want float64
+	}{{nil, 9}, {[]string{"gap_dim"}, 9}, {[]string{"gap_dim", "radar_smooth"}, 12}} {
+		got := configTiles(t, configExtras{Radar: true, DesignPreview: tc.keys})
+		if got["radar_maxzoom"] != tc.want {
+			t.Errorf("keys %v: radar_maxzoom %v, want %v", tc.keys, got["radar_maxzoom"], tc.want)
+		}
+	}
+}

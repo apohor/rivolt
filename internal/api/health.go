@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -336,6 +337,9 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		base.Tiles.RadarURL = "/api/maps/radar/{z}/{x}/{y}.png"
 		base.Tiles.RadarFrameURL = "/api/maps/radar/frame"
 		base.Tiles.RadarMinZoom, base.Tiles.RadarMaxZoom = radar.ClientMinZoom, radar.ClientMaxZoom
+		if slices.Contains(ex.DesignPreview, radar.SmoothKey) {
+			base.Tiles.RadarMaxZoom = radar.SmoothMaxZoom
+		}
 	}
 	if ex.DemoRadar {
 		base.Tiles.RadarDemoURL = "/api/demo/radar/{z}/{x}/{y}.png"
