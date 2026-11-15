@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import * as config from "./config";
 import type { Drive, MilestoneItem } from "./api";
+import { formatDuration } from "./format";
 import type { LedgerMonth } from "./ledger";
 import { buildMilestoneShareModel, buildMonthShareModel, buildTripShareModel, paintShareCard, shareFileName, shareFooter, SHARE_FOOTER } from "./shareCard";
 
@@ -41,6 +42,12 @@ describe("share card models", () => {
     expect(m.eyebrow).toBe("Round trip");
     expect(m.notes).toEqual(["3 legs"]);
     expect(m.title).toContain("1 h 0 min");
+  });
+  it("trip: the minutes are cut like the drive page's Duration, never rounded up", () => {
+    // 40 min 50 s: the page says "40m", so the card must not say "41 min".
+    const d = { ...drive, DrivingSeconds: 40 * 60 + 50 } as Drive;
+    expect(buildTripShareModel(d, { includeCost: false, sample: false }).title).toContain("40 min");
+    expect(formatDuration(40 * 60 + 50)).toBe("40m");
   });
   it("milestone: the server's words, never a dollar figure, no ids", () => {
     const m = buildMilestoneShareModel(ms({}), { sample: false });
