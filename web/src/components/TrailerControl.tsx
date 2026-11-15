@@ -179,8 +179,10 @@ export function TrailerInline({
                   role="menuitemradio"
                   aria-checked={value === c}
                   tabIndex={-1}
-                  disabled={m.isPending}
+                  aria-disabled={m.isPending || undefined}
                   onClick={() => {
+                    // aria-disabled, not disabled: a disabled button can't take focus, so focus on open would land nowhere while a save is pending.
+                    if (m.isPending) return;
                     close(true);
                     if (c !== value) m.mutate(c);
                   }}

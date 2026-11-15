@@ -57,13 +57,19 @@ for (const [vpName, vp] of [["393", { width: 393, height: 852 }], ["1280", { wid
       await page.locator("[data-trailer-change]").click();
       await page.screenshot({ path: path.join(SHOTS, `trailer-inline-open-${vpName}-${scheme}.png`) });
       let body: unknown = null;
-      await page.route(/\/api\/drives\/towing\/trailer$/, (r) => {
+      await page.route(/\/api\/drives\/towing\/trailer$/, async (r) => {
         body = r.request().postDataJSON();
+        await new Promise((done) => setTimeout(done, 800));
         return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ trailer_override: false }) });
       });
       await menu.getByRole("menuitemradio", { name: "No trailer" }).click();
       await expect.poll(() => body).toEqual({ trailer: false });
       await expect(menu).toHaveCount(0);
+      // While the save is pending the items are aria-disabled, not disabled: focus still lands in the menu on open.
+      await page.locator("[data-trailer-change]").click();
+      await expect(menu.getByRole("menuitemradio").first()).toHaveAttribute("aria-disabled", "true");
+      await expect(menu.locator("[role=menuitemradio]:focus")).toHaveCount(1);
+      await page.keyboard.press("Escape");
       await page.screenshot({ path: path.join(SHOTS, `trailer-inline-${vpName}-${scheme}.png`) });
       await ctx.close();
     });
