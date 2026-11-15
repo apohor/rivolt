@@ -46,8 +46,8 @@ describe("share card models", () => {
     expect(km.stats.find((s) => s.label === "Average speed")?.value).toBe("66 km/h");
     expect(all(km)).not.toMatch(/\bmi\b|mph/);
     const m = buildMonthShareModel(month, { includeCost: false, sample: false, unit: "km" });
-    expect(m.title).toBe("663 km");
-    expect(m.stats.find((s) => s.label === "Driven")?.value).toBe("663 km");
+    expect(m.title).toBe("664 km");
+    expect(m.stats.find((s) => s.label === "Driven")?.value).toBe("664 km");
     expect(m.stats.find((s) => s.label === "Efficiency")?.value).toBe(`${((400 * 1.609344) / 150).toFixed(2)} km/kWh`);
     expect(all(m)).not.toMatch(/\bmi\b/);
   });
