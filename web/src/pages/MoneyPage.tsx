@@ -1,6 +1,7 @@
 import { chargesAllQuery } from "../lib/activityLists";
 import { ENERGY_ESTIMATED_TOTAL_NOTE } from "../lib/energyEstimated";
 import { appPath, inDemo } from "../lib/demo";
+import { usePreferences } from "../lib/preferences";
 import { YearCard } from "../components/YearCard";
 import { ProLimitNotice } from "../components/ProLimitNotice";
 import { ProSheet } from "../components/ProSheet";
@@ -607,6 +608,7 @@ function ShareStatementButton({
   // Arrived via the statement email's "Share it" link (share=1).
   prompt?: boolean;
 }) {
+  const { distanceUnit } = usePreferences();
   const [open, setOpen] = useState(false);
   const sample = inDemo();
   // The one-time nudge: gone for good once dismissed or once the sheet has been opened from anywhere.
@@ -624,8 +626,8 @@ function ShareStatementButton({
   const share = useQuery({ queryKey: ["savings", m.period], queryFn: ({ signal }) => fetchSavings(m.period, signal), staleTime: 5 * 60_000, retry: 0, enabled: !sample });
   const offpeakShare = offpeakShareOf(share.data);
   const build = useCallback(
-    (includeCost: boolean, includeOffpeak: boolean) => buildMonthShareModel(m, { includeCost, sample, partialFrom, offpeakSharePct: includeOffpeak ? offpeakShare : null }),
-    [m, sample, partialFrom, offpeakShare],
+    (includeCost: boolean, includeOffpeak: boolean) => buildMonthShareModel(m, { includeCost, sample, partialFrom, offpeakSharePct: includeOffpeak ? offpeakShare : null, unit: distanceUnit }),
+    [m, sample, partialFrom, offpeakShare, distanceUnit],
   );
   return (
     <div className="flex flex-wrap items-center gap-2">

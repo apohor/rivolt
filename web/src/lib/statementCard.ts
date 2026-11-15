@@ -3,6 +3,7 @@
 // places, no coordinates, no addresses, no vehicle or charge ids. That
 // is the privacy guarantee, so it lives in the model, not the painter.
 
+import type { DistanceUnit } from "./preferences";
 import {
   estimatedShare,
   formatMoney,
@@ -37,7 +38,7 @@ const COLORS = { home: "#10b981", public: "#38bdf8", dcfc: "#f59e0b", unknown: "
 
 export function buildStatementCardModel(
   m: LedgerMonth,
-  opts: { partialFrom?: string | null; sample?: boolean } = {},
+  opts: { partialFrom?: string | null; sample?: boolean; unit?: DistanceUnit } = {},
 ): StatementCardModel {
   const cur = m.currency;
   const e = m.energy;
@@ -55,8 +56,10 @@ export function buildStatementCardModel(
       ];
   const est = estimatedShare(m);
   const parts = [`${e.kwh_added.toFixed(0)} kWh`];
-  if (m.driving.miles > 0) parts.push(`${m.driving.miles.toFixed(0)} mi`);
-  if (m.driving.cost_per_mile != null) parts.push(`${formatMoney(m.driving.cost_per_mile, cur, 3)}/mi`);
+  const unit = opts.unit ?? "mi";
+  const k = unit === "km" ? 1.609344 : 1;
+  if (m.driving.miles > 0) parts.push(`${(m.driving.miles * k).toFixed(0)} ${unit}`);
+  if (m.driving.cost_per_mile != null) parts.push(`${formatMoney(m.driving.cost_per_mile / k, cur, 3)}/${unit}`);
   return {
     title: monthLabel(m.period),
     total: formatMoney(statementTotal(m), cur),
