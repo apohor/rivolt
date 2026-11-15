@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { backend, type Drive } from "../lib/api";
+import { driveHasTrailer } from "../lib/drives";
 import { Card } from "./ui";
 
 // What the user can say about a drive's trailer: nothing (use what the truck reported), yes, or no.
@@ -17,7 +19,7 @@ function recordedLabel(t: boolean | null | undefined): string {
 
 // Lets the user correct whether a trailer was connected on a drive. A drive with a trailer is left out of the efficiency
 // figures, so a wrong guess either way skews them. The signal is the connector, not the load.
-export function TrailerControl({ drive }: { drive: Pick<Drive, "ID" | "Trailer" | "TrailerOverride"> }) {
+function useTrailerChoice(drive: Pick<Drive, "ID" | "TrailerOverride">) {
   const qc = useQueryClient();
   const m = useMutation({
     mutationFn: (c: Choice) => backend.driveTrailer(drive.ID, overrideOf(c)),
@@ -27,6 +29,11 @@ export function TrailerControl({ drive }: { drive: Pick<Drive, "ID" | "Trailer" 
     },
   });
   const value = m.isPending && m.variables ? m.variables : choiceOf(drive.TrailerOverride);
+  return { m, value };
+}
+
+export function TrailerControl({ drive }: { drive: Pick<Drive, "ID" | "Trailer" | "TrailerOverride"> }) {
+  const { m, value } = useTrailerChoice(drive);
   return (
     <Card>
       <label className="flex flex-wrap items-center justify-between gap-3 text-sm" data-trailer-control>
@@ -48,5 +55,76 @@ export function TrailerControl({ drive }: { drive: Pick<Drive, "ID" | "Trailer" 
       </p>
       {m.isError && <p className="mt-2 text-xs text-red-400">Could not save that. Try again.</p>}
     </Card>
+  );
+}
+
+// The trailer_inline form: one line under the title, "Trailer: none · change", instead of a card. "change" opens a small menu of the same three
+// choices, saved the same way. Without `canChange` (the demo) it is the line alone.
+export function TrailerInline({ drive, canChange }: { drive: Pick<Drive, "ID" | "Trailer" | "TrailerOverride">; canChange: boolean }) {
+  const { m, value } = useTrailerChoice(drive);
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  const has = driveHasTrailer(drive) === true;
+  const items: [Choice, string][] = [
+    ["auto", `Automatic (${recordedLabel(drive.Trailer)})`],
+    ["yes", "Yes, a trailer was connected"],
+    ["no", "No trailer"],
+  ];
+  return (
+    <span ref={root} data-trailer-inline className="relative inline-flex flex-wrap items-center gap-x-1.5 text-xs text-neutral-400">
+      <span data-drive-trailer>{has ? "Trailer: yes (not in efficiency)" : "Trailer: none"}</span>
+      {canChange && (
+        <>
+          <span aria-hidden>·</span>
+          <button
+            type="button"
+            data-trailer-change
+            aria-haspopup="menu"
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className="-my-2 py-2 text-neutral-300 underline underline-offset-2 hover:text-neutral-100"
+          >
+            change
+          </button>
+          {open && (
+            <div role="menu" aria-label="Trailer" className="absolute left-0 top-full z-20 mt-1 w-64 rounded-lg border border-neutral-700 bg-neutral-900 p-1 shadow-lg">
+              {items.map(([c, label]) => (
+                <button
+                  key={c}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={value === c}
+                  disabled={m.isPending}
+                  onClick={() => {
+                    setOpen(false);
+                    if (c !== value) m.mutate(c);
+                  }}
+                  className="flex min-h-[40px] w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-200 hover:bg-neutral-800"
+                >
+                  <span>{label}</span>
+                  {value === c && <span aria-hidden>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      {m.isError && <span role="alert" className="basis-full text-red-400">Could not save that. Try again.</span>}
+    </span>
   );
 }

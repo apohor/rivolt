@@ -45,6 +45,9 @@ struct ActivityDetailView: View {
         }
     }
 
+    /// "Trailer: none" or "Trailer: yes (not in efficiency)" (trailer_inline).
+    static func trailerLine(_ d: ActivityDrive) -> String { d.hasTrailer ? "Trailer: yes (not in efficiency)" : "Trailer: none" }
+
     private var when: String {
         var f = Date.FormatStyle(timeZone: calendar.timeZone).weekday(.wide).month(.wide).day().hour().minute()
         f.calendar = calendar
@@ -55,8 +58,15 @@ struct ActivityDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(when).themeText(.subline)
-                if case .drive(let d) = item, d.hasTrailer {
-                    Text("Trailer connected. This drive is left out of the efficiency figures.").themeText(.subline, color: Theme.textTertiary)
+                if case .drive(let d) = item {
+                    if state.designPreview.contains("trailer_inline") {
+                        // One line, not a sentence; the app only reads it (the correction is web only), and a merged round trip has none.
+                        if (d.roundTripLegs ?? 1) <= 1 {
+                            Text(Self.trailerLine(d)).themeText(.subline, color: Theme.textTertiary)
+                        }
+                    } else if d.hasTrailer {
+                        Text("Trailer connected. This drive is left out of the efficiency figures.").themeText(.subline, color: Theme.textTertiary)
+                    }
                 }
                 if case .drive = item { DriveRouteMap(phase: driveDetail.phase, legs: driveDetail.legs, cursor: scrub, cursorReadout: scrubReadout) }
                 if case .charge(let c) = item { ChargeLocationMap(chargeID: c.id, startedAt: c.startedAt, vehicleID: c.vehicleId, row: chargeRow.phase, calendar: calendar) }

@@ -78,6 +78,14 @@ final class RoundTripLegsTests: XCTestCase {
         XCTAssertNil(d.legs, "an old server sends no legs: the first leg's drawing stays")
     }
 
+    func testTheTrailerLineIsOneShortLine() throws {
+        var d = try row()
+        d.trailer = true
+        XCTAssertEqual(ActivityDetailView.trailerLine(d), "Trailer: yes (not in efficiency)")
+        d.trailer = nil
+        XCTAssertEqual(ActivityDetailView.trailerLine(d), "Trailer: none")
+    }
+
     func testTheCollapsedRowListsTheStops() throws {
         let legs = try XCTUnwrap(row().legs)
         XCTAssertEqual(RoundTripLegsCard.summary(legs), "3 legs · parked 13 min, 19 min")
