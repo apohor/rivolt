@@ -301,6 +301,15 @@ actor APIClient {
         } catch APIError.server(404, _, _) { return nil }
     }
 
+    /// The truck's navigation destination (design_preview key live_destination): 204 none, 404 off for this account. Nothing of the answer is logged.
+    func liveDestination(id: String) async throws -> LiveDestinationRead {
+        do {
+            let (data, http) = try await send("GET", "/api/live-destination/\(pathID(id))")
+            if http.statusCode == 204 || data.isEmpty { return .noTrip }
+            do { return .trip(try decoder.decode(LiveDestination.self, from: data)) } catch { throw APIError.decoding(error) }
+        } catch APIError.server(404, _, _) { return .off }
+    }
+
     /// The newest charge (for its place and cost).
     func latestCharge(vehicleID: String) async throws -> ChargeBrief? {
         try await recentCharges(vehicleID: vehicleID).first

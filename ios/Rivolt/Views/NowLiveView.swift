@@ -7,6 +7,8 @@ struct NowLiveView: View {
     let summary: NowSummary
     var session: LiveSession?
     var liveDrive: LiveDrive?
+    /// Where the truck's navigation is going (design_preview key live_destination); nil without a trip or with the design off.
+    var destination: LiveDestination?
     var charge: ChargeBrief?
     var images: [VehicleImage]?
     let onBack: () -> Void
@@ -33,6 +35,7 @@ struct NowLiveView: View {
                     truck
                     energy
                     if streaming, summary.kind == .driving || liveDrive != nil { drive }
+                    if streaming, summary.kind == .driving, let destination, destination.hasFix { LiveDestinationMap(destination: destination) }
                     if streaming, comfortRows { climate }
                 }
                 .padding(4 * Theme.unit)
@@ -86,6 +89,9 @@ struct NowLiveView: View {
 
     private var drive: some View {
         ThemeSection(title: "Drive") {
+            if streaming, summary.kind == .driving, let destination, destination.hasFix {
+                Text(destination.line()).themeText(.value).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("live-destination")
+            }
             row("Speed", summary.speedKph.map { NowFormat.speed(mph: $0 / 1.609344) })
             if let d = liveDrive, d.distanceMi > 0 {
                 row("Trip so far", NowFormat.distance(mi: d.distanceMi))
