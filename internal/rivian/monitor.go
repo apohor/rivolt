@@ -648,6 +648,28 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 	}
 }
 
+// NavFrameSource is a frame source that also has navigation frames for the simulated drive it plays (replay_sim_nav.go). They come by a
+// call of their own, not on the State: nothing that reaches the recorder or the cache can hold a trip.
+type NavFrameSource interface {
+	NavFramesAt(ctx context.Context, vehicleID string, at time.Time) []*NavFrame
+}
+
+// replayNav asks a source that has navigation for the frames of the moment and folds them into the trip store, as the live feed would, behind
+// the same flag. A backlog frame is skipped: the trip it describes is long over.
+func (m *StateMonitor) replayNav(ctx context.Context, vehicleID string, at time.Time, catchingUp bool) {
+	ns, ok := m.source.(NavFrameSource)
+	if !ok || catchingUp {
+		return
+	}
+	if !m.navDecodeOn() {
+		m.nav.clearAll(NavClearFlagOff)
+		return
+	}
+	for _, f := range ns.NavFramesAt(ctx, vehicleID, at) {
+		m.nav.apply(vehicleID, f)
+	}
+}
+
 // applyReplaySession applies a replayed frame's live-session snapshot
 // (State.ReplaySession) after the frame is recorded, as the live
 // charging-session feed would alongside it, so the open charge is
