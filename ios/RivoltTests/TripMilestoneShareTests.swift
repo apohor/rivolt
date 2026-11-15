@@ -45,18 +45,31 @@ final class TripMilestoneShareTests: XCTestCase {
         XCTAssertEqual(MoneyShareCard.tripDuration(minutes: 65.9), "1 h 5 min")
     }
 
+    func testTheTripCardFollowsTheUnitSettingLikeTheDetailTiles() throws {
+        let d = try drive()
+        let mi = MoneyShareCard.trip(d, includeCost: false, calendar: chicago(), metric: false)
+        let km = MoneyShareCard.trip(d, includeCost: false, calendar: chicago(), metric: true)
+        XCTAssertEqual(mi.title, "19 mi · 1 h 5 min")
+        XCTAssertEqual(km.title, "\(Int((d.distanceMi * 1.609344).rounded())) km · 1 h 5 min")
+        let tiles = ActivityLogic.tiles(d, metric: true)
+        XCTAssertEqual(tiles.first { $0.id == "distance" }?.value, NumberText.fixed(d.distanceMi * 1.609344, 1), "the detail screen's own figure")
+        XCTAssertEqual(km.stats.first { $0.label == "Efficiency" }?.value, "\(NumberText.fixed(d.distanceMi * 1.609344 / d.energyUsedKwh, 2)) km/kWh")
+        if d.avgSpeedMph > 0 { XCTAssertEqual(km.stats.first { $0.label == "Average speed" }?.value, "\(Int((d.avgSpeedMph * 1.609344).rounded())) km/h") }
+        XCTAssertNil(text(km).range(of: #"\bmi\b|mph"#, options: .regularExpression), text(km))
+    }
+
     func testARoundTripCardCountsDrivingTimeNotTheParkedGaps() throws {
         let d = try XCTUnwrap(Fixture.decode(ActivityResponse.self, "activity_round_trip").drives.first)
         XCTAssertEqual(d.drivingSeconds, 3480)
         XCTAssertGreaterThan(d.endedAt.timeIntervalSince(d.startedAt), 3480 + 60, "the wall clock holds the parked gaps")
-        let c = MoneyShareCard.trip(d, includeCost: false, calendar: chicago())
+        let c = MoneyShareCard.trip(d, includeCost: false, calendar: chicago(), metric: false)
         XCTAssertTrue(c.title.hasSuffix("· 58 min"), c.title)
         XCTAssertEqual(ActivityLogic.shortDuration(ActivityLogic.duration(d) ?? 0), "58m")
     }
 
     func testTheTripCardHoldsTheDayTheDistanceAndTheDurationOnly() throws {
         let d = try drive()
-        let c = MoneyShareCard.trip(d, includeCost: false, calendar: chicago())
+        let c = MoneyShareCard.trip(d, includeCost: false, calendar: chicago(), metric: false)
         XCTAssertEqual(c.eyebrow, "Trip")
         XCTAssertEqual(c.title, "19 mi · 1 h 5 min")
         // The day, never the time of day.
@@ -73,17 +86,17 @@ final class TripMilestoneShareTests: XCTestCase {
     func testTripCostIsOptIn() throws {
         let d = try drive()
         XCTAssertGreaterThan(d.estimatedCost ?? 0, 0)
-        let on = MoneyShareCard.trip(d, includeCost: true, calendar: chicago())
+        let on = MoneyShareCard.trip(d, includeCost: true, calendar: chicago(), metric: false)
         let stat = try XCTUnwrap(on.stats.first { $0.label == "Charging cost (estimate)" })
         XCTAssertTrue(stat.value.hasPrefix("~$"), stat.value)
-        XCTAssertEqual(MoneyShareCard.trip(d, includeCost: false, calendar: chicago()).stats.count, on.stats.count - 1)
+        XCTAssertEqual(MoneyShareCard.trip(d, includeCost: false, calendar: chicago(), metric: false).stats.count, on.stats.count - 1)
     }
 
     func testTheMapAddsOnlyTheServersSegmentsAndNoWords() throws {
         let d = try drive()
         let segs = ["_p~iF~ps|U_ulLnnqC", "_p~iF~ps|U"]
-        let off = MoneyShareCard.trip(d, includeCost: false, calendar: chicago())
-        let on = MoneyShareCard.trip(d, includeCost: false, routeSegments: segs, calendar: chicago())
+        let off = MoneyShareCard.trip(d, includeCost: false, calendar: chicago(), metric: false)
+        let on = MoneyShareCard.trip(d, includeCost: false, routeSegments: segs, calendar: chicago(), metric: false)
         XCTAssertEqual(on.routeSegments, segs)
         XCTAssertEqual(text(on), text(off))
         XCTAssertEqual(on.stats, off.stats)
@@ -125,8 +138,8 @@ final class TripMilestoneShareTests: XCTestCase {
             return (10 + t * 0.4 + 0.05 * sin(t * 9), 20 + t * 0.7 + 0.06 * cos(t * 7))
         }
         let route = [Self.encode6(Array(line[5..<70])), Self.encode6(Array(line[80..<118]))]
-        let cards = [("trip-share-card", MoneyShareCard.trip(try drive(), includeCost: true, calendar: chicago())),
-                     ("trip-share-card-map", MoneyShareCard.trip(try drive(), includeCost: true, routeSegments: route, calendar: chicago())),
+        let cards = [("trip-share-card", MoneyShareCard.trip(try drive(), includeCost: true, calendar: chicago(), metric: false)),
+                     ("trip-share-card-map", MoneyShareCard.trip(try drive(), includeCost: true, routeSegments: route, calendar: chicago(), metric: false)),
                      ("milestone-share-card", MoneyShareCard.milestone(try milestone(), calendar: chicago()))]
         for (name, card) in cards {
             let png = try XCTUnwrap(MoneyShareCardCanvas.png(card))
