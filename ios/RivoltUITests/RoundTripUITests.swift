@@ -18,6 +18,13 @@ final class RoundTripUITests: XCTestCase {
         XCTAssertTrue(row.label.contains("3 legs"), "three drives, the stub not counted: \(row.label)")
         row.tap()
         XCTAssertTrue(app.staticTexts["Round trip"].firstMatch.waitForExistence(timeout: 20), "it opens as a round trip")
+        let toggle = app.buttons["legs-toggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 20), "the legs are one row until opened")
+        XCTAssertTrue(toggle.label.contains("3 legs, parked 13 minutes, 19 minutes"), "the row says the stops: \(toggle.label)")
+        // The open choice is kept on the device, so a leftover from an earlier run is closed first.
+        if (toggle.value as? String) == "Legs shown" { toggle.tap() }
+        XCTAssertFalse(app.staticTexts["Leg 1"].firstMatch.exists, "collapsed until tapped")
+        toggle.tap()
         for n in 1...3 {
             XCTAssertTrue(app.otherElements["leg-\(n)"].firstMatch.waitForExistence(timeout: 20) || app.staticTexts["Leg \(n)"].firstMatch.exists, "leg \(n) is listed")
         }
