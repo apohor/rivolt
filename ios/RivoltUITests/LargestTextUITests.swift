@@ -3,12 +3,12 @@ import XCTest
 /// The largest accessibility text size (AX3 and up) on a small phone's screens, with every call answered from fixtures (Rivolt/App/UITestFixtures.swift):
 /// the header's two buttons stay apart and the planner form's FROM and TO labels keep a readable line.
 final class LargestTextUITests: XCTestCase {
-    private func launch(_ arguments: [String] = []) -> XCUIApplication {
+    private func launch(_ arguments: [String] = [], size: String = "UICTContentSizeCategoryAccessibilityXXXL") -> XCUIApplication {
         let app = XCUIApplication()
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let ios = here.deletingLastPathComponent()
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = [here.appendingPathComponent("Fixtures").path, ios.appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
-        app.launchArguments += arguments + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchArguments += arguments + ["-UIPreferredContentSizeCategoryName", size]
         app.launch()
         return app
     }
@@ -60,5 +60,30 @@ final class LargestTextUITests: XCTestCase {
         let from = app.staticTexts["From"].firstMatch
         XCTAssertTrue(from.waitForExistence(timeout: 20))
         XCTAssertLessThan(from.frame.height, from.frame.width * 1.5, "FROM reads as a word, not a column of letters")
+    }
+
+    /// AX3 on a small phone: the drive detail's title ("Round trip") is never broken inside a word. It keeps one line of its own with Share and the
+    /// back link under it, instead of being squeezed beside them.
+    func testTheDriveDetailTitleStaysWholeAtAX3() {
+        let app = launch(["-uitest-round-trip"], size: "UICTContentSizeCategoryAccessibilityXL")
+        let tab = app.buttons["Activity"].firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 20))
+        tab.tap()
+        let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Drive,' AND label CONTAINS 'Round trip'")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        row.tap()
+        let title = app.staticTexts["Round trip"].firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 20), "it opens as a round trip")
+        let share = app.buttons["Share this trip"].firstMatch
+        XCTAssertTrue(share.waitForExistence(timeout: 10))
+        XCTAssertGreaterThan(title.frame.width, title.frame.height * 3, "the title is one line, not 'Roun' over 'd trip': \(title.frame)")
+        XCTAssertLessThanOrEqual(title.frame.maxY, share.frame.minY + 1, "Share sits under the title, not beside it")
+        let back = app.buttons["all drives"].firstMatch
+        XCTAssertTrue(back.exists)
+        XCTAssertFalse(share.frame.intersects(back.frame), "Share and the back link are apart")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "ax3-detail-header"
+        shot.lifetime = .keepAlways
+        add(shot)
     }
 }

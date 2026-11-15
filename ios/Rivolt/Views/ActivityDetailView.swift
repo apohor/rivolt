@@ -103,25 +103,41 @@ struct ActivityDetailView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 ThemeTopBar { AccountMenu(vehicleID: nil, onRefresh: nil) }
-                HStack(alignment: .center) {
-                    Text(title).themeText(.hero).accessibilityAddTraits(.isHeader)
-                    Spacer(minLength: 8)
-                    if case .drive(let d) = item {
-                        Button("Share") { sharing = d }
-                            .font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))
-                            .foregroundStyle(Theme.textBody)
-                            .accessibilityLabel("Share this trip")
+                // One row when the title and both actions fit on it; at the largest text sizes the title takes its own line (it wraps
+                // between words, never inside one) and Share and the back link sit under it.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center) {
+                        headerTitle.fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 8)
+                        headerActions
                     }
-                    Button { dismiss() } label: {
-                        Label(backLabel, systemImage: "arrow.left").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))
+                    VStack(alignment: .leading, spacing: 2 * Theme.unit) {
+                        headerTitle.frame(maxWidth: .infinity, alignment: .leading)
+                        HStack { headerActions }.frame(maxWidth: .infinity, alignment: .trailing)
                     }
-                    .foregroundStyle(Theme.textBody)
                 }
                 .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 2 * Theme.unit)
                 .background(Theme.background)
                 .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
             }
         }
+    }
+
+    private var headerTitle: some View {
+        Text(title).themeText(.hero).accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder private var headerActions: some View {
+        if case .drive(let d) = item {
+            Button("Share") { sharing = d }
+                .font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))
+                .foregroundStyle(Theme.textBody)
+                .accessibilityLabel("Share this trip")
+        }
+        Button { dismiss() } label: {
+            Label(backLabel, systemImage: "arrow.left").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body))
+        }
+        .foregroundStyle(Theme.textBody)
     }
 
     private var backLabel: String {
