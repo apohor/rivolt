@@ -11,9 +11,16 @@ extension MoneyShareCard {
         return String(format: "rivolt-%@-%04d-%02d.png", kind, c.year ?? 0, c.month ?? 0)
     }
 
+    /// Whole minutes, cut not rounded: the detail row's duration (ActivityLogic.shortDuration) cuts too, so the card says the same time.
+    static func tripDuration(minutes: Double) -> String {
+        let whole = Int(minutes)
+        return whole >= 60 ? "\(whole / 60) h \(whole % 60) min" : "\(whole) min"
+    }
+
     static func trip(_ d: ActivityDrive, includeCost: Bool, routeSegments: [String] = [], calendar: Calendar) -> MoneyShareCard {
         typealias L = MoneyLogic
-        let minutes = max(0, d.endedAt.timeIntervalSince(d.startedAt) / 60)
+        // The detail row's own duration: driving time first, so a merged round trip does not count the time parked between legs.
+        let minutes = max(0, (ActivityLogic.duration(d) ?? 0) / 60)
         var stats: [Stat] = []
         if d.energyUsedKwh > 0 && d.distanceMi > 0 { stats.append(Stat(label: "Efficiency", value: "\(L.fixed(d.distanceMi / d.energyUsedKwh, 2)) mi/kWh")) }
         if d.energyUsedKwh > 0 { stats.append(Stat(label: "Energy used", value: "\(L.fixed(d.energyUsedKwh, 1)) kWh")) }
@@ -27,7 +34,7 @@ extension MoneyShareCard {
         // The day only, never the time of day.
         var f = Date.FormatStyle(timeZone: calendar.timeZone).weekday(.wide).day().month(.wide)
         f.calendar = calendar
-        let duration = minutes >= 60 ? "\(Int(minutes / 60)) h \(Int((minutes.truncatingRemainder(dividingBy: 60)).rounded())) min" : "\(Int(minutes.rounded())) min"
+        let duration = tripDuration(minutes: minutes)
         let title = "\(Int(d.distanceMi.rounded()).formatted()) mi" + (minutes > 0 ? " · \(duration)" : "")
         return MoneyShareCard(eyebrow: "Trip", title: title, subtitle: d.startedAt.formatted(f), stats: stats, notes: [], routeSegments: routeSegments)
     }
