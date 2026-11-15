@@ -43,6 +43,18 @@ for (const [vpName, vp] of [["393", { width: 393, height: 852 }], ["1280", { wid
       const menu = page.getByRole("menu", { name: "Trailer" });
       await expect(menu.getByRole("menuitemradio")).toHaveCount(3);
       await expect(menu.getByRole("menuitemradio", { name: /Automatic/ })).toHaveAttribute("aria-checked", "true");
+      // Keyboard: focus moves into the menu on open, arrows move, Escape returns to "change".
+      await expect(menu.getByRole("menuitemradio", { name: /Automatic/ })).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(menu.getByRole("menuitemradio", { name: /Yes/ })).toBeFocused();
+      await page.keyboard.press("End");
+      await expect(menu.getByRole("menuitemradio", { name: "No trailer" })).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(menu.getByRole("menuitemradio", { name: /Automatic/ })).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+      await expect(page.locator("[data-trailer-change]")).toBeFocused();
+      await page.locator("[data-trailer-change]").click();
       await page.screenshot({ path: path.join(SHOTS, `trailer-inline-open-${vpName}-${scheme}.png`) });
       let body: unknown = null;
       await page.route(/\/api\/drives\/towing\/trailer$/, (r) => {
