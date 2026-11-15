@@ -53,8 +53,10 @@ describe("the year card", () => {
     expect(rows["Driven"]).toBe(`${Math.round(y.miles! * 1.609344).toLocaleString()} km`);
     expect(rows["Efficiency"]).toBe(`about ${(y.efficiency_mi_per_kwh! * 1.609344).toFixed(1)} km/kWh`);
     expect(rows["Longest trip"]).toBe("664 km · July");
-    expect(rows["Coldest drive"]).toBe("-16°C · January");
     expect(rows["Cost (estimate)"]).toMatch(/\/km$/);
+    // The card has six rows and cost takes one, so the coldest drive is checked without it.
+    const cold = Object.fromEntries(buildYearShareModel(y, { includeCost: false, unit: "km", tempUnit: "c" })!.stats.map((s) => [s.label, s.value]));
+    expect(cold["Coldest drive"]).toBe(`${Math.round((y.coldest_drive!.temp_f - 32) / 1.8)}°C · January`);
   });
 
   it("hides the lines it has nothing true to say for", () => {
