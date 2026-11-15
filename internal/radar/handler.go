@@ -30,7 +30,7 @@ func (s *Service) Handler() http.Handler {
 			s.serveFrame(w, r)
 			return
 		}
-		z, x, y, ok := ParseTilePath(p)
+		z, x, y, ok := parseTilePath(p, s.maxZoom())
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -81,7 +81,7 @@ func (s *Service) serveFrame(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Radar-Frame", fr.Latest.UTC().Format(time.RFC3339))
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"frame": fr.Latest.UTC().Format(time.RFC3339), "frame_unix": fr.Latest.Unix(), "frames_unix": unix,
-		"min_zoom": ClientMinZoom, "max_zoom": ClientMaxZoom,
+		"min_zoom": ClientMinZoom, "max_zoom": s.ClientMaxZoom(),
 	})
 }
 
@@ -95,7 +95,9 @@ func unavailable(w http.ResponseWriter, err error) {
 }
 
 // ParseTilePath parses "/z/x/y.png" strictly: no leading zeros, no extra segments or characters, x and y inside the zoom's grid, z up to MaxZoom.
-func ParseTilePath(p string) (z, x, y int, ok bool) {
+func ParseTilePath(p string) (z, x, y int, ok bool) { return parseTilePath(p, MaxZoom) }
+
+func parseTilePath(p string, maxZ int) (z, x, y int, ok bool) {
 	if path.Clean(p) != p || !strings.HasPrefix(p, "/") || !strings.HasSuffix(p, ".png") {
 		return 0, 0, 0, false
 	}
@@ -120,7 +122,7 @@ func ParseTilePath(p string) (z, x, y int, ok bool) {
 		n[i] = v
 	}
 	z, x, y = n[0], n[1], n[2]
-	if z > MaxZoom || x >= 1<<z || y >= 1<<z {
+	if z > maxZ || x >= 1<<z || y >= 1<<z {
 		return 0, 0, 0, false
 	}
 	return z, x, y, true

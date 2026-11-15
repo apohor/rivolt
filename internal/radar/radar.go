@@ -85,6 +85,10 @@ type Config struct {
 	Now     func() time.Time
 	// MaxUpstream bounds the concurrent requests to NOAA from this pod (default 6).
 	MaxUpstream int
+	// Smooth serves the zooms past SmoothSource (up to SmoothMaxZoom) from the SmoothSource tiles, upscaled here, instead of overzooming blocks in the client.
+	Smooth       bool
+	SmoothSource int // the zoom the upscaling starts from; 0 is DefaultSmoothSource
+	SmoothBlur   int // box blur radius in output pixels after the upscale; 0 is none
 	// UserAgent identifies this server to NOAA (default names Rivolt and a contact).
 	UserAgent string
 }
@@ -223,7 +227,7 @@ func ParseFrames(capabilities []byte, now time.Time) (Frames, error) {
 // outside every mosaic is a transparent PNG. A frame that is not one of the recent frames is replaced by the newest, so the time parameter is
 // not an open relay into NOAA's history.
 func (s *Service) Tile(ctx context.Context, z, x, y int, frameUnix int64) ([]byte, time.Time, error) {
-	if z < 0 || z > MaxZoom || x < 0 || y < 0 || x >= 1<<z || y >= 1<<z {
+	if z < 0 || z > s.maxZoom() || x < 0 || y < 0 || x >= 1<<z || y >= 1<<z {
 		return nil, time.Time{}, errors.New("radar: tile out of range")
 	}
 	fr, err := s.Frames(ctx)
@@ -239,13 +243,29 @@ func (s *Service) Tile(ctx context.Context, z, x, y int, frameUnix int64) ([]byt
 			}
 		}
 	}
+	if s.cfg.Smooth && z > s.smoothSource() {
+		b, err := s.derived(ctx, frame, z, x, y)
+		if err != nil {
+			return nil, time.Time{}, err
+		}
+		return b, frame, nil
+	}
+	b, err := s.baseTile(ctx, frame, z, x, y)
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return b, frame, nil
+}
+
+// baseTile is one tile of one frame as NOAA draws it, cached by frame time in process and across pods.
+func (s *Service) baseTile(ctx context.Context, frame time.Time, z, x, y int) ([]byte, error) {
 	rs := regionsFor(z, x, y)
 	if len(rs) == 0 {
-		return transparentPNG, frame, nil
+		return transparentPNG, nil
 	}
 	key := fmt.Sprintf("%d:%d:%d:%d", frame.Unix(), z, x, y)
 	if b, ok := s.localGet(key); ok {
-		return b, frame, nil
+		return b, nil
 	}
 	v, err, _ := s.sf.Do("tile:"+key, func() (any, error) {
 		if b, ok := s.sharedTile(ctx, key); ok {
@@ -265,11 +285,11 @@ func (s *Service) Tile(ctx context.Context, z, x, y int, frameUnix int64) ([]byt
 		return b, nil
 	})
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, err
 	}
 	b := v.([]byte)
 	s.localPut(key, b)
-	return b, frame, nil
+	return b, nil
 }
 
 // regionsFor lists the mosaics whose box meets the tile.
