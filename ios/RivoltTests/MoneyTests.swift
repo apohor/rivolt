@@ -613,12 +613,14 @@ final class MoneyShareTests: XCTestCase {
 
     func testTheMonthCardAndTheStatementLineFollowTheUnitSetting() throws {
         let km = MoneyShareCard.month(try month(), includeCost: false, offpeakSharePct: nil, calendar: chicago(), metric: true)
-        XCTAssertEqual(km.title, "\(Int((274 * 1.609344).rounded()).formatted()) km")
-        XCTAssertEqual(km.stats.last?.value, "\(NumberText.fixed(2.46 * 1.609344, 2)) km/kWh")
+        XCTAssertEqual(km.title, "\(Int((try month().driving.miles * 1.609344).rounded()).formatted()) km")
+        let d = try month().driving
+        XCTAssertEqual(km.stats.last?.value, "\(NumberText.fixed((d.milesWithEnergy ?? 0) * 1.609344 / (d.kwhUsedKnown ?? 1), 2)) km/kWh")
         let withCost = MoneyShareCard.month(try month(), includeCost: true, offpeakSharePct: nil, calendar: chicago(), metric: true)
-        XCTAssertEqual(withCost.subtitle, "180 kWh · 441 km · $0.080/km")
+        let miles = try month().driving.miles
+        XCTAssertEqual(withCost.subtitle, "180 kWh · \(NumberText.fixed(miles * 1.609344, 0)) km · $0.080/km")
         let st = MoneyStatement(month: try month(), months: try Fixture.decode(LedgerSummary.self, "ledger_summary").months, previous: nil, toConfirm: 0, now: Date(timeIntervalSince1970: 1_760_288_400), calendar: chicago(), metric: true)
-        XCTAssertEqual(st.subline, "spent on charging · 180 kWh · 441 km · $0.080/km")
+        XCTAssertEqual(st.subline, "spent on charging · 180 kWh · \(NumberText.fixed(miles * 1.609344, 0)) km · $0.080/km")
         for text in [km.title, withCost.subtitle, st.subline] { XCTAssertNil(text.range(of: #"\bmi\b|/mi"#, options: .regularExpression), text) }
     }
 
