@@ -665,6 +665,14 @@ func (c *ReplayClient) Stream(ctx context.Context, vehicleID string, emit func(s
 	return c.feed.Stream(ctx, vehicleID, emit)
 }
 
+// NavFramesAt implements NavFrameSource for the demo vehicle only.
+func (c *ReplayClient) NavFramesAt(ctx context.Context, vehicleID string, at time.Time) []*NavFrame {
+	if vehicleID != c.vehicle.ID {
+		return nil
+	}
+	return c.feed.NavFramesAt(ctx, at)
+}
+
 var (
 	_ Account     = (*ReplayClient)(nil)
 	_ Client      = (*ReplayClient)(nil)

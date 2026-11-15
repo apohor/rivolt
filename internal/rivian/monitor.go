@@ -607,6 +607,8 @@ func NewSourceMonitor(src FrameSource, vehicles []Vehicle, logger *slog.Logger) 
 // merge) and drives the recorder exactly as a live push would.
 func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 	defer m.releaseActive(ctx, vehicleID)
+	// A source monitor has no sweep: whatever ends the stream takes the trip with it, as on the live path.
+	defer m.nav.clear(vehicleID, NavClearStopped)
 	pubCtx, cancelPub := context.WithCancel(ctx)
 	defer cancelPub()
 	go m.liveStatePublisher(pubCtx, vehicleID)
@@ -634,6 +636,7 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, &cur)
 		m.applyReplaySession(ctx, vehicleID, &cur, sess)
+		m.replayNav(ctx, vehicleID, cur.At, catchingUp)
 		if catchingUp && m.catchup.pendingSamples(vehicleID) >= catchupFlushSamples && m.catchup.flushDue(vehicleID) {
 			m.flushCatchup(vehicleID)
 		}
@@ -645,6 +648,28 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 		m.logger.Debug("frame source: vehicle not served", "vehicle", vehicleID)
 	case err != nil && ctx.Err() == nil:
 		m.logger.Warn("frame source ended", "vehicle", vehicleID, "err", err.Error())
+	}
+}
+
+// NavFrameSource is a frame source that also has navigation frames for the simulated drive it plays (replay_sim_nav.go). They come by a
+// call of their own, not on the State: nothing that reaches the recorder or the cache can hold a trip.
+type NavFrameSource interface {
+	NavFramesAt(ctx context.Context, vehicleID string, at time.Time) []*NavFrame
+}
+
+// replayNav asks a source that has navigation for the frames of the moment and folds them into the trip store, as the live feed would, behind
+// the same flag. A backlog frame is skipped: the trip it describes is long over.
+func (m *StateMonitor) replayNav(ctx context.Context, vehicleID string, at time.Time, catchingUp bool) {
+	ns, ok := m.source.(NavFrameSource)
+	if !ok || catchingUp {
+		return
+	}
+	if !m.navDecodeOn() {
+		m.nav.clearAll(NavClearFlagOff)
+		return
+	}
+	for _, f := range ns.NavFramesAt(ctx, vehicleID, at) {
+		m.nav.apply(vehicleID, f)
 	}
 }
 
