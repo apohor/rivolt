@@ -31,6 +31,19 @@ final class GapDimTests: XCTestCase {
         XCTAssertTrue(d.gapColors(metric: .speed, gradientOn: false, traits: UITraitCollection()).isEmpty)
     }
 
+    func testDropoutsThatMeetAreOneLineSoNoDotsShowAtTheJoints() {
+        func c(_ n: Double) -> RouteSnap.Coord { RouteSnap.Coord(lat: n, lon: -100) }
+        let d = RouteSnap.Drawing(pieces: [], routedGaps: [], gaps: [
+            RouteSnap.Gap(from: c(1), to: c(2)), RouteSnap.Gap(from: c(2), to: c(3)), RouteSnap.Gap(from: c(5), to: c(6)),
+        ], start: nil, end: nil, hasSpeed: false)
+        let chains = d.gapChains()
+        XCTAssertEqual(chains.count, 2)
+        XCTAssertEqual(chains[0].coords, [c(1), c(2), c(3)])
+        XCTAssertEqual(chains[0].first, 0)
+        XCTAssertEqual(chains[1].coords, [c(5), c(6)])
+        XCTAssertEqual(chains[1].first, 2)
+    }
+
     func testDimOpacityMatchesTheWeb() {
         XCTAssertEqual(RouteSnap.Drawing.gapDimOpacity, 0.35)
     }
