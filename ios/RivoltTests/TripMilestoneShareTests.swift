@@ -45,6 +45,15 @@ final class TripMilestoneShareTests: XCTestCase {
         XCTAssertEqual(MoneyShareCard.tripDuration(minutes: 65.9), "1 h 5 min")
     }
 
+    func testARoundTripCardCountsDrivingTimeNotTheParkedGaps() throws {
+        let d = try XCTUnwrap(Fixture.decode(ActivityResponse.self, "activity_round_trip").drives.first)
+        XCTAssertEqual(d.drivingSeconds, 3480)
+        XCTAssertGreaterThan(d.endedAt.timeIntervalSince(d.startedAt), 3480 + 60, "the wall clock holds the parked gaps")
+        let c = MoneyShareCard.trip(d, includeCost: false, calendar: chicago())
+        XCTAssertTrue(c.title.hasSuffix("· 58 min"), c.title)
+        XCTAssertEqual(ActivityLogic.shortDuration(ActivityLogic.duration(d) ?? 0), "58m")
+    }
+
     func testTheTripCardHoldsTheDayTheDistanceAndTheDurationOnly() throws {
         let d = try drive()
         let c = MoneyShareCard.trip(d, includeCost: false, calendar: chicago())

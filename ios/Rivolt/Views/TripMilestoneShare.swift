@@ -19,7 +19,8 @@ extension MoneyShareCard {
 
     static func trip(_ d: ActivityDrive, includeCost: Bool, routeSegments: [String] = [], calendar: Calendar) -> MoneyShareCard {
         typealias L = MoneyLogic
-        let minutes = max(0, d.endedAt.timeIntervalSince(d.startedAt) / 60)
+        // The detail row's own duration: driving time first, so a merged round trip does not count the time parked between legs.
+        let minutes = max(0, (ActivityLogic.duration(d) ?? 0) / 60)
         var stats: [Stat] = []
         if d.energyUsedKwh > 0 && d.distanceMi > 0 { stats.append(Stat(label: "Efficiency", value: "\(L.fixed(d.distanceMi / d.energyUsedKwh, 2)) mi/kWh")) }
         if d.energyUsedKwh > 0 { stats.append(Stat(label: "Energy used", value: "\(L.fixed(d.energyUsedKwh, 1)) kWh")) }
