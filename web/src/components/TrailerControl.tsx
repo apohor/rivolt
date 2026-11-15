@@ -14,7 +14,11 @@ export function overrideOf(c: Choice): boolean | null {
   return c === "auto" ? null : c === "yes";
 }
 function recordedLabel(t: boolean | null | undefined): string {
-  return t == null ? "the truck did not say" : t ? "the truck reported a trailer" : "the truck reported no trailer";
+  return t == null
+    ? "the truck did not say"
+    : t
+      ? "the truck reported a trailer"
+      : "the truck reported no trailer";
 }
 
 // Lets the user correct whether a trailer was connected on a drive. A drive with a trailer is left out of the efficiency
@@ -28,15 +32,23 @@ function useTrailerChoice(drive: Pick<Drive, "ID" | "TrailerOverride">) {
       void qc.invalidateQueries({ queryKey: ["insights"] });
     },
   });
-  const value = m.isPending && m.variables ? m.variables : choiceOf(drive.TrailerOverride);
+  const value =
+    m.isPending && m.variables ? m.variables : choiceOf(drive.TrailerOverride);
   return { m, value };
 }
 
-export function TrailerControl({ drive }: { drive: Pick<Drive, "ID" | "Trailer" | "TrailerOverride"> }) {
+export function TrailerControl({
+  drive,
+}: {
+  drive: Pick<Drive, "ID" | "Trailer" | "TrailerOverride">;
+}) {
   const { m, value } = useTrailerChoice(drive);
   return (
     <Card>
-      <label className="flex flex-wrap items-center justify-between gap-3 text-sm" data-trailer-control>
+      <label
+        className="flex flex-wrap items-center justify-between gap-3 text-sm"
+        data-trailer-control
+      >
         <span>Trailer</span>
         <select
           value={value}
@@ -44,33 +56,69 @@ export function TrailerControl({ drive }: { drive: Pick<Drive, "ID" | "Trailer" 
           onChange={(e) => m.mutate(e.target.value as Choice)}
           className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm"
         >
-          <option value="auto">Automatic ({recordedLabel(drive.Trailer)})</option>
+          <option value="auto">
+            Automatic ({recordedLabel(drive.Trailer)})
+          </option>
           <option value="yes">Trailer connected</option>
           <option value="no">No trailer</option>
         </select>
       </label>
       <p className="mt-2 text-xs text-neutral-500">
-        A drive with a trailer is left out of the efficiency figures. The truck reports a trailer connector, not what is on it, so a bike rack
-        or cargo carrier with lights can read as a trailer.
+        A drive with a trailer is left out of the efficiency figures. The truck
+        reports a trailer connector, not what is on it, so a bike rack or cargo
+        carrier with lights can read as a trailer.
       </p>
-      {m.isError && <p className="mt-2 text-xs text-red-400">Could not save that. Try again.</p>}
+      {m.isError && (
+        <p className="mt-2 text-xs text-red-400">
+          Could not save that. Try again.
+        </p>
+      )}
     </Card>
   );
 }
 
 // The trailer_inline form: one line under the title, "Trailer: none · change", instead of a card. "change" opens a small menu of the same three
 // choices, saved the same way. Without `canChange` (the demo) it is the line alone.
-export function TrailerInline({ drive, canChange }: { drive: Pick<Drive, "ID" | "Trailer" | "TrailerOverride">; canChange: boolean }) {
+export function TrailerInline({
+  drive,
+  canChange,
+}: {
+  drive: Pick<Drive, "ID" | "Trailer" | "TrailerOverride">;
+  canChange: boolean;
+}) {
   const { m, value } = useTrailerChoice(drive);
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
+  const changeBtn = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const close = (refocus: boolean) => {
+    setOpen(false);
+    if (refocus) changeBtn.current?.focus();
+  };
+  const move = (to: (i: number, n: number) => number) => {
+    const els = Array.from(
+      menu.current?.querySelectorAll<HTMLButtonElement>(
+        "[role=menuitemradio]",
+      ) ?? [],
+    );
+    if (!els.length) return;
+    const at = els.indexOf(document.activeElement as HTMLButtonElement);
+    els[to(at, els.length)]?.focus();
+  };
   useEffect(() => {
     if (!open) return;
+    const els = menu.current?.querySelectorAll<HTMLButtonElement>(
+      "[role=menuitemradio]",
+    );
+    (
+      menu.current?.querySelector<HTMLButtonElement>("[aria-checked=true]") ??
+      els?.[0]
+    )?.focus();
     const away = (e: MouseEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpen(false);
     };
     const esc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") close(true);
     };
     document.addEventListener("mousedown", away);
     document.addEventListener("keydown", esc);
@@ -86,14 +134,21 @@ export function TrailerInline({ drive, canChange }: { drive: Pick<Drive, "ID" | 
     ["no", "No trailer"],
   ];
   return (
-    <span ref={root} data-trailer-inline className="relative inline-flex flex-wrap items-center gap-x-1.5 text-xs text-neutral-400">
-      <span data-drive-trailer>{has ? "Trailer: yes (not in efficiency)" : "Trailer: none"}</span>
+    <span
+      ref={root}
+      data-trailer-inline
+      className="relative inline-flex flex-wrap items-center gap-x-1.5 text-xs text-neutral-400"
+    >
+      <span data-drive-trailer>
+        {has ? "Trailer: yes (not in efficiency)" : "Trailer: none"}
+      </span>
       {canChange && (
         <>
           <span aria-hidden>·</span>
           <button
             type="button"
             data-trailer-change
+            ref={changeBtn}
             aria-haspopup="menu"
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
@@ -102,16 +157,31 @@ export function TrailerInline({ drive, canChange }: { drive: Pick<Drive, "ID" | 
             change
           </button>
           {open && (
-            <div role="menu" aria-label="Trailer" className="absolute left-0 top-full z-20 mt-1 w-64 rounded-lg border border-neutral-700 bg-neutral-900 p-1 shadow-lg">
+            <div
+              ref={menu}
+              role="menu"
+              aria-label="Trailer"
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") move((i, n) => (i + 1) % n);
+                else if (e.key === "ArrowUp") move((i, n) => (i - 1 + n) % n);
+                else if (e.key === "Home") move(() => 0);
+                else if (e.key === "End") move((_, n) => n - 1);
+                else if (e.key === "Tab") return close(false);
+                else return;
+                e.preventDefault();
+              }}
+              className="absolute left-0 top-full z-20 mt-1 w-64 rounded-lg border border-neutral-700 bg-neutral-900 p-1 shadow-lg"
+            >
               {items.map(([c, label]) => (
                 <button
                   key={c}
                   type="button"
                   role="menuitemradio"
                   aria-checked={value === c}
+                  tabIndex={-1}
                   disabled={m.isPending}
                   onClick={() => {
-                    setOpen(false);
+                    close(true);
                     if (c !== value) m.mutate(c);
                   }}
                   className="flex min-h-[40px] w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-neutral-200 hover:bg-neutral-800"
@@ -124,7 +194,11 @@ export function TrailerInline({ drive, canChange }: { drive: Pick<Drive, "ID" | 
           )}
         </>
       )}
-      {m.isError && <span role="alert" className="basis-full text-red-400">Could not save that. Try again.</span>}
+      {m.isError && (
+        <span role="alert" className="basis-full text-red-400">
+          Could not save that. Try again.
+        </span>
+      )}
     </span>
   );
 }
