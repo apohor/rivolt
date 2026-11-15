@@ -67,6 +67,16 @@ const DCFCAutoNetworkName = "dcfc_auto_network"
 //	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
 const RivianReceiptsName = "rivian_receipts"
 
+// LiveDestinationName gates decoding of the car's navigation frames into
+// the owner's Live destination (memory only, never stored). Same shape as
+// AudienceState; off when the row is missing or malformed, so no frame is
+// decoded for anyone the operator has not named:
+//
+//	INSERT INTO flags (name, value, updated_by)
+//	VALUES ('live_destination', '{"users":["<user uuid>"]}', 'ops')
+//	ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now();
+const LiveDestinationName = "live_destination"
+
 // InactiveAccountPurgeName gates the deletion of accounts that never
 // connected a vehicle (warned at day 90, deleted at day 120). Off when the
 // row is missing or malformed. Enable it only after the privacy policy that
@@ -320,6 +330,7 @@ type Store struct {
 	statementEmail atomic.Pointer[AudienceState]
 	dcfcAutoNet    atomic.Pointer[AudienceState]
 	rivianReceipts atomic.Pointer[AudienceState]
+	liveDest       atomic.Pointer[AudienceState]
 	inactivePurge  atomic.Pointer[InactivePurgeState]
 	wakeSafety     atomic.Pointer[WakeSafetyState]
 
@@ -388,7 +399,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	defer cancel()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, value FROM flags WHERE name = ANY($1)`,
-		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, RivianReceiptsName, InactiveAccountPurgeName})
+		[]string{KillSwitchName, TripPlannerEnabledName, SignupCapName, AICallCapName, SleepSafeName, WakeSafetyName, StatementEmailName, DCFCAutoNetworkName, RivianReceiptsName, LiveDestinationName, InactiveAccountPurgeName})
 	if err != nil {
 		return fmt.Errorf("select flags: %w", err)
 	}
@@ -401,6 +412,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	statementEmail := AudienceState{}
 	dcfcAutoNet := AudienceState{}
 	rivianReceipts := AudienceState{}
+	liveDest := AudienceState{}
 	inactivePurge := InactivePurgeState{}
 	wakeSafety := WakeSafetyState{}
 	for rows.Next() {
@@ -454,6 +466,12 @@ func (s *Store) refresh(ctx context.Context) error {
 				s.logger.Warn("flags: rivian_receipts malformed, treating as off", "err", err.Error())
 				rivianReceipts = AudienceState{}
 			}
+		case LiveDestinationName:
+			// A decoded destination is a precise location: a malformed row reads as off.
+			if err := json.Unmarshal(raw, &liveDest); err != nil {
+				s.logger.Warn("flags: live_destination malformed, treating as off", "err", err.Error())
+				liveDest = AudienceState{}
+			}
 		case WakeSafetyName:
 			// Experiment switches: a typo reads as all-off rather than
 			// freezing every other flag (kill switch included).
@@ -474,6 +492,7 @@ func (s *Store) refresh(ctx context.Context) error {
 	s.statementEmail.Store(&statementEmail)
 	s.dcfcAutoNet.Store(&dcfcAutoNet)
 	s.rivianReceipts.Store(&rivianReceipts)
+	s.liveDest.Store(&liveDest)
 	s.inactivePurge.Store(&inactivePurge)
 	s.wakeSafety.Store(&wakeSafety)
 	return nil
@@ -511,6 +530,19 @@ func (s *Store) RivianReceipts() AudienceState {
 		return AudienceState{}
 	}
 	p := s.rivianReceipts.Load()
+	if p == nil {
+		return AudienceState{}
+	}
+	return *p
+}
+
+// LiveDestination returns the cached per-user live-destination flag
+// (Enabled(userID)). Lock-free; off when the row is missing.
+func (s *Store) LiveDestination() AudienceState {
+	if s == nil {
+		return AudienceState{}
+	}
+	p := s.liveDest.Load()
 	if p == nil {
 		return AudienceState{}
 	}

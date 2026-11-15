@@ -1440,6 +1440,11 @@ func runServer() {
 		// have their non-vehicleState subscriptions parked while asleep;
 		// every vehicle's sleeps are timed into the sleeps metric.
 		if flagsStore != nil {
+			// Live destination: navigation frames are decoded (memory only) for the users
+			// the live_destination flag names, and only counted for everyone else.
+			monitorRegistry.SetNavDecodeGateFactory(func(uid uuid.UUID) func() bool {
+				return func() bool { return flagsStore.LiveDestination().Enabled(uid.String()) }
+			})
 			monitorRegistry.SetSleepSafe(func(vehicleID string) bool {
 				return flagsStore.SleepSafe().Covers(vehicleID)
 			})
@@ -3973,6 +3978,22 @@ func (s *sleepMetrics) OnNavFrame(topic string, payloadBytes int) {
 	}
 	s.m.NavFramesTotal.WithLabelValues(label).Inc()
 	s.m.NavFrameBytesTotal.WithLabelValues(label).Add(float64(payloadBytes))
+}
+
+// OnNavDecode implements rivian.NavObserver. topic and result come from fixed sets.
+func (s *sleepMetrics) OnNavDecode(topic, result string) {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.NavDecodeTotal.WithLabelValues(topic, result).Inc()
+}
+
+// OnNavCleared implements rivian.NavObserver.
+func (s *sleepMetrics) OnNavCleared(reason string) {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.NavClearedTotal.WithLabelValues(reason).Inc()
 }
 
 // OnNavRejected implements rivian.NavObserver: the server refused the navigation topics and they were latched off.
