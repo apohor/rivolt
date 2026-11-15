@@ -33,7 +33,11 @@ export const shareFooter = (): readonly string[] => [shareFooterLine(getConfig()
 const SAMPLE_LINE = "Sample truck · generated data";
 
 const n0 = (x: number) => Math.round(x).toLocaleString();
-const hm = (min: number) => (min >= 60 ? `${Math.floor(min / 60)} h ${Math.round(min % 60)} min` : `${Math.round(min)} min`);
+// Whole minutes, cut not rounded: the drive page's Duration (formatDuration) cuts too, so the card and the page say the same time.
+const hm = (min: number) => {
+  const m = Math.floor(min);
+  return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
+};
 
 // offpeakSharePct: the share of home charging (by energy) that ran in off-peak hours, only when the user turns that line on. A
 // percentage alone: no rate, no dollars, no window times.
