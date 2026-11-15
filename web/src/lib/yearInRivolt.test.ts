@@ -46,6 +46,17 @@ describe("the year card", () => {
     expect(m.stats.length).toBeLessThanOrEqual(6);
   });
 
+  it("says km, km/kWh, per-km cost and Celsius when the user's units are metric", () => {
+    const m = buildYearShareModel(y, { includeCost: true, unit: "km", tempUnit: "c" })!;
+    expect(JSON.stringify(m)).not.toMatch(/\bmi\b|\/mi|mph|°F/);
+    const rows = Object.fromEntries(m.stats.map((s) => [s.label, s.value]));
+    expect(rows["Driven"]).toBe(`${Math.round(y.miles! * 1.609344).toLocaleString()} km`);
+    expect(rows["Efficiency"]).toBe(`about ${(y.efficiency_mi_per_kwh! * 1.609344).toFixed(1)} km/kWh`);
+    expect(rows["Longest trip"]).toBe("664 km · July");
+    expect(rows["Coldest drive"]).toBe("-16°C · January");
+    expect(rows["Cost (estimate)"]).toMatch(/\/km$/);
+  });
+
   it("hides the lines it has nothing true to say for", () => {
     const m = buildYearShareModel(
       { ...y, model: undefined, since_month: undefined, planned_trips: 0, planned_stops: 0, coldest_drive: undefined, most_efficient_long_drive: undefined, cost: undefined, cost_per_mile: undefined },

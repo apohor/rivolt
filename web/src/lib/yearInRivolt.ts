@@ -4,6 +4,7 @@
 
 import type { YearInRivolt } from "./api";
 import { formatMoney } from "./ledger";
+import type { DistanceUnit, TemperatureUnit } from "./preferences";
 import type { ShareCardModel, ShareStat } from "./shareCard";
 
 // The card is offered in January for the year just ended.
@@ -26,20 +27,23 @@ export function yearFileName(year: number): string {
 }
 
 // The card has room for six rows. Cost, when asked for, takes the third.
-export function buildYearShareModel(y: YearInRivolt, o: { includeCost: boolean }): ShareCardModel | null {
+export function buildYearShareModel(y: YearInRivolt, o: { includeCost: boolean; unit?: DistanceUnit; tempUnit?: TemperatureUnit }): ShareCardModel | null {
   if (!y.eligible || !y.miles || y.miles <= 0) return null;
-  const rows: ShareStat[] = [{ label: "Driven", value: `${n0(y.miles)} mi` }];
+  // The figures arrive in miles and Fahrenheit; the card says them in the user's units, like the pages do.
+  const unit = o.unit ?? "mi";
+  const k = unit === "km" ? 1.609344 : 1;
+  const rows: ShareStat[] = [{ label: "Driven", value: `${n0(y.miles * k)} ${unit}` }];
   if (y.kwh && y.kwh > 0) rows.push({ label: "kWh used driving", value: `${n0(y.kwh)} kWh` });
   if (o.includeCost && y.cost) {
     const approx = y.cost.estimated ? "~" : "";
-    const perMile = y.cost_per_mile && y.cost_per_mile > 0 ? ` · ${approx}${formatMoney(y.cost_per_mile, y.cost.currency, 2)}/mi` : "";
+    const perMile = y.cost_per_mile && y.cost_per_mile > 0 ? ` · ${approx}${formatMoney(y.cost_per_mile / k, y.cost.currency, 2)}/${unit}` : "";
     rows.push({ label: y.cost.estimated ? "Cost (estimate)" : "Cost", value: `${approx}${formatMoney(y.cost.amount, y.cost.currency, 0)}${perMile}` });
   }
   // The year's efficiency is an estimate by construction, so it always says so.
-  if (y.efficiency_mi_per_kwh && y.efficiency_mi_per_kwh > 0) rows.push({ label: "Efficiency", value: `about ${y.efficiency_mi_per_kwh.toFixed(1)} mi/kWh` });
+  if (y.efficiency_mi_per_kwh && y.efficiency_mi_per_kwh > 0) rows.push({ label: "Efficiency", value: `about ${(y.efficiency_mi_per_kwh * k).toFixed(1)} ${unit}/kWh` });
   if (y.longest_trip && y.longest_trip.miles > 0) {
     const mon = monthName(y.longest_trip.month);
-    rows.push({ label: "Longest trip", value: `${n0(y.longest_trip.miles)} mi${mon ? ` · ${mon}` : ""}` });
+    rows.push({ label: "Longest trip", value: `${n0(y.longest_trip.miles * k)} ${unit}${mon ? ` · ${mon}` : ""}` });
   }
   const s = y.energy_shares;
   if (s) {
@@ -48,10 +52,10 @@ export function buildYearShareModel(y: YearInRivolt, o: { includeCost: boolean }
   }
   if (y.coldest_drive) {
     const mon = monthName(y.coldest_drive.month);
-    rows.push({ label: "Coldest drive", value: `${Math.round(y.coldest_drive.temp_f)}°F${mon ? ` · ${mon}` : ""}` });
+    rows.push({ label: "Coldest drive", value: `${o.tempUnit === "c" ? Math.round((y.coldest_drive.temp_f - 32) / 1.8) : Math.round(y.coldest_drive.temp_f)}°${o.tempUnit === "c" ? "C" : "F"}${mon ? ` · ${mon}` : ""}` });
   }
   if (y.most_efficient_long_drive) {
-    rows.push({ label: "Best long drive", value: `${y.most_efficient_long_drive.mi_per_kwh.toFixed(1)} mi/kWh · ${n0(y.most_efficient_long_drive.miles)} mi` });
+    rows.push({ label: "Best long drive", value: `${(y.most_efficient_long_drive.mi_per_kwh * k).toFixed(1)} ${unit}/kWh · ${n0(y.most_efficient_long_drive.miles * k)} ${unit}` });
   }
   const parts: string[] = [];
   if (y.drive_count && y.drive_count > 0) parts.push(`${n0(y.drive_count)} ${plural(y.drive_count, "drive", "drives")}`);
