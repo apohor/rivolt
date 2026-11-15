@@ -1,6 +1,7 @@
-// "13 min", "1 h 5 min": how long the truck sat between two legs.
+// "13 min", "1 h 5 min", "2 h": how long the truck sat between two legs (a whole number of hours drops the "0 min", as on iOS).
 export function parkedText(min: number): string {
   if (min < 60) return `${min} min`;
+  if (min % 60 === 0) return `${min / 60} h`;
   return `${Math.floor(min / 60)} h ${min % 60} min`;
 }
 
