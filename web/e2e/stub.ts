@@ -201,6 +201,8 @@ export type StubOptions = {
   signedIn?: boolean;
   landing?: boolean;
   admin?: boolean;
+  // GET /api/live-destination: "trip" = a trip to a made-up place (a short polyline6 line, 12.4 mi left), "none" = 204, omitted = 404 (feature off).
+  liveDestination?: "trip" | "none";
   // features.design_preview keys (RIVOLT_DESIGN_PREVIEW); omitted = [].
   designPreview?: string[] | null;
   // features.history_import (RIVOLT_HISTORY_IMPORT).
@@ -213,7 +215,7 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination } = opts;
   const month = currentMonth(new Date(e2eNow()));
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -345,6 +347,11 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         time_elapsed_seconds: 3600, time_remaining_seconds: 5400, power_kw: 11, kilometers_charged_per_hour: 60, range_added_km: 60,
         total_charged_energy_kwh: 11, soc_pct: 52, current_price: "0", current_currency: "USD", is_free_session: false, is_rivian_charger: false,
       });
+    }
+    if (p === `/api/live-destination/${VEHICLE_ID}`) {
+      if (!liveDestination) return json(route, { error: "not found" }, 404);
+      if (liveDestination === "none") return route.fulfill({ status: 204 });
+      return json(route, { name: "Test Depot", lat: 40.3, lon: -100.45, eta: new Date(Date.now() + 1_500_000).toISOString(), miles_left: 12.4, route: "_srtkA~lyh~D_cmA~hbE_etB~s`B", route_precision: 6 });
     }
     if (p === `/api/live-drive/${VEHICLE_ID}`) {
       if (scenario !== "driving") return route.fulfill({ status: 204 });

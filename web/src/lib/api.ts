@@ -1,3 +1,4 @@
+import type { LiveDestination } from "./liveDestination";
 import type { OffpeakSchedule } from "./offpeak";
 // Minimal API client for the Rivolt Go backend.
 //
@@ -1525,6 +1526,18 @@ export const backend = {
       `/api/live-drive/${encodeURIComponent(vehicleID)}`,
     );
     return r ?? null;
+  },
+  // The truck's live navigation destination (design_preview "live_destination"): null on 204 (no trip), "off" on 404 (the feature is off for
+  // this account or the vehicle is not theirs; the same answer for both, so the caller stops asking). Any other failure throws.
+  liveDestination: async (vehicleID: string): Promise<LiveDestination | null | "off"> => {
+    if (inDemo()) return "off";
+    try {
+      const r = await api.get<LiveDestination | undefined>(`/api/live-destination/${encodeURIComponent(vehicleID)}`);
+      return r && typeof r === "object" && typeof r.name === "string" ? r : null;
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return "off";
+      throw e;
+    }
   },
   rivianStatus: async (): Promise<RivianStatus> => {
     if (inDemo()) return { enabled: false, authenticated: false, mfa_pending: false };
