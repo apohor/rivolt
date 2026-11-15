@@ -27,6 +27,9 @@ struct HomeView: View {
     @State private var extras = ExtrasModel()
     @State private var session: LiveSession?
     @State private var liveDrive: LiveDrive?
+    /// The truck's navigation destination while it drives (design_preview key live_destination); the first 404 turns the asking off for this truck.
+    @State private var liveDestination: LiveDestination?
+    @State private var destinationOff = false
     @State private var latestCharge: ChargeBrief?
     @State private var latestDrive: DriveBrief?
     @State private var charts = ChartsModel()
@@ -134,7 +137,7 @@ struct HomeView: View {
                 if let vehicle = selected {
                     let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
                     NowLiveView(vehicle: vehicle, summary: summary, session: summary.freshness != .stale ? session : nil,
-                                liveDrive: summary.freshness != .stale ? liveDrive : nil, charge: summary.freshness != .stale ? latestCharge : nil,
+                                liveDrive: summary.freshness != .stale ? liveDrive : nil, destination: summary.freshness != .stale ? liveDestination : nil, charge: summary.freshness != .stale ? latestCharge : nil,
                                 images: vehicle.images) { showLive = false }
                         .toolbar(.hidden, for: .navigationBar)
                 }
@@ -156,7 +159,7 @@ struct HomeView: View {
             .task(id: recheckKey) { if recheckKey != nil { await refreshNow() } }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
             .task(id: "\(selected?.id ?? "")|\(month.key)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
-            .onChange(of: selectedID) { Task { await loadSelected() } }
+            .onChange(of: selectedID) { destinationOff = false; liveDestination = nil; Task { await loadSelected() } }
             // A closed Now screen doesn't keep re-reading after a drive or charge ends.
             .onDisappear { settleTask?.cancel() }
             // A drive or charge just ended: the server saves it a little later, so the lists are read again a few times.
@@ -295,6 +298,7 @@ struct HomeView: View {
             now = nil
             session = nil
             liveDrive = nil
+            liveDestination = nil
             latestCharge = nil
             recentCharges = []
             latestDrive = nil
@@ -332,10 +336,18 @@ struct HomeView: View {
     /// The session or drive reads that only make sense while charging or in gear.
     private func loadLive(id: String) async {
         // The demo truck has no live Rivian connection to read.
-        if state.isDemo { session = nil; liveDrive = nil; return }
+        if state.isDemo { session = nil; liveDrive = nil; liveDestination = nil; return }
         let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
         session = kind == .charging ? (try? await state.client.liveSession(id: id)) ?? nil : nil
         liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
+        // Only while in gear, only when the design is on and not told "off"; this runs on the state's own cadence, which the tab and scene gate.
+        guard kind == .driving, state.designPreview.contains("live_destination"), !destinationOff else { liveDestination = nil; return }
+        switch try? await state.client.liveDestination(id: id) {
+        case .trip(let d): liveDestination = d
+        case .noTrip: liveDestination = nil
+        case .off: liveDestination = nil; destinationOff = true
+        case nil: break // a failed read (503): keep what is shown until the next one
+        }
     }
 
     /// What the Connection details screen shows about the newest frame and the presence limits, from what this screen holds.
