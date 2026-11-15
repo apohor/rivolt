@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { inDemo } from "../lib/demo";
+import { usePreferences } from "../lib/preferences";
 import { buildYearShareModel, yearCardYear, yearFileName } from "../lib/yearInRivolt";
 import { Card } from "./ui";
 import { ShareSheet } from "./ShareSheet";
@@ -18,13 +19,15 @@ const hiddenFor = (year: number): boolean => {
 // "Your year in Rivolt": in January, once the server says this account has a year worth showing. The card is made in the browser and
 // nothing is posted. Not in the demo, and nothing is asked of the server outside January.
 export function YearCard({ now }: { now?: Date }) {
+  const { distanceUnit, temperatureUnit } = usePreferences();
   const year = inDemo() ? null : yearCardYear(now);
   const q = useQuery({ queryKey: ["year-in-rivolt", year], queryFn: () => backend.yearInRivolt(year ?? undefined), enabled: year != null, staleTime: 3_600_000, retry: 0 });
   const [open, setOpen] = useState(false);
   const [hidden, setHidden] = useState(() => (year != null ? hiddenFor(year) : false));
   if (year == null || hidden || !q.data?.eligible) return null;
   const y = q.data;
-  const model = buildYearShareModel(y, { includeCost: false });
+  const units = { unit: distanceUnit, tempUnit: temperatureUnit };
+  const model = buildYearShareModel(y, { includeCost: false, ...units });
   if (!model) return null;
   const hide = () => {
     setHidden(true);
@@ -54,7 +57,7 @@ export function YearCard({ now }: { now?: Date }) {
       </div>
       {open && (
         <ShareSheet
-          build={(includeCost) => buildYearShareModel(y, { includeCost }) ?? model}
+          build={(includeCost) => buildYearShareModel(y, { includeCost, ...units }) ?? model}
           fileName={yearFileName(year)}
           withCostToggle={!!y.cost}
           onClose={() => setOpen(false)}
