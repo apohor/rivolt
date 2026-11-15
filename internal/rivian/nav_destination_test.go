@@ -394,7 +394,7 @@ func TestNavTripIsNotReachableFromStateTypes(t *testing.T) {
 			t.Errorf("%s reaches %v", path, rt)
 		}
 		switch rt.Kind() {
-		case reflect.Ptr, reflect.Slice, reflect.Array:
+		case reflect.Pointer, reflect.Slice, reflect.Array:
 			walk(rt.Elem(), path, seen)
 		case reflect.Map:
 			walk(rt.Key(), path, seen)
