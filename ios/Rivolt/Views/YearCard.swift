@@ -24,31 +24,34 @@ enum YearCardLogic {
     static func fileName(_ year: Int) -> String { "rivolt-year-\(year).png" }
 
     /// Six rows at most; cost, when asked for, takes the third.
-    static func card(_ y: YearInRivolt, includeCost: Bool) -> MoneyShareCard? {
+    static func card(_ y: YearInRivolt, includeCost: Bool, metric: Bool = NowFormat.usesMetric, celsius: Bool = DisplayUnits.celsius) -> MoneyShareCard? {
         typealias L = MoneyLogic
         guard y.eligible, let miles = y.miles, miles > 0 else { return nil }
+        // The figures arrive in miles and Fahrenheit; the card says them in the account's units, like the detail screens.
+        let k = metric ? 1.609344 : 1
+        let dist = metric ? "km" : "mi"
         let n0 = { (x: Double) in Int(x.rounded()).formatted() }
-        var rows = [MoneyShareCard.Stat(label: "Driven", value: "\(n0(miles)) mi")]
+        var rows = [MoneyShareCard.Stat(label: "Driven", value: "\(n0(miles * k)) \(dist)")]
         if let kwh = y.kwh, kwh > 0 { rows.append(.init(label: "kWh used driving", value: "\(n0(kwh)) kWh")) }
         if includeCost, let cost = y.cost {
             let approx = cost.estimated ? "~" : ""
-            let perMile = (y.costPerMile ?? 0) > 0 ? " · \(approx)\(L.money(y.costPerMile ?? 0, cost.currency, digits: 2))/mi" : ""
+            let perMile = (y.costPerMile ?? 0) > 0 ? " · \(approx)\(L.money((y.costPerMile ?? 0) / k, cost.currency, digits: 2))/\(dist)" : ""
             rows.append(.init(label: cost.estimated ? "Cost (estimate)" : "Cost", value: "\(approx)\(L.money(cost.amount, cost.currency, digits: 0))\(perMile)"))
         }
         // The year's efficiency is an estimate by construction, so it always says so.
-        if let e = y.efficiencyMiPerKwh, e > 0 { rows.append(.init(label: "Efficiency", value: "about \(L.fixed(e, 1)) mi/kWh")) }
+        if let e = y.efficiencyMiPerKwh, e > 0 { rows.append(.init(label: "Efficiency", value: "about \(L.fixed(e * k, 1)) \(dist)/kWh")) }
         if let t = y.longestTrip, t.miles > 0 {
-            rows.append(.init(label: "Longest trip", value: "\(n0(t.miles)) mi" + (monthName(t.month).map { " · \($0)" } ?? "")))
+            rows.append(.init(label: "Longest trip", value: "\(n0(t.miles * k)) \(dist)" + (monthName(t.month).map { " · \($0)" } ?? "")))
         }
         if let s = y.energyShares {
             let pct = { (f: Double) in "\(Int((min(1, max(0, f)) * 100).rounded()))%" }
             rows.append(.init(label: "Charged", value: "\(pct(s.home)) home · \(pct(s.away)) away · \(pct(s.fast)) fast"))
         }
         if let c = y.coldestDrive {
-            rows.append(.init(label: "Coldest drive", value: "\(Int(c.tempF.rounded()))°F" + (monthName(c.month).map { " · \($0)" } ?? "")))
+            rows.append(.init(label: "Coldest drive", value: "\(Int((celsius ? (c.tempF - 32) / 1.8 : c.tempF).rounded()))°\(celsius ? "C" : "F")" + (monthName(c.month).map { " · \($0)" } ?? "")))
         }
         if let d = y.mostEfficientLongDrive {
-            rows.append(.init(label: "Best long drive", value: "\(L.fixed(d.miPerKwh, 1)) mi/kWh · \(n0(d.miles)) mi"))
+            rows.append(.init(label: "Best long drive", value: "\(L.fixed(d.miPerKwh * k, 1)) \(dist)/kWh · \(n0(d.miles * k)) \(dist)"))
         }
         var parts: [String] = []
         if let n = y.driveCount, n > 0 { parts.append("\(n.formatted()) \(L.plural(n, "drive", "drives"))") }

@@ -29,12 +29,26 @@ final class YearCardTests: XCTestCase {
         XCTAssertNil(YearCardLogic.year(now: d("2026-12-31T12:00:00Z"), calendar: utc))
     }
 
+    func testTheCardSaysKmAndCelsiusWhenTheUnitsAreMetric() throws {
+        let y = try full()
+        let c = try XCTUnwrap(YearCardLogic.card(y, includeCost: true, metric: true, celsius: true))
+        let text = ([c.eyebrow, c.title, c.subtitle] + c.stats.flatMap { [$0.label, $0.value] }).joined(separator: " ")
+        XCTAssertNil(text.range(of: #"\bmi\b|/mi|mph|°F"#, options: .regularExpression), text)
+        let rows = Dictionary(c.stats.map { ($0.label, $0.value) }, uniquingKeysWith: { a, _ in a })
+        XCTAssertEqual(rows["Driven"], "\(Int(((y.miles ?? 0) * 1.609344).rounded()).formatted()) km")
+        XCTAssertEqual(rows["Efficiency"], "about \(MoneyLogic.fixed((y.efficiencyMiPerKwh ?? 0) * 1.609344, 1)) km/kWh")
+        XCTAssertTrue(rows.values.contains { $0.hasSuffix("/km") }, "cost per km: \(rows)")
+        let cold = try XCTUnwrap(YearCardLogic.card(y, includeCost: false, metric: true, celsius: true)?.stats.first { $0.label == "Coldest drive" })
+        let f = try XCTUnwrap(y.coldestDrive).tempF
+        XCTAssertTrue(cold.value.hasPrefix("\(Int(((f - 32) / 1.8).rounded()))°C"), cold.value)
+    }
+
     func testAnIneligibleAnswerDrawsNothing() throws {
-        XCTAssertNil(YearCardLogic.card(try Fixture.decode(YearInRivolt.self, "year_in_rivolt_not_yet"), includeCost: false))
+        XCTAssertNil(YearCardLogic.card(try Fixture.decode(YearInRivolt.self, "year_in_rivolt_not_yet"), includeCost: false, metric: false, celsius: false))
     }
 
     func testTheCardHasNoMoneyByDefaultAndSaysWhatTheFiguresAre() throws {
-        let c = try XCTUnwrap(YearCardLogic.card(try full(), includeCost: false))
+        let c = try XCTUnwrap(YearCardLogic.card(try full(), includeCost: false, metric: false, celsius: false))
         XCTAssertEqual(c.title, "2026 in your R1S")
         XCTAssertEqual(c.eyebrow, "Recorded by Rivolt · since March")
         XCTAssertEqual(c.subtitle, "612 drives · 96 charges · 19 stops on 7 planned trips")
@@ -51,7 +65,7 @@ final class YearCardTests: XCTestCase {
     }
 
     func testCostIsAnEstimateAndOnlyWhenAsked() throws {
-        let c = try XCTUnwrap(YearCardLogic.card(try full(), includeCost: true))
+        let c = try XCTUnwrap(YearCardLogic.card(try full(), includeCost: true, metric: false, celsius: false))
         XCTAssertEqual(c.stats.first { $0.label == "Cost (estimate)" }?.value, "~$611 · ~$0.07/mi")
         XCTAssertLessThanOrEqual(c.stats.count, 6)
     }
@@ -61,7 +75,7 @@ final class YearCardTests: XCTestCase {
         {"eligible": true, "year": 2026, "drive_count": 12, "miles": 300, "kwh": 100, "charge_count": 4, "planned_trips": 0, "planned_stops": 0}
         """
         let y = try JSON.decoder().decode(YearInRivolt.self, from: Data(json.utf8))
-        let c = try XCTUnwrap(YearCardLogic.card(y, includeCost: true))
+        let c = try XCTUnwrap(YearCardLogic.card(y, includeCost: true, metric: false, celsius: false))
         XCTAssertEqual(c.title, "2026 in Rivolt")
         XCTAssertEqual(c.eyebrow, "Recorded by Rivolt")
         XCTAssertEqual(c.subtitle, "12 drives · 4 charges")
