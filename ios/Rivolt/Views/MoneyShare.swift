@@ -26,16 +26,18 @@ struct MoneyShareCard: Equatable {
     /// "rivolt-month-2026-10.png": the kind and the month, never a truck or a place.
     static func fileName(_ m: LedgerMonth) -> String { "rivolt-month-\(m.period).png" }
 
-    static func month(_ m: LedgerMonth, includeCost: Bool, offpeakSharePct: Double?, calendar: Calendar) -> MoneyShareCard {
+    static func month(_ m: LedgerMonth, includeCost: Bool, offpeakSharePct: Double?, calendar: Calendar, metric: Bool = NowFormat.usesMetric) -> MoneyShareCard {
         typealias L = MoneyLogic
+        let k = metric ? 1.609344 : 1
+        let dist = metric ? "km" : "mi"
         let n0 = { (x: Double) in Int(x.rounded()).formatted() }
-        let miles = m.driving.miles
-        var stats = [Stat(label: "Driven", value: "\(n0(miles)) mi"), Stat(label: "Energy added", value: "\(m.energy.includesEstimated == true ? "~" : "")\(n0(m.energy.kwhAdded)) kWh")]
+        let miles = m.driving.miles * k
+        var stats = [Stat(label: "Driven", value: "\(n0(miles)) \(dist)"), Stat(label: "Energy added", value: "\(m.energy.includesEstimated == true ? "~" : "")\(n0(m.energy.kwhAdded)) kWh")]
         let used = m.driving.kwhUsedKnown ?? 0
         let withEnergy = m.driving.milesWithEnergy ?? 0
-        if used > 0 && withEnergy > 0 { stats.append(Stat(label: "Efficiency", value: "\(L.fixed(withEnergy / used, 2)) mi/kWh")) }
+        if used > 0 && withEnergy > 0 { stats.append(Stat(label: "Efficiency", value: "\(L.fixed(withEnergy * k / used, 2)) \(dist)/kWh")) }
         var notes: [String] = []
-        var title = "\(n0(miles)) mi"
+        var title = "\(n0(miles)) \(dist)"
         var subtitle = "\(m.driving.drives) \(L.plural(m.driving.drives, "drive", "drives")) · \(m.energy.sessions) \(L.plural(m.energy.sessions, "charge", "charges"))"
         if includeCost {
             // The statement card's figures, behind the toggle.
@@ -43,8 +45,8 @@ struct MoneyShareCard: Equatable {
             let e = m.energy
             title = L.money(L.statementTotal(m), cur)
             var parts = ["\(e.includesEstimated == true ? "~" : "")\(L.fixed(e.kwhAdded, 0)) kWh"]
-            if miles > 0 { parts.append("\(L.fixed(miles, 0)) mi") }
-            if let cpm = m.driving.costPerMile { parts.append("\(L.money(cpm, cur, digits: 3))/mi") }
+            if miles > 0 { parts.append("\(L.fixed(miles, 0)) \(dist)") }
+            if let cpm = m.driving.costPerMile { parts.append("\(L.money(cpm / k, cur, digits: 3))/\(dist)") }
             subtitle = parts.joined(separator: " · ")
             let buckets: [(String, Double)]
             if let pk = e.byPlaceKind {
