@@ -50,6 +50,7 @@ const (
 	NavClearStale     = "stale"
 	NavClearFlagOff   = "flag_off"
 	NavClearNewTrip   = "new_destination"
+	NavClearStopped   = "stopped"
 )
 
 // NavInfo is what we keep of a trip_info frame.
@@ -320,6 +321,7 @@ type navStore struct {
 
 type navEntry struct {
 	info   *NavInfo
+	infoAt time.Time
 	prog   *NavProgress
 	progAt time.Time
 }
@@ -366,14 +368,14 @@ func (s *navStore) apply(vehicleID string, f *NavFrame) {
 			return
 		}
 		if e == nil {
-			s.trips[vehicleID] = &navEntry{info: f.Info}
+			s.trips[vehicleID] = &navEntry{info: f.Info, infoAt: s.now()}
 			return
 		}
 		if e.info.Lat != f.Info.Lat || e.info.Lon != f.Info.Lon {
 			e.prog = nil // a progress frame of the old trip must not time the new one
 			s.cleared(NavClearNewTrip)
 		}
-		e.info = f.Info
+		e.info, e.infoAt = f.Info, s.now()
 	case f.Progress != nil:
 		if e == nil {
 			return // progress without a route is not a trip yet
@@ -409,6 +411,26 @@ func (s *navStore) get(vehicleID string) (NavTrip, bool) {
 		left += e.info.LegMetres[i]
 	}
 	return NavTrip{Name: e.info.Name, Lat: e.info.Lat, Lon: e.info.Lon, ETA: e.prog.ETA, MetresLeft: left, Route: e.info.Route}, true
+}
+
+// sweep drops every trip whose newest frame is older than navStaleFloor,
+// whether or not anyone reads it (a route with no progress frame included).
+func (s *navStore) sweep() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, e := range s.trips {
+		newest := e.infoAt
+		if e.prog != nil && e.progAt.After(newest) {
+			newest = e.progAt
+		}
+		if s.now().Sub(newest) > navStaleFloor {
+			delete(s.trips, id)
+			s.cleared(NavClearStale)
+		}
+	}
 }
 
 func (s *navStore) clear(vehicleID, reason string) {

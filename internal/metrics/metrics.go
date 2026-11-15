@@ -1065,7 +1065,7 @@ func New() *Metrics {
 		}, []string{"topic", "result"}),
 		NavClearedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_nav_cleared_total",
-			Help: "Held live destinations dropped, by reason (nav_ended, drive_ended, reconnect, stale, flag_off, new_destination).",
+			Help: "Held live destinations dropped, by reason (nav_ended, drive_ended, reconnect, stale, flag_off, new_destination, stopped).",
 		}, []string{"reason"}),
 		ParallaxReplaysIgnoredTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -1421,7 +1421,7 @@ func New() *Metrics {
 			m.NavDecodeTotal.WithLabelValues(topic, res).Add(0)
 		}
 	}
-	for _, reason := range []string{"nav_ended", "drive_ended", "reconnect", "stale", "flag_off", "new_destination"} {
+	for _, reason := range []string{"nav_ended", "drive_ended", "reconnect", "stale", "flag_off", "new_destination", "stopped"} {
 		m.NavClearedTotal.WithLabelValues(reason).Add(0)
 	}
 	for _, topic := range []string{"trip_info", "trip_progress"} {

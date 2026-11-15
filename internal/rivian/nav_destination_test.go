@@ -419,3 +419,56 @@ func TestProbeParallaxRawRefusesNavTopics(t *testing.T) {
 		}
 	}
 }
+
+// A route that never got a progress frame still expires, and a sweep needs no read.
+func TestNavStoreSweepExpiresWithoutARead(t *testing.T) {
+	clock := navNow
+	s := newNavStore(func() time.Time { return clock })
+	var cleared []string
+	s.onClear = func(r string) { cleared = append(cleared, r) }
+	s.apply("info-only", &NavFrame{Info: &NavInfo{Name: "A", Lat: 40, Lon: -100, Stops: 1}})
+	s.apply("full", &NavFrame{Info: &NavInfo{Name: "B", Lat: 41, Lon: -100, Stops: 1}})
+	s.apply("full", &NavFrame{Progress: &NavProgress{ETA: navNow.Add(time.Hour)}})
+	clock = clock.Add(navStaleFloor - time.Second)
+	s.apply("full", &NavFrame{Progress: &NavProgress{ETA: navNow.Add(time.Hour)}}) // fresh progress
+	clock = clock.Add(2 * time.Second)
+	s.sweep()
+	if _, ok := s.trips["info-only"]; ok {
+		t.Error("an info-only trip survived the sweep")
+	}
+	if _, ok := s.trips["full"]; !ok {
+		t.Error("a trip with fresh progress was swept")
+	}
+	if !reflect.DeepEqual(cleared, []string{NavClearStale}) {
+		t.Errorf("cleared %v", cleared)
+	}
+}
+
+// The subscriber returning (takeover, park, error) drops the trip.
+func TestNavSubscriberExitClearsTrip(t *testing.T) {
+	m := NewStateMonitor(NewLive(), nil)
+	obs := newNavRecorder()
+	m.SetSleepObserver(obs)
+	m.nav.apply("v", &NavFrame{Info: &NavInfo{Name: "A", Lat: 40, Lon: -100, Stops: 1}})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	m.driveDynamicsSubscriber(ctx, "v") // returns at once: the context is done
+	m.nav.mu.Lock()
+	n := len(m.nav.trips)
+	m.nav.mu.Unlock()
+	if n != 0 {
+		t.Error("trip outlived the subscriber")
+	}
+}
+
+// A frame with no decode result (a gate flipped between decode and apply) is not counted.
+func TestNavEmptyResultNotCounted(t *testing.T) {
+	m := NewStateMonitor(nil, nil)
+	obs := newNavRecorder()
+	m.SetSleepObserver(obs)
+	m.SetNavDecodeGate(func() bool { return true })
+	m.onDriveDynamicsFrame(context.Background(), "v", driveDynamicsFrameOf(rvmNavTripInfo, "AAAA", `"1"`, false))
+	if len(obs.results) != 0 {
+		t.Errorf("results %v", obs.results)
+	}
+}

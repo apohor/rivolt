@@ -2659,10 +2659,14 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 // drive-close authority are untouched. Gated on
 // RIVOLT_PARALLAX + Parallax connectivity.
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
+	// Whatever ends this subscriber (a takeover, a park, an error), the trip
+	// goes with it; while it runs, a stale trip is swept without a read.
+	defer m.nav.clearAll(NavClearStopped)
 	ctx, ok := m.permitCtxWait(ctx, vehicleID, CallSiteSubscription)
 	if !ok {
 		return
 	}
+	go m.sweepNav(ctx)
 	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, m.captureTopics(vehicleID), m.navDecodeOn, func(f DriveDynamicsFrame) {
 		m.onDriveDynamicsFrame(ctx, vehicleID, f)
 	})
@@ -3269,11 +3273,25 @@ func (m *StateMonitor) applyNavFrame(vehicleID string, f DriveDynamicsFrame) {
 	m.mu.RLock()
 	obs := m.sleepObserver
 	m.mu.RUnlock()
-	if o, ok := obs.(NavObserver); ok {
+	if o, ok := obs.(NavObserver); ok && f.NavResult != "" {
 		o.OnNavDecode(navTopic(f.RVM), f.NavResult)
 	}
 	if f.Nav != nil {
 		m.nav.apply(vehicleID, f.Nav)
+	}
+}
+
+// sweepNav expires stale trips every 30 s until ctx ends.
+func (m *StateMonitor) sweepNav(ctx context.Context) {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			m.nav.sweep()
+		}
 	}
 }
 
