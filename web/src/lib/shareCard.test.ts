@@ -36,6 +36,21 @@ describe("share card models", () => {
     expect(m.title).toContain("1 h 15 min");
     expect(all(buildTripShareModel(drive, { includeCost: true, sample: false }))).toMatch(/~\$2\.40/);
   });
+  it("trip and month: distance, efficiency and speed follow the unit, miles by default", () => {
+    const mi = buildTripShareModel(drive, { includeCost: false, sample: false });
+    expect(mi.title).toMatch(/^51 mi/);
+    expect(mi.stats.find((s) => s.label === "Average speed")?.value).toBe("41 mph");
+    const km = buildTripShareModel(drive, { includeCost: false, sample: false, unit: "km" });
+    expect(km.title).toMatch(/^82 km/);
+    expect(km.stats.find((s) => s.label === "Efficiency")?.value).toBe(`${((51.2 * 1.609344) / 17).toFixed(2)} km/kWh`);
+    expect(km.stats.find((s) => s.label === "Average speed")?.value).toBe("66 km/h");
+    expect(all(km)).not.toMatch(/\bmi\b|mph/);
+    const m = buildMonthShareModel(month, { includeCost: false, sample: false, unit: "km" });
+    expect(m.title).toBe("663 km");
+    expect(m.stats.find((s) => s.label === "Driven")?.value).toBe("663 km");
+    expect(m.stats.find((s) => s.label === "Efficiency")?.value).toBe(`${((400 * 1.609344) / 150).toFixed(2)} km/kWh`);
+    expect(all(m)).not.toMatch(/\bmi\b/);
+  });
   it("trip: a merged round trip says so, counts its legs and shows driving time, not the parked gaps", () => {
     const rt = { ...drive, EndedAt: "2026-10-19T17:32:00Z", DrivingSeconds: 3600, round_trip_legs: 3 } as Drive;
     const m = buildTripShareModel(rt, { includeCost: false, sample: false });

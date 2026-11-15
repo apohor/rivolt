@@ -11,6 +11,7 @@ import { shareFooterLine } from "./appLink";
 import { getConfig } from "./config";
 import { decodePolyline } from "./polyline";
 import type { Drive, MilestoneItem } from "./api";
+import type { DistanceUnit } from "./preferences";
 
 export type ShareKind = "month" | "trip" | "milestone" | "year";
 export type ShareStat = { label: string; value: string };
@@ -33,6 +34,9 @@ export const shareFooter = (): readonly string[] => [shareFooterLine(getConfig()
 const SAMPLE_LINE = "Sample truck · generated data";
 
 const n0 = (x: number) => Math.round(x).toLocaleString();
+// The card says the distance, speed and efficiency in the user's unit, like the pages do (the figures arrive in miles).
+const KM = 1.609344;
+const kOf = (unit: DistanceUnit) => (unit === "km" ? KM : 1);
 // Whole minutes, cut not rounded: the drive page's Duration (formatDuration) cuts too, so the card and the page say the same time.
 const hm = (min: number) => {
   const m = Math.floor(min);
@@ -41,16 +45,18 @@ const hm = (min: number) => {
 
 // offpeakSharePct: the share of home charging (by energy) that ran in off-peak hours, only when the user turns that line on. A
 // percentage alone: no rate, no dollars, no window times.
-export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; sample: boolean; partialFrom?: string | null; offpeakSharePct?: number | null }): ShareCardModel {
-  const miles = m.driving.miles;
+export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; sample: boolean; partialFrom?: string | null; offpeakSharePct?: number | null; unit?: DistanceUnit }): ShareCardModel {
+  const unit = o.unit ?? "mi";
+  const k = kOf(unit);
+  const miles = m.driving.miles * k;
   const kwhUsed = m.driving.kwh_used_known;
   const stats: ShareStat[] = [
-    { label: "Driven", value: `${n0(miles)} mi` },
+    { label: "Driven", value: `${n0(miles)} ${unit}` },
     { label: "Energy added", value: `${m.energy.includes_estimated ? "~" : ""}${n0(m.energy.kwh_added)} kWh` },
   ];
-  if (kwhUsed > 0 && m.driving.miles_with_energy > 0) stats.push({ label: "Efficiency", value: `${(m.driving.miles_with_energy / kwhUsed).toFixed(2)} mi/kWh` });
+  if (kwhUsed > 0 && m.driving.miles_with_energy > 0) stats.push({ label: "Efficiency", value: `${((m.driving.miles_with_energy * k) / kwhUsed).toFixed(2)} ${unit}/kWh` });
   const notes: string[] = [];
-  let title = `${n0(miles)} mi`;
+  let title = `${n0(miles)} ${unit}`;
   let subtitle = `${m.driving.drives} ${m.driving.drives === 1 ? "drive" : "drives"} · ${m.energy.sessions} ${m.energy.sessions === 1 ? "charge" : "charges"}`;
   if (o.includeCost) {
     // The statement card's figures, behind the toggle.
@@ -69,16 +75,18 @@ export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; 
   return { kind: "month", eyebrow: `${monthLabel(m.period)}${m.is_current_month ? " so far" : ""}`, title, subtitle, stats, notes, sample: o.sample };
 }
 
-export function buildTripShareModel(d: Drive, o: { includeCost: boolean; sample: boolean; mapSegments?: string[] | null }): ShareCardModel {
+export function buildTripShareModel(d: Drive, o: { includeCost: boolean; sample: boolean; mapSegments?: string[] | null; unit?: DistanceUnit }): ShareCardModel {
+  const unit = o.unit ?? "mi";
+  const k = kOf(unit);
   const start = new Date(d.StartedAt);
   const end = new Date(d.EndedAt);
   // Driving time: on a merged round trip the wall span also holds the parked gaps between legs.
   const min = Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) ? Math.max(0, driveDurationSeconds(d) / 60) : 0;
   const stats: ShareStat[] = [];
-  if (d.EnergyUsedKWh > 0 && d.DistanceMi > 0) stats.push({ label: "Efficiency", value: `${(d.DistanceMi / d.EnergyUsedKWh).toFixed(2)} mi/kWh` });
+  if (d.EnergyUsedKWh > 0 && d.DistanceMi > 0) stats.push({ label: "Efficiency", value: `${((d.DistanceMi * k) / d.EnergyUsedKWh).toFixed(2)} ${unit}/kWh` });
   if (d.EnergyUsedKWh > 0) stats.push({ label: "Energy used", value: `${d.EnergyUsedKWh.toFixed(1)} kWh` });
   if (d.StartSoCPct > 0 || d.EndSoCPct > 0) stats.push({ label: "Battery", value: `${Math.round(d.StartSoCPct)}% → ${Math.round(d.EndSoCPct)}%` });
-  if (d.AvgSpeedMph > 0) stats.push({ label: "Average speed", value: `${Math.round(d.AvgSpeedMph)} mph` });
+  if (d.AvgSpeedMph > 0) stats.push({ label: "Average speed", value: `${Math.round(d.AvgSpeedMph * k)} ${unit === "km" ? "km/h" : "mph"}` });
   if (o.includeCost && d.estimated_cost && d.estimated_cost > 0) {
     stats.push({ label: "Charging cost (estimate)", value: `~${formatMoney(d.estimated_cost, d.estimated_currency || "USD")}` });
   }
@@ -86,7 +94,7 @@ export function buildTripShareModel(d: Drive, o: { includeCost: boolean; sample:
   const day = Number.isFinite(start.getTime()) ? start.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }) : "";
   // A merged round trip says so and counts its real legs (a zero-distance stub is not one); the totals above are the sum.
   const legs = d.round_trip_legs ?? 1;
-  return { kind: "trip", eyebrow: legs > 1 ? "Round trip" : "Trip", title: `${n0(d.DistanceMi)} mi${min > 0 ? ` · ${hm(min)}` : ""}`, subtitle: day, stats, notes: legs > 1 ? [`${legs} legs`] : [], sample: o.sample, ...(o.mapSegments && o.mapSegments.length > 0 ? { map: { segments: o.mapSegments } } : {}) };
+  return { kind: "trip", eyebrow: legs > 1 ? "Round trip" : "Trip", title: `${n0(d.DistanceMi * k)} ${unit}${min > 0 ? ` · ${hm(min)}` : ""}`, subtitle: day, stats, notes: legs > 1 ? [`${legs} legs`] : [], sample: o.sample, ...(o.mapSegments && o.mapSegments.length > 0 ? { map: { segments: o.mapSegments } } : {}) };
 }
 
 const hasMoney = (s: string) => /[$€£]\s?\d|\d\s?(USD|EUR|GBP|CAD)\b/i.test(s);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { backend, type Drive, type MilestoneItem } from "../lib/api";
 import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
+import { usePreferences } from "../lib/preferences";
 import { buildMilestoneShareModel, buildTripShareModel, shareFileName } from "../lib/shareCard";
 import { ShareSheet } from "./ShareSheet";
 
@@ -10,6 +11,7 @@ const link = "text-xs text-neutral-300 hover:text-emerald-300";
 // "Share trip" on a drive: opens the sheet with a masked trip card (the day, distance, duration and efficiency;
 // no places, and cost only if the user adds it).
 export function ShareTripButton({ drive }: { drive: Drive }) {
+  const { distanceUnit } = usePreferences();
   const [open, setOpen] = useState(false);
   const sample = inDemo();
   // The optional map (design-preview flag share_map): the server's trimmed route, fetched when the sheet opens. A drive
@@ -30,8 +32,8 @@ export function ShareTripButton({ drive }: { drive: Drive }) {
   }, [open, mapFlag, sample, drive.ID]);
   const segments = loaded && loaded.id === drive.ID ? loaded.segments : null;
   const build = useCallback(
-    (includeCost: boolean, _includeOffpeak: boolean, includeMap: boolean) => buildTripShareModel(drive, { includeCost, sample, mapSegments: includeMap ? segments : null }),
-    [drive, sample, segments],
+    (includeCost: boolean, _includeOffpeak: boolean, includeMap: boolean) => buildTripShareModel(drive, { includeCost, sample, mapSegments: includeMap ? segments : null, unit: distanceUnit }),
+    [drive, sample, segments, distanceUnit],
   );
   return (
     <>
