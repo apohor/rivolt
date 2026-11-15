@@ -17,17 +17,20 @@ extension MoneyShareCard {
         return whole >= 60 ? "\(whole / 60) h \(whole % 60) min" : "\(whole) min"
     }
 
-    static func trip(_ d: ActivityDrive, includeCost: Bool, routeSegments: [String] = [], calendar: Calendar) -> MoneyShareCard {
+    /// `metric` follows the detail screen's unit (the account's setting), so the card says the same distance and speed.
+    static func trip(_ d: ActivityDrive, includeCost: Bool, routeSegments: [String] = [], calendar: Calendar, metric: Bool = NowFormat.usesMetric) -> MoneyShareCard {
         typealias L = MoneyLogic
+        let k = metric ? 1.609344 : 1
+        let dist = metric ? "km" : "mi"
         // The detail row's own duration: driving time first, so a merged round trip does not count the time parked between legs.
         let minutes = max(0, (ActivityLogic.duration(d) ?? 0) / 60)
         var stats: [Stat] = []
-        if d.energyUsedKwh > 0 && d.distanceMi > 0 { stats.append(Stat(label: "Efficiency", value: "\(L.fixed(d.distanceMi / d.energyUsedKwh, 2)) mi/kWh")) }
+        if d.energyUsedKwh > 0 && d.distanceMi > 0 { stats.append(Stat(label: "Efficiency", value: "\(L.fixed(d.distanceMi * k / d.energyUsedKwh, 2)) \(dist)/kWh")) }
         if d.energyUsedKwh > 0 { stats.append(Stat(label: "Energy used", value: "\(L.fixed(d.energyUsedKwh, 1)) kWh")) }
         if d.startSocPct > 0 || d.endSocPct > 0 {
             stats.append(Stat(label: "Battery", value: "\(Int(d.startSocPct.rounded()))% → \(Int(d.endSocPct.rounded()))%"))
         }
-        if d.avgSpeedMph > 0 { stats.append(Stat(label: "Average speed", value: "\(Int(d.avgSpeedMph.rounded())) mph")) }
+        if d.avgSpeedMph > 0 { stats.append(Stat(label: "Average speed", value: "\(Int((d.avgSpeedMph * k).rounded())) \(metric ? "km/h" : "mph")")) }
         if includeCost, let cost = d.estimatedCost, cost > 0 {
             stats.append(Stat(label: "Charging cost (estimate)", value: "~" + L.money(cost, d.estimatedCurrency ?? "USD")))
         }
@@ -35,7 +38,7 @@ extension MoneyShareCard {
         var f = Date.FormatStyle(timeZone: calendar.timeZone).weekday(.wide).day().month(.wide)
         f.calendar = calendar
         let duration = tripDuration(minutes: minutes)
-        let title = "\(Int(d.distanceMi.rounded()).formatted()) mi" + (minutes > 0 ? " · \(duration)" : "")
+        let title = "\(Int((d.distanceMi * k).rounded()).formatted()) \(dist)" + (minutes > 0 ? " · \(duration)" : "")
         return MoneyShareCard(eyebrow: "Trip", title: title, subtitle: d.startedAt.formatted(f), stats: stats, notes: [], routeSegments: routeSegments)
     }
 
