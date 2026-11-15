@@ -621,19 +621,29 @@ export function niceTimeTicks(min: number, max: number, maxTicks: number, tz?: s
   return [min, max];
 }
 
-// thinTicks drops the ticks whose label would run into the previous kept one. xs are the ticks' pixel positions in order; the last tick is kept
+// thinTicks drops the ticks whose label would run into the previous kept one. xs are the ticks' pixel positions in order; minGap is the least
+// distance between two labels' centres, one number or a function of the two tick indices (their real label widths). The last tick is kept
 // (it closes the axis) and displaces earlier ones instead. A parked stretch is squeezed to a few pixels, so several round times can land together.
-export function thinTicks(xs: number[], minGap: number): number[] {
+export function thinTicks(xs: number[], minGap: number | ((a: number, b: number) => number)): number[] {
+  const gap = typeof minGap === "number" ? () => minGap : minGap;
   const keep: number[] = [];
   xs.forEach((x, i) => {
-    if (keep.length === 0 || x - xs[keep[keep.length - 1]] >= minGap) keep.push(i);
+    const prev = keep[keep.length - 1];
+    if (keep.length === 0 || x - xs[prev] >= gap(prev, i)) keep.push(i);
   });
   const last = xs.length - 1;
   if (keep.length > 1 && keep[keep.length - 1] !== last) {
-    while (keep.length > 1 && xs[last] - xs[keep[keep.length - 1]] < minGap) keep.pop();
+    while (keep.length > 1 && xs[last] - xs[keep[keep.length - 1]] < gap(keep[keep.length - 1], last)) keep.pop();
     keep.push(last);
   }
   return keep;
+}
+
+// labelGap is the least distance between the centres of ticks a < b given their label widths. A label is centred on its tick, except the first
+// when startEdge (it starts there) and the last when endEdge (it ends there): those reach their full width inward.
+export function labelGap(widths: number[], startEdge: boolean, endEdge: boolean, pad: number): (a: number, b: number) => number {
+  const last = widths.length - 1;
+  return (a, b) => (a === 0 && startEdge ? widths[a] : widths[a] / 2) + (b === last && endEdge ? widths[b] : widths[b] / 2) + pad;
 }
 
 export function momentColor(tone: Moment["tone"]): string {

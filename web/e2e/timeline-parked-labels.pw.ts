@@ -12,13 +12,16 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 const MIN = 60_000;
 const START = e2eNow() - 3 * 3_600_000;
 
-for (const [vpName, vp] of [
-  ["393", { width: 393, height: 852 }],
-  ["1280", { width: 1280, height: 900 }],
+for (const [vpName, vp, wide] of [
+  ["393", { width: 393, height: 852 }, false],
+  ["1280", { width: 1280, height: 900 }, false],
+  // A wide face: the labels are measured, not given a fixed room, so a wider font thins the axis instead of letting labels touch.
+  ["393 wide font", { width: 393, height: 852 }, true],
 ] as const) {
   test(`timeline axis labels stay apart at a parked stop · ${vpName}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: vp, colorScheme: "dark" });
     const page = await ctx.newPage();
+    if (wide) await page.addInitScript(() => document.addEventListener("DOMContentLoaded", () => { document.body.style.fontFamily = "'Courier New', monospace"; }));
     await stubApi(page, {});
     const drive = {
       ID: "drive-1", VehicleID: VEHICLE_ID,
@@ -53,6 +56,6 @@ for (const [vpName, vp] of [
     expect(boxes.length).toBeGreaterThan(1);
     for (let i = 1; i < boxes.length; i++) expect(boxes[i].l, `label ${i} starts after label ${i - 1} ends`).toBeGreaterThanOrEqual(boxes[i - 1].r);
     await svg.evaluate((e) => e.scrollIntoView({ block: "start" }));
-    await svg.screenshot({ path: path.join(SHOTS, `timeline-parked-${vpName}.png`) });
+    await svg.screenshot({ path: path.join(SHOTS, `timeline-parked-${vpName.replace(/ /g, "-")}.png`) });
   });
 }
