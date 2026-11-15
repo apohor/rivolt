@@ -450,14 +450,34 @@ func TestNavSubscriberExitClearsTrip(t *testing.T) {
 	obs := newNavRecorder()
 	m.SetSleepObserver(obs)
 	m.nav.apply("v", &NavFrame{Info: &NavInfo{Name: "A", Lat: 40, Lon: -100, Stops: 1}})
+	m.nav.apply("w", &NavFrame{Info: &NavInfo{Name: "B", Lat: 41, Lon: -101, Stops: 1}})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	m.driveDynamicsSubscriber(ctx, "v") // returns at once: the context is done
 	m.nav.mu.Lock()
-	n := len(m.nav.trips)
+	_, hasV := m.nav.trips["v"]
+	_, hasW := m.nav.trips["w"]
 	m.nav.mu.Unlock()
-	if n != 0 {
+	if hasV {
 		t.Error("trip outlived the subscriber")
+	}
+	if !hasW {
+		t.Error("one vehicle's subscriber ending dropped another vehicle's trip")
+	}
+}
+
+// MetresLeft is the whole way only when the frames carried a leg distance; HasDist says which, so a reader can hide it.
+func TestNavTripHasDistOnlyWithALegDistance(t *testing.T) {
+	now := time.Now()
+	s := newNavStore(func() time.Time { return now })
+	s.apply("v", &NavFrame{Info: &NavInfo{Name: "A", Lat: 40, Lon: -100, Stops: 2, LegMetres: []float64{1000, 2000}}})
+	s.apply("v", &NavFrame{Progress: &NavProgress{ETA: now.Add(time.Hour), NextStop: 0, LegMetres: 400, HasLegDist: true}})
+	if tr, ok := s.get("v"); !ok || !tr.HasDist || tr.MetresLeft != 2400 {
+		t.Fatalf("with a leg distance: %+v %v", tr, ok)
+	}
+	s.apply("v", &NavFrame{Progress: &NavProgress{ETA: now.Add(time.Hour), NextStop: 0}})
+	if tr, ok := s.get("v"); !ok || tr.HasDist {
+		t.Fatalf("without a leg distance: %+v %v, want HasDist false", tr, ok)
 	}
 }
 

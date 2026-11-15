@@ -2661,7 +2661,7 @@ func (m *StateMonitor) dynamicsGNSSSubscriber(ctx context.Context, vehicleID str
 func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID string) {
 	// Whatever ends this subscriber (a takeover, a park, an error), the trip
 	// goes with it; while it runs, a stale trip is swept without a read.
-	defer m.nav.clearAll(NavClearStopped)
+	defer m.nav.clear(vehicleID, NavClearStopped)
 	ctx, ok := m.permitCtxWait(ctx, vehicleID, CallSiteSubscription)
 	if !ok {
 		return

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -181,6 +182,40 @@ func TestForwardRunnerLiveSessionGuards(t *testing.T) {
 	}
 	if res, _ := r.Run(context.Background(), forward.KindLiveSession, user, "grp-1", "not args"); res.Status != 400 {
 		t.Errorf("wrong args type: %d, want 400", res.Status)
+	}
+}
+
+// live_destination has the same guards: a vehicle outside the named group, or unknown, is 404; a user with no monitor on this pod (another
+// user's vehicle) gets no data, a 503, never a trip; and a monitor with the flag off answers "no trip", not an error.
+func TestForwardRunnerLiveDestinationGuards(t *testing.T) {
+	store, err := leases.NewStore(new(sql.DB), "pod-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetVehicleGroups(map[string]string{"v-fake-1": "grp-1"})
+	r := &forwardRunner{store: store, monitors: &rivian.MonitorRegistry{}, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	const user = "11111111-2222-3333-4444-555555555555"
+	for _, tc := range []struct {
+		vehicle, group string
+		status         int
+	}{
+		{"v-fake-1", "grp-2", 404},
+		{"v-fake-9", "grp-1", 404},
+		{"v-fake-1", "grp-1", 503},
+	} {
+		res, err := r.Run(context.Background(), forward.KindLiveDestination, user, tc.group, &forward.LiveDestinationArgs{VehicleID: tc.vehicle})
+		if err != nil || res.Status != tc.status {
+			t.Errorf("%s in %s: %d %v, want %d", tc.vehicle, tc.group, res.Status, err, tc.status)
+		}
+		if strings.Contains(string(res.Body), "name") {
+			t.Errorf("a refusal carried a trip: %s", res.Body)
+		}
+	}
+	if res, _ := r.Run(context.Background(), forward.KindLiveDestination, user, "grp-1", "not args"); res.Status != 400 {
+		t.Errorf("wrong args type: %d, want 400", res.Status)
+	}
+	if res, _ := r.Run(context.Background(), forward.KindLiveDestination, "not-a-uuid", "grp-1", &forward.LiveDestinationArgs{VehicleID: "v-fake-1"}); res.Status != 400 {
+		t.Errorf("bad user: %d, want 400", res.Status)
 	}
 }
 
