@@ -13,16 +13,21 @@ import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import { BASEMAP_ATTRIBUTION } from "./style";
 import { boundsOf, firstLabelLayer, setDriveRoute, ROUTE_UNIFORM, type LatLng } from "./route";
 import { pinElement, foldCredits, tilesNotice } from "./controls";
+import { setDestinationRoute } from "./destination";
 import { watchDrawn } from "./drawn";
 
 export type LivePoint = { lat: number; lon: number };
+// The truck's navigation destination (design_preview "live_destination"): its pin and the planned route ([lat, lon] pairs, may be empty).
+export type LiveMapDestination = { lat: number; lon: number; name: string; route: [number, number][] };
 
-export function LiveDriveMap({ points, height = 280 }: { points: LivePoint[]; height?: number }) {
+export function LiveDriveMap({ points, destination = null, height = 280 }: { points: LivePoint[]; destination?: LiveMapDestination | null; height?: number }) {
   const supported = useRef(webglAvailable()).current;
   const el = useRef<HTMLDivElement | null>(null);
   const api = useRef<{ update: (p: LivePoint[]) => void; follow: () => void } | null>(null);
   const latest = useRef(points);
   latest.current = points;
+  const dest = useRef(destination);
+  dest.current = destination;
   const [following, setFollowing] = useState(true);
 
   useEffect(() => {
@@ -53,7 +58,9 @@ export function LiveDriveMap({ points, height = 280 }: { points: LivePoint[]; he
       let styleReady = false;
       let followTruck = true;
       let framed = false;
+      let framedDest = false;
       let truck: Marker | null = null;
+      let pin: Marker | null = null;
       const drawn = watchDrawn(map, box, "rivolt-track-main");
       cleanups.push(drawn.stop);
 
@@ -64,13 +71,27 @@ export function LiveDriveMap({ points, height = 280 }: { points: LivePoint[]; he
         if (styleReady) {
           setDriveRoute(map, { track, stops: [0, ROUTE_UNIFORM, 1, ROUTE_UNIFORM] }, flavor, firstLabelLayer(map));
           drawn.markDrawn();
+          // The planned route goes under the trail, the pin on top; with no destination both are gone.
+          const d = dest.current;
+          setDestinationRoute(map, d ? d.route : [], map.getLayer("rivolt-track-glow") ? "rivolt-track-glow" : firstLabelLayer(map));
+        }
+        const d = dest.current;
+        if (d && Number.isFinite(d.lat) && Number.isFinite(d.lon)) {
+          if (!pin) pin = new ml.Marker({ element: pinElement("#f43f5e", `Destination: ${d.name}`) }).setLngLat([d.lon, d.lat]).addTo(map);
+          else pin.setLngLat([d.lon, d.lat]);
+        } else if (pin) {
+          pin.remove();
+          pin = null;
         }
         if (!here) return;
+        if (!d) framedDest = false;
         if (!truck) truck = new ml.Marker({ element: pinElement("#38bdf8", "Truck") }).setLngLat([here.lon, here.lat]).addTo(map);
         else truck.setLngLat([here.lon, here.lat]);
         if (!followTruck) return;
-        if (!framed) {
-          const b = boundsOf(track);
+        // The whole trip in view the first time a destination is known (and at the start): the trail, the planned route and the pin.
+        if (!framed || (d && !framedDest)) {
+          framedDest = !!d;
+          const b = boundsOf(d ? [...track, ...d.route, [d.lat, d.lon]] : track);
           if (b && box.clientWidth > 0) map.fitBounds(b, { padding: 48, maxZoom: 16, animate: false });
           else map.jumpTo({ center: [here.lon, here.lat], zoom: 15 });
           framed = true;
@@ -97,12 +118,12 @@ export function LiveDriveMap({ points, height = 280 }: { points: LivePoint[]; he
           draw();
         },
       };
-      cleanups.push(() => { api.current = null; truck?.remove(); map.remove(); });
+      cleanups.push(() => { api.current = null; truck?.remove(); pin?.remove(); map.remove(); });
     })();
     return () => { alive = false; cleanups.forEach((c) => c()); };
   }, [supported]);
 
-  useEffect(() => { api.current?.update(points); }, [points]);
+  useEffect(() => { api.current?.update(points); }, [points, destination]);
 
   if (!supported) return <MapUnavailable height={height} note="The drive's figures beside it are unaffected." />;
   return (
