@@ -148,3 +148,49 @@ func TestReplayNavFollowsTheFlagAndSkipsBacklog(t *testing.T) {
 		t.Fatal("the end frame left the trip up")
 	}
 }
+
+// navScriptedSource is a scripted frame list that also answers navigation by frame time.
+type navScriptedSource struct {
+	scriptedSource
+	nav map[time.Time][]*NavFrame
+}
+
+func (s *navScriptedSource) NavFramesAt(_ context.Context, _ string, at time.Time) []*NavFrame {
+	return s.nav[at]
+}
+
+func TestRunSourceHoldsATripMidDriveAndNothingAfter(t *testing.T) {
+	t0 := time.Now().Truncate(time.Second)
+	frames := catchupFrames(t0, 0, 4)
+	trip := []*NavFrame{{Info: &NavInfo{Name: "X", Lat: 34, Lon: -118, Stops: 1, LegMetres: []float64{1000}}},
+		{Progress: &NavProgress{ETA: t0.Add(time.Minute), LegMetres: 400, HasLegDist: true}}}
+	src := &navScriptedSource{
+		scriptedSource: scriptedSource{frames: frames, liveFrom: 1}, // frame 0 is backlog
+		nav: map[time.Time][]*NavFrame{frames[0].At: trip, frames[1].At: trip, frames[2].At: trip,
+			frames[3].At: {{Info: &NavInfo{}}}},
+	}
+	m, _ := newCatchupMonitor(src)
+	m.SetNavDecodeGate(func() bool { return true })
+	held := map[int]bool{}
+	src.after = func(i int) {
+		_, held[i] = m.NavDestination("demo-1")
+	}
+	m.runSource(context.Background(), "demo-1")
+	if held[0] {
+		t.Error("a backlog frame made a trip")
+	}
+	if !held[1] || !held[2] {
+		t.Errorf("no trip mid-drive: held %v", held)
+	}
+	if held[3] {
+		t.Error("the end frame left the trip up")
+	}
+	// A stream that stops mid-trip takes the trip with it.
+	src2 := &navScriptedSource{scriptedSource: scriptedSource{frames: frames[:3]}, nav: src.nav}
+	m2, _ := newCatchupMonitor(src2)
+	m2.SetNavDecodeGate(func() bool { return true })
+	m2.runSource(context.Background(), "demo-1")
+	if _, ok := m2.NavDestination("demo-1"); ok {
+		t.Error("the trip outlived the stream")
+	}
+}

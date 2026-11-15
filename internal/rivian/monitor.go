@@ -607,6 +607,8 @@ func NewSourceMonitor(src FrameSource, vehicles []Vehicle, logger *slog.Logger) 
 // merge) and drives the recorder exactly as a live push would.
 func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 	defer m.releaseActive(ctx, vehicleID)
+	// A source monitor has no sweep: whatever ends the stream takes the trip with it, as on the live path.
+	defer m.nav.clear(vehicleID, NavClearStopped)
 	pubCtx, cancelPub := context.WithCancel(ctx)
 	defer cancelPub()
 	go m.liveStatePublisher(pubCtx, vehicleID)
@@ -634,6 +636,7 @@ func (m *StateMonitor) runSource(ctx context.Context, vehicleID string) {
 		m.mu.Unlock()
 		m.record(ctx, vehicleID, prev, &cur)
 		m.applyReplaySession(ctx, vehicleID, &cur, sess)
+		m.replayNav(ctx, vehicleID, cur.At, catchingUp)
 		if catchingUp && m.catchup.pendingSamples(vehicleID) >= catchupFlushSamples && m.catchup.flushDue(vehicleID) {
 			m.flushCatchup(vehicleID)
 		}
