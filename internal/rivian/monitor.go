@@ -158,6 +158,11 @@ type StateMonitor struct {
 	// bytes per topic. The payload is never decoded, logged or stored: a
 	// destination is a precise location.
 	navCount bool
+	// nav holds the active trip per vehicle, memory only (nav_destination.go).
+	// navDecode is the per-user live_destination gate, nil means off: with it
+	// off a navigation frame is counted and never decoded.
+	nav       *navStore
+	navDecode func() bool
 	// lastParallaxAt[vehicleID] is when any Parallax topic (gnss,
 	// battery_state, drive-dynamics, charging) last delivered a frame.
 	// Feeds parallaxLivenessWatch — the observability precursor to the
@@ -544,6 +549,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		parallaxDriveDynamics: parallaxAll,
 		parallaxCapture:       parallaxAll,
 		navCount:              parseBoolEnv(os.Getenv("RIVOLT_NAV_COUNT")),
+		nav:                   newNavStore(nil),
 		lastVehStateGPS:       make(map[string]time.Time),
 		lastVehStateSoC:       make(map[string]float64),
 		lastParallaxAt:        make(map[string]time.Time),
@@ -2657,7 +2663,7 @@ func (m *StateMonitor) driveDynamicsSubscriber(ctx context.Context, vehicleID st
 	if !ok {
 		return
 	}
-	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, m.captureTopics(vehicleID), func(f DriveDynamicsFrame) {
+	err := m.client.SubscribeDriveDynamics(ctx, vehicleID, m.captureTopics(vehicleID), m.navDecodeOn, func(f DriveDynamicsFrame) {
 		m.onDriveDynamicsFrame(ctx, vehicleID, f)
 	})
 	if err != nil && ctx.Err() == nil && !errors.Is(err, context.Canceled) {
@@ -2679,10 +2685,19 @@ func (m *StateMonitor) onDriveDynamicsFrame(ctx context.Context, vehicleID strin
 		}
 		return
 	}
+	if f.NavReset {
+		m.nav.clearAll(NavClearReconnect)
+		return
+	}
 	if isNavRVM(f.RVM) {
 		// Before noteParallaxFrame: a navigation frame says nothing about
 		// the car being awake or the feed being live.
 		m.countNavFrame(f)
+		if m.navDecodeOn() {
+			m.applyNavFrame(vehicleID, f)
+		} else {
+			m.nav.clearAll(NavClearFlagOff)
+		}
 		return
 	}
 	fresh := m.noteParallaxFrame(vehicleID, f.RVM, f.TimestampMs)
@@ -3217,6 +3232,56 @@ type NavObserver interface {
 	OnNavFrame(topic string, payloadBytes int)
 	// OnNavRejected is told once when the server refused the topics and they were latched off.
 	OnNavRejected()
+	// OnNavDecode is told the result class of each decoded frame (a NavResult
+	// constant), and OnNavCleared why a held trip was dropped (a NavClear
+	// constant). Counts only: no vehicle, user or place.
+	OnNavDecode(topic, result string)
+	OnNavCleared(reason string)
+}
+
+// SetNavDecodeGate wires the per-user live_destination flag. Nil is off.
+func (m *StateMonitor) SetNavDecodeGate(on func() bool) {
+	m.mu.Lock()
+	m.navDecode = on
+	m.mu.Unlock()
+}
+
+func (m *StateMonitor) navDecodeOn() bool {
+	m.mu.RLock()
+	on := m.navDecode
+	m.mu.RUnlock()
+	return on != nil && on()
+}
+
+// NavDestination is the owner pod's current trip for the vehicle, if any.
+// Off (flag) reads as none and drops what is held.
+func (m *StateMonitor) NavDestination(vehicleID string) (NavTrip, bool) {
+	if !m.navDecodeOn() {
+		m.nav.clearAll(NavClearFlagOff)
+		return NavTrip{}, false
+	}
+	return m.nav.get(vehicleID)
+}
+
+// applyNavFrame counts the decode result and folds a decoded frame into the
+// store. Nothing from the frame is logged.
+func (m *StateMonitor) applyNavFrame(vehicleID string, f DriveDynamicsFrame) {
+	m.mu.RLock()
+	obs := m.sleepObserver
+	m.mu.RUnlock()
+	if o, ok := obs.(NavObserver); ok {
+		o.OnNavDecode(navTopic(f.RVM), f.NavResult)
+	}
+	if f.Nav != nil {
+		m.nav.apply(vehicleID, f.Nav)
+	}
+}
+
+func navTopic(rvm string) string {
+	if rvm == rvmNavTripInfo {
+		return "trip_info"
+	}
+	return "trip_progress"
 }
 
 // countNavFrame is the only thing a navigation frame ever reaches: one

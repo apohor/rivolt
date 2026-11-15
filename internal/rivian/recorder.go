@@ -888,6 +888,7 @@ func (m *StateMonitor) fireChargeCloseHook(row charges.Charge) {
 
 // fireDriveCloseHook is fireChargeCloseHook for drives.
 func (m *StateMonitor) fireDriveCloseHook(row drives.Drive) {
+	m.nav.clear(row.VehicleID, NavClearDrive)
 	if m.driveCloseHook == nil || m.quietHooks.Load() || !m.hookOnce("d", row.ID) {
 		return
 	}

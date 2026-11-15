@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -212,6 +213,10 @@ func handleParallaxRawProbe(c rivian.Client) http.HandlerFunc {
 			}
 		}
 		frames, err := lc.ProbeParallaxRaw(r.Context(), vid, rvms, maxFrames)
+		if errors.Is(err, rivian.ErrNavProbeRefused) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "the navigation topics cannot be probed"})
+			return
+		}
 		if err != nil {
 			writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 			return

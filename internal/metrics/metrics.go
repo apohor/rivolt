@@ -227,11 +227,11 @@ type Metrics struct {
 	// ReceiptEnergyTotal counts matched receipts looked at by the receipt-energy check, by outcome (applied, would_apply in observe
 	// mode, or why not: home, no_detail, no_energy, open, below_recorded, above_tail_limit), once per receipt and outcome.
 	// ReceiptEnergyDeltaPct is the receipt's energy minus what we recorded, as a percentage of ours, for the receipts the check could compare.
-	ReceiptEnergyTotal    *prometheus.CounterVec
+	ReceiptEnergyTotal *prometheus.CounterVec
 	// ReceiptsSyncTotal counts receipts summaries passes by trigger (forward, sweep, close, details: the sweep's details-only tail) and outcome (ok, skipped, not_owner, error). Created at 0.
 	ReceiptsSyncTotal *prometheus.CounterVec
 	// ReceiptsEnabledUsers is how many users with a Rivian session passed the receipts gate (operator flag and own opt-in) at the last sweep; 0 means the sync has nobody to run for.
-	ReceiptsEnabledUsers prometheus.Gauge
+	ReceiptsEnabledUsers  prometheus.Gauge
 	ReceiptEnergyDeltaPct prometheus.Histogram
 	// SessionDecrypts counts decrypts of a stored Rivian session by call site (SessionDecryptSites; any other label is "other"); no user id.
 	// TokensLoadedUnheld is how many clients in this pod's account registry hold a session token for a user whose group this pod does not
@@ -342,6 +342,9 @@ type Metrics struct {
 	NavFrameBytesTotal *prometheus.CounterVec
 	// NavRejectedTotal counts times the server refused a subscription that carried the navigation topics, which were then dropped. Created at 0.
 	NavRejectedTotal prometheus.Counter
+	// Live destination decode results by topic and result, and held trips dropped by reason. Fixed label sets, no vehicle, user or place.
+	NavDecodeTotal  *prometheus.CounterVec
+	NavClearedTotal *prometheus.CounterVec
 	// Charges whose energy the recorder replaced with an estimate from the SoC gain because its integral had lost energy
 	// (a handoff or a restart). No labels: /metrics is public. Every increment is a recorder bug to find.
 	ChargeEnergyFloorTotal prometheus.Counter
@@ -1056,6 +1059,14 @@ func New() *Metrics {
 			Name: "rivolt_nav_frame_bytes_total",
 			Help: "Base64-decoded size in bytes of navigation Parallax frames, by topic. The payload itself is not parsed.",
 		}, []string{"topic"}),
+		NavDecodeTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_nav_decode_total",
+			Help: "Navigation frames decoded for the live destination, by topic and result (ok, dropped_size, dropped_malformed, dropped_range). No vehicle, user or place label.",
+		}, []string{"topic", "result"}),
+		NavClearedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_nav_cleared_total",
+			Help: "Held live destinations dropped, by reason (nav_ended, drive_ended, reconnect, stale, flag_off, new_destination).",
+		}, []string{"reason"}),
 		ParallaxReplaysIgnoredTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_parallax_replays_ignored_total",
@@ -1286,6 +1297,8 @@ func New() *Metrics {
 		m.NavFramesTotal,
 		m.NavFrameBytesTotal,
 		m.NavRejectedTotal,
+		m.NavDecodeTotal,
+		m.NavClearedTotal,
 		m.ChargeEnergyFloorTotal,
 		m.DrivesLocationUnavailableTotal,
 		m.APNsRegisterRefusedTotal,
@@ -1403,6 +1416,14 @@ func New() *Metrics {
 		m.RolloutHandoffsTotal.WithLabelValues(reason).Add(0)
 	}
 	m.NavRejectedTotal.Add(0)
+	for _, topic := range []string{"trip_info", "trip_progress"} {
+		for _, res := range []string{"ok", "dropped_size", "dropped_malformed", "dropped_range"} {
+			m.NavDecodeTotal.WithLabelValues(topic, res).Add(0)
+		}
+	}
+	for _, reason := range []string{"nav_ended", "drive_ended", "reconnect", "stale", "flag_off", "new_destination"} {
+		m.NavClearedTotal.WithLabelValues(reason).Add(0)
+	}
 	for _, topic := range []string{"trip_info", "trip_progress"} {
 		m.NavFramesTotal.WithLabelValues(topic).Add(0)
 		m.NavFrameBytesTotal.WithLabelValues(topic).Add(0)

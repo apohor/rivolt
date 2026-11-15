@@ -150,6 +150,9 @@ func decodeDynamicsGNSS(b64 string) (*DynamicsGNSS, error) {
 	return g, nil
 }
 
+// ErrNavProbeRefused is returned by ProbeParallaxRaw for the navigation topics.
+var ErrNavProbeRefused = errors.New("rivian: the navigation topics are not probeable")
+
 // ParallaxRawFrame is one captured Parallax message: the RVM topic, its
 // server timestamp, and the raw base64 protobuf payload. Used to
 // reverse-engineer a topic's wire shape from live frames before writing
@@ -166,6 +169,13 @@ type ParallaxRawFrame struct {
 // vehicle must be awake (and, for dynamics.vehicle.gnss, moving) for
 // frames to stream.
 func (c *LiveClient) ProbeParallaxRaw(ctx context.Context, vehicleID string, rvms []string, maxFrames int) ([]ParallaxRawFrame, error) {
+	for _, r := range rvms {
+		if isNavRVM(strings.TrimSpace(r)) {
+			// A destination never leaves the decoder: the raw probe would
+			// hand the whole trip_info (route, stops, polyline) to the admin.
+			return nil, ErrNavProbeRefused
+		}
+	}
 	c.mu.Lock()
 	userTok := c.userSessionToken
 	c.mu.Unlock()
@@ -583,7 +593,8 @@ const (
 // The two navigation topics carry the active trip: trip_info holds the
 // route (so the destination), trip_progress the legs' remaining distance,
 // time and the car's position. A destination is a precise location, so
-// these are only ever counted (see NavCountRVMs); no payload byte is read.
+// these are counted for everyone (see NavCountRVMs) and decoded, in memory
+// only, just for the users the live_destination flag names (nav_destination.go).
 const (
 	rvmNavTripInfo     = "navigation.navigation_service.trip_info"
 	rvmNavTripProgress = "navigation.navigation_service.trip_progress"
@@ -957,6 +968,14 @@ type DriveDynamicsFrame struct {
 	// PayloadBytes is the decoded size of a navigation frame, whose Payload,
 	// Value and ValueOK are left empty on purpose (count only).
 	PayloadBytes int
+	// Nav and NavResult are set on a navigation frame only when the caller's
+	// gate was on: the decoded, trimmed trip (nil when dropped) and its result
+	// class. The raw payload is never carried.
+	Nav       *NavFrame
+	NavResult string
+	// NavReset is set on a synthetic frame (no RVM) at every (re)connect:
+	// whatever trip was held belongs to the old socket.
+	NavReset bool
 	// NavRejected is set on a synthetic frame (no RVM) when the server
 	// refused a subscription that carried the navigation topics and they
 	// were dropped from the next connect.
@@ -968,11 +987,16 @@ type DriveDynamicsFrame struct {
 var errParallaxSubscription = errors.New("parallax subscription error")
 
 // driveDynamicsFrameOf builds the frame for one message. A navigation
-// topic is count only: its payload is neither decoded nor carried, just
-// sized from the base64 length.
-func driveDynamicsFrameOf(rvm, payload, timestamp string) DriveDynamicsFrame {
+// topic is sized from the base64 length and, only when decodeNav says so
+// (the per-user live_destination flag), decoded into the trimmed NavFrame;
+// the payload itself is never carried.
+func driveDynamicsFrameOf(rvm, payload, timestamp string, decodeNav bool) DriveDynamicsFrame {
 	if isNavRVM(rvm) {
-		return DriveDynamicsFrame{RVM: rvm, PayloadBytes: base64.StdEncoding.DecodedLen(len(payload))}
+		f := DriveDynamicsFrame{RVM: rvm, PayloadBytes: base64.StdEncoding.DecodedLen(len(payload))}
+		if decodeNav {
+			f.Nav, f.NavResult = decodeNavFrame(rvm, payload, time.Now())
+		}
+		return f
 	}
 	// Don't gate on a successful varint decode — a topic whose shape isn't
 	// RE'd yet (power.state) must still reach the shadow so its raw payload
@@ -998,7 +1022,7 @@ type DriveDynamicsCallback func(DriveDynamicsFrame)
 // extra, if non-nil, is called before every (re)connect for the extra
 // topics to carry, so a change (wake-safety capture switch) takes
 // effect at the next reconnect without a forced one.
-func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID string, extra func() []string, cb DriveDynamicsCallback) error {
+func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID string, extra func() []string, navDecode func() bool, cb DriveDynamicsCallback) error {
 	c.mu.Lock()
 	userTok := c.userSessionToken
 	c.mu.Unlock()
@@ -1035,6 +1059,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 			}
 		}
 		bo.start()
+		cb(DriveDynamicsFrame{NavReset: true})
 		err := c.runGenericSubscription(ctx, userTok, subParams{
 			operationName: "ParallaxMessages",
 			query:         qParallaxMessagesSubscription,
@@ -1052,7 +1077,7 @@ func (c *LiveClient) SubscribeDriveDynamics(ctx context.Context, vehicleID strin
 			if msg.Payload == "" {
 				return nil
 			}
-			cb(driveDynamicsFrameOf(msg.RVM, msg.Payload, string(msg.Timestamp)))
+			cb(driveDynamicsFrameOf(msg.RVM, msg.Payload, string(msg.Timestamp), isNavRVM(msg.RVM) && navDecode != nil && navDecode()))
 			return nil
 		})
 		if err == nil {

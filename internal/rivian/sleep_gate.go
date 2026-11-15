@@ -76,6 +76,11 @@ func (m *StateMonitor) SetSleepObserver(o SleepObserver) {
 	m.mu.Lock()
 	m.sleepObserver = o
 	m.mu.Unlock()
+	m.nav.setOnClear(func(reason string) {
+		if n, ok := o.(NavObserver); ok {
+			n.OnNavCleared(reason)
+		}
+	})
 }
 
 // sleepGate runs startAwake once, then parks (cancels) and restarts

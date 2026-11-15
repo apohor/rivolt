@@ -68,6 +68,7 @@ type MonitorRegistry struct {
 	extraDriveClose    []func(uid uuid.UUID) DriveCloseHook
 	chargeCloseHook    func(uid uuid.UUID) ChargeCloseHook
 	extraChargeClose   []func(uid uuid.UUID) ChargeCloseHook
+	navDecodeFor       func(uid uuid.UUID) func() bool
 	batteryCapacityFor func(uid uuid.UUID) func(ctx context.Context, vehicleID string, kwh float64)
 	vehicleInfoFor     func(uid uuid.UUID) func(context.Context, []Vehicle)
 	vehicleInfoLoadFor func(uid uuid.UUID) func(context.Context) ([]Vehicle, error)
@@ -247,6 +248,16 @@ func (r *MonitorRegistry) SetLiveStateStoreFactory(factory func(uid uuid.UUID) L
 	r.mu.Lock()
 	r.wiring("SetLiveStateStoreFactory")
 	r.liveStateStore = factory
+	r.mu.Unlock()
+}
+
+// SetNavDecodeGateFactory wires the per-user live_destination gate: each new
+// monitor gets factory(uid) as its navigation decode gate. Nil or a nil
+// result leaves decoding off (frames are counted only).
+func (r *MonitorRegistry) SetNavDecodeGateFactory(factory func(uid uuid.UUID) func() bool) {
+	r.mu.Lock()
+	r.wiring("SetNavDecodeGateFactory")
+	r.navDecodeFor = factory
 	r.mu.Unlock()
 }
 
@@ -491,6 +502,9 @@ func (r *MonitorRegistry) Start(ctx context.Context, uid uuid.UUID) *StateMonito
 		if f := r.vehicleInfoLoadFor(uid); f != nil {
 			mon.SetVehicleInfoLoader(f)
 		}
+	}
+	if r.navDecodeFor != nil {
+		mon.SetNavDecodeGate(r.navDecodeFor(uid))
 	}
 	if r.batteryCapacityFor != nil {
 		if h := r.batteryCapacityFor(uid); h != nil {

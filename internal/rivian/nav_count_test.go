@@ -28,6 +28,9 @@ type navCounter struct {
 
 func (n *navCounter) OnSleepEnded(string, time.Duration, bool) {}
 
+func (n *navCounter) OnNavDecode(string, string) {}
+func (n *navCounter) OnNavCleared(string)        {}
+
 func (n *navCounter) OnNavRejected() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -73,14 +76,14 @@ func TestNavFrameCarriesOnlySize(t *testing.T) {
 	raw := []byte("not-a-real-destination-0123456789")
 	b64 := base64.StdEncoding.EncodeToString(raw)
 	for _, rvm := range NavCountRVMs {
-		f := driveDynamicsFrameOf(rvm, b64, `"1700000000000"`)
+		f := driveDynamicsFrameOf(rvm, b64, `"1700000000000"`, false)
 		want := DriveDynamicsFrame{RVM: rvm, PayloadBytes: len(raw)}
 		if f != want {
 			t.Errorf("%s: frame %+v, want %+v", rvm, f, want)
 		}
 	}
 	// Any other topic still decodes as before.
-	if f := driveDynamicsFrameOf(rvmDriveGear, base64.StdEncoding.EncodeToString([]byte{0x08, 0x03}), `"5"`); !f.ValueOK || f.Payload == "" || f.TimestampMs != 5 {
+	if f := driveDynamicsFrameOf(rvmDriveGear, base64.StdEncoding.EncodeToString([]byte{0x08, 0x03}), `"5"`, false); !f.ValueOK || f.Payload == "" || f.TimestampMs != 5 {
 		t.Errorf("non-nav frame changed: %+v", f)
 	}
 }
@@ -182,7 +185,7 @@ func TestNavTopicsLatchOffWhenTheServerRefusesThem(t *testing.T) {
 	gotGear := make(chan struct{})
 	var once sync.Once
 	go func() {
-		_ = c.SubscribeDriveDynamics(ctx, "veh-1", m.captureTopics("veh-1"), func(f DriveDynamicsFrame) {
+		_ = c.SubscribeDriveDynamics(ctx, "veh-1", m.captureTopics("veh-1"), m.navDecodeOn, func(f DriveDynamicsFrame) {
 			m.onDriveDynamicsFrame(ctx, "veh-1", f)
 			if f.RVM == rvmDriveGear {
 				once.Do(func() { close(gotGear) })

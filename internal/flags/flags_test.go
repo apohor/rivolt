@@ -30,6 +30,9 @@ func TestAudienceState_Enabled(t *testing.T) {
 	if nilStore.StatementEmail().Enabled(a) {
 		t.Error("nil store must keep the feature off")
 	}
+	if nilStore.LiveDestination().Enabled(a) {
+		t.Error("nil store must keep live_destination off")
+	}
 }
 
 func TestVehicleSetCovers(t *testing.T) {
