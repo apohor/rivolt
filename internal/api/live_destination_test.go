@@ -70,6 +70,9 @@ func TestLiveDestinationRefusalsAreOneIndistinguishable404(t *testing.T) {
 		if strings.Contains(rec.Body.String(), "Zzyzx") {
 			t.Errorf("%s: the refusal shows a destination", name)
 		}
+		if cc := rec.Header().Get("Cache-Control"); cc != "private, no-store" {
+			t.Errorf("%s: Cache-Control = %q", name, cc)
+		}
 	}
 	if len(fw.calls) != 0 {
 		t.Errorf("a refused request reached the forwarder: %+v", fw.calls)
@@ -125,6 +128,15 @@ func TestLiveDestinationOwnerUnreachableIsARetryable503(t *testing.T) {
 		if rec.Header().Get("Cache-Control") != "private, no-store" {
 			t.Errorf("%s: cacheable", name)
 		}
+	}
+}
+
+// Redis down, or no group: the forwarder runs the call on this tokenless pod. It has no trip, so "no trip" would be a guess: 503, not 204.
+func TestLiveDestinationSoftLocalOnATokenlessPodIs503NotNoTrip(t *testing.T) {
+	fw := &fakeStateForwarder{run: true}
+	rec := destGet(destRouter(true, true, newStateForward(fw), rivian.NewUnheldClient(), nil), true)
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" || rec.Header().Get("Cache-Control") != "private, no-store" {
+		t.Errorf("soft local: %d retry-after %q cc %q", rec.Code, rec.Header().Get("Retry-After"), rec.Header().Get("Cache-Control"))
 	}
 }
 

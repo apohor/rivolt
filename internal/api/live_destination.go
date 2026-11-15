@@ -28,7 +28,7 @@ type liveDestinationBody struct {
 	Lat            float64  `json:"lat"`
 	Lon            float64  `json:"lon"`
 	ETA            string   `json:"eta"`
-	MilesLeft      *float64 `json:"miles_left,omitempty"`
+	MilesLeft      *float64 `json:"miles_left,omitempty"` // always miles, whatever the user's unit; the client converts. Omitted when the distance is unknown.
 	Route          string   `json:"route,omitempty"`
 	RoutePrecision int      `json:"route_precision,omitempty"`
 }
@@ -68,29 +68,18 @@ func ServeLiveDestination(mon *rivian.StateMonitor, vehicleID string) forward.Re
 	return forward.Result{Status: http.StatusOK, Body: raw}
 }
 
-// forwardLiveDestination reads the trip from the vehicle's group owner when this pod holds no tokens for the account, as forwardLiveSession
-// does. local is what this pod answers when it serves the call itself (it holds the group, or the forward fell soft; no Redis then).
-func (sf *stateForward) forwardLiveDestination(ctx context.Context, vehicleID string, local func() liveDestinationWire) (liveDestinationWire, error) {
+// forwardLiveDestination reads the trip from the vehicle's group owner. It is only asked on a pod that holds no tokens for the account, so
+// that pod has no trip of its own: when the forwarder falls soft (no Redis, no group) and runs the call here, the answer "no trip" would be a
+// guess, and the caller gets the retryable 503 instead.
+func (sf *stateForward) forwardLiveDestination(ctx context.Context, vehicleID string) (liveDestinationWire, error) {
 	group, ok := sf.groupOf(vehicleID)
 	if !ok {
-		if !sf.fw.NoGroup(forward.KindLiveDestination) {
-			return liveDestinationWire{}, errOwnerUnavailable
-		}
-		return local(), nil
+		return liveDestinationWire{}, errOwnerUnavailable
 	}
-	var (
-		w   liveDestinationWire
-		ran bool
-	)
 	res, _, err := sf.fw.Do(ctx, forward.Call{Kind: forward.KindLiveDestination, User: sf.user.String(), Group: group, Args: forward.LiveDestinationArgs{VehicleID: vehicleID}},
 		func(context.Context) (forward.Result, error) {
-			ran = true
-			w = local()
-			return forward.Result{Status: http.StatusOK}, nil
+			return forward.Result{}, errOwnerUnavailable
 		})
-	if ran {
-		return w, nil
-	}
 	if err != nil {
 		return liveDestinationWire{}, err
 	}
@@ -109,9 +98,10 @@ func (sf *stateForward) forwardLiveDestination(ctx context.Context, vehicleID st
 func requireLiveDestinationMW(on func(uuid.UUID) bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Before any answer, so the ownership gate's 404 carries the header too: a 404 that differs from the flag-off one is a probe.
+			w.Header().Set("Cache-Control", "private, no-store")
 			uid, ok := auth.UserFromContext(r.Context())
 			if !ok || on == nil || !on(uid) {
-				w.Header().Set("Cache-Control", "private, no-store")
 				http.NotFound(w, r)
 				return
 			}
@@ -140,7 +130,7 @@ func handleLiveDestination(c rivian.Client, mon *rivian.StateMonitor, sf *stateF
 		if rivian.IsUnheld(c) && sf != nil && sf.fw != nil && sf.groupOf != nil {
 			// No tokens here: the group's owner holds the trip (this pod answers itself only when it is the owner).
 			var err error
-			if wire, err = sf.forwardLiveDestination(r.Context(), id, local); err != nil {
+			if wire, err = sf.forwardLiveDestination(r.Context(), id); err != nil {
 				writeUnheld(w)
 				return
 			}
