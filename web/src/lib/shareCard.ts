@@ -60,7 +60,7 @@ export function buildMonthShareModel(m: LedgerMonth, o: { includeCost: boolean; 
   let subtitle = `${m.driving.drives} ${m.driving.drives === 1 ? "drive" : "drives"} · ${m.energy.sessions} ${m.energy.sessions === 1 ? "charge" : "charges"}`;
   if (o.includeCost) {
     // The statement card's figures, behind the toggle.
-    const s = buildStatementCardModel(m, { partialFrom: o.partialFrom ?? null, sample: o.sample });
+    const s = buildStatementCardModel(m, { partialFrom: o.partialFrom ?? null, sample: o.sample, unit });
     title = s.total;
     subtitle = s.subtitle;
     stats.length = 0;

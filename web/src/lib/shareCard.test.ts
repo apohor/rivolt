@@ -51,6 +51,13 @@ describe("share card models", () => {
     expect(m.stats.find((s) => s.label === "Efficiency")?.value).toBe(`${((400 * 1.609344) / 150).toFixed(2)} km/kWh`);
     expect(all(m)).not.toMatch(/\bmi\b/);
   });
+  it("month with cost on: the statement's subtitle is in km and cost per km too", () => {
+    const m = buildMonthShareModel(month, { includeCost: true, sample: false, unit: "km" });
+    expect(m.subtitle).toContain("664 km");
+    expect(m.subtitle).toContain(`${(0.103 / 1.609344).toFixed(3)}/km`);
+    expect(all(m)).not.toMatch(/\bmi\b|\/mi/);
+    expect(buildMonthShareModel(month, { includeCost: true, sample: false }).subtitle).toMatch(/412 mi · .*\/mi/);
+  });
   it("trip: a merged round trip says so, counts its legs and shows driving time, not the parked gaps", () => {
     const rt = { ...drive, EndedAt: "2026-10-19T17:32:00Z", DrivingSeconds: 3600, round_trip_legs: 3 } as Drive;
     const m = buildTripShareModel(rt, { includeCost: false, sample: false });
