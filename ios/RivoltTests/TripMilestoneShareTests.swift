@@ -39,6 +39,12 @@ final class TripMilestoneShareTests: XCTestCase {
         ([c.eyebrow, c.title, c.subtitle] + c.stats.flatMap { [$0.label, $0.value] } + c.notes).joined(separator: " ")
     }
 
+    func testTheMinutesAreCutLikeTheDetailRowNeverRoundedUp() {
+        XCTAssertEqual(MoneyShareCard.tripDuration(minutes: 40 + 50.0 / 60), "40 min")
+        XCTAssertEqual(ActivityLogic.shortDuration(40 * 60 + 50), "40m")
+        XCTAssertEqual(MoneyShareCard.tripDuration(minutes: 65.9), "1 h 5 min")
+    }
+
     func testTheTripCardHoldsTheDayTheDistanceAndTheDurationOnly() throws {
         let d = try drive()
         let c = MoneyShareCard.trip(d, includeCost: false, calendar: chicago())

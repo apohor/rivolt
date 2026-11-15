@@ -11,6 +11,12 @@ extension MoneyShareCard {
         return String(format: "rivolt-%@-%04d-%02d.png", kind, c.year ?? 0, c.month ?? 0)
     }
 
+    /// Whole minutes, cut not rounded: the detail row's duration (ActivityLogic.shortDuration) cuts too, so the card says the same time.
+    static func tripDuration(minutes: Double) -> String {
+        let whole = Int(minutes)
+        return whole >= 60 ? "\(whole / 60) h \(whole % 60) min" : "\(whole) min"
+    }
+
     static func trip(_ d: ActivityDrive, includeCost: Bool, routeSegments: [String] = [], calendar: Calendar) -> MoneyShareCard {
         typealias L = MoneyLogic
         let minutes = max(0, d.endedAt.timeIntervalSince(d.startedAt) / 60)
@@ -27,7 +33,7 @@ extension MoneyShareCard {
         // The day only, never the time of day.
         var f = Date.FormatStyle(timeZone: calendar.timeZone).weekday(.wide).day().month(.wide)
         f.calendar = calendar
-        let duration = minutes >= 60 ? "\(Int(minutes / 60)) h \(Int((minutes.truncatingRemainder(dividingBy: 60)).rounded())) min" : "\(Int(minutes.rounded())) min"
+        let duration = tripDuration(minutes: minutes)
         let title = "\(Int(d.distanceMi.rounded()).formatted()) mi" + (minutes > 0 ? " · \(duration)" : "")
         return MoneyShareCard(eyebrow: "Trip", title: title, subtitle: d.startedAt.formatted(f), stats: stats, notes: [], routeSegments: routeSegments)
     }
