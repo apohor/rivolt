@@ -25,6 +25,13 @@ describe("thinTicks", () => {
     // 10:00, 10:03 and 10:08 land within 26 px of each other; only the first stays, then the next clear one.
     expect(thinTicks([40, 52, 66, 200, 340], 48)).toEqual([0, 3, 4]);
   });
+  it("takes the room from each pair's real label widths", () => {
+    const w = [30, 60, 30, 30];
+    const gap = (a: number, b: number) => (w[a] + w[b]) / 2 + 10;
+    // 1 is 60 px wide: 0 to 1 needs 55, so a tick 50 px on is dropped; 2 is far enough from 0 (40).
+    expect(thinTicks([0, 50, 100, 200], gap)).toEqual([0, 2, 3]);
+    expect(thinTicks([0, 60, 120, 200], gap)).toEqual([0, 1, 2, 3]);
+  });
   it("keeps the last tick and drops the one before it when they collide", () => {
     expect(thinTicks([40, 200, 330, 350], 48)).toEqual([0, 1, 3]);
   });

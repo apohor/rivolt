@@ -73,8 +73,24 @@ const PAD_T = 20;
 const PANEL_GAP = 26;
 const AXIS_H = 22;
 const DEAD_PX = 26;
-// Room one clock label needs on the time axis.
-const TICK_LABEL_PX = 48;
+// Air kept between two clock labels on the time axis.
+const TICK_LABEL_GAP = 10;
+
+// The drawn width of a 10 px axis label, measured with the page's own font so "10:45 PM" in a wide face or a 24-hour locale both get the room they need.
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+function labelWidth(text: string): number {
+  if (measureCtx === undefined) {
+    try {
+      measureCtx = document.createElement("canvas").getContext("2d");
+    } catch {
+      measureCtx = null;
+    }
+  }
+  if (!measureCtx) return text.length * 6.5;
+  measureCtx.font = `10px ${getComputedStyle(document.body).fontFamily || "sans-serif"}`;
+  const w = measureCtx.measureText(text).width;
+  return w > 0 ? w : text.length * 6.5;
+}
 
 function clockLabel(ms: number, withSeconds = false): string {
   return new Date(ms).toLocaleTimeString(undefined, {
@@ -427,7 +443,8 @@ function Panels(props: {
   const tHi = Math.max(tLo + 4, Math.ceil(tMaxRaw + 1));
 
   const allTicks = niceTimeTicks(xMin, xMax, narrow ? 4 : 7, displayTimeZone());
-  const ticks = thinTicks(allTicks.map(sx), TICK_LABEL_PX).map((i) => allTicks[i]);
+  const tickW = allTicks.map((t) => labelWidth(clockLabel(t)));
+  const ticks = thinTicks(allTicks.map(sx), (a, b) => (tickW[a] + tickW[b]) / 2 + TICK_LABEL_GAP).map((i) => allTicks[i]);
 
   const yIn = (v: number, lo: number, hi: number, top: number, h: number) =>
     hi === lo ? top + h / 2 : top + h - ((v - lo) / (hi - lo)) * h;
