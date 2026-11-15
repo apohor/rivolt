@@ -307,6 +307,15 @@ func (o *Owner) run(ctx context.Context, req *Request, args any, nowMS int64) {
 		return
 	}
 	body := res.Body
+	if spec := Kinds[req.Kind]; spec.Sealed && len(body) > 0 {
+		sealed, serr := o.cfg.Signer.Seal(req.ID, req.Kind, spec.Subject(args), body)
+		if serr != nil {
+			o.count(req.Kind, "error")
+			o.reply(ctx, req, Reply{OK: false, Status: StatusInternal, Class: ClassInternal})
+			return
+		}
+		body = sealed
+	}
 	if len(body) > MaxReplyBytes-1024 {
 		// Counted before the answer is sent, like every other outcome: once the requester has the reply the count must already be there (a reader
 		// of the metric, or a test, that sees the reply must also see the count).

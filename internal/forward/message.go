@@ -2,6 +2,8 @@ package forward
 
 import (
 	"bytes"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -81,6 +83,7 @@ func ParseKey(b64 string) ([]byte, error) {
 // reply cannot be replayed as a request, nor the reverse). The install secret itself is not kept.
 type Signer struct {
 	req, rep []byte
+	seal     cipher.AEAD
 }
 
 // NewSigner derives the subkeys from key (at least KeyLen bytes).
@@ -93,7 +96,52 @@ func NewSigner(key []byte) (*Signer, error) {
 		m.Write([]byte(label))
 		return m.Sum(nil)
 	}
-	return &Signer{req: sub("rivolt/forward/request/v1"), rep: sub("rivolt/forward/reply/v1")}, nil
+	blk, err := aes.NewCipher(sub("rivolt/forward/seal/v1"))
+	if err != nil {
+		return nil, ErrBadKey
+	}
+	gcm, err := cipher.NewGCM(blk)
+	if err != nil {
+		return nil, ErrBadKey
+	}
+	return &Signer{req: sub("rivolt/forward/request/v1"), rep: sub("rivolt/forward/reply/v1"), seal: gcm}, nil
+}
+
+// ErrBadSeal: a sealed body that does not open (wrong request, kind or subject, altered, or not a sealed body at all).
+var ErrBadSeal = errors.New("forward: sealed body does not open")
+
+func sealAAD(id string, kind Kind, subject string) []byte {
+	return []byte(strconv.Itoa(len(id)) + ":" + id + strconv.Itoa(len(kind)) + ":" + string(kind) + strconv.Itoa(len(subject)) + ":" + subject)
+}
+
+// Seal encrypts plain with the seal subkey (a purpose-labelled subkey of the install secret, so it shares nothing with the signing
+// subkeys) under a random nonce. The request id, kind and subject are authenticated, not stored: the result opens only for that request.
+// The result is a JSON string (base64 of nonce and ciphertext), so it can be a reply body.
+func (s *Signer) Seal(id string, kind Kind, subject string, plain []byte) (json.RawMessage, error) {
+	nonce := make([]byte, s.seal.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	ct := s.seal.Seal(nonce, nonce, plain, sealAAD(id, kind, subject))
+	return json.Marshal(base64.StdEncoding.EncodeToString(ct))
+}
+
+// Open is the inverse of Seal. Any failure is ErrBadSeal, with nothing about why.
+func (s *Signer) Open(id string, kind Kind, subject string, sealed json.RawMessage) ([]byte, error) {
+	var b64 string
+	if err := json.Unmarshal(sealed, &b64); err != nil {
+		return nil, ErrBadSeal
+	}
+	ct, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil || len(ct) < s.seal.NonceSize()+s.seal.Overhead() {
+		return nil, ErrBadSeal
+	}
+	n := s.seal.NonceSize()
+	plain, err := s.seal.Open(nil, ct[:n], ct[n:], sealAAD(id, kind, subject))
+	if err != nil {
+		return nil, ErrBadSeal
+	}
+	return plain, nil
 }
 
 // digest is the lower-case hex sha256 of the compacted JSON (a raw value is signed by its digest, so the signed string stays short

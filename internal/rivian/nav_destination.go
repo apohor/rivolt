@@ -83,7 +83,10 @@ type NavTrip struct {
 	Lat, Lon   float64
 	ETA        time.Time
 	MetresLeft float64
-	Route      string
+	// HasDist says MetresLeft is the whole way to the destination. Without a leg distance in the frames it would be the later legs only, so a
+	// reader must not show it.
+	HasDist bool
+	Route   string
 }
 
 func pbNumber(wire int, val []byte) (float64, bool) {
@@ -410,7 +413,7 @@ func (s *navStore) get(vehicleID string) (NavTrip, bool) {
 	for i := e.prog.NextStop + 1; i < len(e.info.LegMetres); i++ {
 		left += e.info.LegMetres[i]
 	}
-	return NavTrip{Name: e.info.Name, Lat: e.info.Lat, Lon: e.info.Lon, ETA: e.prog.ETA, MetresLeft: left, Route: e.info.Route}, true
+	return NavTrip{Name: e.info.Name, Lat: e.info.Lat, Lon: e.info.Lon, ETA: e.prog.ETA, MetresLeft: left, HasDist: e.prog.HasLegDist, Route: e.info.Route}, true
 }
 
 // sweep drops every trip whose newest frame is older than navStaleFloor,

@@ -23,6 +23,9 @@ const (
 	KindReceiptsSync Kind = "receipts_sync" // one receipts summaries pass after a user opts in: user and group only, no reply (owner runs Sync, the 30 min claim caps it)
 	KindOTANotes     Kind = "ota_notes"     // one OTA release-notes URL lookup (not stored, not cached by the requester)
 	KindLiveSession  Kind = "live_session"  // one read of the owner's live charging session for a vehicle (no Rivian call: the owner's monitor answers)
+	// KindLiveDestination is one read of the owner's in-memory navigation destination for a vehicle (no Rivian call). Its reply is sealed
+	// (Spec.Sealed): the destination is never readable in Redis, not even for the 5 s a reply lives there.
+	KindLiveDestination Kind = "live_destination"
 )
 
 // Spec is what the allowlist holds for a kind.
@@ -41,6 +44,12 @@ type Spec struct {
 	// DrainWait caps how long a call of this kind waits for a draining owner's successor (0: the requester's own ceiling). A kind whose
 	// caller polls soon again keeps it short so the waits do not stack.
 	DrainWait time.Duration
+	// Sealed says the reply body is private: the owner encrypts it (AES-GCM under its own subkey of the install secret, bound to the request
+	// id, the kind and Subject) and only the requester that sent the request opens it, so Redis holds ciphertext only. The reply is always
+	// sealed when it has a body, so even "no answer" has the same look.
+	Sealed bool
+	// Subject names what a sealed reply is about (the vehicle id), from the decoded args. A reply sealed for one subject does not open for another.
+	Subject func(args any) string
 }
 
 // Kinds is the allowlist.
@@ -51,6 +60,14 @@ var Kinds = map[Kind]Spec{
 	KindReceiptsSync: {Timeout: 25 * time.Second, Retry: false, NoReply: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[ReceiptsSyncArgs](a) }},
 	KindOTANotes:     {Timeout: 15 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[OTANotesArgs](a) }},
 	KindLiveSession:  {Timeout: 4 * time.Second, DrainWait: 4 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[LiveSessionArgs](a) }},
+	KindLiveDestination: {Timeout: 4 * time.Second, DrainWait: 4 * time.Second, Retry: true, Sealed: true,
+		Validate: func(a json.RawMessage) (any, error) { return decodeArgs[LiveDestinationArgs](a) },
+		Subject: func(a any) string {
+			if v, ok := a.(*LiveDestinationArgs); ok {
+				return v.VehicleID
+			}
+			return ""
+		}},
 }
 
 // ErrBadArgs: args that fail the kind's schema.
@@ -234,6 +251,13 @@ type LiveSessionArgs struct {
 }
 
 func (a *LiveSessionArgs) validate() error { return checkVehicle(a.VehicleID) }
+
+// LiveDestinationArgs: one live-destination read. The request carries the vehicle id and nothing else.
+type LiveDestinationArgs struct {
+	VehicleID string `json:"vehicle_id"`
+}
+
+func (a *LiveDestinationArgs) validate() error { return checkVehicle(a.VehicleID) }
 
 // Check is the owner's whole admission test for a decoded request, in order: the signature, then the kind, then the args. It
 // returns the decoded args on success. Nothing before the signature touches the message's content.

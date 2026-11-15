@@ -319,7 +319,8 @@ func (f *Forwarder) attempt(ctx context.Context, c Call, owner LeaseOwner) (Resu
 	}
 	// The same test the owner applies, before anything is sent: a request the owner would refuse is never pushed, so the user does not wait
 	// out the kind's timeout for an answer that cannot come.
-	if _, verr := Kinds[c.Kind].Validate(args); verr != nil {
+	decoded, verr := Kinds[c.Kind].Validate(args)
+	if verr != nil {
 		f.cfg.Logger.Warn("forward: arguments refused before sending", "kind", string(c.Kind), "reason", verr.Error())
 		return Result{}, "badargs"
 	}
@@ -368,6 +369,14 @@ func (f *Forwarder) attempt(ctx context.Context, c Call, owner LeaseOwner) (Resu
 		return Result{Status: StatusBadReply, Class: ClassBadReply}, "rejected"
 	}
 	res := Result{Status: rep.Status, Class: rep.Class, Body: rep.Body}
+	if spec := Kinds[c.Kind]; spec.Sealed && len(rep.Body) > 0 {
+		plain, oerr := f.cfg.Signer.Open(id, c.Kind, spec.Subject(decoded), rep.Body)
+		if oerr != nil {
+			f.cfg.Logger.Warn("forward: a sealed reply was refused", "kind", string(c.Kind))
+			return Result{Status: StatusBadReply, Class: ClassBadReply}, "rejected"
+		}
+		res.Body = plain
+	}
 	switch {
 	case rep.Class == ClassMoved:
 		return res, "moved"

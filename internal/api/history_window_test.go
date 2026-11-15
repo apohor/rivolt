@@ -121,6 +121,7 @@ var routeClasses = map[string]windowClass{
 	"GET /api/vehicles/{vehicleID}/profile":       {"exempt", "the user's own vehicle profile"},
 	"PUT /api/vehicles/{vehicleID}/profile":       {"exempt", "a write of the user's own settings"},
 	"GET /api/vehicles/{vehicleID}/ota/notes":     {"exempt", "software release notes, no user history"},
+	"GET /api/live-destination/{vehicleID}":       {"exempt", "the trip in progress, in memory only, not history"},
 	"GET /api/live-drive/{vehicleID}":             {"exempt", "the drive in progress, not history"},
 	"GET /api/live-session/{vehicleID}":           {"exempt", "the session in progress, not history"},
 	"GET /api/state/{vehicleID}":                  {"exempt", "live state, not history"},

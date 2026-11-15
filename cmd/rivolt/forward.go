@@ -53,6 +53,8 @@ func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group 
 		return r.otaNotes(ctx, user, group, args)
 	case forward.KindLiveSession:
 		return r.liveSession(ctx, user, group, args)
+	case forward.KindLiveDestination:
+		return r.liveDestination(ctx, user, group, args)
 	case forward.KindReceiptsSync:
 		return r.receiptsSync(ctx, user)
 	}
@@ -107,6 +109,21 @@ func (r *forwardRunner) liveSession(_ context.Context, user, group string, args 
 		return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
 	}
 	return api.ServeLiveSession(r.monitors.For(uid), a.VehicleID), nil
+}
+
+// liveDestination serves one destination read for a requester that does not hold the group: this pod's monitor answers from memory, no
+// Rivian call is made. The vehicle must belong to the named group, and the monitor is the named user's own, so a request for another
+// user's vehicle finds nothing; the monitor answers only while that user's live_destination flag is on.
+func (r *forwardRunner) liveDestination(_ context.Context, user, group string, args any) (forward.Result, error) {
+	a, ok := args.(*forward.LiveDestinationArgs)
+	uid, err := uuid.Parse(user)
+	if !ok || err != nil || r.monitors == nil || r.store == nil {
+		return forward.Result{Status: 400, Class: "bad_request"}, nil
+	}
+	if g, known := r.store.GroupOfVehicle(a.VehicleID); !known || g != group {
+		return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
+	}
+	return api.ServeLiveDestination(r.monitors.For(uid), a.VehicleID), nil
 }
 
 // planLegs serves one planner call for a requester that does not hold the group, against the user's own client. The vehicle must belong
