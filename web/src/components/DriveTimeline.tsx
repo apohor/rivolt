@@ -35,6 +35,7 @@ import {
   nearestY,
   niceTimeTicks,
   thinTicks,
+  labelGap,
   snapToSample,
   type Moment,
 } from "../lib/driveTimelineData";
@@ -444,7 +445,11 @@ function Panels(props: {
 
   const allTicks = niceTimeTicks(xMin, xMax, narrow ? 4 : 7, displayTimeZone());
   const tickW = allTicks.map((t) => labelWidth(clockLabel(t)));
-  const ticks = thinTicks(allTicks.map(sx), (a, b) => (tickW[a] + tickW[b]) / 2 + TICK_LABEL_GAP).map((i) => allTicks[i]);
+  // The first and last labels hang inward from the plot edge (see the anchors below), so they take their full width on one side.
+  const xsAll = allTicks.map(sx);
+  const startEdge = allTicks.length > 1 && xsAll[0] - PAD_L < 24;
+  const endEdge = allTicks.length > 1 && PAD_L + plotW - xsAll[allTicks.length - 1] < 24;
+  const ticks = thinTicks(xsAll, labelGap(tickW, startEdge, endEdge, TICK_LABEL_GAP)).map((i) => allTicks[i]);
 
   const yIn = (v: number, lo: number, hi: number, top: number, h: number) =>
     hi === lo ? top + h / 2 : top + h - ((v - lo) / (hi - lo)) * h;

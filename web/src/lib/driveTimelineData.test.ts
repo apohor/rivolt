@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectMoments, thinTicks } from "./driveTimelineData";
+import { detectMoments, labelGap, thinTicks } from "./driveTimelineData";
 
 const T0 = 1_700_000_000_000;
 const pts = (ys: number[], stepMs = 60_000) => ys.map((y, i) => ({ x: T0 + i * stepMs, y }));
@@ -31,6 +31,18 @@ describe("thinTicks", () => {
     // 1 is 60 px wide: 0 to 1 needs 55, so a tick 50 px on is dropped; 2 is far enough from 0 (40).
     expect(thinTicks([0, 50, 100, 200], gap)).toEqual([0, 2, 3]);
     expect(thinTicks([0, 60, 120, 200], gap)).toEqual([0, 1, 2, 3]);
+  });
+  it("gives an edge-anchored label its full width on the inward side", () => {
+    const w = [50, 50, 50];
+    const centred = labelGap(w, false, false, 10);
+    const edged = labelGap(w, true, true, 10);
+    expect(centred(0, 1)).toBe(60);
+    expect(edged(0, 1)).toBe(85); // first label starts at its tick
+    expect(edged(1, 2)).toBe(85); // last label ends at its tick
+    expect(edged(0, 2)).toBe(110);
+    // 10:45 PM-like labels, first tick 10 px from the edge: the second must clear the whole first label
+    expect(thinTicks([0, 70, 200], edged)).toEqual([0, 2]);
+    expect(thinTicks([0, 70, 200], centred)).toEqual([0, 1, 2]);
   });
   it("keeps the last tick and drops the one before it when they collide", () => {
     expect(thinTicks([40, 200, 330, 350], 48)).toEqual([0, 1, 3]);

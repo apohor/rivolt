@@ -639,6 +639,13 @@ export function thinTicks(xs: number[], minGap: number | ((a: number, b: number)
   return keep;
 }
 
+// labelGap is the least distance between the centres of ticks a < b given their label widths. A label is centred on its tick, except the first
+// when startEdge (it starts there) and the last when endEdge (it ends there): those reach their full width inward.
+export function labelGap(widths: number[], startEdge: boolean, endEdge: boolean, pad: number): (a: number, b: number) => number {
+  const last = widths.length - 1;
+  return (a, b) => (a === 0 && startEdge ? widths[a] : widths[a] / 2) + (b === last && endEdge ? widths[b] : widths[b] / 2) + pad;
+}
+
 export function momentColor(tone: Moment["tone"]): string {
   switch (tone) {
     case "warning":
