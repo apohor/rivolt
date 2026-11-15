@@ -621,6 +621,21 @@ export function niceTimeTicks(min: number, max: number, maxTicks: number, tz?: s
   return [min, max];
 }
 
+// thinTicks drops the ticks whose label would run into the previous kept one. xs are the ticks' pixel positions in order; the last tick is kept
+// (it closes the axis) and displaces earlier ones instead. A parked stretch is squeezed to a few pixels, so several round times can land together.
+export function thinTicks(xs: number[], minGap: number): number[] {
+  const keep: number[] = [];
+  xs.forEach((x, i) => {
+    if (keep.length === 0 || x - xs[keep[keep.length - 1]] >= minGap) keep.push(i);
+  });
+  const last = xs.length - 1;
+  if (keep.length > 1 && keep[keep.length - 1] !== last) {
+    while (keep.length > 1 && xs[last] - xs[keep[keep.length - 1]] < minGap) keep.pop();
+    keep.push(last);
+  }
+  return keep;
+}
+
 export function momentColor(tone: Moment["tone"]): string {
   switch (tone) {
     case "warning":

@@ -19,6 +19,9 @@ struct MoneyShareCard: Equatable {
     let subtitle: String
     let stats: [Stat]
     let notes: [String]
+    /// The trip card's opt-in map: the server's trimmed route (`GET /api/drives/{id}/postcard`, both ends and the saved home
+    /// already cut off) as polyline6 segments, drawn as a bare line. Empty on every card that has no map.
+    var routeSegments: [String] = []
 
     /// "rivolt-month-2026-10.png": the kind and the month, never a truck or a place.
     static func fileName(_ m: LedgerMonth) -> String { "rivolt-month-\(m.period).png" }
@@ -80,19 +83,37 @@ struct MoneyShareCardCanvas: View {
             let w = Self.side
             ctx.fill(Path(CGRect(x: 0, y: 0, width: w, height: w)), with: .color(Theme.shareCardBackground))
             Self.text(ctx, card.eyebrow, size: 44, weight: .medium, color: Theme.shareCardMuted, x: 80, baseline: 140)
-            var size: CGFloat = 190
+            // With a map the header and rows tighten so the line gets a band of its own between the subtitle and the stats.
+            let paths = card.routeSegments.map { DriveRoute.decode($0, precision: 6) }.filter { $0.count >= 2 }
+            let withMap = !paths.isEmpty
+            var size: CGFloat = withMap ? 130 : 190
             while size > 64 && Self.width(ctx, card.title, size: size, weight: .bold) > Self.column { size -= 8 }
             // A card with no figures (the milestone) is a headline and a sentence: centre that block between the label
             // and the footer rather than leave the lower half empty.
-            var y: CGFloat = card.stats.isEmpty && card.notes.isEmpty ? 480 : 330
+            var y: CGFloat = withMap ? 270 : card.stats.isEmpty && card.notes.isEmpty ? 480 : 330
             Self.text(ctx, card.title, size: size, weight: .bold, color: Theme.shareCardTitle, x: 80, baseline: y)
-            y = Self.wrap(ctx, card.subtitle, size: 44, color: Theme.shareCardMuted, x: 80, baseline: y + 80, lineHeight: 56, maxLines: 3)
-            y += 30
-            let rowSize: CGFloat = compact ? 40 : 44
-            for s in card.stats.prefix(6) {
+            y = Self.wrap(ctx, card.subtitle, size: 44, color: Theme.shareCardMuted, x: 80, baseline: y + (withMap ? 70 : 80), lineHeight: 56, maxLines: 3)
+            let rows = Array(card.stats.prefix(6))
+            let step: CGFloat = withMap ? 52 : compact ? 66 : 78
+            if withMap {
+                // The band ends above the rows, the notes and the footer.
+                let footerTop = w - 70 - CGFloat(MoneyShareCard.footer.count - 1) * 44 - 36
+                let below = CGFloat(rows.count) * step + CGFloat(card.notes.count) * 44 + 24
+                let bandH = min(300, footerTop - below - y - 20)
+                if bandH >= 120 {
+                    Self.drawRoute(ctx, paths, x: 80, y: y, w: w - 160, h: bandH)
+                    y += bandH + 50
+                } else {
+                    y += 30
+                }
+            } else {
+                y += 30
+            }
+            let rowSize: CGFloat = withMap ? 38 : compact ? 40 : 44
+            for s in rows {
                 Self.text(ctx, s.label, size: rowSize, weight: .medium, color: Theme.shareCardMuted, x: 80, baseline: y)
                 Self.text(ctx, s.value, size: rowSize, weight: .medium, color: Theme.shareCardValue, x: w - 80, baseline: y, trailing: true)
-                y += compact ? 66 : 78
+                y += step
             }
             for note in card.notes {
                 Self.text(ctx, note, size: 32, weight: .regular, color: Theme.shareCardNote, x: 80, baseline: y)
@@ -107,6 +128,28 @@ struct MoneyShareCardCanvas: View {
         .frame(width: Self.side, height: Self.side)
         .environment(\.colorScheme, .dark)
         .accessibilityHidden(true)
+    }
+
+    /// The paths fitted into the box (equirectangular, so a mile north is as long as a mile east), each its own line so the
+    /// cut-off stretches are never joined. Bare: no marker or label.
+    private static func drawRoute(_ ctx: GraphicsContext, _ paths: [[DriveRoute.Point]], x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) {
+        let all = paths.flatMap { $0 }
+        guard let minLat = all.map(\.lat).min(), let maxLat = all.map(\.lat).max(),
+              let minLon = all.map(\.lon).min(), let maxLon = all.map(\.lon).max() else { return }
+        let kx = cos((minLat + maxLat) / 2 * .pi / 180)
+        let spanX = max((maxLon - minLon) * kx, 1e-6)
+        let spanY = max(maxLat - minLat, 1e-6)
+        let k = min(w / spanX, h / spanY)
+        let ox = x + (w - spanX * k) / 2
+        let oy = y + (h - spanY * k) / 2
+        for p in paths {
+            var line = Path()
+            for (i, pt) in p.enumerated() {
+                let q = CGPoint(x: ox + (pt.lon - minLon) * kx * k, y: oy + (maxLat - pt.lat) * k)
+                if i == 0 { line.move(to: q) } else { line.addLine(to: q) }
+            }
+            ctx.stroke(line, with: .color(Theme.shareCardValue), style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
+        }
     }
 
     private static func resolved(_ ctx: GraphicsContext, _ s: String, size: CGFloat, weight: Font.Weight, color: Color) -> GraphicsContext.ResolvedText {

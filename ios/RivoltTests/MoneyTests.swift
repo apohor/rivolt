@@ -632,7 +632,8 @@ final class MoneyShareTests: XCTestCase {
         XCTAssertEqual(c.notes, ["+ 1 session not yet priced"])
         XCTAssertEqual(MoneyShareCard.fileName(try month()), "rivolt-month-2026-09.png")
         // The model has nothing that could carry a place, an id or a truck.
-        XCTAssertEqual(Mirror(reflecting: c).children.compactMap(\.label), ["eyebrow", "title", "subtitle", "stats", "notes"])
+        XCTAssertEqual(Mirror(reflecting: c).children.compactMap(\.label), ["eyebrow", "title", "subtitle", "stats", "notes", "routeSegments"])
+        XCTAssertEqual(c.routeSegments, [], "a month card has no map")
     }
 
     func testAMonthInProgressSaysSoFar() throws {

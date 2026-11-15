@@ -67,7 +67,17 @@ for (const [w, h, scheme] of [[393, 852, "dark"], [393, 852, "light"], [1280, 90
     // Summed figures: 3.1 + 3.3 + 3.3.
     await expect(page.getByText("9.7 mi").first()).toBeVisible();
     // The legs, in order, with the parked time after each but the last.
+    // One row until opened: the leg count and the stops, as a button that says whether it is open.
+    const toggle = page.locator("[data-legs-toggle]");
+    await expect(toggle).toHaveText(/3 legs · parked 13 min, 19 min/);
+    await expect(toggle).toHaveAttribute("aria-label", "3 legs · parked 13 min, 19 min");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("[data-leg]").first()).toBeHidden();
+    await page.screenshot({ path: `${process.env.SHOTS_DIR ?? "test-results"}/round-trip-collapsed-${w}-${scheme}.png`, fullPage: true });
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
     await expect(page.locator("[data-leg]")).toHaveCount(3);
+    await expect(page.locator("[data-leg]").first()).toBeVisible();
     await expect(page.locator("[data-leg-parked]")).toHaveText(["Parked 13 min", "Parked 19 min"]);
     // One request per leg, not one for the whole span.
     await expect.poll(() => asked.length).toBe(3);
@@ -77,6 +87,9 @@ for (const [w, h, scheme] of [[393, 852, "dark"], [393, 852, "light"], [1280, 90
     await expect(page.locator("[data-stop]")).toHaveCount(2);
     await expect(page.locator("[data-stop]").first()).toHaveAttribute("data-stop", "Parked 13 min");
     await page.screenshot({ path: `${process.env.SHOTS_DIR ?? "test-results"}/round-trip-${w}-${scheme}.png`, fullPage: true });
+    // The choice is kept for the next visit.
+    await page.reload();
+    await expect(page.locator("[data-legs-toggle]")).toHaveAttribute("aria-expanded", "true");
     await ctx.close();
   });
 }

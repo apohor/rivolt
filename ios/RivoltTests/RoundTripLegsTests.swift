@@ -85,4 +85,17 @@ final class RoundTripLegsTests: XCTestCase {
         d.trailer = nil
         XCTAssertEqual(ActivityDetailView.trailerLine(d), "Trailer: none")
     }
+
+    func testTheCollapsedRowListsTheStops() throws {
+        let legs = try XCTUnwrap(row().legs)
+        XCTAssertEqual(RoundTripLegsCard.summary(legs), "3 legs · parked 13 min, 19 min")
+        XCTAssertEqual(RoundTripLegsCard.spokenSummary(legs), "3 legs, parked 13 minutes, 19 minutes")
+    }
+
+    func testPastThreeStopsItCountsThem() throws {
+        var legs = try XCTUnwrap(row().legs)
+        legs = legs + legs
+        XCTAssertEqual(RoundTripLegsCard.summary(legs), "6 legs · parked 4 times")
+        XCTAssertEqual(RoundTripLegsCard.summary([]), "0 legs")
+    }
 }

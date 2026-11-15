@@ -15,6 +15,8 @@ struct ActivityDetailView: View {
     /// A charge's row, read once for its map and its session card.
     @State private var chargeRow = ChargeRowModel()
     @State private var sharing: ActivityDrive?
+    /// The trimmed route for the share sheet's map, kept with the drive it belongs to (this screen is reused across drives).
+    @State private var postcard: (id: String, segments: [String])?
     /// The moment the timeline's cursor is on (drag or a moment button): the route map shows where the truck was, with the readout.
     @State private var scrub: Date?
 
@@ -89,11 +91,14 @@ struct ActivityDetailView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $sharing) { d in
+            let segments = postcard?.id == d.id ? postcard?.segments ?? [] : []
             ShareCardSheet(fileName: MoneyShareCard.fileName(kind: "trip", date: d.startedAt, calendar: calendar),
-                           costHint: (d.estimatedCost ?? 0) > 0 ? "Adds the estimated charging cost." : nil) { cost in
-                MoneyShareCard.trip(d, includeCost: cost, calendar: calendar)
+                           costHint: (d.estimatedCost ?? 0) > 0 ? "Adds the estimated charging cost." : nil,
+                           mapHint: segments.isEmpty ? nil : "Draws the route as a line. The start and end are cut off, and so is the area around your saved home. No labels.") { cost, map in
+                MoneyShareCard.trip(d, includeCost: cost, routeSegments: map ? segments : [], calendar: calendar)
             }
             .followsAppearance()
+            .task(id: d.id) { await loadPostcard(for: d) }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
@@ -124,5 +129,14 @@ struct ActivityDetailView: View {
         case .drive: return "all drives"
         case .charge: return "all charges"
         }
+    }
+
+    /// The share sheet's map (design-preview key `share_map`): fetched when the sheet opens. A drive with no usable route, or a
+    /// failed call, simply has no toggle.
+    private func loadPostcard(for d: ActivityDrive) async {
+        postcard = nil
+        guard state.designPreview.contains("share_map") else { return }
+        guard let p = try? await state.client.drivePostcard(id: d.id), !p.route.segments.isEmpty else { return }
+        postcard = (d.id, p.route.segments)
     }
 }

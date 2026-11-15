@@ -12,6 +12,21 @@ private func chicago() -> Calendar {
 /// The trip and milestone share cards: what is on them, what is not, and that they paint (renders for review land in
 /// SNAPSHOT_DIR on CI).
 final class TripMilestoneShareTests: XCTestCase {
+    /// A polyline6 encoder for the fixtures.
+    private static func encode6(_ pts: [(Double, Double)]) -> String {
+        var out = "", pl = 0, pn = 0
+        func put(_ v: Int) {
+            var x = v < 0 ? ~(v << 1) : v << 1
+            while x >= 0x20 { out.append(Character(UnicodeScalar(UInt8((0x20 | (x & 0x1f)) + 63)))); x >>= 5 }
+            out.append(Character(UnicodeScalar(UInt8(x + 63))))
+        }
+        for (a, o) in pts {
+            let la = Int((a * 1e6).rounded()), lo = Int((o * 1e6).rounded())
+            put(la - pl); put(lo - pn); pl = la; pn = lo
+        }
+        return out
+    }
+
     private func drive() throws -> ActivityDrive {
         try XCTUnwrap(Fixture.decode(ActivityResponse.self, "activity").drives.first { $0.id == "drv-3" })
     }
@@ -35,8 +50,9 @@ final class TripMilestoneShareTests: XCTestCase {
         XCTAssertFalse(c.stats.contains { $0.label.contains("cost") })
         XCTAssertEqual(c.stats.first?.label, "Efficiency")
         XCTAssertEqual(c.stats.first?.value, "\(NumberText.fixed(d.distanceMi / d.energyUsedKwh, 2)) mi/kWh")
-        // The model has nothing that could carry a map, a place, a route, an id or a truck.
-        XCTAssertEqual(Mirror(reflecting: c).children.compactMap(\.label), ["eyebrow", "title", "subtitle", "stats", "notes"])
+        // The model has nothing that could carry a place, an id or a truck; the only route is the opt-in map's trimmed segments (empty here).
+        XCTAssertEqual(Mirror(reflecting: c).children.compactMap(\.label), ["eyebrow", "title", "subtitle", "stats", "notes", "routeSegments"])
+        XCTAssertEqual(c.routeSegments, [])
     }
 
     func testTripCostIsOptIn() throws {
@@ -46,6 +62,16 @@ final class TripMilestoneShareTests: XCTestCase {
         let stat = try XCTUnwrap(on.stats.first { $0.label == "Charging cost (estimate)" })
         XCTAssertTrue(stat.value.hasPrefix("~$"), stat.value)
         XCTAssertEqual(MoneyShareCard.trip(d, includeCost: false, calendar: chicago()).stats.count, on.stats.count - 1)
+    }
+
+    func testTheMapAddsOnlyTheServersSegmentsAndNoWords() throws {
+        let d = try drive()
+        let segs = ["_p~iF~ps|U_ulLnnqC", "_p~iF~ps|U"]
+        let off = MoneyShareCard.trip(d, includeCost: false, calendar: chicago())
+        let on = MoneyShareCard.trip(d, includeCost: false, routeSegments: segs, calendar: chicago())
+        XCTAssertEqual(on.routeSegments, segs)
+        XCTAssertEqual(text(on), text(off))
+        XCTAssertEqual(on.stats, off.stats)
     }
 
     func testTheFileNamesAreGeneric() throws {
@@ -78,7 +104,14 @@ final class TripMilestoneShareTests: XCTestCase {
     @MainActor
     func testBothCardsPaintA1080SquarePNG() throws {
         Theme.registerFonts()
+        // A made-up winding line (polyline6), nowhere real, in two stretches.
+        let line = (0...120).map { i -> (Double, Double) in
+            let t = Double(i) / 120
+            return (10 + t * 0.4 + 0.05 * sin(t * 9), 20 + t * 0.7 + 0.06 * cos(t * 7))
+        }
+        let route = [Self.encode6(Array(line[5..<70])), Self.encode6(Array(line[80..<118]))]
         let cards = [("trip-share-card", MoneyShareCard.trip(try drive(), includeCost: true, calendar: chicago())),
+                     ("trip-share-card-map", MoneyShareCard.trip(try drive(), includeCost: true, routeSegments: route, calendar: chicago())),
                      ("milestone-share-card", MoneyShareCard.milestone(try milestone(), calendar: chicago()))]
         for (name, card) in cards {
             let png = try XCTUnwrap(MoneyShareCardCanvas.png(card))
