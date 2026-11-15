@@ -64,10 +64,10 @@ final class MoneyEstimatedEnergyTests: XCTestCase {
     func testTheMonthTotalSaysWhenItIncludesAnEstimate() throws {
         let cal = chicago()
         let now = JSON.parseDate("2026-10-12T17:00:00Z")!
-        let est = MoneyStatement(month: try estimatedMonth(), months: try Fixture.decode(LedgerSummary.self, "ledger_summary").months, previous: nil, toConfirm: 0, now: now, calendar: cal)
+        let est = MoneyStatement(month: try estimatedMonth(), months: try Fixture.decode(LedgerSummary.self, "ledger_summary").months, previous: nil, toConfirm: 0, now: now, calendar: cal, metric: false)
         XCTAssertTrue(est.subline.hasPrefix("spent on charging · ~"), est.subline)
         XCTAssertEqual(est.energyNote, MoneyLogic.energyEstimatedTotalNote)
-        let plain = MoneyStatement(month: try Fixture.decode(LedgerMonth.self, "ledger_monthly"), months: try Fixture.decode(LedgerSummary.self, "ledger_summary").months, previous: nil, toConfirm: 0, now: now, calendar: cal)
+        let plain = MoneyStatement(month: try Fixture.decode(LedgerMonth.self, "ledger_monthly"), months: try Fixture.decode(LedgerSummary.self, "ledger_summary").months, previous: nil, toConfirm: 0, now: now, calendar: cal, metric: false)
         XCTAssertNil(plain.energyNote)
         XCTAssertFalse(plain.subline.contains("~"))
     }
@@ -86,9 +86,9 @@ final class MoneyEstimatedEnergyTests: XCTestCase {
 
     func testTheShareCardMarksTheEnergyTotalOnlyWhenItIncludesAnEstimate() throws {
         let cal = chicago()
-        let est = MoneyShareCard.month(try estimatedMonth(), includeCost: false, offpeakSharePct: nil, calendar: cal)
+        let est = MoneyShareCard.month(try estimatedMonth(), includeCost: false, offpeakSharePct: nil, calendar: cal, metric: false)
         XCTAssertTrue(est.stats.contains { $0.label == "Energy added" && $0.value.hasPrefix("~") })
-        let plain = MoneyShareCard.month(try Fixture.decode(LedgerMonth.self, "ledger_monthly"), includeCost: false, offpeakSharePct: nil, calendar: cal)
+        let plain = MoneyShareCard.month(try Fixture.decode(LedgerMonth.self, "ledger_monthly"), includeCost: false, offpeakSharePct: nil, calendar: cal, metric: false)
         XCTAssertFalse(plain.stats.contains { $0.label == "Energy added" && $0.value.hasPrefix("~") })
     }
 }
@@ -111,7 +111,7 @@ final class MoneyLogicTests: XCTestCase {
     }
 
     func testAPastMonthReadsAsTheWebsStatement() throws {
-        let st = MoneyStatement(month: try month(), months: try summary().months, previous: nil, toConfirm: 0, now: at("2026-10-12T17:00:00Z"), calendar: chicago())
+        let st = MoneyStatement(month: try month(), months: try summary().months, previous: nil, toConfirm: 0, now: at("2026-10-12T17:00:00Z"), calendar: chicago(), metric: false)
         XCTAssertEqual(st.headline, 35.43)
         XCTAssertFalse(st.isCurrentMonth)
         XCTAssertEqual(st.subline, "spent on charging · 180 kWh · 274 mi · $0.129/mi")
@@ -137,19 +137,19 @@ final class MoneyLogicTests: XCTestCase {
         }
         // September's receipts on the 3rd ($6.81) and 11th ($23.41) are before the 12th; the 17th and 24th are not.
         let st = MoneyStatement(month: cur, months: try summary().months, previous: try month(), toConfirm: nil,
-                                now: at("2026-10-12T17:00:00Z"), calendar: chicago())
+                                now: at("2026-10-12T17:00:00Z"), calendar: chicago(), metric: false)
         XCTAssertTrue(st.isCurrentMonth)
         XCTAssertEqual(try XCTUnwrap(st.delta), (35.43 - 30.22) / 30.22, accuracy: 1e-9)
         XCTAssertEqual(st.deltaLabel, "September 1–12")
         // Without the previous month in full there is nothing to compare with yet.
-        let none = MoneyStatement(month: cur, months: try summary().months, previous: nil, toConfirm: nil, now: at("2026-10-12T17:00:00Z"), calendar: chicago())
+        let none = MoneyStatement(month: cur, months: try summary().months, previous: nil, toConfirm: nil, now: at("2026-10-12T17:00:00Z"), calendar: chicago(), metric: false)
         XCTAssertNil(none.delta)
     }
 
     func testAPreviousMonthWithPartOfItsDaysIsNotCompared() throws {
         // September's data starts on the 4th: a past month against it says nothing true.
         let oct = try edited(LedgerMonth.self, "ledger_monthly") { o in o["period"] = "2026-10" }
-        let st = MoneyStatement(month: oct, months: try summary().months, previous: nil, toConfirm: nil, now: at("2026-11-12T17:00:00Z"), calendar: chicago())
+        let st = MoneyStatement(month: oct, months: try summary().months, previous: nil, toConfirm: nil, now: at("2026-11-12T17:00:00Z"), calendar: chicago(), metric: false)
         XCTAssertNil(st.delta)
         XCTAssertEqual(st.deltaLabel, "September")
     }
@@ -157,7 +157,7 @@ final class MoneyLogicTests: XCTestCase {
     func testTheFirstMonthWithDataIsMarkedPartial() throws {
         let m = try month()
         let months = try summary().months
-        let st = MoneyStatement(month: m, months: months, previous: nil, toConfirm: nil, now: .now, calendar: chicago())
+        let st = MoneyStatement(month: m, months: months, previous: nil, toConfirm: nil, now: .now, calendar: chicago(), metric: false)
         XCTAssertEqual(st.partialFrom, at("2026-09-04T02:00:00Z"))
         XCTAssertEqual(MoneyLogic.shortDay(try XCTUnwrap(st.partialFrom), calendar: chicago()), "Sep 3")
     }
@@ -170,7 +170,7 @@ final class MoneyLogicTests: XCTestCase {
             s["unpriced_home_rate_estimate"] = NSNull()
             o["spend"] = s
         }
-        let st = MoneyStatement(month: m, months: [], previous: nil, toConfirm: nil, now: .now, calendar: chicago())
+        let st = MoneyStatement(month: m, months: [], previous: nil, toConfirm: nil, now: .now, calendar: chicago(), metric: false)
         XCTAssertEqual(st.zero?.sessions, 1)
         XCTAssertEqual(st.zero?.noRate, true)
         // The "Not included" line is left out: the $0 notice already says it.
@@ -189,7 +189,7 @@ final class MoneyLogicTests: XCTestCase {
             o["billed_sessions"] = 1
             o["estimated_sessions"] = 2
         }
-        let st = MoneyStatement(month: m, months: [], previous: nil, toConfirm: nil, now: .now, calendar: chicago())
+        let st = MoneyStatement(month: m, months: [], previous: nil, toConfirm: nil, now: .now, calendar: chicago(), metric: false)
         XCTAssertEqual(st.headline, 23.41 + 12.5, accuracy: 1e-9)
         XCTAssertEqual(st.billed?.billedSessions, 1)
         // The estimated share line is the old wording: not shown next to the billed split.
@@ -611,8 +611,21 @@ final class MoneyClientTests: XCTestCase {
 final class MoneyShareTests: XCTestCase {
     private func month() throws -> LedgerMonth { try Fixture.decode(LedgerMonth.self, "ledger_monthly") }
 
+    func testTheMonthCardAndTheStatementLineFollowTheUnitSetting() throws {
+        let km = MoneyShareCard.month(try month(), includeCost: false, offpeakSharePct: nil, calendar: chicago(), metric: true)
+        XCTAssertEqual(km.title, "\(Int((try month().driving.miles * 1.609344).rounded()).formatted()) km")
+        let d = try month().driving
+        XCTAssertEqual(km.stats.last?.value, "\(NumberText.fixed((d.milesWithEnergy ?? 0) * 1.609344 / (d.kwhUsedKnown ?? 1), 2)) km/kWh")
+        let withCost = MoneyShareCard.month(try month(), includeCost: true, offpeakSharePct: nil, calendar: chicago(), metric: true)
+        let miles = try month().driving.miles
+        XCTAssertEqual(withCost.subtitle, "180 kWh · \(NumberText.fixed(miles * 1.609344, 0)) km · $0.080/km")
+        let st = MoneyStatement(month: try month(), months: try Fixture.decode(LedgerSummary.self, "ledger_summary").months, previous: nil, toConfirm: 0, now: Date(timeIntervalSince1970: 1_760_288_400), calendar: chicago(), metric: true)
+        XCTAssertEqual(st.subline, "spent on charging · 180 kWh · \(NumberText.fixed(miles * 1.609344, 0)) km · $0.080/km")
+        for text in [km.title, withCost.subtitle, st.subline] { XCTAssertNil(text.range(of: #"\bmi\b|/mi"#, options: .regularExpression), text) }
+    }
+
     func testTheCardWithoutCostCarriesNoMoney() throws {
-        let c = MoneyShareCard.month(try month(), includeCost: false, offpeakSharePct: nil, calendar: chicago())
+        let c = MoneyShareCard.month(try month(), includeCost: false, offpeakSharePct: nil, calendar: chicago(), metric: false)
         XCTAssertEqual(c.eyebrow, "September 2026")
         XCTAssertEqual(c.title, "274 mi")
         XCTAssertEqual(c.subtitle, "3 drives · 4 charges")
@@ -624,7 +637,7 @@ final class MoneyShareTests: XCTestCase {
     }
 
     func testCostAndTheOffPeakShareAreOptIn() throws {
-        let c = MoneyShareCard.month(try month(), includeCost: true, offpeakSharePct: 72.4, calendar: chicago())
+        let c = MoneyShareCard.month(try month(), includeCost: true, offpeakSharePct: 72.4, calendar: chicago(), metric: false)
         XCTAssertEqual(c.title, "$35.43")
         XCTAssertEqual(c.subtitle, "180 kWh · 274 mi · $0.129/mi")
         XCTAssertEqual(c.stats, [.init(label: "Home", value: "$12.02"), .init(label: "Away", value: "$0.00"),
@@ -638,13 +651,13 @@ final class MoneyShareTests: XCTestCase {
 
     func testAMonthInProgressSaysSoFar() throws {
         let m = try edited(LedgerMonth.self, "ledger_monthly") { $0["is_current_month"] = true }
-        XCTAssertEqual(MoneyShareCard.month(m, includeCost: false, offpeakSharePct: nil, calendar: chicago()).eyebrow, "September 2026 so far")
+        XCTAssertEqual(MoneyShareCard.month(m, includeCost: false, offpeakSharePct: nil, calendar: chicago(), metric: false).eyebrow, "September 2026 so far")
     }
 
     @MainActor
     func testTheCardIsA1080SquarePNG() throws {
         Theme.registerFonts()
-        let card = MoneyShareCard.month(try month(), includeCost: true, offpeakSharePct: 72, calendar: chicago())
+        let card = MoneyShareCard.month(try month(), includeCost: true, offpeakSharePct: 72, calendar: chicago(), metric: false)
         let png = try XCTUnwrap(MoneyShareCardCanvas.png(card))
         let image = try XCTUnwrap(UIImage(data: png))
         XCTAssertEqual(image.size, CGSize(width: 1080, height: 1080))
@@ -655,7 +668,7 @@ final class MoneyShareTests: XCTestCase {
         if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty {
             try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
             try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("money-share-card.png"))
-            let plain = try XCTUnwrap(MoneyShareCardCanvas.png(MoneyShareCard.month(try month(), includeCost: false, offpeakSharePct: nil, calendar: chicago())))
+            let plain = try XCTUnwrap(MoneyShareCardCanvas.png(MoneyShareCard.month(try month(), includeCost: false, offpeakSharePct: nil, calendar: chicago(), metric: false)))
             try plain.write(to: URL(fileURLWithPath: dir).appendingPathComponent("money-share-card-plain.png"))
         }
     }

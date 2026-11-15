@@ -460,8 +460,10 @@ struct MoneyStatement: Equatable {
 
     /// `months` are the summary's (oldest first); `previous` is the previous month in full, read only for a month in
     /// progress so it is compared with the same days.
-    init(month m: LedgerMonth, months: [LedgerMonth], previous: LedgerMonth?, toConfirm: Int?, now: Date, calendar: Calendar) {
+    init(month m: LedgerMonth, months: [LedgerMonth], previous: LedgerMonth?, toConfirm: Int?, now: Date, calendar: Calendar, metric: Bool = NowFormat.usesMetric) {
         typealias L = MoneyLogic
+        let k = metric ? 1.609344 : 1
+        let dist = metric ? "km" : "mi"
         let cur = m.currency
         currency = cur
         let headline = L.statementTotal(m)
@@ -497,8 +499,8 @@ struct MoneyStatement: Equatable {
         }
 
         var sub = "spent on charging · \(m.energy.includesEstimated == true ? "~" : "")\(L.fixed(m.energy.kwhAdded, 0)) kWh"
-        if m.driving.miles > 0 { sub += " · \(L.fixed(m.driving.miles, 0)) mi" }
-        if hasCharging, let cpm = m.driving.costPerMile { sub += " · \(L.money(cpm, cur, digits: 3))/mi" }
+        if m.driving.miles > 0 { sub += " · \(L.fixed(m.driving.miles * k, 0)) \(dist)" }
+        if hasCharging, let cpm = m.driving.costPerMile { sub += " · \(L.money(cpm / k, cur, digits: 3))/\(dist)" }
         subline = sub
         energyNote = m.energy.includesEstimated == true ? MoneyLogic.energyEstimatedTotalNote : nil
 
