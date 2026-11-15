@@ -34,6 +34,7 @@ import {
   monotonePath,
   nearestY,
   niceTimeTicks,
+  thinTicks,
   snapToSample,
   type Moment,
 } from "../lib/driveTimelineData";
@@ -72,6 +73,8 @@ const PAD_T = 20;
 const PANEL_GAP = 26;
 const AXIS_H = 22;
 const DEAD_PX = 26;
+// Room one clock label needs on the time axis.
+const TICK_LABEL_PX = 48;
 
 function clockLabel(ms: number, withSeconds = false): string {
   return new Date(ms).toLocaleTimeString(undefined, {
@@ -423,7 +426,8 @@ function Panels(props: {
   const tLo = Math.floor(tMinRaw - 1);
   const tHi = Math.max(tLo + 4, Math.ceil(tMaxRaw + 1));
 
-  const ticks = niceTimeTicks(xMin, xMax, narrow ? 4 : 7, displayTimeZone());
+  const allTicks = niceTimeTicks(xMin, xMax, narrow ? 4 : 7, displayTimeZone());
+  const ticks = thinTicks(allTicks.map(sx), TICK_LABEL_PX).map((i) => allTicks[i]);
 
   const yIn = (v: number, lo: number, hi: number, top: number, h: number) =>
     hi === lo ? top + h / 2 : top + h - ((v - lo) / (hi - lo)) * h;
