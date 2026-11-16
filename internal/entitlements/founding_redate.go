@@ -212,21 +212,29 @@ func RunRedate(ctx context.Context, pool *sql.DB, out, errOut io.Writer, demoID 
 		return 1
 	}
 	if undoFile == "" {
-		fmt.Fprintln(errOut, "entitlements-founding: --apply needs --undo-file (a new file; it is written before anything changes). Nothing was written")
+		fmt.Fprintln(errOut, "entitlements-founding: --apply needs --undo-file (a new file, or - for stdout; it is written before anything changes). Nothing was written")
 		return 1
 	}
-	f, err := os.OpenFile(undoFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		fmt.Fprintln(errOut, "entitlements-founding: undo file:", err, "(it must be a new file). Nothing was written")
-		return 1
-	}
-	_, werr := io.WriteString(f, p.UndoSQL())
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		fmt.Fprintln(errOut, "entitlements-founding: undo file:", werr, ". Nothing was written")
-		return 1
+	if undoFile == "-" {
+		// The undo script goes to stdout, before the transaction, for an operator who captures it (the pod's filesystem is read-only).
+		if _, err := io.WriteString(out, "-- undo script begins\n"+p.UndoSQL()+"-- undo script ends\n"); err != nil {
+			fmt.Fprintln(errOut, "entitlements-founding: undo script:", err, ". Nothing was written")
+			return 1
+		}
+	} else {
+		f, err := os.OpenFile(undoFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			fmt.Fprintln(errOut, "entitlements-founding: undo file:", err, "(it must be a new file). Nothing was written")
+			return 1
+		}
+		_, werr := io.WriteString(f, p.UndoSQL())
+		if cerr := f.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			fmt.Fprintln(errOut, "entitlements-founding: undo file:", werr, ". Nothing was written")
+			return 1
+		}
 	}
 	if err := ApplyRedate(ctx, pool, demoID, launch, p); err != nil {
 		fmt.Fprintln(errOut, "entitlements-founding:", err, "(rolled back; the undo file is not needed)")

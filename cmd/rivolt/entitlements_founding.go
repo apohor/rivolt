@@ -28,7 +28,7 @@ func runEntitlementsFounding(args []string) int {
 	redateFrom := fs.String("redate-from", "", "re-date mode: RFC3339 end the founding rows carry now; they move to the end for --launch, and accounts without a row are granted")
 	expectGrantCount := fs.Int("expect-grant-count", -1, "re-date with --apply: the number to grant, from the dry run (--expect-count is the number to move)")
 	expectGrantSHA := fs.String("expect-grant-sha", "", "re-date with --apply: the grant ids hash from the dry run (--expect-sha is the move hash)")
-	undoFile := fs.String("undo-file", "", "re-date with --apply: a new file the undo SQL is written to before anything changes")
+	undoFile := fs.String("undo-file", "", "re-date with --apply: a new file, or - for stdout, the undo SQL is written to before anything changes")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

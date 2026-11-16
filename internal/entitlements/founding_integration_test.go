@@ -337,4 +337,13 @@ func TestFoundingRedateAgainstPostgres(t *testing.T) {
 	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM entitlements WHERE user_id = $1`, joined).Scan(&back); err != nil || back != 0 {
 		t.Errorf("the granted row survived the undo: %d %v", back, err)
 	}
+
+	// --undo-file - prints the script to stdout before it applies.
+	var stdoutRun bytes.Buffer
+	if code := entitlements.RunRedate(ctx, pool, &stdoutRun, &errOut, demoID, second, oldEnd, true, e, "-"); code != 0 {
+		t.Fatalf("apply with a stdout undo: %d %s", code, errOut.String())
+	}
+	if got := stdoutRun.String(); !strings.Contains(got, "-- undo script begins\n-- undo of the founding re-date") || !strings.Contains(got, "COMMIT;\n-- undo script ends") || count() != len(p.Move)+1 {
+		t.Errorf("stdout undo: %q, %d at the new end", got, count())
+	}
 }
