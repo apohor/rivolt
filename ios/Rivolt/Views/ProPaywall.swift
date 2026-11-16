@@ -297,7 +297,7 @@ struct ProLimitNote: View {
         .accessibilityElement(children: .contain)
         .task {
             guard !state.isDemo else { return }
-            let me = try? await state.client.me()
+            let me = try? await state.readMe()
             plan = PlanLogic.state(me)
             freeWindow = FreeWindow(me)
         }
@@ -515,7 +515,7 @@ struct PlanNoticeView: View {
         }
         .task {
             guard !state.isDemo else { return }
-            let me = try? await state.client.me()
+            let me = try? await state.readMe()
             plan = PlanLogic.state(me)
             window = FreeWindow(me)
         }

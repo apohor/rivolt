@@ -87,3 +87,50 @@ final class WidgetGateTests: XCTestCase {
         }
     }
 }
+
+private final class MeStub: URLProtocol {
+    nonisolated(unsafe) static var fixture = "me_plan_free"
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let resp = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: (try? Fixture.data(Self.fixture)) ?? Data())
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private struct StoredToken: TokenStore {
+    func token(for server: URL) throws -> String? { "tok" }
+    func setToken(_ token: String, for server: URL) throws {}
+    func deleteToken(for server: URL) throws {}
+}
+
+/// The plan reaches the widgets on every read of /me, not only at launch: buying Pro unlocks them without a restart.
+@MainActor
+final class WidgetPlanReadTests: XCTestCase {
+    func testAProAnswerAfterALockedOneUnlocksTheWidgetsAndReloadsThem() async throws {
+        let c = URLSessionConfiguration.ephemeral
+        c.protocolClasses = [MeStub.self]
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "widget-plan-\(UUID().uuidString)"))
+        let s = AppState(tokens: StoredToken(), defaults: defaults, session: URLSession(configuration: c))
+        let store = WidgetStore()
+        let before = store.proLocked
+        defer { store.setProLocked(before) }
+        MeStub.fixture = "me_plan_free"
+        await s.bootstrap()
+        var reloads = 0
+        s.reloadWidgets = { reloads += 1 }
+        store.setProLocked(false)
+        _ = try await s.readMe()
+        XCTAssertTrue(store.proLocked)
+        XCTAssertEqual(reloads, 1)
+        _ = try await s.readMe()
+        XCTAssertEqual(reloads, 1, "no change, no reload")
+        MeStub.fixture = "me_plan_subscriber"
+        _ = try await s.readMe()
+        XCTAssertFalse(store.proLocked)
+        XCTAssertEqual(reloads, 2)
+    }
+}

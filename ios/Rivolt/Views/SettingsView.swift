@@ -148,7 +148,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showDelete) { DeleteAccountSheet(billing: plan != .off).followsAppearance() }
             .task {
                 guard !state.isDemo else { return }
-                let me = try? await state.client.me()
+                let me = try? await state.readMe()
                 plan = PlanLogic.state(me)
                 freeWindow = FreeWindow(me)
                 hasNotices = !((try? await state.client.notices()) ?? []).isEmpty
