@@ -136,6 +136,9 @@ func TestLaunchNoticeApplyIsIdempotentAndEngagementBlind(t *testing.T) {
 		if !strings.HasPrefix(msg.IdempotencyKey, "launch-notice-") {
 			t.Errorf("idempotency key %q", msg.IdempotencyKey)
 		}
+		if !strings.Contains(msg.HTML, "December 31, 2026") || !strings.Contains(msg.HTML, "#10b981") || launchnotice.Unfilled(msg.HTML) != "" {
+			t.Errorf("the email has no branded HTML part with the dates filled")
+		}
 	}
 	if !strings.Contains(out.String(), "emails sent 2, failed 0") || idOrAddr.MatchString(out.String()) {
 		t.Errorf("final counts:\n%s", out.String())

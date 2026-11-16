@@ -267,7 +267,7 @@ func (j *DatedJob) RunOnce(ctx context.Context) (DatedStats, error) {
 			continue
 		}
 		err = j.Mailer.Send(ctx, email.Message{
-			To: strings.TrimSpace(c.Email), Subject: FoundingSubject(prep.Params), Text: RenderFoundingEmail(prep.Params),
+			To: strings.TrimSpace(c.Email), Subject: FoundingSubject(prep.Params), Text: RenderFoundingEmail(prep.Params), HTML: RenderFoundingEmailHTML(prep.Params),
 			IdempotencyKey: "founding-end-" + c.UserID.String(),
 		})
 		if err != nil {
