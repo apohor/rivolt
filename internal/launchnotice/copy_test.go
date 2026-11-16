@@ -76,8 +76,8 @@ func TestLaunchCopyIsPlanV6(t *testing.T) {
 			t.Errorf("%s email lacks the v6 free window or widgets", name)
 		}
 	}
-	if !strings.Contains(launch, "forecast radar along the route") {
-		t.Error("the launch email's Pro list lacks forecast radar along the route")
+	if strings.Contains(launch, "forecast radar") {
+		t.Error("the launch email's Pro list names forecast radar, which is not live on prod")
 	}
 	if !strings.Contains(free, "iPhone purchase coming soon; the app has no link out to buy.") || strings.Contains(free, "or in the iPhone app") {
 		t.Error("the end-of-year email must be web-first with no iPhone purchase path")

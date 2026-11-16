@@ -30,7 +30,7 @@ What the free tier keeps: every drive and charge keeps being recorded; Now, Acti
 
 If you have more than one vehicle: on the free plan, Rivolt keeps recording every drive and charge on all your vehicles, but shows one vehicle at a time (you choose which). Every vehicle stays in your full export, and Pro shows them all.
 
-What Pro is: unlimited history and trends, range near a temperature, forecast radar along the route, multi-day trip plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle shown, and every iPhone widget except the small Now widget. $3.99 a month or $34.99 a year. Subscribe on the web; iPhone purchase coming soon.
+What Pro is: unlimited history and trends, range near a temperature, multi-day trip plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle shown, and every iPhone widget except the small Now widget. $3.99 a month or $34.99 a year. Subscribe on the web; iPhone purchase coming soon.
 
 The Terms and the Privacy Policy change with this. The updated Terms (section 5, free tier and Pro, and the refund line in section 2) take effect for your account on December 16, 2026, 30 days from this email: https://rivolt.dev/terms. The Privacy Policy gains an "If you buy Rivolt Pro" section that applies only to accounts that subscribe: https://rivolt.dev/privacy. Until December 16, 2026 the previous Terms apply: https://rivolt.dev/terms/2026-10-23. If you do not agree, you can export and delete your account from Settings before then.
 

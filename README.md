@@ -46,7 +46,7 @@ it; counts come from the billing table only.
   charging Live Activity on iPhone; imports from ElectraFi, TezLab and ABRP;
   every alert; and the **full export of everything, always**, including history
   older than 12 months. One vehicle shown at a time.
-- **Pro:** unlimited history and trends, range near a temperature, forecast radar along the route, multi-day
+- **Pro:** unlimited history and trends, range near a temperature, multi-day
   plans with hotel and campground overnights, re-plan from where the truck is,
   plan-vs-actual, unlimited saved trips, every vehicle shown, and every iPhone widget
   except the small Now widget.
