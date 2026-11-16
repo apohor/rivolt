@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 
 // The Charges and Drives headers at iPhone width (390 px): the title and the Table/Map + period controls never overlap (#1830).
 for (const [name, href] of [
@@ -69,7 +70,7 @@ test("Drives table at 390 px: a round trip row still fits @webkit", async ({ bro
   const page = await ctx.newPage();
   await page.addInitScript(() => localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 })));
   await stubApi(page);
-  const at = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+  const at = (h: number) => new Date(e2eNow() - h * 3_600_000).toISOString();
   const leg = (n: number, start: number, end: number, from: [number, number], to: [number, number]) => ({
     ID: `drive-rt-${n}`, VehicleID: "veh-fake-1", StartedAt: at(start), EndedAt: at(end), StartSoCPct: 100, EndSoCPct: 67,
     StartOdometerMi: 1000 + n * 50, EndOdometerMi: 1050 + n * 50, DistanceMi: 50, StartLat: from[0], StartLon: from[1],
