@@ -165,7 +165,7 @@ export default function LandingPage() {
               {demo && <p className="fine">The demo uses a sample truck and needs no account.</p>}
             </div>
             <HeroTrip />
-            <p className="mt-3 text-xs text-neutral-500">
+            <p className="fine">
               {demo ? "The demo uses a generated sample truck: no sign-in, no Rivian account. " : ""}
               Free to start; Rivolt Pro is $3.99 a month or $34.99 a year. Sign up with Google or GitHub; no invite needed while there is room.
             </p>
@@ -242,7 +242,7 @@ export default function LandingPage() {
               </Link>
             </Claim>
           </div>
-          <p className="text-xs text-neutral-500">
+          <p className="fine">
             Subscribe on the web; iPhone purchase coming soon. Web payments through Stripe; Rivolt never sees your card. Web purchases need a US billing address for now. Self-hosting is complete and free. Unofficial, not affiliated with Rivian.
           </p>
         </section>
