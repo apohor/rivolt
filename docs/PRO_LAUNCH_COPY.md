@@ -3,8 +3,8 @@
 The public copy for the Pro launch that lives outside the web content, README and
 App Store listing: the launch notice, the in-app banner, the end-of-year notice,
 the demo clip end cards, the forum signature and the GitHub About text. The pages
-themselves are in this same pull request. Dates: `November 16, 2026`,
-`November 16, 2027` (launch + 1 year), `December 16, 2026` (launch + 30
+themselves are in this same pull request. Dates: `November 17, 2026`,
+`November 17, 2027` (launch + 1 year), `December 17, 2026` (launch + 30
 days). Nothing here is sent or posted by CI; the owner sends and posts.
 
 Rules that apply to every line: "Unofficial, not affiliated with Rivian" on every
@@ -22,9 +22,9 @@ Subject: Rivolt Pro, and what it means for your account
 
 Hi,
 
-Rivolt has been free during its public beta. From November 16, 2026 the hosted service at rivolt.dev has a free tier and a paid plan, Rivolt Pro.
+Rivolt has been free during its public beta. From November 17, 2026 the hosted service at rivolt.dev has a free tier and a paid plan, Rivolt Pro.
 
-Your account has Pro at no charge until November 16, 2027. There is no card on file and nothing will be charged. We will email you and show a notice in the app at least 30 days before that date. After it, your account is on the free tier unless you choose to subscribe.
+Your account has Pro at no charge until November 17, 2027. There is no card on file and nothing will be charged. We will email you and show a notice in the app at least 30 days before that date. After it, your account is on the free tier unless you choose to subscribe.
 
 What the free tier keeps: every drive and charge keeps being recorded; Now, Activity, Money and Truck for the last 12 months; the monthly statement; a single-day trip planner; three saved trips; trip share links and all share cards; the charging Live Activity and the small Now widget on iPhone; imports; every alert; and the full export of everything Rivolt holds, always, including history older than 12 months. Nothing is ever deleted when a plan ends.
 
@@ -32,20 +32,20 @@ If you have more than one vehicle: on the free plan, Rivolt keeps recording ever
 
 What Pro is: unlimited history and trends, range near a temperature, multi-day trip plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle shown, and every iPhone widget except the small Now widget. $3.99 a month or $34.99 a year. Subscribe on the web; iPhone purchase coming soon.
 
-The Terms and the Privacy Policy change with this. The updated Terms (section 5, free tier and Pro, and the refund line in section 2) take effect for your account on December 16, 2026, 30 days from this email: https://rivolt.dev/terms. The Privacy Policy gains an "If you buy Rivolt Pro" section that applies only to accounts that subscribe: https://rivolt.dev/privacy. Until December 16, 2026 the previous Terms apply: https://rivolt.dev/terms/2026-10-23. If you do not agree, you can export and delete your account from Settings before then.
+The Terms and the Privacy Policy change with this. The updated Terms (section 5, free tier and Pro, and the refund line in section 2) take effect for your account on December 17, 2026, 30 days from this email: https://rivolt.dev/terms. The Privacy Policy gains an "If you buy Rivolt Pro" section that applies only to accounts that subscribe: https://rivolt.dev/privacy. Until December 17, 2026 the previous Terms apply: https://rivolt.dev/terms/2026-10-23. If you do not agree, you can export and delete your account from Settings before then.
 
 Nothing to do today. Questions: support@rivolt.dev.
 
 The Rivolt team
 Rivolt is unofficial and not affiliated with Rivian.
 
-## 2. In-app notice (banner on Now and a row in Settings, dismissable; shown until December 16, 2026)
+## 2. In-app notice (banner on Now and a row in Settings, dismissable; shown until December 17, 2026)
 
 Title: Rivolt now has a free tier and Pro
 
-Body: Your account has Pro at no charge until November 16, 2027, with no card and
+Body: Your account has Pro at no charge until November 17, 2027, with no card and
 nothing charged. The updated Terms take effect for you on
-December 16, 2026. Nothing is deleted when a plan ends, and the full export
+December 17, 2026. Nothing is deleted when a plan ends, and the full export
 is always free; on the free plan one vehicle is shown at a time, all are recorded.
 
 Buttons: "What changes" (→ /support#free-and-pro) · "Read the Terms" (→ /terms) ·
@@ -57,19 +57,19 @@ Sign-up page line (replaces "Free during the beta"): "Free to start; Rivolt Pro 
 
 Paywall (web, Settings → Account → Plan; the Apple one follows Apple's 3.1.2 wording): see §10.
 
-## 4. End-of-year notice (email and in-app, at least 30 days before November 16, 2027; a dated task)
+## 4. End-of-year notice (email and in-app, at least 30 days before November 17, 2027; a dated task)
 
 Two variants, decided by whether a paid subscription outlasts the founding year. Both carry the Plan card link, the export link (the §11 "how to export first" promise) and the Terms · Privacy footer of the billing emails. No hard line wraps in the email bodies.
 
 ### Free variant (no subscription)
 
-Subject: Your free year of Rivolt Pro ends on November 16, 2027
+Subject: Your free year of Rivolt Pro ends on November 17, 2027
 
 Hi,
 
-Your account has had Rivolt Pro at no charge since Pro launched. That ends on November 16, 2027. Nothing is charged and nothing is deleted.
+Your account has had Rivolt Pro at no charge since Pro launched. That ends on November 17, 2027. Nothing is charged and nothing is deleted.
 
-[If the date was moved to give 30 days' notice: "We moved this date from {old date} to November 16, 2027 so that you have at least 30 days' notice."]
+[If the date was moved to give 30 days' notice: "We moved this date from {old date} to November 17, 2027 so that you have at least 30 days' notice."]
 
 What changes on that date: Activity, Money and Truck show the last 12 months; the planner plans single-day trips; three saved trips stay editable and the rest stay read-only; one vehicle is shown at a time; trends and range near a temperature are not shown; the other iPhone widgets are Pro-only; the small Now widget and the charging Live Activity stay free.
 
@@ -86,15 +86,15 @@ The Rivolt team
 support@rivolt.dev
 Rivolt is unofficial and not affiliated with Rivian.
 
-In-app (free variant): title "Your free year of Rivolt Pro ends on November 16, 2027"; body "Nothing is charged and nothing is deleted; the full export stays free."; links "What changes" (/support#free-and-pro), "Plan" (/settings#plan), "Export" (/settings#export).
+In-app (free variant): title "Your free year of Rivolt Pro ends on November 17, 2027"; body "Nothing is charged and nothing is deleted; the full export stays free."; links "What changes" (/support#free-and-pro), "Plan" (/settings#plan), "Export" (/settings#export).
 
 ### Subscribed variant (a paid subscription outlasts the founding year)
 
-Subject: Your free year of Rivolt Pro ends on November 16, 2027; your subscription continues
+Subject: Your free year of Rivolt Pro ends on November 17, 2027; your subscription continues
 
 Hi,
 
-Your free founding year of Rivolt Pro ends on November 16, 2027. Your Rivolt Pro subscription continues from that day, so nothing changes for you: Pro stays on and your next charge is on {next charge date}, at the price shown on your Plan card.
+Your free founding year of Rivolt Pro ends on November 17, 2027. Your Rivolt Pro subscription continues from that day, so nothing changes for you: Pro stays on and your next charge is on {next charge date}, at the price shown on your Plan card.
 
 [Moved-date line as above, if it applies.]
 
@@ -107,7 +107,7 @@ The Rivolt team
 support@rivolt.dev
 Rivolt is unofficial and not affiliated with Rivian.
 
-In-app (subscribed): title as the subject's first clause; body "Your free founding year ends on November 16, 2027. Your subscription continues; next charge on {next charge date}."; links "Plan" (/settings#plan), "Export" (/settings#export). No list of what free loses, no prices, no "do nothing".
+In-app (subscribed): title as the subject's first clause; body "Your free founding year ends on November 17, 2027. Your subscription continues; next charge on {next charge date}."; links "Plan" (/settings#plan), "Export" (/settings#export). No list of what free loses, no prices, no "do nothing".
 
 ## 5. Demo clip end cards (re-encode on launch day)
 
@@ -141,7 +141,7 @@ costs, trips, efficiency and lease mileage. Free tier and Pro; self-hostable."
 
 ## 9. Statement email, last month of the free year (one line, existing send)
 
-"Your free year of Pro ends on November 16, 2027. Nothing is deleted; keep Pro
+"Your free year of Pro ends on November 17, 2027. Nothing is deleted; keep Pro
 from Settings → Account → Plan, or do nothing."
 
 ## 10. Paywall, plan card and lapse state (for ux, Pro 9)
