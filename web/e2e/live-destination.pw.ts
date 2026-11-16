@@ -73,3 +73,29 @@ for (const [w, h] of [[393, 852], [1280, 900]] as const) {
     await page.getByTestId("live-drive-map").screenshot({ path: path.join(SHOTS, `live-destination-${w}.png`) });
   });
 }
+
+test("no drive record yet (live-drive 204): the row and the pin are still there", async ({ page }) => {
+  await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
+  await page.route(`**/api/live-drive/${VEHICLE_ID}`, (r) => r.fulfill({ status: 204 }));
+  await page.goto("/live");
+  await expect(page.getByText(/waiting for first frame/)).toBeVisible();
+  await expect(page.getByTestId("live-destination")).toContainText(/^To Test Depot: 12 mi left/);
+  await expect(page.getByTitle("Destination: Test Depot")).toBeVisible();
+});
+
+test("three failed reads in a row drop the trip; the next good read brings it back", async ({ page }) => {
+  test.setTimeout(60_000);
+  await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
+  let n = 0;
+  await page.route(`**/api/live-destination/${VEHICLE_ID}`, (r) => {
+    n++;
+    if (n === 1 || n >= 6) return r.fulfill({ json: { name: "Test Depot", lat: 40.3, lon: -100.45, eta: new Date(Date.now() + 1_500_000).toISOString(), miles_left: 12.4, route: "_srtkA~lyh~D_cmA~hbE_etB~s`B", route_precision: 6 } });
+    return r.fulfill({ status: 503, json: { error: "try again" } });
+  });
+  await page.goto("/live");
+  await expect(page.getByTestId("live-destination")).toBeVisible();
+  // Reads 2 and 3 failed: still shown. Read 4 is the third in a row.
+  await expect(page.getByTestId("live-destination")).toHaveCount(0, { timeout: 30_000 });
+  expect(n).toBeGreaterThanOrEqual(4);
+  await expect(page.getByTestId("live-destination")).toBeVisible({ timeout: 20_000 });
+});

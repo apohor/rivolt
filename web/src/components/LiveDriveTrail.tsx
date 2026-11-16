@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backend, DETAIL_SAMPLE_LIMIT, type Sample } from "../lib/api";
 import { forVehicle } from "../lib/vehicleSamples";
@@ -15,8 +15,10 @@ export const LIVE_TRAIL_REFRESH_MS = 20_000;
 // visible (React Query pauses an interval in a hidden tab); the server allows 30 a minute.
 export const LIVE_DESTINATION_REFRESH_MS = 5_000;
 
-export function LiveDriveTrail({ vehicleId, startedAt, lat, lon }: { vehicleId: string; startedAt: string; lat?: number; lon?: number }) {
-  const startedMs = new Date(startedAt).getTime();
+// Without startedAt there is no open drive record yet (the first seconds of a drive, or a source that never opens one): the map shows the
+// truck's fix and the destination, with no trail.
+export function LiveDriveTrail({ vehicleId, startedAt, lat, lon }: { vehicleId: string; startedAt?: string; lat?: number; lon?: number }) {
+  const startedMs = startedAt ? new Date(startedAt).getTime() : NaN;
   const samples = useQuery<Sample[]>({
     queryKey: ["samples", "live-drive", vehicleId, startedAt],
     enabled: Number.isFinite(startedMs),
@@ -25,6 +27,7 @@ export function LiveDriveTrail({ vehicleId, startedAt, lat, lon }: { vehicleId: 
     refetchIntervalInBackground: false,
     staleTime: 10_000,
   });
+  const [failed, setFailed] = useState(0);
   const destOn = useDesignPreview("live_destination");
   const { distanceUnit } = usePreferences();
   // 204 (no trip) clears it; the first 404 means the feature is off for this account, and the asking stops. Nothing is kept once it is
@@ -32,14 +35,19 @@ export function LiveDriveTrail({ vehicleId, startedAt, lat, lon }: { vehicleId: 
   const destQuery = useQuery<LiveDestination | null | "off">({
     queryKey: ["live-destination", vehicleId],
     enabled: destOn,
-    queryFn: () => backend.liveDestination(vehicleId),
+    queryFn: () =>
+      backend.liveDestination(vehicleId).then(
+        (r) => { setFailed(0); return r; },
+        (e) => { setFailed((n) => n + 1); throw e; },
+      ),
     refetchInterval: (q) => (q.state.data === "off" ? false : LIVE_DESTINATION_REFRESH_MS),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     retry: false,
     gcTime: 0,
   });
-  const dest = destQuery.data && destQuery.data !== "off" ? destQuery.data : null;
+  // A failed read (503) keeps the last answer on screen, but not for long: after three in a row the trip is dropped until a read lands.
+  const dest = destQuery.data && destQuery.data !== "off" && failed < 3 ? destQuery.data : null;
   const mapDest = useMemo(() => (dest ? { lat: dest.lat, lon: dest.lon, name: dest.name, route: destinationRoute(dest) } : null), [dest]);
   const points = useMemo(() => {
     const rows = (samples.data ?? []).filter((p) => new Date(p.At).getTime() >= startedMs - 60_000 && Number.isFinite(p.Lat) && Number.isFinite(p.Lon) && (p.Lat !== 0 || p.Lon !== 0));
@@ -52,7 +60,7 @@ export function LiveDriveTrail({ vehicleId, startedAt, lat, lon }: { vehicleId: 
   if (points.length === 0) return null;
   return (
     <div className="mt-3">
-      <div className="mb-2 text-[11px] uppercase tracking-wide text-neutral-400">This drive so far</div>
+      <div className="mb-2 text-[11px] uppercase tracking-wide text-neutral-400">{Number.isFinite(startedMs) ? "This drive so far" : "This trip"}</div>
       {dest ? (
         <div className="mb-2 text-sm text-neutral-200" data-testid="live-destination">
           {destinationLine(dest, distanceUnit)}

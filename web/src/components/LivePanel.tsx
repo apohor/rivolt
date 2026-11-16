@@ -860,6 +860,7 @@ function DrivingDetail({
           {state.gear || "driving"}
         </span>
         {" · "}waiting for first frame…
+        {liveV2 ? <LiveDriveTrail vehicleId={vehicle.id} lat={state.latitude} lon={state.longitude} /> : null}
       </div>
     );
   }
