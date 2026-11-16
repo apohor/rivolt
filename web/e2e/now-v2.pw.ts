@@ -147,12 +147,15 @@ test("flag on, charging: the chip says power and the subline says what the limit
 
 test("flag on: stepping the period (picker above) renames the strip", async ({ page }) => {
   await open(page, true);
-  await expect(page.getByTestId("now-month").getByRole("heading")).toHaveText("This month");
+  // In the first hours of a month (in UTC) the month holds nothing yet and the strip shows the last 30 days (earlyMonthFallback), by design.
+  const heading = page.getByTestId("now-month").getByRole("heading");
+  await expect(heading).toHaveText(/^(This month|[A-Z][a-z]{2} \d+ – [A-Z][a-z]{2} \d+, \d{4})$/);
+  const before = await heading.innerText();
   // The picker is in the strip, not the page header.
   await expect(page.locator('[data-ui-area="scope"]').getByRole("button", { name: "Previous period" })).toHaveCount(0);
   await page.getByTestId("now-month").getByRole("button", { name: "Previous period" }).click();
-  await expect(page.getByTestId("now-month").getByRole("heading")).not.toHaveText("This month");
-  await expect(page.getByRole("region", { name: await page.getByTestId("now-month").getByRole("heading").innerText() })).toBeVisible();
+  await expect(heading).not.toHaveText(before);
+  await expect(page.getByRole("region", { name: await heading.innerText() })).toBeVisible();
 });
 
 test("flag off: the screen is today's (no new hero, the KPI tiles are there)", async ({ page }) => {
