@@ -220,7 +220,9 @@ func TestFoundingRedateAgainstPostgres(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pool.Close() })
 	// Other founding tests in this database count founding rows from zero: start and leave with none.
-	clean := func() { _, _ = pool.ExecContext(context.Background(), `DELETE FROM entitlements WHERE source = 'founding'`) }
+	clean := func() {
+		_, _ = pool.ExecContext(context.Background(), `DELETE FROM entitlements WHERE source = 'founding'`)
+	}
 	clean()
 	t.Cleanup(clean)
 	first := time.Now().UTC().Truncate(time.Second).AddDate(0, 0, -2)
