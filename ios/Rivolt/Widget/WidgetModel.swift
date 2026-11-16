@@ -94,18 +94,26 @@ enum WidgetContent: Equatable {
 struct NowEntry: TimelineEntry {
     let date: Date
     let content: WidgetContent
+    /// The free plan: only the small Now widget shows its numbers (see `WidgetGate`).
+    var proLocked = false
+}
+
+/// Which widgets the free plan keeps. The small Now widget is free on every plan; the medium and the Lock Screen widgets are Rivolt Pro
+/// (the same line as `lib/proCopy.ts` and the store listing).
+enum WidgetGate {
+    static func locks(_ family: WidgetFamily, proLocked: Bool) -> Bool { proLocked && family != .systemSmall }
 }
 
 /// Entries and refresh times. The system decides how often a widget really
 /// refreshes (a daily budget); these are what the widget asks for.
 enum WidgetTimelineBuilder {
-    static func entries(_ content: WidgetContent, at now: Date) -> [NowEntry] {
-        var out = [NowEntry(date: now, content: content)]
+    static func entries(_ content: WidgetContent, at now: Date, proLocked: Bool = false) -> [NowEntry] {
+        var out = [NowEntry(date: now, content: content, proLocked: proLocked)]
         // A second entry at the moment the data turns stale, so "Updated 3 hr. ago" appears on time without a refresh.
         if case .data(let s) = content, s.attention == .none, let seen = s.lastSeen {
             let flip = seen.addingTimeInterval(s.cadenceSeconds + 1)
             if flip > now, flip.timeIntervalSince(now) <= 6 * 3600 {
-                out.append(NowEntry(date: flip, content: content))
+                out.append(NowEntry(date: flip, content: content, proLocked: proLocked))
             }
         }
         return out
@@ -141,6 +149,7 @@ struct WidgetStore {
     private static let vehicleKey = "widget.vehicle_id"
     private static let serverKey = "widget.server"
     private static let snapshotKey = "widget.snapshot"
+    private static let proLockedKey = "widget.pro_locked"
 
     let defaults: UserDefaults
 
@@ -160,6 +169,12 @@ struct WidgetStore {
         defaults.data(forKey: Self.snapshotKey).flatMap { try? JSONDecoder().decode(WidgetSnapshot.self, from: $0) }
     }
 
+    /// True when the account is on the free plan: every widget but the small Now widget is Rivolt Pro. Unknown (never written) is false, so a
+    /// widget is never locked by a plan the app has not read.
+    var proLocked: Bool { defaults.bool(forKey: Self.proLockedKey) }
+
+    func setProLocked(_ locked: Bool) { defaults.set(locked, forKey: Self.proLockedKey) }
+
     /// The app tells the widget which truck and server the signed-in person is using.
     func setSession(vehicleID: String, server: URL) {
         guard WidgetFetch.validID(vehicleID) else { return }
@@ -174,7 +189,7 @@ struct WidgetStore {
     }
 
     func clear() {
-        for k in [Self.vehicleKey, Self.serverKey, Self.snapshotKey] { defaults.removeObject(forKey: k) }
+        for k in [Self.vehicleKey, Self.serverKey, Self.snapshotKey, Self.proLockedKey] { defaults.removeObject(forKey: k) }
     }
 }
 

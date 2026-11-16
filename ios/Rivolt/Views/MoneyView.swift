@@ -64,7 +64,7 @@ struct MoneyView: View {
             }
             .task {
                 guard !state.isDemo else { return }
-                let me = try? await state.client.me()
+                let me = try? await state.readMe()
                 plan = PlanLogic.state(me)
                 freeWindow = FreeWindow(me)
             }

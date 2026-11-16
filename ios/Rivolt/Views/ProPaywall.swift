@@ -110,7 +110,7 @@ enum ProCopy {
     static let primaryVehicleIntro = "The free plan shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
     static func primaryVehicleSaved(_ name: String) -> String { "Done. The free plan now shows \(name)." }
     static let title = "Rivolt Pro"
-    static let subtitle = "Full history, multi-day trips and widgets, from $3.99 a month."
+    static let subtitle = "Full history, multi-day trips and more widgets, from $3.99 a month."
     static func included(_ window: FreeWindow = .unknown) -> [String] { [
         "Unlimited history and trends (free: \(window.short))",
         "Range near a temperature",
@@ -118,8 +118,8 @@ enum ProCopy {
         "Re-plan from where the truck is, and plan-vs-actual after the trip",
         "Unlimited saved trips (free: 3)",
         "Every vehicle shown (free: 1)",
-        "iPhone: Lock Screen and Home Screen widgets, the charging Live Activity",
-        "Always free, on every plan: recording, every alert, imports, share cards, the full export, deletion",
+        "iPhone: every widget except the small Now widget (the charging Live Activity is free)",
+        "Always free, on every plan: recording, every alert, imports, share cards, trip share links, the charging Live Activity, the small Now widget, the full export, deletion",
     ] }
     static let yearly = (label: "Yearly", price: "$34.99", unit: "a year", extra: "about $2.92 a month")
     static let monthly = (label: "Monthly", price: "$3.99", unit: "a month", extra: "")
@@ -297,7 +297,7 @@ struct ProLimitNote: View {
         .accessibilityElement(children: .contain)
         .task {
             guard !state.isDemo else { return }
-            let me = try? await state.client.me()
+            let me = try? await state.readMe()
             plan = PlanLogic.state(me)
             freeWindow = FreeWindow(me)
         }
@@ -515,7 +515,7 @@ struct PlanNoticeView: View {
         }
         .task {
             guard !state.isDemo else { return }
-            let me = try? await state.client.me()
+            let me = try? await state.readMe()
             plan = PlanLogic.state(me)
             window = FreeWindow(me)
         }

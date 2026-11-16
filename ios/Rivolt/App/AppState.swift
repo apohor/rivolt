@@ -174,6 +174,7 @@ final class AppState {
         if let username = resumeAfterDemo {
             resumeAfterDemo = nil
             phase = .loggedIn(username: username)
+            Task { _ = try? await readMe() }
         } else {
             phase = .loggedOut
         }
@@ -188,7 +189,7 @@ final class AppState {
     func makePurchasing() async -> ProPurchasing {
         guard !isDemo, case .loggedIn = phase,
               let config = try? await client.appConfig(), let products = config.iap?.products,
-              let me = try? await client.me(), StoreLogic.mayOffer(billingEnabled: me.billingEnabled, iapAvailable: config.purchasesAvailable),
+              let me = try? await readMe(), StoreLogic.mayOffer(billingEnabled: me.billingEnabled, iapAvailable: config.purchasesAvailable),
               let token = StoreLogic.accountToken(me.userId) else { return UnavailablePurchasing() }
         let client = self.client
         return StorePurchasing(gateway: StoreKit2Gateway(), productIDs: products, accountToken: token, report: { try await client.reportAppleTransaction(signed: $0) })
@@ -201,7 +202,7 @@ final class AppState {
         storeUpdates = nil
         guard !isDemo, case .loggedIn = phase,
               let config = try? await client.appConfig(), config.purchasesAvailable, let products = config.iap?.products,
-              let me = try? await client.me(), let token = StoreLogic.accountToken(me.userId) else { return }
+              let me = try? await readMe(), let token = StoreLogic.accountToken(me.userId) else { return }
         let client = self.client
         let purchasing = StorePurchasing(gateway: StoreKit2Gateway(), productIDs: products, accountToken: token, report: { try await client.reportAppleTransaction(signed: $0) })
         storeUpdates = StoreKit2Gateway.listen(purchasing: purchasing)
@@ -227,7 +228,7 @@ final class AppState {
             return
         }
         do {
-            let me = try await client.me()
+            let me = try await readMe()
             phase = .loggedIn(username: me.username)
             await refreshUnits(known: me.units)
             Task { await refreshDesignPreview() }
@@ -330,7 +331,8 @@ final class AppState {
         phase = .loggedIn(username: username)
         await refreshUnits()
         Task { await refreshDesignPreview() }
-        // The widgets were showing "sign in"; they can fetch now.
+        // The widgets were showing "sign in"; they can fetch now, and they need the plan to know which of them are free.
+        _ = try? await readMe()
         WidgetCenter.shared.reloadAllTimelines()
         await notifications.signedIn(server: client)
         liveActivity.attach(server: client)
@@ -347,7 +349,7 @@ final class AppState {
     func recheckAfterDeletion() async {
         guard awaitingDeletion, case .loggedIn = phase else { return }
         do {
-            _ = try await client.me()
+            _ = try await readMe()
         } catch APIError.server(let status, _, _) where status == 401 {
             awaitingDeletion = false
             await forgetSession(notice: "Signed out. If you deleted your account, it is gone.")
@@ -429,10 +431,21 @@ final class AppState {
         if deferRevision { unitsChangePending = true } else { unitsRevision += 1 }
     }
 
+    /// Every read of /me goes through here: the widgets lock their non-free families by plan and read the answer from the App Group, so the
+    /// plan is written whenever it is read (sign-in, a purchase, a restore, the Settings and Money screens), not only at launch.
+    func readMe() async throws -> AuthUser {
+        let me = try await client.me()
+        if !isDemo, WidgetGate.record(me) { reloadWidgets() }
+        return me
+    }
+
+    /// What happens when the plan the widgets read changes; tests replace it.
+    var reloadWidgets: () -> Void = { WidgetCenter.shared.reloadAllTimelines() }
+
     /// Asks the server whether the Terms still have to be accepted. An unreachable server leaves the answer as it was.
     func recheckTerms() async {
         guard case .loggedIn = phase else { return }
-        if let me = try? await client.me() {
+        if let me = try? await readMe() {
             termsRequired = me.terms?.isRequired ?? false
             termsVersion = termsRequired ? me.terms?.current : nil
         }

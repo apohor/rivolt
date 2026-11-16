@@ -70,7 +70,7 @@ struct NowProvider: TimelineProvider {
             completion(NowEntry(date: .now, content: .data(.sample)))
         } else {
             let content = WidgetStore().snapshot.map(WidgetContent.data) ?? .unavailable
-            completion(NowEntry(date: .now, content: content))
+            completion(NowEntry(date: .now, content: content, proLocked: WidgetStore().proLocked))
         }
     }
 
@@ -80,7 +80,7 @@ struct NowProvider: TimelineProvider {
             let now = Date()
             let outcome = await WidgetFetch.load(store: store, clock: now)
             let content = WidgetResolver.resolve(outcome, store: store)
-            completion(Timeline(entries: WidgetTimelineBuilder.entries(content, at: now),
+            completion(Timeline(entries: WidgetTimelineBuilder.entries(content, at: now, proLocked: store.proLocked),
                                 policy: .after(WidgetTimelineBuilder.nextRefresh(content, at: now))))
         }
     }
