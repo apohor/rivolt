@@ -320,7 +320,7 @@ func launchNoticeRun(ctx context.Context, d launchNoticeDeps) int {
 			fmt.Fprintf(d.Out, "launch-notice: the rendered email still has %q; stopping\n", tok)
 			return 1
 		}
-		err = d.Mailer.Send(ctx, email.Message{To: strings.TrimSpace(t.u.Email), Subject: launchnotice.Subject, Text: body,
+		err = d.Mailer.Send(ctx, email.Message{To: strings.TrimSpace(t.u.Email), Subject: launchnotice.Subject, Text: body, HTML: launchnotice.RenderEmailHTML(sp),
 			IdempotencyKey: "launch-notice-" + t.u.ID.String()})
 		if err != nil {
 			_ = d.Store.ReleaseClaim(ctx, t.u.ID, launchnotice.Kind)
@@ -363,7 +363,7 @@ func launchNoticeTest(ctx context.Context, d launchNoticeDeps, p launchnotice.Pa
 		return 1
 	}
 	t := targets[0]
-	err := d.Mailer.Send(ctx, email.Message{To: strings.TrimSpace(t.u.Email), Subject: launchnotice.Subject, Text: launchnotice.RenderEmail(p),
+	err := d.Mailer.Send(ctx, email.Message{To: strings.TrimSpace(t.u.Email), Subject: launchnotice.Subject, Text: launchnotice.RenderEmail(p), HTML: launchnotice.RenderEmailHTML(p),
 		IdempotencyKey: "launch-notice-test-" + t.u.ID.String() + "-" + p.Launch})
 	if err != nil {
 		d.Logger.Warn("launch-notice: test send failed", "user_id", t.u.ID.String(), "err", logging.ScrubErr(err))

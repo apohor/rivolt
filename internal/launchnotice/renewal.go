@@ -132,7 +132,7 @@ func (j *RenewalJob) RunOnce(ctx context.Context) (DatedStats, error) {
 			j.observe(OutcomeLate)
 			log.Warn("renewal reminder: late", "late", true, "user_id", r.UserID.String(), "shortfall_days", int((MinNotice-r.RenewsOn.Sub(now)).Hours()/24))
 		}
-		err = j.Mailer.Send(ctx, email.Message{To: strings.TrimSpace(r.Email), Subject: RenewalSubject(sp), Text: RenderRenewalEmail(sp),
+		err = j.Mailer.Send(ctx, email.Message{To: strings.TrimSpace(r.Email), Subject: RenewalSubject(sp), Text: RenderRenewalEmail(sp), HTML: RenderRenewalEmailHTML(sp),
 			IdempotencyKey: "renewal-" + kind + "-" + r.UserID.String()})
 		if err != nil {
 			_ = j.Store.ReleaseClaim(ctx, r.UserID, kind)
