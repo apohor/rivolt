@@ -12,6 +12,14 @@ enum YearCardLogic {
         return y - 1
     }
 
+    /// The year's answer when the card is offered (January, not the demo, not hidden), else nil. The screen calls this from its own
+    /// .task: the card is an empty view until it has an answer, and a .task on an empty view never starts.
+    static func load(client: APIClient, isDemo: Bool, now: Date = .now, hidden: Int = UserDefaults.standard.integer(forKey: hiddenKey)) async -> YearInRivolt? {
+        guard !isDemo, let year = year(now: now), hidden != year else { return nil }
+        guard let a = try? await client.yearInRivolt(year: year), a.eligible else { return nil }
+        return a
+    }
+
     /// "2026-07" → "July"; a malformed month is dropped.
     static func monthName(_ ym: String?) -> String? {
         guard let ym, ym.count == 7, ym[ym.index(ym.startIndex, offsetBy: 4)] == "-",
@@ -74,12 +82,16 @@ enum YearCardLogic {
 struct YearCardView: View {
     @Environment(AppState.self) private var state
     @AppStorage(YearCardLogic.hiddenKey) private var hiddenYear = 0
-    @State private var answer: YearInRivolt?
     @State private var sharing = false
+    /// The answer, read by the screen that holds the card (see `YearCardLogic.load`); nil until it arrives or when not offered.
+    var answer: YearInRivolt?
+    /// The date the card is judged by; a test sets it.
+    var now: Date = .now
 
-    private var year: Int? { state.isDemo ? nil : YearCardLogic.year(now: .now) }
+    private var year: Int? { state.isDemo ? nil : YearCardLogic.year(now: now) }
 
     var body: some View {
+        // Empty (and no spacing in the Money stack) until there is an answer; the screen loads it, since a .task here would never run.
         Group {
             if let year, hiddenYear != year, let y = answer, let card = YearCardLogic.card(y, includeCost: false) {
                 VStack(alignment: .leading, spacing: 8) {
@@ -100,12 +112,6 @@ struct YearCardView: View {
                 }
             }
         }
-        .task { await load() }
-    }
-
-    private func load() async {
-        guard let year, hiddenYear != year else { return }
-        if let a = try? await state.client.yearInRivolt(year: year), a.eligible { answer = a }
     }
 }
 
