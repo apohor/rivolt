@@ -95,7 +95,18 @@ test("three failed reads in a row drop the trip; the next good read brings it ba
   await page.goto("/live");
   await expect(page.getByTestId("live-destination")).toBeVisible();
   // Reads 2 and 3 failed: still shown. Read 4 is the third in a row.
+  await expect.poll(() => n, { timeout: 20_000 }).toBeGreaterThanOrEqual(3);
+  await expect(page.getByTestId("live-destination")).toBeVisible();
   await expect(page.getByTestId("live-destination")).toHaveCount(0, { timeout: 30_000 });
   expect(n).toBeGreaterThanOrEqual(4);
   await expect(page.getByTestId("live-destination")).toBeVisible({ timeout: 20_000 });
+});
+
+test("destination design off: the waiting card draws no map", async ({ page }) => {
+  await stub(page, "driving", { designPreview: ["live_v2"] });
+  await page.route(`**/api/live-drive/${VEHICLE_ID}`, (r) => r.fulfill({ status: 204 }));
+  await page.goto("/live");
+  await expect(page.getByText(/waiting for first frame/)).toBeVisible();
+  await page.waitForTimeout(800);
+  await expect(page.getByTestId("live-drive-map")).toHaveCount(0);
 });

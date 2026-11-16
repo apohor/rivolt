@@ -847,8 +847,9 @@ function DrivingDetail({
     retry: 1,
   });
   const d = q.data;
-  // Design "live_v2": the drive so far on a map.
+  // Design "live_v2": the drive so far on a map; "live_destination" also gives the no-drive-yet card a map.
   const liveV2 = useDesignPreview("live_v2");
+  const liveDestination = useDesignPreview("live_destination");
   // Current speed comes straight from vehicleState — the session
   // snapshot only carries aggregates (avg/max). Showing "now" next to
   // "avg / max" gives an at-a-glance sense of pace.
@@ -860,7 +861,7 @@ function DrivingDetail({
           {state.gear || "driving"}
         </span>
         {" · "}waiting for first frame…
-        {liveV2 ? <LiveDriveTrail vehicleId={vehicle.id} lat={state.latitude} lon={state.longitude} /> : null}
+        {liveV2 && liveDestination ? <LiveDriveTrail vehicleId={vehicle.id} lat={state.latitude} lon={state.longitude} /> : null}
       </div>
     );
   }
