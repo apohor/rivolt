@@ -67,6 +67,9 @@ func simNavFrames(seg sampleSeg, shift time.Duration, at time.Time) []*NavFrame 
 	// The frame the moment falls in.
 	i := int(at.Add(-shift).Sub(seg.start) / seg.step)
 	i = max(0, min(i, n-1))
+	if i == n-1 {
+		return []*NavFrame{{Info: &NavInfo{}}} // no stops: the trip is over, and every later tick says only that
+	}
 	fr := seg.frameAt(i)
 	turnAt := seg.frameAt(turn).At.Add(shift)
 	endAt := seg.frameAt(n - 1).At.Add(shift)
@@ -82,8 +85,5 @@ func simNavFrames(seg sampleSeg, shift time.Duration, at time.Time) []*NavFrame 
 	info := &NavInfo{Name: name, Lat: to.Lat, Lon: to.Lon, Stops: 1, LegMetres: []float64{metres}, Route: encodePolyline6(path)}
 	left := haversineMeters(fr.Lat, fr.Lon, to.Lat, to.Lon) * sampleRoadRatio
 	out := []*NavFrame{{Info: info}, {Progress: &NavProgress{ETA: arrive, LegMetres: math.Min(left, metres), HasLegDist: true}}}
-	if i == n-1 {
-		out = append(out, &NavFrame{Info: &NavInfo{}}) // no stops: the trip is over
-	}
 	return out
 }

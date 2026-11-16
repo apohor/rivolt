@@ -29,9 +29,16 @@ func TestSimDriveNavCarriesTheErrandThenHome(t *testing.T) {
 		if len(fr) == 0 {
 			continue // a parked stretch before or after the drive
 		}
+		if len(fr) == 1 && fr[0].Info != nil && fr[0].Info.Stops == 0 {
+			lastEnded = true // the end alone: nothing to re-create and clear again on every later tick
+			continue
+		}
+		if lastEnded {
+			t.Fatalf("%s: a trip frame after the trip ended", at)
+		}
 		seen++
 		info, prog := fr[0].Info, fr[1].Progress
-		if info == nil || prog == nil || info.Stops != 1 || !prog.HasLegDist || prog.NextStop != 0 {
+		if len(fr) != 2 || info == nil || prog == nil || info.Stops != 1 || !prog.HasLegDist || prog.NextStop != 0 {
 			t.Fatalf("%s: info %+v progress %+v", at, info, prog)
 		}
 		if prog.LegMetres < 0 || prog.LegMetres > info.LegMetres[0] {
@@ -39,10 +46,6 @@ func TestSimDriveNavCarriesTheErrandThenHome(t *testing.T) {
 		}
 		if len(dests) == 0 || dests[len(dests)-1] != info.Name {
 			dests = append(dests, info.Name)
-		}
-		lastEnded = len(fr) == 3 && fr[2].Info != nil && fr[2].Info.Stops == 0
-		if len(fr) == 3 && !lastEnded {
-			t.Fatalf("%s: a third frame that does not end the trip", at)
 		}
 	}
 	if seen == 0 || len(dests) != 2 || dests[0] != "Santa Anita Park" || dests[1] != "Rose Bowl Stadium" {
