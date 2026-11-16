@@ -25,6 +25,10 @@ func runEntitlementsFounding(args []string) int {
 	apply := fs.Bool("apply", false, "grant (default: dry run)")
 	expectCount := fs.Int("expect-count", -1, "with --apply: the number to grant, from the dry run")
 	expectSHA := fs.String("expect-sha", "", "with --apply: the ids hash from the dry run")
+	redateFrom := fs.String("redate-from", "", "re-date mode: RFC3339 end the founding rows carry now; they move to the end for --launch, and accounts without a row are granted")
+	expectGrantCount := fs.Int("expect-grant-count", -1, "re-date with --apply: the number to grant, from the dry run (--expect-count is the number to move)")
+	expectGrantSHA := fs.String("expect-grant-sha", "", "re-date with --apply: the grant ids hash from the dry run (--expect-sha is the move hash)")
+	undoFile := fs.String("undo-file", "", "re-date with --apply: a new file, or - for stdout, the undo SQL is written to before anything changes")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -43,6 +47,16 @@ func runEntitlementsFounding(args []string) int {
 	if err := db.RequireTables(ctx, pool, "users", "entitlements"); err != nil {
 		fmt.Fprintln(os.Stderr, "entitlements-founding:", err)
 		return 1
+	}
+	if *redateFrom != "" {
+		from, err := time.Parse(time.RFC3339, *redateFrom)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "entitlements-founding: --redate-from must be an RFC3339 time")
+			return 2
+		}
+		//rivolt:transient a subcommand: runs once, in the foreground, and exits
+		return entitlements.RunRedate(ctx, pool, os.Stdout, os.Stderr, demo.UserID(), launch, from, *apply,
+			entitlements.RedateExpect{MoveCount: *expectCount, MoveSHA: *expectSHA, GrantCount: *expectGrantCount, GrantSHA: *expectGrantSHA}, *undoFile)
 	}
 	//rivolt:transient a subcommand: runs once, in the foreground, and exits
 	return entitlements.RunFounding(ctx, pool, os.Stdout, os.Stderr, demo.UserID(), launch, *apply, *expectCount, *expectSHA)

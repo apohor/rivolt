@@ -197,6 +197,8 @@ var notOwnerSide = map[string]string{
 	"stripebill.linkCustomer":                 "Stripe webhook (internal/stripebill), an HTTP handler applying Stripe's signed events: not an owner-side recorder write",
 	"stripebill.PurgeEvents":                  "retention job (stripe webhook event ids older than 30 days), not an owner-side write",
 	"entitlements.ApplyFounding":              "operator CLI (rivolt entitlements-founding), not owner-side",
+	"entitlements.ApplyRedate":                "operator CLI (rivolt entitlements-founding --redate-from), not owner-side",
+	"entitlements.RedatePlan.UndoSQL":         "builds the undo script text for the operator CLI; it runs nothing",
 	"db.RecordServerEvent":                    "analytics event of a user action (sign-up, connect)",
 	"db.deleteUserAccountTx":                  "user action / inactive purge (account deletion)",
 	"db.deleteUserTx":                         "user action / inactive purge (account deletion)",

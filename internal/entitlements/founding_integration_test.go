@@ -5,6 +5,7 @@ package entitlements_test
 import (
 	"bytes"
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -204,5 +205,145 @@ func TestFoundingDryRunWritesNothing(t *testing.T) {
 	u1, e1, demos := counts()
 	if u1 != u0 || e1 != e0 || demos != d0 {
 		t.Errorf("the dry run wrote: users %d -> %d, entitlements %d -> %d, demo rows %d -> %d", u0, u1, e0, e1, d0, demos)
+	}
+}
+
+// The re-date against Postgres: rows ending at the old end move to the new end and nothing else about them changes, an account that
+// joined since the first apply is granted, a row with another end is left alone, a wrong expectation or an existing undo file writes
+// nothing, and the undo file puts the old state back.
+func TestFoundingRedateAgainstPostgres(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	// Other founding tests in this database count founding rows from zero: start and leave with none.
+	clean := func() {
+		_, _ = pool.ExecContext(context.Background(), `DELETE FROM entitlements WHERE source = 'founding'`)
+	}
+	clean()
+	t.Cleanup(clean)
+	first := time.Now().UTC().Truncate(time.Second).AddDate(0, 0, -2)
+	second := first.AddDate(0, 0, 1)
+	demoID, err := db.EnsureUserFull(ctx, pool, db.DemoUsername, "", "Demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(name string, at time.Time) uuid.UUID {
+		id, err := db.EnsureUser(ctx, pool, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = $2 WHERE id = $1`, id, at); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	a := mk("redate-a", first.AddDate(0, -3, 0))
+	_ = mk("redate-b", first.AddDate(0, -3, 0))
+	odd := mk("redate-odd", first.AddDate(0, -3, 0))
+	joined := mk("redate-joined", first.Add(time.Hour))
+	if _, err := pool.ExecContext(ctx, `UPDATE users SET created_at = $2 WHERE id = $1`, demoID, first.AddDate(0, -3, 0)); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	// The first apply, as it ran: every account at the first launch.
+	rep, err := entitlements.PlanFounding(ctx, pool, demoID, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := entitlements.RunFounding(ctx, pool, &out, &errOut, demoID, first, true, rep.ToGrant, rep.IDsHash()); code != 0 {
+		t.Fatalf("first apply: %d %s", code, errOut.String())
+	}
+	oldEnd := entitlements.FoundingEnd(first)
+	otherEnd := oldEnd.Add(48 * time.Hour)
+	if _, err := pool.ExecContext(ctx, `UPDATE entitlements SET current_period_end = $2, status = 'past_due' WHERE user_id = $1 AND source = 'founding'`, odd, otherEnd); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := entitlements.PlanRedate(ctx, pool, demoID, second, oldEnd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Grant) != 1 || p.Grant[0] != joined || p.Other != 1 || len(p.Move) != p.Eligible-2 {
+		t.Fatalf("plan: move %d grant %v other %d eligible %d", len(p.Move), p.Grant, p.Other, p.Eligible)
+	}
+	e := entitlements.RedateExpect{MoveCount: len(p.Move), MoveSHA: p.MoveHash(), GrantCount: len(p.Grant), GrantSHA: p.GrantHash()}
+	count := func() (n int) {
+		_ = pool.QueryRowContext(ctx, `SELECT count(*) FROM entitlements WHERE source = 'founding' AND current_period_end = $1`, entitlements.FoundingEnd(second)).Scan(&n)
+		return
+	}
+
+	// A dry run and a wrong expectation write nothing.
+	undo := t.TempDir() + "/undo.sql"
+	if code := entitlements.RunRedate(ctx, pool, &out, &errOut, demoID, second, oldEnd, false, e, ""); code != 0 || count() != 0 {
+		t.Fatalf("dry run: %d, %d at the new end", code, count())
+	}
+	bad := e
+	bad.GrantCount++
+	if code := entitlements.RunRedate(ctx, pool, &out, &errOut, demoID, second, oldEnd, true, bad, undo); code == 0 || count() != 0 {
+		t.Fatal("apply went ahead with a wrong expectation")
+	}
+	if _, err := os.Stat(undo); err == nil {
+		t.Fatal("a refused apply left an undo file")
+	}
+	if code := entitlements.RunRedate(ctx, pool, &out, &errOut, demoID, second, oldEnd, true, e, ""); code == 0 {
+		t.Fatal("apply went ahead without an undo file")
+	}
+
+	if code := entitlements.RunRedate(ctx, pool, &out, &errOut, demoID, second, oldEnd, true, e, undo); code != 0 {
+		t.Fatalf("apply: %d %s", code, errOut.String())
+	}
+	if n := count(); n != len(p.Move)+1 {
+		t.Errorf("%d rows at the new end, want %d", n, len(p.Move)+1)
+	}
+	var end time.Time
+	var status string
+	if err := pool.QueryRowContext(ctx, `SELECT current_period_end, status FROM entitlements WHERE user_id = $1 AND source = 'founding'`, a).Scan(&end, &status); err != nil {
+		t.Fatal(err)
+	}
+	if !end.Equal(entitlements.FoundingEnd(second)) || status != "active" {
+		t.Errorf("moved row: end %v status %s", end, status)
+	}
+	var oddEnd time.Time
+	var oddStatus string
+	if err := pool.QueryRowContext(ctx, `SELECT current_period_end, status FROM entitlements WHERE user_id = $1 AND source = 'founding'`, odd).Scan(&oddEnd, &oddStatus); err != nil || !oddEnd.Equal(otherEnd) || oddStatus != "past_due" {
+		t.Errorf("the row with another end changed: %v %s %v", oddEnd, oddStatus, err)
+	}
+	if code := entitlements.RunRedate(ctx, pool, &out, &errOut, demoID, second, oldEnd, true, e, undo+"2"); code == 0 {
+		t.Error("a repeated apply reported success")
+	}
+	if code := entitlements.RunRedate(ctx, pool, &out, &errOut, demoID, second, oldEnd, true, e, undo); code == 0 {
+		t.Error("an existing undo file was overwritten")
+	}
+
+	// The undo file puts the first state back.
+	sqlText, err := os.ReadFile(undo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.ExecContext(ctx, string(sqlText)); err != nil {
+		t.Fatalf("undo: %v\n%s", err, sqlText)
+	}
+	if n := count(); n != 0 {
+		t.Errorf("%d rows still at the new end after the undo", n)
+	}
+	var back int
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM entitlements WHERE source = 'founding' AND current_period_end = $1`, oldEnd).Scan(&back); err != nil || back != len(p.Move) {
+		t.Errorf("%d rows back at the old end, want %d (%v)", back, len(p.Move), err)
+	}
+	if err := pool.QueryRowContext(ctx, `SELECT count(*) FROM entitlements WHERE user_id = $1`, joined).Scan(&back); err != nil || back != 0 {
+		t.Errorf("the granted row survived the undo: %d %v", back, err)
+	}
+
+	// --undo-file - prints the script to stdout before it applies.
+	var stdoutRun bytes.Buffer
+	if code := entitlements.RunRedate(ctx, pool, &stdoutRun, &errOut, demoID, second, oldEnd, true, e, "-"); code != 0 {
+		t.Fatalf("apply with a stdout undo: %d %s", code, errOut.String())
+	}
+	if got := stdoutRun.String(); !strings.Contains(got, "-- undo script begins\n-- undo of the founding re-date") || !strings.Contains(got, "COMMIT;\n-- undo script ends") || count() != len(p.Move)+1 {
+		t.Errorf("stdout undo: %q, %d at the new end", got, count())
 	}
 }
