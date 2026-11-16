@@ -53,6 +53,7 @@ struct HomeView: View {
 
     /// The redesigned Now (design_preview key ios_now_v2, apart from the web's now_v2); off on prod, so the screen is the one it always was.
     @State private var showLive = false
+    @State private var destinationFailures = 0
     private var v2: Bool { state.designPreview.contains("ios_now_v2") }
 
     private var selected: Vehicle? {
@@ -341,12 +342,16 @@ struct HomeView: View {
         session = kind == .charging ? (try? await state.client.liveSession(id: id)) ?? nil : nil
         liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
         // Only while in gear, only when the design is on and not told "off"; this runs on the state's own cadence, which the tab and scene gate.
-        guard kind == .driving, state.designPreview.contains("live_destination"), !destinationOff else { liveDestination = nil; return }
+        // Only while the Live screen is open: nothing else shows it.
+        guard kind == .driving, showLive, state.designPreview.contains("live_destination"), !destinationOff else { liveDestination = nil; destinationFailures = 0; return }
         switch try? await state.client.liveDestination(id: id) {
-        case .trip(let d): liveDestination = d
-        case .noTrip: liveDestination = nil
+        case .trip(let d): liveDestination = d; destinationFailures = 0
+        case .noTrip: liveDestination = nil; destinationFailures = 0
         case .off: liveDestination = nil; destinationOff = true
-        case nil: break // a failed read (503): keep what is shown until the next one
+        case nil:
+            // A failed read (503): keep what is shown, but not for long; a stale trip is worse than none.
+            destinationFailures += 1
+            if destinationFailures >= 3 { liveDestination = nil }
         }
     }
 

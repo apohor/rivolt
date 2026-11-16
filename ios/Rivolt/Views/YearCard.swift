@@ -76,11 +76,14 @@ struct YearCardView: View {
     @AppStorage(YearCardLogic.hiddenKey) private var hiddenYear = 0
     @State private var answer: YearInRivolt?
     @State private var sharing = false
+    /// The date the card is judged by; a test sets it.
+    var now: Date = .now
 
-    private var year: Int? { state.isDemo ? nil : YearCardLogic.year(now: .now) }
+    private var year: Int? { state.isDemo ? nil : YearCardLogic.year(now: now) }
 
     var body: some View {
-        Group {
+        // A container that is always there: .task on an empty Group never runs, so the card would never load.
+        VStack(spacing: 0) {
             if let year, hiddenYear != year, let y = answer, let card = YearCardLogic.card(y, includeCost: false) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(card.title).themeText(.value, color: Theme.textPrimary).accessibilityAddTraits(.isHeader)
