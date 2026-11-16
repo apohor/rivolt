@@ -160,6 +160,8 @@ struct HomeView: View {
             .task(id: recheckKey) { if recheckKey != nil { await refreshNow() } }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
             .task(id: "\(selected?.id ?? "")|\(month.key)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
+            // The Live screen just opened: read the destination now, not at the next poll.
+            .onChange(of: showLive) { if showLive, let id = selected?.id { Task { await loadLive(id: id) } } }
             .onChange(of: selectedID) { destinationOff = false; liveDestination = nil; Task { await loadSelected() } }
             // A closed Now screen doesn't keep re-reading after a drive or charge ends.
             .onDisappear { settleTask?.cancel() }

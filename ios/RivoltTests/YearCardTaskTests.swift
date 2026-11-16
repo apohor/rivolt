@@ -23,33 +23,42 @@ private final class YearToken: TokenStore, @unchecked Sendable {
     func deleteToken(for server: URL) throws {}
 }
 
-/// The card is an empty view until its answer arrives, and a .task on an empty Group never starts (found in the 0.2.75 gate).
+/// The card is an empty view until its answer arrives, so the screen holding it loads the answer (a .task on an empty Group never
+/// starts; found in the 0.2.75 gate) and an empty card must not add a gap to the Money stack.
 @MainActor
 final class YearCardTaskTests: XCTestCase {
-    private func host(now: Date) throws -> UIWindow {
+    private func client() throws -> APIClient {
         let c = URLSessionConfiguration.ephemeral
         c.protocolClasses = [YearStub.self]
         YearStub.paths = []
         YearStub.body = try Fixture.data("year_in_rivolt")
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "year-task-\(UUID().uuidString)"))
-        let state = AppState(tokens: YearToken(), defaults: defaults, session: URLSession(configuration: c))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
-        window.rootViewController = UIHostingController(rootView: NavigationStack { ScrollView { VStack(spacing: 16) { YearCardView(now: now) } } }.environment(state))
-        window.makeKeyAndVisible()
-        return window
+        return APIClient(baseURL: URL(string: "https://example.invalid")!, tokens: YearToken(), session: URLSession(configuration: c))
     }
 
-    func testTheAnswerIsAskedForInJanuaryWhileTheCardIsStillEmpty() async throws {
-        let window = try host(now: JSON.parseDate("2027-01-05T12:00:00Z")!)
-        for _ in 0..<50 where !YearStub.paths.contains("/api/year-in-rivolt") { try await Task.sleep(nanoseconds: 100_000_000) }
-        XCTAssertTrue(YearStub.paths.contains("/api/year-in-rivolt"), "seen: \(YearStub.paths)")
-        window.isHidden = true
+    func testTheAnswerIsAskedForInJanuary() async throws {
+        let a = await YearCardLogic.load(client: try client(), isDemo: false, now: JSON.parseDate("2027-01-05T12:00:00Z")!, hidden: 0)
+        XCTAssertEqual(a?.model, "R1S")
+        XCTAssertEqual(YearStub.paths, ["/api/year-in-rivolt"])
     }
 
-    func testNothingIsAskedOutsideJanuary() async throws {
-        let window = try host(now: JSON.parseDate("2026-10-30T12:00:00Z")!)
-        try await Task.sleep(nanoseconds: 1_000_000_000)
+    func testNothingIsAskedOutsideJanuaryInTheDemoOrOnceHidden() async throws {
+        let c = try client()
+        let jan = JSON.parseDate("2027-01-05T12:00:00Z")!
+        let o1 = await YearCardLogic.load(client: c, isDemo: false, now: JSON.parseDate("2026-10-30T12:00:00Z")!, hidden: 0)
+        let o2 = await YearCardLogic.load(client: c, isDemo: true, now: jan, hidden: 0)
+        let o3 = await YearCardLogic.load(client: c, isDemo: false, now: jan, hidden: 2026)
+        XCTAssertNil(o1); XCTAssertNil(o2); XCTAssertNil(o3)
         XCTAssertTrue(YearStub.paths.isEmpty, "seen: \(YearStub.paths)")
-        window.isHidden = true
+    }
+
+    func testAnEmptyCardTakesNoSpaceInAStack() throws {
+        let c = URLSessionConfiguration.ephemeral
+        let state = AppState(tokens: YearToken(), defaults: try XCTUnwrap(UserDefaults(suiteName: "year-gap-\(UUID().uuidString)")), session: URLSession(configuration: c))
+        func height<V: View>(_ v: V) -> CGFloat {
+            UIHostingController(rootView: v.environment(state)).sizeThatFits(in: CGSize(width: 393, height: 2000)).height
+        }
+        let without = height(VStack(spacing: 16) { Text("a"); Text("b") })
+        let with = height(VStack(spacing: 16) { Text("a"); YearCardView(answer: nil); Text("b") })
+        XCTAssertEqual(with, without, accuracy: 0.5)
     }
 }

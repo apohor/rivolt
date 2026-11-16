@@ -22,6 +22,7 @@ struct MoneyView: View {
     @State private var plan: PlanState = .off
     @State private var freeWindow: FreeWindow = .unknown
     @State private var showPro = false
+    @State private var yearAnswer: YearInRivolt?
 
     @State private var pickedLocked = false
     private var selected: Vehicle? { VehicleChoice.selected(vehicles, chosen: selectedID, pickedLocked: pickedLocked) }
@@ -39,7 +40,7 @@ struct MoneyView: View {
                     } else {
                         VStack(spacing: 16) {
                             VehicleScopeNote(vehicles: vehicles)
-                            YearCardView()
+                            YearCardView(answer: yearAnswer)
                             OffpeakPromptView()
                             MoneyContent(model: model, filter: $filter, metric: $metric, savingsWhich: $savingsWhich,
                                          noticeHidden: $noticeHidden, serverURL: state.serverURL,
@@ -56,6 +57,7 @@ struct MoneyView: View {
             .toolbar(.hidden, for: .navigationBar)
             .refreshable { await reload() }
             .task { await loadVehicles() }
+            .task { yearAnswer = await YearCardLogic.load(client: state.client, isDemo: state.isDemo) }
             .task(id: "\(vehiclesLoaded)|\(scope ?? "")|\(period.start.timeIntervalSince1970)") {
                 guard vehiclesLoaded, selected?.proLocked != true else { return }
                 await model.load(source: state.client, vehicleID: scope, period: period)
