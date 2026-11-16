@@ -226,8 +226,16 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section aria-labelledby="pricing-heading" className="space-y-3">
-          <h2 id="pricing-heading" className="text-xl font-semibold">Free and Pro</h2>
+        <section id="pricing" aria-labelledby="pricing-heading">
+          <div className="wrap">
+          <div className="head rv">
+            <p className="tag">
+              <b>Pricing</b>
+            </p>
+            <h2 id="pricing-heading">
+              Free, and <em>Pro.</em>
+            </h2>
+          </div>
           <div className="grid gap-6 md:grid-cols-2">
             <Claim
               title="Free"
@@ -245,6 +253,7 @@ export default function LandingPage() {
           <p className="fine">
             Subscribe on the web; iPhone purchase coming soon. Web payments through Stripe; Rivolt never sees your card. Web purchases need a US billing address for now. Self-hosting is complete and free. Unofficial, not affiliated with Rivian.
           </p>
+          </div>
         </section>
 
         <section style={{ paddingTop: 0 }} aria-labelledby="lp-next-h">
