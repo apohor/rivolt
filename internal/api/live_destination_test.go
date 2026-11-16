@@ -196,3 +196,22 @@ func TestLiveDestinationRouteIsOffWithoutTheFlag(t *testing.T) {
 		t.Errorf("Cache-Control = %q", cc)
 	}
 }
+
+// An anonymous visitor can carry the nil user id; with the flag on for everyone (All) it must still get the plain 404, not the 401 a
+// handler would give, which would tell a probe the endpoint exists. The 401 also loses the no-store header (http.Error drops it).
+func TestLiveDestinationNilUserIsThePlain404EvenWhenFlagIsOnForAll(t *testing.T) {
+	fw := &fakeStateForwarder{res: forward.Result{Status: 200, Body: destBody(true)}}
+	h := destRouter(true, true, newStateForward(fw), rivian.NewUnheldClient(), nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/live-destination/"+fwdVehicle, nil)
+	req = req.WithContext(auth.WithUser(req.Context(), uuid.Nil))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	unknown := httptest.NewRecorder()
+	http.NotFound(unknown, httptest.NewRequest(http.MethodGet, "/x", nil))
+	if rec.Code != http.StatusNotFound || rec.Body.String() != unknown.Body.String() || rec.Header().Get("Cache-Control") != "private, no-store" {
+		t.Errorf("nil user: %d %q cc=%q", rec.Code, rec.Body.String(), rec.Header().Get("Cache-Control"))
+	}
+	if len(fw.calls) != 0 {
+		t.Errorf("reached the forwarder: %+v", fw.calls)
+	}
+}
