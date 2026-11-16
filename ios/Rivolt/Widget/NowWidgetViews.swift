@@ -17,18 +17,22 @@ struct NowWidgetView: View {
     let family: WidgetFamily
 
     var body: some View {
-        switch entry.content {
-        case .signedOut:
-            PlaceholderView(text: "Open Rivolt to sign in", family: family)
-        case .unavailable:
-            PlaceholderView(text: "No data yet. Open Rivolt.", family: family)
-        case .data(let s):
-            switch family {
-            case .accessoryCircular: CircularView(snapshot: s, at: entry.date)
-            case .accessoryRectangular: RectangularView(snapshot: s, at: entry.date)
-            case .accessoryInline: InlineView(snapshot: s, at: entry.date)
-            case .systemMedium: HomeFamilyView(snapshot: s, at: entry.date, wide: true)
-            default: HomeFamilyView(snapshot: s, at: entry.date, wide: false)
+        if WidgetGate.locks(family, proLocked: entry.proLocked) {
+            PlaceholderView(text: "More widgets are Rivolt Pro", family: family)
+        } else {
+            switch entry.content {
+            case .signedOut:
+                PlaceholderView(text: "Open Rivolt to sign in", family: family)
+            case .unavailable:
+                PlaceholderView(text: "No data yet. Open Rivolt.", family: family)
+            case .data(let s):
+                switch family {
+                case .accessoryCircular: CircularView(snapshot: s, at: entry.date)
+                case .accessoryRectangular: RectangularView(snapshot: s, at: entry.date)
+                case .accessoryInline: InlineView(snapshot: s, at: entry.date)
+                case .systemMedium: HomeFamilyView(snapshot: s, at: entry.date, wide: true)
+                default: HomeFamilyView(snapshot: s, at: entry.date, wide: false)
+                }
             }
         }
     }

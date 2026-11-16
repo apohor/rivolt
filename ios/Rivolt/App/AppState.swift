@@ -228,6 +228,7 @@ final class AppState {
         }
         do {
             let me = try await client.me()
+            recordWidgetPlan(me)
             phase = .loggedIn(username: me.username)
             await refreshUnits(known: me.units)
             Task { await refreshDesignPreview() }
@@ -429,10 +430,17 @@ final class AppState {
         if deferRevision { unitsChangePending = true } else { unitsRevision += 1 }
     }
 
+    /// The widgets lock their non-free families by plan; they read the answer from the App Group, so the app writes it whenever it reads /me.
+    private func recordWidgetPlan(_ me: AuthUser) {
+        guard !isDemo, WidgetGate.record(me) else { return }
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     /// Asks the server whether the Terms still have to be accepted. An unreachable server leaves the answer as it was.
     func recheckTerms() async {
         guard case .loggedIn = phase else { return }
         if let me = try? await client.me() {
+            recordWidgetPlan(me)
             termsRequired = me.terms?.isRequired ?? false
             termsVersion = termsRequired ? me.terms?.current : nil
         }
