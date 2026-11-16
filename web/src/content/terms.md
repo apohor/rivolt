@@ -1,6 +1,6 @@
 # Rivolt Terms of Service
 
-Last updated: November 16, 2026
+Last updated: November 17, 2026
 
 ## 1. What Rivolt is, and who runs it
 Rivolt is an independent, open-source companion app that records and analyses data from your Rivian vehicle. It is not affiliated with, endorsed by, or partnered with Rivian Automotive, Inc. "Rivian" is a trademark of its owner, used descriptively.
