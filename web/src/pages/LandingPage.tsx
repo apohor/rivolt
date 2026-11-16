@@ -233,7 +233,7 @@ export default function LandingPage() {
               <b>Pricing</b>
             </p>
             <h2 id="pricing-heading">
-              Free, and <em>Pro.</em>
+              Free and <em>Pro</em>
             </h2>
           </div>
           <div className="grid gap-6 md:grid-cols-2">
