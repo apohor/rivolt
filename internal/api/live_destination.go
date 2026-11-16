@@ -101,7 +101,7 @@ func requireLiveDestinationMW(on func(uuid.UUID) bool) func(http.Handler) http.H
 			// Before any answer, so the ownership gate's 404 carries the header too: a 404 that differs from the flag-off one is a probe.
 			w.Header().Set("Cache-Control", "private, no-store")
 			uid, ok := auth.UserFromContext(r.Context())
-			if !ok || on == nil || !on(uid) {
+			if !ok || uid == uuid.Nil || on == nil || !on(uid) {
 				http.NotFound(w, r)
 				return
 			}
