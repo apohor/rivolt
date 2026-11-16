@@ -64,3 +64,22 @@ func TestRenderedCopyHasNoPlaceholdersAndStatesTheDates(t *testing.T) {
 		t.Error("Unfilled misses a placeholder")
 	}
 }
+
+func TestLaunchCopyIsPlanV6(t *testing.T) {
+	launch := RenderEmail(NewParams(day("2026-12-01")))
+	free := RenderFoundingEmail(FoundingParams{End: "2027-11-15"})
+	for name, body := range map[string]string{"launch": launch, "founding": free} {
+		if strings.Contains(body, "90 days") {
+			t.Errorf("%s email still says 90 days", name)
+		}
+		if !strings.Contains(body, "12 months") || !strings.Contains(body, "small Now widget") || !strings.Contains(body, "charging Live Activity") {
+			t.Errorf("%s email lacks the v6 free window or widgets", name)
+		}
+	}
+	if strings.Contains(launch, "forecast radar") {
+		t.Error("the launch email's Pro list names forecast radar, which is not live on prod")
+	}
+	if !strings.Contains(free, "iPhone purchase coming soon; the app has no link out to buy.") || strings.Contains(free, "or in the iPhone app") {
+		t.Error("the end-of-year email must be web-first with no iPhone purchase path")
+	}
+}

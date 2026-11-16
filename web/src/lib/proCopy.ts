@@ -8,16 +8,16 @@ export type Interval = "month" | "year";
 
 export const PRO = {
   title: "Rivolt Pro",
-  subtitle: "Full history, multi-day trips and widgets, from $3.99 a month.",
+  subtitle: "Full history, multi-day trips and more widgets, from $3.99 a month.",
   included: [
-    "Unlimited history and trends (free: the last 90 days)",
+    "Unlimited history and trends (free: the last 12 months)",
     "Range near a temperature",
     "Multi-day trip plans with hotel and campground overnights",
     "Re-plan from where the truck is, and plan-vs-actual after the trip",
     "Unlimited saved trips (free: 3)",
     "Every vehicle shown (free: 1)",
-    "iPhone: Lock Screen and Home Screen widgets, the charging Live Activity",
-    "Always free, on every plan: recording, every alert, imports, share cards, the full export, deletion",
+    "iPhone: every widget except the small Now widget (the charging Live Activity is free)",
+    "Always free, on every plan: recording, every alert, imports, share cards, trip share links, the charging Live Activity, the small Now widget, the full export, deletion",
   ],
   // Nothing is pre-selected.
   options: {
@@ -53,7 +53,7 @@ export function firstCharge(state: PlanState): string {
 // The renewal sentence for the choice, directly above the button next to an unticked box (compliance B1/B2).
 export function consentText(i: Interval, state: PlanState): string {
   const o = PRO.options[i === "year" ? "year" : "month"];
-  return `I understand that Rivolt Pro renews automatically at ${o.price} ${o.unit} until I cancel, that the first charge is ${firstCharge(state)}, and that I can cancel in one step from Settings → Account → Plan. 14-day refund on the first charge, no questions.`;
+  return `I understand that Rivolt Pro renews automatically at ${o.price} ${o.unit} until I cancel, that the first charge is ${firstCharge(state)}, and that I can cancel in one step from Settings → Account → Plan. 7-day refund on the first charge, no questions.`;
 }
 
 // The Settings plan card, one state at a time: [title, line, action | null].
@@ -62,7 +62,7 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
     case "off":
       return null;
     case "free":
-      return { title: "Free", line: "Recording, alerts, the last 90 days and the full export, always.", action: "See Pro" };
+      return { title: "Free", line: "Recording, alerts, the last 12 months and the full export, always.", action: "See Pro" };
     case "pro":
       // A failed payment comes first: it is the one that needs the person to do something (web only: Apple handles its own).
       if (state.graceEnds && state.source === "stripe")
@@ -70,8 +70,8 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
       // A subscription set to not renew must not say it renews.
       if (state.cancelsAt && (state.source === "stripe" || state.source === "apple"))
         return {
-          title: "Rivolt Pro",
-          line: `Won't renew; ends ${planDate(state.cancelsAt) || planDate(state.periodEnd) || "at the end of the period"}. Nothing is deleted after.`,
+          title: `Rivolt Pro until ${planDate(state.cancelsAt) || planDate(state.periodEnd) || "the end of the period"}`,
+          line: "Cancelled; Pro stays on until then. Nothing is deleted after.",
           action: state.source === "stripe" ? "Resubscribe" : "Manage subscription",
         };
       if (state.source === "apple") return { title: `Rivolt Pro${state.periodEnd ? `, renews ${planDate(state.periodEnd)}` : ""}`, line: "Billed through Apple.", action: "Manage subscription" };
@@ -79,14 +79,14 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
       if (state.source === "founding")
         return {
           title: `Rivolt Pro, free until ${planDate(state.periodEnd) || "the end of the year"}`,
-          line: "Yours at no charge for the first year; no card, nothing is charged. We'll email you 30 days before it ends.",
+          line: "Yours at no charge for the first year; no card, nothing is charged. We'll email you at least 30 days before it ends.",
           action: "See what free keeps",
         };
       return { title: "Rivolt Pro", line: "Granted to this account.", action: null };
     case "lapsed":
       return {
         title: `Your Pro ended${planDate(state.endedOn) ? ` on ${planDate(state.endedOn)}` : ""}`,
-        line: "Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).",
+        line: "Showing the last 12 months. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).",
         action: "Keep Pro",
       };
   }
@@ -101,7 +101,7 @@ export function graceBanner(state: PlanState): string | null {
 // The lapse banner (dismissable, on Now and in Settings).
 export function lapseBanner(state: PlanState): string {
   const on = state.kind === "lapsed" ? planDate(state.endedOn) : "";
-  return `Your Pro ended${on ? ` on ${on}` : ""}. Showing the last 90 days. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`;
+  return `Your Pro ended${on ? ` on ${on}` : ""}. Showing the last 12 months. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`;
 }
 
 // Shown in the delete-account flow of an account paying through the App Store: the server cannot cancel an Apple subscription, so the

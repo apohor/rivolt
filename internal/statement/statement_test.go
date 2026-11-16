@@ -70,7 +70,7 @@ func TestRender_TotalsAreTheLedgers(t *testing.T) {
 	for _, want := range []string{"You spent $83.45 on charging", "412 kWh · 1204 mi · $0.07/mi", "Home", "$43.45", "290 kWh",
 		"Fast charging", "$40.00", "Biggest charges", "$24.50", "(billed)", "Fast charge · Electrify America",
 		"(estimated)", "See the full statement: https://rivolt.dev/money?month=2026-09&src=statement", "Hi Sam,",
-		"independent, open-source app and is not affiliated with Rivian"} {
+		"independent, open-source app with a free tier and Rivolt Pro, and is not affiliated with Rivian"} {
 		if !strings.Contains(r.Text, want) {
 			t.Errorf("text missing %q\n%s", want, r.Text)
 		}

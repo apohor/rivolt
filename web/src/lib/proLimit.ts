@@ -2,18 +2,19 @@
 // the code. outside_free_window carries free_days and free_from; pro_required has no more. Bodies: ios/RivoltTests/Fixtures/err_*.json.
 
 import { ApiError } from "./api";
+import { planDate } from "./plan";
 
-// The 402 body: the error code, and the window in days for outside_free_window.
+// The 402 body: the error code, and the first day the free plan shows for outside_free_window.
 export type ProLimitBody = { error: string; free_days?: number; free_from?: string };
 
 // pro_required may also name the free limit that was hit (the saved-trip cap).
-export type ProLimit = { code: "outside_free_window"; freeDays: number } | { code: "pro_required"; limit?: number };
+export type ProLimit = { code: "outside_free_window"; freeFrom?: string } | { code: "pro_required"; limit?: number };
 
 export function proLimitOf(e: unknown): ProLimit | null {
   if (!(e instanceof ApiError) || e.status !== 402) return null;
-  const b = e.body as { error?: unknown; free_days?: unknown } | string | null | undefined;
+  const b = e.body as { error?: unknown; free_from?: unknown } | string | null | undefined;
   const o = typeof b === "object" && b ? b : null;
-  if (o?.error === "outside_free_window") return { code: "outside_free_window", freeDays: typeof o.free_days === "number" && o.free_days > 0 ? o.free_days : 90 };
+  if (o?.error === "outside_free_window") return { code: "outside_free_window", ...(typeof o.free_from === "string" ? { freeFrom: o.free_from } : {}) };
   if (o?.error === "pro_required") return { code: "pro_required", ...(typeof (o as { limit?: unknown }).limit === "number" ? { limit: (o as { limit: number }).limit } : {}) };
   return null;
 }
@@ -38,8 +39,14 @@ export function proFeatureText(f: ProFeature, limit?: number): string {
   }
 }
 
+// The reason a record is hidden: the date the server names (free_from), as iOS does; the free window is the last 12 months otherwise.
+function olderThan(from?: string): string {
+  const d = planDate(from);
+  return d ? `This is from before ${d}, as far back as the free plan shows.` : "This is older than the last 12 months that the free plan shows.";
+}
+
 export function proLimitText(l: ProLimit): string {
   return l.code === "outside_free_window"
-    ? `This is older than the last ${l.freeDays} days that the free plan shows. It is kept, and it is in your export; Pro shows all of it.`
+    ? `${olderThan(l.freeFrom)} It is kept, and it is in your export; Pro shows all of it.`
     : "This is part of Rivolt Pro. Everything you recorded is kept either way.";
 }

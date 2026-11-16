@@ -94,12 +94,28 @@ describe("LandingPage", () => {
   it("stays inside the allowed claims", () => {
     const { container } = renderPage();
     const text = container.textContent ?? "";
-    expect(text).not.toMatch(/real-?time|battery-friendly/i);
-    expect(text).not.toMatch(/rivian'?s app (doesn|does not|shows|has no)/i);
-    expect(text).not.toMatch(/free|beta|trial|\/mo\b|per month/i);
+    // Exact approved pricing and plan phrases from the Pro launch copy. Removed
+    // longest first, so no broad pattern can hide an unapproved claim.
+    const approved = [
+      "Free and Pro",
+      "Free to start",
+      "What is free, what Pro costs, what happens if you stop",
+      "Self-hosting is complete and free.",
+      "$3.99 a month or $34.99 a year",
+      "the last 12 months",
+    ].sort((a, b) => b.length - a.length);
+    // The Free plan tile heading is the one bare "Free" allowed on the page.
+    const freeHeadings = screen.getAllByRole("heading", { name: "Free" });
+    expect(freeHeadings).toHaveLength(1);
+    const unapproved = approved
+      .reduce((t, phrase) => t.split(phrase).join(""), text)
+      .replace(freeHeadings[0].textContent ?? "", "");
+    expect(unapproved).not.toMatch(/real-?time|battery-friendly/i);
+    expect(unapproved).not.toMatch(/rivian'?s app (doesn|does not|shows|has no)/i);
+    expect(unapproved).not.toMatch(/free|beta|trial|\/mo\b|per month/i);
     expect(text).toMatch(/not affiliated with, endorsed by or sponsored by Rivian/);
     // The only dollar figure is the sample trip's charging cost.
-    expect(text.match(/\$\d+(\.\d+)?/g)?.every((m) => m === "$13.64")).toBe(true);
+    expect(unapproved.match(/\$\d+(\.\d+)?/g)?.every((m) => m === "$13.64")).toBe(true);
   });
 
   it("loads nothing third-party", () => {

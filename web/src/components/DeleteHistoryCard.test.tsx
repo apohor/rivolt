@@ -45,7 +45,7 @@ describe("the privacy controls on a record the free window hides", () => {
 
   it("an old record's note keeps Export and Delete history in reach", async () => {
     stubFetchRoutes({ "/api/auth/me": { body: { authenticated: true } } });
-    wrap(<ProLimitNotice limit={{ code: "outside_free_window", freeDays: 90 }} privacy />);
+    wrap(<ProLimitNotice limit={{ code: "outside_free_window", freeFrom: "2025-11-01" }} privacy />);
     await waitFor(() => expect(screen.getByRole("link", { name: "Export everything" })).toHaveAttribute("href", "/settings#export"));
     expect(screen.getByRole("link", { name: "Delete history before a month" })).toHaveAttribute("href", "/settings#delete-history");
   });

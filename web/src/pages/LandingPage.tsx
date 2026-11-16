@@ -63,6 +63,18 @@ function Tile({ icon, title, children }: { icon: React.ReactNode; title: React.R
   );
 }
 
+function Claim({ title, body, children }: { title: React.ReactNode; body: string; children?: React.ReactNode }) {
+  return (
+    <article className="lp-tile rv">
+      <div>
+        <h3>{title}</h3>
+        <p>{body}</p>
+        {children}
+      </div>
+    </article>
+  );
+}
+
 export default function LandingPage() {
   const { demoEnabled, signupEnabled } = getConfig().features;
   const hosted = /(^|\.)rivolt\.dev$/.test(window.location.hostname);
@@ -153,6 +165,10 @@ export default function LandingPage() {
               {demo && <p className="fine">The demo uses a sample truck and needs no account.</p>}
             </div>
             <HeroTrip />
+            <p className="fine">
+              {demo ? "The demo uses a generated sample truck: no sign-in, no Rivian account. " : ""}
+              Free to start; Rivolt Pro is $3.99 a month or $34.99 a year. Sign up with Google or GitHub; no invite needed while there is room.
+            </p>
           </div>
         </div>
 
@@ -210,6 +226,36 @@ export default function LandingPage() {
           </div>
         </section>
 
+        <section id="pricing" aria-labelledby="pricing-heading">
+          <div className="wrap">
+          <div className="head rv">
+            <p className="tag">
+              <b>Pricing</b>
+            </p>
+            <h2 id="pricing-heading">
+              Free and <em>Pro</em>
+            </h2>
+          </div>
+          <div className="grid gap-6 md:grid-cols-2">
+            <Claim
+              title="Free"
+              body="Every drive and charge recorded and kept until you delete it. Now, Activity, Money and Truck for the last 12 months, the monthly statement with a CSV for each month it shows, a single-day trip planner, three saved trips, trip share links, all share cards, the small Now widget and the charging Live Activity, imports, every alert, and the full export of everything, always. One vehicle shown at a time."
+            />
+            <Claim
+              title="Rivolt Pro: $3.99 a month or $34.99 a year"
+              body="Unlimited history and trends, range near a temperature, multi-day plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle, and every iPhone widget except the small Now widget. Stop paying and nothing is deleted."
+            >
+              <Link to="/support" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
+                What is free, what Pro costs, what happens if you stop
+              </Link>
+            </Claim>
+          </div>
+          <p className="fine">
+            Subscribe on the web; iPhone purchase coming soon. Web payments through Stripe; Rivolt never sees your card. Web purchases need a US billing address for now. Self-hosting is complete and free. Unofficial, not affiliated with Rivian.
+          </p>
+          </div>
+        </section>
+
         <section style={{ paddingTop: 0 }} aria-labelledby="lp-next-h">
           <div className="wrap">
             <div className="head rv">
@@ -217,20 +263,10 @@ export default function LandingPage() {
                 <b>Coming next</b>
               </p>
               <h2 id="lp-next-h">
-                Rivolt <em>Pro</em> and the <em>iPhone</em> app.
+                The <em>iPhone</em> app.
               </h2>
             </div>
             <div className="lp-bento" style={{ maxWidth: 860 }}>
-              <Tile
-                title={
-                  <>
-                    Rivolt Pro <span className="lp-soon">Coming next</span>
-                  </>
-                }
-                icon={<path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6.1L12 16.9 6.6 19.8l1.1-6.1L3.2 9.4l6.1-.8z" />}
-              >
-                A paid plan for longer trips and deeper history.
-              </Tile>
               <Tile
                 title={
                   <>

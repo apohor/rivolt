@@ -40,7 +40,7 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
 
   it("shows the free state and opens the sheet", async () => {
     renderWith(free, <PlanCard />);
-    expect(await screen.findByText("Recording, alerts, the last 90 days and the full export, always.")).toBeInTheDocument();
+    expect(await screen.findByText("Recording, alerts, the last 12 months and the full export, always.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "See Pro" }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
@@ -70,8 +70,8 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
   });
 
   it("a 402 limit says why, that nothing is lost, and offers Pro only where the server bills", async () => {
-    const a = renderWith(free, <ProLimitNotice limit={{ code: "outside_free_window", freeDays: 90 }} />);
-    expect(await screen.findByText(/older than the last 90 days/)).toBeInTheDocument();
+    const a = renderWith(free, <ProLimitNotice limit={{ code: "outside_free_window", freeFrom: "2025-11-01" }} />);
+    expect(await screen.findByText(/before November 1, 2025/)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "See Pro" })).toBeInTheDocument();
     a.unmount();
     renderWith(billingOff, <ProLimitNotice limit={{ code: "pro_required" }} />);
@@ -92,7 +92,8 @@ describe("a cancelled subscription and a failed payment", () => {
 
   it("a cancelled but paid-up plan says so and never says it renews", async () => {
     renderWith(cancelled, <PlanCard />);
-    expect(await screen.findByText(/Won't renew; ends .*2026\. Nothing is deleted after\./)).toBeInTheDocument();
+    expect(await screen.findByText(/^Rivolt Pro until .*2026$/)).toBeInTheDocument();
+    expect(screen.getByText("Cancelled; Pro stays on until then. Nothing is deleted after.")).toBeInTheDocument();
     expect(screen.queryByText(/renews/)).toBeNull();
     expect(screen.getByRole("button", { name: "Resubscribe" })).toBeInTheDocument();
   });

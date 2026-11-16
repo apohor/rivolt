@@ -28,7 +28,7 @@ for (const v of [
     await page.route("**/api/drives/old-drive", (r) => r.fulfill(json({ error: "outside_free_window", free_days: 90 }, 402)));
     await page.route("**/api/charges/old-charge", (r) => r.fulfill(json({ error: "outside_free_window", free_days: 90 }, 402)));
     await page.goto("/drives/old-drive");
-    await expect(page.locator("[data-pro-limit=outside_free_window]")).toContainText("older than the last 90 days");
+    await expect(page.locator("[data-pro-limit=outside_free_window]")).toContainText("older than the last 12 months");
     await expect(page.getByText("Drive not found")).toHaveCount(0);
     await page.goto("/charges/old-charge");
     const note = page.locator("[data-pro-limit=outside_free_window]");

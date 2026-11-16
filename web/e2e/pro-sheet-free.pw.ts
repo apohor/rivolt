@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { stubApi } from "./stub";
 
-// A free account's Pro sheet: no trial anywhere, the 14-day refund wording, and plain "see it in the demo" links.
+// A free account's Pro sheet: no trial anywhere, the 7-day refund wording, and plain "see it in the demo" links.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
@@ -29,7 +29,7 @@ for (const scheme of ["dark", "light"] as const) {
       await sheet.getByRole("checkbox").scrollIntoViewIfNeeded();
       const text = (await sheet.textContent()) ?? "";
       expect(text).not.toMatch(/trial|14 days of Pro|Keep Pro/i);
-      expect(text).toContain("14-day refund");
+      expect(text).toContain("7-day refund");
       const links = sheet.locator("[data-demo-links] a");
       await expect(links).toHaveCount(3);
       await expect(links.first()).toHaveAttribute("href", "https://demo.rivolt.dev/demo/trips/plan");
