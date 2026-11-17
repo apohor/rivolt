@@ -312,6 +312,12 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 		if fromDB != nil && fromDB.account != nil && sqlDB != nil {
 			var ok bool
 			linked, reauth, ok = fromDB.account(r.Context())
+			if ok && !linked && rivian.IsUnheld(c) {
+				// This pod holds no tokens for the account and the account has no Rivian session to hold (never linked): the answer is the
+				// same empty list a pod holding it gives, not the unheld client's retry-able 503 (a new account's first load showed an error).
+				writeJSON(w, http.StatusOK, []rivian.Vehicle{})
+				return
+			}
 			linked = linked && ok
 		}
 		if linked {
