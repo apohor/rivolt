@@ -64,6 +64,7 @@ export default function NowHeroV2({
   critical,
   images,
   model,
+  stateSlot,
 }: {
   view: NowView;
   vehicleID: string;
@@ -80,6 +81,8 @@ export default function NowHeroV2({
   // The vehicle's Rivian images; without any the line-art sketch of the model shows instead.
   images?: PlacedImage[];
   model?: string | null;
+  // Design "now_slot": the state's figures in place of the picture (null keeps the picture).
+  stateSlot?: React.ReactNode;
 }) {
   const { temperatureUnit, distanceUnit } = usePreferences();
   const light = useIsLight();
@@ -102,7 +105,8 @@ export default function NowHeroV2({
     charging && view.limitPct != null && view.soc > 0 && view.rangeMi != null
       ? Math.round((view.rangeMi / view.soc) * view.limitPct)
       : null;
-  const subline = charging
+  // With the state slot the context is in the slot itself.
+  const subline = stateSlot ? null : charging
     ? view.limitPct != null
       ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ≈ ${dist(atLimit)} when done` : ""}`
       : null
@@ -216,7 +220,7 @@ export default function NowHeroV2({
             )}
           </ArcGauge>
           <div className="flex min-w-0 flex-1 flex-col items-start gap-1 min-[900px]:contents">
-            {carUrl && carUrl !== failedUrl ? (
+            {stateSlot ? null : carUrl && carUrl !== failedUrl ? (
               plugPicture && (view.kind === "plugged" || view.kind === "charging") ? (
                 <PlugPicture kw={view.powerKw} className="w-full min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1">
                   <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left min-[900px]:max-h-60 min-[900px]:object-center" />
@@ -237,6 +241,7 @@ export default function NowHeroV2({
             )}
           </div>
         </div>
+        {stateSlot}
         <div className="min-[900px]:col-start-3 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-neutral-800 min-[900px]:pl-6">
         {subline && (
           <p

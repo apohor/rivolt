@@ -14,6 +14,7 @@ import { useDesignPreview } from "../lib/config";
 import { PlugPicture } from "./PlugPicture";
 import { LiveChargeGraph } from "./LiveChargeGraph";
 import { LiveDriveTrail } from "./LiveDriveTrail";
+import { formatDriveMode } from "../lib/driveMode";
 
 // Unit conversions. Backend speaks SI at the wire.
 const kmToMi = (km: number) => km * 0.6213711922;
@@ -1149,22 +1150,6 @@ function formatTwelveVolt(s: string): string {
   if (v === "critical_battery" || v === "critical") return "Critical";
   if (v === "unknown") return "—";
   return formatTitle(s);
-}
-
-function formatDriveMode(s: string): string {
-  const map: Record<string, string> = {
-    everyday: "All-Purpose",
-    sport: "Sport",
-    distance: "Conserve",
-    winter: "Snow",
-    towing: "Towing",
-    off_road_auto: "All-Terrain",
-    off_road_sand: "Soft Sand",
-    off_road_rocks: "Rock Crawl",
-    off_road_sport_auto: "Rally",
-    off_road_sport_drift: "Drift",
-  };
-  return map[s] ?? formatTitle(s);
 }
 
 function formatPower(s: string): string {
