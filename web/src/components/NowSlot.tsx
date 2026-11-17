@@ -9,7 +9,7 @@ import type { DistanceUnit } from "../lib/preferences";
 
 export type SlotSession = { range_added_km: number; total_charged_energy_kwh: number; time_elapsed_seconds: number; kilometers_charged_per_hour: number };
 export type SlotCharge = { started_at: string; cost?: number | null; currency?: string; cost_source?: string; cost_is_estimate?: boolean };
-export type SlotDrive = { tripMi: number; elapsed_sec: number; energy_used_kwh: number; soc_used_pct: number; distance_mi: number };
+export type SlotDrive = { tripMi: number; elapsed_sec: number; energy_used_kwh: number; soc_used_pct: number };
 export type SlotInput = {
   view: NowView;
   nowMs: number;
@@ -62,9 +62,9 @@ export function slotStats(i: SlotInput): Stat[] {
     const d = i.drive;
     if (d.tripMi > 0) out.push({ k: "Distance", v: dist(d.tripMi) });
     if (d.elapsed_sec > 0) out.push({ k: "Time", v: duration(d.elapsed_sec) });
-    // Same guard as before: not until it can't be absurd.
-    if (d.distance_mi >= 1 && d.soc_used_pct >= 1 && d.energy_used_kwh > 0) {
-      const e = d.distance_mi / d.energy_used_kwh;
+    // Efficiency is the distance shown over the energy shown, so the four figures describe one drive; not until it can't be absurd.
+    if (d.tripMi >= 1 && d.soc_used_pct >= 1 && d.energy_used_kwh > 0) {
+      const e = d.tripMi / d.energy_used_kwh;
       out.push({ k: "Efficiency", v: unit === "km" ? `${(e * KM_PER_MI).toFixed(1)} km/kWh` : `${e.toFixed(1)} mi/kWh` });
     }
     if (d.energy_used_kwh > 0) out.push({ k: "Energy used", v: `${d.energy_used_kwh.toFixed(1)} kWh` });

@@ -6,7 +6,7 @@ import type { NowView } from "../lib/nowState";
 const charging = { kind: "charging", powerKw: 7.4, etaHours: 1.2, etaSource: "truck", limitPct: 80, energyKwh: 18.24, chargeFlavor: "home_l2", speedMph: null } as unknown as NowView;
 const driving = { kind: "driving", speedMph: 62, powerKw: null } as unknown as NowView;
 const session = { range_added_km: 98, total_charged_energy_kwh: 18.24, time_elapsed_seconds: 3900, kilometers_charged_per_hour: 61 };
-const drive = { tripMi: 12.34, elapsed_sec: 1500, energy_used_kwh: 4.2, soc_used_pct: 5, distance_mi: 12.3 };
+const drive = { tripMi: 12.34, elapsed_sec: 1500, energy_used_kwh: 4.2, soc_used_pct: 5 };
 const base = (v: NowView, extra: Partial<SlotInput> = {}): SlotInput => ({ view: v, nowMs: Date.UTC(2026, 0, 1, 12), unit: "mi", currency: "USD", ...extra });
 
 describe("NowSlot", () => {

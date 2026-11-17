@@ -288,7 +288,6 @@ export default function NowCard({
               elapsed_sec: dq.elapsed_sec,
               energy_used_kwh: dq.energy_used_kwh,
               soc_used_pct: dq.soc_used_pct,
-              distance_mi: dq.distance_mi,
             }
           : null
       }

@@ -51,7 +51,7 @@ export function vehicleState(s: NowScenario): Record<string, unknown> {
         charge_target_pct: 80,
       };
     case "driving":
-      return { ...base, gear: "D", speed_kph: 88, battery_level_pct: 58, latitude: 40.2, longitude: -100.3 };
+      return { ...base, gear: "D", drive_mode: "sport", speed_kph: 88, battery_level_pct: 58, latitude: 40.2, longitude: -100.3 };
     case "asleep":
       return { ...base, power_state: "sleep", at: iso(4 * 60_000), battery_level_pct: 71 };
     case "stale":
@@ -357,7 +357,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       if (scenario !== "driving") return route.fulfill({ status: 204 });
       return json(route, {
         vehicle_id: VEHICLE_ID, number: 1, started_at: iso(600_000), ended_at: iso(0), elapsed_sec: 600,
-        start_soc_pct: 60, end_soc_pct: 58, soc_used_pct: 2, start_odometer_mi: 12_400, end_odometer_mi: 12_410,
+        start_soc_pct: 60, end_soc_pct: 58, soc_used_pct: 2, start_odometer_mi: 12_417, end_odometer_mi: 12_427,
         distance_mi: 10, max_speed_mph: 62, avg_speed_mph: 40, energy_used_kwh: 2.7, mi_per_kwh: 3.7, pack_kwh: 135,
       });
     }
