@@ -119,6 +119,24 @@ final class DemoStateTests: XCTestCase {
         XCTAssertEqual(spy.touches, 0, "the demo reads and writes no sign-in")
     }
 
+    func testEnteringAndLeavingTheDemoReadsThatServersDesignKeys() async throws {
+        DemoStub.reset(body: #"{"features":{"design_preview":["now_v2","ios_now_v2"]}}"#)
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [DemoStub.self]
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "demo-tests-\(UUID().uuidString)"))
+        let s = AppState(tokens: TokenSpy(), defaults: defaults, session: URLSession(configuration: cfg))
+        s.setPreviewSignIn(.available)
+        XCTAssertTrue(s.designPreview.isEmpty)
+        s.enterDemo()
+        for _ in 0..<40 where !s.designPreview.contains("ios_now_v2") { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertTrue(s.designPreview.contains("ios_now_v2"), "the signed-out demo gets the redesigned Now without a foreground")
+        XCTAssertTrue(DemoStub.seen.contains { $0.url?.host == "demo.rivolt.dev" && $0.url?.path.hasSuffix("/config") == true })
+        DemoStub.reset(body: #"{"features":{"design_preview":["theme_switch"]}}"#)
+        s.leaveDemo()
+        for _ in 0..<40 where s.designPreview.contains("ios_now_v2") { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(s.designPreview, ["theme_switch"], "leaving reads the signed-in server's keys again")
+    }
+
     func testTheDemoShowsMilesWhateverTheAccountOrRegionHad() throws {
         DisplayUnits.apply(distance: "km", temperature: "c")
         defer { DisplayUnits.reset() }

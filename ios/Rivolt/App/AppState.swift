@@ -80,6 +80,7 @@ final class AppState {
     private(set) var serverURL: URL
     /// The client the screens read through: the signed-in one, or the demo's while the demo truck is open.
     private(set) var client: APIClient
+    private let session: URLSession?
     /// The planner's Radar button for this session and server (what the server advertises, whether it is on, the newest frame).
     let radar = RadarModel()
     private let signedInClient: APIClient
@@ -132,6 +133,7 @@ final class AppState {
         self.tokens = tokens
         self.notifications = notifications ?? NotificationManager.shared
         self.liveActivity = liveActivity ?? LiveActivityManager.shared
+        self.session = session
         let signedIn = APIClient(baseURL: server, tokens: tokens, session: session)
         self.client = signedIn
         self.signedInClient = signedIn
@@ -150,8 +152,10 @@ final class AppState {
     func enterDemo() {
         guard phase == .loggedOut else { return }
         resumeAfterDemo = nil
-        client = APIClient.demo()
+        client = APIClient.demo(session: session)
         phase = .demo
+        // The demo server's design keys, not the ones the last server gave: the demo shows what prod's iPhone shows.
+        Task { await refreshDesignPreview() }
     }
 
     /// The sample truck for someone signed in who has no truck yet. The account stays signed in underneath (nothing of it is used
@@ -159,8 +163,10 @@ final class AppState {
     func enterDemoFromAccount() {
         guard case .loggedIn(let username) = phase else { return }
         resumeAfterDemo = username
-        client = APIClient.demo()
+        client = APIClient.demo(session: session)
         phase = .demo
+        // The demo server's design keys, not the ones the last server gave: the demo shows what prod's iPhone shows.
+        Task { await refreshDesignPreview() }
     }
 
     /// True while the demo was opened from a signed-in account: its way out leads back there, not to the sign-in screen.
@@ -170,6 +176,7 @@ final class AppState {
     func leaveDemo() {
         guard phase == .demo else { return }
         client = signedInClient
+        Task { await refreshDesignPreview() }
         MapNetwork.reset()
         radar.reset()
         activityMap.clear()
