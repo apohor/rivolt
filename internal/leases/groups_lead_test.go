@@ -28,3 +28,22 @@ func TestNewestGeneration(t *testing.T) {
 		t.Errorf("newest of none = %q", got)
 	}
 }
+
+// A rollout is a pod draining or two pod generations live: nothing is shed for the fair share meanwhile, so a group moves once.
+func TestRollingUpdate(t *testing.T) {
+	for name, tc := range map[string]struct {
+		pods []livePod
+		want bool
+	}{
+		"one pod":                 {[]livePod{{id: "a", generation: "g1"}}, false},
+		"steady, same generation": {[]livePod{{id: "a", generation: "g1"}, {id: "b", generation: "g1"}}, false},
+		"two generations":         {[]livePod{{id: "a", generation: "g1"}, {id: "b", generation: "g2"}}, true},
+		"one draining":            {[]livePod{{id: "a", generation: "g1", draining: true}, {id: "b", generation: "g1"}}, true},
+		"generation unset":        {[]livePod{{id: "a"}, {id: "b"}}, false},
+		"one unset one set":       {[]livePod{{id: "a"}, {id: "b", generation: "g1"}}, false},
+	} {
+		if got := rollingUpdate(tc.pods); got != tc.want {
+			t.Errorf("%s: %v, want %v", name, got, tc.want)
+		}
+	}
+}
