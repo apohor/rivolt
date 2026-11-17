@@ -465,6 +465,8 @@ func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event, refu
 
 // cancelRefunded cancels a refunded customer's subscriptions now (immediately, no proration, no invoice) and clears the queued cancel. Already
 // cancelled subscriptions are skipped, so a repeat or a manual cancel is harmless. A failure is logged and left to the retrier.
+// The webhook answers only after this returns, so a slow Stripe holds the response for up to the 10 s timeout below; Stripe retries a late
+// answer, and the event is already recorded, so the repeat is a no-op.
 func (h *Handler) cancelRefunded(ctx context.Context, customer string) {
 	if customer == "" || h.Canceller == nil {
 		return
