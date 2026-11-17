@@ -849,7 +849,8 @@ function DrivingDetail({
   const d = q.data;
   // Design "live_v2": the drive so far on a map; "live_destination" also gives the no-drive-yet card a map.
   const liveV2 = useDesignPreview("live_v2");
-  const liveDestination = useDesignPreview("live_destination");
+  // The destination map follows /api/live-destination: it appears when the server has a trip for this account, with or without live_v2.
+  const [mapShown, setMapShown] = useState(false);
   // Current speed comes straight from vehicleState — the session
   // snapshot only carries aggregates (avg/max). Showing "now" next to
   // "avg / max" gives an at-a-glance sense of pace.
@@ -860,8 +861,8 @@ function DrivingDetail({
         <span className="font-medium text-blue-300">
           {state.gear || "driving"}
         </span>
-        {" · "}waiting for first frame…
-        {liveV2 && liveDestination ? <LiveDriveTrail vehicleId={vehicle.id} lat={state.latitude} lon={state.longitude} /> : null}
+        {mapShown ? null : <>{" · "}waiting for first frame…</>}
+        <LiveDriveTrail vehicleId={vehicle.id} lat={state.latitude} lon={state.longitude} requireDest onShown={setMapShown} />
       </div>
     );
   }
@@ -917,7 +918,7 @@ function DrivingDetail({
           Live-drive fetch failed: {String(q.error)}
         </p>
       ) : null}
-      {liveV2 ? <LiveDriveTrail vehicleId={vehicle.id} startedAt={d.started_at} lat={state.latitude} lon={state.longitude} /> : null}
+      <LiveDriveTrail vehicleId={vehicle.id} startedAt={d.started_at} lat={state.latitude} lon={state.longitude} requireDest={!liveV2} />
     </div>
   );
 }

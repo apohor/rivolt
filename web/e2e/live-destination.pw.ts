@@ -3,8 +3,9 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { stubApi, VEHICLE_ID, vehicleState, type NowScenario, type StubOptions } from "./stub";
 
-// Design "live_destination": while driving, the Live page's map shows where the truck's navigation is going (a pin and the planned route)
-// and a row "To {name}: {n} mi left, arrive {time}". Off, or with no trip, it is the Live page users have today.
+// While driving, the Live page's map shows where the truck's navigation is going (a pin and the planned route) and a row
+// "To {name}: {n} mi left, arrive {time}". It follows the endpoint's own answer (404 = off for the account), not a design key.
+// No trip, or off, is the Live page users have today.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
@@ -51,15 +52,30 @@ test("feature off for the account (404): no row, and it asks once", async ({ pag
   expect(asked).toBe(1);
 });
 
-test("design key off: the endpoint is never asked", async ({ page }) => {
+test("no design keys at all: a trip still shows its row and map", async ({ page }) => {
+  await stub(page, "driving", { designPreview: [], liveDestination: "trip" });
+  await page.goto("/live");
+  await expect(page.getByTestId("live-destination")).toContainText(/^To Test Depot: 12 mi left/);
+  await expect(page.getByTestId("live-drive-map")).toBeVisible();
+});
+
+test("no design keys, feature off: no map, and it asks once", async ({ page }) => {
   let asked = 0;
   page.on("request", (r) => { if (r.url().includes("/api/live-destination/")) asked++; });
-  await stub(page, "driving", { designPreview: ["live_v2"], liveDestination: "trip" });
+  await stub(page, "driving", { designPreview: [] });
   await page.goto("/live");
-  await expect(page.getByTestId("live-drive-map")).toBeVisible();
-  await page.waitForTimeout(800);
-  expect(asked).toBe(0);
+  await expect(page.getByText("Max speed")).toBeVisible();
+  await page.waitForTimeout(1500);
+  await expect(page.getByTestId("live-drive-map")).toHaveCount(0);
   await expect(page.getByTestId("live-destination")).toHaveCount(0);
+  expect(asked).toBe(1);
+});
+
+test("no design keys, no trip (204): no map", async ({ page }) => {
+  await stub(page, "driving", { designPreview: [], liveDestination: "none" });
+  await page.goto("/live");
+  await page.waitForTimeout(1000);
+  await expect(page.getByTestId("live-drive-map")).toHaveCount(0);
 });
 
 for (const [w, h] of [[393, 852], [1280, 900]] as const) {
@@ -78,9 +94,10 @@ test("no drive record yet (live-drive 204): the row and the pin are still there"
   await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
   await page.route(`**/api/live-drive/${VEHICLE_ID}`, (r) => r.fulfill({ status: 204 }));
   await page.goto("/live");
-  await expect(page.getByText(/waiting for first frame/)).toBeVisible();
   await expect(page.getByTestId("live-destination")).toContainText(/^To Test Depot: 12 mi left/);
   await expect(page.getByTitle("Destination: Test Depot")).toBeVisible();
+  // The map is up, so the "waiting" line goes.
+  await expect(page.getByText(/waiting for first frame/)).toHaveCount(0);
 });
 
 test("three failed reads in a row drop the trip; the next good read brings it back", async ({ page }) => {
@@ -102,7 +119,7 @@ test("three failed reads in a row drop the trip; the next good read brings it ba
   await expect(page.getByTestId("live-destination")).toBeVisible({ timeout: 20_000 });
 });
 
-test("destination design off: the waiting card draws no map", async ({ page }) => {
+test("feature off: the waiting card keeps its line and draws no map", async ({ page }) => {
   await stub(page, "driving", { designPreview: ["live_v2"] });
   await page.route(`**/api/live-drive/${VEHICLE_ID}`, (r) => r.fulfill({ status: 204 }));
   await page.goto("/live");
