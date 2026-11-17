@@ -447,11 +447,12 @@ func runServer() {
 		"go_memory_limit", memLimit,
 	)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	// sigCtx ends at SIGINT/SIGTERM and starts the shutdown. ctx, which every background loop, the monitors and the forwarder run under,
+	// outlives it: a draining pod keeps the groups it holds recording, and keeps the account sync, flags poll, token release and the rest
+	// running, while it waits for their drives (P2b). The drain cancels ctx once the wait is over, which is what SIGTERM did before.
+	sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	// workCtx is what the vehicle monitors and the forwarder run under. It outlives the signal: a draining pod keeps the groups it holds
-	// recording while it waits for their drives (P2b), and is cancelled by the drain, not by SIGTERM.
-	workCtx, workCancel := context.WithCancel(context.Background())
+	ctx, workCancel := context.WithCancel(context.Background())
 	defer workCancel()
 	// SIGUSR1 from `rivolt prestop` (the chart's exec preStop hook) starts the drain. Registered
 	// first thing: an unhandled SIGUSR1 would end the process.
@@ -1414,7 +1415,7 @@ func runServer() {
 			drivesFactory, chargesFactory, samplesFactory, settingsFactory,
 			logger,
 		)
-		monitorRegistry.SetParent(workCtx)
+		monitorRegistry.SetParent(ctx)
 		// Takeover pacing (zero-impact deploys, G7): the first dial of a session, the capability probe and the REST seed of a start take a slot
 		// from a per-process bucket and a fleet-wide per-second budget in Redis, active vehicles first. Off unless RIVOLT_TAKEOVER_LIMIT=1.
 		if os.Getenv("RIVOLT_TAKEOVER_LIMIT") == "1" {
@@ -2466,7 +2467,7 @@ func runServer() {
 			leaseCoordinator = coord
 		}
 		// Single-owner M3: the forwarder's owner loop (RIVOLT_FORWARD=1 only; the metrics exist at 0 either way).
-		fwdRT := startForward(workCtx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, receiptSyncer, redisKeyPrefix, role)
+		fwdRT := startForward(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, receiptSyncer, redisKeyPrefix, role)
 		if fwdRT.forwarder != nil {
 			stateForward, groupOfVehicle = fwdRT.forwarder, leaseStore.GroupOfVehicle
 		}
@@ -3663,7 +3664,7 @@ func runServer() {
 	logStarters(logger, role, &bootStarts) // every boot-time start site is behind us
 
 	select {
-	case <-ctx.Done():
+	case <-sigCtx.Done():
 		logger.Info("shutdown requested")
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
