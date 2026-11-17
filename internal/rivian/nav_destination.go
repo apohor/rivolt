@@ -459,3 +459,10 @@ func (s *navStore) clearAll(reason string) {
 		s.cleared(reason)
 	}
 }
+
+// SetNavClockForTest and ApplyNavFrameForTest let the API tests drive the trip store through the mounted route: a trip is fed in, the clock
+// moves, and the endpoint's answer is read. Nothing in the server calls them.
+func (m *StateMonitor) SetNavClockForTest(now func() time.Time) { m.nav.now = now }
+
+// ApplyNavFrameForTest folds one frame into the trip store, as a decoded drive-dynamics frame would.
+func (m *StateMonitor) ApplyNavFrameForTest(vehicleID string, f *NavFrame) { m.nav.apply(vehicleID, f) }

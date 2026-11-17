@@ -215,3 +215,36 @@ func TestLiveDestinationNilUserIsThePlain404EvenWhenFlagIsOnForAll(t *testing.T)
 		t.Errorf("reached the forwarder: %+v", fw.calls)
 	}
 }
+
+// A parked vehicle's trip_progress frames must never show as a destination: a frame stream with no route is no trip, and a trip whose last
+// trip_progress is older than the stale floor reads as no trip at the mounted route (204, never cached), even though nothing cleared it.
+func TestLiveDestinationOfAParkedVehicleWithStaleProgressIs204(t *testing.T) {
+	mon := rivian.NewStateMonitor(nil, nil)
+	mon.SetNavDecodeGate(func() bool { return true })
+	now := time.Date(2030, 1, 2, 3, 0, 0, 0, time.UTC)
+	mon.SetNavClockForTest(func() time.Time { return now })
+	h := destRouter(true, true, nil, rivian.NewMock(), mon)
+	progress := &rivian.NavFrame{Progress: &rivian.NavProgress{ETA: now.Add(time.Hour), NextStop: 0, LegMetres: 900, HasLegDist: true}}
+
+	// Overnight progress frames with no trip_info (the floor measured on prod): no trip.
+	mon.ApplyNavFrameForTest(fwdVehicle, progress)
+	if rec := destGet(h, true); rec.Code != http.StatusNoContent {
+		t.Fatalf("progress with no route: %d %s, want 204", rec.Code, rec.Body)
+	}
+
+	// A trip with a fresh progress frame shows (the setup is real) ...
+	mon.ApplyNavFrameForTest(fwdVehicle, &rivian.NavFrame{Info: &rivian.NavInfo{Name: destSentinel, Lat: 41.2718, Lon: -96.3314, Stops: 1, LegMetres: []float64{900}}})
+	mon.ApplyNavFrameForTest(fwdVehicle, progress)
+	if rec := destGet(h, true); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), destSentinel) {
+		t.Fatalf("fresh trip: %d %s, want 200 with the trip", rec.Code, rec.Body)
+	}
+	// ... and the vehicle parks: no new progress frame, so past the floor it reads as no trip, and the answer is not cacheable.
+	now = now.Add(4 * time.Minute)
+	rec := destGet(h, true)
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 || rec.Header().Get("Cache-Control") != "private, no-store" {
+		t.Errorf("stale progress: %d %q cc=%q, want an empty uncached 204", rec.Code, rec.Body, rec.Header().Get("Cache-Control"))
+	}
+	if strings.Contains(rec.Body.String(), destSentinel) {
+		t.Error("a stale trip still named its destination")
+	}
+}
