@@ -53,6 +53,10 @@ func newRig(t *testing.T, name string) *rig {
 		t.Fatal(err)
 	}
 	r := &rig{t: t, pool: pool, uid: uid}
+	// A full refund queues a Stripe cancel; the backlog counts every queued row, so none may outlive its test.
+	t.Cleanup(func() {
+		_, _ = pool.Exec(`DELETE FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:cus_"+uid.String()[:8])
+	})
 	r.h = &Handler{DB: pool, Secret: testSecret, Now: func() time.Time { return t0 },
 		Invalidate: func(u uuid.UUID) { r.mu.Lock(); r.inval = append(r.inval, u); r.mu.Unlock() },
 		Observe: func(typ, outcome string) {
@@ -734,5 +738,105 @@ func TestPastDueGraceRunsFromTheFailedRenewal(t *testing.T) {
 	}
 	if st := r.state(grace.Add(24 * time.Hour)); !st.Pro || st.PeriodEnd == nil || !st.PeriodEnd.Equal(nextEnd) || st.GraceEnds != nil {
 		t.Errorf("after a late success: %+v, want Pro until %v with no grace", st, nextEnd)
+	}
+}
+
+// A full refund also cancels the customer's Stripe subscriptions, at once and without proration: Pro is not kept on a returned payment and the
+// customer is never charged again. A partial refund cancels nothing; a subscription already cancelled (by hand) is left alone; when Stripe is
+// down the cancel stays queued, is counted in the backlog the RivoltStripeCancel alerts watch, and the retrier does it later without deleting
+// the customer or the account.
+func TestFullRefundCancelsTheStripeSubscription(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, "stripe-refund-cancel")
+	f := newFakeStripe(t)
+	cust := "cus_" + r.uid.String()[:8]
+	f.subs = map[string][][2]string{cust: {{"sub_a", "active"}}}
+	r.h.Canceller = &Client{BaseURL: f.srv.URL, SecretKey: testKey}
+	queued := func() int {
+		var n int
+		if err := r.pool.QueryRow(`SELECT count(*) FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	at := func(to, id string) func(string) string {
+		return func(s string) string {
+			s = strings.ReplaceAll(s, `"created": 1790400000`, `"created": `+to)
+			return strings.ReplaceAll(s, `"id": "evt_refund_1"`, `"id": "`+id+`"`)
+		}
+	}
+	if code := r.deliver("checkout_session_completed.json", nil); code != 200 {
+		t.Fatal(code)
+	}
+	if code := r.deliver("subscription_created_active.json", nil); code != 200 {
+		t.Fatal(code)
+	}
+
+	// Partial: nothing cancelled, nothing queued.
+	if code := r.deliver("charge_refunded_partial.json", nil); code != 200 {
+		t.Fatal(code)
+	}
+	if len(f.deleted) != 0 || queued() != 0 {
+		t.Fatalf("a partial refund cancelled %v / queued %d", f.deleted, queued())
+	}
+
+	// Full, Stripe up: the subscription is cancelled now, no proration or invoice, with the pinned API version; nothing stays queued.
+	if code := r.deliver("charge_refunded_full.json", at("1821900000", "evt_refund_1")); code != 200 {
+		t.Fatal(code)
+	}
+	if strings.Join(f.deleted, ",") != "sub_a" || queued() != 0 {
+		t.Fatalf("a full refund: cancelled %v, queued %d; want sub_a cancelled and nothing queued", f.deleted, queued())
+	}
+	if q := f.deleteQueries[0]; q.Get("prorate") != "false" || q.Get("invoice_now") != "false" {
+		t.Errorf("the cancel prorates or invoices: %v", q)
+	}
+	for _, v := range f.versions {
+		if v == "" || v != f.versions[0] {
+			t.Errorf("Stripe-Version not pinned on every call: %v", f.versions)
+			break
+		}
+	}
+	if st := r.state(time.Unix(1790500000, 0)); st.Pro {
+		t.Errorf("a full refund left Pro on: %+v", st)
+	}
+
+	// Already cancelled (the operator did it by hand): nothing more is sent, nothing queued, the event is still applied.
+	f.subs[cust] = [][2]string{{"sub_a", "canceled"}}
+	if code := r.deliver("charge_refunded_full.json", at("1821900001", "evt_refund_2")); code != 200 {
+		t.Fatal(code)
+	}
+	if len(f.deleted) != 1 || queued() != 0 {
+		t.Errorf("an already cancelled subscription: cancels sent %v, queued %d", f.deleted, queued())
+	}
+
+	// Stripe down: the refund is applied, the cancel is queued and counted, and the retrier does it when Stripe is back.
+	f.subs[cust] = [][2]string{{"sub_b", "active"}}
+	f.fail = true
+	if code := r.deliver("charge_refunded_full.json", at("1821900002", "evt_refund_3")); code != 200 {
+		t.Fatalf("a refund while Stripe is down must still be acknowledged: %d", code)
+	}
+	if queued() != 1 || len(f.deleted) != 1 {
+		t.Fatalf("Stripe down: queued %d, cancels sent %v; want 1 queued", queued(), f.deleted)
+	}
+	var pending int
+	c := &AccountClosure{DB: r.pool, Client: &Client{BaseURL: f.srv.URL, SecretKey: testKey}, Report: func(p int, _ time.Duration) { pending = p }}
+	c.RetryOnce(ctx)
+	if queued() != 1 || pending < 1 {
+		t.Fatalf("a failed retry: queued %d, backlog %d; want still queued and reported", queued(), pending)
+	}
+	f.fail = false
+	if _, err := r.pool.Exec(`UPDATE idp_delete_failures SET last_tried = now() - interval '2 hours' WHERE kind = 'stripe' AND username = $1`, "stripe:"+cust); err != nil {
+		t.Fatal(err)
+	}
+	c.RetryOnce(ctx)
+	if queued() != 0 || strings.Join(f.deleted, ",") != "sub_a,sub_b" {
+		t.Errorf("after Stripe came back: queued %d, cancels %v; want sub_b cancelled and the queue empty", queued(), f.deleted)
+	}
+	if len(f.customersDeleted) != 0 {
+		t.Errorf("a refund must keep the Stripe customer: deleted %v", f.customersDeleted)
+	}
+	var closed int
+	if err := r.pool.QueryRow(`SELECT count(*) FROM stripe_closed_customers WHERE customer_id = $1`, cust).Scan(&closed); err != nil || closed != 0 {
+		t.Errorf("a refund must not close the customer (%d, %v)", closed, err)
 	}
 }

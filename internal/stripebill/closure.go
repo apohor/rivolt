@@ -157,7 +157,14 @@ func (c *AccountClosure) RetryOnce(ctx context.Context) {
 		}
 		for _, it := range due {
 			cctx, cancel := context.WithTimeout(ctx, cancelTimeout)
-			rep, cerr := c.Client.CloseCustomer(cctx, it.Customer, c.voidCap(cctx))
+			var rep CloseReport
+			var cerr error
+			if it.Refund {
+				// A refunded customer keeps the account and the Stripe customer: only the subscriptions end.
+				_, cerr = c.Client.CancelCustomerSubscriptions(cctx, it.Customer)
+			} else {
+				rep, cerr = c.Client.CloseCustomer(cctx, it.Customer, c.voidCap(cctx))
+			}
 			cancel()
 			c.audit(rep)
 			if cerr != nil {

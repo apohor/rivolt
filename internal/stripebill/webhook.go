@@ -15,6 +15,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/entitlements"
+
+	"github.com/apohor/rivolt/internal/db"
 )
 
 // MaxBodyBytes caps a webhook body: Stripe events are a few KB.
@@ -83,6 +85,11 @@ type Handler struct {
 		CustomerCountry(ctx context.Context, customer string) (string, error)
 	}
 	OnNonUS func(country string)
+	// Canceller ends a refunded customer's subscriptions at once, right after the refund is applied (nil: the queued cancel, which the retrier
+	// runs, does it). A failure leaves the queued cancel for the retrier, which counts it for the RivoltStripeCancel alerts.
+	Canceller interface {
+		CancelCustomerSubscriptions(ctx context.Context, customer string) (int, error)
+	}
 	// seen remembers the (customer, country) pairs already reported by this process, so a customer whose subscription changes every month is
 	// reported once, not at each event.
 	seen sync.Map
@@ -173,7 +180,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.ObserveLag != nil && ev.Created > 0 {
 		h.ObserveLag(h.now().Sub(time.Unix(ev.Created, 0)))
 	}
-	outcome, uid, err := h.apply(r.Context(), ev)
+	var refunded string
+	outcome, uid, err := h.apply(r.Context(), ev, &refunded)
 	if err != nil {
 		if h.Log != nil {
 			h.Log.Error("stripe webhook: could not apply the event; Stripe will retry", "event", ev.ID, "type", ev.Type, "err", err.Error())
@@ -185,12 +193,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.Invalidate(uid)
 	}
 	h.observe(ev.Type, outcome)
+	h.cancelRefunded(r.Context(), refunded)
 	h.checkCountry(r.Context(), ev, outcome)
 	w.WriteHeader(http.StatusOK)
 }
 
 // apply records the event and applies it, in one transaction. It returns the outcome and the account whose plan changed (uuid.Nil: none).
-func (h *Handler) apply(ctx context.Context, ev Event) (string, uuid.UUID, error) {
+func (h *Handler) apply(ctx context.Context, ev Event, refunded *string) (string, uuid.UUID, error) {
 	tx, err := h.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return "", uuid.Nil, err
@@ -211,7 +220,7 @@ func (h *Handler) apply(ctx context.Context, ev Event) (string, uuid.UUID, error
 	case "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted":
 		outcome, uid, err = h.subscriptionChanged(ctx, tx, ev)
 	case "charge.refunded":
-		outcome, uid, err = h.chargeRefunded(ctx, tx, ev)
+		outcome, uid, err = h.chargeRefunded(ctx, tx, ev, refunded)
 	default:
 		outcome = OutcomeIgnored
 	}
@@ -414,10 +423,11 @@ func (h *Handler) subscriptionChanged(ctx context.Context, tx *sql.Tx, ev Event)
 	return OutcomeApplied, uid, nil
 }
 
-// chargeRefunded ends the account's Stripe Pro after a full refund (a refund of the whole charge: Pro is not kept on a returned payment).
-// A partial refund changes nothing. The Stripe subscription itself stays active unless the operator also cancels it, and its next renewal
-// event then grants Pro again (correctly: they would be paying again), so the operator's refund procedure must cancel the subscription too.
-func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event) (string, uuid.UUID, error) {
+// chargeRefunded ends the account's Stripe Pro after a full refund (a refund of the whole charge: Pro is not kept on a returned payment) and
+// queues the cancellation of the customer's Stripe subscriptions in the same transaction, so a refunded customer is never charged again. The
+// cancel itself runs right after the commit (cancelRefunded), or from the retry queue (stripe_cancel_retrier) when Stripe cannot be reached.
+// A partial refund changes nothing. *refunded is set to the customer whose subscriptions are to be cancelled.
+func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event, refunded *string) (string, uuid.UUID, error) {
 	var ch Charge
 	if err := json.Unmarshal(ev.Data.Object, &ch); err != nil {
 		return "", uuid.Nil, err
@@ -446,7 +456,30 @@ func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event) (str
 		 WHERE user_id = $1 AND source = 'stripe'`, uid); err != nil {
 		return "", uuid.Nil, err
 	}
+	if err := db.EnqueueStripeRefundCancel(ctx, tx, ch.Customer); err != nil {
+		return "", uuid.Nil, err
+	}
+	*refunded = ch.Customer
 	return OutcomeApplied, uid, nil
+}
+
+// cancelRefunded cancels a refunded customer's subscriptions now (immediately, no proration, no invoice) and clears the queued cancel. Already
+// cancelled subscriptions are skipped, so a repeat or a manual cancel is harmless. A failure is logged and left to the retrier.
+func (h *Handler) cancelRefunded(ctx context.Context, customer string) {
+	if customer == "" || h.Canceller == nil {
+		return
+	}
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if _, err := h.Canceller.CancelCustomerSubscriptions(cctx, customer); err != nil {
+		if h.Log != nil {
+			h.Log.Warn("stripe webhook: cancelling a refunded customer's subscription failed; queued for retry", "err", queueText(err))
+		}
+		return
+	}
+	if err := db.ResolveStripeRefundCancel(cctx, h.DB, customer); err != nil && h.Log != nil {
+		h.Log.Warn("stripe webhook: clearing the queued cancel failed", "err", err.Error())
+	}
 }
 
 // checkCountry is the US-only guard: Rivolt Pro is sold in the United States only. After an event has been applied it looks at the billing
