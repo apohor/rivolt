@@ -77,14 +77,19 @@ struct NowSlotModel: Equatable {
         if let kwh = detail.energyKwh, kwh > 0 {
             stats.append(Stat(label: "Added", value: "\(detail.energyEstimated ? "≈ " : "")+\(NowFormat.oneDecimal(kwh)) kWh", note: nil))
         }
-        if let km = detail.rangeAddedKm, km > 0 { stats.append(Stat(label: "Range added", value: "+\(NowFormat.distance(mi: km / 1.609344))", note: nil)) }
-        if let rate = detail.rateKmPerHour, rate > 0 { stats.append(Stat(label: "Rate", value: "\(NowFormat.distance(mi: rate / 1.609344))/h", note: nil)) }
+        // The truck's own figures come from the live session; without one (the demo, a home charge) the battery's gain at today's km per percent, marked ≈.
         let started = summary.chargeStartedAt ?? snapshot?.charge?.startedAt
-        if let elapsed = detail.elapsed {
-            stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil))
-        } else if let started, clock > started {
-            stats.append(Stat(label: "Elapsed", value: NowFormat.duration(clock.timeIntervalSince(started)), note: nil))
+        let elapsed: TimeInterval? = detail.elapsed ?? started.flatMap { clock > $0 ? clock.timeIntervalSince($0) : nil }
+        var rangeKm = detail.rangeAddedKm.flatMap { $0 > 0 ? $0 : nil }
+        let estimated = rangeKm == nil
+        if estimated, let added = summary.chargeAddedPct, added > 0, let soc = summary.socPct, soc > 0, let range = summary.rangeKm {
+            rangeKm = range / soc * added
         }
+        let mark = estimated ? "≈ " : ""
+        if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.distance(mi: km / 1.609344))", note: nil)) }
+        let rate = detail.rateKmPerHour.flatMap { $0 > 0 ? $0 : nil } ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
+        if let rate { stats.append(Stat(label: "Rate", value: "\(detail.rateKmPerHour == nil ? "≈ " : "")\(NowFormat.distance(mi: rate / 1.609344))/h", note: nil)) }
+        if let elapsed { stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil)) }
         if let cost = detail.cost {
             stats.append(Stat(label: "Cost so far", value: NowFormat.costText(cost), note: nil))
         }

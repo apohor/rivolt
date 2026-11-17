@@ -84,6 +84,20 @@ final class NowSlotTests: XCTestCase {
         XCTAssertNil(NowSlotModel.make(summary: none, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, placeLabel: nil, clock: at))
     }
 
+    func testChargingWithoutASessionEstimatesRangeAndRate() throws {
+        let start = at.addingTimeInterval(-3600)
+        let iso = ISO8601DateFormatter().string(from: start)
+        let now = try snapshot("charging", extra: #","charge":{"started_at":"\#(iso)","soc_start":40,"peak_kw":11}"#)
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 11), now: now, clock: at)
+        DisplayUnits.demo = true
+        defer { DisplayUnits.demo = false }
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, placeLabel: nil, clock: at))
+        guard case .figures(_, _, _, _, let stats) = model.content else { return XCTFail("figures") }
+        let range = try XCTUnwrap(stats.first { $0.label == "Range added" })
+        XCTAssertTrue(range.value.hasPrefix("≈ +"), range.value)
+        XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).value.hasPrefix("≈ "))
+    }
+
     func testRenderEachSlot() throws {
         let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]
         let now = try snapshot("driving", extra: #","drive":{"started_at":"2026-11-17T12:00:00Z","distance_mi":12.4,"duration_s":1500,"energy_kwh":4.1,"efficiency_mi_per_kwh":3.02}"#)
