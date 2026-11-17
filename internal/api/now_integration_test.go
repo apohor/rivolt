@@ -11,7 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/settings"
 )
 
 func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
@@ -225,5 +230,75 @@ func TestNowRunSQL_PrunesPartitionsOutsideTheLookback(t *testing.T) {
 		if strings.Contains(plan, `"`+p+`"`) {
 			t.Errorf("the run query's plan reads %s, a partition entirely before the lookback", p)
 		}
+	}
+}
+
+// The open charge and drive rows the recorder keeps feed the Now card: the charge's cost so far, the drive's distance and efficiency. Only the
+// user's own vehicle's rows count, and a row the recorder stopped writing shows nothing.
+func TestNowLive_OpenChargeAndDriveFromPostgres(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	alice, err := db.EnsureUser(ctx, pool, "now-live-alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := db.EnsureUser(ctx, pool, "now-live-bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var va, vb string
+	if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-live') RETURNING id`, alice).Scan(&va); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-live-bob') RETURNING id`, bob).Scan(&vb); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	charge := func(uid uuid.UUID, vid, ext string, ended time.Time, cost float64) {
+		t.Helper()
+		if _, err := pool.Exec(`INSERT INTO charges (user_id, vehicle_id, external_id, started_at, ended_at, energy_added_kwh, source, final_state, cost, currency, cost_source, price_per_kwh)
+			VALUES ($1,$2,$3,$4,$5,12,'live','charging_active',$6::numeric,'USD','rivian',$6::numeric/12)`, uid, vid, ext, now.Add(-40*time.Minute), ended, cost); err != nil {
+			t.Fatal(err)
+		}
+	}
+	drive := func(uid uuid.UUID, vid, ext string, ended time.Time) {
+		t.Helper()
+		if _, err := pool.Exec(`INSERT INTO drives (user_id, vehicle_id, external_id, started_at, ended_at, distance_mi, energy_used_kwh, avg_speed_mph, source, metadata)
+			VALUES ($1,$2,$3,$4,$5,10,4,31,'live','{"open":"true"}')`, uid, vid, ext, now.Add(-20*time.Minute), ended); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rf := db.NewVehicleResolverFactory(pool)
+	d := Deps{Charges: charges.NewFactory(pool, rf), Drives: drives.NewFactory(pool, rf), Settings: settings.NewFactory(pool)}
+	liveCharge, liveDrive := newNowLive(d)
+
+	// Nothing open yet.
+	if liveCharge(ctx, alice, "rv-live", now) != nil || liveDrive(ctx, alice, "rv-live", now) != nil {
+		t.Fatal("rows without open sessions")
+	}
+	// Bob's open rows do not reach Alice.
+	charge(bob, vb, "live_bob_c_1", now, 99)
+	drive(bob, vb, "live_bob_d_1", now)
+	if liveCharge(ctx, alice, "rv-live", now) != nil || liveDrive(ctx, alice, "rv-live", now) != nil {
+		t.Fatal("another user's open rows were read")
+	}
+	charge(alice, va, "live_a_c_1", now.Add(-5*time.Second), 6.5)
+	drive(alice, va, "live_a_d_1", now.Add(-5*time.Second))
+	c := liveCharge(ctx, alice, "rv-live", now)
+	if c == nil || c.Cost == nil || *c.Cost != 6.5 || c.Currency != "USD" || c.CostSource != "rivian" || c.CostIsEstimate || c.EnergyAddedKWh == nil || *c.EnergyAddedKWh != 12 {
+		t.Fatalf("charge: %+v", c)
+	}
+	dr := liveDrive(ctx, alice, "rv-live", now)
+	if dr == nil || dr.DistanceMi != 10 || dr.EfficiencyMiPerKWh == nil || *dr.EfficiencyMiPerKWh != 2.5 {
+		t.Fatalf("drive: %+v", dr)
+	}
+	// Stale: the recorder stopped writing long ago.
+	if liveCharge(ctx, alice, "rv-live", now.Add(time.Hour)) != nil || liveDrive(ctx, alice, "rv-live", now.Add(time.Hour)) != nil {
+		t.Fatal("stale rows were shown")
 	}
 }

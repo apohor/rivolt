@@ -1204,7 +1204,9 @@ func New(d Deps) http.Handler {
 			// Now-card state fields (location_fix_at, connection,
 			// state_since, tire min). Read-only.
 			if d.DB != nil {
+				liveCharge, liveDrive := newNowLive(d)
 				na := nowAPI{
+					liveCharge: liveCharge, liveDrive: liveDrive,
 					snapshot: newNowSnapshotter(d.DB),
 					connection: func(uid uuid.UUID) string {
 						paused := d.Flags != nil && d.Flags.KillSwitch().Paused

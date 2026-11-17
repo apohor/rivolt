@@ -44,6 +44,13 @@ type nowCharge struct {
 	StartedAt time.Time `json:"started_at"`
 	SoCStart  *float64  `json:"soc_start"`
 	PeakKW    *float64  `json:"peak_kw"`
+	// The next five come from the recorder's open charge row (null when there is none or it is stale). Cost follows the charge list's rules:
+	// null when the session is unpriced, CostIsEstimate true unless Rivian billed it or the user typed it.
+	EnergyAddedKWh *float64 `json:"energy_added_kwh"`
+	Cost           *float64 `json:"cost"`
+	Currency       string   `json:"currency"`
+	CostSource     string   `json:"cost_source"`
+	CostIsEstimate bool     `json:"cost_is_estimate"`
 }
 
 type nowResponse struct {
@@ -64,6 +71,8 @@ type nowResponse struct {
 	// a tighter limit than the age of `at`.
 	VehicleStateFrameAt *time.Time `json:"vehicle_state_frame_at"`
 	Charge              *nowCharge `json:"charge"`
+	// Drive is the drive in progress so far; null unless state is driving (or its open row is stale).
+	Drive *nowDrive `json:"drive"`
 	// Ambient is the outside temperature looked up from Open-Meteo for the
 	// truck's location rounded to about 11 km. Rivian reports none. Present only
 	// when the user turned the lookup on (off by default) and the truck has a
@@ -89,7 +98,10 @@ type nowAPI struct {
 	// in; nil (the seam, or the user's choice) leaves the field out. It must not
 	// log or return the coordinates.
 	ambient func(ctx context.Context, uid uuid.UUID, lat, lon float64) *nowAmbient
-	now     func() time.Time
+	// liveCharge and liveDrive read the recorder's open charge and drive rows from Postgres (never Rivian); nil leaves those fields null.
+	liveCharge func(ctx context.Context, uid uuid.UUID, rivianID string, now time.Time) *nowChargeLive
+	liveDrive  func(ctx context.Context, uid uuid.UUID, rivianID string, now time.Time) *nowDrive
+	now        func() time.Time
 }
 
 // connectionState is not a freshness verdict (the client derives that
@@ -133,6 +145,15 @@ func (a nowAPI) handle(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 	}
 	if out.State == "charging" && snap.StateSince != nil {
 		out.Charge = &nowCharge{StartedAt: *snap.StateSince, SoCStart: snap.SoCAtStateStart, PeakKW: snap.ChargePeakKW}
+		if a.liveCharge != nil {
+			if lc := a.liveCharge(r.Context(), uid, id, a.now()); lc != nil {
+				out.Charge.EnergyAddedKWh, out.Charge.Cost, out.Charge.Currency = lc.EnergyAddedKWh, lc.Cost, lc.Currency
+				out.Charge.CostSource, out.Charge.CostIsEstimate = lc.CostSource, lc.CostIsEstimate
+			}
+		}
+	}
+	if out.State == "driving" && a.liveDrive != nil {
+		out.Drive = a.liveDrive(r.Context(), uid, id, a.now())
 	}
 	if a.ambient != nil && snap.hasPos {
 		out.Ambient = a.ambient(r.Context(), uid, snap.lat, snap.lon)
