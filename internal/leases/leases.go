@@ -435,6 +435,7 @@ type Coordinator struct {
 	drainSince   time.Time
 	drainDrove   map[string]bool // groups seen with an open drive since the drain began
 	heldGroups   int             // groups held after the last lead pass
+	drainPassed  bool            // a draining lead pass has run, so heldGroups says what the drain left
 	passMu       sync.Mutex
 
 	// jitter spreads the ticks by up to +-jitter in lead mode, so pods do not race for the same free
@@ -1263,6 +1264,7 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 	}
 	c.mu.Lock()
 	c.heldGroups = len(res.Held)
+	c.drainPassed = c.drainPassed || res.Draining
 	c.mu.Unlock()
 	if c.onGroups != nil {
 		c.onGroups(len(res.Held))
@@ -1470,33 +1472,39 @@ func (c *Coordinator) noteExpired(res GroupLead) {
 	}
 }
 
-// DrainWait keeps running lead passes from a draining pod's shutdown until it holds no group or the drive-wait cap (SetDrain) has
-// passed since the drain began, so idle groups go first and a drive finishes where it is. Without a cap, or in the old per-vehicle
-// mode, it returns at once and Shutdown hands everything over as before. ctx bounds the wait (the pod's grace period).
+// DrainWait waits, from a draining pod's shutdown, until it holds no group or the drive-wait cap (SetDrain) has passed since the drain
+// began. It runs no pass of its own: Run keeps ticking (its context outlives SIGTERM until this returns), so the pod makes one pass a
+// tick, not two, and hands over at most the per-pass count. Without a cap, or in the old per-vehicle mode, it returns at once and
+// Shutdown hands everything over as before. ctx bounds the wait (the pod's grace period).
 func (c *Coordinator) DrainWait(ctx context.Context) {
 	gl, ok := c.store.(groupLeader)
 	if !ok || !gl.GroupLeading() || c.drainCap <= 0 {
 		return
 	}
 	c.MarkDraining(ctx)
+	c.TriggerReconcile() // the first drain pass now, not at the next tick
 	tick := c.reconcileInterval
+	poll := min(max(tick/4, 10*time.Millisecond), time.Second)
+	started := c.now()
 	for {
-		c.reconcile(ctx)
 		c.mu.Lock()
-		held, since := c.heldGroups, c.drainSince
+		held, since, passed := c.heldGroups, c.drainSince, c.drainPassed
 		c.mu.Unlock()
-		if held == 0 {
+		if passed && held == 0 {
 			c.log.Info("drain: no group left")
 			return
 		}
-		if !since.IsZero() && c.now().Sub(since) >= c.drainCap+2*tick {
+		if since.IsZero() {
+			since = started // no drain pass has hand-picked groups yet: count from here
+		}
+		if c.now().Sub(since) >= c.drainCap+2*tick {
 			c.log.Warn("drain: cap reached with groups left; shutdown hands them over", "groups", held)
 			return
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(tick):
+		case <-time.After(poll):
 		}
 	}
 }

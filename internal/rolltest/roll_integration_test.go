@@ -23,6 +23,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -191,6 +193,7 @@ func (w *world) start(name, generation string, rdb *redis.Client) *pod {
 		}
 		return leases.ActivityAwake
 	}, nil)
+	p.coord.SetHandoffObserver(func(v string) string { return p.mons[v].SessionKind(v) }, nil, nil)
 	p.coord.SetDrain(0, 0, func(reason string) { p.moveMu.Lock(); p.moves = append(p.moves, reason); p.moveMu.Unlock() })
 	go func() { defer close(p.done); _ = p.coord.Run(ctx) }()
 	return p
@@ -458,8 +461,12 @@ func TestRolloutDriveHeldAcrossTheRoll(t *testing.T) {
 	go func() { a.drainWait(wait); close(done) }()
 	time.Sleep(wait / 2)
 	for _, v := range mine {
-		if h := w.holders()[v]; h != a.name {
+		h := w.holders()[v]
+		if isDrive(v) && h != a.name {
 			t.Errorf("%s moved to %q at half the cap: a drive must stay where it is until the cap", v, h)
+		}
+		if !isDrive(v) && h == a.name {
+			t.Errorf("%s is still on the draining pod at half the cap: a charge goes before the cap", v)
 		}
 		if last := w.lastSample(v); last.Before(started.Add(wait/2 - 6*time.Second)) {
 			t.Errorf("%s: newest sample %s is older than the drain wait: the drive stopped recording after SIGTERM", v, last.Format(time.RFC3339))
@@ -477,11 +484,18 @@ func TestRolloutDriveHeldAcrossTheRoll(t *testing.T) {
 	if len(moves) != len(mine) {
 		t.Errorf("moves %v, want one per group the pod held (%d)", moves, len(mine))
 	}
-	for _, r := range moves {
-		if r != "cap" {
-			t.Errorf("move reasons %v, want every one cap (the drives never ended, nothing is forced)", moves)
-			break
+	var wantMoves []string
+	for _, v := range mine {
+		if isDrive(v) {
+			wantMoves = append(wantMoves, "cap")
+		} else {
+			wantMoves = append(wantMoves, "charging")
 		}
+	}
+	sort.Strings(wantMoves)
+	sort.Strings(moves)
+	if !reflect.DeepEqual(moves, wantMoves) {
+		t.Errorf("move reasons %v, want %v: a charge moves as charging before the cap, a drive that never ended moves as cap, nothing is forced", moves, wantMoves)
 	}
 	for _, v := range mine {
 		if h := w.holders()[v]; h == "" || h == a.name {
