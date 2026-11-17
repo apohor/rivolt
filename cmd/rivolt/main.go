@@ -2407,6 +2407,7 @@ func runServer() {
 				}
 				return leases.ActivityAwake
 			}, func(choice string) { appMetrics.LeaseShed.WithLabelValues(choice).Inc() })
+			coord.SetQuietShedObserver(appMetrics.LeaseQuietShed.Inc)
 			coord.SetSelfFenceObserver(func() { appMetrics.LeaseSelfFence.Inc() })
 			coord.SetRenewObserver(func(scope, outcome string) { appMetrics.LeaseRenew.WithLabelValues(scope, outcome).Inc() })
 			if monitorRegistry != nil {

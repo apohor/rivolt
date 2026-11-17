@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/apohor/rivolt/internal/fence"
@@ -41,6 +42,9 @@ type GroupLead struct {
 	// Retire are held rows that are no longer candidates (the session was removed, or the group was
 	// re-keyed). Same rule as Shed: stop first, then ReleaseGroup. They are also in Lost.
 	Retire []string
+	// ShedQuiet is set when the shed is only due to the quiet rule: the pod holds no more than the fair share, but more than the steady
+	// share. A deferral of such a shed (every group busy) is not an alarm.
+	ShedQuiet bool
 }
 
 // Lead mode timing (design 4.1): a 30 s lease renewed every 5 s (+-1 s of jitter), a 3 s
@@ -116,11 +120,30 @@ func (s *Store) podLiveWindow() time.Duration { return s.ttl / 2 }
 
 // fairShare is ceil(groups / pods) + 1: the +1 keeps a pod from flapping on a group that
 // would otherwise move back and forth.
-func fairShare(groups, pods int) int {
+func fairShare(groups, pods int) int { return steadyShare(groups, pods) + 1 }
+
+// steadyShare is ceil(groups / pods): the even split a quiet pod sheds down to.
+func steadyShare(groups, pods int) int {
 	if pods < 1 {
 		pods = 1
 	}
-	return (groups+pods-1)/pods + 1
+	return (groups + pods - 1) / pods
+}
+
+// quietPasses is how many unchanged lead passes make a pod quiet: twice the lease TTL, so a pod that vanished has had its rows expire and
+// be taken, and more than a joining pod needs to be seen (podLiveWindow) and take its first groups (releasedGrace).
+const quietPasses = int(2 * GroupTTL / groupTick)
+
+// podSetSig names the live pods that are not draining.
+func podSetSig(pods []livePod) string {
+	ids := make([]string, 0, len(pods))
+	for _, p := range pods {
+		if !p.draining {
+			ids = append(ids, p.id)
+		}
+	}
+	sort.Strings(ids)
+	return strings.Join(ids, ",")
 }
 
 type livePod struct {
@@ -226,15 +249,26 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 		return res, fmt.Errorf("lease renew: %w", err)
 	}
 
+	rolling := rollingUpdate(pods)
 	if want := share - len(held); want > 0 && !s.isDraining() {
 		if want > maxGroupsPerTick {
 			want = maxGroupsPerTick
 		}
+		// A row released a moment ago, outside a rollout, is a shed: it goes only to a pod below the steady share, so the pod
+		// that shed it (now at the steady share) and every other pod at it cannot take it back. See quietPasses.
+		relCap := want
+		if !rolling {
+			if relCap = steadyShare(total, nLive) - len(held); relCap < 0 {
+				relCap = 0
+			}
+		}
 		got, stolen, wait, err := s.queryEpochsStolen(ctx, userGroups+candidateGroups+`,
 			prev AS (SELECT group_id, (pod_id IS NOT NULL) AS was_held, released_at FROM account_leases),
-			ins AS (
-			INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
-			SELECT c.gid::uuid, $1, nextval('account_lease_epoch'), now(), now(), now() + $2::interval
+			elig AS (
+			SELECT c.gid, (a.group_id IS NULL) AS isnew,
+			       -- a row released a moment ago (a shed) that is not yet expired: it goes only to a pod below the steady share
+			       (a.pod_id IS NULL AND a.group_id IS NOT NULL AND a.expires_at >= now()
+			        AND COALESCE(a.released_at, '-infinity') >= now() - $7::interval) AS capped
 			  FROM cand c LEFT JOIN account_leases a ON a.group_id::text = c.gid
 			 WHERE (a.group_id IS NULL
 			        OR a.expires_at < now()
@@ -243,8 +277,15 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 			   AND NOT EXISTS (
 			       SELECT 1 FROM grp m JOIN account_leases o ON o.group_id::text = m.user_id::text
 			        WHERE m.gid = c.gid AND o.group_id::text <> c.gid
-			          AND o.pod_id IS NOT NULL AND o.pod_id <> $1 AND o.expires_at > now())
-			 ORDER BY (a.group_id IS NULL), c.gid
+			          AND o.pod_id IS NOT NULL AND o.pod_id <> $1 AND o.expires_at > now())),
+			ranked AS (
+			SELECT gid, isnew, capped, row_number() OVER (PARTITION BY capped ORDER BY isnew, gid) AS rn FROM elig),
+			ins AS (
+			INSERT INTO account_leases (group_id, pod_id, epoch, acquired_at, renewed_at, expires_at)
+			SELECT gid::uuid, $1, nextval('account_lease_epoch'), now(), now(), now() + $2::interval
+			  FROM ranked
+			 WHERE rn <= CASE WHEN capped THEN $6::int ELSE $4::int END
+			 ORDER BY isnew, gid
 			 LIMIT $4
 			ON CONFLICT (group_id) DO UPDATE SET
 			    pod_id = EXCLUDED.pod_id, epoch = EXCLUDED.epoch, acquired_at = EXCLUDED.acquired_at,
@@ -252,7 +293,7 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 			WHERE account_leases.pod_id IS NULL OR account_leases.expires_at < now()
 			RETURNING group_id, epoch)
 			SELECT ins.group_id::text, ins.epoch, COALESCE(p.was_held, false), EXTRACT(EPOCH FROM (statement_timestamp() - p.released_at))::float8 FROM ins LEFT JOIN prev p ON p.group_id = ins.group_id`,
-			s.podID, ttl, isNewest, want, fmt.Sprintf("%d seconds", int(releasedGrace.Seconds())))
+			s.podID, ttl, isNewest, want, fmt.Sprintf("%d seconds", int(releasedGrace.Seconds())), relCap, fmt.Sprintf("%d seconds", int(s.podLiveWindow().Seconds())))
 		if err != nil {
 			return res, fmt.Errorf("lease acquire: %w", err)
 		}
@@ -319,7 +360,23 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 	sort.Strings(res.Lost)
 	res.Lost = dedupe(res.Lost)
 
-	if over := len(held) - share; over > 0 {
+	// Quiet: the live pod set and this pod's held set have not changed for quietPasses passes. Then the +1 headroom of the share has done
+	// its job and the pod sheds down to the steady share, one group per quiet period (a shed changes the held set).
+	s.groupMu.Lock()
+	sig := podSetSig(pods) + "|" + strings.Join(keep, ",")
+	if sig == s.quietSig {
+		s.quietN++
+	} else {
+		s.quietSig, s.quietN = sig, 0
+	}
+	quiet := s.quietN >= quietPasses
+	s.groupMu.Unlock()
+	target := share
+	if quiet {
+		target = steadyShare(total, nLive)
+	}
+	if over := len(held) - target; over > 0 {
+		res.ShedQuiet = len(held) <= share
 		// One group per pass, the highest id: a fixed order so two passes never pick differently.
 		for i := len(keep) - 1; i >= 0; i-- {
 			res.ShedOrder = append(res.ShedOrder, keep[i])
@@ -329,7 +386,7 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 	if s.isDraining() {
 		res.Shed, res.ShedOrder = nil, nil // a draining pod releases everything at shutdown, not one by one
 	}
-	if rollingUpdate(pods) {
+	if rolling {
 		// One move per group per roll (zero-impact deploys, G1c). While a pod drains, or two pod generations are live, the pod count is not the
 		// steady one: the fair share is worked out for a pod that is about to go, so shedding to the new pod would move a group that has to
 		// move again when its old pod's peer drains. Groups move when their pod releases them; the balance is settled once the roll is over.
