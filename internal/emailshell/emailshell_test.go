@@ -55,3 +55,38 @@ func TestShellHasTheMarkTheMetaAndTheCard(t *testing.T) {
 		t.Error("the shell must not load anything remote")
 	}
 }
+
+func TestFromTextCTAButtonAboveFallbackLink(t *testing.T) {
+	text := "Hi,\n\nClick this link:\n\n    https://rivolt.dev/signup?t=a&b=1\n\nBye"
+	h := FromTextCTA("T", text, "Finish <signup>", "https://rivolt.dev/signup?t=a&b=1")
+	btn := strings.Index(h, "Finish &lt;signup&gt;</a>")
+	fallback := strings.Index(h, ">https://rivolt.dev/signup?t=a&amp;b=1</a>")
+	if btn < 0 || fallback < 0 || btn > fallback {
+		t.Fatalf("button must come before the fallback link: %d %d\n%s", btn, fallback, h)
+	}
+	if strings.Count(h, "background:#10b981;color:#fff") != 1 {
+		t.Errorf("want exactly one button")
+	}
+	for _, bad := range []string{"javascript:alert(1)", "http://rivolt.dev/x not in text"} {
+		if h := FromTextCTA("T", text, "Go", bad); strings.Contains(h, "display:inline-block") {
+			t.Errorf("button for %q", bad)
+		}
+	}
+	if FromTextCTA("T", text, "", "https://rivolt.dev/signup?t=a&b=1") != FromText("T", text) {
+		t.Errorf("empty label must equal FromText")
+	}
+}
+
+// Dark mode recolours every link; the button label must stay white on its emerald fill, so the button carries a class the dark CSS exempts.
+func TestButtonLabelStaysWhiteInDarkMode(t *testing.T) {
+	h := FromTextCTA("T", "Go: https://rivolt.dev/x", "Go", "https://rivolt.dev/x")
+	if !strings.Contains(h, `<a class="rv-btn" href="https://rivolt.dev/x"`) {
+		t.Errorf("button lacks rv-btn: %s", h)
+	}
+	if !strings.Contains(h, "a.rv-btn{color:#fff !important}") {
+		t.Errorf("dark CSS does not exempt rv-btn from the link colour")
+	}
+	if strings.Index(h, "a.rv-btn{color:#fff !important}") < strings.Index(h, "a{color:#34d399 !important}") {
+		t.Errorf("rv-btn rule must come after the a rule")
+	}
+}

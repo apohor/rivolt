@@ -21,6 +21,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/apohor/rivolt/internal/emailshell"
 )
 
 // Counter is the metric-recording surface the Resend client uses
@@ -71,7 +73,7 @@ type Message struct {
 	To      string
 	Subject string
 	Text    string // plain-text body; rendered as-is
-	HTML    string // optional HTML alternative; nil-coalesced to "" if absent
+	HTML    string // optional emailshell HTML part; Send builds it from Text when absent or not in the shell
 	// Headers are extra message headers passed through Resend's
 	// `headers` object (List-Unsubscribe, List-Unsubscribe-Post). Names
 	// and values containing CR or LF are dropped so a value can never
@@ -115,15 +117,18 @@ func (c *Client) Send(ctx context.Context, m Message) error {
 		// from "we tried and the provider barked".
 		return ErrNotConfigured
 	}
+	// Every message goes out in the Rivolt shell. A sender that has not built its own HTML part gets the plain text, word for word;
+	// HTML that does not come from emailshell is replaced the same way, so no email can ship unbranded.
+	if !emailshell.Branded(m.HTML) {
+		m.HTML = emailshell.FromText(m.Subject, m.Text)
+	}
 	body := map[string]any{
 		"from":    c.from,
 		"to":      []string{m.To},
 		"subject": m.Subject,
 		"text":    m.Text,
 	}
-	if m.HTML != "" {
-		body["html"] = m.HTML
-	}
+	body["html"] = m.HTML
 	if h := safeHeaders(m.Headers); len(h) > 0 {
 		body["headers"] = h
 	}

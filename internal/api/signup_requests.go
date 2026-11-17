@@ -18,6 +18,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/email"
+	"github.com/apohor/rivolt/internal/emailshell"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/go-chi/chi/v5"
@@ -321,25 +322,11 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 		"early access to new features:\n\n" +
 		"    " + discordURL + "\n\n" +
 		"— Rivolt (support@rivolt.dev)\n"
-	html := "<p>Hi,</p>" +
-		"<p>Here is your link to finish creating your Rivolt account.</p>" +
-		"<p>Click below to finish signing up — your email is already filled in, " +
-		"you'll just need to pick a password.</p>" +
-		"<p><a href=\"" + link + "\" " +
-		"style=\"display:inline-block;padding:10px 18px;background:#10b981;color:#fff;" +
-		"font-weight:600;border-radius:6px;text-decoration:none;\">Finish signup</a></p>" +
-		"<p style=\"color:#666;font-size:13px;\">Or paste this URL into your browser:<br>" +
-		"<a href=\"" + link + "\">" + link + "</a></p>" +
-		"<p>The link is single-use and expires in 14 days.</p>" +
-		"<p>Join the community on " +
-		"<a href=\"" + discordURL + "\" style=\"color:#5865f2;font-weight:600;\">Discord</a> " +
-		"for help, feedback, and early access to new features.</p>" +
-		"<p>— Rivolt (<a href=\"mailto:support@rivolt.dev\">support@rivolt.dev</a>)</p>"
 	return mailer.Send(ctx, email.Message{
 		To:      to,
 		Subject: subject,
 		Text:    text,
-		HTML:    html,
+		HTML:    emailshell.FromTextCTA(subject, text, "Finish signup", link),
 	})
 }
 
