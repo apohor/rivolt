@@ -17,15 +17,16 @@ function useMergeFlag() {
 const userLabel = (u: AdminUserRow) => u.display_name || u.email || u.username;
 
 export function AudienceFlagRow({
-  flag, title, feature, description, auditAction, value, note,
+  flag, title, feature, description, auditAction, value, note, noEveryone,
 }: {
-  flag: "statement_email";
+  flag: "statement_email" | "live_destination";
   title: string;
   feature: string; // as it reads in "Turn <feature> on for everyone?"
   description: string;
   auditAction: string;
   value: AudienceFlag | undefined;
   note?: string;
+  noEveryone?: boolean; // the flag is only ever for named users: no "Everyone" choice
 }) {
   const merge = useMergeFlag();
   const users = useQuery({ queryKey: ["admin", "users"], queryFn: () => backend.adminListUsers(), retry: 0, staleTime: 60_000 });
@@ -38,7 +39,9 @@ export function AudienceFlagRow({
   const [confirming, setConfirming] = useState(false);
   const save = useMutation({
     mutationFn: async ({ all, users }: { all: boolean; users: string[] }): Promise<AdminFlagsState> =>
-      ({ statement_email: (await backend.adminFlagsStatementEmailPut(all, users)).statement_email }) as AdminFlagsState,
+      flag === "live_destination"
+        ? ({ live_destination: (await backend.adminFlagsLiveDestinationPut(users)).live_destination }) as AdminFlagsState
+        : ({ statement_email: (await backend.adminFlagsStatementEmailPut(all, users)).statement_email }) as AdminFlagsState,
     onSuccess: (patch) => {
       merge(patch);
       setEditing(false);
@@ -77,7 +80,7 @@ export function AudienceFlagRow({
           <fieldset>
             <legend className="text-xs font-medium text-neutral-400">On for</legend>
             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-neutral-200">
-              {([["nobody", "Nobody"], ["selected", "Selected users"], ["everyone", "Everyone"]] as const).map(([id, label]) => (
+              {([["nobody", "Nobody"], ["selected", "Selected users"], ["everyone", "Everyone"]] as const).filter(([id]) => !(noEveryone && id === "everyone")).map(([id, label]) => (
                 <label key={id} className="flex items-center gap-1.5">
                   <input type="radio" name={`${flag}-audience`} checked={choice === id} onChange={() => { setChoice(id); setConfirming(false); }} />
                   {label}
