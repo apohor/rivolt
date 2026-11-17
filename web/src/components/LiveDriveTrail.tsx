@@ -1,8 +1,7 @@
-import { lazy, Suspense, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, DETAIL_SAMPLE_LIMIT, type Sample } from "../lib/api";
 import { forVehicle } from "../lib/vehicleSamples";
-import { useDesignPreview } from "../lib/config";
 import { usePreferences } from "../lib/preferences";
 import { destinationLine, destinationRoute, type LiveDestination } from "../lib/liveDestination";
 
@@ -15,29 +14,27 @@ export const LIVE_TRAIL_REFRESH_MS = 20_000;
 // visible (React Query pauses an interval in a hidden tab); the server allows 30 a minute.
 export const LIVE_DESTINATION_REFRESH_MS = 5_000;
 
+// Account and vehicle pairs whose destination answered 404 (the feature is off for the account): not asked again this session, wherever the
+// card is mounted. The user is part of the key, so another sign-in in the same tab asks again.
+const destinationOff = new Set<string>();
+
+// The destination follows the endpoint's own answer, not a design key: a 404 means off and renders nothing. With requireDest the map is only
+// drawn once a trip is known (the classic Live card has no map of its own). onShown tells the card around whether the map is on screen.
 // Without startedAt there is no open drive record yet (the first seconds of a drive, or a source that never opens one): the map shows the
 // truck's fix and the destination, with no trail.
-export function LiveDriveTrail({ vehicleId, startedAt, lat, lon }: { vehicleId: string; startedAt?: string; lat?: number; lon?: number }) {
+export function LiveDriveTrail({ vehicleId, startedAt, lat, lon, requireDest, onShown }: { vehicleId: string; startedAt?: string; lat?: number; lon?: number; requireDest?: boolean; onShown?: (shown: boolean) => void }) {
   const startedMs = startedAt ? new Date(startedAt).getTime() : NaN;
-  const samples = useQuery<Sample[]>({
-    queryKey: ["samples", "live-drive", vehicleId, startedAt],
-    enabled: Number.isFinite(startedMs),
-    queryFn: () => backend.samples(new Date(startedMs - 60_000), DETAIL_SAMPLE_LIMIT, new Date(Date.now() + 60_000), vehicleId).then((r) => forVehicle(r, vehicleId)),
-    refetchInterval: LIVE_TRAIL_REFRESH_MS,
-    refetchIntervalInBackground: false,
-    staleTime: 10_000,
-  });
+  const offKey = `${useQueryClient().getQueryData<{ user_id?: string } | null>(["auth", "me"])?.user_id ?? ""}:${vehicleId}`;
   const [failed, setFailed] = useState(0);
-  const destOn = useDesignPreview("live_destination");
   const { distanceUnit } = usePreferences();
   // 204 (no trip) clears it; the first 404 means the feature is off for this account, and the asking stops. Nothing is kept once it is
   // off screen (gcTime 0) and the answer is never logged.
   const destQuery = useQuery<LiveDestination | null | "off">({
     queryKey: ["live-destination", vehicleId],
-    enabled: destOn,
+    enabled: !destinationOff.has(offKey),
     queryFn: () =>
       backend.liveDestination(vehicleId).then(
-        (r) => { setFailed(0); return r; },
+        (r) => { setFailed(0); if (r === "off") destinationOff.add(offKey); return r; },
         (e) => { setFailed((n) => n + 1); throw e; },
       ),
     refetchInterval: (q) => (q.state.data === "off" ? false : LIVE_DESTINATION_REFRESH_MS),
@@ -48,6 +45,16 @@ export function LiveDriveTrail({ vehicleId, startedAt, lat, lon }: { vehicleId: 
   });
   // A failed read (503) keeps the last answer on screen, but not for long: after three in a row the trip is dropped until a read lands.
   const dest = destQuery.data && destQuery.data !== "off" && failed < 3 ? destQuery.data : null;
+  const shown = !requireDest || dest != null;
+  // The trail is only fetched when the map will draw (the classic card with no trip draws nothing).
+  const samples = useQuery<Sample[]>({
+    queryKey: ["samples", "live-drive", vehicleId, startedAt],
+    enabled: Number.isFinite(startedMs) && shown,
+    queryFn: () => backend.samples(new Date(startedMs - 60_000), DETAIL_SAMPLE_LIMIT, new Date(Date.now() + 60_000), vehicleId).then((r) => forVehicle(r, vehicleId)),
+    refetchInterval: LIVE_TRAIL_REFRESH_MS,
+    refetchIntervalInBackground: false,
+    staleTime: 10_000,
+  });
   const mapDest = useMemo(() => (dest ? { lat: dest.lat, lon: dest.lon, name: dest.name, route: destinationRoute(dest) } : null), [dest]);
   const points = useMemo(() => {
     const rows = (samples.data ?? []).filter((p) => new Date(p.At).getTime() >= startedMs - 60_000 && Number.isFinite(p.Lat) && Number.isFinite(p.Lon) && (p.Lat !== 0 || p.Lon !== 0));
@@ -57,7 +64,11 @@ export function LiveDriveTrail({ vehicleId, startedAt, lat, lon }: { vehicleId: 
     return trail;
   }, [samples.data, startedMs, lat, lon]);
 
-  if (points.length === 0) return null;
+  const draw = points.length > 0 && shown;
+  useEffect(() => {
+    onShown?.(draw);
+  }, [onShown, draw]);
+  if (!draw) return null;
   return (
     <div className="mt-3">
       <div className="mb-2 text-[11px] uppercase tracking-wide text-neutral-400">{Number.isFinite(startedMs) ? "This drive so far" : "This trip"}</div>
