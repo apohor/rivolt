@@ -169,12 +169,44 @@ struct NowSnapshot: Decodable, Equatable {
         let startedAt: Date
         let socStart: Double?
         let peakKw: Double?
+        /// The cost so far and where it comes from; absent on servers older than the fields.
+        let cost: Double?
+        let currency: String?
+        let costSource: String?
+        let costIsEstimate: Bool?
+    }
+
+    /// The drive in progress, from the recorder's open drive row (the server leaves it out once it is older than 15 minutes).
+    struct Drive: Decodable, Equatable {
+        let startedAt: Date
+        let distanceMi: Double
+        let durationS: Double
+        let energyKwh: Double?
+        let efficiencyMiPerKwh: Double?
+        let avgSpeedMph: Double?
     }
 
     struct Ambient: Decodable, Equatable {
         let tempC: Double
         let source: String
         let asOf: Date
+        /// clear, partly_cloudy, cloudy, fog, drizzle, rain, snow or thunder; absent on servers older than the field.
+        let condition: String?
+        let windKph: Double?
+        /// Water-equivalent precipitation over the next three hours (snow included); 0 is dry.
+        let rainNext3hMm: Double?
+
+        /// `.convertFromSnakeCase` reads "next3h" as "Next3H" (see `NowSnapshot.CodingKeys`).
+        private enum CodingKeys: String, CodingKey {
+            case tempC, source, asOf, condition, windKph
+            case rainNext3hMm = "rainNext3HMm"
+        }
+    }
+
+    /// Where the truck is, for the demo account only (a public sample point); no real account gets one.
+    struct Location: Decodable, Equatable {
+        let lat: Double
+        let lon: Double
     }
 
     let version: Int
@@ -192,6 +224,9 @@ struct NowSnapshot: Decodable, Equatable {
     let charge: Charge?
     /// Only when the user turned outside temperature on.
     let ambient: Ambient?
+    /// Present only while driving; absent on servers older than the field.
+    let drive: Drive?
+    let location: Location?
 
     /// Keys as `.convertFromSnakeCase` produces them. It capitalizes each
     /// segment with `String.capitalized`, which turns "6h" into "6H", so
@@ -200,6 +235,6 @@ struct NowSnapshot: Decodable, Equatable {
         case version, at, locationFixAt, connection, state, asleep, stateSince
         case socAtStateStart, tirePressureMinBar
         case failedSleeps6h = "failedSleeps6H"
-        case vehicleStateFrameAt, charge, ambient
+        case vehicleStateFrameAt, charge, ambient, drive, location
     }
 }
