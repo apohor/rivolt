@@ -164,6 +164,8 @@ func main() {
 			os.Exit(runAIEval(os.Args[2:], os.Stdout, os.Stderr))
 		case "open-charges":
 			os.Exit(runOpenCharges(os.Args[2:], os.Stdout, os.Stderr))
+		case "live-destination-users":
+			os.Exit(runLiveDestinationUsers(os.Args[2:], os.Stdout, os.Stderr))
 		default:
 			// Anything that is not a flag is a subcommand this binary does not have. Starting the
 			// server for it would boot a second Rivolt in a pod whose chart execs a subcommand the
@@ -195,6 +197,9 @@ Usage:
   rivolt ai-eval [--budget USD] [--inputs N]
                   Run the recap, efficiency and advice prompts on the candidate Claude models over demo inputs
                   and print the answers side by side (reads ANTHROPIC_API_KEY; no database, no server).
+  rivolt live-destination-users --show | --add UUID [--apply] | --remove UUID [--apply]
+                  Name who the live_destination flag is on for (user UUIDs only, never everyone), through the same store
+                  function as the admin route; an audit row (actor ops-cli) is written first. Counts only. Dry run unless --apply.
   rivolt open-charges snapshot [--out FILE | --configmap NAME [--namespace NS]] [--roll-hash H] | verify --snapshot FILE [--roll-from EPOCH] [--roll-hash H]
                   The release roll's open-charge check (reads RIVOLT_VERIFY_DATABASE_URL, a read-only role): snapshot the open charges
                   before the roll, verify after it that each is still one row (exit 1: split, vanished, stalled).

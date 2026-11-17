@@ -353,14 +353,10 @@ func handleFlagsLiveDestinationPut(store *flags.Store) http.HandlerFunc {
 				return
 			}
 		}
-		users := make([]string, 0, len(req.Users))
-		for _, u := range req.Users {
-			id, err := uuid.Parse(strings.TrimSpace(u))
-			if err != nil {
-				http.Error(w, "users must be user UUIDs", http.StatusBadRequest)
-				return
-			}
-			users = append(users, id.String())
+		users, err := flags.ParseUserIDs(req.Users)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		actor := "admin"
 		if uid, ok := auth.UserFromContext(r.Context()); ok {

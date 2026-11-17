@@ -41,6 +41,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // KillSwitchName is the flags.name value for the Rivian upstream
@@ -547,6 +549,20 @@ func (s *Store) LiveDestination() AudienceState {
 		return AudienceState{}
 	}
 	return *p
+}
+
+// ParseUserIDs normalises a list of user ids for an audience flag: each must be a UUID, so "all" or a name is refused. The admin route
+// and the ops CLI both go through it before SetLiveDestination.
+func ParseUserIDs(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	for _, u := range in {
+		id, err := uuid.Parse(strings.TrimSpace(u))
+		if err != nil {
+			return nil, errors.New("users must be user UUIDs")
+		}
+		out = append(out, id.String())
+	}
+	return out, nil
 }
 
 // SetLiveDestination persists the per-user live-destination flag and
