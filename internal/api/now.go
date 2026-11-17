@@ -93,7 +93,7 @@ type nowAmbient struct {
 	// Condition is one of clear|partly_cloudy|cloudy|fog|drizzle|rain|snow|thunder.
 	Condition string   `json:"condition,omitempty"`
 	WindKPH   *float64 `json:"wind_kph,omitempty"`
-	// RainNext3hMM is the precipitation forecast to fall over the next 3 hours, in mm (0 means dry). No probability: our weather server
+	// RainNext3hMM is the precipitation (snow included, as water) forecast to fall over the next 3 hours, in mm (0 means dry). No probability: our weather server
 	// syncs only deterministic models.
 	RainNext3hMM *float64 `json:"rain_next3h_mm,omitempty"`
 }

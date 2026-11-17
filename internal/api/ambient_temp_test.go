@@ -42,11 +42,11 @@ func (a *ambientTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		h0 := time.Now().UTC().Truncate(time.Hour)
 		f := func(d int) string { return `"` + h0.Add(time.Duration(d)*time.Hour).Format("2006-01-02T15:04") + `"` }
-		prob := `[0.2,1.5,0.3,9,4]`
+		prob := `[9,0.2,1.5,0.3,4]`
 		if a.noRain {
 			prob = `[null,null,null,null,null]`
 		}
-		// Hours 0-2 are the next 3 h (sum 2.0 mm); hour 3 (9) and the past hour (4) are outside it.
+		// Stamps +1..+3 are the next 3 h (sum 2.0 mm); the current hour's stamp (9) and the past hour (4) are outside it.
 		body := `{"hourly":{"time":[` + f(0) + `,` + f(1) + `,` + f(2) + `,` + f(3) + `,` + f(-1) + `],"precipitation":` + prob + `}}`
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{"Content-Type": {"application/json"}}, Request: r}, nil
 	}

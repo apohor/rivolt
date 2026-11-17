@@ -682,8 +682,8 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	return s, hour, nil
 }
 
-// FetchRainAhead returns the precipitation (mm) forecast to fall over the hours [from, from+hours) at the rounded (lat, lon), summed from
-// the hourly precipitation the forecast endpoint (our own server when self-hosted) serves for its deterministic models. ok is false when no
+// FetchRainAhead returns the precipitation (mm) forecast to fall over the next hours hours after the hour containing from at the rounded (lat, lon), summed from
+// the hourly precipitation (snow included, as water) the forecast endpoint (our own server when self-hosted) serves for its deterministic models. ok is false when no
 // hour in the window has a value, so the caller says nothing rather than 0 mm. (A probability would need the ensemble models, which our
 // server does not sync.)
 func (c *Client) FetchRainAhead(ctx context.Context, lat, lon float64, from time.Time, hours int) (mm float64, ok bool, err error) {
@@ -726,10 +726,11 @@ func (c *Client) FetchRainAhead(ctx context.Context, lat, lon float64, from time
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return 0, false, fmt.Errorf("weather: decode: %w", err)
 	}
+	// An hourly value at stamp T is the total for the hour before it (T-1h to T): the next hours are the stamps in (start, end].
 	var sum float64
 	for i, ts := range body.Hourly.Time {
 		t, perr := time.Parse("2006-01-02T15:04", ts)
-		if perr != nil || t.Before(start) || !t.Before(end) || i >= len(body.Hourly.Precip) || body.Hourly.Precip[i] == nil {
+		if perr != nil || !t.After(start) || t.After(end) || i >= len(body.Hourly.Precip) || body.Hourly.Precip[i] == nil {
 			continue
 		}
 		sum += *body.Hourly.Precip[i]

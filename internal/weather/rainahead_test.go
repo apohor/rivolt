@@ -9,15 +9,16 @@ import (
 )
 
 // Against a model chain the server answers one precipitation series per model; the sum over the next hours takes each hour from the first
-// model that has it, and only the hours inside the window count.
+// model that has it. A value at stamp T is the hour before T, so the window is the stamps after the current hour up to three hours on; the
+// current hour's own stamp and the past hour do not count.
 func TestFetchRainAheadSumsTheWindowFromTheChain(t *testing.T) {
 	h0 := time.Now().UTC().Truncate(time.Hour)
 	f := func(d int) string { return `"` + h0.Add(time.Duration(d)*time.Hour).Format("2006-01-02T15:04") + `"` }
 	var vars, models string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vars, models = r.URL.Query().Get("hourly"), r.URL.Query().Get("models")
-		_, _ = w.Write([]byte(`{"hourly":{"time":[` + f(-1) + `,` + f(0) + `,` + f(1) + `,` + f(2) + `,` + f(3) + `],` +
-			`"precipitation_ncep_hrrr_conus":[7,0.4,null,null,8],"precipitation_ncep_gfs013":[7,0.9,0.5,null,8],"precipitation_gem_seamless":[7,0.9,0.9,0.2,8]}}`))
+		_, _ = w.Write([]byte(`{"hourly":{"time":[` + f(-1) + `,` + f(0) + `,` + f(1) + `,` + f(2) + `,` + f(3) + `,` + f(4) + `],` +
+			`"precipitation_ncep_hrrr_conus":[7,9,0.4,null,null,8],"precipitation_ncep_gfs013":[7,9,0.9,0.5,null,8],"precipitation_gem_seamless":[7,9,0.9,0.9,0.2,8]}}`))
 	}))
 	defer srv.Close()
 	mm, ok, err := NewSelfHostedClient(srv.URL).FetchRainAhead(context.Background(), 34.2, -118.2, time.Now(), 3)
