@@ -209,6 +209,8 @@ var notOwnerSide = map[string]string{
 	"db.ExpireAppleRevokes":                   "account-deletion Apple revoke retry job",
 	"db.RecordAppleRevokeFailure":             "account deletion",
 	"db.ClaimDueStripeCancels":                "account deletion / retry queue for a deleted account's Stripe subscriptions (internal/stripebill), not an owner-side recorder write",
+	"db.EnqueueStripeRefundCancel":            "refund cancel queue for Stripe subscriptions (internal/stripebill), written by the Stripe webhook: not an owner-side recorder write",
+	"db.ResolveStripeRefundCancel":            "refund cancel queue for Stripe subscriptions (internal/stripebill), written by the Stripe webhook: not an owner-side recorder write",
 	"db.MarkStripeCustomerClosed":             "account deletion / retry queue for a deleted account's Stripe subscriptions (internal/stripebill), not an owner-side recorder write",
 	"db.PurgeClosedStripeCustomers":           "account deletion / retry queue for a deleted account's Stripe subscriptions (internal/stripebill), not an owner-side recorder write",
 	"db.RecordStripeCancelFailure":            "account deletion / retry queue for a deleted account's Stripe subscriptions (internal/stripebill), not an owner-side recorder write",
