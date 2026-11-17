@@ -119,6 +119,19 @@ final class DemoStateTests: XCTestCase {
         XCTAssertEqual(spy.touches, 0, "the demo reads and writes no sign-in")
     }
 
+    func testTheDemoShowsMilesWhateverTheAccountOrRegionHad() throws {
+        DisplayUnits.apply(distance: "km", temperature: "c")
+        defer { DisplayUnits.reset() }
+        let s = try state(TokenSpy())
+        XCTAssertTrue(DisplayUnits.distanceMetric)
+        s.enterDemo()
+        XCTAssertFalse(DisplayUnits.distanceMetric, "the demo is in miles, as demo.rivolt.dev is")
+        XCTAssertFalse(DisplayUnits.celsius)
+        s.leaveDemo()
+        XCTAssertTrue(DisplayUnits.distanceMetric, "the account's pick is back once the demo closes")
+        XCTAssertTrue(DisplayUnits.celsius)
+    }
+
     func testTheDemoMapsDrawFromTheDemoServerWithNoToken() throws {
         let spy = TokenSpy()
         let s = try state(spy)

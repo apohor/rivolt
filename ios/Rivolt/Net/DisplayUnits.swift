@@ -9,8 +9,12 @@ enum DisplayUnits {
 
     private static var defaults: UserDefaults { UserDefaults(suiteName: "group.dev.rivolt.app") ?? .standard }
 
+    /// The demo truck is open: it shows miles and °F, as demo.rivolt.dev does, whatever an earlier account or the phone's region left behind.
+    nonisolated(unsafe) static var demo = false
+
     /// Kilometres (and km/h, kWh per 100 km) rather than miles.
     static var distanceMetric: Bool {
+        if demo { return false }
         switch defaults.string(forKey: distanceKey) {
         case "km": return true
         case "mi": return false
@@ -20,6 +24,7 @@ enum DisplayUnits {
 
     /// °C rather than °F: the account's pick, else following the distance unit (miles, °F; km, °C).
     static var celsius: Bool {
+        if demo { return false }
         switch defaults.string(forKey: temperatureKey) {
         case "c": return true
         case "f": return false
