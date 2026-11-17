@@ -5,7 +5,7 @@ import { e2eNow } from "./clock";
 // Design 1 (design_preview "now_v2"): the redesigned Now. Off, the screen is the one users have today.
 const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
 
-async function open(page: Page, flag: boolean, scenario: "parked" | "charging" = "parked", ambientOn = true, extraKeys: string[] = []) {
+async function open(page: Page, flag: boolean, scenario: "parked" | "charging" | "driving" = "parked", ambientOn = true, extraKeys: string[] = []) {
   await stubApi(page, { scenario, nowEndpoint: true, designPreview: flag ? ["now_v2", ...extraKeys] : [] });
   await page.route("**/api/settings/ambient-temp", (r) => r.fulfill(j({ enabled: ambientOn })));
   // The "Three things" card has something to offer.
@@ -17,7 +17,7 @@ async function open(page: Page, flag: boolean, scenario: "parked" | "charging" =
       j({
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: scenario, state_since: iso(2 * 3_600_000),
         soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0, charge: null,
-        ambient: { temp_c: 15, source: "open-meteo", as_of: iso(60_000) },
+        ambient: { temp_c: 15, source: "open-meteo", as_of: iso(60_000), condition: "partly_cloudy", wind_kph: 16, rain_next3h_mm: 3 },
       }),
     );
   });
@@ -189,6 +189,43 @@ test("design now_slot: charging figures replace the picture; without the key the
   await expect(slot).toBeVisible();
   await expect(slot.getByTestId("now-slot-big")).toContainText("kW");
   await expect(page.getByTestId("now-car")).toHaveCount(0);
+});
+
+test("design now_slot: parked shows the map and the weather in place of the picture", async ({ page }) => {
+  await open(page, true, "parked", true, ["now_slot"]);
+  const slot = page.getByTestId("now-slot");
+  await expect(slot).toBeVisible();
+  await expect(slot.getByTestId("now-slot-map")).toBeVisible();
+  const weather = slot.getByTestId("now-slot-weather");
+  await expect(weather).toContainText("Partly cloudy here now");
+  await expect(weather.getByTestId("now-slot-icon")).toBeVisible();
+  await expect(weather).toContainText("Rain next 3 h · 0.1 in");
+  await expect(page.getByTestId("now-car")).toHaveCount(0);
+  // The full-charge line stays, and the outside temperature is shown once (in the weather), not twice.
+  await expect(page.getByTestId("now-subline")).toContainText("Full charge today");
+  await expect(page.getByTestId("now-temps")).not.toContainText("Outside");
+  // Not interactive: no zoom buttons.
+  await expect(slot.locator(".maplibregl-ctrl-zoom-in")).toBeHidden();
+});
+
+test("design now_slot: driving figures come from /now, with no live-drive record", async ({ page }) => {
+  await open(page, true, "driving", true, ["now_slot"]);
+  await page.route(`**/api/live-drive/${VEHICLE_ID}`, (r) => r.fulfill({ status: 204 }));
+  await page.route(new RegExp(`/api/vehicles/${VEHICLE_ID}/now`), (r) => {
+    const iso = (ago: number) => new Date(e2eNow() - ago).toISOString();
+    return r.fulfill(
+      j({
+        version: 1, at: iso(8_000), location_fix_at: iso(8_000), connection: "replay", state: "driving", state_since: iso(600_000),
+        soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0, charge: null,
+        drive: { started_at: iso(600_000), distance_mi: 10.4, duration_s: 600, energy_kwh: 2.7, efficiency_mi_per_kwh: 10.4 / 2.7, avg_speed_mph: 62 },
+      }),
+    );
+  });
+  const slot = page.getByTestId("now-slot");
+  await expect(slot.getByTestId("now-slot-distance")).toContainText("10.4 mi");
+  await expect(slot.getByTestId("now-slot-time")).toContainText("10 min");
+  await expect(slot.getByTestId("now-slot-efficiency")).toContainText("3.9 mi/kWh");
+  await expect(slot.getByTestId("now-slot-energy-used")).toContainText("2.7 kWh");
 });
 
 test("design now_slot off: the picture or sketch shows, no slot", async ({ page }) => {

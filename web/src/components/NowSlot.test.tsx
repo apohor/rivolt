@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import NowSlot, { slotAvailable, slotStats, type SlotInput } from "./NowSlot";
+import NowSlot, { slotAvailable, slotStats, weatherView, type SlotInput } from "./NowSlot";
 import type { NowView } from "../lib/nowState";
 
 const charging = { kind: "charging", powerKw: 7.4, etaHours: 1.2, etaSource: "truck", limitPct: 80, energyKwh: 18.24, chargeFlavor: "home_l2", speedMph: null } as unknown as NowView;
 const driving = { kind: "driving", speedMph: 62, powerKw: null } as unknown as NowView;
 const session = { range_added_km: 98, total_charged_energy_kwh: 18.24, time_elapsed_seconds: 3900, kilometers_charged_per_hour: 61 };
-const drive = { tripMi: 12.34, elapsed_sec: 1500, energy_used_kwh: 4.2, soc_used_pct: 5 };
+const drive = { tripMi: 12.34, elapsed_sec: 1500, energy_used_kwh: 4.2, effMiPerKwh: 12.34 / 4.2 };
 const base = (v: NowView, extra: Partial<SlotInput> = {}): SlotInput => ({ view: v, nowMs: Date.UTC(2026, 0, 1, 12), unit: "mi", currency: "USD", ...extra });
 
 describe("NowSlot", () => {
@@ -46,5 +46,34 @@ describe("NowSlot", () => {
     expect(slotAvailable({ kind: "charging", powerKw: null } as unknown as NowView)).toBe(false);
     expect(slotAvailable({ kind: "parked" } as unknown as NowView)).toBe(false);
     expect(slotAvailable(charging)).toBe(true);
+  });
+});
+
+describe("parked slot weather", () => {
+  it("shows only what the server sent", () => {
+    expect(weatherView({ temp_c: 20 }, "c", "mi")).toEqual({ temp: "20 °C", condition: null, icon: null, wind: null, precip: null });
+    const w = weatherView({ temp_c: 20, condition: "partly_cloudy", wind_kph: 16, rain_next3h_mm: 0 }, "f", "mi");
+    expect(w).toEqual({ temp: "68 °F", condition: "Partly cloudy here now", icon: "partly_cloudy", wind: "Wind 10 mph", precip: "No rain next 3 h" });
+  });
+  it("a clear sky is Sunny by day, Clear by night", () => {
+    expect(weatherView({ temp_c: 20, condition: "clear" }, "c", "mi", true)).toMatchObject({ condition: "Sunny here now", icon: "clear" });
+    expect(weatherView({ temp_c: 20, condition: "clear" }, "c", "mi", false)).toMatchObject({ condition: "Clear here now", icon: "night" });
+  });
+  it("rain amounts follow the distance unit and small ones read as less than; snow has no amount", () => {
+    expect(weatherView({ temp_c: 8, condition: "rain", rain_next3h_mm: 3 }, "c", "km").precip).toBe("Rain next 3 h · 3 mm");
+    expect(weatherView({ temp_c: 8, condition: "rain", rain_next3h_mm: 3 }, "c", "mi").precip).toBe("Rain next 3 h · 0.1 in");
+    expect(weatherView({ temp_c: 8, condition: "drizzle", rain_next3h_mm: 0.06 }, "c", "mi").precip).toBe("Rain next 3 h · < 0.1 in");
+    expect(weatherView({ temp_c: 8, condition: "drizzle", rain_next3h_mm: 0.06 }, "c", "km").precip).toBe("Rain next 3 h · < 0.1 mm");
+    expect(weatherView({ temp_c: -2, condition: "snow", rain_next3h_mm: 3.4 }, "c", "km").precip).toBe("Snow next 3 h");
+    expect(weatherView({ temp_c: -2, condition: "snow", rain_next3h_mm: 0 }, "c", "km").precip).toBe("No snow next 3 h");
+  });
+  it("a parked truck has a slot only with a fix", () => {
+    const v = { kind: "parked" } as unknown as NowView;
+    expect(slotAvailable(v)).toBe(false);
+    expect(slotAvailable(v, { lat: 1, lon: 2 })).toBe(true);
+  });
+  it("without a fix nothing renders", () => {
+    const { container } = render(<NowSlot {...base({ kind: "parked" } as unknown as NowView)} />);
+    expect(container.firstChild).toBeNull();
   });
 });

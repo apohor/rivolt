@@ -703,7 +703,28 @@ export type NowSnapshot = {
     cost_is_estimate?: boolean;
   } | null;
   // Present only when the user turned outside temperature on: an Open-Meteo reading for the truck's area.
-  ambient?: { temp_c: number; source: string; as_of: string };
+  ambient?: {
+    temp_c: number;
+    source: string;
+    as_of: string;
+    condition?: "clear" | "partly_cloudy" | "cloudy" | "fog" | "drizzle" | "rain" | "snow" | "thunder";
+    wind_kph?: number;
+    // Forecast precipitation over the next 3 h (rain or snow), 0 = dry; absent when unknown.
+    rain_next3h_mm?: number;
+  };
+  // The drive in progress, from the recorder's open drive row; null when none (or the row is stale).
+  drive?: {
+    started_at: string;
+    distance_mi: number;
+    duration_s: number;
+    // Null until the state of charge has dropped.
+    energy_kwh: number | null;
+    // Distance over energy; null until the drive is long enough for the ratio to mean anything.
+    efficiency_mi_per_kwh: number | null;
+    avg_speed_mph: number | null;
+  } | null;
+  // The demo user's public sample point (the demo has no vehicle fix of its own); never sent for real accounts.
+  location?: { lat: number; lon: number };
 };
 export type DemoInfo = { enabled: boolean; vehicle_id: string; home_label: string };
 
