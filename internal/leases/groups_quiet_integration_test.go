@@ -242,3 +242,46 @@ func TestQuietShed_NothingDuringARollout(t *testing.T) {
 		}
 	}
 }
+
+// release frees pod's groups as if it had released them age ago.
+func release(ctx context.Context, t *testing.T, pool *sql.DB, pod string, age string) {
+	t.Helper()
+	if _, err := pool.ExecContext(ctx, `UPDATE account_leases SET pod_id = NULL, released_at = statement_timestamp() - $2::interval WHERE pod_id = $1`, pod, age); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A row released a moment ago is kept for a pod below the even split, so a pod already at it leaves it; once no pod with room has taken it
+// for longer than the live window, the pod takes it up to the fair share, so a group is never left unowned.
+func TestQuietShed_FreshReleaseWaitsThenAnyPodTakesIt(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	stores := spread(ctx, t, pool, 3, []int{2, 1}) // even split is 2, fair share 3
+	a, b := stores[0], stores[1]
+	release(ctx, t, pool, b.PodID(), "0 seconds")
+	if r := pass(ctx, t, a); len(r.Held) != 2 {
+		t.Fatalf("pod at the even split took a row released just now: holds %d", len(r.Held))
+	}
+	if _, err := pool.ExecContext(ctx, `UPDATE account_leases SET released_at = statement_timestamp() - interval '20 seconds' WHERE pod_id IS NULL`); err != nil {
+		t.Fatal(err)
+	}
+	if r := pass(ctx, t, a); len(r.Held) != 3 {
+		t.Errorf("a row nobody with room took in 20 s stayed unowned: pod holds %d, want 3", len(r.Held))
+	}
+}
+
+// In a rollout nothing is held back: a group released while two generations are live goes to the pod at the even split at once.
+func TestQuietShed_ReleaseDuringARolloutIsNotHeldBack(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	t.Setenv("RIVOLT_POD_GENERATION", "g1")
+	stores := spread(ctx, t, pool, 3, []int{2, 1})
+	a, b := stores[0], stores[1]
+	if _, err := pool.ExecContext(ctx, `UPDATE lease_pods SET generation = 'g2', started_at = now() - interval '1 hour' WHERE pod_id = $1`, b.PodID()); err != nil {
+		t.Fatal(err)
+	}
+	release(ctx, t, pool, b.PodID(), "0 seconds")
+	if r := pass(ctx, t, a); len(r.Held) != 3 {
+		t.Errorf("pod holds %d after the other generation released its group, want 3", len(r.Held))
+	}
+}
