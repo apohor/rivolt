@@ -26,5 +26,5 @@ export function ParkedMap({ lat, lon, height = 150 }: { lat: number; lon: number
     return () => cleanups.forEach((c) => c());
   }, [supported, lat, lon]);
   if (!supported) return <MapUnavailable height={height} note="" />;
-  return <div ref={ref} data-testid="now-slot-map" className="w-full overflow-hidden rounded-xl border border-neutral-800" style={{ height }} />;
+  return <div ref={ref} data-testid="now-slot-map" className="w-full overflow-hidden rounded-xl border border-neutral-800 [&_.maplibregl-ctrl-top-left]:hidden" style={{ height }} />;
 }
