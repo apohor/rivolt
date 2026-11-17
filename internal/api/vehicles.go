@@ -552,8 +552,20 @@ func handleVehicles(c rivian.Client, mon *rivian.StateMonitor, sqlDB *sql.DB, lo
 				}
 			}
 		}
-		writeJSON(w, http.StatusOK, vs)
+		writeVehicles(w, r, vs)
 	}
+}
+
+// writeVehicles answers the list. The public demo account never gets a remote picture, whichever path built the list (the replay feed, a
+// stored row, the monitor's cached info): its hero and gallery are removed, so the demo page loads nothing from Rivian's hosts.
+func writeVehicles(w http.ResponseWriter, r *http.Request, vs []rivian.Vehicle) {
+	if uid, ok := auth.UserFromContext(r.Context()); ok && isDemoUser(uid) {
+		for i := range vs {
+			vs[i].ImageURL = ""
+			vs[i].Images = nil
+		}
+	}
+	writeJSON(w, http.StatusOK, vs)
 }
 
 // handleVehiclesFromDB answers /api/vehicles for a user with a Rivian account from Postgres alone: no Rivian call and no write, on any pod
@@ -638,7 +650,7 @@ func handleVehiclesFromDB(w http.ResponseWriter, r *http.Request, mon *rivian.St
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, vs)
+	writeVehicles(w, r, vs)
 	return true, false
 }
 
