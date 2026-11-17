@@ -1,4 +1,4 @@
-import { clock, formatEta, type NowView } from "../lib/nowState";
+import { clock, type NowView } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
 import type { DistanceUnit } from "../lib/preferences";
@@ -34,6 +34,12 @@ const COST_NOTE: Record<string, string> = {
 };
 const CHARGER: Record<string, string> = { home_l2: "Home charger", dcfc: "Fast charger", away_ac: "Public charger" };
 
+// The mock's wording: "3 h 26 min", "45 min" (no tilde; our own estimate says so after it).
+function timeLeft(hours: number): string {
+  const m = Math.max(1, Math.round(hours * 60));
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
+}
+
 function duration(sec: number): string {
   const m = Math.max(0, Math.round(sec / 60));
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
@@ -50,14 +56,16 @@ export function slotStats(i: SlotInput): Stat[] {
     else if (v.energyKwh != null && v.energyKwh > 0) out.push({ k: "Added", v: `≈ +${v.energyKwh.toFixed(1)} kWh` });
     if (s && s.range_added_km > 0) out.push({ k: "Range added", v: `+${dist(s.range_added_km / KM_PER_MI)}` });
     if (s && s.kilometers_charged_per_hour > 0) out.push({ k: "Rate", v: `${dist(s.kilometers_charged_per_hour / KM_PER_MI)}/h` });
-    if (s && s.time_elapsed_seconds > 0) out.push({ k: "Elapsed", v: duration(s.time_elapsed_seconds) });
     const c = i.charge;
+    const startedMs = c ? Date.parse(c.started_at) : NaN;
+    // The truck's own elapsed time; the recorded session's start otherwise.
+    if (s && s.time_elapsed_seconds > 0) out.push({ k: "Elapsed", v: duration(s.time_elapsed_seconds) });
+    else if (Number.isFinite(startedMs) && i.nowMs > startedMs) out.push({ k: "Elapsed", v: duration((i.nowMs - startedMs) / 1000) });
     if (c && c.cost != null) {
       const est = c.cost_is_estimate !== false;
       out.push({ k: "Cost so far", v: `${est ? "≈ " : ""}${formatMoney(c.cost, c.currency || i.currency)}`, note: (c.cost_source && COST_NOTE[c.cost_source]) || (est ? "estimate" : undefined) });
     }
-    const startMs = c ? Date.parse(c.started_at) : NaN;
-    if (Number.isFinite(startMs)) out.push({ k: "Plugged in", v: clock(startMs) });
+    if (Number.isFinite(startedMs)) out.push({ k: "Plugged in", v: clock(startedMs) });
   } else if (v.kind === "driving" && i.drive) {
     const d = i.drive;
     if (d.tripMi > 0) out.push({ k: "Distance", v: dist(d.tripMi) });
@@ -103,7 +111,7 @@ export default function NowSlot(i: SlotInput) {
     if (view.etaHours != null) {
       const when = clock(nowMs + view.etaHours * 3_600_000);
       sub = view.limitPct != null && view.limitPct < 100 ? `Reaches ${Math.round(view.limitPct)}% at ${when}` : `Full at ${when}`;
-      small = `${formatEta(view.etaHours, nowMs, view.etaSource !== "truck")} left${view.limitPct != null ? ` · target ${Math.round(view.limitPct)}%` : ""}`;
+      small = `${timeLeft(view.etaHours)} left${view.etaSource === "truck" ? "" : " (est.)"}${view.limitPct != null ? ` · target ${Math.round(view.limitPct)}%` : ""}`;
     }
   } else if (view.kind === "driving" && view.speedMph != null) {
     const sp = unit === "km" ? view.speedMph * KM_PER_MI : view.speedMph;

@@ -15,7 +15,7 @@ describe("NowSlot", () => {
     expect(screen.getByTestId("now-slot-big").textContent).toContain("7.4");
     expect(screen.getByTestId("now-slot-charger").textContent).toBe("Home charger");
     expect(screen.getByTestId("now-slot-sub").textContent).toMatch(/^Reaches 80% at /);
-    expect(screen.getByTestId("now-slot-small").textContent).toBe("1 h 12 m left · target 80%");
+    expect(screen.getByTestId("now-slot-small").textContent).toBe("1 h 12 min left · target 80%");
     expect(screen.getByTestId("now-slot-added").textContent).toContain("+18.2 kWh");
     expect(screen.getByTestId("now-slot-range-added").textContent).toContain("+60.9 mi");
     expect(screen.getByTestId("now-slot-elapsed").textContent).toContain("1 h 05");
