@@ -108,6 +108,20 @@ final class NowV2Tests: XCTestCase {
         }
     }
 
+    func testClassicHeroRendersWithPictures() throws {
+        let (st, now) = (try Fixture.decode(VehicleState.self, "state"), try Fixture.decode(NowSnapshot.self, "now_v1"))
+        let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]
+        let clock = try XCTUnwrap(now.at).addingTimeInterval(120)
+        let summary = NowSummary(state: st, now: now, clock: clock)
+        let images = [img("https://i.example/front", "front")]
+        XCTAssertNotNil(VehiclePicture.forNow(images, kind: summary.kind, powerKw: nil, light: false), "the demo's front-only set still resolves")
+        let card = NowCard(vehicle: vehicle, summary: summary, clock: clock, images: images)
+            .padding().frame(width: 393).environment(\.colorScheme, .dark)
+        let r = ImageRenderer(content: card)
+        r.scale = 2
+        XCTAssertGreaterThan(try XCTUnwrap(r.uiImage).size.height, 200)
+    }
+
     func testSublineChargingAndParked() throws {
         let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]
         let at = Date(timeIntervalSince1970: 1_800_000_000)
