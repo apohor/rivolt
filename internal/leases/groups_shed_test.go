@@ -127,3 +127,29 @@ func TestLeadCoordinator_OpenSessionFollowsItsGroup(t *testing.T) {
 		}
 	}
 }
+
+// A shed only the quiet rule asks for is counted on its own series: it never feeds the deferral count the alert watches, even
+// when every group is busy, and is counted once when a group goes.
+func TestLeadCoordinator_QuietShedIsCountedApart(t *testing.T) {
+	ls := &leaderStore{fakeStore: newFakeStore(), vg: map[string]string{"v1": "g1", "v2": "g2"},
+		res: GroupLead{Held: map[string]int64{"g1": 1, "g2": 1}}}
+	c := newLeadCoord(ls, []string{"v1", "v2"})
+	var choices []string
+	quiet := 0
+	act := map[string]Activity{"v1": ActivityBusy, "v2": ActivityBusy}
+	c.SetActivityCheck(activityOf(act), func(ch string) { choices = append(choices, ch) })
+	c.SetQuietShedObserver(func() { quiet++ })
+	c.reconcile(context.Background())
+	ls.lmu.Lock()
+	ls.res.Shed, ls.res.ShedOrder, ls.res.ShedQuiet = []string{"g2"}, []string{"g2", "g1"}, true
+	ls.lmu.Unlock()
+	c.reconcile(context.Background())
+	if len(choices) != 0 || quiet != 0 {
+		t.Fatalf("every group busy: choices %v, quiet %d, want none", choices, quiet)
+	}
+	act["v1"] = ActivityIdle
+	c.reconcile(context.Background())
+	if len(choices) != 0 || quiet != 1 {
+		t.Errorf("a quiet shed went: choices %v, quiet %d, want none and 1", choices, quiet)
+	}
+}

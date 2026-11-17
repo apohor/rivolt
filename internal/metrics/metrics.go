@@ -130,6 +130,9 @@ type Metrics struct {
 	// (a sleeping group), awake (no sleeping one), deferred (every group over the share had an open
 	// drive or charge, so nothing moved that pass).
 	LeaseShed *prometheus.CounterVec
+	// LeaseQuietShed counts sheds the quiet rule alone caused: a pod over the even split but within the fair share, after the pod set and
+	// its groups stayed unchanged for a quiet period. They stop once the split is even, until the next membership change.
+	LeaseQuietShed prometheus.Counter
 	// LeaseUnstreamed counts episodes of a lease this pod holds without
 	// a subscription behind it (the coordinator re-subscribes; alert on
 	// any increase).
@@ -733,6 +736,10 @@ func New() *Metrics {
 			},
 			[]string{"choice"},
 		),
+		LeaseQuietShed: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_lease_quiet_shed_total",
+			Help: "Group sheds the quiet rule alone caused: a pod over the even split but within the fair share, once the pod set and its groups stayed unchanged for a quiet period.",
+		}),
 		RivianScheduleReadTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "rivolt_rivian_schedule_read_total",
@@ -1247,6 +1254,7 @@ func New() *Metrics {
 		m.RivianScheduleReadTotal,
 		m.VehicleInfoDeferredTotal,
 		m.LeaseShed,
+		m.LeaseQuietShed,
 		m.LeaseUnstreamed,
 		m.LeaseUnstreamedVehicles,
 		m.ReauthRaiseDeferred,

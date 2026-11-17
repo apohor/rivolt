@@ -66,6 +66,9 @@ type Store struct {
 	groupOKAt time.Time // when the last successful RenewGroups was sent (monotonic)
 	lead      bool      // lead mode: the group lease decides ownership (groups_lead.go)
 	draining  bool
+	// quietSig and quietN count the lead passes in a row that saw the same live pod set and held the same groups (groups_lead.go).
+	quietSig string
+	quietN   int
 
 	// userGroup caches the user -> group answer FenceUser reads (groupOfUser); lookupUserGroup replaces the query in tests.
 	userGroupMu     sync.Mutex
@@ -420,6 +423,8 @@ type Coordinator struct {
 	// told each shed decision: "idle", "awake" or "deferred" (every group over the share busy).
 	activity func(vehicleID string) Activity
 	onShed   func(choice string)
+	// onQuietShed is told each shed the quiet rule alone caused (the pod holds no more than the fair share).
+	onQuietShed func()
 
 	// jitter spreads the ticks by up to +-jitter in lead mode, so pods do not race for the same free
 	// groups; onSelfFence is told when this pod stopped everything because its renewals failed past
@@ -587,6 +592,9 @@ const (
 	// change under it is followed, not handed over.
 	ActivityBusy
 )
+
+// SetQuietShedObserver wires the counter of sheds the quiet rule alone caused. Safe to call before Run.
+func (c *Coordinator) SetQuietShedObserver(fn func()) { c.onQuietShed = fn }
 
 // SetActivityCheck wires the per-vehicle activity probe the lead-mode shed uses, and an optional
 // observer of each shed decision. Without it the shed takes the store's default (highest id).
@@ -1280,6 +1288,16 @@ func (c *Coordinator) chooseShed(res GroupLead, vg map[string]string) []string {
 		}
 	}
 	// The choices are metrics.LeaseShedChoices (pre-created at 0 for the deferral alert); keep them in step.
+	// A shed the quiet rule alone asks for is counted apart: its deferral is not what that alert is about.
+	if res.ShedQuiet {
+		if best == "" {
+			return nil
+		}
+		if c.onQuietShed != nil {
+			c.onQuietShed()
+		}
+		return []string{best}
+	}
 	choice := map[Activity]string{ActivityIdle: "idle", ActivityAwake: "awake", ActivityBusy: "deferred"}[bestAct]
 	if c.onShed != nil {
 		c.onShed(choice)
