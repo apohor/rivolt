@@ -71,8 +71,8 @@ func ambientLookup(optedIn func(context.Context, uuid.UUID) bool, client *weathe
 			w := snap.WindKPH
 			out.WindKPH = &w
 		}
-		if pct, ok := rain.get(ctx, client, lat, lon, time.Now(), logger); ok {
-			out.RainNext3hPct = &pct
+		if mm, ok := rain.get(ctx, client, lat, lon, time.Now(), logger); ok {
+			out.RainNext3hMM = &mm
 		}
 		return out
 	}
@@ -103,9 +103,9 @@ func ambientCondition(label string) string {
 
 // demoAmbient is the fixed sample weather the demo shows (the Rose Bowl sample point): no lookup, so nothing leaves the server.
 func demoAmbient(now time.Time) *nowAmbient {
-	wind, rain := 11.0, 10
+	wind, rain := 11.0, 0.0
 	return &nowAmbient{TempC: 22.5, Source: ambientSource, AsOf: now.UTC().Truncate(time.Hour),
-		Condition: "partly_cloudy", WindKPH: &wind, RainNext3hPct: &rain}
+		Condition: "partly_cloudy", WindKPH: &wind, RainNext3hMM: &rain}
 }
 
 const (
@@ -113,7 +113,7 @@ const (
 	rainTimeout = time.Second
 )
 
-// rainCache keeps the rain-chance answer per (rounded cell, UTC hour) for ambientTTL, like the temperature cache, and a miss (no value or a
+// rainCache keeps the rain-ahead answer per (rounded cell, UTC hour) for ambientTTL, like the temperature cache, and a miss (no value or a
 // failed call) for the same time, so a server without the variable is asked once per cell per half hour, not on every poll.
 type rainCache struct {
 	mu sync.Mutex
@@ -126,28 +126,28 @@ type rainKey struct {
 }
 
 type rainEntry struct {
-	pct int
-	ok  bool
-	at  time.Time
+	mm float64
+	ok bool
+	at time.Time
 }
 
 func newRainCache() *rainCache { return &rainCache{m: map[rainKey]rainEntry{}} }
 
-func (c *rainCache) get(ctx context.Context, client *weather.Client, lat, lon float64, now time.Time, logger *slog.Logger) (int, bool) {
+func (c *rainCache) get(ctx context.Context, client *weather.Client, lat, lon float64, now time.Time, logger *slog.Logger) (float64, bool) {
 	clat, clon := weather.Coarsen(lat, lon)
 	key := rainKey{clat, clon, now.UTC().Truncate(time.Hour)}
 	c.mu.Lock()
 	if e, ok := c.m[key]; ok && now.Sub(e.at) < ambientTTL {
 		c.mu.Unlock()
-		return e.pct, e.ok
+		return e.mm, e.ok
 	}
 	c.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, rainTimeout)
 	defer cancel()
-	pct, ok, err := client.FetchRainChance(ctx, lat, lon, now, rainHours)
+	mm, ok, err := client.FetchRainAhead(ctx, lat, lon, now, rainHours)
 	if err != nil {
 		if logger != nil {
-			logger.Debug("ambient rain chance unavailable", "class", ambientErrClass(err))
+			logger.Debug("ambient rain ahead unavailable", "class", ambientErrClass(err))
 		}
 		ok = false
 	}
@@ -155,9 +155,9 @@ func (c *rainCache) get(ctx context.Context, client *weather.Client, lat, lon fl
 	if len(c.m) >= 512 {
 		c.m = map[rainKey]rainEntry{}
 	}
-	c.m[key] = rainEntry{pct, ok, now}
+	c.m[key] = rainEntry{mm, ok, now}
 	c.mu.Unlock()
-	return pct, ok
+	return mm, ok
 }
 
 func ambientErrClass(err error) string {

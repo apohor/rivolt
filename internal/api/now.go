@@ -84,7 +84,7 @@ type nowResponse struct {
 	Location *nowLocation `json:"location,omitempty"`
 }
 
-// nowAmbient is the looked-up outside weather: the temperature, and when the forecast has them the condition, the wind and the rain chance.
+// nowAmbient is the looked-up outside weather: the temperature, and when the forecast has them the condition, the wind and the rain expected in the next 3 hours.
 // The new keys are left out when unknown. Metric always; the client converts.
 type nowAmbient struct {
 	TempC  float64   `json:"temp_c"`
@@ -93,8 +93,9 @@ type nowAmbient struct {
 	// Condition is one of clear|partly_cloudy|cloudy|fog|drizzle|rain|snow|thunder.
 	Condition string   `json:"condition,omitempty"`
 	WindKPH   *float64 `json:"wind_kph,omitempty"`
-	// RainNext3hPct is the highest hourly chance of precipitation (0-100) over the next 3 hours.
-	RainNext3hPct *int `json:"rain_next3h_pct,omitempty"`
+	// RainNext3hMM is the precipitation forecast to fall over the next 3 hours, in mm (0 means dry). No probability: our weather server
+	// syncs only deterministic models.
+	RainNext3hMM *float64 `json:"rain_next3h_mm,omitempty"`
 }
 
 // nowLocation is the demo truck's position (a public sample point). Real users never get one: their position stays on the server.

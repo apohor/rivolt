@@ -27,27 +27,27 @@ import (
 // last URL, and answers with a one-hour forecast for the current hour.
 type ambientTransport struct {
 	calls atomic.Int32 // temperature requests
-	rain  atomic.Int32 // precipitation_probability requests
+	rain  atomic.Int32 // precipitation requests
 	last  atomic.Value // string: the last temperature request
 	fail  bool
-	// noRain makes the rain-chance answer all null, as a server without the variable does.
+	// noRain makes the rain-ahead answer all null, as a server without the variable does.
 	noRain bool
 }
 
 func (a *ambientTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if strings.Contains(r.URL.RawQuery, "precipitation_probability") {
+	if strings.Contains(r.URL.RawQuery, "hourly=precipitation&") {
 		a.rain.Add(1)
 		if a.fail {
 			return nil, errors.New("rain: " + r.URL.String())
 		}
 		h0 := time.Now().UTC().Truncate(time.Hour)
 		f := func(d int) string { return `"` + h0.Add(time.Duration(d)*time.Hour).Format("2006-01-02T15:04") + `"` }
-		prob := `[10,45,20,90,5]`
+		prob := `[0.2,1.5,0.3,9,4]`
 		if a.noRain {
 			prob = `[null,null,null,null,null]`
 		}
-		// Hours 0-2 are the next 3 h (max 45); hour 3 (90) is outside it.
-		body := `{"hourly":{"time":[` + f(0) + `,` + f(1) + `,` + f(2) + `,` + f(3) + `,` + f(-1) + `],"precipitation_probability":` + prob + `}}`
+		// Hours 0-2 are the next 3 h (sum 2.0 mm); hour 3 (9) and the past hour (4) are outside it.
+		body := `{"hourly":{"time":[` + f(0) + `,` + f(1) + `,` + f(2) + `,` + f(3) + `,` + f(-1) + `],"precipitation":` + prob + `}}`
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{"Content-Type": {"application/json"}}, Request: r}, nil
 	}
 	a.calls.Add(1)
@@ -116,20 +116,20 @@ func TestAmbientRoundsBeforeTheRequestAndCaches(t *testing.T) {
 		t.Errorf("%d upstream calls for 22 lookups in one cell, want 1", n)
 	}
 	if n := tr.rain.Load(); n != 1 {
-		t.Errorf("%d rain-chance calls for 22 lookups in one cell, want 1", n)
+		t.Errorf("%d rain-ahead calls for 22 lookups in one cell, want 1", n)
 	}
 }
 
-// The new fields: condition (the enum), wind in km/h, and the highest rain chance over the next 3 h (hour 3 and the past hour do not count).
+// The new fields: condition (the enum), wind in km/h, and the rain over the next 3 h (hour 3 and the past hour do not count).
 func TestAmbientCarriesConditionWindAndRainChance(t *testing.T) {
 	tr := &ambientTransport{}
 	var logs bytes.Buffer
 	got := ambientFixture(true, tr, &logs)(context.Background(), uuid.New(), 30.2672, -97.7431)
-	if got == nil || got.Condition != "partly_cloudy" || got.WindKPH == nil || *got.WindKPH != 10 || got.RainNext3hPct == nil || *got.RainNext3hPct != 45 {
+	if got == nil || got.Condition != "partly_cloudy" || got.WindKPH == nil || *got.WindKPH != 10 || got.RainNext3hMM == nil || *got.RainNext3hMM != 2.0 {
 		t.Fatalf("ambient = %+v", got)
 	}
 	b, _ := json.Marshal(got)
-	if !strings.Contains(string(b), `"rain_next3h_pct":45`) || !strings.Contains(string(b), `"wind_kph":10`) || !strings.Contains(string(b), `"condition":"partly_cloudy"`) {
+	if !strings.Contains(string(b), `"rain_next3h_mm":2`) || !strings.Contains(string(b), `"wind_kph":10`) || !strings.Contains(string(b), `"condition":"partly_cloudy"`) {
 		t.Errorf("json %s", b)
 	}
 }
@@ -142,10 +142,10 @@ func TestAmbientRainChanceOmittedWhenUnknown(t *testing.T) {
 	uid := uuid.New()
 	for i := 0; i < 5; i++ {
 		got := look(context.Background(), uid, 30.2672, -97.7431)
-		if got == nil || got.TempC != 7.4 || got.RainNext3hPct != nil {
+		if got == nil || got.TempC != 7.4 || got.RainNext3hMM != nil {
 			t.Fatalf("ambient = %+v", got)
 		}
-		if b, _ := json.Marshal(got); strings.Contains(string(b), "rain_next3h_pct") {
+		if b, _ := json.Marshal(got); strings.Contains(string(b), "rain_next3h_mm") {
 			t.Fatalf("key present: %s", b)
 		}
 	}
@@ -161,7 +161,7 @@ func TestAmbientRainFailureKeepsTemperature(t *testing.T) {
 	client := &weather.Client{HTTP: &http.Client{Transport: rainDown{tr}, Timeout: time.Second}, BaseURL: "https://archive.invalid"}
 	look := ambientLookup(func(context.Context, uuid.UUID) bool { return true }, client, newAmbientCache(), nil, nil)
 	got := look(context.Background(), uuid.New(), 30.2672, -97.7431)
-	if got == nil || got.TempC != 7.4 || got.RainNext3hPct != nil {
+	if got == nil || got.TempC != 7.4 || got.RainNext3hMM != nil {
 		t.Fatalf("ambient = %+v", got)
 	}
 }
@@ -169,7 +169,7 @@ func TestAmbientRainFailureKeepsTemperature(t *testing.T) {
 type rainDown struct{ inner *ambientTransport }
 
 func (r rainDown) RoundTrip(req *http.Request) (*http.Response, error) {
-	if strings.Contains(req.URL.RawQuery, "precipitation_probability") {
+	if strings.Contains(req.URL.RawQuery, "hourly=precipitation&") {
 		return nil, errors.New("rain down")
 	}
 	return r.inner.RoundTrip(req)
@@ -209,7 +209,7 @@ func TestNowDemoGetsSampleAmbientAndLocation(t *testing.T) {
 	d := get(demoID)
 	amb, _ := d["ambient"].(map[string]any)
 	loc, _ := d["location"].(map[string]any)
-	if amb == nil || amb["condition"] == nil || amb["wind_kph"] == nil || amb["rain_next3h_pct"] == nil || amb["temp_c"] == nil {
+	if amb == nil || amb["condition"] == nil || amb["wind_kph"] == nil || amb["rain_next3h_mm"] == nil || amb["temp_c"] == nil {
 		t.Errorf("demo ambient = %v", d["ambient"])
 	}
 	if loc == nil || loc["lat"] != 34.1613 || loc["lon"] != -118.1676 {

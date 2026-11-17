@@ -682,10 +682,11 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	return s, hour, nil
 }
 
-// FetchRainChance returns the highest hourly precipitation probability (0-100) over the hours [from, from+hours) at the rounded (lat, lon),
-// from the forecast endpoint (our own server when self-hosted). ok is false when the server has no value for those hours, as a model without
-// the variable answers null: the caller then says nothing rather than 0.
-func (c *Client) FetchRainChance(ctx context.Context, lat, lon float64, from time.Time, hours int) (pct int, ok bool, err error) {
+// FetchRainAhead returns the precipitation (mm) forecast to fall over the hours [from, from+hours) at the rounded (lat, lon), summed from
+// the hourly precipitation the forecast endpoint (our own server when self-hosted) serves for its deterministic models. ok is false when no
+// hour in the window has a value, so the caller says nothing rather than 0 mm. (A probability would need the ensemble models, which our
+// server does not sync.)
+func (c *Client) FetchRainAhead(ctx context.Context, lat, lon float64, from time.Time, hours int) (mm float64, ok bool, err error) {
 	clat, clon := Coarsen(lat, lon)
 	start := from.UTC().Truncate(time.Hour)
 	end := start.Add(time.Duration(hours) * time.Hour)
@@ -694,7 +695,8 @@ func (c *Client) FetchRainChance(ctx context.Context, lat, lon float64, from tim
 	q.Set("longitude", strconv.FormatFloat(clon, 'f', 4, 64))
 	q.Set("start_date", start.Format("2006-01-02"))
 	q.Set("end_date", end.Format("2006-01-02"))
-	q.Set("hourly", "precipitation_probability")
+	q.Set("hourly", "precipitation")
+	q.Set("precipitation_unit", "mm")
 	q.Set("timezone", "UTC")
 	if c.Models != "" {
 		q.Set("models", c.Models)
@@ -713,8 +715,8 @@ func (c *Client) FetchRainChance(ctx context.Context, lat, lon float64, from tim
 	}
 	var body struct {
 		Hourly struct {
-			Time []string   `json:"time"`
-			Prob []*float64 `json:"precipitation_probability"`
+			Time   []string   `json:"time"`
+			Precip []*float64 `json:"precipitation"`
 		} `json:"hourly"`
 	}
 	raw, err := c.readBody(resp.Body)
@@ -724,20 +726,19 @@ func (c *Client) FetchRainChance(ctx context.Context, lat, lon float64, from tim
 	if err := json.Unmarshal(raw, &body); err != nil {
 		return 0, false, fmt.Errorf("weather: decode: %w", err)
 	}
-	best := -1.0
+	var sum float64
 	for i, ts := range body.Hourly.Time {
 		t, perr := time.Parse("2006-01-02T15:04", ts)
-		if perr != nil || t.Before(start) || !t.Before(end) || i >= len(body.Hourly.Prob) || body.Hourly.Prob[i] == nil {
+		if perr != nil || t.Before(start) || !t.Before(end) || i >= len(body.Hourly.Precip) || body.Hourly.Precip[i] == nil {
 			continue
 		}
-		if v := *body.Hourly.Prob[i]; v > best {
-			best = v
-		}
+		sum += *body.Hourly.Precip[i]
+		ok = true
 	}
-	if best < 0 {
+	if !ok {
 		return 0, false, nil
 	}
-	return int(math.Round(math.Min(best, 100))), true, nil
+	return math.Round(sum*10) / 10, true, nil
 }
 
 // forecastWindowDays is the cutoff (in days from now) below which we
