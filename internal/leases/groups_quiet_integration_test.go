@@ -225,3 +225,20 @@ func TestQuietShed_OnePodRestartMovesNothingElse(t *testing.T) {
 		t.Errorf("restarted pod holds %d, want its 2 back", got[2])
 	}
 }
+
+// While a rollout is on (a pod draining, or two pod generations live) the quiet rule sheds nothing, however long the pod set has been the
+// same, and a group released then goes by the fair share, not the steady one.
+func TestQuietShed_NothingDuringARollout(t *testing.T) {
+	pool := setup(t)
+	ctx := context.Background()
+	t.Setenv("RIVOLT_POD_GENERATION", "g1")
+	stores := spread(ctx, t, pool, 6, []int{3, 2, 1}) // the first pod is over ceil only
+	if _, err := pool.ExecContext(ctx, `UPDATE lease_pods SET generation = 'g2' WHERE pod_id = $1`, stores[2].PodID()); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3*quietRounds; i++ {
+		if r := pass(ctx, t, stores[0]); len(r.Shed) != 0 {
+			t.Fatalf("pass %d shed %v with two generations live", i, r.Shed)
+		}
+	}
+}
