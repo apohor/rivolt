@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"time"
@@ -47,4 +48,27 @@ func ingestDriveWaitCap() time.Duration {
 		return 0
 	}
 	return d
+}
+
+// drainWaiter is the coordinator's part of the drain wait.
+type drainWaiter interface{ DrainWait(ctx context.Context) }
+
+// drainThenStop waits for the pod to hand its groups over (see Coordinator.DrainWait), then stops the monitors and the forwarder. The
+// order is the point: they stay up through the wait, so a group kept for its drive keeps recording. w may be nil (no coordinator).
+func drainThenStop(w drainWaiter, stopWork context.CancelFunc) {
+	if w != nil {
+		dctx, dcancel := context.WithTimeout(context.Background(), ingestDriveWaitCap()+leaseReleaseTimeout)
+		w.DrainWait(dctx)
+		dcancel()
+	}
+	stopWork()
+}
+
+// graceWithDriveWait is the terminationGracePeriod an ingest pod needs with a drive-wait cap: the shutdown budget above, plus the drain
+// wait (the cap, and leaseReleaseTimeout of slack for the last passes), which runs before it. The chart's value must be at least this.
+func graceWithDriveWait(cap time.Duration) time.Duration {
+	if cap <= 0 {
+		return gracePeriod
+	}
+	return gracePeriod + cap + leaseReleaseTimeout
 }

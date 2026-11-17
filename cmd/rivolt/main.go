@@ -449,6 +449,10 @@ func runServer() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// workCtx is what the vehicle monitors and the forwarder run under. It outlives the signal: a draining pod keeps the groups it holds
+	// recording while it waits for their drives (P2b), and is cancelled by the drain, not by SIGTERM.
+	workCtx, workCancel := context.WithCancel(context.Background())
+	defer workCancel()
 	// SIGUSR1 from `rivolt prestop` (the chart's exec preStop hook) starts the drain. Registered
 	// first thing: an unhandled SIGUSR1 would end the process.
 	drainSigs := notifyDrain()
@@ -1410,7 +1414,7 @@ func runServer() {
 			drivesFactory, chargesFactory, samplesFactory, settingsFactory,
 			logger,
 		)
-		monitorRegistry.SetParent(ctx)
+		monitorRegistry.SetParent(workCtx)
 		// Takeover pacing (zero-impact deploys, G7): the first dial of a session, the capability probe and the REST seed of a start take a slot
 		// from a per-process bucket and a fleet-wide per-second budget in Redis, active vehicles first. Off unless RIVOLT_TAKEOVER_LIMIT=1.
 		if os.Getenv("RIVOLT_TAKEOVER_LIMIT") == "1" {
@@ -2462,7 +2466,7 @@ func runServer() {
 			leaseCoordinator = coord
 		}
 		// Single-owner M3: the forwarder's owner loop (RIVOLT_FORWARD=1 only; the metrics exist at 0 either way).
-		fwdRT := startForward(ctx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, receiptSyncer, redisKeyPrefix, role)
+		fwdRT := startForward(workCtx, logger, appMetrics, pgPool, leaseStore, accountRegistry, monitorRegistry, secretsStore, receiptSyncer, redisKeyPrefix, role)
 		if fwdRT.forwarder != nil {
 			stateForward, groupOfVehicle = fwdRT.forwarder, leaseStore.GroupOfVehicle
 		}
@@ -3685,12 +3689,12 @@ func runServer() {
 	httpDone := make(chan error, 1)
 	role.start("http_shutdown", func() { httpDone <- srv.Shutdown(shutdownCtx) })
 	// Idle groups go first and a drive finishes where it is, for at most the cap (0: no wait, shutdown hands everything over at once).
-	// It runs before the flush and the Rivian drain below: the sessions still open keep recording while they wait.
+	// The monitors keep recording through the wait; they stop (workCancel) once it ends, as they used to at SIGTERM.
+	var dw drainWaiter // a nil *Coordinator in the interface would not be nil
 	if leaseCoordinator != nil {
-		dctx, dcancel := context.WithTimeout(context.Background(), ingestDriveWaitCap()+leaseReleaseTimeout)
-		leaseCoordinator.DrainWait(dctx)
-		dcancel()
+		dw = leaseCoordinator
 	}
+	drainThenStop(dw, workCancel)
 	// Write the drives and charges the 10 s throttle left behind first, so the
 	// peer that takes the vehicles over finds current rows.
 	if monitorRegistry != nil {
