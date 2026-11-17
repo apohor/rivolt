@@ -16,8 +16,8 @@ struct NowCard: View {
     var liveDrive: LiveDrive?
     /// The server's row for the charge in progress, for its cost so far.
     var charge: ChargeBrief?
-    /// The redesigned hero (design_preview key ios_now_v2): the picture beside the range, one line for the cabin and outside temperatures.
-    /// The classic hero shows the picture too, under the header, when the server sends one (the demo truck's included).
+    /// The redesigned hero (design_preview key now_v2): Rivian's picture of the truck beside
+    /// the range, one line for the cabin and outside temperatures. Without the key the card is the one it always was.
     var v2 = false
     var images: [VehicleImage]?
     /// "Full charge today ≈ X", the user's own range at today's temperature (the server's cold-range answer), in the display unit.
@@ -56,7 +56,6 @@ struct NowCard: View {
     private var classic: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            if carURL != nil { car(maxHeight: 96) }
             gaugeRow
             if charging || driving || summary.outsideTempC != nil || summary.liveComfort != nil || summary.liveInstall != nil { detailRows }
             Text(footer).themeText(.subline)
