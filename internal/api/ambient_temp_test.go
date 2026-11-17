@@ -26,12 +26,30 @@ import (
 // ambientTransport stands in for Open-Meteo: it counts requests, remembers the
 // last URL, and answers with a one-hour forecast for the current hour.
 type ambientTransport struct {
-	calls atomic.Int32
-	last  atomic.Value // string
+	calls atomic.Int32 // temperature requests
+	rain  atomic.Int32 // precipitation_probability requests
+	last  atomic.Value // string: the last temperature request
 	fail  bool
+	// noRain makes the rain-chance answer all null, as a server without the variable does.
+	noRain bool
 }
 
 func (a *ambientTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if strings.Contains(r.URL.RawQuery, "precipitation_probability") {
+		a.rain.Add(1)
+		if a.fail {
+			return nil, errors.New("rain: " + r.URL.String())
+		}
+		h0 := time.Now().UTC().Truncate(time.Hour)
+		f := func(d int) string { return `"` + h0.Add(time.Duration(d)*time.Hour).Format("2006-01-02T15:04") + `"` }
+		prob := `[10,45,20,90,5]`
+		if a.noRain {
+			prob = `[null,null,null,null,null]`
+		}
+		// Hours 0-2 are the next 3 h (max 45); hour 3 (90) is outside it.
+		body := `{"hourly":{"time":[` + f(0) + `,` + f(1) + `,` + f(2) + `,` + f(3) + `,` + f(-1) + `],"precipitation_probability":` + prob + `}}`
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{"Content-Type": {"application/json"}}, Request: r}, nil
+	}
 	a.calls.Add(1)
 	a.last.Store(r.URL.String())
 	if a.fail {
@@ -96,6 +114,110 @@ func TestAmbientRoundsBeforeTheRequestAndCaches(t *testing.T) {
 	look(context.Background(), uuid.New(), 30.2701, -97.7399) // another user, same cell
 	if n := tr.calls.Load(); n != 1 {
 		t.Errorf("%d upstream calls for 22 lookups in one cell, want 1", n)
+	}
+	if n := tr.rain.Load(); n != 1 {
+		t.Errorf("%d rain-chance calls for 22 lookups in one cell, want 1", n)
+	}
+}
+
+// The new fields: condition (the enum), wind in km/h, and the highest rain chance over the next 3 h (hour 3 and the past hour do not count).
+func TestAmbientCarriesConditionWindAndRainChance(t *testing.T) {
+	tr := &ambientTransport{}
+	var logs bytes.Buffer
+	got := ambientFixture(true, tr, &logs)(context.Background(), uuid.New(), 30.2672, -97.7431)
+	if got == nil || got.Condition != "partly_cloudy" || got.WindKPH == nil || *got.WindKPH != 10 || got.RainNext3hPct == nil || *got.RainNext3hPct != 45 {
+		t.Fatalf("ambient = %+v", got)
+	}
+	b, _ := json.Marshal(got)
+	if !strings.Contains(string(b), `"rain_next3h_pct":45`) || !strings.Contains(string(b), `"wind_kph":10`) || !strings.Contains(string(b), `"condition":"partly_cloudy"`) {
+		t.Errorf("json %s", b)
+	}
+}
+
+// A server that has no precipitation probability leaves the key out (temperature still answers), and is asked once per cell, not per poll.
+func TestAmbientRainChanceOmittedWhenUnknown(t *testing.T) {
+	tr := &ambientTransport{noRain: true}
+	var logs bytes.Buffer
+	look := ambientFixture(true, tr, &logs)
+	uid := uuid.New()
+	for i := 0; i < 5; i++ {
+		got := look(context.Background(), uid, 30.2672, -97.7431)
+		if got == nil || got.TempC != 7.4 || got.RainNext3hPct != nil {
+			t.Fatalf("ambient = %+v", got)
+		}
+		if b, _ := json.Marshal(got); strings.Contains(string(b), "rain_next3h_pct") {
+			t.Fatalf("key present: %s", b)
+		}
+	}
+	if n := tr.rain.Load(); n != 1 {
+		t.Errorf("%d rain calls, want 1", n)
+	}
+}
+
+// A failing rain call costs only the rain key.
+func TestAmbientRainFailureKeepsTemperature(t *testing.T) {
+	tr := &ambientTransport{}
+	// Only the rain request fails: wrap the transport.
+	client := &weather.Client{HTTP: &http.Client{Transport: rainDown{tr}, Timeout: time.Second}, BaseURL: "https://archive.invalid"}
+	look := ambientLookup(func(context.Context, uuid.UUID) bool { return true }, client, newAmbientCache(), nil, nil)
+	got := look(context.Background(), uuid.New(), 30.2672, -97.7431)
+	if got == nil || got.TempC != 7.4 || got.RainNext3hPct != nil {
+		t.Fatalf("ambient = %+v", got)
+	}
+}
+
+type rainDown struct{ inner *ambientTransport }
+
+func (r rainDown) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.Contains(req.URL.RawQuery, "precipitation_probability") {
+		return nil, errors.New("rain down")
+	}
+	return r.inner.RoundTrip(req)
+}
+
+func TestAmbientConditionEnum(t *testing.T) {
+	for label, want := range map[string]string{"clear sky": "clear", "partly cloudy": "partly_cloudy", "overcast": "cloudy", "fog": "fog", "drizzle": "drizzle",
+		"rain": "rain", "freezing rain": "rain", "snow": "snow", "thunderstorm": "thunder", "": ""} {
+		if got := ambientCondition(label); got != want {
+			t.Errorf("%q -> %q, want %q", label, got, want)
+		}
+	}
+}
+
+// The demo user gets fixed sample weather and the sample position, with no lookup; nobody else gets a location.
+func TestNowDemoGetsSampleAmbientAndLocation(t *testing.T) {
+	demoID := uuid.New()
+	na := nowAPI{
+		snapshot: func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+			return nowSnapshot{State: "parked"}, nil
+		},
+		connection: func(uuid.UUID) string { return "live" },
+		isDemo:     func(u uuid.UUID) bool { return u == demoID },
+		now:        time.Now,
+	}
+	get := func(u uuid.UUID) map[string]any {
+		r := chi.NewRouter()
+		r.Get("/vehicles/{vehicleID}/now", func(w http.ResponseWriter, req *http.Request) { na.handle(u, w, req) })
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest("GET", "/vehicles/rv1/now", nil))
+		var m map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	d := get(demoID)
+	amb, _ := d["ambient"].(map[string]any)
+	loc, _ := d["location"].(map[string]any)
+	if amb == nil || amb["condition"] == nil || amb["wind_kph"] == nil || amb["rain_next3h_pct"] == nil || amb["temp_c"] == nil {
+		t.Errorf("demo ambient = %v", d["ambient"])
+	}
+	if loc == nil || loc["lat"] != 34.1613 || loc["lon"] != -118.1676 {
+		t.Errorf("demo location = %v", d["location"])
+	}
+	o := get(uuid.New())
+	if _, has := o["location"]; has {
+		t.Errorf("a real user got a location: %v", o)
 	}
 }
 

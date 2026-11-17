@@ -682,6 +682,64 @@ func (c *Client) FetchHour(ctx context.Context, lat, lon float64, at time.Time, 
 	return s, hour, nil
 }
 
+// FetchRainChance returns the highest hourly precipitation probability (0-100) over the hours [from, from+hours) at the rounded (lat, lon),
+// from the forecast endpoint (our own server when self-hosted). ok is false when the server has no value for those hours, as a model without
+// the variable answers null: the caller then says nothing rather than 0.
+func (c *Client) FetchRainChance(ctx context.Context, lat, lon float64, from time.Time, hours int) (pct int, ok bool, err error) {
+	clat, clon := Coarsen(lat, lon)
+	start := from.UTC().Truncate(time.Hour)
+	end := start.Add(time.Duration(hours) * time.Hour)
+	q := url.Values{}
+	q.Set("latitude", strconv.FormatFloat(clat, 'f', 4, 64))
+	q.Set("longitude", strconv.FormatFloat(clon, 'f', 4, 64))
+	q.Set("start_date", start.Format("2006-01-02"))
+	q.Set("end_date", end.Format("2006-01-02"))
+	q.Set("hourly", "precipitation_probability")
+	q.Set("timezone", "UTC")
+	if c.Models != "" {
+		q.Set("models", c.Models)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.forecastBase()+"/v1/forecast?"+q.Encode(), nil)
+	if err != nil {
+		return 0, false, err
+	}
+	resp, err := c.do(req, "forecast")
+	if err != nil {
+		return 0, false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return 0, false, fmt.Errorf("weather: upstream %s", resp.Status)
+	}
+	var body struct {
+		Hourly struct {
+			Time []string   `json:"time"`
+			Prob []*float64 `json:"precipitation_probability"`
+		} `json:"hourly"`
+	}
+	raw, err := c.readBody(resp.Body)
+	if err != nil {
+		return 0, false, err
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return 0, false, fmt.Errorf("weather: decode: %w", err)
+	}
+	best := -1.0
+	for i, ts := range body.Hourly.Time {
+		t, perr := time.Parse("2006-01-02T15:04", ts)
+		if perr != nil || t.Before(start) || !t.Before(end) || i >= len(body.Hourly.Prob) || body.Hourly.Prob[i] == nil {
+			continue
+		}
+		if v := *body.Hourly.Prob[i]; v > best {
+			best = v
+		}
+	}
+	if best < 0 {
+		return 0, false, nil
+	}
+	return int(math.Round(math.Min(best, 100))), true, nil
+}
+
 // forecastWindowDays is the cutoff (in days from now) below which we
 // use the forecast endpoint with minutely_15 cadence. Open-Meteo
 // supports past_days up to 92 on the forecast API; we leave a small

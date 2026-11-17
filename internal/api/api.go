@@ -1225,6 +1225,7 @@ func New(d Deps) http.Handler {
 						return monitorFor(d, uid).VehicleStateFrameAt(ctx, rivianID)
 					},
 					ambient: ambientLookup(ambientOptIn(d.Settings), d.WeatherClient, newAmbientCache(), d.Logger, isDemoUser),
+					isDemo:  isDemoUser,
 					now:     time.Now,
 				}
 				r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/now", withUser(na.handle))

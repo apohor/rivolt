@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,6 +40,7 @@ func ambientLookup(optedIn func(context.Context, uuid.UUID) bool, client *weathe
 	if optedIn == nil || client == nil || cache == nil {
 		return nil
 	}
+	rain := newRainCache()
 	return func(ctx context.Context, uid uuid.UUID, lat, lon float64) *nowAmbient {
 		if isDemoUser != nil && isDemoUser(uid) {
 			return nil
@@ -61,8 +63,101 @@ func ambientLookup(optedIn func(context.Context, uuid.UUID) bool, client *weathe
 			}
 			return nil
 		}
-		return &nowAmbient{TempC: snap.TempC, Source: ambientSource, AsOf: hour.UTC()}
+		out := &nowAmbient{TempC: snap.TempC, Source: ambientSource, AsOf: hour.UTC()}
+		if snap.HasConditions {
+			out.Condition = ambientCondition(snap.Conditions)
+		}
+		if snap.HasWind {
+			w := snap.WindKPH
+			out.WindKPH = &w
+		}
+		if pct, ok := rain.get(ctx, client, lat, lon, time.Now(), logger); ok {
+			out.RainNext3hPct = &pct
+		}
+		return out
 	}
+}
+
+// ambientCondition maps the weather package's label to the /now enum; "" for a label it does not know.
+func ambientCondition(label string) string {
+	switch label {
+	case "clear sky":
+		return "clear"
+	case "partly cloudy":
+		return "partly_cloudy"
+	case "overcast":
+		return "cloudy"
+	case "fog":
+		return "fog"
+	case "drizzle":
+		return "drizzle"
+	case "rain", "freezing rain":
+		return "rain"
+	case "snow":
+		return "snow"
+	case "thunderstorm":
+		return "thunder"
+	}
+	return ""
+}
+
+// demoAmbient is the fixed sample weather the demo shows (the Rose Bowl sample point): no lookup, so nothing leaves the server.
+func demoAmbient(now time.Time) *nowAmbient {
+	wind, rain := 11.0, 10
+	return &nowAmbient{TempC: 22.5, Source: ambientSource, AsOf: now.UTC().Truncate(time.Hour),
+		Condition: "partly_cloudy", WindKPH: &wind, RainNext3hPct: &rain}
+}
+
+const (
+	rainHours   = 3
+	rainTimeout = time.Second
+)
+
+// rainCache keeps the rain-chance answer per (rounded cell, UTC hour) for ambientTTL, like the temperature cache, and a miss (no value or a
+// failed call) for the same time, so a server without the variable is asked once per cell per half hour, not on every poll.
+type rainCache struct {
+	mu sync.Mutex
+	m  map[rainKey]rainEntry
+}
+
+type rainKey struct {
+	lat, lon float64
+	hour     time.Time
+}
+
+type rainEntry struct {
+	pct int
+	ok  bool
+	at  time.Time
+}
+
+func newRainCache() *rainCache { return &rainCache{m: map[rainKey]rainEntry{}} }
+
+func (c *rainCache) get(ctx context.Context, client *weather.Client, lat, lon float64, now time.Time, logger *slog.Logger) (int, bool) {
+	clat, clon := weather.Coarsen(lat, lon)
+	key := rainKey{clat, clon, now.UTC().Truncate(time.Hour)}
+	c.mu.Lock()
+	if e, ok := c.m[key]; ok && now.Sub(e.at) < ambientTTL {
+		c.mu.Unlock()
+		return e.pct, e.ok
+	}
+	c.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, rainTimeout)
+	defer cancel()
+	pct, ok, err := client.FetchRainChance(ctx, lat, lon, now, rainHours)
+	if err != nil {
+		if logger != nil {
+			logger.Debug("ambient rain chance unavailable", "class", ambientErrClass(err))
+		}
+		ok = false
+	}
+	c.mu.Lock()
+	if len(c.m) >= 512 {
+		c.m = map[rainKey]rainEntry{}
+	}
+	c.m[key] = rainEntry{pct, ok, now}
+	c.mu.Unlock()
+	return pct, ok
 }
 
 func ambientErrClass(err error) string {

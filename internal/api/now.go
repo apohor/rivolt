@@ -12,6 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/demo"
 )
 
 // nowLookback bounds how far back the current state's run is searched.
@@ -76,15 +78,29 @@ type nowResponse struct {
 	// Ambient is the outside temperature looked up from Open-Meteo for the
 	// truck's location rounded to about 11 km. Rivian reports none. Present only
 	// when the user turned the lookup on (off by default) and the truck has a
-	// position; never in the demo.
+	// position. The demo gets fixed sample values (demoAmbient).
 	Ambient *nowAmbient `json:"ambient,omitempty"`
+	// Location is set for the demo user only (the sample point the demo truck is parked at); omitted for everyone else.
+	Location *nowLocation `json:"location,omitempty"`
 }
 
-// nowAmbient is the looked-up outside temperature.
+// nowAmbient is the looked-up outside weather: the temperature, and when the forecast has them the condition, the wind and the rain chance.
+// The new keys are left out when unknown. Metric always; the client converts.
 type nowAmbient struct {
 	TempC  float64   `json:"temp_c"`
 	Source string    `json:"source"` // "open-meteo"
 	AsOf   time.Time `json:"as_of"`  // the hour the value is for (UTC)
+	// Condition is one of clear|partly_cloudy|cloudy|fog|drizzle|rain|snow|thunder.
+	Condition string   `json:"condition,omitempty"`
+	WindKPH   *float64 `json:"wind_kph,omitempty"`
+	// RainNext3hPct is the highest hourly chance of precipitation (0-100) over the next 3 hours.
+	RainNext3hPct *int `json:"rain_next3h_pct,omitempty"`
+}
+
+// nowLocation is the demo truck's position (a public sample point). Real users never get one: their position stays on the server.
+type nowLocation struct {
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
 }
 
 // nowAPI holds the /now handler's seams so tests run without Postgres.
@@ -101,7 +117,9 @@ type nowAPI struct {
 	// liveCharge and liveDrive read the recorder's open charge and drive rows from Postgres (never Rivian); nil leaves those fields null.
 	liveCharge func(ctx context.Context, uid uuid.UUID, rivianID string, now time.Time) *nowChargeLive
 	liveDrive  func(ctx context.Context, uid uuid.UUID, rivianID string, now time.Time) *nowDrive
-	now        func() time.Time
+	// isDemo marks the demo user, who gets fixed sample weather and the sample position instead of a lookup; nil means no one.
+	isDemo func(uuid.UUID) bool
+	now    func() time.Time
 }
 
 // connectionState is not a freshness verdict (the client derives that
@@ -155,7 +173,9 @@ func (a nowAPI) handle(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 	if out.State == "driving" && a.liveDrive != nil {
 		out.Drive = a.liveDrive(r.Context(), uid, id, a.now())
 	}
-	if a.ambient != nil && snap.hasPos {
+	if a.isDemo != nil && a.isDemo(uid) {
+		out.Ambient, out.Location = demoAmbient(a.now()), &nowLocation{Lat: demo.HomeLat, Lon: demo.HomeLon}
+	} else if a.ambient != nil && snap.hasPos {
 		out.Ambient = a.ambient(r.Context(), uid, snap.lat, snap.lon)
 	}
 	w.Header().Set("Cache-Control", "no-store")
