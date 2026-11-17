@@ -1761,6 +1761,8 @@ export const backend = {
     ),
   adminFlagsStatementEmailPut: (all: boolean, users: string[]) =>
     api.put<{ statement_email: AudienceFlag }>("/api/admin/flags/statement-email", { all, users }),
+  adminFlagsLiveDestinationPut: (users: string[]) =>
+    api.put<{ live_destination: AudienceFlag }>("/api/admin/flags/live-destination", { users }),
   adminFlagsAICallCapPut: (dailyLimit: number) =>
     api.put<{ ai_call_cap: { daily_limit: number; actor?: string } }>("/api/admin/flags/ai-call-cap", { daily_limit: dailyLimit }),
   // Admin audit log (newest first). `next_before` pages: pass it back as `before`.
@@ -2638,6 +2640,8 @@ export type AdminFlagsState = {
   // Who a feature is on for: everyone, or the listed user ids (empty: nobody).
   statement_email?: AudienceFlag;
   ai_call_cap?: { daily_limit: number; actor?: string }; // <= 0: no cap
+  // Users the car's navigation frames are decoded for. Never "all".
+  live_destination?: AudienceFlag;
 };
 export type AudienceFlag = { all?: boolean; users?: string[]; actor?: string };
 
