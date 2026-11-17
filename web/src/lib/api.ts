@@ -692,7 +692,16 @@ export type NowSnapshot = {
   soc_at_state_start: number | null;
   tire_pressure_min_bar: number | null;
   failed_sleeps_6h: number;
-  charge: { started_at: string; soc_start: number; peak_kw: number } | null;
+  charge: {
+    started_at: string;
+    soc_start: number;
+    peak_kw: number;
+    // The session's cost so far with the price-book rules (null when unpriced); cost_is_estimate is false only for Rivian-billed or the user's own price.
+    cost?: number | null;
+    currency?: string;
+    cost_source?: "rivian" | "home_rate" | "network_estimate" | "observed_estimate" | "user";
+    cost_is_estimate?: boolean;
+  } | null;
   // Present only when the user turned outside temperature on: an Open-Meteo reading for the truck's area.
   ambient?: { temp_c: number; source: string; as_of: string };
 };

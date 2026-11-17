@@ -216,6 +216,15 @@ export default function NowCard({
     retry: 0,
   });
 
+  // Design "now_slot": the truck's own session figures while charging (range added, rate, elapsed), the same read the Live page makes.
+  const sessionQ = useQuery({
+    queryKey: ["rivian", "live-session", vehicleID],
+    queryFn: () => backend.liveSession(vehicleID),
+    enabled: slotOn && view?.kind === "charging",
+    refetchInterval: 15_000,
+    retry: 0,
+  });
+
   if (stateQ.isLoading) {
     return (
       <section aria-label="Now" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
@@ -258,6 +267,33 @@ export default function NowCard({
   const installing = update?.key === "installing" ? update : null;
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
+  // Design "now_slot": the state's figures replace the picture and the rows (shown once, not twice).
+  const showSlot = slotOn && !offline && !view.stale && slotAvailable(view);
+  const dq = driveQ.data ?? null;
+  const slotNode = (
+    <NowSlot
+      view={view}
+      nowMs={nowMs}
+      unit={distanceUnit}
+      currency={currency}
+      gear={state.gear}
+      mode={state.drive_mode}
+      session={sessionQ.data?.active ? sessionQ.data : null}
+      charge={server?.charge ?? null}
+      drive={
+        dq
+          ? {
+              // The same figure as the "Trip so far" row: the client's clamped odometer track over the server's number.
+              tripMi: Math.max(0, (tracker.odo ? tracker.odo.max : 0) - dq.start_odometer_mi, dq.distance_mi),
+              elapsed_sec: dq.elapsed_sec,
+              energy_used_kwh: dq.energy_used_kwh,
+              soc_used_pct: dq.soc_used_pct,
+              distance_mi: dq.distance_mi,
+            }
+          : null
+      }
+    />
+  );
   const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
 
   const alertList = alerts.map((a) => {
@@ -285,7 +321,7 @@ export default function NowCard({
           vehicleID={vehicleID}
           images={images}
           model={model}
-          stateSlot={slotOn && !offline && !view.stale && slotAvailable(view) ? <NowSlot view={view} drive={driveQ.data ?? null} nowMs={nowMs} unit={distanceUnit} currency={currency} /> : null}
+          stateSlot={showSlot ? slotNode : null}
           chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text)}
           pillTone={pill.tone}
           ambient={server?.ambient}
@@ -293,7 +329,7 @@ export default function NowCard({
           tone={tone}
           critical={critical}
           // The chip already says power and time left.
-          rows={details(view, tracker, driveQ.data ?? null, nowMs, currency).filter((d) => d.k !== "Power" && d.k !== "Time left")}
+          rows={showSlot ? [] : details(view, tracker, driveQ.data ?? null, nowMs, currency).filter((d) => d.k !== "Power" && d.k !== "Time left")}
           extra={
             <>
               {scheduleText && (
