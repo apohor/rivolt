@@ -26,7 +26,26 @@ struct NowSlotModel: Equatable {
         case figures(big: String, unit: String, sub: String?, small: String?, stats: [Stat])
     }
 
+    /// A chip beside the big figure: the charger kind while charging, the gear and the drive mode while driving.
+    struct Chip: Equatable {
+        let text: String
+        let accent: Bool
+    }
+
     let content: Content
+    var chips: [Chip] = []
+
+    /// The saved home, for the "Home" label on the map and the home charger.
+    struct Home: Equatable {
+        let lat: Double
+        let lon: Double
+        let label: String?
+    }
+
+    /// Within this of the saved home counts as home (the server's and the web's radius).
+    static let homeRadiusM = 250.0
+    /// A session's peak at or over this is a fast charger.
+    static let fastPeakKw = 50.0
 
     var isParked: Bool {
         if case .parked = content { return true }
@@ -43,25 +62,37 @@ struct NowSlotModel: Equatable {
 
     /// Nil when the state has no slot, so the picture stays: charging without a power reading, driving without a speed, parked without a fix.
     static func make(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, liveDrive: LiveDrive?,
-                     fix: (lat: Double, lon: Double)?, placeLabel: String?, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
+                     fix: (lat: Double, lon: Double)?, home: Home?, gear: String? = nil, mode: String? = nil,
+                     clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
+        let atHome = home != nil && fix != nil && ChargerPin.distanceM(home!.lat, home!.lon, fix!.lat, fix!.lon) <= homeRadiusM
         switch summary.kind {
         case .charging:
             guard let detail = ChargingDetail.make(summary: summary, session: session, charge: charge), let kw = detail.powerKw else { return nil }
-            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, clock: clock))
+            // As the web: fast at a session peak of 50 kW or more, else the home charger at home, else public only when the peak is known.
+            let peak = max(snapshot?.charge?.peakKw ?? 0, kw)
+            let kind = peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : snapshot?.charge?.peakKw != nil ? "Public charger" : nil
+            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, clock: clock),
+                                chips: kind.map { [Chip(text: $0, accent: true)] } ?? [])
         case .driving:
             guard let kph = summary.speedKph else { return nil }
-            return NowSlotModel(content: driving(kph: kph, drive: drive(snapshot: snapshot, live: liveDrive)))
+            var chips: [Chip] = []
+            if let gear, !gear.isEmpty { chips.append(Chip(text: gear.uppercased(), accent: false)) }
+            if let mode, !mode.isEmpty { chips.append(Chip(text: driveModeWords(mode), accent: true)) }
+            return NowSlotModel(content: driving(kph: kph, drive: drive(snapshot: snapshot, live: liveDrive, packKwh: summary.packKwh)), chips: chips)
         case .parked, .plugged:
             guard let fix else { return nil }
             let hour = calendar.component(.hour, from: clock)
             let weather = snapshot?.ambient.map { weatherView($0, day: hour >= 6 && hour < 20) }
-            return NowSlotModel(content: .parked(lat: fix.lat, lon: fix.lon, label: placeLabel, weather: weather))
+            return NowSlotModel(content: .parked(lat: fix.lat, lon: fix.lon, label: atHome ? (home?.label ?? "Home") : nil, weather: weather))
         default:
             return nil
         }
     }
 
     // MARK: Charging
+
+    private static let costNotes = ["rivian": "billed by Rivian", "user": "your price", "home_rate": "at your home rate",
+                                    "network_estimate": "network rate", "observed_estimate": "from similar sessions"]
 
     private static func charging(summary: NowSummary, detail: ChargingDetail, kw: Double, snapshot: NowSnapshot?, clock: Date) -> Content {
         var sub: String?
@@ -87,11 +118,15 @@ struct NowSlotModel: Equatable {
         }
         let mark = estimated ? "≈ " : ""
         if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.distance(mi: km / 1.609344))", note: nil)) }
-        let rate = detail.rateKmPerHour.flatMap { $0 > 0 ? $0 : nil } ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
-        if let rate { stats.append(Stat(label: "Rate", value: "\(detail.rateKmPerHour == nil ? "≈ " : "")\(NowFormat.distance(mi: rate / 1.609344))/h", note: nil)) }
+        let truckRate = detail.rateKmPerHour.flatMap { $0 > 0 ? $0 : nil }
+        let rate = truckRate ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
+        if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil ? "≈ " : "")\(NowFormat.distance(mi: rate / 1.609344))/h", note: nil)) }
         if let elapsed { stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil)) }
-        if let cost = detail.cost {
-            stats.append(Stat(label: "Cost so far", value: NowFormat.costText(cost), note: nil))
+        // The cost so far is the server's (`/now` charge), as the web: ≈ when it is an estimate, with where it comes from.
+        if let c = snapshot?.charge, let cost = c.cost {
+            let estimate = c.costIsEstimate != false
+            stats.append(Stat(label: "Cost so far", value: "\(estimate ? "≈ " : "")\(NowFormat.money(cost, currency: c.currency ?? "USD"))",
+                              note: c.costSource.flatMap { costNotes[$0] } ?? (estimate ? "estimate" : nil)))
         }
         if let started { stats.append(Stat(label: "Plugged in", value: started.formatted(date: .omitted, time: .shortened), note: nil)) }
         return .figures(big: NumberText.fixed(kw, kw < 10 ? 1 : 0), unit: "kW", sub: sub, small: small, stats: stats)
@@ -99,12 +134,14 @@ struct NowSlotModel: Equatable {
 
     // MARK: Driving
 
-    static func drive(snapshot: NowSnapshot?, live: LiveDrive?) -> Drive? {
+    static func drive(snapshot: NowSnapshot?, live: LiveDrive?, packKwh: Double? = nil) -> Drive? {
         if let d = snapshot?.drive {
             return Drive(distanceMi: d.distanceMi, elapsedSec: d.durationS, energyKwh: d.energyKwh, miPerKwh: d.efficiencyMiPerKwh)
         }
         guard let d = live, d.distanceMi > 0 else { return nil }
-        let eff = d.distanceMi >= 1 && d.energyUsedKwh > 0 && d.miPerKwh > 0 ? d.miPerKwh : nil
+        // As the Live card: no efficiency under a mile, or while the battery has not moved a percent (the figure would be rounding).
+        let moved = packKwh.map { d.energyUsedKwh >= $0 / 100 } ?? (d.energyUsedKwh > 0)
+        let eff = d.distanceMi >= 1 && moved && d.miPerKwh > 0 ? d.miPerKwh : nil
         return Drive(distanceMi: d.distanceMi, elapsedSec: d.elapsedSec, energyKwh: d.energyUsedKwh > 0 ? d.energyUsedKwh : nil, miPerKwh: eff)
     }
 
@@ -162,16 +199,35 @@ struct NowSlotModel: Equatable {
         return r == r.rounded() ? NumberText.fixed(r, 0) : NumberText.fixed(r, 1)
     }
 
-    /// For VoiceOver: the parked slot's own words (the charging and driving figures are already in the card's).
-    var spoken: String? {
-        guard case .parked(_, _, let label, let weather) = content else { return nil }
-        var parts = [label.map { "Map of where the truck is, at \($0)." } ?? "Map of where the truck is."]
-        if let w = weather {
-            parts.append("\(SpokenText.words(w.temp)).")
-            if let c = w.condition { parts.append("\(c).") }
-            if let wind = w.wind { parts.append("\(wind).") }
-            if let p = w.precip { parts.append("\(p).") }
+    /// The drive mode as the truck's app words it.
+    static func driveModeWords(_ mode: String) -> String {
+        let names = ["everyday": "All-Purpose", "sport": "Sport", "distance": "Conserve", "winter": "Snow", "towing": "Towing",
+                     "off_road_auto": "All-Terrain", "off_road_sand": "Soft Sand", "off_road_rocks": "Rock Crawl",
+                     "off_road_sport_auto": "Rally", "off_road_sport_drift": "Drift"]
+        return names[mode] ?? mode.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+
+    /// For VoiceOver: the slot as sentences, from the figures it shows (units and symbols as words).
+    var spoken: String {
+        switch content {
+        case .parked(_, _, let label, let weather):
+            var parts = [label.map { "Map of where the truck is, at \($0)." } ?? "Map of where the truck is."]
+            if let w = weather {
+                parts.append("\(SpokenText.words(w.temp)).")
+                if let c = w.condition { parts.append("\(c).") }
+                if let wind = w.wind { parts.append("\(SpokenText.words(wind)).") }
+                if let p = w.precip { parts.append("\(SpokenText.words(p)).") }
+            }
+            return parts.joined(separator: " ")
+        case .figures(let big, let unit, let sub, let small, let stats):
+            var parts = ["\(SpokenText.words("\(big) \(unit)"))."]
+            parts.append(contentsOf: chips.map { "\(SpokenText.words($0.text))." })
+            if let sub { parts.append("\(SpokenText.words(sub)).") }
+            if let small { parts.append("\(SpokenText.words(small)).") }
+            for st in stats {
+                parts.append("\(st.label), \(SpokenText.words(st.value))\(st.note.map { ", \($0)" } ?? "").")
+            }
+            return parts.joined(separator: " ")
         }
-        return parts.joined(separator: " ")
     }
 }

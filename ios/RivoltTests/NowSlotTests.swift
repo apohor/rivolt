@@ -32,8 +32,8 @@ final class NowSlotTests: XCTestCase {
     func testParkedNeedsAFixAndShowsTheWeather() throws {
         let now = try snapshot("parked", extra: #","ambient":{"temp_c":20,"source":"open-meteo","as_of":"2026-11-17T12:00:00Z","condition":"clear","wind_kph":16,"rain_next3h_mm":0}"#)
         let summary = NowSummary(input: input(gear: "P", charger: "charger_disconnected", kw: 0), now: now, clock: at)
-        XCTAssertNil(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, placeLabel: nil, clock: at), "no fix, the picture stays")
-        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (34.1, -118.1), placeLabel: "Home", clock: at))
+        XCTAssertNil(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at), "no fix, the picture stays")
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (34.1, -118.1), home: .init(lat: 34.1, lon: -118.1, label: nil), clock: at))
         guard case .parked(_, _, let label, let weather?) = model.content else { return XCTFail("parked") }
         XCTAssertEqual(label, "Home")
         XCTAssertEqual(weather.precip, "No rain next 3 h")
@@ -64,7 +64,7 @@ final class NowSlotTests: XCTestCase {
         DisplayUnits.demo = true
         defer { DisplayUnits.demo = false }
         let live = LiveDrive(elapsedSec: 60, distanceMi: 0.5, energyUsedKwh: 0.2, miPerKwh: 2.5)
-        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: live, fix: nil, placeLabel: nil, clock: at))
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: live, fix: nil, home: nil, clock: at))
         guard case .figures(let big, let unit, let sub, _, let stats) = model.content else { return XCTFail("figures") }
         XCTAssertEqual(big, "50")
         XCTAssertEqual(unit, "mph")
@@ -81,7 +81,7 @@ final class NowSlotTests: XCTestCase {
     func testChargingNeedsPower() throws {
         let now = try snapshot("charging")
         let none = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 0), now: now, clock: at)
-        XCTAssertNil(NowSlotModel.make(summary: none, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, placeLabel: nil, clock: at))
+        XCTAssertNil(NowSlotModel.make(summary: none, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at))
     }
 
     func testChargingWithoutASessionEstimatesRangeAndRate() throws {
@@ -91,11 +91,55 @@ final class NowSlotTests: XCTestCase {
         let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 11), now: now, clock: at)
         DisplayUnits.demo = true
         defer { DisplayUnits.demo = false }
-        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, placeLabel: nil, clock: at))
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at))
         guard case .figures(_, _, _, _, let stats) = model.content else { return XCTFail("figures") }
         let range = try XCTUnwrap(stats.first { $0.label == "Range added" })
         XCTAssertTrue(range.value.hasPrefix("≈ +"), range.value)
         XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).value.hasPrefix("≈ "))
+    }
+
+    func testRateStaysApproximateWhenTheSessionSendsZero() throws {
+        let start = at.addingTimeInterval(-3600)
+        let iso = ISO8601DateFormatter().string(from: start)
+        let now = try snapshot("charging", extra: #","charge":{"started_at":"\#(iso)","soc_start":40,"peak_kw":11}"#)
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 11), now: now, clock: at)
+        let session = LiveSession(active: true, timeElapsedSeconds: 3600, powerKw: 11, kilometersChargedPerHour: 0, rangeAddedKm: 0, totalChargedEnergyKwh: 8)
+        DisplayUnits.demo = true
+        defer { DisplayUnits.demo = false }
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: session, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at))
+        guard case .figures(_, _, _, _, let stats) = model.content else { return XCTFail("figures") }
+        XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).value.hasPrefix("≈ "))
+        XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Range added" }).value.hasPrefix("≈ +"))
+    }
+
+    func testChargingCostIsTheServersWithItsSourceAndTheChargerChip() throws {
+        let start = at.addingTimeInterval(-3600)
+        let iso = ISO8601DateFormatter().string(from: start)
+        let now = try snapshot("charging", extra: #","charge":{"started_at":"\#(iso)","soc_start":40,"peak_kw":11,"cost":4.2,"currency":"USD","cost_source":"home_rate","cost_is_estimate":true}"#)
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 11), now: now, clock: at)
+        let home = NowSlotModel.Home(lat: 34.1, lon: -118.1, label: "Casa")
+        let atHome = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (34.1, -118.1), home: home, clock: at))
+        guard case .figures(_, _, _, _, let stats) = atHome.content else { return XCTFail("figures") }
+        let cost = try XCTUnwrap(stats.first { $0.label == "Cost so far" })
+        XCTAssertTrue(cost.value.hasPrefix("≈ "), cost.value)
+        XCTAssertEqual(cost.note, "at your home rate")
+        XCTAssertEqual(atHome.chips.map(\.text), ["Home charger"])
+        let away = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (35.0, -118.1), home: home, clock: at))
+        XCTAssertEqual(away.chips.map(\.text), ["Public charger"])
+        XCTAssertTrue(atHome.spoken.contains("Cost so far"), "what is shown is what is spoken")
+        XCTAssertTrue(atHome.spoken.contains("Home charger"))
+    }
+
+    func testDrivingChipsAndTheLiveFallbackNeedsAPercentOfBattery() throws {
+        let now = try snapshot("driving")
+        let summary = NowSummary(input: input(gear: "D", charger: "charger_disconnected", kw: 0, kph: 80), now: now, clock: at)
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, gear: "d", mode: "off_road_auto", clock: at))
+        XCTAssertEqual(model.chips.map(\.text), ["D", "All-Terrain"])
+        // 3 mi on 0.4 kWh of a 100 kWh pack is under a percent: no efficiency from the live drive.
+        let thin = LiveDrive(elapsedSec: 300, distanceMi: 3, energyUsedKwh: 0.4, miPerKwh: 7.5)
+        XCTAssertNil(NowSlotModel.drive(snapshot: nil, live: thin, packKwh: 100)?.miPerKwh)
+        let enough = LiveDrive(elapsedSec: 300, distanceMi: 3, energyUsedKwh: 1.2, miPerKwh: 2.5)
+        XCTAssertEqual(NowSlotModel.drive(snapshot: nil, live: enough, packKwh: 100)?.miPerKwh, 2.5)
     }
 
     func testRenderEachSlot() throws {

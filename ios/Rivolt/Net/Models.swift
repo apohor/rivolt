@@ -121,7 +121,6 @@ struct VehicleState: Decodable, Equatable {
     /// The pack size, to work out the time to the charge limit.
     let batteryCapacityKwh: Double?
     /// Tire pressures in bar (0 when a wheel doesn't report) and the software versions: the Truck tab's Vehicle card.
-    /// The state's coordinates are not decoded: the app never shows or keeps where the truck is.
     let tirePressureFlBar: Double?
     let tirePressureFrBar: Double?
     let tirePressureRlBar: Double?
@@ -150,6 +149,16 @@ struct VehicleState: Decodable, Equatable {
     /// ("invalid" hides it). The Now card prefers it to our estimate (see ChargeETA).
     let timeToEndMins: Double?
     let chargingTimeEstimationValidity: String?
+    /// The truck's last position and drive mode, read only for the Now slot's map and chips (decoded from the state the Now card already
+    /// reads; nothing is kept or sent anywhere). Zero is how the truck says "no fix".
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    var driveMode: String? = nil
+
+    var coordinate: (lat: Double, lon: Double)? {
+        guard let latitude, let longitude, latitude != 0 || longitude != 0 else { return nil }
+        return (latitude, longitude)
+    }
 }
 
 /// `GET /api/vehicles/{id}/now` (now-contract v1): the server's view of the

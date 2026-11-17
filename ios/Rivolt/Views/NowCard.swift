@@ -28,7 +28,11 @@ struct NowCard: View {
     /// position when `/now` has none. Without the key the picture stays.
     var slotOn = false
     var snapshot: NowSnapshot?
-    var truckFix: TruckPosition?
+    /// The truck's position from the state read (when `/now` has none), the saved home, and the gear and drive mode for the driving chips.
+    var truckFix: (lat: Double, lon: Double)?
+    var home: NowSlotModel.Home?
+    var gear: String?
+    var driveMode: String?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -75,9 +79,9 @@ struct NowCard: View {
     /// The slot's content, only while the data is current (a stale or offline card keeps the picture).
     private var slot: NowSlotModel? {
         guard slotOn, !offline, summary.presence == .live else { return nil }
-        let fix = snapshot?.location.map { (lat: $0.lat, lon: $0.lon) } ?? truckFix?.coordinate.map { (lat: $0.latitude, lon: $0.longitude) }
+        let fix = snapshot?.location.map { (lat: $0.lat, lon: $0.lon) } ?? truckFix
         return NowSlotModel.make(summary: summary, snapshot: snapshot, session: session, charge: charge, liveDrive: liveDrive, fix: fix,
-                                 placeLabel: place == "Home" ? "Home" : nil, clock: clock)
+                                 home: home, gear: gear, mode: driveMode, clock: clock)
     }
 
     private var heroV2: some View {
@@ -391,8 +395,9 @@ struct NowCard: View {
         if let km = summary.rangeKm {
             parts.append("Range \(NowFormat.distance(mi: km / 1.609344, spoken: true)).")
         }
-        if driving, let kph = summary.speedKph { parts.append("Speed \(NowFormat.speed(mph: kph / 1.609344, spoken: true)).") }
-        if charging {
+        let slot = self.slot
+        if driving, slot == nil, let kph = summary.speedKph { parts.append("Speed \(NowFormat.speed(mph: kph / 1.609344, spoken: true)).") }
+        if charging, slot == nil {
             if let kw = summary.chargePowerKw { parts.append("\(NowFormat.oneDecimal(kw)) kilowatts.") }
             if let e = summary.chargeEta {
                 parts.append(e.source == .truck ? "\(ChartMath.spokenMinutes(Double(e.minutes))) left." : "About \(ChartMath.spokenMinutes(Double(e.minutes))) left, an estimate.")
@@ -404,11 +409,13 @@ struct NowCard: View {
                 parts.append("Cost so far, \(NowFormat.spokenCost(cost)).")
             }
         }
-        if driving, let d = liveDrive, d.distanceMi > 0 {
+        if driving, slot == nil, let d = liveDrive, d.distanceMi > 0 {
             parts.append("Trip so far, \(NowFormat.distance(mi: d.distanceMi, spoken: true)).")
             if d.distanceMi >= 1, d.energyUsedKwh > 0, d.miPerKwh > 0 { parts.append("\(NowFormat.efficiency(miPerKwh: d.miPerKwh, spoken: true)).") }
         }
-        if let temp = summary.outsideTempC {
+        // The slot's own words, from the figures it shows; the parked slot's weather replaces the outside temperature.
+        if let slot { parts.append(slot.spoken) }
+        if let temp = summary.outsideTempC, !(slot?.isParked ?? false) {
             parts.append("\(NowComfort.wholeDegrees(celsius: temp, spoken: true)) outside.")
         }
         if let install = summary.liveInstall { parts.append(install.nowLine + ".") }
