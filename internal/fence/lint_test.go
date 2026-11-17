@@ -270,6 +270,7 @@ var notOwnerSide = map[string]string{
 	"flags.Store.SetKillSwitch":               "admin action (flags)",
 	"flags.Store.SetSignupCap":                "admin action (flags)",
 	"flags.Store.SetStatementEmail":           "admin action (flags)",
+	"flags.Store.SetLiveDestination":          "admin action (flags)",
 	"flags.Store.SetTripPlanner":              "admin action (flags)",
 
 	// User data, settings and the API's own tables.

@@ -65,3 +65,52 @@ func TestFlagsGet_ListsEveryFlagState(t *testing.T) {
 		t.Errorf("ai_call_cap = %+v, want 40 by admin", got.AICallCap)
 	}
 }
+
+// PUT /api/admin/flags/live-destination writes the live_destination row as
+// {"users":[...]} and the store, and a fresh Store on the same database,
+// reads it back; an empty list turns it off.
+func TestFlagsLiveDestinationPut_WritesTheRow(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	pool, err := db.Open(ctx, crossTenantDSN(ctx, t))
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	store, err := flags.OpenStore(ctx, pool, nil)
+	if err != nil {
+		t.Fatalf("flags.Open: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.ExecContext(context.Background(), `DELETE FROM flags WHERE name = 'live_destination'`)
+	})
+
+	put := func(body string) int {
+		rec := httptest.NewRecorder()
+		handleFlagsLiveDestinationPut(store).ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/", strings.NewReader(body)))
+		return rec.Code
+	}
+	const id = "3f2b8c1e-5a4d-4e6f-9a0b-1c2d3e4f5a6b"
+	if code := put(`{"users":["` + strings.ToUpper(id) + `"]}`); code != http.StatusOK {
+		t.Fatalf("put: %d", code)
+	}
+	var raw string
+	if err := pool.QueryRowContext(ctx, `SELECT value::text FROM flags WHERE name = 'live_destination'`).Scan(&raw); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if strings.Contains(raw, `"all"`) || !strings.Contains(raw, id) {
+		t.Errorf("row = %s, want users [%s] and no all", raw, id)
+	}
+	if !store.LiveDestination().Enabled(id) || store.LiveDestination().Enabled("someone-else") {
+		t.Errorf("snapshot = %+v", store.LiveDestination())
+	}
+	if code := put(`{"all":true}`); code != http.StatusBadRequest {
+		t.Errorf("all: %d, want 400", code)
+	}
+	if store.LiveDestination().All {
+		t.Error("all was applied")
+	}
+	if code := put(`{"users":[]}`); code != http.StatusOK || store.LiveDestination().Enabled(id) {
+		t.Errorf("clear: %d, %+v", code, store.LiveDestination())
+	}
+}

@@ -318,3 +318,58 @@ func handleFlagsStatementEmailPut(store *flags.Store) http.HandlerFunc {
 		writeJSON(w, http.StatusOK, map[string]any{"statement_email": store.StatementEmail()})
 	}
 }
+
+// flagsLiveDestinationRequest is the PUT body for
+// /api/admin/flags/live-destination: the named users only. There is no
+// "all": a decoded destination is a precise location.
+type flagsLiveDestinationRequest struct {
+	Users []string `json:"users"`
+}
+
+// handleFlagsLiveDestinationPut sets which users the car's navigation
+// frames are decoded for (the live_destination flag). It rejects "all" and
+// anything that is not a user UUID, so the flag never turns on for everyone.
+func handleFlagsLiveDestinationPut(store *flags.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if store == nil {
+			http.Error(w, "flags store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var raw map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+			http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		for k := range raw {
+			if k != "users" {
+				http.Error(w, "only users is accepted: live destination is never enabled for everyone", http.StatusBadRequest)
+				return
+			}
+		}
+		var req flagsLiveDestinationRequest
+		if v, ok := raw["users"]; ok {
+			if err := json.Unmarshal(v, &req.Users); err != nil {
+				http.Error(w, "users must be a list of user UUIDs", http.StatusBadRequest)
+				return
+			}
+		}
+		users := make([]string, 0, len(req.Users))
+		for _, u := range req.Users {
+			id, err := uuid.Parse(strings.TrimSpace(u))
+			if err != nil {
+				http.Error(w, "users must be user UUIDs", http.StatusBadRequest)
+				return
+			}
+			users = append(users, id.String())
+		}
+		actor := "admin"
+		if uid, ok := auth.UserFromContext(r.Context()); ok {
+			actor = uid.String()
+		}
+		if err := store.SetLiveDestination(r.Context(), users, actor); err != nil {
+			http.Error(w, "set flag: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"live_destination": store.LiveDestination()})
+	}
+}
