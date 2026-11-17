@@ -23,6 +23,7 @@ import {
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
+import NowSlot, { slotAvailable } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaNowLine, otaStepFromState } from "../lib/truckHealth";
@@ -97,6 +98,8 @@ export default function NowCard({
   const impersonating = useImpersonationTarget() != null;
   // Design 1 (design_preview "now_v2"): the redesigned hero. Off, the card below is unchanged.
   const v2 = useDesignPreview("now_v2");
+  // Design "now_slot": charging and driving figures take the picture's place in the hero.
+  const slotOn = useDesignPreview("now_slot");
   const { distanceUnit, temperatureUnit } = usePreferences();
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -282,6 +285,7 @@ export default function NowCard({
           vehicleID={vehicleID}
           images={images}
           model={model}
+          stateSlot={slotOn && !offline && !view.stale && slotAvailable(view) ? <NowSlot view={view} drive={driveQ.data ?? null} nowMs={nowMs} unit={distanceUnit} currency={currency} /> : null}
           chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text)}
           pillTone={pill.tone}
           ambient={server?.ambient}

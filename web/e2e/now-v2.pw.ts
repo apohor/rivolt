@@ -5,8 +5,8 @@ import { e2eNow } from "./clock";
 // Design 1 (design_preview "now_v2"): the redesigned Now. Off, the screen is the one users have today.
 const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
 
-async function open(page: Page, flag: boolean, scenario: "parked" | "charging" = "parked", ambientOn = true) {
-  await stubApi(page, { scenario, nowEndpoint: true, designPreview: flag ? ["now_v2"] : [] });
+async function open(page: Page, flag: boolean, scenario: "parked" | "charging" = "parked", ambientOn = true, extraKeys: string[] = []) {
+  await stubApi(page, { scenario, nowEndpoint: true, designPreview: flag ? ["now_v2", ...extraKeys] : [] });
   await page.route("**/api/settings/ambient-temp", (r) => r.fulfill(j({ enabled: ambientOn })));
   // The "Three things" card has something to offer.
   await page.route("**/api/push/status", (r) => r.fulfill(j({ enabled: true, subscription_count: 0 })));
@@ -181,4 +181,18 @@ test("flag on: every distance on the hero is in the user's unit (km)", async ({ 
   await expect(hero).not.toContainText(/\d mi\b/);
   await expect(page.getByTestId("now-month")).toContainText("km/kWh");
   await expect(page.getByTestId("now-month")).not.toContainText("mi/kWh");
+});
+
+test("design now_slot: charging figures replace the picture; without the key the picture stays", async ({ page }) => {
+  await open(page, true, "charging", true, ["now_slot"]);
+  const slot = page.getByTestId("now-slot");
+  await expect(slot).toBeVisible();
+  await expect(slot.getByTestId("now-slot-big")).toContainText("kW");
+  await expect(page.getByTestId("now-car")).toHaveCount(0);
+});
+
+test("design now_slot off: the picture or sketch shows, no slot", async ({ page }) => {
+  await open(page, true, "charging");
+  await expect(page.locator("[data-now-v2]")).toBeVisible();
+  await expect(page.getByTestId("now-slot")).toHaveCount(0);
 });
