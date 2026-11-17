@@ -61,7 +61,11 @@ test("no design keys at all: a trip still shows its row and map", async ({ page 
 
 test("no design keys, feature off: no map, and it asks once", async ({ page }) => {
   let asked = 0;
-  page.on("request", (r) => { if (r.url().includes("/api/live-destination/")) asked++; });
+  let sampled = 0;
+  page.on("request", (r) => {
+    if (r.url().includes("/api/live-destination/")) asked++;
+    if (r.url().includes("/api/samples")) sampled++;
+  });
   await stub(page, "driving", { designPreview: [] });
   await page.goto("/live");
   await expect(page.getByText("Max speed")).toBeVisible();
@@ -69,6 +73,8 @@ test("no design keys, feature off: no map, and it asks once", async ({ page }) =
   await expect(page.getByTestId("live-drive-map")).toHaveCount(0);
   await expect(page.getByTestId("live-destination")).toHaveCount(0);
   expect(asked).toBe(1);
+  // Nothing is drawn, so the trail is not fetched either.
+  expect(sampled).toBe(0);
 });
 
 test("no design keys, no trip (204): no map", async ({ page }) => {
