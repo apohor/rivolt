@@ -549,6 +549,31 @@ func (s *Store) LiveDestination() AudienceState {
 	return *p
 }
 
+// SetLiveDestination persists the per-user live-destination flag and
+// refreshes the local snapshot; peers pick it up on the next poll. It never
+// stores All: a decoded destination is a precise location, so the operator
+// names each user.
+func (s *Store) SetLiveDestination(ctx context.Context, users []string, actor string) error {
+	st := AudienceState{Users: users, Actor: actor}
+	raw, err := json.Marshal(st)
+	if err != nil {
+		return fmt.Errorf("encode state: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO flags (name, value, updated_at, updated_by)
+		VALUES ($1, $2, now(), $3)
+		ON CONFLICT (name) DO UPDATE
+			SET value = EXCLUDED.value,
+			    updated_at = EXCLUDED.updated_at,
+			    updated_by = EXCLUDED.updated_by
+	`, LiveDestinationName, raw, actor)
+	if err != nil {
+		return fmt.Errorf("upsert flag %q: %w", LiveDestinationName, err)
+	}
+	s.liveDest.Store(&st)
+	return nil
+}
+
 // InactiveAccountPurge returns the cached purge flag. Lock-free; off (not
 // even a dry run) when the row is missing.
 func (s *Store) InactiveAccountPurge() InactivePurgeState {
