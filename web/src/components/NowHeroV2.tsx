@@ -105,8 +105,10 @@ export default function NowHeroV2({
     charging && view.limitPct != null && view.soc > 0 && view.rangeMi != null
       ? Math.round((view.rangeMi / view.soc) * view.limitPct)
       : null;
-  // With the state slot the context is in the slot itself.
-  const subline = stateSlot ? null : charging
+  // With the charging or driving slot the context is in the slot itself; the parked slot keeps the full-charge line and takes the outside
+  // temperature into its weather row.
+  const parkedSlot = stateSlot != null && (view.kind === "parked" || view.kind === "plugged");
+  const subline = stateSlot && !parkedSlot ? null : charging
     ? view.limitPct != null
       ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ≈ ${dist(atLimit)} when done` : ""}`
       : null
@@ -114,7 +116,7 @@ export default function NowHeroV2({
       ? `Full charge today ≈ ${fullCharge} ${distanceUnit}`
       : null;
   const outside =
-    amb.enabled && ambient
+    amb.enabled && ambient && !parkedSlot
       ? formatTemperature(ambient.temp_c, temperatureUnit)
       : null;
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.

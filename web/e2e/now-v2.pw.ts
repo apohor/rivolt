@@ -17,7 +17,7 @@ async function open(page: Page, flag: boolean, scenario: "parked" | "charging" =
       j({
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: scenario, state_since: iso(2 * 3_600_000),
         soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0, charge: null,
-        ambient: { temp_c: 15, source: "open-meteo", as_of: iso(60_000), condition: "partly_cloudy", wind_kph: 16, rain_next3h_mm: 2 },
+        ambient: { temp_c: 15, source: "open-meteo", as_of: iso(60_000), condition: "partly_cloudy", wind_kph: 16, rain_next3h_mm: 3 },
       }),
     );
   });
@@ -197,9 +197,15 @@ test("design now_slot: parked shows the map and the weather in place of the pict
   await expect(slot).toBeVisible();
   await expect(slot.getByTestId("now-slot-map")).toBeVisible();
   const weather = slot.getByTestId("now-slot-weather");
-  await expect(weather).toContainText("Partly cloudy");
+  await expect(weather).toContainText("Partly cloudy here now");
+  await expect(weather.getByTestId("now-slot-icon")).toBeVisible();
   await expect(weather).toContainText("Rain next 3 h · 0.1 in");
   await expect(page.getByTestId("now-car")).toHaveCount(0);
+  // The full-charge line stays, and the outside temperature is shown once (in the weather), not twice.
+  await expect(page.getByTestId("now-subline")).toContainText("Full charge today");
+  await expect(page.getByTestId("now-temps")).not.toContainText("Outside");
+  // Not interactive: no zoom buttons.
+  await expect(slot.locator(".maplibregl-ctrl-zoom-in")).toBeHidden();
 });
 
 test("design now_slot off: the picture or sketch shows, no slot", async ({ page }) => {

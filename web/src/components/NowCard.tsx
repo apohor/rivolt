@@ -284,6 +284,7 @@ export default function NowCard({
       fix={fix}
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
+      placeLabel={view.place === "home" ? homeQ.data?.label || "Home" : null}
       session={sessionQ.data?.active ? sessionQ.data : null}
       charge={server?.charge ?? null}
       drive={
