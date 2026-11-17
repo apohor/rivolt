@@ -29,6 +29,20 @@ describe("NowSlot", () => {
     expect(none.map((s) => s.k)).toEqual(["Added"]);
     expect(none[0].v).toBe("≈ +18.2 kWh");
   });
+  it("without a session figure (or a zero) range added and rate are the battery's gain, marked ≈", () => {
+    const v = { ...charging, soc: 60, rangeMi: 150 } as unknown as NowView;
+    const charge = { started_at: "2026-01-01T11:00:00Z", soc_start: 40 };
+    // 20 points of 60 at 150 mi: 50 mi, over the hour since the start.
+    const est = slotStats(base(v, { charge }));
+    expect(est.find((s) => s.k === "Range added")?.v).toBe("≈ +50.0 mi");
+    expect(est.find((s) => s.k === "Rate")?.v).toBe("≈ 50.0 mi/h");
+    const zero = slotStats(base(v, { charge, session: { ...session, range_added_km: 0, kilometers_charged_per_hour: 0 } }));
+    expect(zero.find((s) => s.k === "Rate")?.v).toMatch(/^≈ /);
+    // Under 5 min old there is no rate; the truck's own figures carry no mark.
+    expect(slotStats(base(v, { charge: { ...charge, started_at: "2026-01-01T11:57:00Z" } })).some((s) => s.k === "Rate")).toBe(false);
+    expect(slotStats(base(v, { charge, session })).find((s) => s.k === "Range added")?.v).toBe("+60.9 mi");
+    expect(slotStats(base(charging, { charge: { started_at: "2026-01-01T11:00:00Z" } })).some((s) => s.k === "Range added")).toBe(false);
+  });
   it("driving shows gear, mode and the drive so far in the user's unit", () => {
     render(<NowSlot {...base(driving, { gear: "d", mode: "sport", drive })} />);
     expect(screen.getByTestId("now-slot-gear").textContent).toBe("D");

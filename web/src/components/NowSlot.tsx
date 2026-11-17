@@ -10,7 +10,7 @@ import { inDemo } from "../lib/demo";
 // speed, gear and mode, then the drive so far. Only values that exist are shown; nothing is a placeholder.
 
 export type SlotSession = { range_added_km: number; total_charged_energy_kwh: number; time_elapsed_seconds: number; kilometers_charged_per_hour: number };
-export type SlotCharge = { started_at: string; cost?: number | null; currency?: string; cost_source?: string; cost_is_estimate?: boolean };
+export type SlotCharge = { started_at: string; soc_start?: number | null; cost?: number | null; currency?: string; cost_source?: string; cost_is_estimate?: boolean };
 // effMiPerKwh is the distance shown over the energy shown, or null while it would be absurd (a short drive, a state of charge that has not dropped).
 export type SlotDrive = { tripMi: number; elapsed_sec: number; energy_used_kwh: number | null; effMiPerKwh: number | null };
 export type SlotInput = {
@@ -64,13 +64,21 @@ export function slotStats(i: SlotInput): Stat[] {
     // The truck's own session figure when it reports one; the SoC-based estimate (≈) otherwise.
     if (s && s.total_charged_energy_kwh > 0) out.push({ k: "Added", v: `+${s.total_charged_energy_kwh.toFixed(1)} kWh` });
     else if (v.energyKwh != null && v.energyKwh > 0) out.push({ k: "Added", v: `≈ +${v.energyKwh.toFixed(1)} kWh` });
-    if (s && s.range_added_km > 0) out.push({ k: "Range added", v: `+${dist(s.range_added_km / KM_PER_MI)}` });
-    if (s && s.kilometers_charged_per_hour > 0) out.push({ k: "Rate", v: `${dist(s.kilometers_charged_per_hour / KM_PER_MI)}/h` });
     const c = i.charge;
     const startedMs = c ? Date.parse(c.started_at) : NaN;
     // The truck's own elapsed time; the recorded session's start otherwise.
-    if (s && s.time_elapsed_seconds > 0) out.push({ k: "Elapsed", v: duration(s.time_elapsed_seconds) });
-    else if (Number.isFinite(startedMs) && i.nowMs > startedMs) out.push({ k: "Elapsed", v: duration((i.nowMs - startedMs) / 1000) });
+    const elapsedSec = s && s.time_elapsed_seconds > 0 ? s.time_elapsed_seconds : Number.isFinite(startedMs) && i.nowMs > startedMs ? (i.nowMs - startedMs) / 1000 : null;
+    // The truck's own figures come from the live session; without one (the demo, a home charge) the battery's gain at today's km per percent,
+    // marked ≈ (as the iPhone's), and the rate from it once the charge is 5 min old.
+    const truckRangeKm = s && s.range_added_km > 0 ? s.range_added_km : null;
+    const addedPct = c?.soc_start != null && v.soc > c.soc_start ? v.soc - c.soc_start : null;
+    const estRangeKm = truckRangeKm == null && addedPct != null && v.soc > 0 && v.rangeMi != null ? ((v.rangeMi * KM_PER_MI) / v.soc) * addedPct : null;
+    const rangeKm = truckRangeKm ?? estRangeKm;
+    if (rangeKm != null) out.push({ k: "Range added", v: `${truckRangeKm == null ? "≈ " : ""}+${dist(rangeKm / KM_PER_MI)}` });
+    const truckRate = s && s.kilometers_charged_per_hour > 0 ? s.kilometers_charged_per_hour : null;
+    const rate = truckRate ?? (rangeKm != null && elapsedSec != null && elapsedSec >= 300 ? rangeKm / (elapsedSec / 3600) : null);
+    if (rate != null) out.push({ k: "Rate", v: `${truckRate == null ? "≈ " : ""}${dist(rate / KM_PER_MI)}/h` });
+    if (elapsedSec != null) out.push({ k: "Elapsed", v: duration(elapsedSec) });
     if (c && c.cost != null) {
       const est = c.cost_is_estimate !== false;
       out.push({ k: "Cost so far", v: `${est ? "≈ " : ""}${formatMoney(c.cost, c.currency || i.currency)}`, note: (c.cost_source && COST_NOTE[c.cost_source]) || (est ? "estimate" : undefined) });
