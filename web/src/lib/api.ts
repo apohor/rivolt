@@ -712,6 +712,17 @@ export type NowSnapshot = {
     // Forecast precipitation over the next 3 h (rain or snow), 0 = dry; absent when unknown.
     rain_next3h_mm?: number;
   };
+  // The drive in progress, from the recorder's open drive row; null when none (or the row is stale).
+  drive?: {
+    started_at: string;
+    distance_mi: number;
+    duration_s: number;
+    // Null until the state of charge has dropped.
+    energy_kwh: number | null;
+    // Distance over energy; null until the drive is long enough for the ratio to mean anything.
+    efficiency_mi_per_kwh: number | null;
+    avg_speed_mph: number | null;
+  } | null;
   // The demo user's public sample point (the demo has no vehicle fix of its own); never sent for real accounts.
   location?: { lat: number; lon: number };
 };

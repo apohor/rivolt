@@ -23,7 +23,7 @@ import {
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
-import NowSlot, { slotAvailable } from "./NowSlot";
+import NowSlot, { slotAvailable, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaNowLine, otaStepFromState } from "../lib/truckHealth";
@@ -273,6 +273,21 @@ export default function NowCard({
   const fix = server?.location ?? stateFix;
   const showSlot = slotOn && !offline && !view.stale && slotAvailable(view, fix);
   const dq = driveQ.data ?? null;
+  // The drive so far comes from /now (the recorder's open drive row, the same for a real and a simulated drive); the Live read stands in for
+  // a server that does not send it yet. Efficiency is the distance shown over the energy shown.
+  const sd = server?.drive ?? null;
+  // The same figure as the "Trip so far" row: the client's clamped odometer track over the server's number.
+  const liveTripMi = dq ? Math.max(0, (tracker.odo ? tracker.odo.max : 0) - dq.start_odometer_mi, dq.distance_mi) : 0;
+  const slotDrive: SlotDrive | null = sd
+    ? { tripMi: sd.distance_mi, elapsed_sec: sd.duration_s, energy_used_kwh: sd.energy_kwh, effMiPerKwh: sd.efficiency_mi_per_kwh }
+    : dq
+      ? {
+          tripMi: liveTripMi,
+          elapsed_sec: dq.elapsed_sec,
+          energy_used_kwh: dq.energy_used_kwh,
+          effMiPerKwh: dq.soc_used_pct >= 1 && dq.energy_used_kwh > 0 && liveTripMi >= 1 ? liveTripMi / dq.energy_used_kwh : null,
+        }
+      : null;
   const slotNode = (
     <NowSlot
       view={view}
@@ -287,17 +302,7 @@ export default function NowCard({
       placeLabel={view.place === "home" ? homeQ.data?.label || "Home" : null}
       session={sessionQ.data?.active ? sessionQ.data : null}
       charge={server?.charge ?? null}
-      drive={
-        dq
-          ? {
-              // The same figure as the "Trip so far" row: the client's clamped odometer track over the server's number.
-              tripMi: Math.max(0, (tracker.odo ? tracker.odo.max : 0) - dq.start_odometer_mi, dq.distance_mi),
-              elapsed_sec: dq.elapsed_sec,
-              energy_used_kwh: dq.energy_used_kwh,
-              soc_used_pct: dq.soc_used_pct,
-            }
-          : null
-      }
+      drive={slotDrive}
     />
   );
   const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;

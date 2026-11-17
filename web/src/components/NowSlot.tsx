@@ -11,7 +11,8 @@ import { inDemo } from "../lib/demo";
 
 export type SlotSession = { range_added_km: number; total_charged_energy_kwh: number; time_elapsed_seconds: number; kilometers_charged_per_hour: number };
 export type SlotCharge = { started_at: string; cost?: number | null; currency?: string; cost_source?: string; cost_is_estimate?: boolean };
-export type SlotDrive = { tripMi: number; elapsed_sec: number; energy_used_kwh: number; soc_used_pct: number };
+// effMiPerKwh is the distance shown over the energy shown, or null while it would be absurd (a short drive, a state of charge that has not dropped).
+export type SlotDrive = { tripMi: number; elapsed_sec: number; energy_used_kwh: number | null; effMiPerKwh: number | null };
 export type SlotInput = {
   view: NowView;
   nowMs: number;
@@ -79,12 +80,8 @@ export function slotStats(i: SlotInput): Stat[] {
     const d = i.drive;
     if (d.tripMi > 0) out.push({ k: "Distance", v: dist(d.tripMi) });
     if (d.elapsed_sec > 0) out.push({ k: "Time", v: duration(d.elapsed_sec) });
-    // Efficiency is the distance shown over the energy shown, so the four figures describe one drive; not until it can't be absurd.
-    if (d.tripMi >= 1 && d.soc_used_pct >= 1 && d.energy_used_kwh > 0) {
-      const e = d.tripMi / d.energy_used_kwh;
-      out.push({ k: "Efficiency", v: unit === "km" ? `${(e * KM_PER_MI).toFixed(1)} km/kWh` : `${e.toFixed(1)} mi/kWh` });
-    }
-    if (d.energy_used_kwh > 0) out.push({ k: "Energy used", v: `${d.energy_used_kwh.toFixed(1)} kWh` });
+    if (d.effMiPerKwh != null && d.effMiPerKwh > 0) out.push({ k: "Efficiency", v: unit === "km" ? `${(d.effMiPerKwh * KM_PER_MI).toFixed(1)} km/kWh` : `${d.effMiPerKwh.toFixed(1)} mi/kWh` });
+    if (d.energy_used_kwh != null && d.energy_used_kwh > 0) out.push({ k: "Energy used", v: `${d.energy_used_kwh.toFixed(1)} kWh` });
   }
   return out;
 }
@@ -168,7 +165,7 @@ function Chip({ children, tone, testid }: { children: React.ReactNode; tone: "gr
   );
 }
 
-const ROOT = "pointer-events-none relative mt-4 w-full min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mt-0 min-[900px]:border-t-0 min-[900px]:pt-0";
+const ROOT = "pointer-events-none relative mt-4 w-full min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mt-0 min-[900px]:self-start min-[900px]:border-t-0 min-[900px]:pt-0";
 
 // Parked or plugged in: where the truck is on the map, then the weather there as one row (temperature and sky left, wind and rain right).
 function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel }: { fix: SlotFix; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string; nowMs: number; placeLabel: string | null }) {
