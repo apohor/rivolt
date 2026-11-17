@@ -152,6 +152,9 @@ export function FlagsNext() {
           {f.statement_email && (
             <AudienceFlagRow flag="statement_email" title="Monthly statement email" feature="the monthly statement email" auditAction="flag.statement_email" value={f.statement_email} description="Who can be sent the monthly statement." note="Each user must also opt in under Settings, Notifications." />
           )}
+          {f.live_destination && (
+            <AudienceFlagRow flag="live_destination" noEveryone title="Live destination: users" feature="the live destination" auditAction="flag.live_destination" value={f.live_destination} description="Users whose car's navigation destination is decoded and shown on the Now screen." note="Named users only: a destination is a precise location, so there is no Everyone." />
+          )}
           {f.ai_call_cap && <AICallCapRow value={f.ai_call_cap} />}
         </ul>
         {planner.isError && <p role="alert" className="mt-2 text-xs text-rose-300">Save failed: {String((planner.error as Error).message)}</p>}
