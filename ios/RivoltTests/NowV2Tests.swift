@@ -24,16 +24,16 @@ final class NowV2Tests: XCTestCase {
 
     func testChargingAndDrivingWantTheirPlacement() {
         let images = [img("https://i.example/tq", "three-quarter"), img("https://i.example/side", "side"), img("https://i.example/chg", "side-charging")]
-        XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: 11, light: false)?.absoluteString, "https://i.example/chg")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: 11, light: false)?.absoluteString, "https://i.example/tq", "the cropped charging art is never shown (#2249)")
         XCTAssertEqual(VehiclePicture.forNow(images, kind: .driving, powerKw: nil, light: false)?.absoluteString, "https://i.example/side")
         XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: 0, light: false)?.absoluteString, "https://i.example/tq", "plugged in, drawing nothing: not the cropped charging art")
         XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: nil, light: false)?.absoluteString, "https://i.example/tq")
     }
 
-    func testPlugAnimShowsTheChargingViewWheneverPluggedIn() {
+    func testPlugAnimKeepsTheWholeTruckWheneverPluggedIn() {
         let images = [img("https://i.example/tq", "three-quarter"), img("https://i.example/chg", "side-charging")]
-        XCTAssertEqual(VehiclePicture.forNow(images, kind: .plugged, powerKw: nil, light: false, plugPicture: true)?.absoluteString, "https://i.example/chg")
-        XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: 0, light: false, plugPicture: true)?.absoluteString, "https://i.example/chg")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .plugged, powerKw: nil, light: false, plugPicture: true)?.absoluteString, "https://i.example/tq")
+        XCTAssertEqual(VehiclePicture.forNow(images, kind: .charging, powerKw: 0, light: false, plugPicture: true)?.absoluteString, "https://i.example/tq")
         XCTAssertEqual(VehiclePicture.forNow(images, kind: .parked, powerKw: nil, light: false, plugPicture: true)?.absoluteString, "https://i.example/tq")
         XCTAssertEqual(VehiclePicture.forNow(images, kind: .plugged, powerKw: nil, light: false)?.absoluteString, "https://i.example/tq", "flag off: today's picture")
     }
