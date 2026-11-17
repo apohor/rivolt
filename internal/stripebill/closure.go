@@ -172,7 +172,11 @@ func (c *AccountClosure) RetryOnce(ctx context.Context) {
 					c.logger().Warn("stripe cancel retry: record attempt failed", "failure_id", it.ID.String(), "err", err.Error())
 				}
 				if it.Attempts+1 >= alertAfterAttempts {
-					c.logger().Error("stripe cancel for a deleted account keeps failing; the person may still be billed", "failure_id", it.ID.String(), "attempts", it.Attempts+1)
+					msg := "stripe cancel for a deleted account keeps failing; the person may still be billed"
+					if it.Refund {
+						msg = "stripe cancel for a refunded customer keeps failing; the person may still be billed"
+					}
+					c.logger().Error(msg, "failure_id", it.ID.String(), "attempts", it.Attempts+1, "refund", it.Refund)
 				}
 				continue
 			}
