@@ -133,6 +133,10 @@ type Metrics struct {
 	// LeaseQuietShed counts sheds the quiet rule alone caused: a pod over the even split but within the fair share, after the pod set and
 	// its groups stayed unchanged for a quiet period. They stop once the split is even, until the next membership change.
 	LeaseQuietShed prometheus.Counter
+	// IngestMoves counts the groups a pod handed over, once each, by reason (IngestMoveReasons): idle, awake and charging are the drain's
+	// order; drive_end is a group whose drive ended while it waited; cap a drive moved at the wait cap; forced what shutdown moved;
+	// expired a group lost to expiry (a peer took it).
+	IngestMoves *prometheus.CounterVec
 	// LeaseUnstreamed counts episodes of a lease this pod holds without
 	// a subscription behind it (the coordinator re-subscribes; alert on
 	// any increase).
@@ -736,6 +740,13 @@ func New() *Metrics {
 			},
 			[]string{"choice"},
 		),
+		IngestMoves: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "rivolt_ingest_moves_total",
+				Help: "Groups this pod handed over, once each, by reason: idle, awake, charging (the idle-first drain), drive_end, cap, forced (shutdown), expired (lost to a peer).",
+			},
+			[]string{"reason"},
+		),
 		LeaseQuietShed: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "rivolt_lease_quiet_shed_total",
 			Help: "Group sheds the quiet rule alone caused: a pod over the even split but within the fair share, once the pod set and its groups stayed unchanged for a quiet period.",
@@ -1255,6 +1266,7 @@ func New() *Metrics {
 		m.VehicleInfoDeferredTotal,
 		m.LeaseShed,
 		m.LeaseQuietShed,
+		m.IngestMoves,
 		m.LeaseUnstreamed,
 		m.LeaseUnstreamedVehicles,
 		m.ReauthRaiseDeferred,
@@ -1458,8 +1470,14 @@ func New() *Metrics {
 	for _, choice := range LeaseShedChoices {
 		m.LeaseShed.WithLabelValues(choice).Add(0)
 	}
+	for _, reason := range IngestMoveReasons {
+		m.IngestMoves.WithLabelValues(reason).Add(0)
+	}
 	return m
 }
+
+// IngestMoveReasons are the reasons rivolt_ingest_moves_total counts (leases.Coordinator.chooseDrain, Shutdown, noteExpired).
+var IngestMoveReasons = []string{"idle", "awake", "charging", "drive_end", "cap", "forced", "expired"}
 
 // LeaseShedChoices are the shed decisions rivolt_lease_shed_total counts (leases.Coordinator.chooseShed).
 var LeaseShedChoices = []string{"idle", "awake", "deferred"}

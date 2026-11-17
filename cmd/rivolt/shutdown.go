@@ -36,3 +36,15 @@ func exitOnSecondSignal(sigs <-chan os.Signal, exit func(code int), logger *slog
 	logger.Warn("second termination signal: exiting now, without finishing the shutdown")
 	exit(1)
 }
+
+// ingestDriveWaitCap is how long a draining pod waits for the drives on its groups to end before it moves them (P2b, RIVOLT_INGEST_DRIVE_WAIT_CAP,
+// a Go duration). 0, the default, waits for none: a drive moves at shutdown, as it did before. Set it together with the pod's
+// terminationGracePeriodSeconds (the cap plus the budget above): a cap longer than the grace period would be cut by SIGKILL with the
+// groups still held.
+func ingestDriveWaitCap() time.Duration {
+	d, err := time.ParseDuration(os.Getenv("RIVOLT_INGEST_DRIVE_WAIT_CAP"))
+	if err != nil || d < 0 {
+		return 0
+	}
+	return d
+}

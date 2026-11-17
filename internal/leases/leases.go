@@ -426,6 +426,17 @@ type Coordinator struct {
 	// onQuietShed is told each shed the quiet rule alone caused (the pod holds no more than the fair share).
 	onQuietShed func()
 
+	// The idle-first drain (SetDrain, P2b): a draining pod hands over up to drainPerPass groups a pass, idle first, and keeps a group
+	// with an open drive until it ends or drainCap has passed since the drain began (drainCap 0: never in a pass, shutdown does it).
+	// onMove is told each group handed over, with its reason. Guarded by mu except passMu, which serialises reconcile (Run's and DrainWait's).
+	onMove       func(reason string)
+	drainPerPass int
+	drainCap     time.Duration
+	drainSince   time.Time
+	drainDrove   map[string]bool // groups seen with an open drive since the drain began
+	heldGroups   int             // groups held after the last lead pass
+	passMu       sync.Mutex
+
 	// jitter spreads the ticks by up to +-jitter in lead mode, so pods do not race for the same free
 	// groups; onSelfFence is told when this pod stopped everything because its renewals failed past
 	// the local deadline.
@@ -842,6 +853,8 @@ func (c *Coordinator) fenceAll() int {
 // best-effort coordination layer; a transient Postgres blip should
 // not crash every pod. The next tick will reconcile.
 func (c *Coordinator) reconcile(ctx context.Context) {
+	c.passMu.Lock()
+	defer c.passMu.Unlock()
 	if c.isClosing() {
 		return
 	}
@@ -1188,7 +1201,13 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 	// (above) leaves the last one: tokenLocked still needs the group held and renewed within the local deadline.
 	gl.SetVehicleGroups(vg)
 	c.followOpenSessions(ctx, gl, vg, res.Held)
-	res.Shed = c.chooseShed(res, vg)
+	var moveReason map[string]string
+	if res.Draining {
+		res.Shed, moveReason = c.chooseDrain(res, vg)
+	} else {
+		res.Shed = c.chooseShed(res, vg)
+	}
+	c.noteExpired(res)
 	// Every owned vehicle whose group this pod does not hold, or is giving up (shed, retired), is
 	// stopped, waited for and released, in that order. This covers lost groups, vehicle leases
 	// left from M1 or from drift, and the shed and retired groups.
@@ -1235,10 +1254,16 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 		}
 		delete(res.Held, g)
 		released = true
+		if r := moveReason[g]; r != "" && c.onMove != nil {
+			c.onMove(r) // counted once, when the release went through
+		}
 	}
 	if released {
 		c.signalReleased(ctx)
 	}
+	c.mu.Lock()
+	c.heldGroups = len(res.Held)
+	c.mu.Unlock()
 	if c.onGroups != nil {
 		c.onGroups(len(res.Held))
 	}
@@ -1307,6 +1332,173 @@ func (c *Coordinator) chooseShed(res GroupLead, vg map[string]string) []string {
 		return nil
 	}
 	return []string{best}
+}
+
+// Drain classes, in the order a draining pod hands its groups over (design 2.4): asleep, awake, charging, driving.
+const (
+	drainIdle = iota
+	drainAwake
+	drainCharging
+	drainDriving
+)
+
+// DefaultDrainPerPass is how many groups a draining pod hands over each pass: 8 a 5 s tick is 50 idle groups in about 35 s, under
+// the successor's subscribe rate (the 2 moves/s of the design, since a roll drains one pod at a time).
+const DefaultDrainPerPass = 8
+
+// SetDrain wires the idle-first drain: perPass groups a pass (<= 0: DefaultDrainPerPass), a group with an open drive waits for the drive
+// to end or for wait since the drain began (<= 0: it is never handed over in a pass; shutdown moves it), and onMove is told each group
+// handed over with its reason (idle, awake, charging, drive_end, cap, forced, expired). Call before Run.
+func (c *Coordinator) SetDrain(perPass int, wait time.Duration, onMove func(reason string)) {
+	if perPass <= 0 {
+		perPass = DefaultDrainPerPass
+	}
+	c.drainPerPass, c.drainCap, c.onMove = perPass, wait, onMove
+}
+
+// drainClass is what the pod's vehicles in group g are doing: the busiest of them.
+func (c *Coordinator) drainClass(g string, vg map[string]string, owned []string) int {
+	class := drainIdle
+	for _, vid := range owned {
+		if vg[vid] != g {
+			continue
+		}
+		switch c.activity(vid) {
+		case ActivityBusy:
+			k := ""
+			if c.kindOf != nil {
+				k = c.kindOf(vid)
+			}
+			if k == "charge" {
+				class = max(class, drainCharging)
+			} else {
+				class = max(class, drainDriving) // a drive, or a session of unknown kind: the careful reading
+			}
+		case ActivityAwake:
+			class = max(class, drainAwake)
+		}
+	}
+	return class
+}
+
+// chooseDrain picks the groups a draining pod hands over this pass: up to drainPerPass, asleep first, then awake, then charging, then
+// (only once the cap has passed) driving. It is worked out afresh every pass, so a group whose drive starts while it waits is skipped
+// until the drive ends. The second result is the reason to count for each group once its release goes through.
+func (c *Coordinator) chooseDrain(res GroupLead, vg map[string]string) ([]string, map[string]string) {
+	if c.activity == nil || len(res.Held) == 0 {
+		return nil, nil // nothing tells the groups apart: shutdown hands them over
+	}
+	now := c.now()
+	c.mu.Lock()
+	if c.drainSince.IsZero() {
+		c.drainSince = now
+	}
+	capped := c.drainCap > 0 && now.Sub(c.drainSince) >= c.drainCap
+	if c.drainDrove == nil {
+		c.drainDrove = map[string]bool{}
+	}
+	owned := make([]string, 0, len(c.owned))
+	for vid := range c.owned {
+		owned = append(owned, vid)
+	}
+	c.mu.Unlock()
+	type cand struct {
+		g     string
+		class int
+	}
+	var cands []cand
+	for g := range res.Held {
+		cands = append(cands, cand{g, c.drainClass(g, vg, owned)})
+	}
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].class != cands[j].class {
+			return cands[i].class < cands[j].class
+		}
+		return cands[i].g < cands[j].g
+	})
+	per := c.drainPerPass
+	if per <= 0 {
+		per = DefaultDrainPerPass
+	}
+	var out []string
+	reason := map[string]string{}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, k := range cands {
+		if k.class == drainDriving {
+			c.drainDrove[k.g] = true
+		}
+	}
+	for _, k := range cands {
+		if len(out) >= per {
+			break
+		}
+		r := ""
+		switch {
+		case k.class == drainDriving && !capped:
+			continue
+		case k.class == drainDriving:
+			r = "cap"
+		case c.drainDrove[k.g]:
+			r = "drive_end"
+		case k.class == drainCharging:
+			r = "charging"
+		case k.class == drainAwake:
+			r = "awake"
+		default:
+			r = "idle"
+		}
+		out = append(out, k.g)
+		reason[k.g] = r
+	}
+	return out, reason
+}
+
+// noteExpired counts the groups this pod lost to expiry (a peer took them), not the ones it retired itself.
+func (c *Coordinator) noteExpired(res GroupLead) {
+	if c.onMove == nil || len(res.Lost) == 0 {
+		return
+	}
+	retired := map[string]bool{}
+	for _, g := range res.Retire {
+		retired[g] = true
+	}
+	for _, g := range res.Lost {
+		if !retired[g] {
+			c.onMove("expired")
+		}
+	}
+}
+
+// DrainWait keeps running lead passes from a draining pod's shutdown until it holds no group or the drive-wait cap (SetDrain) has
+// passed since the drain began, so idle groups go first and a drive finishes where it is. Without a cap, or in the old per-vehicle
+// mode, it returns at once and Shutdown hands everything over as before. ctx bounds the wait (the pod's grace period).
+func (c *Coordinator) DrainWait(ctx context.Context) {
+	gl, ok := c.store.(groupLeader)
+	if !ok || !gl.GroupLeading() || c.drainCap <= 0 {
+		return
+	}
+	c.MarkDraining(ctx)
+	tick := c.reconcileInterval
+	for {
+		c.reconcile(ctx)
+		c.mu.Lock()
+		held, since := c.heldGroups, c.drainSince
+		c.mu.Unlock()
+		if held == 0 {
+			c.log.Info("drain: no group left")
+			return
+		}
+		if !since.IsZero() && c.now().Sub(since) >= c.drainCap+2*tick {
+			c.log.Warn("drain: cap reached with groups left; shutdown hands them over", "groups", held)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(tick):
+		}
+	}
 }
 
 // groupAcquirer is the optional part of a lead-mode store that takes given groups outside the share.
@@ -1492,11 +1684,15 @@ func (c *Coordinator) Shutdown(ctx context.Context) {
 	c.MarkDraining(ctx) // in case the preStop hook did not run
 	c.mu.Lock()
 	c.closing = true
+	forced := c.heldGroups
 	owned := make([]string, 0, len(c.owned))
 	for vid := range c.owned {
 		owned = append(owned, vid)
 	}
 	c.mu.Unlock()
+	for i := 0; i < forced && c.onMove != nil; i++ {
+		c.onMove("forced") // what the drain did not hand over, shutdown moves now
+	}
 
 	// Stop the subscriptions first, wait (bounded) until they have stopped, and only
 	// then give the leases up. Releasing first lets a peer dial a vehicle while this

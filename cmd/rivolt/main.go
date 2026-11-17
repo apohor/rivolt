@@ -2408,6 +2408,9 @@ func runServer() {
 				return leases.ActivityAwake
 			}, func(choice string) { appMetrics.LeaseShed.WithLabelValues(choice).Inc() })
 			coord.SetQuietShedObserver(appMetrics.LeaseQuietShed.Inc)
+			// The idle-first drain (P2b): a draining pod hands its groups over a few a pass, asleep first, and a drive waits for its end or
+			// the cap. The cap is 0 (a drive is moved by shutdown, as before) until the ingest chart's grace period is raised with it.
+			coord.SetDrain(envInt("RIVOLT_DRAIN_GROUPS_PER_PASS", leases.DefaultDrainPerPass), ingestDriveWaitCap(), func(reason string) { appMetrics.IngestMoves.WithLabelValues(reason).Inc() })
 			coord.SetSelfFenceObserver(func() { appMetrics.LeaseSelfFence.Inc() })
 			coord.SetRenewObserver(func(scope, outcome string) { appMetrics.LeaseRenew.WithLabelValues(scope, outcome).Inc() })
 			if monitorRegistry != nil {
@@ -3681,6 +3684,13 @@ func runServer() {
 	// a Postgres blip just delays acquisition until the TTL.
 	httpDone := make(chan error, 1)
 	role.start("http_shutdown", func() { httpDone <- srv.Shutdown(shutdownCtx) })
+	// Idle groups go first and a drive finishes where it is, for at most the cap (0: no wait, shutdown hands everything over at once).
+	// It runs before the flush and the Rivian drain below: the sessions still open keep recording while they wait.
+	if leaseCoordinator != nil {
+		dctx, dcancel := context.WithTimeout(context.Background(), ingestDriveWaitCap()+leaseReleaseTimeout)
+		leaseCoordinator.DrainWait(dctx)
+		dcancel()
+	}
 	// Write the drives and charges the 10 s throttle left behind first, so the
 	// peer that takes the vehicles over finds current rows.
 	if monitorRegistry != nil {
