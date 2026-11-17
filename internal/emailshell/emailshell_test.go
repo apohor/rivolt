@@ -76,3 +76,17 @@ func TestFromTextCTAButtonAboveFallbackLink(t *testing.T) {
 		t.Errorf("empty label must equal FromText")
 	}
 }
+
+// Dark mode recolours every link; the button label must stay white on its emerald fill, so the button carries a class the dark CSS exempts.
+func TestButtonLabelStaysWhiteInDarkMode(t *testing.T) {
+	h := FromTextCTA("T", "Go: https://rivolt.dev/x", "Go", "https://rivolt.dev/x")
+	if !strings.Contains(h, `<a class="rv-btn" href="https://rivolt.dev/x"`) {
+		t.Errorf("button lacks rv-btn: %s", h)
+	}
+	if !strings.Contains(h, "a.rv-btn{color:#fff !important}") {
+		t.Errorf("dark CSS does not exempt rv-btn from the link colour")
+	}
+	if strings.Index(h, "a.rv-btn{color:#fff !important}") < strings.Index(h, "a{color:#34d399 !important}") {
+		t.Errorf("rv-btn rule must come after the a rule")
+	}
+}
