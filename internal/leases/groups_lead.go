@@ -45,6 +45,9 @@ type GroupLead struct {
 	// ShedQuiet is set when the shed is only due to the quiet rule: the pod holds no more than the fair share, but more than the steady
 	// share. A deferral of such a shed (every group busy) is not an alarm.
 	ShedQuiet bool
+	// Draining is set when this pod is draining (lease_pods.draining): it takes nothing and sheds nothing for the fair share, and the
+	// coordinator hands its groups over idle-first (Coordinator.chooseDrain).
+	Draining bool
 }
 
 // Lead mode timing (design 4.1): a 30 s lease renewed every 5 s (+-1 s of jitter), a 3 s
@@ -384,7 +387,9 @@ func (s *Store) LeadGroups(ctx context.Context) (GroupLead, error) {
 		res.Shed = res.ShedOrder[:1:1]
 	}
 	if s.isDraining() {
-		res.Shed, res.ShedOrder = nil, nil // a draining pod releases everything at shutdown, not one by one
+		// A draining pod sheds nothing for the fair share: the coordinator releases its groups idle-first (chooseDrain), the rest at shutdown.
+		res.Shed, res.ShedOrder = nil, nil
+		res.Draining = true
 	}
 	if rolling {
 		// One move per group per roll (zero-impact deploys, G1c). While a pod drains, or two pod generations are live, the pod count is not the

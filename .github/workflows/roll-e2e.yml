@@ -57,7 +57,7 @@ jobs:
         run: mkdir -p internal/web/dist && [ -f internal/web/dist/index.html ] || echo '<!doctype html>' > internal/web/dist/index.html
 
       - name: go test (roll e2e)
-        run: go test -tags=integration,e2e_roll -count=1 -timeout=10m -v -run 'TestRolloutKeepsEveryDriveAndCharge' ./internal/rolltest
+        run: go test -tags=integration,e2e_roll -count=1 -timeout=10m -v -run 'TestRolloutKeepsEveryDriveAndCharge|TestRolloutDriveHeldAcrossTheRoll' ./internal/rolltest
 
       - name: Report a red run on main
         if: failure() && github.event_name != 'pull_request'

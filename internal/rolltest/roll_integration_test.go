@@ -93,6 +93,9 @@ type pod struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	fenced atomic.Int64
+
+	moveMu sync.Mutex
+	moves  []string // the reasons rivolt_ingest_moves_total would count, in order
 }
 
 type world struct {
@@ -188,6 +191,7 @@ func (w *world) start(name, generation string, rdb *redis.Client) *pod {
 		}
 		return leases.ActivityAwake
 	}, nil)
+	p.coord.SetDrain(0, 0, func(reason string) { p.moveMu.Lock(); p.moves = append(p.moves, reason); p.moveMu.Unlock() })
 	go func() { defer close(p.done); _ = p.coord.Run(ctx) }()
 	return p
 }
@@ -380,4 +384,119 @@ func roll(t *testing.T, w *world, newRdb *redis.Client) {
 		fenced += p.fenced.Load()
 	}
 	t.Logf("writes refused by the fence across the roll: %d", fenced)
+}
+
+// drainWait is the old pod's end of a roll with the drive-wait cap on (P2b): preStop marks it draining, then SIGTERM runs the drain wait
+// (idle groups handed over, a group with an open drive kept, the monitors recording) and then the coordinator's shutdown.
+func (p *pod) drainWait(wait time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), wait+40*time.Second)
+	defer cancel()
+	p.coord.SetDrain(0, wait, func(reason string) { p.moveMu.Lock(); p.moves = append(p.moves, reason); p.moveMu.Unlock() })
+	p.coord.MarkDraining(ctx)
+	p.coord.DrainWait(ctx)
+	p.coord.Shutdown(ctx)
+	p.cancel()
+	<-p.done
+}
+
+// lastSample is the time of a vehicle's newest sample.
+func (w *world) lastSample(vid string) time.Time {
+	var at sql.NullTime
+	if err := w.pool.QueryRow(`SELECT max(at) FROM vehicle_state WHERE user_id = $1`, w.users[vid]).Scan(&at); err != nil {
+		w.t.Fatal(err)
+	}
+	return at.Time
+}
+
+// A drive open across a roll with the cap on: the old pod keeps the group while the drive lasts, the drive keeps recording after SIGTERM,
+// the group moves once when the cap passes (reason cap, nothing forced), and no drive or charge splits.
+func TestRolloutDriveHeldAcrossTheRoll(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	w := newWorld(t)
+	a, b := w.start("pod-a-g1", "g1", w.rdb), w.start("pod-b-g1", "g1", w.rdb)
+	defer func() { a.cancel(); b.cancel() }()
+	w.waitFor(30*time.Second, "both pods registered", func() bool { return w.podsRegistered(2) })
+	w.activate()
+	w.waitFor(90*time.Second, "every group held", func() bool {
+		for _, h := range w.holders() {
+			if h == "" {
+				return false
+			}
+		}
+		return true
+	})
+	w.waitFor(90*time.Second, "an open drive or charge per vehicle", func() bool {
+		for _, v := range allVehicles {
+			tbl := "charges"
+			if isDrive(v) {
+				tbl = "drives"
+			}
+			if w.count(tbl, v) != 1 {
+				return false
+			}
+		}
+		return true
+	})
+	var mine []string // the vehicles pod a holds
+	for v, h := range w.holders() {
+		if h == a.name {
+			mine = append(mine, v)
+		}
+	}
+	if len(mine) == 0 {
+		t.Skip("pod a holds nothing in this run")
+	}
+	c := w.start("pod-c-g2", "g2", w.rdb)
+	defer c.cancel()
+	time.Sleep(6 * time.Second)
+
+	const wait = 25 * time.Second
+	started := time.Now() // SIGTERM
+	done := make(chan struct{})
+	go func() { a.drainWait(wait); close(done) }()
+	time.Sleep(wait / 2)
+	for _, v := range mine {
+		if h := w.holders()[v]; h != a.name {
+			t.Errorf("%s moved to %q at half the cap: a drive must stay where it is until the cap", v, h)
+		}
+		if last := w.lastSample(v); last.Before(started.Add(wait/2 - 6*time.Second)) {
+			t.Errorf("%s: newest sample %s is older than the drain wait: the drive stopped recording after SIGTERM", v, last.Format(time.RFC3339))
+		}
+	}
+	select {
+	case <-done:
+	case <-time.After(wait + 30*time.Second):
+		t.Fatal("the old pod did not finish its drain")
+	}
+	time.Sleep(15 * time.Second) // the successor settles
+	a.moveMu.Lock()
+	moves := append([]string(nil), a.moves...)
+	a.moveMu.Unlock()
+	if len(moves) != len(mine) {
+		t.Errorf("moves %v, want one per group the pod held (%d)", moves, len(mine))
+	}
+	for _, r := range moves {
+		if r != "cap" {
+			t.Errorf("move reasons %v, want every one cap (the drives never ended, nothing is forced)", moves)
+			break
+		}
+	}
+	for _, v := range mine {
+		if h := w.holders()[v]; h == "" || h == a.name {
+			t.Errorf("%s is held by %q after the drain, want another pod", v, h)
+		}
+	}
+	for _, v := range driveVehicles {
+		if n := w.count("drives", v); n != 1 {
+			t.Errorf("%s: %d drive rows, want 1", v, n)
+		}
+	}
+	for _, v := range chargeVehicles {
+		if n := w.count("charges", v); n != 1 {
+			t.Errorf("%s: %d charge rows, want 1", v, n)
+		}
+	}
+	b.cancel()
 }

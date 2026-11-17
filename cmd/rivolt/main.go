@@ -447,8 +447,13 @@ func runServer() {
 		"go_memory_limit", memLimit,
 	)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	// sigCtx ends at SIGINT/SIGTERM and starts the shutdown. ctx, which every background loop, the monitors and the forwarder run under,
+	// outlives it: a draining pod keeps the groups it holds recording, and keeps the account sync, flags poll, token release and the rest
+	// running, while it waits for their drives (P2b). The drain cancels ctx once the wait is over, which is what SIGTERM did before.
+	sigCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	ctx, workCancel := context.WithCancel(context.Background())
+	defer workCancel()
 	// SIGUSR1 from `rivolt prestop` (the chart's exec preStop hook) starts the drain. Registered
 	// first thing: an unhandled SIGUSR1 would end the process.
 	drainSigs := notifyDrain()
@@ -2408,6 +2413,9 @@ func runServer() {
 				return leases.ActivityAwake
 			}, func(choice string) { appMetrics.LeaseShed.WithLabelValues(choice).Inc() })
 			coord.SetQuietShedObserver(appMetrics.LeaseQuietShed.Inc)
+			// The idle-first drain (P2b): a draining pod hands its groups over a few a pass, asleep first, and a drive waits for its end or
+			// the cap. The cap is 0 (a drive is moved by shutdown, as before) until the ingest chart's grace period is raised with it.
+			coord.SetDrain(envInt("RIVOLT_DRAIN_GROUPS_PER_PASS", leases.DefaultDrainPerPass), ingestDriveWaitCap(), func(reason string) { appMetrics.IngestMoves.WithLabelValues(reason).Inc() })
 			coord.SetSelfFenceObserver(func() { appMetrics.LeaseSelfFence.Inc() })
 			coord.SetRenewObserver(func(scope, outcome string) { appMetrics.LeaseRenew.WithLabelValues(scope, outcome).Inc() })
 			if monitorRegistry != nil {
@@ -3656,7 +3664,7 @@ func runServer() {
 	logStarters(logger, role, &bootStarts) // every boot-time start site is behind us
 
 	select {
-	case <-ctx.Done():
+	case <-sigCtx.Done():
 		logger.Info("shutdown requested")
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -3681,6 +3689,13 @@ func runServer() {
 	// a Postgres blip just delays acquisition until the TTL.
 	httpDone := make(chan error, 1)
 	role.start("http_shutdown", func() { httpDone <- srv.Shutdown(shutdownCtx) })
+	// Idle groups go first and a drive finishes where it is, for at most the cap (0: no wait, shutdown hands everything over at once).
+	// The monitors keep recording through the wait; they stop (workCancel) once it ends, as they used to at SIGTERM.
+	var dw drainWaiter // a nil *Coordinator in the interface would not be nil
+	if leaseCoordinator != nil {
+		dw = leaseCoordinator
+	}
+	drainThenStop(dw, workCancel)
 	// Write the drives and charges the 10 s throttle left behind first, so the
 	// peer that takes the vehicles over finds current rows.
 	if monitorRegistry != nil {

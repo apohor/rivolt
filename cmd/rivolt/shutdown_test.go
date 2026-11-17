@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -53,5 +54,51 @@ func TestShutdownBudgetFitsTheGracePeriod(t *testing.T) {
 	if total > gracePeriod {
 		t.Fatalf("shutdown can take %v (preStop %v + flush %v + leases %v + HTTP %v + background %v), over the %v grace period",
 			total, preStopSleep, drainFlushTimeout, leaseReleaseTimeout, httpDrainTimeout, bgShutdownWait, gracePeriod)
+	}
+}
+
+// The drain wait sits in front of the shutdown steps, so the grace period has to cover it too (P2b): 75 s + cap + the wait's slack.
+func TestShutdownBudgetWithTheDriveWait(t *testing.T) {
+	total := preStopSleep + (15*time.Minute + leaseReleaseTimeout) + drainFlushTimeout + leaseReleaseTimeout + httpDrainTimeout + bgShutdownWait
+	if got := graceWithDriveWait(15 * time.Minute); got != gracePeriod+15*time.Minute+leaseReleaseTimeout || total > got {
+		t.Fatalf("grace with a 15 min cap = %v (steps sum to %v)", got, total)
+	}
+	if got := graceWithDriveWait(0); got != gracePeriod {
+		t.Errorf("no cap: grace %v, want %v", got, gracePeriod)
+	}
+	t.Setenv("RIVOLT_INGEST_DRIVE_WAIT_CAP", "15m")
+	if got := ingestDriveWaitCap(); got != 15*time.Minute {
+		t.Errorf("cap = %v", got)
+	}
+	t.Setenv("RIVOLT_INGEST_DRIVE_WAIT_CAP", "bogus")
+	if got := ingestDriveWaitCap(); got != 0 {
+		t.Errorf("bad cap = %v, want 0", got)
+	}
+}
+
+type fakeWaiter struct{ during func() }
+
+func (f fakeWaiter) DrainWait(context.Context) { f.during() }
+
+// The monitors and the forwarder run under workCtx and must stay up for the whole drain wait, whatever the signal context does; they are
+// stopped only after it (F1: frames keep being recorded for a group kept for its drive).
+func TestDrainThenStopKeepsTheWorkUpThroughTheWait(t *testing.T) {
+	sig, stopSig := context.WithCancel(context.Background())
+	work, stopWork := context.WithCancel(context.Background())
+	defer stopWork()
+	stopSig() // SIGTERM has arrived
+	var aliveDuring bool
+	drainThenStop(fakeWaiter{func() { aliveDuring = work.Err() == nil }}, stopWork)
+	if sig.Err() == nil || !aliveDuring {
+		t.Fatalf("work context alive during the wait = %v (signal ctx err %v)", aliveDuring, sig.Err())
+	}
+	if work.Err() == nil {
+		t.Error("work context still alive after the drain")
+	}
+	// No coordinator: still stops the work.
+	w2, c2 := context.WithCancel(context.Background())
+	drainThenStop(nil, c2)
+	if w2.Err() == nil {
+		t.Error("no coordinator: work not stopped")
 	}
 }

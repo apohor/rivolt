@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"time"
@@ -35,4 +36,39 @@ func exitOnSecondSignal(sigs <-chan os.Signal, exit func(code int), logger *slog
 	}
 	logger.Warn("second termination signal: exiting now, without finishing the shutdown")
 	exit(1)
+}
+
+// ingestDriveWaitCap is how long a draining pod waits for the drives on its groups to end before it moves them (P2b, RIVOLT_INGEST_DRIVE_WAIT_CAP,
+// a Go duration). 0, the default, waits for none: a drive moves at shutdown, as it did before. Set it together with the pod's
+// terminationGracePeriodSeconds (the cap plus the budget above): a cap longer than the grace period would be cut by SIGKILL with the
+// groups still held.
+func ingestDriveWaitCap() time.Duration {
+	d, err := time.ParseDuration(os.Getenv("RIVOLT_INGEST_DRIVE_WAIT_CAP"))
+	if err != nil || d < 0 {
+		return 0
+	}
+	return d
+}
+
+// drainWaiter is the coordinator's part of the drain wait.
+type drainWaiter interface{ DrainWait(ctx context.Context) }
+
+// drainThenStop waits for the pod to hand its groups over (see Coordinator.DrainWait), then stops the monitors and the forwarder. The
+// order is the point: they stay up through the wait, so a group kept for its drive keeps recording. w may be nil (no coordinator).
+func drainThenStop(w drainWaiter, stopWork context.CancelFunc) {
+	if w != nil {
+		dctx, dcancel := context.WithTimeout(context.Background(), ingestDriveWaitCap()+leaseReleaseTimeout)
+		w.DrainWait(dctx)
+		dcancel()
+	}
+	stopWork()
+}
+
+// graceWithDriveWait is the terminationGracePeriod an ingest pod needs with a drive-wait cap: the shutdown budget above, plus the drain
+// wait (the cap, and leaseReleaseTimeout of slack for the last passes), which runs before it. The chart's value must be at least this.
+func graceWithDriveWait(cap time.Duration) time.Duration {
+	if cap <= 0 {
+		return gracePeriod
+	}
+	return gracePeriod + cap + leaseReleaseTimeout
 }
