@@ -268,7 +268,10 @@ export default function NowCard({
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
   // Design "now_slot": the state's figures replace the picture and the rows (shown once, not twice).
-  const showSlot = slotOn && !offline && !view.stale && slotAvailable(view);
+  // Parked, the map sits on the state's fix (the demo has none of its own, so the server sends its public sample point).
+  const stateFix = Number.isFinite(state.latitude) && Number.isFinite(state.longitude) && (state.latitude !== 0 || state.longitude !== 0) ? { lat: state.latitude, lon: state.longitude } : null;
+  const fix = server?.location ?? stateFix;
+  const showSlot = slotOn && !offline && !view.stale && slotAvailable(view, fix);
   const dq = driveQ.data ?? null;
   const slotNode = (
     <NowSlot
@@ -278,6 +281,9 @@ export default function NowCard({
       currency={currency}
       gear={state.gear}
       mode={state.drive_mode}
+      fix={fix}
+      weather={server?.ambient ?? null}
+      tempUnit={temperatureUnit}
       session={sessionQ.data?.active ? sessionQ.data : null}
       charge={server?.charge ?? null}
       drive={

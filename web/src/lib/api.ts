@@ -703,7 +703,17 @@ export type NowSnapshot = {
     cost_is_estimate?: boolean;
   } | null;
   // Present only when the user turned outside temperature on: an Open-Meteo reading for the truck's area.
-  ambient?: { temp_c: number; source: string; as_of: string };
+  ambient?: {
+    temp_c: number;
+    source: string;
+    as_of: string;
+    condition?: "clear" | "partly_cloudy" | "cloudy" | "fog" | "drizzle" | "rain" | "snow" | "thunder";
+    wind_kph?: number;
+    // Forecast precipitation over the next 3 h (rain or snow), 0 = dry; absent when unknown.
+    rain_next3h_mm?: number;
+  };
+  // The demo user's public sample point (the demo has no vehicle fix of its own); never sent for real accounts.
+  location?: { lat: number; lon: number };
 };
 export type DemoInfo = { enabled: boolean; vehicle_id: string; home_label: string };
 

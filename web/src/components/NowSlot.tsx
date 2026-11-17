@@ -1,7 +1,9 @@
 import { clock, type NowView } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
-import type { DistanceUnit } from "../lib/preferences";
+import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../lib/preferences";
+import { ParkedMap } from "../map/ParkedMap";
+import { inDemo } from "../lib/demo";
 
 // The state slot of the Now hero (design_preview "now_slot"): under the gauge, in place of the vehicle picture and the rows,
 // the figures of what the truck is doing. Charging: power and the charger, when it reaches the limit, then the session. Driving:
@@ -20,7 +22,12 @@ export type SlotInput = {
   session?: SlotSession | null;
   charge?: SlotCharge | null;
   drive?: SlotDrive | null;
+  fix?: SlotFix | null;
+  weather?: SlotWeather | null;
+  tempUnit?: TemperatureUnit;
 };
+export type SlotFix = { lat: number; lon: number };
+export type SlotWeather = { temp_c: number; condition?: string; wind_kph?: number; rain_next3h_mm?: number };
 
 const KM_PER_MI = 1.609344;
 type Stat = { k: string; v: string; note?: string };
@@ -80,9 +87,35 @@ export function slotStats(i: SlotInput): Stat[] {
   return out;
 }
 
-// Whether the slot has its big figure; when not, the picture stays.
-export function slotAvailable(v: NowView): boolean {
-  return (v.kind === "charging" && v.powerKw != null) || (v.kind === "driving" && v.speedMph != null);
+// Whether the slot has its big figure (or, parked, a map to draw); when not, the picture stays.
+export function slotAvailable(v: NowView, fix: SlotFix | null = null): boolean {
+  return (v.kind === "charging" && v.powerKw != null) || (v.kind === "driving" && v.speedMph != null) || ((v.kind === "parked" || v.kind === "plugged") && fix != null);
+}
+
+const CONDITIONS: Record<string, string> = {
+  clear: "Clear",
+  partly_cloudy: "Partly cloudy",
+  cloudy: "Cloudy",
+  fog: "Fog",
+  drizzle: "Drizzle",
+  rain: "Rain",
+  snow: "Snow",
+  thunder: "Thunderstorms",
+};
+
+// The weather lines of the parked slot: only what the server sent. The 3 h amount is rain or snow by the current condition.
+export function weatherLines(w: SlotWeather, tempUnit: TemperatureUnit, unit: DistanceUnit): { temp: string; lines: string[] } {
+  const lines: string[] = [];
+  const cond = w.condition ? CONDITIONS[w.condition] : undefined;
+  if (cond) lines.push(cond);
+  if (w.wind_kph != null) lines.push(`Wind ${unit === "km" ? `${Math.round(w.wind_kph)} km/h` : `${Math.round(w.wind_kph / KM_PER_MI)} mph`}`);
+  if (w.rain_next3h_mm != null) {
+    const what = w.condition === "snow" ? "snow" : "rain";
+    const mm = w.rain_next3h_mm;
+    if (mm < 0.05) lines.push(`No ${what} next 3 h`);
+    else lines.push(`${what[0].toUpperCase()}${what.slice(1)} next 3 h · ${unit === "km" ? `${+mm.toFixed(1)} mm` : `${Math.max(0.1, +(mm / 25.4).toFixed(1))} in`}`);
+  }
+  return { temp: formatTemperature(w.temp_c, tempUnit), lines };
 }
 
 function Chip({ children, tone, testid }: { children: React.ReactNode; tone: "green" | "grey"; testid: string }) {
@@ -93,10 +126,37 @@ function Chip({ children, tone, testid }: { children: React.ReactNode; tone: "gr
   );
 }
 
+const ROOT = "pointer-events-none relative mt-4 w-full min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mt-0 min-[900px]:border-t-0 min-[900px]:pt-0";
+
+// Parked or plugged in: where the truck is on the map and, when the server sent it, the weather there.
+function ParkedSlot({ fix, weather, tempUnit, unit, kind }: { fix: SlotFix; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string }) {
+  const w = weather ? weatherLines(weather, tempUnit, unit) : null;
+  return (
+    <div data-testid="now-slot" data-kind={kind} className={ROOT}>
+      <div className="flex flex-col gap-3 min-[900px]:flex-row">
+        <div className="min-w-0 flex-1">
+          <ParkedMap lat={fix.lat} lon={fix.lon} />
+          {inDemo() && <p className="mt-1 text-xs text-neutral-500">Sample map, not a real location</p>}
+        </div>
+        {w && (
+          <div data-testid="now-slot-weather" className="shrink-0 min-[900px]:w-40">
+            <p className="ui-label">Weather</p>
+            <p className="text-3xl font-semibold leading-none tabular-nums text-neutral-100" data-testid="now-slot-temp">{w.temp}</p>
+            {w.lines.map((l) => (
+              <p key={l} className="mt-1 text-sm text-neutral-400">{l}</p>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Null when the state has no slot, so the picture stays.
 export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
-  if (!slotAvailable(view)) return null;
+  if (!slotAvailable(view, i.fix ?? null)) return null;
+  if (view.kind === "parked" || view.kind === "plugged") return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} />;
   const stats = slotStats(i);
   let big = "";
   let bigUnit = "";
@@ -124,7 +184,7 @@ export default function NowSlot(i: SlotInput) {
     sub = stats.length > 0 ? "This drive so far" : null;
   }
   return (
-    <div data-testid="now-slot" data-kind={view.kind} className="pointer-events-none relative mt-4 w-full min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mt-0 min-[900px]:border-t-0 min-[900px]:pt-0">
+    <div data-testid="now-slot" data-kind={view.kind} className={ROOT}>
       <p className="text-4xl font-semibold leading-none tabular-nums text-neutral-100" data-testid="now-slot-big">
         {big}
         <span className="ml-1 text-base font-normal text-neutral-400">{bigUnit}</span>

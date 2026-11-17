@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import NowSlot, { slotAvailable, slotStats, type SlotInput } from "./NowSlot";
+import NowSlot, { slotAvailable, slotStats, weatherLines, type SlotInput } from "./NowSlot";
 import type { NowView } from "../lib/nowState";
 
 const charging = { kind: "charging", powerKw: 7.4, etaHours: 1.2, etaSource: "truck", limitPct: 80, energyKwh: 18.24, chargeFlavor: "home_l2", speedMph: null } as unknown as NowView;
@@ -46,5 +46,29 @@ describe("NowSlot", () => {
     expect(slotAvailable({ kind: "charging", powerKw: null } as unknown as NowView)).toBe(false);
     expect(slotAvailable({ kind: "parked" } as unknown as NowView)).toBe(false);
     expect(slotAvailable(charging)).toBe(true);
+  });
+});
+
+describe("parked slot weather", () => {
+  it("shows only what the server sent", () => {
+    expect(weatherLines({ temp_c: 20 }, "c", "mi")).toEqual({ temp: "20 °C", lines: [] });
+    const w = weatherLines({ temp_c: 20, condition: "partly_cloudy", wind_kph: 16, rain_next3h_mm: 0 }, "f", "mi");
+    expect(w.temp).toBe("68 °F");
+    expect(w.lines).toEqual(["Partly cloudy", "Wind 10 mph", "No rain next 3 h"]);
+  });
+  it("rain amounts follow the distance unit; snow is named as snow", () => {
+    expect(weatherLines({ temp_c: 8, condition: "rain", rain_next3h_mm: 2 }, "c", "km").lines).toEqual(["Rain", "Rain next 3 h · 2 mm"]);
+    expect(weatherLines({ temp_c: 8, condition: "rain", rain_next3h_mm: 2 }, "c", "mi").lines).toEqual(["Rain", "Rain next 3 h · 0.1 in"]);
+    expect(weatherLines({ temp_c: -2, condition: "snow", rain_next3h_mm: 3.4 }, "c", "km").lines).toEqual(["Snow", "Snow next 3 h · 3.4 mm"]);
+    expect(weatherLines({ temp_c: -2, condition: "snow", rain_next3h_mm: 0 }, "c", "km").lines).toEqual(["Snow", "No snow next 3 h"]);
+  });
+  it("a parked truck has a slot only with a fix", () => {
+    const v = { kind: "parked" } as unknown as NowView;
+    expect(slotAvailable(v)).toBe(false);
+    expect(slotAvailable(v, { lat: 1, lon: 2 })).toBe(true);
+  });
+  it("without a fix nothing renders", () => {
+    const { container } = render(<NowSlot {...base({ kind: "parked" } as unknown as NowView)} />);
+    expect(container.firstChild).toBeNull();
   });
 });
