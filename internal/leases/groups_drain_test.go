@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 )
@@ -169,22 +170,73 @@ func TestDrain_NoCapKeepsDrivesForShutdown(t *testing.T) {
 	}
 }
 
-// DrainWait returns as soon as the pod holds nothing, and not at all (no wait) without a cap.
-func TestDrain_WaitReturnsWhenEmpty(t *testing.T) {
-	r := newDrainRig(t, 3, 8, 15*time.Minute)
+// tickPasses stands in for Run: one reconcile a tick, counted, until stop is called.
+func (r *drainRig) tickPasses(every time.Duration) (passes func() int, stop func()) {
+	var mu sync.Mutex
+	var once sync.Once
+	n := 0
+	quit, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-quit:
+				return
+			case <-time.After(every):
+				mu.Lock()
+				r.c.reconcile(context.Background())
+				n++
+				mu.Unlock()
+			}
+		}
+	}()
+	return func() int { mu.Lock(); defer mu.Unlock(); return n },
+		func() { once.Do(func() { close(quit) }); <-done }
+}
+
+// DrainWait only waits: the passes are Run's, one a tick, so a pod hands over at most the per-pass count a tick. It returns as soon as
+// the pod holds nothing, and not at all (no wait) without a cap.
+func TestDrain_WaitReturnsWhenEmptyAndRunsNoPassOfItsOwn(t *testing.T) {
+	r := newDrainRig(t, 6, 2, 15*time.Minute)
+	r.c.reconcileInterval = 50 * time.Millisecond
+	passes, stop := r.tickPasses(50 * time.Millisecond)
+	defer stop()
 	done := make(chan struct{})
 	go func() { r.c.DrainWait(context.Background()); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("DrainWait did not return with every group asleep")
 	}
+	stop()
 	if r.held() != 0 {
 		t.Errorf("held %d after DrainWait", r.held())
+	}
+	// 6 groups at 2 a pass is 3 passes to hand over, and one more to see it empty; a second reconciler would finish in 2.
+	if n := passes(); n < 3 {
+		t.Errorf("%d passes handed over 6 groups at 2 a pass: DrainWait ran passes of its own", n)
 	}
 	r2 := newDrainRig(t, 3, 8, 0)
 	r2.c.DrainWait(context.Background()) // returns at once
 	if r2.held() != 3 {
 		t.Errorf("no cap: held %d, want 3 (nothing handed over in a wait)", r2.held())
+	}
+}
+
+// With nothing ticking, DrainWait hands over nothing; it gives up at the cap (plus two ticks) and leaves the rest to Shutdown.
+func TestDrain_WaitGivesUpAtTheCapWithoutPasses(t *testing.T) {
+	r := newDrainRig(t, 3, 8, 200*time.Millisecond)
+	r.c.reconcileInterval = 10 * time.Millisecond
+	r.ls.lmu.Lock()
+	r.ls.log = nil
+	r.ls.lmu.Unlock()
+	start := time.Now()
+	r.c.now = time.Now
+	r.c.DrainWait(context.Background())
+	if d := time.Since(start); d < 200*time.Millisecond || d > 5*time.Second {
+		t.Errorf("DrainWait returned after %v, want about the cap", d)
+	}
+	if r.held() != 3 {
+		t.Errorf("held %d: DrainWait handed groups over by itself", r.held())
 	}
 }
