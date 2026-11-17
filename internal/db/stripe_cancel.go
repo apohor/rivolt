@@ -15,9 +15,35 @@ type StripeCancelItem struct {
 	ID       uuid.UUID
 	Customer string
 	Attempts int
+	// Refund: the subscriptions are cancelled after a full refund; the account and the Stripe customer stay (an account deletion also deletes the customer).
+	Refund bool
 }
 
 func stripeQueueKey(customer string) string { return "stripe:" + customer }
+
+// refundMarker starts the error text of a queued refund cancel: the row has the account-deletion row's key (the table's check allows no other
+// stripe key), and the marker says its customer is only to have its subscriptions cancelled, not deleted. A customer remembered as closed (its
+// account was deleted since) is a deletion again.
+const refundMarker = "refund:"
+
+// EnqueueStripeRefundCancel queues, in the caller's transaction, the cancellation of a refunded customer's subscriptions. The row is due at once
+// (the retrier's next pass), so the cancel does not wait out the first backoff; an already queued customer is left as it is.
+func EnqueueStripeRefundCancel(ctx context.Context, tx *sql.Tx, customer string) error {
+	if !strings.HasPrefix(customer, "cus_") {
+		return errors.New("db: stripe cancel queue needs a Stripe customer id")
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO idp_delete_failures (username, error, kind, last_tried)
+		VALUES ($1, $2, 'stripe', NOW() - interval '1 hour')
+		ON CONFLICT (lower(username)) DO NOTHING`, stripeQueueKey(customer), refundMarker+" cancel queued")
+	return err
+}
+
+// ResolveStripeRefundCancel removes a customer's queued refund cancellation once it has been done.
+func ResolveStripeRefundCancel(ctx context.Context, d *sql.DB, customer string) error {
+	_, err := d.ExecContext(ctx, `DELETE FROM idp_delete_failures WHERE kind = 'stripe' AND username = $1 AND error LIKE $2`, stripeQueueKey(customer), refundMarker+"%")
+	return err
+}
 
 // RecordStripeCancelFailure queues (or, for a customer already queued, counts another failed attempt of) the cancellation of a deleted
 // account's Stripe subscriptions. errMsg must not contain a key. The row names the Stripe customer only.
@@ -50,7 +76,8 @@ func ClaimDueStripeCancels(ctx context.Context, d *sql.DB, limit int) ([]StripeC
 		      ORDER BY last_tried
 		      LIMIT $1
 		      FOR UPDATE SKIP LOCKED)
-		 RETURNING f.id, f.username, f.attempts`, limit)
+		 RETURNING f.id, f.username, f.attempts,
+		           f.error LIKE 'refund:%' AND NOT EXISTS (SELECT 1 FROM stripe_closed_customers c WHERE c.customer_id = substr(f.username, 8))`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +86,7 @@ func ClaimDueStripeCancels(ctx context.Context, d *sql.DB, limit int) ([]StripeC
 	for rows.Next() {
 		var it StripeCancelItem
 		var key string
-		if err := rows.Scan(&it.ID, &key, &it.Attempts); err != nil {
+		if err := rows.Scan(&it.ID, &key, &it.Attempts, &it.Refund); err != nil {
 			return nil, err
 		}
 		it.Customer = strings.TrimPrefix(key, "stripe:")
@@ -71,7 +98,8 @@ func ClaimDueStripeCancels(ctx context.Context, d *sql.DB, limit int) ([]StripeC
 // StripeCancelFailedAgain counts another failed attempt for a queued cancellation.
 func StripeCancelFailedAgain(ctx context.Context, d *sql.DB, id uuid.UUID, errMsg string) error {
 	_, err := d.ExecContext(ctx, `
-		UPDATE idp_delete_failures SET attempts = attempts + 1, error = $2, last_tried = NOW()
+		UPDATE idp_delete_failures SET attempts = attempts + 1, last_tried = NOW(),
+		       error = CASE WHEN error LIKE 'refund:%' THEN 'refund: ' || $2 ELSE $2 END
 		 WHERE id = $1 AND kind = 'stripe'`, id, errMsg)
 	return err
 }

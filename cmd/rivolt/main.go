@@ -678,7 +678,9 @@ func runServer() {
 			ObserveLag: func(d time.Duration) { appMetrics.StripeWebhookLag.Observe(d.Seconds()) },
 			OnBilling:  func(kind string) { appMetrics.BillingEvents.WithLabelValues(kind).Inc() }}
 		if key := strings.TrimSpace(os.Getenv("RIVOLT_STRIPE_SECRET_KEY")); key != "" {
-			wh.Countries = &stripebill.Client{SecretKey: key}
+			sc := &stripebill.Client{SecretKey: key}
+			wh.Countries = sc
+			wh.Canceller = sc // a full refund also ends the subscription (stripe_cancel_retrier repeats it when Stripe is down)
 		}
 		stripeWebhook = wh
 	}
