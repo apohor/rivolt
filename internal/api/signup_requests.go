@@ -326,7 +326,7 @@ func sendApprovalEmail(ctx context.Context, mailer *email.Client, to, link strin
 		To:      to,
 		Subject: subject,
 		Text:    text,
-		HTML:    emailshell.FromText(subject, text),
+		HTML:    emailshell.FromTextCTA(subject, text, "Finish signup", link),
 	})
 }
 

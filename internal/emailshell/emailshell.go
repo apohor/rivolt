@@ -41,7 +41,13 @@ func Wrap(title, bodyHTML string) string {
 // FromText renders a plain-text email as HTML in the shell. Blank lines separate paragraphs, single newlines stay line breaks, and
 // every http(s) address becomes a link whose text is the address itself. The last paragraph (the sign-off and the not-affiliated line)
 // is set small and muted; the words are unchanged.
-func FromText(title, text string) string {
+func FromText(title, text string) string { return FromTextCTA(title, text, "", "") }
+
+// FromTextCTA is FromText with one primary action: an emerald button labelled label that links to href, placed above the paragraph
+// that holds the plain link (the fallback for clients that block buttons). href must be http(s) and appear in text; otherwise there
+// is no button. The text part is not touched.
+func FromTextCTA(title, text, label, href string) string {
+	cta := label != "" && urlRE.FindString(href) == href && strings.Contains(text, href)
 	paras := strings.Split(strings.TrimSpace(strings.ReplaceAll(text, "\r\n", "\n")), "\n\n")
 	var b strings.Builder
 	for i, p := range paras {
@@ -54,6 +60,10 @@ func FromText(title, text string) string {
 		if i == len(paras)-1 && len(paras) > 1 {
 			style = `margin:20px 0 0;padding-top:16px;border-top:1px solid #ddd;color:#666;font-size:13px`
 			cls = ` class="rv-muted rv-rule"`
+		}
+		if cta && strings.Contains(p, href) {
+			b.WriteString(`<p style="margin:0 0 16px"><a href="` + html.EscapeString(href) + `" style="display:inline-block;padding:10px 18px;background:` + emerald + `;color:#fff;font-weight:600;border-radius:6px;text-decoration:none">` + html.EscapeString(label) + `</a></p>`)
+			cta = false
 		}
 		b.WriteString(`<p` + cls + ` style="` + style + `">` + linkify(p) + `</p>`)
 	}
