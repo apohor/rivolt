@@ -68,9 +68,9 @@ struct NowSlotModel: Equatable {
         switch summary.kind {
         case .charging:
             guard let detail = ChargingDetail.make(summary: summary, session: session, charge: charge), let kw = detail.powerKw else { return nil }
-            // As the web: fast at a session peak of 50 kW or more, else the home charger at home, else public only when the peak is known.
+            // As the web: fast at a session peak of 50 kW or more, else the home charger at home, else public only with a saved home, a fix away from it and a known peak.
             let peak = max(snapshot?.charge?.peakKw ?? 0, kw)
-            let kind = peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : snapshot?.charge?.peakKw != nil ? "Public charger" : nil
+            let kind = peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
             return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, clock: clock),
                                 chips: kind.map { [Chip(text: $0, accent: true)] } ?? [])
         case .driving:

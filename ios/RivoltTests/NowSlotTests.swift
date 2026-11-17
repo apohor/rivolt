@@ -126,6 +126,10 @@ final class NowSlotTests: XCTestCase {
         XCTAssertEqual(atHome.chips.map(\.text), ["Home charger"])
         let away = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (35.0, -118.1), home: home, clock: at))
         XCTAssertEqual(away.chips.map(\.text), ["Public charger"])
+        let noHome = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (35.0, -118.1), home: nil, clock: at))
+        XCTAssertEqual(noHome.chips.map(\.text), [])
+        let noFix = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: home, clock: at))
+        XCTAssertEqual(noFix.chips.map(\.text), [])
         XCTAssertTrue(atHome.spoken.contains("Cost so far"), "what is shown is what is spoken")
         XCTAssertTrue(atHome.spoken.contains("Home charger"))
     }

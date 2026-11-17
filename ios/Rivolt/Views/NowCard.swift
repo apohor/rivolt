@@ -93,7 +93,11 @@ struct NowCard: View {
             if let onLive { liveButton(onLive) }
             VStack(alignment: .leading, spacing: 12) {
                 heroGaugeV2(pictureShown: slot == nil)
-                if let slot { NowSlotView(model: slot) }
+                if let slot {
+                    // The rule between the gauge and the slot, as the web's.
+                    Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
+                    NowSlotView(model: slot)
+                }
                 if let line = subline, slot == nil || slot?.isParked == true { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if showRows { detailRows }
                 if let note = freshnessNote { Text(note).themeText(.subline) }
@@ -268,9 +272,11 @@ struct NowCard: View {
                 let range = NowFormat.usesMetric ? km : km / 1.609344
                 compactLine("Range", "\(NumberText.fixed(range, 0)) \(NowFormat.usesMetric ? "km" : "mi")")
             }
-            if charging, let t = timeLeft { compactLine("Time left", t) }
-            if charging || plugged, let target = summary.chargeTargetPct { compactLine("Charge limit", "\(Int(target.rounded())) %") }
-            if driving, let kph = summary.speedKph {
+            // The slot says the same (when it reaches the limit, the target, the speed).
+            let figuresSlot = !(slot?.isParked ?? true)
+            if charging, !figuresSlot, let t = timeLeft { compactLine("Time left", t) }
+            if charging || plugged, !figuresSlot, let target = summary.chargeTargetPct { compactLine("Charge limit", "\(Int(target.rounded())) %") }
+            if driving, !figuresSlot, let kph = summary.speedKph {
                 let speed = NowFormat.usesMetric ? kph : kph / 1.609344
                 compactLine("Speed", "\(NumberText.fixed(speed, 0)) \(NowFormat.usesMetric ? "km/h" : "mph")")
             }
