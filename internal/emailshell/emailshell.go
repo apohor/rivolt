@@ -1,6 +1,6 @@
 // Package emailshell is the Rivolt look for HTML email: a 560 px card under an emerald bolt mark, light and dark, system fonts, no images
 // and no remote content. FromText wraps a plain-text body in it word for word, so the HTML part can never say something the text part
-// does not. The statement, the launch notice, the renewal reminder and the dated notices share it.
+// does not. Every email Rivolt sends goes out in it: internal/email wraps any message that arrives without the shell.
 package emailshell
 
 import (
@@ -14,6 +14,12 @@ const (
 	emeraldDim = "#047857"
 )
 
+// marker is the class on the card; Branded looks for it.
+const marker = `class="rv-card"`
+
+// Branded reports whether h is a document built by Wrap.
+func Branded(h string) bool { return strings.Contains(h, marker) }
+
 var urlRE = regexp.MustCompile(`https?://[^\s<>"]+`)
 
 // Wrap puts bodyHTML (already escaped, trusted markup) in the shell. title is the subject: it becomes the document title.
@@ -24,7 +30,7 @@ func Wrap(title, bodyHTML string) string {
 	b.WriteString(`</title><style>`)
 	b.WriteString(`@media (prefers-color-scheme: dark){body,.rv-page{background:#0b0f0d !important;color:#e8ece9 !important}.rv-card{background:#141a17 !important}.rv-muted{color:#9aa6a0 !important}.rv-rule{border-top-color:#26302b !important}a{color:#34d399 !important}}`)
 	b.WriteString(`</style></head><body class="rv-page" style="margin:0;padding:24px;background:#f6f7f8;color:#111;font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">`)
-	b.WriteString(`<div class="rv-card" style="max-width:560px;margin:0 auto;background:#fff;border-radius:10px;padding:24px">`)
+	b.WriteString(`<div ` + marker + ` style="max-width:560px;margin:0 auto;background:#fff;border-radius:10px;padding:24px">`)
 	// The mark is text on an emerald square, so no client has an image to block.
 	b.WriteString(`<table role="presentation" style="border-collapse:collapse;margin:0 0 20px"><tr><td style="width:32px;height:32px;background:` + emerald + `;border-radius:8px;text-align:center;color:#fff;font-size:18px;line-height:32px;font-weight:700">&#991;</td><td style="padding-left:10px;font-size:20px;font-weight:700;letter-spacing:.2px">Rivolt</td></tr></table>`)
 	b.WriteString(bodyHTML)

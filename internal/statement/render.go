@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/apohor/rivolt/internal/emailshell"
 	"github.com/apohor/rivolt/internal/iosapp"
 	"github.com/apohor/rivolt/internal/ledger"
 )
@@ -327,10 +328,9 @@ func Render(in Input) Rendered {
 	}
 	fmt.Fprintf(&t, "\n%s\nChange or stop it: %s   Unsubscribe: %s\n%s\n", foot, in.Links.Settings, in.Links.Unsubscribe, indep)
 
-	// ---- html (single column, system fonts, no images, no remote content)
+	// ---- html: the body below goes in the shared Rivolt email shell (system fonts, no images, no remote content)
 	e := html.EscapeString
 	var h strings.Builder
-	h.WriteString(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark"><title>` + e(subject) + `</title></head><body style="margin:0;padding:24px;background:#f6f7f8;color:#111;font:16px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"><div style="max-width:560px;margin:0 auto;background:#fff;border-radius:10px;padding:24px">`)
 	fmt.Fprintf(&h, `<p style="margin:0 0 16px">%s</p><p style="margin:0 0 16px">Here's your %s statement from Rivolt.</p>`, e(hello), e(name))
 	fmt.Fprintf(&h, `<h1 style="font-size:22px;margin:0 0 4px">%s</h1><p style="margin:0 0 4px;color:#555">%s</p>`, e(heading), e(facts))
 	if delta != "" {
@@ -377,10 +377,10 @@ func Render(in Input) Rendered {
 	if in.Links.IOSApp != "" {
 		fmt.Fprintf(&h, `</p><p style="margin:12px 0 0;color:#555">%s<a href="%s">%s</a>`, e(strings.TrimSpace(iosapp.Line)+" "), e(in.Links.IOSApp), e(in.Links.IOSApp))
 	}
-	fmt.Fprintf(&h, `</p><hr style="border:0;border-top:1px solid #ddd;margin:20px 0"><p style="margin:0 0 6px;color:#666;font-size:13px">%s</p><p style="margin:0 0 6px;color:#666;font-size:13px"><a href="%s">Change or stop it</a> · <a href="%s">Unsubscribe</a></p><p style="margin:0;color:#666;font-size:13px">%s</p></div></body></html>`,
+	fmt.Fprintf(&h, `</p><hr style="border:0;border-top:1px solid #ddd;margin:20px 0"><p style="margin:0 0 6px;color:#666;font-size:13px">%s</p><p style="margin:0 0 6px;color:#666;font-size:13px"><a href="%s">Change or stop it</a> · <a href="%s">Unsubscribe</a></p><p style="margin:0;color:#666;font-size:13px">%s</p>`,
 		e(foot), e(in.Links.Settings), e(in.Links.Unsubscribe), e(indep))
 
-	return Rendered{Subject: subject, Text: t.String(), HTML: h.String()}
+	return Rendered{Subject: subject, Text: t.String(), HTML: emailshell.Wrap(subject, h.String())}
 }
 
 func plural(n int) string {
