@@ -57,7 +57,10 @@ final class AppState {
     }
 
     private(set) var phase: Phase = .bootstrapping {
-        didSet { if case .loggedIn = phase {} else { termsRequired = false } }
+        didSet {
+            if case .loggedIn = phase {} else { termsRequired = false }
+            DisplayUnits.demo = phase == .demo
+        }
     }
     /// A line the sign-in screen shows once, after the session ended in a way the person should be told about (the account deleted on the web).
     private(set) var signInNotice: String?
