@@ -308,7 +308,8 @@ export default function HomePage() {
             vehicles.data?.find((v) => v.id === activeVehicleID)?.name || "Your truck"
           }
           packKwh={vehicles.data?.find((v) => v.id === activeVehicleID)?.pack_kwh || null}
-          images={vehicles.data?.find((v) => v.id === activeVehicleID)?.images}
+          // The demo shows our own drawn truck, never a Rivian configurator image (no request to rivian.com).
+          images={inDemo() ? undefined : vehicles.data?.find((v) => v.id === activeVehicleID)?.images}
           model={vehicles.data?.find((v) => v.id === activeVehicleID)?.model}
           // /live needs a session: no dead link in the demo.
           showTelemetryLink={!inDemo()}
