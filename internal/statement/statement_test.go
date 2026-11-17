@@ -649,3 +649,16 @@ func TestRenderCarriesTheNote(t *testing.T) {
 		t.Errorf("the note is missing:\n%s", r.Text)
 	}
 }
+
+// The shell's dark mode recolours .rv-muted and .rv-rule only, so any inline grey text or rule without them stays dark-on-dark.
+func TestRender_GreyTextAndRuleFollowDarkMode(t *testing.T) {
+	r := Render(baseInput())
+	for _, tag := range regexp.MustCompile(`<[^>]+>`).FindAllString(r.HTML, -1) {
+		if regexp.MustCompile(`color:#(555|666|777|888|999|ddd)|border-top:1px solid #ddd`).MatchString(tag) && !strings.Contains(tag, "rv-muted") && !strings.Contains(tag, "rv-rule") {
+			t.Errorf("grey inline style without rv-muted/rv-rule: %s", tag)
+		}
+	}
+	if !strings.Contains(r.HTML, `<hr class="rv-rule"`) || strings.Count(r.HTML, `class="rv-muted"`) < 8 {
+		t.Errorf("rule or muted lines not classed")
+	}
+}

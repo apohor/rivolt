@@ -332,22 +332,22 @@ func Render(in Input) Rendered {
 	e := html.EscapeString
 	var h strings.Builder
 	fmt.Fprintf(&h, `<p style="margin:0 0 16px">%s</p><p style="margin:0 0 16px">Here's your %s statement from Rivolt.</p>`, e(hello), e(name))
-	fmt.Fprintf(&h, `<h1 style="font-size:22px;margin:0 0 4px">%s</h1><p style="margin:0 0 4px;color:#555">%s</p>`, e(heading), e(facts))
+	fmt.Fprintf(&h, `<h1 style="font-size:22px;margin:0 0 4px">%s</h1><p class="rv-muted" style="margin:0 0 4px;color:#555">%s</p>`, e(heading), e(facts))
 	if delta != "" {
-		fmt.Fprintf(&h, `<p style="margin:0 0 16px;color:#555">%s</p>`, e(delta))
+		fmt.Fprintf(&h, `<p class="rv-muted" style="margin:0 0 16px;color:#555">%s</p>`, e(delta))
 	}
 	if in.Note != "" {
-		fmt.Fprintf(&h, `<p style="margin:0 0 16px;color:#555">%s</p>`, e(in.Note))
+		fmt.Fprintf(&h, `<p class="rv-muted" style="margin:0 0 16px;color:#555">%s</p>`, e(in.Note))
 	}
 	if len(sp) > 0 {
 		h.WriteString(`<h2 style="font-size:16px;margin:20px 0 6px">Where it went</h2><table role="presentation" style="width:100%;border-collapse:collapse">`)
 		for _, s := range sp {
-			fmt.Fprintf(&h, `<tr><td style="padding:3px 0">%s</td><td style="padding:3px 0;text-align:right">%s</td><td style="padding:3px 0 3px 12px;text-align:right;color:#555">%s</td></tr>`, e(s.Label), e(Money(s.Cost, cur)), e(kwh(s.KWh)))
+			fmt.Fprintf(&h, `<tr><td style="padding:3px 0">%s</td><td style="padding:3px 0;text-align:right">%s</td><td class="rv-muted" style="padding:3px 0 3px 12px;text-align:right;color:#555">%s</td></tr>`, e(s.Label), e(Money(s.Cost, cur)), e(kwh(s.KWh)))
 		}
 		h.WriteString(`</table>`)
 	}
 	if saving != "" {
-		fmt.Fprintf(&h, `<p style="margin:16px 0 0;color:#555">%s</p>`, e(saving))
+		fmt.Fprintf(&h, `<p class="rv-muted" style="margin:16px 0 0;color:#555">%s</p>`, e(saving))
 	}
 	if len(big) > 0 {
 		h.WriteString(`<h2 style="font-size:16px;margin:20px 0 6px">Biggest charges</h2><table role="presentation" style="width:100%;border-collapse:collapse">`)
@@ -356,7 +356,7 @@ func Render(in Input) Rendered {
 			if b.Source != "" {
 				src = " (" + b.Source + ")"
 			}
-			fmt.Fprintf(&h, `<tr><td style="padding:3px 0">%s · %s</td><td style="padding:3px 0;text-align:right;color:#555">%s</td><td style="padding:3px 0 3px 12px;text-align:right">%s%s</td></tr>`, e(b.Date), e(b.Kind), e(kwh(b.KWh)), e(Money(b.Cost, cur)), e(src))
+			fmt.Fprintf(&h, `<tr><td style="padding:3px 0">%s · %s</td><td class="rv-muted" style="padding:3px 0;text-align:right;color:#555">%s</td><td style="padding:3px 0 3px 12px;text-align:right">%s%s</td></tr>`, e(b.Date), e(b.Kind), e(kwh(b.KWh)), e(Money(b.Cost, cur)), e(src))
 		}
 		h.WriteString(`</table>`)
 	}
@@ -368,16 +368,16 @@ func Render(in Input) Rendered {
 		h.WriteString(`</p>`)
 	}
 	for _, q := range quality {
-		fmt.Fprintf(&h, `<p style="margin:8px 0;color:#555">%s</p>`, e(q))
+		fmt.Fprintf(&h, `<p class="rv-muted" style="margin:8px 0;color:#555">%s</p>`, e(q))
 	}
 	fmt.Fprintf(&h, `<p style="margin:20px 0 4px"><a href="%s">See the full statement</a>`, e(in.Links.Statement))
 	if in.Links.Share != "" {
 		fmt.Fprintf(&h, ` · <a href="%s">Share it</a>`, e(in.Links.Share))
 	}
 	if in.Links.IOSApp != "" {
-		fmt.Fprintf(&h, `</p><p style="margin:12px 0 0;color:#555">%s<a href="%s">%s</a>`, e(strings.TrimSpace(iosapp.Line)+" "), e(in.Links.IOSApp), e(in.Links.IOSApp))
+		fmt.Fprintf(&h, `</p><p class="rv-muted" style="margin:12px 0 0;color:#555">%s<a href="%s">%s</a>`, e(strings.TrimSpace(iosapp.Line)+" "), e(in.Links.IOSApp), e(in.Links.IOSApp))
 	}
-	fmt.Fprintf(&h, `</p><hr style="border:0;border-top:1px solid #ddd;margin:20px 0"><p style="margin:0 0 6px;color:#666;font-size:13px">%s</p><p style="margin:0 0 6px;color:#666;font-size:13px"><a href="%s">Change or stop it</a> · <a href="%s">Unsubscribe</a></p><p style="margin:0;color:#666;font-size:13px">%s</p>`,
+	fmt.Fprintf(&h, `</p><hr class="rv-rule" style="border:0;border-top:1px solid #ddd;margin:20px 0"><p class="rv-muted" style="margin:0 0 6px;color:#666;font-size:13px">%s</p><p class="rv-muted" style="margin:0 0 6px;color:#666;font-size:13px"><a href="%s">Change or stop it</a> · <a href="%s">Unsubscribe</a></p><p class="rv-muted" style="margin:0;color:#666;font-size:13px">%s</p>`,
 		e(foot), e(in.Links.Settings), e(in.Links.Unsubscribe), e(indep))
 
 	return Rendered{Subject: subject, Text: t.String(), HTML: emailshell.Wrap(subject, h.String())}
