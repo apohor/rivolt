@@ -25,6 +25,7 @@ import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
 import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
+import { inDemo } from "../lib/demo";
 import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaNowLine, otaStepFromState } from "../lib/truckHealth";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
@@ -110,7 +111,7 @@ export default function NowCard({
   const stateQ = useQuery({
     queryKey: ["rivian", "state", vehicleID],
     queryFn: () => backend.vehicleState(vehicleID),
-    refetchInterval: 15_000,
+    refetchInterval: (q) => stateRefetchMs(q.state.data),
     retry: 1,
   });
   const homeQ = useQuery({
@@ -532,6 +533,13 @@ function headline(v: NowView, unit: DistanceUnit): string {
     default:
       return placeLine(v, unit) ?? "Parked";
   }
+}
+
+// How often /state is read: every 2 s while driving (the speed moves, as in the Live panel), 15 s otherwise.
+// The query stops with the tab (React Query does not refetch a hidden tab by default).
+export function stateRefetchMs(s: VehicleState | undefined, demo: boolean = inDemo()): number {
+  // The public demo replays drives in gear D and shares one request budget, so it keeps the slow rate.
+  return !demo && s && isDrivingGear(s) ? 2_000 : 15_000;
 }
 
 export function placeLine(v: NowView, unit: DistanceUnit): string | null {
