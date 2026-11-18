@@ -120,9 +120,9 @@ export default function NowHeroV2({
       ? formatTemperature(ambient.temp_c, temperatureUnit)
       : null;
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
-  // Design "plug_anim": the side-charging picture whenever the cable is in.
+  // Design "plug_anim": the plug badge whenever the cable is in; the picture stays the whole truck.
   const plugPicture = useDesignPreview("plug_anim");
-  const carUrl = pickImageForNow(images, charging ? "charging" : view.kind, light, view.powerKw, plugPicture);
+  const carUrl = pickImageForNow(images, view.kind, light);
   // A Rivian image that fails to load (moved or blocked) gives way to the drawn truck instead of a broken picture.
   const [failedUrl, setFailedUrl] = useState("");
   const [info, setInfo] = useState(false);
