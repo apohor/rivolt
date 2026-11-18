@@ -49,6 +49,26 @@ final class NowSlotTests: XCTestCase {
         XCTAssertTrue(model.isParked)
     }
 
+    func testASleepingTruckWithOnlyALastFixShowsTheMapAndTheSleepFigures() throws {
+        let since = ISO8601DateFormatter().string(from: at.addingTimeInterval(-(2 * 3600 + 15 * 60)))
+        let extra = #","last_fix":{"lat":34.1,"lon":-118.1,"at":"\#(since)"},"asleep_since":"\#(since)","asleep_today_s":67200"#
+        let now = try snapshot("asleep", extra: extra)
+        XCTAssertEqual(now.lastFix?.lat, 34.1)
+        XCTAssertEqual(now.asleepTodayS, 67200)
+        let fix = try XCTUnwrap(NowSlotModel.fix(snapshot: now, truck: nil), "the live state has none, the last fix stands in")
+        let summary = NowSummary(input: .init(socPct: 60, rangeKm: 250, chargeTargetPct: 80, gear: "P", powerState: "sleep", chargerState: "charger_disconnected", chargerPowerKw: 0, at: at, packKwh: 100, speedKph: nil), now: now, clock: at)
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: fix, home: nil, clock: at))
+        XCTAssertTrue(model.isParked)
+        XCTAssertEqual(model.sleep, [.init(label: "Asleep for", value: "2 h 15 min", note: nil), .init(label: "Asleep today", value: "18 h 40 min", note: nil)])
+        XCTAssertTrue(model.spoken.contains("Asleep today"))
+        // The live state's fix wins; none anywhere is nil; a parked truck shows no sleep figures.
+        XCTAssertEqual(NowSlotModel.fix(snapshot: now, truck: (1, 2))?.lat, 1)
+        XCTAssertNil(NowSlotModel.fix(snapshot: try snapshot("asleep"), truck: nil))
+        let parked = try snapshot("parked", extra: extra)
+        let ps = NowSummary(input: input(gear: "P", charger: "charger_disconnected", kw: 0), now: parked, clock: at)
+        XCTAssertEqual(try XCTUnwrap(NowSlotModel.make(summary: ps, snapshot: parked, session: nil, charge: nil, liveDrive: nil, fix: fix, home: nil, clock: at)).sleep, [])
+    }
+
     func testWeatherWording() throws {
         func view(_ condition: String, _ mm: Double?, day: Bool = true) throws -> NowSlotModel.Weather {
             let mmJSON = mm.map { #","rain_next3h_mm":\#($0)"# } ?? ""

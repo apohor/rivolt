@@ -218,6 +218,13 @@ struct NowSnapshot: Decodable, Equatable {
         let lon: Double
     }
 
+    /// The truck's newest recorded position (own vehicle only; nil when there is none): the map's fix while the live state has none.
+    struct LastFix: Decodable, Equatable {
+        let lat: Double
+        let lon: Double
+        let at: Date
+    }
+
     let version: Int
     let at: Date?
     let locationFixAt: Date?
@@ -236,6 +243,10 @@ struct NowSnapshot: Decodable, Equatable {
     /// Present only while driving; absent on servers older than the field.
     let drive: Drive?
     let location: Location?
+    let lastFix: LastFix?
+    /// Only while asleep: when this sleep began, and the seconds asleep since local midnight (this sleep included).
+    let asleepSince: Date?
+    let asleepTodayS: Double?
 
     /// Keys as `.convertFromSnakeCase` produces them. It capitalizes each
     /// segment with `String.capitalized`, which turns "6h" into "6H", so
@@ -244,6 +255,6 @@ struct NowSnapshot: Decodable, Equatable {
         case version, at, locationFixAt, connection, state, asleep, stateSince
         case socAtStateStart, tirePressureMinBar
         case failedSleeps6h = "failedSleeps6H"
-        case vehicleStateFrameAt, charge, ambient, drive, location
+        case vehicleStateFrameAt, charge, ambient, drive, location, lastFix, asleepSince, asleepTodayS
     }
 }

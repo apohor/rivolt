@@ -23,7 +23,7 @@ import {
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
-import NowSlot, { slotAvailable, type SlotDrive } from "./NowSlot";
+import NowSlot, { pickFix, slotAvailable, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaNowLine, otaStepFromState } from "../lib/truckHealth";
@@ -269,8 +269,8 @@ export default function NowCard({
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
   // Design "now_slot": the state's figures replace the picture and the rows (shown once, not twice).
   // Parked, the map sits on the state's fix (the demo has none of its own, so the server sends its public sample point).
-  const stateFix = Number.isFinite(state.latitude) && Number.isFinite(state.longitude) && (state.latitude !== 0 || state.longitude !== 0) ? { lat: state.latitude, lon: state.longitude } : null;
-  const fix = server?.location ?? stateFix;
+  // The server's sample point (the demo), then the live state's fix; a sleeping truck may have none (a restart while asleep), so the server's last recorded position comes last.
+  const fix = pickFix(server?.location, state.latitude, state.longitude, server?.last_fix);
   const showSlot = slotOn && !offline && !view.stale && slotAvailable(view, fix);
   const dq = driveQ.data ?? null;
   // The drive so far comes from /now (the recorder's open drive row, the same for a real and a simulated drive); the Live read stands in for
@@ -297,6 +297,7 @@ export default function NowCard({
       gear={state.gear}
       mode={state.drive_mode}
       fix={fix}
+      asleep={view.kind === "asleep" ? { since: server?.asleep_since ?? null, todayS: server?.asleep_today_s ?? null } : null}
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
       placeLabel={view.place === "home" ? homeQ.data?.label || "Home" : null}

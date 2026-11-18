@@ -79,7 +79,7 @@ struct NowCard: View {
     /// The slot's content, only while the data is current (a stale or offline card keeps the picture).
     private var slot: NowSlotModel? {
         guard slotOn, !offline, summary.presence == .live else { return nil }
-        let fix = snapshot?.location.map { (lat: $0.lat, lon: $0.lon) } ?? truckFix
+        let fix = NowSlotModel.fix(snapshot: snapshot, truck: truckFix)
         return NowSlotModel.make(summary: summary, snapshot: snapshot, session: session, charge: charge, liveDrive: liveDrive, fix: fix,
                                  home: home, gear: gear, mode: driveMode, clock: clock)
     }

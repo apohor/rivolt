@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import NowSlot, { slotAvailable, slotStats, weatherView, type SlotInput } from "./NowSlot";
+import NowSlot, { asleepFigures, pickFix, slotAvailable, slotStats, weatherView, type SlotInput } from "./NowSlot";
 import type { NowView } from "../lib/nowState";
 
 const charging = { kind: "charging", powerKw: 7.4, etaHours: 1.2, etaSource: "truck", limitPct: 80, energyKwh: 18.24, chargeFlavor: "home_l2", speedMph: null } as unknown as NowView;
@@ -90,6 +90,30 @@ describe("parked slot weather", () => {
     const v = { kind: "asleep" } as unknown as NowView;
     expect(slotAvailable(v)).toBe(false);
     expect(slotAvailable(v, { lat: 1, lon: 2 })).toBe(true);
+  });
+  it("the map's fix falls back to the server's last recorded position when the live state has none", () => {
+    const last = { lat: 3, lon: 4 };
+    expect(pickFix(undefined, 0, 0, last)).toEqual(last);
+    expect(pickFix(undefined, Number.NaN, 5, last)).toEqual(last);
+    expect(pickFix(undefined, 1, 2, last)).toEqual({ lat: 1, lon: 2 });
+    expect(pickFix({ lat: 9, lon: 8 }, 1, 2, last)).toEqual({ lat: 9, lon: 8 });
+    expect(pickFix(undefined, 0, 0, null)).toBeNull();
+  });
+  it("a sleeping truck with only a last fix shows the map and the two sleep figures", () => {
+    const v = { kind: "asleep" } as unknown as NowView;
+    const fix = pickFix(undefined, 0, 0, { lat: 3, lon: 4 });
+    const { container } = render(<NowSlot {...base(v, { fix, asleep: { since: "2026-01-01T09:45:00Z", todayS: 18 * 3600 + 40 * 60 } })} />);
+    const q = (id: string) => container.querySelector(`[data-testid="${id}"]`);
+    expect(q("now-slot")?.getAttribute("data-kind")).toBe("asleep");
+    expect(q("now-slot-asleep-for")?.textContent).toContain("2 h 15 min");
+    expect(q("now-slot-asleep-today")?.textContent).toContain("18 h 40 min");
+  });
+  it("sleep figures show only what the server sent, and only while asleep", () => {
+    const now = Date.UTC(2026, 0, 1, 12);
+    expect(asleepFigures(null, now)).toEqual([]);
+    expect(asleepFigures({ since: null, todayS: 3600 }, now)).toEqual([{ k: "Asleep today", v: "1 h 00 min" }]);
+    const { container } = render(<NowSlot {...base({ kind: "parked" } as unknown as NowView, { fix: { lat: 1, lon: 2 }, asleep: { since: "2026-01-01T09:45:00Z", todayS: 60 } })} />);
+    expect(container.querySelector('[data-testid="now-slot-asleep"]')).toBeNull();
   });
   it("without a fix nothing renders", () => {
     const { container } = render(<NowSlot {...base({ kind: "parked" } as unknown as NowView)} />);

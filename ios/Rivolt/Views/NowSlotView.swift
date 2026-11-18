@@ -13,6 +13,7 @@ struct NowSlotView: View {
         case .parked(let lat, let lon, let label, let weather):
             VStack(alignment: .leading, spacing: 12) {
                 ParkedMap(lat: lat, lon: lon, label: label)
+                if !model.sleep.isEmpty { grid(model.sleep).accessibilityIdentifier("now-slot-asleep") }
                 if let weather { weatherRow(weather) }
             }
             .accessibilityIdentifier("now-slot-parked")
