@@ -3,9 +3,9 @@ import { defineConfig } from "@playwright/test";
 // Several worktrees can run the harness at once; each needs its own
 // preview port, or one run silently tests another worktree's build.
 const PORT = Number(process.env.E2E_PORT || 4173);
-// E2E_LIVE_URL points the run at a deployed site (the rc smoke against preview, .github/workflows/rc-smoke.yml): no local
+// E2E_LIVE_URL points the run at a deployed site (the rc smoke against preview, scripts/rc-smoke.sh): no local
 // server, and stubApi (e2e/stub.ts) stubs nothing, so the specs meet the real backend. Only specs that hold against real data
-// belong in that run (see RC_SMOKE_SPECS in the workflow).
+// belong in that run (web/e2e/rc-smoke-live.pw.ts).
 const LIVE = process.env.E2E_LIVE_URL || "";
 
 // Smoke + screenshot harness. Serves the built SPA with `vite preview`
@@ -27,10 +27,6 @@ export default defineConfig({
   outputDir: "./e2e/__results__",
   use: {
     baseURL: LIVE || `http://127.0.0.1:${PORT}`,
-    // Preview sits behind Cloudflare Access: a CI run gets in with a service token (the workflow's secrets), never a person's login.
-    ...(LIVE && process.env.E2E_ACCESS_ID && process.env.E2E_ACCESS_SECRET
-      ? { extraHTTPHeaders: { "CF-Access-Client-Id": process.env.E2E_ACCESS_ID, "CF-Access-Client-Secret": process.env.E2E_ACCESS_SECRET } }
-      : {}),
   },
   // Chromium runs everything. WebKit (the engine behind iPhone Safari, where
   // users are) runs the phone specs only, and only where it is installed:

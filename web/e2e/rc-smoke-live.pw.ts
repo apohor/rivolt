@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The release-candidate smoke (.github/workflows/rc-smoke.yml): the signed-out demo on the deployed preview, on a phone, light and dark.
+// The release-candidate smoke (scripts/rc-smoke.sh): the signed-out demo on the deployed preview, on a phone, light and dark.
 // Runs only with E2E_LIVE_URL (playwright.config.ts, stub.ts): there is no stub, so the pages meet the real backend. The other specs assert
 // the stub's fixtures and cannot hold against real data; this one asserts only that the pages load and say nothing wrong. Never signs in.
 test.skip(!process.env.E2E_LIVE_URL, "live smoke: set E2E_LIVE_URL");
