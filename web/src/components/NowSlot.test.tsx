@@ -86,6 +86,11 @@ describe("parked slot weather", () => {
     expect(slotAvailable(v)).toBe(false);
     expect(slotAvailable(v, { lat: 1, lon: 2 })).toBe(true);
   });
+  it("a sleeping truck shows its last fix on the map like a parked one", () => {
+    const v = { kind: "asleep" } as unknown as NowView;
+    expect(slotAvailable(v)).toBe(false);
+    expect(slotAvailable(v, { lat: 1, lon: 2 })).toBe(true);
+  });
   it("without a fix nothing renders", () => {
     const { container } = render(<NowSlot {...base({ kind: "parked" } as unknown as NowView)} />);
     expect(container.firstChild).toBeNull();

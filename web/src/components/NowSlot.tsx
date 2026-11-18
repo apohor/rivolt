@@ -94,9 +94,12 @@ export function slotStats(i: SlotInput): Stat[] {
   return out;
 }
 
+// A sleeping truck is parked too: the map at its last fix is the most useful thing to show then.
+const isParkedKind = (k: string) => k === "parked" || k === "plugged" || k === "asleep";
+
 // Whether the slot has its big figure (or, parked, a map to draw); when not, the picture stays.
 export function slotAvailable(v: NowView, fix: SlotFix | null = null): boolean {
-  return (v.kind === "charging" && v.powerKw != null) || (v.kind === "driving" && v.speedMph != null) || ((v.kind === "parked" || v.kind === "plugged") && fix != null);
+  return (v.kind === "charging" && v.powerKw != null) || (v.kind === "driving" && v.speedMph != null) || (isParkedKind(v.kind) && fix != null);
 }
 
 const CONDITIONS: Record<string, string> = {
@@ -205,7 +208,7 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel }: {
 export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
   if (!slotAvailable(view, i.fix ?? null)) return null;
-  if (view.kind === "parked" || view.kind === "plugged") return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} />;
+  if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} />;
   const stats = slotStats(i);
   let big = "";
   let bigUnit = "";

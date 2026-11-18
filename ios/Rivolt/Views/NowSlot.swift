@@ -79,7 +79,8 @@ struct NowSlotModel: Equatable {
             if let gear, !gear.isEmpty { chips.append(Chip(text: gear.uppercased(), accent: false)) }
             if let mode, !mode.isEmpty { chips.append(Chip(text: driveModeWords(mode), accent: true)) }
             return NowSlotModel(content: driving(kph: kph, drive: drive(snapshot: snapshot, live: liveDrive, packKwh: summary.packKwh)), chips: chips)
-        case .parked, .plugged:
+        // A sleeping truck is parked: the map at its last fix is what is worth showing then.
+        case .parked, .plugged, .asleep:
             guard let fix else { return nil }
             let hour = calendar.component(.hour, from: clock)
             let weather = snapshot?.ambient.map { weatherView($0, day: hour >= 6 && hour < 20) }

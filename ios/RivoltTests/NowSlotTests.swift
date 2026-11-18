@@ -40,6 +40,15 @@ final class NowSlotTests: XCTestCase {
         XCTAssertTrue(model.isParked)
     }
 
+    func testASleepingTruckShowsItsLastFixOnTheMap() throws {
+        let now = try snapshot("asleep")
+        let summary = NowSummary(input: .init(socPct: 60, rangeKm: 250, chargeTargetPct: 80, gear: "P", powerState: "sleep", chargerState: "charger_disconnected", chargerPowerKw: 0, at: at, packKwh: 100, speedKph: nil), now: now, clock: at)
+        XCTAssertEqual(summary.kind, .asleep)
+        XCTAssertNil(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at), "no fix, the picture stays")
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (34.1, -118.1), home: nil, clock: at))
+        XCTAssertTrue(model.isParked)
+    }
+
     func testWeatherWording() throws {
         func view(_ condition: String, _ mm: Double?, day: Bool = true) throws -> NowSlotModel.Weather {
             let mmJSON = mm.map { #","rain_next3h_mm":\#($0)"# } ?? ""
