@@ -370,9 +370,10 @@ jobs:
           for want in rivolt-ingest=981 rivolt-api=75 rivolt-jobs=75; do
             echo "$out" | grep -qx "$want" || { echo "::error::expected $want"; exit 1; }
           done
-          if helm template rivolt "$CHART" -f "$CHART/ci/roles-values.yaml" --set dbConnections.budget=40 >/dev/null 2>&1; then
+          err=$(helm template rivolt "$CHART" -f "$CHART/ci/roles-values.yaml" --set dbConnections.budget=40 2>&1 >/dev/null) && {
             echo "::error::terminatingPods did not count toward the connection budget"; exit 1
-          fi
+          }
+          echo "$err" | grep -q "database connections" || { echo "::error::failed, but not on the connection budget: $err"; exit 1; }
           helm template rivolt "$CHART" -f "$CHART/ci/roles-values.yaml" --set roles.ingest.terminatingPods=0 --set dbConnections.budget=40 --set config.replicaDivisor=8 >/dev/null
 
       - name: Migrate Job pods are no Service endpoint
