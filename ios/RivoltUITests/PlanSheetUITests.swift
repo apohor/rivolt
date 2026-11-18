@@ -31,9 +31,11 @@ final class PlanSheetUITests: XCTestCase {
         return grabber
     }
 
+    /// 20 s like the other waits here: reading the grabber's value waits for the app to be idle first, and the planner's map keeps a slow CI simulator busy
+    /// past 5 s (a run failed with "the sheet is half, not half": the value was right by the time the message read it). A pass returns at once.
     private func expect(_ grabber: XCUIElement, _ value: String, _ why: String, file: StaticString = #filePath, line: UInt = #line) {
         let p = NSPredicate(format: "value == %@", value)
-        let ok = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: p, object: grabber)], timeout: 5) == .completed
+        let ok = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: p, object: grabber)], timeout: 20) == .completed
         XCTAssertTrue(ok, "\(why): the sheet is \(grabber.value ?? "?"), not \(value)", file: file, line: line)
     }
 
