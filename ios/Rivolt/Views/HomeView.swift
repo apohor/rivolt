@@ -168,9 +168,9 @@ struct HomeView: View {
             // driving, every minute otherwise (NowRefresh). The loop starts with a read, so coming back to this tab reads at once.
             .task(id: "\(selectedID)|\(tabActive)|\(scenePhase == .active)") { if tabActive, scenePhase == .active { await pollLive() } }
             // The saved home (the slot's Home label and its charger chips) is read again each time this tab comes to the front or
-            // the app returns, so a change in Settings shows; a failed read keeps the last one.
+            // the app returns, so a change in Settings shows; a failed read keeps the last one. The demo has a saved home too (its sample place).
             .task(id: "\(slotOn)|\(tabActive)|\(scenePhase == .active)") {
-                guard slotOn, tabActive, scenePhase == .active, !state.isDemo, let h = try? await state.client.homeLocation() else { return }
+                guard slotOn, tabActive, scenePhase == .active, let h = try? await state.client.homeLocation() else { return }
                 homeLocation = h
             }
             // "Offline" waits for a recent read: if the last one is old (the app was away), ask the server once first.
