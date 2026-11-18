@@ -32,18 +32,12 @@ export function pickVehicleImage(images: readonly PlacedImage[] | undefined, wan
 }
 
 // Live: the angle that illustrates the vehicle's state right now.
-// `plugPicture` (design "plug_anim"): the side-charging view whenever the cable is in, charging or not.
-export function pickImageForState(images: readonly PlacedImage[] | undefined, state: VehicleState | undefined, light: boolean, plugPicture = false): string {
+// Rivian's side-charging art is a cropped close-up of the front half, so it is never chosen: the whole truck shows while plugged in.
+export function pickImageForState(images: readonly PlacedImage[] | undefined, state: VehicleState | undefined, light: boolean): string {
   const wants: string[] = [];
   if (state) {
-    // charger_state sticks at 'charging_ready' for hours after unplug, so gate on the real plug indicator.
-    const plugged = (state.charger_status || "").toLowerCase().startsWith("chrgr_sts_connected");
-    const cs = (state.charger_state || "").toLowerCase();
-    // Rivian's side-charging art is a cropped close-up of the front half: only while power is actually flowing.
-    const charging = plugged && (plugPicture || (cs.startsWith("charging_") && (state.charger_power_kw ?? 0) > 0));
     const driving = ["D", "R", "N"].includes((state.gear || "").toUpperCase());
-    if (charging) wants.push("side-charging", "three-quarter", "side");
-    else if (driving) wants.push("side", "three-quarter");
+    if (driving) wants.push("side", "three-quarter");
     if (!state.frunk_closed) wants.push("front", "three-quarter");
     if (!state.liftgate_closed || !state.tonneau_closed) wants.push("rear", "side-rear");
     if (!state.doors_closed) wants.push("side");
@@ -51,10 +45,9 @@ export function pickImageForState(images: readonly PlacedImage[] | undefined, st
   return pickVehicleImage(images, wants, light);
 }
 
-// Now: actively charging (power flowing) shows the plugged side view (with `plugPicture`, any plugged-in state does), driving the side view, otherwise the three-quarter view.
-export function pickImageForNow(images: readonly PlacedImage[] | undefined, kind: "charging" | "driving" | string, light: boolean, powerKw: number | null = null, plugPicture = false): string {
-  const charging = (kind === "charging" && (powerKw ?? 0) > 0) || (plugPicture && (kind === "charging" || kind === "plugged"));
-  return pickVehicleImage(images, charging ? ["side-charging"] : kind === "driving" ? ["side"] : [], light);
+// Now: driving shows the side view, every other state the three-quarter view (the whole truck, as the iPhone; the cropped side-charging art is never used).
+export function pickImageForNow(images: readonly PlacedImage[] | undefined, kind: "charging" | "driving" | string, light: boolean): string {
+  return pickVehicleImage(images, kind === "driving" ? ["side"] : [], light);
 }
 
 // True while the page is in the light theme (applyTheme sets data-theme="light" on <html>).
