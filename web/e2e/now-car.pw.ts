@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi, VEHICLE_ID, vehicleState } from "./stub";
 
-// The Now hero shows the vehicle's Rivian image: three-quarter when parked, side-charging while charging, the design
+// The Now hero shows the vehicle's Rivian image: three-quarter when parked, the same whole truck while charging, the design
 // that matches the theme. Without images, or when one fails to load, the sketch of the model shows. Image URLs here are made up and served by the test.
 const names = ["front", "in-use", "overhead", "rear", "side-charging", "side-rear", "side", "three-quarter"];
 const images = names.flatMap((placement) =>
@@ -34,9 +34,9 @@ test("light theme picks the light design", async ({ page }) => {
   await expect(page.getByTestId("now-car")).toHaveAttribute("src", "https://img.example/three-quarter-light.png");
 });
 
-test("charging shows the side-charging image", async ({ page }) => {
+test("charging shows the whole truck, never the cropped side-charging image", async ({ page }) => {
   await open(page, { scenario: "charging" });
-  await expect(page.getByTestId("now-car")).toHaveAttribute("src", "https://img.example/side-charging-dark.png");
+  await expect(page.getByTestId("now-car")).toHaveAttribute("src", "https://img.example/three-quarter-dark.png");
 });
 
 test("no images: no broken picture, the sketch of the model shows (R1T, R1S, anything else is R1S), in both themes", async ({ page }) => {
