@@ -49,7 +49,7 @@
       "index": 1,
       "overnight": {
         "name": "Las Vegas hotel (sample)",
-        "parked_hours": 45.3,
+        "parked_hours": 21.3,
         "l2_kw": 6,
         "added_kwh": 78.5,
         "post_charge_soc_pct": 90,
@@ -139,7 +139,7 @@
     },
     {
       "arrival_soc": 11.7,
-      "arrive_at": "2026-11-16T21:09:43Z",
+      "arrive_at": "2026-11-15T21:09:43Z",
       "costs": [
         {
           "currency": "USD",
@@ -175,7 +175,7 @@
           ]
         }
       ],
-      "depart_at": "2026-11-16T17:20:00Z",
+      "depart_at": "2026-11-15T17:20:00Z",
       "departure_soc": 90,
       "destination_reached": true,
       "end": {
@@ -209,7 +209,7 @@
                 "ChargeDurationSec": 0,
                 "DepartureReachableMeters": 436405.8,
                 "DepartureSoC": 90,
-                "DepartureTimeUTC": "2026-11-16T17:20:00Z",
+                "DepartureTimeUTC": "2026-11-15T17:20:00Z",
                 "DistanceFromOriginMeters": 0,
                 "EntityID": "",
                 "Latitude": 36.1699,
@@ -222,11 +222,11 @@
                 "AdapterRequired": false,
                 "ArrivalReachableMeters": 369321,
                 "ArrivalSoC": 76.2,
-                "ArrivalTimeUTC": "2026-11-16T17:59:07Z",
+                "ArrivalTimeUTC": "2026-11-15T17:59:07Z",
                 "ChargeDurationSec": 194,
                 "DepartureReachableMeters": 387916.3,
                 "DepartureSoC": 80,
-                "DepartureTimeUTC": "2026-11-16T18:02:21Z",
+                "DepartureTimeUTC": "2026-11-15T18:02:21Z",
                 "DistanceFromOriginMeters": 72134,
                 "EntityID": "",
                 "Latitude": 35.606006,
@@ -239,7 +239,7 @@
                 "AdapterRequired": false,
                 "ArrivalReachableMeters": 56845.6,
                 "ArrivalSoC": 11.7,
-                "ArrivalTimeUTC": "2026-11-16T21:09:43Z",
+                "ArrivalTimeUTC": "2026-11-15T21:09:43Z",
                 "ChargeDurationSec": 0,
                 "DepartureReachableMeters": 0,
                 "DepartureSoC": 0,
@@ -284,7 +284,7 @@
         }
       },
       {
-        "depart_at": "2026-11-16T17:20:00Z",
+        "depart_at": "2026-11-15T17:20:00Z",
         "end": {
           "label": "Rose Bowl parking (sample)",
           "lat": 34.1613,

@@ -154,6 +154,15 @@ func twoDayPreset(shapes []string) (presetFile, error) {
 		days[i].Plan = shiftPlan(days[i].Plan, d)
 		days[i].DepartAt, days[i].SavedAt = days[i].DepartAt.Add(d), days[i].SavedAt.Add(d)
 	}
+	// The recorded trip came home two days after it left (it had a day in
+	// town); the preset is one night, so day 2 leaves the morning after day 1
+	// arrives, at the time of day the recording left.
+	if d2, err := dayAfterShift(days[0], days[1]); err != nil {
+		return presetFile{}, err
+	} else {
+		days[1].Plan = shiftPlan(days[1].Plan, d2)
+		days[1].DepartAt, days[1].SavedAt = days[1].DepartAt.Add(d2), days[1].SavedAt.Add(d2)
+	}
 	in, err := twoDayInputs(days)
 	if err != nil {
 		return presetFile{}, err
@@ -180,6 +189,22 @@ func twoDayPreset(shapes []string) (presetFile, error) {
 	sum.DurationMin = math.Round(float64(secs) / 60)
 	return presetFile{Preset: Preset{ID: SampleTripID(rivian.SamplePlanVegasTwoDay).String(), Name: rivian.SamplePlanVegasTwoDay,
 		Inputs: in, Summary: sum}, Plan: pb}, nil
+}
+
+// dayAfterShift is how far to move day 2 so it departs on the calendar day
+// after day 1 arrives (in planLocation), at the time of day it departs now.
+func dayAfterShift(day1, day2 rivian.SampleTripPlan) (time.Duration, error) {
+	loc, err := time.LoadLocation(planLocation)
+	if err != nil {
+		return 0, fmt.Errorf("demo: plan location: %w", err)
+	}
+	wps := day1.Plan.Routes[0].Waypoints
+	arrive, err := time.Parse(time.RFC3339, wps[len(wps)-1].ArrivalTimeUTC)
+	if err != nil {
+		return 0, fmt.Errorf("demo: day 1 arrival: %w", err)
+	}
+	a, d := arrive.In(loc), day2.DepartAt.In(loc)
+	return time.Date(a.Year(), a.Month(), a.Day()+1, d.Hour(), d.Minute(), d.Second(), 0, loc).Sub(d), nil
 }
 
 // shiftPlan moves every waypoint time in plan by d.
