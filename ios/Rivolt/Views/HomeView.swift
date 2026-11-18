@@ -411,12 +411,32 @@ struct HomeView: View {
     private func pollLive() async {
         // Read first when the last read is old (the tab was away), then on the state's own cadence.
         if freshness.lastFetchAt.map({ Date.now.timeIntervalSince($0) > NowFreshness.confirmWindow / 3 }) ?? true { await refreshNow() }
+        var lastFull = Date.now
         while !Task.isCancelled {
             let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
-            try? await Task.sleep(for: .seconds(NowRefresh.pollInterval(kind)))
+            let quick = NowRefresh.stateInterval(kind)
+            try? await Task.sleep(for: .seconds(quick ?? NowRefresh.pollInterval(kind)))
             guard !Task.isCancelled, selected?.id != nil else { continue }
-            await refreshNow()
+            // Driving: /state every 2 s for the speed, the rest (/now, the live reads) on the usual cadence.
+            if quick != nil, Date.now.timeIntervalSince(lastFull) < NowRefresh.pollInterval(kind) {
+                await refreshState()
+            } else {
+                await refreshNow()
+                lastFull = .now
+            }
         }
+    }
+
+    /// Only /state, from the server now: the speed while driving.
+    private func refreshState() async {
+        guard let id = selected?.id else { return }
+        let conn = state.connection
+        let client = state.client
+        guard let s = await NowReads.logged("/state", record: { conn.record(.state, $0) }, { try await client.vehicleState(id: id) }) else { return }
+        vehicleState = s
+        freshness.fetched(at: .now)
+        publishConnection()
+        clockTick = .now
     }
 
     /// Only once there is some history: a brand-new account has the first-day cards instead.

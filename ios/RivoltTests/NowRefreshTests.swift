@@ -24,6 +24,10 @@ final class NowRefreshTests: XCTestCase {
     func testTheScreenReadsQuicklyWhileItMovesAndEveryMinuteOtherwise() {
         XCTAssertEqual(NowRefresh.pollInterval(.charging), 10)
         XCTAssertEqual(NowRefresh.pollInterval(.driving), 10)
+        XCTAssertEqual(NowRefresh.stateInterval(.driving), 2)
+        for kind in [NowSnapshot.State.charging, .plugged, .parked, .asleep, .unknown] {
+            XCTAssertNil(NowRefresh.stateInterval(kind), "\(kind)")
+        }
         for kind in [NowSnapshot.State.parked, .plugged, .asleep, .unknown] {
             XCTAssertEqual(NowRefresh.pollInterval(kind), 60, "\(kind)")
         }

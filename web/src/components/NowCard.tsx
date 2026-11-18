@@ -110,7 +110,7 @@ export default function NowCard({
   const stateQ = useQuery({
     queryKey: ["rivian", "state", vehicleID],
     queryFn: () => backend.vehicleState(vehicleID),
-    refetchInterval: 15_000,
+    refetchInterval: (q) => stateRefetchMs(q.state.data),
     retry: 1,
   });
   const homeQ = useQuery({
@@ -532,6 +532,12 @@ function headline(v: NowView, unit: DistanceUnit): string {
     default:
       return placeLine(v, unit) ?? "Parked";
   }
+}
+
+// How often /state is read: every 2 s while driving (the speed moves, as in the Live panel), 15 s otherwise.
+// The query stops with the tab (React Query does not refetch a hidden tab by default).
+export function stateRefetchMs(s: VehicleState | undefined): number {
+  return s && isDrivingGear(s) ? 2_000 : 15_000;
 }
 
 export function placeLine(v: NowView, unit: DistanceUnit): string | null {

@@ -13,6 +13,10 @@ enum NowRefresh {
     /// A drive or a charge is under way.
     static func inFlight(_ kind: NowSnapshot.State) -> Bool { kind == .charging || kind == .driving }
 
+    /// While driving the speed moves, so /state alone is read this often (the web Live panel's rate) between the full reads.
+    /// nil when the truck is not driving: only the full read at pollInterval runs.
+    static func stateInterval(_ kind: NowSnapshot.State) -> TimeInterval? { kind == .driving ? 2 : nil }
+
     static func pollInterval(_ kind: NowSnapshot.State) -> TimeInterval {
         switch kind {
         case .charging, .driving: return 10
