@@ -133,3 +133,18 @@ test("feature off: the waiting card keeps its line and draws no map", async ({ p
   await page.waitForTimeout(800);
   await expect(page.getByTestId("live-drive-map")).toHaveCount(0);
 });
+
+test("a 429 is not off: the trip stays and it keeps asking", async ({ page }) => {
+  test.setTimeout(60_000);
+  await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
+  let n = 0;
+  await page.route(`**/api/live-destination/${VEHICLE_ID}`, (r) => {
+    n++;
+    if (n === 2 || n === 3) return r.fulfill({ status: 429, json: { error: "slow down" } });
+    return r.fulfill({ json: { name: "Test Depot", lat: 40.3, lon: -100.45, eta: new Date(Date.now() + 1_500_000).toISOString(), miles_left: 12.4, route: "_srtkA~lyh~D_cmA~hbE_etB~s`B", route_precision: 6 } });
+  });
+  await page.goto("/live");
+  await expect(page.getByTestId("live-destination")).toBeVisible();
+  await expect.poll(() => n, { timeout: 30_000 }).toBeGreaterThanOrEqual(5);
+  await expect(page.getByTestId("live-destination")).toBeVisible();
+});
