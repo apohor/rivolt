@@ -414,7 +414,7 @@ struct HomeView: View {
         var lastFull = Date.now
         while !Task.isCancelled {
             let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
-            let quick = NowRefresh.stateInterval(kind)
+            let quick = NowRefresh.stateInterval(kind, demo: state.isDemo)
             try? await Task.sleep(for: .seconds(quick ?? NowRefresh.pollInterval(kind)))
             guard !Task.isCancelled, selected?.id != nil else { continue }
             // Driving: /state every 2 s for the speed, the rest (/now, the live reads) on the usual cadence.

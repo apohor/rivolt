@@ -25,6 +25,7 @@ final class NowRefreshTests: XCTestCase {
         XCTAssertEqual(NowRefresh.pollInterval(.charging), 10)
         XCTAssertEqual(NowRefresh.pollInterval(.driving), 10)
         XCTAssertEqual(NowRefresh.stateInterval(.driving), 2)
+        XCTAssertNil(NowRefresh.stateInterval(.driving, demo: true))
         for kind in [NowSnapshot.State.charging, .plugged, .parked, .asleep, .unknown] {
             XCTAssertNil(NowRefresh.stateInterval(kind), "\(kind)")
         }
