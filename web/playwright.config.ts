@@ -25,7 +25,13 @@ export default defineConfig({
     ? [["list"], ["html", { open: "never", outputFolder: "playwright-report" }], ["json", { outputFile: "e2e-results/results.json" }]]
     : [["list"]],
   outputDir: "./e2e/__results__",
-  use: { baseURL: LIVE || `http://127.0.0.1:${PORT}` },
+  use: {
+    baseURL: LIVE || `http://127.0.0.1:${PORT}`,
+    // Preview sits behind Cloudflare Access: a CI run gets in with a service token (the workflow's secrets), never a person's login.
+    ...(LIVE && process.env.E2E_ACCESS_ID && process.env.E2E_ACCESS_SECRET
+      ? { extraHTTPHeaders: { "CF-Access-Client-Id": process.env.E2E_ACCESS_ID, "CF-Access-Client-Secret": process.env.E2E_ACCESS_SECRET } }
+      : {}),
+  },
   // Chromium runs everything. WebKit (the engine behind iPhone Safari, where
   // users are) runs the phone specs only, and only where it is installed:
   // CI sets E2E_WEBKIT=1; a laptop without the WebKit download is not asked
