@@ -120,7 +120,7 @@ type nowFix struct {
 	At  time.Time `json:"at"`
 }
 
-// nowLocation is the demo truck's position (a public sample point). Real users never get one: their position stays on the server.
+// nowLocation is the demo truck's position (a public sample point). Real users get no `location`: their own truck's last position comes back as `last_fix` instead (owner-only).
 type nowLocation struct {
 	Lat float64 `json:"lat"`
 	Lon float64 `json:"lon"`
