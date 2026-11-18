@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -37,9 +38,12 @@ type nowSnapshot struct {
 	TirePressureMinB *float64
 	FailedSleeps6h   int
 	ChargePeakKW     *float64
-	// lat, lon, hasPos: the newest row's position (never serialised).
+	// lat, lon, hasPos: the newest row's position (used for the ambient lookup).
 	lat, lon float64
 	hasPos   bool
+	// lastFix is the newest known position for the user's own truck: the newest row's, or the newest earlier row that has one
+	// (a restart while asleep leaves the newest rows without a position). Nil when none inside the lookback.
+	lastFix *nowFix
 }
 
 type nowCharge struct {
@@ -80,6 +84,9 @@ type nowResponse struct {
 	// when the user turned the lookup on (off by default) and the truck has a
 	// position. The demo gets fixed sample values (demoAmbient).
 	Ambient *nowAmbient `json:"ambient,omitempty"`
+	// LastFix is where the user's own truck was last seen, with when. Null when no position was recorded in the lookback. Nothing new
+	// is stored: it reads the position the recorder already keeps. Only the owner's own /now returns it.
+	LastFix *nowFix `json:"last_fix"`
 	// Location is set for the demo user only (the sample point the demo truck is parked at); omitted for everyone else.
 	Location *nowLocation `json:"location,omitempty"`
 }
@@ -96,6 +103,13 @@ type nowAmbient struct {
 	// RainNext3hMM is the precipitation (snow included, as water) forecast to fall over the next 3 hours, in mm (0 means dry). No probability: our weather server
 	// syncs only deterministic models.
 	RainNext3hMM *float64 `json:"rain_next3h_mm,omitempty"`
+}
+
+// nowFix is a position and the time the truck reported it.
+type nowFix struct {
+	Lat float64   `json:"lat"`
+	Lon float64   `json:"lon"`
+	At  time.Time `json:"at"`
 }
 
 // nowLocation is the demo truck's position (a public sample point). Real users never get one: their position stays on the server.
@@ -154,7 +168,7 @@ func (a nowAPI) handle(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 		Version: 1, At: snap.At, LocationFixAt: snap.LocationFixAt,
 		Connection: a.connection(uid), State: snap.State, Asleep: snap.Asleep, StateSince: snap.StateSince,
 		SoCAtStateStart: snap.SoCAtStateStart, TirePressureMinB: snap.TirePressureMinB,
-		FailedSleeps6h: snap.FailedSleeps6h,
+		FailedSleeps6h: snap.FailedSleeps6h, LastFix: snap.lastFix,
 	}
 	if out.State == "" {
 		out.State = "unknown"
@@ -239,6 +253,15 @@ SELECT (SELECT at FROM cur),
          ORDER BY vs.at DESC LIMIT 1),
        (SELECT lat FROM cur),
        (SELECT lon FROM cur)`, "vs")
+
+// nowLastFixSQL is the newest row at or after $3 that has a position, with its fix time (the row time when the fix time is unset).
+// Run only when the newest row has none.
+const nowLastFixSQL = `
+SELECT vs.lat, vs.lon, COALESCE(vs.location_fix_at, vs.at)
+FROM vehicle_state vs
+WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2)
+  AND vs.at >= $3::timestamptz AND vs.lat IS NOT NULL AND vs.lon IS NOT NULL AND (vs.lat <> 0 OR vs.lon <> 0)
+ORDER BY vs.at DESC LIMIT 1`
 
 // nowRunSQL finds where the current run ($4 = its state) began: an
 // early-stopping descending scan on the (vehicle_id, at) key that stops
@@ -378,10 +401,26 @@ func newCachedNowSnapshotter(pool *sql.DB, cache *nowRunCache) func(context.Cont
 		if tire.Valid {
 			out.TirePressureMinB = &tire.Float64
 		}
-		// The position stays inside the server: it is only ever used to look up
-		// the ambient temperature (when the user opted in) and is never returned.
+		// The position feeds the ambient lookup and, for the owner's own /now, the last fix.
 		if lat.Valid && lon.Valid && (lat.Float64 != 0 || lon.Float64 != 0) {
 			out.lat, out.lon, out.hasPos = lat.Float64, lon.Float64, true
+			t := now.UTC()
+			if out.LocationFixAt != nil {
+				t = *out.LocationFixAt
+			} else if out.At != nil {
+				t = *out.At
+			}
+			out.lastFix = &nowFix{Lat: lat.Float64, Lon: lon.Float64, At: t}
+		} else if at.Valid {
+			var fl, fo sql.NullFloat64
+			var ft sql.NullTime
+			err := pool.QueryRowContext(ctx, nowLastFixSQL, uid, rivianID, now.Add(-nowLookback).UTC()).Scan(&fl, &fo, &ft)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return out, err
+			}
+			if err == nil && fl.Valid && fo.Valid && ft.Valid {
+				out.lastFix = &nowFix{Lat: fl.Float64, Lon: fo.Float64, At: ft.Time.UTC()}
+			}
 		}
 		out.State = st.String
 		out.Asleep = asleep.Valid && asleep.Bool

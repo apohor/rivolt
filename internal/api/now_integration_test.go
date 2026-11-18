@@ -164,6 +164,44 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 			t.Errorf("%s: state = %q, want %q", c.name, got.State, c.want)
 		}
 	}
+	// last_fix: the newest row's position when it has one; else the newest earlier row that has one (a restart while asleep leaves
+	// the newest rows without a position); nil when none, and never another user's.
+	var vfix string
+	if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-fix') RETURNING id`, alice).Scan(&vfix); err != nil {
+		t.Fatal(err)
+	}
+	fixRow := func(ago time.Duration, power string, lat, lon any) {
+		t.Helper()
+		if _, err := pool.Exec(`INSERT INTO vehicle_state (user_id, vehicle_id, at, source, power_state, shift_state, charging_state, battery_level_pct, lat, lon)
+			VALUES ($1,$2,$3,'live',$4,'P','charger_disconnected',50,$5,$6)`, alice, vfix, now.Add(-ago), power, lat, lon); err != nil {
+			t.Fatalf("seed fix: %v", err)
+		}
+	}
+	nofix, err := newNowSnapshotter(pool)(ctx, alice, "rv-fix", now)
+	if err != nil || nofix.lastFix != nil {
+		t.Fatalf("no rows: fix=%v err=%v", nofix.lastFix, err)
+	}
+	fixRow(3*time.Hour, "ready", 34.25, -118.5)
+	fixRow(2*time.Hour, "sleep", nil, nil)
+	fixRow(time.Hour, "sleep", 0.0, 0.0)
+	got, err := newNowSnapshotter(pool)(ctx, alice, "rv-fix", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.lastFix == nil || got.lastFix.Lat != 34.25 || got.lastFix.Lon != -118.5 || !got.lastFix.At.Equal(now.Add(-3*time.Hour)) {
+		t.Fatalf("earlier fix: %+v", got.lastFix)
+	}
+	fixRow(10*time.Minute, "ready", 35.5, -119.5)
+	got, err = newNowSnapshotter(pool)(ctx, alice, "rv-fix", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.lastFix == nil || got.lastFix.Lat != 35.5 || got.lastFix.Lon != -119.5 {
+		t.Fatalf("newest fix: %+v", got.lastFix)
+	}
+	if leak, err := newNowSnapshotter(pool)(ctx, bob, "rv-fix", now); err != nil || leak.lastFix != nil {
+		t.Fatalf("fix leaked to another user: %+v err=%v", leak.lastFix, err)
+	}
 	// Not Alice's vehicle: no data, state empty.
 	other, err := newNowSnapshotter(pool)(ctx, alice, "rv-bob", now)
 	if err != nil {

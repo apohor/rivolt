@@ -74,6 +74,29 @@ func TestNowHandler(t *testing.T) {
 	}
 }
 
+func TestNowLastFix(t *testing.T) {
+	at := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	fixAt := at.Add(-3 * time.Hour)
+	a := nowAPI{
+		snapshot: func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+			return nowSnapshot{At: &at, State: "parked", Asleep: true, lastFix: &nowFix{Lat: 34.25, Lon: -118.5, At: fixAt}}, nil
+		},
+		connection: func(uuid.UUID) string { return "live" },
+		now:        func() time.Time { return at },
+	}
+	_, m := nowGet(t, a)
+	f, ok := m["last_fix"].(map[string]any)
+	if !ok || f["lat"] != 34.25 || f["lon"] != -118.5 || f["at"] != "2026-10-13T09:00:00Z" {
+		t.Fatalf("last_fix: %v", m["last_fix"])
+	}
+	a.snapshot = func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+		return nowSnapshot{At: &at}, nil
+	}
+	if _, m = nowGet(t, a); m["last_fix"] != nil {
+		t.Fatalf("last_fix should be null: %v", m["last_fix"])
+	}
+}
+
 // asleep is independent of the displayed state: a plugged truck whose
 // newest row is power_state=sleep reads state "plugged" and asleep true.
 func TestNowAsleepFlagIndependentOfState(t *testing.T) {
