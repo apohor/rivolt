@@ -102,7 +102,8 @@ export function LiveDriveMap({ points, destination = null, height = 280 }: { poi
         if (d && Number.isFinite(d.lat) && Number.isFinite(d.lon)) {
           const view = map.getBounds();
           if (!view.contains([here.lon, here.lat]) || !view.contains([d.lon, d.lat])) {
-            const b = boundsOf([...track, ...d.route, [d.lat, d.lon]]);
+            // The truck, the planned route and the pin, not the trail: on a long drive the whole trail would zoom out and never come back in.
+            const b = boundsOf([[here.lat, here.lon], ...d.route, [d.lat, d.lon]]);
             if (b && box.clientWidth > 0) map.fitBounds(b, { padding: 48, maxZoom: 16, duration: 600 });
           }
           return;

@@ -24,17 +24,43 @@ test("a trip: the row says where, how far and when; the pin is on the map", asyn
   await expect(page.getByTitle("Destination: Test Depot")).toBeVisible();
 });
 
-test("the map frames the truck and the pin together", async ({ page }) => {
+test("the map keeps the truck and the pin in frame when the truck moves out of the first view", async ({ page }) => {
+  test.setTimeout(60_000);
   await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
+  let moved = false;
+  let served = 0;
+  // The second batch: the truck far beyond the pin, on a trail that began a long way back.
+  const at = { latitude: 41.5, longitude: -103 };
+  await page.route(`**/api/state/${VEHICLE_ID}`, (r) =>
+    moved ? (served |= 1, r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...FULL, ...vehicleState("driving"), ...at }) })) : r.fallback());
+  await page.route("**/api/samples*", (r) => {
+    if (!moved) return r.fallback();
+    served |= 2;
+    const rows = Array.from({ length: 30 }, (_, i) => ({
+      VehicleID: VEHICLE_ID, At: new Date(Date.now() - (30 - i) * 20_000).toISOString(), BatteryLevelPct: 50, RangeMi: 200, OdometerMi: 1000, ChargeLimitPct: 80,
+      Lat: 38 + (i / 29) * (at.latitude - 38), Lon: -102 + (i / 29) * (at.longitude + 102), SpeedMph: 45, ShiftState: "D", ChargingState: "", ChargerPowerKW: 0, Source: "live",
+    }));
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(rows) });
+  });
   await page.goto("/live");
   const map = page.getByTestId("live-drive-map");
-  const inside = async (title: string) => {
-    const box = (await map.boundingBox())!;
-    const m = (await page.getByTitle(title).boundingBox())!;
-    return m.x >= box.x && m.x + m.width <= box.x + box.width && m.y >= box.y && m.y + m.height <= box.y + box.height;
+  await expect(page.getByTitle("Destination: Test Depot")).toBeVisible();
+  moved = true;
+  const centre = async (title: string) => {
+    const b = (await page.getByTitle(title).boundingBox())!;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
   };
-  await expect.poll(() => inside("Destination: Test Depot")).toBe(true);
-  await expect.poll(() => inside("Truck")).toBe(true);
+  const state = async () => {
+    const box = (await map.boundingBox())!;
+    const t = await centre("Truck"), d = await centre("Destination: Test Depot");
+    const inside = (p: { x: number; y: number }) => p.x >= box.x && p.x <= box.x + box.width && p.y >= box.y && p.y <= box.y + box.height;
+    // Both in view, and apart by a good part of the map: not squeezed together by a zoom that takes in the whole trail.
+    return inside(t) && inside(d) && Math.hypot(t.x - d.x, t.y - d.y) > 0.3 * Math.min(box.width, box.height) ? "framed" : "not framed";
+  };
+  // Both reads of the second batch have landed (the page asks every few seconds), then the camera has had its time.
+  await expect.poll(() => served, { timeout: 40_000, intervals: [500] }).toBe(3);
+  await page.waitForTimeout(2000);
+  await expect.poll(state, { timeout: 10_000, intervals: [500] }).toBe("framed");
 });
 
 test("the row follows the distance unit", async ({ page }) => {
