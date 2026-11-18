@@ -62,6 +62,7 @@ jobs:
             [[ $REF_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] || { echo "::error::$REF_NAME is not vX.Y.Z-rc.N"; exit 1; }
             echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
+            curl -sS --max-time 20 -D - "$PREVIEW/api/health" | head -c 600 || true
             v=$(curl -fsS --max-time 20 "$PREVIEW/api/health" | jq -r .version)
             [ -n "$v" ] && [ "$v" != null ] || { echo "::error::preview reported no version"; exit 1; }
             echo "version=$v" >> "$GITHUB_OUTPUT"
