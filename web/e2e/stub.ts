@@ -215,6 +215,8 @@ export type StubOptions = {
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
+  // A live run (E2E_LIVE_URL, the rc smoke against preview) uses the real backend: stub nothing.
+  if (process.env.E2E_LIVE_URL) return;
   const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination } = opts;
   const month = currentMonth(new Date(e2eNow()));
   const json = (route: Route, body: unknown, status = 200) =>

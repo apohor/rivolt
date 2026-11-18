@@ -3,6 +3,10 @@ import { defineConfig } from "@playwright/test";
 // Several worktrees can run the harness at once; each needs its own
 // preview port, or one run silently tests another worktree's build.
 const PORT = Number(process.env.E2E_PORT || 4173);
+// E2E_LIVE_URL points the run at a deployed site (the rc smoke against preview, .github/workflows/rc-smoke.yml): no local
+// server, and stubApi (e2e/stub.ts) stubs nothing, so the specs meet the real backend. Only specs that hold against real data
+// belong in that run (see RC_SMOKE_SPECS in the workflow).
+const LIVE = process.env.E2E_LIVE_URL || "";
 
 // Smoke + screenshot harness. Serves the built SPA with `vite preview`
 // and stubs every /api/* call in the specs (see e2e/stub.ts), so it
@@ -21,7 +25,7 @@ export default defineConfig({
     ? [["list"], ["html", { open: "never", outputFolder: "playwright-report" }], ["json", { outputFile: "e2e-results/results.json" }]]
     : [["list"]],
   outputDir: "./e2e/__results__",
-  use: { baseURL: `http://127.0.0.1:${PORT}` },
+  use: { baseURL: LIVE || `http://127.0.0.1:${PORT}` },
   // Chromium runs everything. WebKit (the engine behind iPhone Safari, where
   // users are) runs the phone specs only, and only where it is installed:
   // CI sets E2E_WEBKIT=1; a laptop without the WebKit download is not asked
@@ -30,7 +34,7 @@ export default defineConfig({
     { name: "chromium", use: { browserName: "chromium" } },
     ...(process.env.E2E_WEBKIT ? [{ name: "webkit", use: { browserName: "webkit" as const }, grep: /iphone|phone|@webkit/i }] : []),
   ],
-  webServer: {
+  webServer: LIVE ? undefined : {
     command: `npx vite preview --host 127.0.0.1 --port ${PORT} --strictPort`,
     url: `http://127.0.0.1:${PORT}`,
     reuseExistingServer: true,
