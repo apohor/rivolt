@@ -24,6 +24,19 @@ test("a trip: the row says where, how far and when; the pin is on the map", asyn
   await expect(page.getByTitle("Destination: Test Depot")).toBeVisible();
 });
 
+test("the map frames the truck and the pin together", async ({ page }) => {
+  await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
+  await page.goto("/live");
+  const map = page.getByTestId("live-drive-map");
+  const inside = async (title: string) => {
+    const box = (await map.boundingBox())!;
+    const m = (await page.getByTitle(title).boundingBox())!;
+    return m.x >= box.x && m.x + m.width <= box.x + box.width && m.y >= box.y && m.y + m.height <= box.y + box.height;
+  };
+  await expect.poll(() => inside("Destination: Test Depot")).toBe(true);
+  await expect.poll(() => inside("Truck")).toBe(true);
+});
+
 test("the row follows the distance unit", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: "km" })));
   await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
