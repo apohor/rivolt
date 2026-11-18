@@ -9,13 +9,19 @@
 # A human can still post the gate by hand (ops/release/set-qa-gate.sh in rivolt-infra). This workflow does not overwrite a success that is not
 # its own: a status the run did not write (a description not starting "rc smoke") that is already success stays.
 #
-# workflow_dispatch tries it without a tag: it smokes whatever version preview reports, at the dispatched ref's commit, and posts its result on
+# workflow_dispatch (and a PR touching this file) tries it without a tag: it smokes whatever version preview reports, at the dispatched ref's commit, and posts its result on
 # `context` (default qa/rc-smoke-dry-run), never on qa/rc-gate unless typed.
 name: rc smoke
 
 on:
   push:
     tags: ["v*-rc.*"]
+  # A change to this workflow or the live spec smokes preview too, on the dry-run context (a PR cannot dispatch a workflow that is not on main yet).
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/rc-smoke.yml"
+      - "web/e2e/rc-smoke-live.pw.ts"
   workflow_dispatch:
     inputs:
       context:
@@ -33,7 +39,9 @@ concurrency:
 
 env:
   PREVIEW: https://preview.rivolt.dev
-  CONTEXT: ${{ inputs.context || 'qa/rc-gate' }}
+  # The real gate only for a pushed rc tag; any other trigger posts on the dry-run context unless a dispatch names one.
+  CONTEXT: ${{ inputs.context || (github.ref_type == 'tag' && 'qa/rc-gate' || 'qa/rc-smoke-dry-run') }}
+  SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   smoke:
@@ -66,9 +74,9 @@ jobs:
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          cur=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/status" --jq "[.statuses[] | select(.context == \"$CONTEXT\")][0] | (.state // \"none\") + \"|\" + (.description // \"\")")
+          cur=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/status" --jq "[.statuses[] | select(.context == \"$CONTEXT\")][0] | (.state // \"none\") + \"|\" + (.description // \"\")")
           if [ "${cur%%|*}" = success ] && [[ ${cur#*|} != "rc smoke"* ]]; then echo "a person's success is on $CONTEXT; not touching it"; exit 0; fi
-          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state=pending -f context="$CONTEXT" \
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state=pending -f context="$CONTEXT" \
             -f description="rc smoke: waiting for preview to run ${{ steps.want.outputs.version }}" -f target_url="$RUN" > /dev/null
 
       # The tag build pins preview, Argo rolls it, and the canary takes a few minutes: poll for up to 40 minutes. Three reads in a row, so a
@@ -128,9 +136,9 @@ jobs:
           WANT: ${{ steps.want.outputs.version }}
         run: |
           set -euo pipefail
-          cur=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/status" --jq "[.statuses[] | select(.context == \"$CONTEXT\")][0] | (.state // \"none\") + \"|\" + (.description // \"\")")
+          cur=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/status" --jq "[.statuses[] | select(.context == \"$CONTEXT\")][0] | (.state // \"none\") + \"|\" + (.description // \"\")")
           if [ "${cur%%|*}" = success ] && [[ ${cur#*|} != "rc smoke"* ]]; then echo "a person's success is on $CONTEXT; not touching it"; exit 0; fi
           if [ "$RESULT" = success ]; then state=success; desc="rc smoke passed on preview $WANT"
           else state=failure; desc="rc smoke failed on preview $WANT (see the run)"; fi
-          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$state" -f context="$CONTEXT" -f description="$desc" -f target_url="$RUN" > /dev/null
-          echo "$CONTEXT = $state on ${GITHUB_SHA:0:7}" | tee -a "$GITHUB_STEP_SUMMARY"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context="$CONTEXT" -f description="$desc" -f target_url="$RUN" > /dev/null
+          echo "$CONTEXT = $state on ${SHA:0:7}" | tee -a "$GITHUB_STEP_SUMMARY"
