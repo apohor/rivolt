@@ -73,7 +73,7 @@ export function LiveDriveMap({ points, destination = null, height = 280 }: { poi
           drawn.markDrawn();
           // The planned route goes under the trail, the pin on top; with no destination both are gone.
           const d = dest.current;
-          setDestinationRoute(map, d ? d.route : [], map.getLayer("rivolt-track-glow") ? "rivolt-track-glow" : firstLabelLayer(map));
+          setDestinationRoute(map, d ? d.route : [], flavor, map.getLayer("rivolt-track-glow") ? "rivolt-track-glow" : firstLabelLayer(map));
         }
         const d = dest.current;
         if (d && Number.isFinite(d.lat) && Number.isFinite(d.lon)) {

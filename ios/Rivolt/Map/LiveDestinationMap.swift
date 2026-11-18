@@ -2,7 +2,7 @@ import MapLibre
 import SwiftUI
 
 /// Where the truck's navigation is going (design_preview key live_destination), on our own map as the web's Live map draws it: the planned route
-/// as a dashed line and a pin at the destination, the camera on the whole of it. A picture, not a map to explore; no location services; the
+/// as a solid line, as the planner draws its route, and a pin at the destination, the camera on the whole of it. A picture, not a map to explore; no location services; the
 /// route and the place are held while the screen shows them and never stored.
 struct LiveDestinationMap: View {
     let destination: LiveDestination
@@ -40,7 +40,7 @@ struct LiveDestinationMap: View {
     }
 }
 
-/// MapLibre's view of the destination: the dashed route under the pin, framed once per destination.
+/// MapLibre's view of the destination: the solid route under the pin, framed once per destination.
 struct LiveDestinationMapView: UIViewRepresentable {
     let styleJSON: String
     let destination: LiveDestination
@@ -79,12 +79,16 @@ struct LiveDestinationMapView: UIViewRepresentable {
             style.addSource(line)
             style.addSource(pin)
 
-            let dashed = MLNLineStyleLayer(identifier: "\(LiveDestinationMapView.sourceID)-line", source: line)
-            dashed.lineColor = NSExpression(forConstantValue: UIColor(red: 0.22, green: 0.74, blue: 0.97, alpha: 1)) // the web's #38bdf8
-            dashed.lineWidth = NSExpression(forConstantValue: 3.5)
-            dashed.lineOpacity = NSExpression(forConstantValue: 0.85)
-            dashed.lineDashPattern = NSExpression(forConstantValue: [2, 2])
-            style.addLayer(dashed)
+            // The planned route as the trip planner draws its own: a solid line in the route colour over a faint wider glow, round ends.
+            for (id, color, width, opacity) in [("glow", Theme.routeGlow, 9.0, 0.18), ("line", Theme.routeLine, 3.0, 0.95)] {
+                let l = MLNLineStyleLayer(identifier: "\(LiveDestinationMapView.sourceID)-\(id)", source: line)
+                l.lineColor = NSExpression(forConstantValue: UIColor(color))
+                l.lineWidth = NSExpression(forConstantValue: width)
+                l.lineOpacity = NSExpression(forConstantValue: opacity)
+                l.lineCap = NSExpression(forConstantValue: "round")
+                l.lineJoin = NSExpression(forConstantValue: "round")
+                style.addLayer(l)
+            }
 
             let dot = MLNCircleStyleLayer(identifier: "\(LiveDestinationMapView.sourceID)-pin", source: pin)
             dot.circleColor = NSExpression(forConstantValue: UIColor(red: 0.96, green: 0.25, blue: 0.37, alpha: 1)) // the web's #f43f5e
