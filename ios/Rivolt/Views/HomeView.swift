@@ -55,6 +55,15 @@ struct HomeView: View {
     @State private var showLive = false
     @State private var destinationFailures = 0
     private var v2: Bool { state.designPreview.contains("ios_now_v2") }
+    /// The state slot under the gauge (design_preview key now_slot, on the redesign): the map and weather parked, the figures charging or driving.
+    private var slotOn: Bool { v2 && state.designPreview.contains("now_slot") }
+    private var slotHome: NowSlotModel.Home? {
+        guard let h = homeLocation, h.set else { return nil }
+        return NowSlotModel.Home(lat: h.latitude, lon: h.longitude, label: h.label.flatMap { $0.isEmpty ? nil : $0 })
+    }
+    /// The truck's position for the parked map, read only when `/now` has none (it has one for the demo account only).
+    /// The saved home, read once for the slot's "Home" label and charger (only with now_slot).
+    @State private var homeLocation: HomeLocation?
 
     private var selected: Vehicle? {
         VehicleChoice.selected(vehicles, chosen: selectedID, pickedLocked: pickedLocked)
@@ -82,7 +91,9 @@ struct HomeView: View {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
                                         session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil,
                                         v2: v2, images: vehicle.images, fullChargeRange: v2 ? coldRange?.fullChargeRange : nil,
-                                        onLive: v2 ? { showLive = true } : nil)
+                                        onLive: v2 ? { showLive = true } : nil,
+                                        slotOn: slotOn, snapshot: now, truckFix: vehicleState?.coordinate, home: slotHome,
+                                        gear: vehicleState?.gear, driveMode: vehicleState?.driveMode)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -341,6 +352,7 @@ struct HomeView: View {
         // The demo truck has no live Rivian connection to read.
         if state.isDemo { session = nil; liveDrive = nil; liveDestination = nil; return }
         let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
+        if slotOn, homeLocation == nil { homeLocation = try? await state.client.homeLocation() }
         session = kind == .charging ? (try? await state.client.liveSession(id: id)) ?? nil : nil
         liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
         // Only while in gear, only when the design is on and not told "off"; this runs on the state's own cadence, which the tab and scene gate.

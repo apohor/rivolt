@@ -25,10 +25,11 @@ final class TruckLogicTests: XCTestCase {
         XCTAssertEqual(try Fixture.decode([Vehicle].self, "vehicles")[0].ota?.current?.version, "2026.34.1")
     }
 
-    func testTheStateIsDecodedWithoutItsCoordinates() throws {
+    /// The position is decoded only for the Now slot's map (latitude and longitude, never kept); heading and altitude stay out.
+    func testTheStateIsDecodedWithOnlyItsPosition() throws {
         let s = try Fixture.decode(VehicleState.self, "state")
         let fields = Mirror(reflecting: s).children.compactMap(\.label).map { $0.lowercased() }
-        XCTAssertFalse(fields.contains { $0.contains("lat") || $0.contains("lon") || $0.contains("heading") || $0.contains("altitude") })
+        XCTAssertFalse(fields.contains { $0.contains("heading") || $0.contains("altitude") })
         XCTAssertEqual(s.otaCurrentVersion, "2026.34.1")
     }
 
