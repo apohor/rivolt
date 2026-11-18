@@ -1551,9 +1551,9 @@ func New(d Deps) http.Handler {
 						return map[string]any{"all": f.StatementEmail().All, "users_count": len(f.StatementEmail().Users)}
 					})})).
 					Put("/flags/statement-email", handleFlagsStatementEmailPut(d.Flags))
-				r.With(audit(auditSpec{action: "flag.live_destination", targetType: "flag", targetID: "live_destination", custom: usersCount,
+				r.With(audit(auditSpec{action: "flag.live_destination", targetType: "flag", targetID: "live_destination", keys: []string{"all"}, custom: usersCount,
 					before: flagBefore(func(f *flags.Store) map[string]any {
-						return map[string]any{"users_count": len(f.LiveDestination().Users)}
+						return map[string]any{"all": f.LiveDestination().All, "users_count": len(f.LiveDestination().Users)}
 					})})).
 					Put("/flags/live-destination", handleFlagsLiveDestinationPut(d.Flags))
 				r.Get("/signup-cap", handleSignupCapGet(d.Flags, d.SystemDB))

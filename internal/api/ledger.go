@@ -320,15 +320,16 @@ func handleFlagsStatementEmailPut(store *flags.Store) http.HandlerFunc {
 }
 
 // flagsLiveDestinationRequest is the PUT body for
-// /api/admin/flags/live-destination: the named users only. There is no
-// "all": a decoded destination is a precise location.
+// /api/admin/flags/live-destination: everyone, or the named users.
 type flagsLiveDestinationRequest struct {
+	All   bool     `json:"all"`
 	Users []string `json:"users"`
 }
 
-// handleFlagsLiveDestinationPut sets which users the car's navigation
-// frames are decoded for (the live_destination flag). It rejects "all" and
-// anything that is not a user UUID, so the flag never turns on for everyone.
+// handleFlagsLiveDestinationPut sets who the car's navigation frames are
+// decoded for (the live_destination flag): everyone, or the named users. It
+// rejects unknown keys, "all" mixed with users, and anything in users that is
+// not a user UUID.
 func handleFlagsLiveDestinationPut(store *flags.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
@@ -341,17 +342,27 @@ func handleFlagsLiveDestinationPut(store *flags.Store) http.HandlerFunc {
 			return
 		}
 		for k := range raw {
-			if k != "users" {
-				http.Error(w, "only users is accepted: live destination is never enabled for everyone", http.StatusBadRequest)
+			if k != "users" && k != "all" {
+				http.Error(w, "only all and users are accepted", http.StatusBadRequest)
 				return
 			}
 		}
 		var req flagsLiveDestinationRequest
+		if v, ok := raw["all"]; ok {
+			if err := json.Unmarshal(v, &req.All); err != nil {
+				http.Error(w, "all must be true or false", http.StatusBadRequest)
+				return
+			}
+		}
 		if v, ok := raw["users"]; ok {
 			if err := json.Unmarshal(v, &req.Users); err != nil {
 				http.Error(w, "users must be a list of user UUIDs", http.StatusBadRequest)
 				return
 			}
+		}
+		if req.All && len(req.Users) > 0 {
+			http.Error(w, "all and users cannot be combined", http.StatusBadRequest)
+			return
 		}
 		users := make([]string, 0, len(req.Users))
 		for _, u := range req.Users {
@@ -366,7 +377,7 @@ func handleFlagsLiveDestinationPut(store *flags.Store) http.HandlerFunc {
 		if uid, ok := auth.UserFromContext(r.Context()); ok {
 			actor = uid.String()
 		}
-		if err := store.SetLiveDestination(r.Context(), users, actor); err != nil {
+		if err := store.SetLiveDestination(r.Context(), req.All, users, actor); err != nil {
 			http.Error(w, "set flag: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

@@ -9,16 +9,17 @@ import (
 	"github.com/apohor/rivolt/internal/flags"
 )
 
-// The handler refuses everything that could turn the flag on for more than
-// the named users, before it touches the store.
+// The handler refuses malformed bodies, unknown keys and all mixed with
+// users, before it touches the store.
 func TestFlagsLiveDestinationPut_Rejects(t *testing.T) {
 	const id = "3f2b8c1e-5a4d-4e6f-9a0b-1c2d3e4f5a6b"
 	cases := []struct {
 		name, body string
 		want       int
 	}{
-		{"all true", `{"all":true}`, http.StatusBadRequest},
-		{"all false", `{"all":false,"users":["` + id + `"]}`, http.StatusBadRequest},
+		{"all with users", `{"all":true,"users":["` + id + `"]}`, http.StatusBadRequest},
+		{"all not a bool", `{"all":"yes"}`, http.StatusBadRequest},
+		{"unknown key", `{"everyone":true}`, http.StatusBadRequest},
 		{"all as user", `{"users":["all"]}`, http.StatusBadRequest},
 		{"not a uuid", `{"users":["alice"]}`, http.StatusBadRequest},
 		{"one bad of two", `{"users":["` + id + `","nope"]}`, http.StatusBadRequest},

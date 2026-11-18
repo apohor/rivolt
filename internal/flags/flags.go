@@ -549,12 +549,14 @@ func (s *Store) LiveDestination() AudienceState {
 	return *p
 }
 
-// SetLiveDestination persists the per-user live-destination flag and
-// refreshes the local snapshot; peers pick it up on the next poll. It never
-// stores All: a decoded destination is a precise location, so the operator
-// names each user.
-func (s *Store) SetLiveDestination(ctx context.Context, users []string, actor string) error {
-	st := AudienceState{Users: users, Actor: actor}
+// SetLiveDestination persists the live-destination audience (named users, or
+// everyone) and refreshes the local snapshot; peers pick it up on the next
+// poll. With all set the user list is not kept.
+func (s *Store) SetLiveDestination(ctx context.Context, all bool, users []string, actor string) error {
+	st := AudienceState{All: all, Users: users, Actor: actor}
+	if all {
+		st.Users = nil
+	}
 	raw, err := json.Marshal(st)
 	if err != nil {
 		return fmt.Errorf("encode state: %w", err)
