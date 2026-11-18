@@ -44,6 +44,9 @@ type nowSnapshot struct {
 	// lastFix is the newest known position for the user's own truck: the newest row's, or the newest earlier row that has one
 	// (a restart while asleep leaves the newest rows without a position). Nil when none inside the lookback.
 	lastFix *nowFix
+	// asleepSince and asleepTodayS describe the truck's sleep while it is asleep (nil otherwise); see nowSleepStatsSQL.
+	asleepSince  *time.Time
+	asleepTodayS *int64
 }
 
 type nowCharge struct {
@@ -87,6 +90,11 @@ type nowResponse struct {
 	// LastFix is where the user's own truck was last seen, with when. Null when no position was recorded in the lookback. Nothing new
 	// is stored: it reads the position the recorder already keeps. Only the owner's own /now returns it.
 	LastFix *nowFix `json:"last_fix"`
+	// AsleepSince is when the current sleep began and AsleepTodayS the seconds slept since local midnight (the user's saved time zone,
+	// UTC until one is saved), this sleep included. Both null unless the truck is asleep. Derived from the power_state rows the recorder
+	// already keeps: a restart loses nothing, but the edges are as coarse as the row cadence (an asleep truck reports every few minutes).
+	AsleepSince  *time.Time `json:"asleep_since"`
+	AsleepTodayS *int64     `json:"asleep_today_s"`
 	// Location is set for the demo user only (the sample point the demo truck is parked at); omitted for everyone else.
 	Location *nowLocation `json:"location,omitempty"`
 }
@@ -168,7 +176,7 @@ func (a nowAPI) handle(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 		Version: 1, At: snap.At, LocationFixAt: snap.LocationFixAt,
 		Connection: a.connection(uid), State: snap.State, Asleep: snap.Asleep, StateSince: snap.StateSince,
 		SoCAtStateStart: snap.SoCAtStateStart, TirePressureMinB: snap.TirePressureMinB,
-		FailedSleeps6h: snap.FailedSleeps6h, LastFix: snap.lastFix,
+		FailedSleeps6h: snap.FailedSleeps6h, LastFix: snap.lastFix, AsleepSince: snap.asleepSince, AsleepTodayS: snap.asleepTodayS,
 	}
 	if out.State == "" {
 		out.State = "unknown"
@@ -262,6 +270,45 @@ FROM vehicle_state vs
 WHERE vs.user_id = $1 AND vs.vehicle_id = (SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2)
   AND vs.at >= $3::timestamptz AND vs.lat IS NOT NULL AND vs.lon IS NOT NULL AND (vs.lat <> 0 OR vs.lon <> 0)
 ORDER BY vs.at DESC LIMIT 1`
+
+// nowSleepStatsSQL: $3 = lookback start, $4 = local midnight, $5 = now.
+// since is the first row of the current unbroken run of sleep rows (the row after the newest non-sleep row in the lookback).
+// today sums, over the rows from the last one before midnight on, each sleep row's time up to the next row (or now), clipped to
+// [midnight, now].
+const nowSleepStatsSQL = `
+WITH v AS (SELECT id FROM vehicles WHERE user_id = $1 AND rivian_vehicle_id = $2),
+brk AS (
+	SELECT at FROM vehicle_state
+	WHERE user_id = $1 AND vehicle_id = (SELECT id FROM v) AND at >= $3::timestamptz AND power_state IS NOT NULL AND power_state <> 'sleep'
+	ORDER BY at DESC LIMIT 1
+), rows AS (
+	(SELECT at, power_state FROM vehicle_state
+	 WHERE user_id = $1 AND vehicle_id = (SELECT id FROM v) AND at >= $3::timestamptz AND at < $4::timestamptz AND power_state IS NOT NULL
+	 ORDER BY at DESC LIMIT 1)
+	UNION ALL
+	(SELECT at, power_state FROM vehicle_state
+	 WHERE user_id = $1 AND vehicle_id = (SELECT id FROM v) AND at >= $4::timestamptz AND at <= $5::timestamptz AND power_state IS NOT NULL)
+), spans AS (
+	SELECT at, power_state, LEAD(at) OVER (ORDER BY at) AS nxt FROM rows
+)
+SELECT
+	(SELECT MIN(at) FROM vehicle_state
+	 WHERE user_id = $1 AND vehicle_id = (SELECT id FROM v) AND at >= $3::timestamptz AND power_state = 'sleep'
+	   AND at > COALESCE((SELECT at FROM brk), '-infinity'::timestamptz)),
+	COALESCE((SELECT SUM(GREATEST(0, EXTRACT(EPOCH FROM LEAST(COALESCE(nxt, $5::timestamptz), $5::timestamptz) - GREATEST(at, $4::timestamptz))))
+	          FROM spans WHERE power_state = 'sleep'), 0)::bigint`
+
+// nowLocalMidnight is the start of now's day in the user's saved time zone; UTC when none is saved or it does not load.
+func nowLocalMidnight(zone string, now time.Time) time.Time {
+	loc := time.UTC
+	if zone != "" {
+		if l, err := time.LoadLocation(zone); err == nil {
+			loc = l
+		}
+	}
+	n := now.In(loc)
+	return time.Date(n.Year(), n.Month(), n.Day(), 0, 0, 0, 0, loc).UTC()
+}
 
 // nowRunSQL finds where the current run ($4 = its state) began: an
 // early-stopping descending scan on the (vehicle_id, at) key that stops
@@ -424,6 +471,23 @@ func newCachedNowSnapshotter(pool *sql.DB, cache *nowRunCache) func(context.Cont
 		}
 		out.State = st.String
 		out.Asleep = asleep.Valid && asleep.Bool
+		if out.Asleep {
+			var zone sql.NullString
+			if err := pool.QueryRowContext(ctx, `SELECT timezone FROM engagement_prefs WHERE user_id = $1`, uid).Scan(&zone); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return out, err
+			}
+			var since sql.NullTime
+			var secs int64
+			if err := pool.QueryRowContext(ctx, nowSleepStatsSQL, uid, rivianID, now.Add(-nowLookback).UTC(), nowLocalMidnight(zone.String, now), now.UTC()).
+				Scan(&since, &secs); err != nil {
+				return out, err
+			}
+			if since.Valid {
+				t := since.Time.UTC()
+				out.asleepSince = &t
+			}
+			out.asleepTodayS = &secs
+		}
 		if !st.Valid {
 			return out, nil // no rows in the lookback
 		}

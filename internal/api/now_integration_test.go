@@ -202,6 +202,51 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 	if leak, err := newNowSnapshotter(pool)(ctx, bob, "rv-fix", now); err != nil || leak.lastFix != nil {
 		t.Fatalf("fix leaked to another user: %+v err=%v", leak.lastFix, err)
 	}
+	// asleep_since / asleep_today_s: the unbroken sleep run's first row, and sleep seconds since local midnight (UTC with no saved zone).
+	var vsl string
+	if err := pool.QueryRow(`INSERT INTO vehicles (user_id, rivian_vehicle_id) VALUES ($1,'rv-slp') RETURNING id`, alice).Scan(&vsl); err != nil {
+		t.Fatal(err)
+	}
+	d := now.Truncate(24 * time.Hour).Add(-24 * time.Hour) // yesterday 00:00 UTC
+	slpRow := func(at time.Time, power string) {
+		t.Helper()
+		if _, err := pool.Exec(`INSERT INTO vehicle_state (user_id, vehicle_id, at, source, power_state, shift_state, charging_state, battery_level_pct)
+			VALUES ($1,$2,$3,'live',$4,'P','charger_disconnected',50)`, alice, vsl, at, power); err != nil {
+			t.Fatalf("seed sleep: %v", err)
+		}
+	}
+	slpRow(d.Add(-3*time.Hour), "ready")
+	slpRow(d.Add(-2*time.Hour), "sleep") // asleep across midnight: only the part after midnight counts
+	slpRow(d.Add(time.Hour), "sleep")
+	slpRow(d.Add(3*time.Hour), "ready")
+	slpRow(d.Add(5*time.Hour), "sleep")
+	slpRow(d.Add(8*time.Hour), "sleep")
+	sl, err := newNowSnapshotter(pool)(ctx, alice, "rv-slp", d.Add(12*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sl.Asleep || sl.asleepSince == nil || !sl.asleepSince.Equal(d.Add(5*time.Hour)) {
+		t.Fatalf("asleep_since = %v asleep=%v", sl.asleepSince, sl.Asleep)
+	}
+	if sl.asleepTodayS == nil || *sl.asleepTodayS != 10*3600 {
+		t.Fatalf("asleep_today_s = %v, want 36000", sl.asleepTodayS)
+	}
+	// A saved zone moves the midnight: at UTC-5 the day started at 05:00 UTC, so 1 h + 2 h of the first sleep are out
+	// (sleep rows d-2h..d+3h clip to d+5h-... ) leaving 0 h + 0 + 3 h + 4 h = 7 h.
+	if _, err := pool.Exec(`INSERT INTO engagement_prefs (user_id, timezone) VALUES ($1,'America/Panama')`, alice); err != nil {
+		t.Fatal(err)
+	}
+	sz, err := newNowSnapshotter(pool)(ctx, alice, "rv-slp", d.Add(12*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sz.asleepTodayS == nil || *sz.asleepTodayS != 7*3600 {
+		t.Fatalf("asleep_today_s in zone = %v, want 25200", sz.asleepTodayS)
+	}
+	// Awake: both null.
+	if aw, err := newNowSnapshotter(pool)(ctx, alice, "rv-fix", now); err != nil || aw.asleepSince != nil || aw.asleepTodayS != nil {
+		t.Fatalf("awake: %+v err=%v", aw, err)
+	}
 	// Not Alice's vehicle: no data, state empty.
 	other, err := newNowSnapshotter(pool)(ctx, alice, "rv-bob", now)
 	if err != nil {
