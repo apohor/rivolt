@@ -3268,6 +3268,12 @@ type NavObserver interface {
 	OnNavCleared(reason string)
 }
 
+// NavRangeObserver is optionally implemented alongside NavObserver: told
+// which range check a dropped_range frame failed (a NavRange* constant).
+type NavRangeObserver interface {
+	OnNavRange(topic, field string)
+}
+
 // SetNavDecodeGate wires the per-user live_destination flag. Nil is off.
 func (m *StateMonitor) SetNavDecodeGate(on func() bool) {
 	m.mu.Lock()
@@ -3300,6 +3306,9 @@ func (m *StateMonitor) applyNavFrame(vehicleID string, f DriveDynamicsFrame) {
 	m.mu.RUnlock()
 	if o, ok := obs.(NavObserver); ok && f.NavResult != "" {
 		o.OnNavDecode(navTopic(f.RVM), f.NavResult)
+	}
+	if o, ok := obs.(NavRangeObserver); ok && f.NavField != "" {
+		o.OnNavRange(navTopic(f.RVM), f.NavField)
 	}
 	if f.Nav != nil {
 		m.nav.apply(vehicleID, f.Nav)

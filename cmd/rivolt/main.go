@@ -4006,6 +4006,14 @@ func (s *sleepMetrics) OnNavDecode(topic, result string) {
 	s.m.NavDecodeTotal.WithLabelValues(topic, result).Inc()
 }
 
+// OnNavRange implements rivian.NavRangeObserver. topic and field come from fixed sets.
+func (s *sleepMetrics) OnNavRange(topic, field string) {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.NavRangeTotal.WithLabelValues(topic, field).Inc()
+}
+
 // OnNavCleared implements rivian.NavObserver.
 func (s *sleepMetrics) OnNavCleared(reason string) {
 	if s == nil || s.m == nil {

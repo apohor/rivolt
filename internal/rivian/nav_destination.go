@@ -112,6 +112,24 @@ type navFrameError string
 
 func (e navFrameError) Error() string { return string(e) }
 
+// navRangeError is a dropped_range frame and which check it failed: a field
+// name from a fixed set (NavRange*), never a value.
+type navRangeError string
+
+func (e navRangeError) Error() string { return NavResultRange }
+
+// The range check that failed, the only label values the range counter carries.
+const (
+	NavRangeETAMissing  = "eta_missing"
+	NavRangeETAPast     = "eta_past"
+	NavRangeETAFuture   = "eta_future"
+	NavRangeStops       = "stops"
+	NavRangeLegDistance = "leg_distance"
+	NavRangeCoordShape  = "coord_shape"
+	NavRangeCoordRange  = "coord_range"
+	NavRangeCoordZero   = "coord_zero"
+)
+
 func pbTimestamp(buf []byte) (time.Time, bool) {
 	var secs int64
 	var ok bool
@@ -149,18 +167,25 @@ func pbCoordinate(buf []byte) (lat, lon float64, ok bool) {
 // decodeNavFrame decodes one navigation payload. The result is one of the
 // NavResult constants; on anything but NavResultOK the frame is nil.
 func decodeNavFrame(rvm, payloadB64 string, now time.Time) (frame *NavFrame, result string) {
+	frame, result, _ = decodeNavFrameField(rvm, payloadB64, now)
+	return frame, result
+}
+
+// decodeNavFrameField is decodeNavFrame plus, on dropped_range, which check
+// failed (a NavRange* constant); empty otherwise.
+func decodeNavFrameField(rvm, payloadB64 string, now time.Time) (frame *NavFrame, result, field string) {
 	if base64.StdEncoding.DecodedLen(len(payloadB64)) > navMaxFrameBytes {
-		return nil, NavResultSize
+		return nil, NavResultSize, ""
 	}
 	raw, err := base64.StdEncoding.DecodeString(payloadB64)
 	if err != nil {
 		if raw, err = base64.RawStdEncoding.DecodeString(payloadB64); err != nil {
-			return nil, NavResultMalformed
+			return nil, NavResultMalformed, ""
 		}
 	}
 	defer func() {
 		if recover() != nil { // a decoder bug must not take the monitor, nor print the value
-			frame, result = nil, NavResultMalformed
+			frame, result, field = nil, NavResultMalformed, ""
 		}
 	}()
 	var f *NavFrame
@@ -178,17 +203,21 @@ func decodeNavFrame(rvm, payloadB64 string, now time.Time) (frame *NavFrame, res
 			f = &NavFrame{Progress: p}
 		}
 	default:
-		return nil, NavResultMalformed
+		return nil, NavResultMalformed, ""
 	}
 	if err != nil {
-		return nil, string(err.(navFrameError))
+		if re, ok := err.(navRangeError); ok {
+			return nil, NavResultRange, string(re)
+		}
+		return nil, string(err.(navFrameError)), ""
 	}
-	return f, NavResultOK
+	return f, NavResultOK, ""
 }
 
 func decodeNavProgress(raw []byte, now time.Time) (*NavProgress, error) {
 	p := &NavProgress{}
 	var etaOK, bad bool
+	badField := NavRangeStops
 	err := pbScan(raw, func(f, w int, v []byte) {
 		switch {
 		case f == 2 && w == 2:
@@ -196,13 +225,13 @@ func decodeNavProgress(raw []byte, now time.Time) (*NavProgress, error) {
 		case f == 3 && w == 0:
 			n, _ := binary.Uvarint(v)
 			if n > navMaxStops {
-				bad = true
+				bad, badField = true, NavRangeStops
 			}
 			p.NextStop = int(n)
 		case f == 4 && (w == 1 || w == 5):
 			d, _ := pbNumber(w, v)
 			if !finite(d) || d < 0 || d > navMaxMetres {
-				bad = true
+				bad, badField = true, NavRangeLegDistance
 			}
 			p.LegMetres, p.HasLegDist = d, true
 		}
@@ -211,8 +240,15 @@ func decodeNavProgress(raw []byte, now time.Time) (*NavProgress, error) {
 	if err != nil {
 		return nil, navFrameError(NavResultMalformed)
 	}
-	if bad || !etaOK || p.ETA.Before(now.Add(-navETAPast)) || p.ETA.After(now.Add(navETAFuture)) {
-		return nil, navFrameError(NavResultRange)
+	switch {
+	case bad:
+		return nil, navRangeError(badField)
+	case !etaOK:
+		return nil, navRangeError(NavRangeETAMissing)
+	case p.ETA.Before(now.Add(-navETAPast)):
+		return nil, navRangeError(NavRangeETAPast)
+	case p.ETA.After(now.Add(navETAFuture)):
+		return nil, navRangeError(NavRangeETAFuture)
 	}
 	return p, nil
 }
@@ -272,7 +308,7 @@ func decodeNavInfo(raw []byte) (*NavInfo, error) {
 		return nil, navFrameError(NavResultSize)
 	}
 	if bad {
-		return nil, navFrameError(NavResultRange)
+		return nil, navRangeError(NavRangeLegDistance)
 	}
 	if info.Stops == 0 {
 		return info, nil // no stops: navigation ended
@@ -304,8 +340,13 @@ func decodeNavInfo(raw []byte) (*NavInfo, error) {
 	}
 	info.Name = string(name)
 	lat, lon, ok := pbCoordinate(coord)
-	if !ok || !finite(lat) || !finite(lon) || math.Abs(lat) > 90 || math.Abs(lon) > 180 || (lat == 0 && lon == 0) {
-		return nil, navFrameError(NavResultRange)
+	switch {
+	case !ok:
+		return nil, navRangeError(NavRangeCoordShape)
+	case !finite(lat) || !finite(lon) || math.Abs(lat) > 90 || math.Abs(lon) > 180:
+		return nil, navRangeError(NavRangeCoordRange)
+	case lat == 0 && lon == 0:
+		return nil, navRangeError(NavRangeCoordZero)
 	}
 	info.Lat, info.Lon = lat, lon
 	return info, nil

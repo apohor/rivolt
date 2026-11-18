@@ -492,3 +492,32 @@ func TestNavEmptyResultNotCounted(t *testing.T) {
 		t.Errorf("results %v", obs.results)
 	}
 }
+
+// A dropped_range frame says which check failed, from a fixed set, never a value.
+func TestDecodeNavRangeNamesTheCheck(t *testing.T) {
+	good := fxWaypoint("Ok", 40, -100)
+	cases := []struct {
+		name, rvm string
+		payload   []byte
+		want      string
+	}{
+		{"eta missing", rvmNavTripProgress, fxCat(fxVarint(3, 0), fxDouble(4, 10)), NavRangeETAMissing},
+		{"eta past", rvmNavTripProgress, fxProgress(navNow.Add(-time.Hour), 0, 10), NavRangeETAPast},
+		{"eta future", rvmNavTripProgress, fxProgress(navNow.Add(72*time.Hour), 0, 10), NavRangeETAFuture},
+		{"leg distance", rvmNavTripProgress, fxProgress(navNow.Add(time.Hour), 0, -1), NavRangeLegDistance},
+		{"stops", rvmNavTripProgress, fxProgress(navNow.Add(time.Hour), navMaxStops+1, 10), NavRangeStops},
+		{"info leg", rvmNavTripInfo, fxTripInfo(fxCat(append(fxStops(good), fxBytes(4, fxDouble(1, math.NaN())))...)), NavRangeLegDistance},
+		{"coord shape", rvmNavTripInfo, fxTripInfo(fxCat(fxStops(fxBytes(1, fxBytes(4, []byte("x"))))...)), NavRangeCoordShape},
+		{"coord range", rvmNavTripInfo, fxTripInfo(fxCat(fxStops(fxWaypoint("x", 91, 0))...)), NavRangeCoordRange},
+		{"coord zero", rvmNavTripInfo, fxTripInfo(fxCat(fxStops(fxWaypoint("x", 0, 0))...)), NavRangeCoordZero},
+	}
+	for _, c := range cases {
+		f, res, field := decodeNavFrameField(c.rvm, fxB64(c.payload), navNow)
+		if f != nil || res != NavResultRange || field != c.want {
+			t.Errorf("%s: result %q field %q, want dropped_range %q", c.name, res, field, c.want)
+		}
+	}
+	if _, res, field := decodeNavFrameField(rvmNavTripProgress, fxB64(fxProgress(navNow.Add(time.Hour), 0, 10)), navNow); res != NavResultOK || field != "" {
+		t.Errorf("ok frame: result %q field %q", res, field)
+	}
+}

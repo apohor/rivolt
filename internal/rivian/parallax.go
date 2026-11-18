@@ -973,6 +973,9 @@ type DriveDynamicsFrame struct {
 	// class. The raw payload is never carried.
 	Nav       *NavFrame
 	NavResult string
+	// NavField is which range check failed when NavResult is dropped_range
+	// (a NavRange* constant, never a value).
+	NavField string
 	// NavReset is set on a synthetic frame (no RVM) at every (re)connect:
 	// whatever trip was held belongs to the old socket.
 	NavReset bool
@@ -994,7 +997,7 @@ func driveDynamicsFrameOf(rvm, payload, timestamp string, decodeNav bool) DriveD
 	if isNavRVM(rvm) {
 		f := DriveDynamicsFrame{RVM: rvm, PayloadBytes: base64.StdEncoding.DecodedLen(len(payload))}
 		if decodeNav {
-			f.Nav, f.NavResult = decodeNavFrame(rvm, payload, time.Now())
+			f.Nav, f.NavResult, f.NavField = decodeNavFrameField(rvm, payload, time.Now())
 		}
 		return f
 	}
