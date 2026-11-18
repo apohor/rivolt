@@ -62,6 +62,13 @@ struct NowSlotModel: Equatable {
         let miPerKwh: Double?
     }
 
+    /// Whether the card shows a slot at all: an asleep truck always (sleeping for hours is normal and its position does not change, so the
+    /// stale 30 min and offline 45 min limits do not hide it); every other state only while its frame is live.
+    static func shown(summary: NowSummary) -> Bool {
+        if summary.kind == .asleep || (summary.kind == .plugged && summary.sleeping) { return true }
+        return summary.presence == .live
+    }
+
     /// The map's fix: the demo's sample point, then the live state's, then the server's last recorded position (a sleeping truck may have no live one).
     static func fix(snapshot: NowSnapshot?, truck: (lat: Double, lon: Double)?) -> (lat: Double, lon: Double)? {
         if let l = snapshot?.location { return (l.lat, l.lon) }

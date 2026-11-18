@@ -76,9 +76,9 @@ struct NowCard: View {
 
     // MARK: The redesigned hero (now_v2)
 
-    /// The slot's content, only while the data is current (a stale or offline card keeps the picture).
+    /// The slot's content, only while the data is current (a stale or offline card keeps the picture), except for a sleeping truck.
     private var slot: NowSlotModel? {
-        guard slotOn, !offline, summary.presence == .live else { return nil }
+        guard slotOn, NowSlotModel.shown(summary: summary) else { return nil }
         let fix = NowSlotModel.fix(snapshot: snapshot, truck: truckFix)
         return NowSlotModel.make(summary: summary, snapshot: snapshot, session: session, charge: charge, liveDrive: liveDrive, fix: fix,
                                  home: home, gear: gear, mode: driveMode, clock: clock)

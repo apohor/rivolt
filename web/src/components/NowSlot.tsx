@@ -117,6 +117,20 @@ export function asleepFigures(a: SlotAsleep | null | undefined, nowMs: number): 
   return out;
 }
 
+// A truck whose newest frame says asleep keeps its slot past the stale (30 min) and offline (45 min) limits: sleeping for hours is normal under
+// the sleep gate, and its position does not change. Past the offline limit the view's kind reads "offline", so the slot reads it as asleep.
+export function slotView(v: NowView): NowView {
+  return v.kind === "offline" && v.sleeping ? { ...v, kind: "asleep" } : v;
+}
+
+// Whether the Now card shows the slot: an asleep truck always (when it has a fix); every other state only while its frame is live.
+export function slotShown(v: NowView, fix: SlotFix | null): boolean {
+  const sv = slotView(v);
+  const sleepy = sv.kind === "asleep" || (sv.kind === "plugged" && sv.sleeping);
+  if (!sleepy && (v.kind === "offline" || v.stale)) return false;
+  return slotAvailable(sv, fix);
+}
+
 // Whether the slot has its big figure (or, parked, a map to draw); when not, the picture stays.
 export function slotAvailable(v: NowView, fix: SlotFix | null = null): boolean {
   return (v.kind === "charging" && v.powerKw != null) || (v.kind === "driving" && v.speedMph != null) || (isParkedKind(v.kind) && fix != null);

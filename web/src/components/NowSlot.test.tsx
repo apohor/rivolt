@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import NowSlot, { asleepFigures, pickFix, slotAvailable, slotStats, weatherView, type SlotInput } from "./NowSlot";
+import NowSlot, { asleepFigures, pickFix, slotAvailable, slotShown, slotView, slotStats, weatherView, type SlotInput } from "./NowSlot";
 import type { NowView } from "../lib/nowState";
 
 const charging = { kind: "charging", powerKw: 7.4, etaHours: 1.2, etaSource: "truck", limitPct: 80, energyKwh: 18.24, chargeFlavor: "home_l2", speedMph: null } as unknown as NowView;
@@ -114,6 +114,28 @@ describe("parked slot weather", () => {
     expect(asleepFigures({ since: null, todayS: 3600 }, now)).toEqual([{ k: "Asleep today", v: "1 h 00 min" }]);
     const { container } = render(<NowSlot {...base({ kind: "parked" } as unknown as NowView, { fix: { lat: 1, lon: 2 }, asleep: { since: "2026-01-01T09:45:00Z", todayS: 60 } })} />);
     expect(container.querySelector('[data-testid="now-slot-asleep"]')).toBeNull();
+  });
+  it("a sleeping truck keeps its slot past the stale and offline limits; an offline truck that is not asleep keeps the picture", () => {
+    const fix = { lat: 1, lon: 2 };
+    const asleep = (extra: object) => ({ kind: "asleep", sleeping: true, stale: false, ...extra }) as unknown as NowView;
+    expect(slotShown(asleep({}), fix)).toBe(true);
+    // about 31 min: stale
+    expect(slotShown(asleep({ stale: true, ageSec: 31 * 60 }), fix)).toBe(true);
+    // about 3 h: the view reads offline, but the newest frame says asleep
+    const long = { kind: "offline", sleeping: true, stale: false, ageSec: 3 * 3600 } as unknown as NowView;
+    expect(slotShown(long, fix)).toBe(true);
+    expect(slotView(long).kind).toBe("asleep");
+    expect(slotShown(long, null)).toBe(false);
+    // plugged in and asleep, stale
+    expect(slotShown({ kind: "plugged", sleeping: true, stale: true } as unknown as NowView, fix)).toBe(true);
+    // not asleep: stale or offline hides it, as before
+    expect(slotShown({ kind: "offline", sleeping: false, stale: false } as unknown as NowView, fix)).toBe(false);
+    expect(slotShown({ kind: "parked", sleeping: false, stale: true } as unknown as NowView, fix)).toBe(false);
+    expect(slotShown({ kind: "plugged", sleeping: false, stale: true } as unknown as NowView, fix)).toBe(false);
+    // charging and driving are unchanged
+    expect(slotShown({ ...charging, stale: true } as unknown as NowView, fix)).toBe(false);
+    expect(slotShown({ ...driving, kind: "offline", stale: false } as unknown as NowView, fix)).toBe(false);
+    expect(slotShown({ ...charging, stale: false } as unknown as NowView, null)).toBe(true);
   });
   it("without a fix nothing renders", () => {
     const { container } = render(<NowSlot {...base({ kind: "parked" } as unknown as NowView)} />);

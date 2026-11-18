@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { VehicleState } from "./api";
+import { slotShown } from "../components/NowSlot";
 import { advanceTripDistance, clock, computeNow, formatEta, freshnessLine, nowAlerts, statusPill, type NowInput } from "./nowState";
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
@@ -318,5 +319,21 @@ describe("freshnessLine", () => {
     const l = line({ state: "parked", location_fix_at: new Date(NOW - 60_000).toISOString(), state_since: SINCE });
     expect(l).not.toContain("GPS fix");
     expect(l).not.toContain("location as of");
+  });
+});
+
+describe("the Now slot for a sleeping truck", () => {
+  const fix = { lat: 40, lon: -90 };
+  const frame = (power: string, ageSec: number) => computeNow(inp({ power_state: power, at: new Date(NOW - ageSec * 1000).toISOString() }, { asleepSinceMs: NOW - 4 * 3600_000 }));
+  it("stays at 31 min (stale) and at 3 h (offline) of sleep", () => {
+    expect(frame("sleep", 31 * 60).stale).toBe(true);
+    expect(slotShown(frame("sleep", 31 * 60), fix)).toBe(true);
+    const long = frame("sleep", 3 * 3600);
+    expect(long.kind).toBe("offline");
+    expect(slotShown(long, fix)).toBe(true);
+  });
+  it("an awake truck that went quiet keeps the picture", () => {
+    expect(slotShown(frame("ready", 20 * 60), fix)).toBe(false);
+    expect(slotShown(frame("ready", 3 * 3600), fix)).toBe(false);
   });
 });

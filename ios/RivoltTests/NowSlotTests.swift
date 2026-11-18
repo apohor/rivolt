@@ -69,6 +69,32 @@ final class NowSlotTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(NowSlotModel.make(summary: ps, snapshot: parked, session: nil, charge: nil, liveDrive: nil, fix: fix, home: nil, clock: at)).sleep, [])
     }
 
+    func testASleepingTruckKeepsItsSlotPastTheStaleAndOfflineLimits() throws {
+        func summary(_ state: String, power: String, charger: String = "charger_disconnected", after: TimeInterval) throws -> (NowSummary, NowSnapshot) {
+            let now = try snapshot(state)
+            let input = NowSummary.Input(socPct: 60, rangeKm: 250, chargeTargetPct: 80, gear: "P", powerState: power, chargerState: charger, chargerPowerKw: 0, at: at, packKwh: 100, speedKph: nil)
+            return (NowSummary(input: input, now: now, clock: at.addingTimeInterval(after)), now)
+        }
+        // About 31 min: stale. About 3 h: offline. Both keep the slot, and the map is built from the fix.
+        let cases: [(TimeInterval, NowSummary.Presence)] = [(31 * 60, .stale), (3 * 3600, .offline)]
+        for (after, presence) in cases {
+            let (s, now) = try summary("asleep", power: "sleep", after: after)
+            XCTAssertEqual(s.presence, presence)
+            XCTAssertTrue(NowSlotModel.shown(summary: s))
+            XCTAssertNotNil(NowSlotModel.make(summary: s, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (34.1, -118.1), home: nil, clock: at.addingTimeInterval(after)))
+        }
+        // Not asleep: a quiet or offline truck keeps the picture, as before.
+        let quiet: [TimeInterval] = [20 * 60, 3 * 3600]
+        for after in quiet {
+            let (s, _) = try summary("parked", power: "ready", after: after)
+            XCTAssertFalse(NowSlotModel.shown(summary: s))
+        }
+        let (stale, _) = try summary("charging", power: "ready", charger: "chrgr_sts_connected_charging", after: 20 * 60)
+        XCTAssertFalse(NowSlotModel.shown(summary: stale))
+        let (fresh, _) = try summary("parked", power: "ready", after: 10)
+        XCTAssertTrue(NowSlotModel.shown(summary: fresh))
+    }
+
     func testWeatherWording() throws {
         func view(_ condition: String, _ mm: Double?, day: Bool = true) throws -> NowSlotModel.Weather {
             let mmJSON = mm.map { #","rain_next3h_mm":\#($0)"# } ?? ""

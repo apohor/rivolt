@@ -23,7 +23,7 @@ import {
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
-import NowSlot, { pickFix, slotAvailable, type SlotDrive } from "./NowSlot";
+import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaNowLine, otaStepFromState } from "../lib/truckHealth";
@@ -271,7 +271,7 @@ export default function NowCard({
   // Parked, the map sits on the state's fix (the demo has none of its own, so the server sends its public sample point).
   // The server's sample point (the demo), then the live state's fix; a sleeping truck may have none (a restart while asleep), so the server's last recorded position comes last.
   const fix = pickFix(server?.location, state.latitude, state.longitude, server?.last_fix);
-  const showSlot = slotOn && !offline && !view.stale && slotAvailable(view, fix);
+  const showSlot = slotOn && slotShown(view, fix);
   const dq = driveQ.data ?? null;
   // The drive so far comes from /now (the recorder's open drive row, the same for a real and a simulated drive); the Live read stands in for
   // a server that does not send it yet. Efficiency is the distance shown over the energy shown.
@@ -290,7 +290,7 @@ export default function NowCard({
       : null;
   const slotNode = (
     <NowSlot
-      view={view}
+      view={slotView(view)}
       nowMs={nowMs}
       unit={distanceUnit}
       currency={currency}
