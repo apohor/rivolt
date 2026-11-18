@@ -145,23 +145,27 @@ final class PlannerWeatherLabelsUITests: XCTestCase {
         }
     }
 
-    /// The labels the map draws, once the camera has settled (they stop changing).
-    private func settledLabels(_ app: XCUIApplication) -> [XCUIElement] {
+    /// The labels the map draws (at least `atLeast` of them), once the camera has settled (they stop changing). Each label is read from one snapshot:
+    /// the map moves them while it redraws, and an element looked up lazily can be gone by the time its label is read.
+    private func settledLabels(_ app: XCUIApplication, atLeast: Int = 1) -> [any XCUIElementSnapshot] {
+        func drawnNow() -> [any XCUIElementSnapshot] {
+            app.descendants(matching: .any).matching(identifier: "drawn-weather-label").allElementsBoundByIndex.compactMap { try? $0.snapshot() }
+        }
+        func key(_ labels: [any XCUIElementSnapshot]) -> [String] { labels.map { "\($0.label)@\(Int($0.frame.midX)),\(Int($0.frame.midY))" } }
         var last: [String] = []
-        for _ in 0..<12 {
-            let now = app.descendants(matching: .any).matching(identifier: "drawn-weather-label").allElementsBoundByIndex
-            let labels = now.map { "\($0.label)@\(Int($0.frame.midX)),\(Int($0.frame.midY))" }
-            if labels == last, !labels.isEmpty { return now }
-            last = labels
+        for _ in 0..<40 {
+            let now = drawnNow()
+            if key(now) == last, now.count >= atLeast { return now }
+            last = key(now)
             Thread.sleep(forTimeInterval: 0.5)
         }
-        return app.descendants(matching: .any).matching(identifier: "drawn-weather-label").allElementsBoundByIndex
+        return drawnNow()
     }
 
     /// On the whole trip the westmost label is Day 1's first leg and the eastmost Day 2's last: Day 1 must not draw the eastmost, Day 2 not the westmost.
     private func expectEachDayFramed(_ map: XCUIElement, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         expectDrawnLabel(map, in: app, "the whole trip", file: file, line: line)
-        let whole = settledLabels(app).sorted { $0.frame.midX < $1.frame.midX }.map(\.label)
+        let whole = settledLabels(app, atLeast: 4).sorted { $0.frame.midX < $1.frame.midX }.map(\.label)
         XCTAssertGreaterThanOrEqual(whole.count, 4, "the whole trip draws a label on each of the four legs: \(whole)", file: file, line: line)
         guard let west = whole.first, let east = whole.last else { return }
         for (chip, other) in [("Day 1", east), ("Day 2", west)] {
