@@ -90,7 +90,7 @@ struct ParkedMapView: UIViewRepresentable {
             let source = MLNShapeSource(identifier: "\(ParkedMapView.sourceID)-pin", shape: nil, options: nil)
             style.addSource(source)
             let dot = MLNCircleStyleLayer(identifier: "\(ParkedMapView.sourceID)-pin", source: source)
-            dot.circleColor = NSExpression(forConstantValue: UIColor(red: 0.96, green: 0.25, blue: 0.37, alpha: 1)) // the web's #f43f5e
+            dot.circleColor = NSExpression(forConstantValue: UIColor(red: 0.063, green: 0.725, blue: 0.506, alpha: 1)) // the web's #10b981
             dot.circleRadius = NSExpression(forConstantValue: 7)
             dot.circleStrokeColor = NSExpression(forConstantValue: UIColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1))
             dot.circleStrokeWidth = NSExpression(forConstantValue: 2)
