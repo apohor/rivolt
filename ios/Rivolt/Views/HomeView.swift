@@ -62,7 +62,7 @@ struct HomeView: View {
         return NowSlotModel.Home(lat: h.latitude, lon: h.longitude, label: h.label.flatMap { $0.isEmpty ? nil : $0 })
     }
     /// The truck's position for the parked map, read only when `/now` has none (it has one for the demo account only).
-    /// The saved home, read once for the slot's "Home" label and charger (only with now_slot).
+    /// The saved home, for the slot's "Home" label and charger chips (only with now_slot); read again when the tab or the app comes to the front.
     @State private var homeLocation: HomeLocation?
 
     private var selected: Vehicle? {
@@ -167,6 +167,12 @@ struct HomeView: View {
             // While the screen is up and the app is in front, the truck is read again: every 10 s while charging or
             // driving, every minute otherwise (NowRefresh). The loop starts with a read, so coming back to this tab reads at once.
             .task(id: "\(selectedID)|\(tabActive)|\(scenePhase == .active)") { if tabActive, scenePhase == .active { await pollLive() } }
+            // The saved home (the slot's Home label and its charger chips) is read again each time this tab comes to the front or
+            // the app returns, so a change in Settings shows; a failed read keeps the last one.
+            .task(id: "\(slotOn)|\(tabActive)|\(scenePhase == .active)") {
+                guard slotOn, tabActive, scenePhase == .active, !state.isDemo, let h = try? await state.client.homeLocation() else { return }
+                homeLocation = h
+            }
             // "Offline" waits for a recent read: if the last one is old (the app was away), ask the server once first.
             .task(id: recheckKey) { if recheckKey != nil { await refreshNow() } }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
@@ -352,7 +358,6 @@ struct HomeView: View {
         // The demo truck has no live Rivian connection to read.
         if state.isDemo { session = nil; liveDrive = nil; liveDestination = nil; return }
         let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
-        if slotOn, homeLocation == nil { homeLocation = try? await state.client.homeLocation() }
         session = kind == .charging ? (try? await state.client.liveSession(id: id)) ?? nil : nil
         liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
         // Only while in gear, only when the design is on and not told "off"; this runs on the state's own cadence, which the tab and scene gate.
