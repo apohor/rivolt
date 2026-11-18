@@ -8,7 +8,8 @@
 # A success on the context that is not this script's (description not starting "rc smoke") is never overwritten; set-qa-gate.sh still works.
 # Not covered: signed-in pages (no preview account here), and iOS (its UI tests use fixtures and run in ios.yml).
 set -euo pipefail
-TAG=${1:?usage: scripts/rc-smoke.sh vX.Y.Z-rc.N}
+TAG=${1:?usage: scripts/rc-smoke.sh vX.Y.Z-rc.N [playwright args, e.g. -g Plan for a trial]}
+shift
 [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] || { echo "not an rc tag: $TAG" >&2; exit 2; }
 REPO=${RC_REPO:-apohor/rivolt}
 PREVIEW=${RC_PREVIEW:-https://preview.rivolt.dev}
@@ -38,7 +39,7 @@ if [ $seen -lt 3 ]; then post failure "rc smoke: preview reports $got, not $WANT
 
 cd "$WEB"
 [ -d node_modules ] || npm ci --no-audit --no-fund
-if E2E_LIVE_URL="$PREVIEW" CI=true npx playwright test e2e/rc-smoke-live.pw.ts --project=chromium --workers=1 --retries=1; then
+if E2E_LIVE_URL="$PREVIEW" CI=true npx playwright test e2e/rc-smoke-live.pw.ts --project=chromium --workers=1 --retries=1 "$@"; then
   post success "rc smoke passed on preview $WANT"
 else
   post failure "rc smoke failed on preview $WANT (web/e2e/rc-smoke-live.pw.ts)"; exit 1
