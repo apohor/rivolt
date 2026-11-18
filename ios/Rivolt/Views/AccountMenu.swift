@@ -14,6 +14,8 @@ struct AccountMenu: View {
     var vehicleID: String?
     /// The demo menu's Refresh; nil when the screen has nothing to refresh by hand. The signed-in bar has no Refresh button (pull to refresh).
     var onRefresh: (() -> Void)?
+    /// Called when the Settings sheet closes, so a screen that shows something saved there can read it again.
+    var onSettingsClosed: (() -> Void)?
 
     @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
     @State private var showSettings = false
@@ -30,7 +32,7 @@ struct AccountMenu: View {
                 settingsButton
             }
         }
-        .sheet(isPresented: $showSettings) { SettingsView(vehicleID: vehicleID).followsAppearance() }
+        .sheet(isPresented: $showSettings, onDismiss: { onSettingsClosed?() }) { SettingsView(vehicleID: vehicleID).followsAppearance() }
     }
 
     private var settingsButton: some View {
