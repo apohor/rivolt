@@ -305,3 +305,17 @@ func TestLiveDestinationRoutePrecisionPerTrip(t *testing.T) {
 		t.Errorf("unfit route: %+v", w.Trip)
 	}
 }
+
+func TestLiveDestinationCountsRoutePrecision(t *testing.T) {
+	var got []string
+	SetNavRoutePrecisionObserver(func(r string) { got = append(got, r) })
+	defer SetNavRoutePrecisionObserver(nil)
+	const p5 = "_p~iF~ps|U_ulLnnqC_mqNvxq`@"
+	liveDestinationOf(rivian.NavTrip{Lat: 43.252, Lon: -126.453, Route: p5}, true)
+	liveDestinationOf(rivian.NavTrip{Lat: 41.2718, Lon: -96.3314, Route: encodeTestPolyline(6, [][2]float64{{41.2718, -96.3314}})}, true)
+	liveDestinationOf(rivian.NavTrip{Lat: 1, Lon: 1, Route: p5}, true)
+	liveDestinationOf(rivian.NavTrip{Lat: 1, Lon: 1}, true) // no route: not counted
+	if len(got) != 3 || got[0] != "5" || got[1] != "6" || got[2] != "unfit" {
+		t.Errorf("observed %v, want [5 6 unfit]", got)
+	}
+}
