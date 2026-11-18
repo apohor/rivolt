@@ -7,6 +7,8 @@ import MoneyPage from "./MoneyPage";
 import { currentMonth, ledgerMonthFixture } from "../lib/ledger";
 import { stubFetchRoutes } from "../test/fetchRoutes";
 
+vi.mock("../lib/config", async (orig) => ({ ...(await orig<typeof import("../lib/config")>()), useDesignPreview: () => true }));
+
 function renderAt(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -193,5 +195,28 @@ describe("MoneyPage", () => {
     renderAt("/money");
     const statement = await screen.findByRole("region", { name: "Statement" });
     expect(statement).not.toHaveTextContent(/older version/);
+  });
+
+  it("does not call the savings coach in the demo, which has no ledger/coach answer", async () => {
+    Object.defineProperty(window, "location", { value: { pathname: "/demo/money", search: "", assign: vi.fn() }, writable: true });
+    const m = ledgerMonthFixture(currentMonth());
+    const fetchMock = stubFetchRoutes({
+      "/api/vehicles": { body: [] },
+      "/api/ledger/monthly": { body: m },
+      "/api/ledger/summary": { body: { version: 1, tz: m.tz, currency: "USD", months: [] } },
+      "/api/ledger/coach": { status: 401, body: {} },
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={["/demo/money"]}>
+          <Routes>
+            <Route path="/demo/money" element={<MoneyPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("region", { name: "Statement" });
+    expect(screen.queryByText("What your truck really costs")).toBeNull();
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("ledger/coach");
   });
 });
