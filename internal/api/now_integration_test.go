@@ -231,8 +231,7 @@ func TestNowSnapshot_StateRunSleepsAndIsolation(t *testing.T) {
 	if sl.asleepTodayS == nil || *sl.asleepTodayS != 10*3600 {
 		t.Fatalf("asleep_today_s = %v, want 36000", sl.asleepTodayS)
 	}
-	// A saved zone moves the midnight: at UTC-5 the day started at 05:00 UTC, so 1 h + 2 h of the first sleep are out
-	// (sleep rows d-2h..d+3h clip to d+5h-... ) leaving 0 h + 0 + 3 h + 4 h = 7 h.
+	// A saved zone moves the midnight: at UTC-5 the day started at d+5h UTC, leaving the 3 h and 4 h spans after it = 7 h.
 	if _, err := pool.Exec(`INSERT INTO engagement_prefs (user_id, timezone) VALUES ($1,'America/Panama')`, alice); err != nil {
 		t.Fatal(err)
 	}
