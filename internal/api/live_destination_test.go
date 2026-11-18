@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -151,8 +152,8 @@ func TestLiveDestinationOnTheOwnerPodMakesNoForward(t *testing.T) {
 
 func TestLiveDestinationOfShapesTheTrip(t *testing.T) {
 	eta := time.Date(2030, 1, 2, 3, 4, 5, 0, time.FixedZone("x", 3600))
-	w := liveDestinationOf(rivian.NavTrip{Name: "N", Lat: 1.5, Lon: 2.5, ETA: eta, MetresLeft: 16093.44, HasDist: true, Route: "r"}, true)
-	if w.Trip == nil || w.Trip.ETA != "2030-01-02T02:04:05Z" || w.Trip.MilesLeft == nil || *w.Trip.MilesLeft != 10 || w.Trip.RoutePrecision != 6 {
+	w := liveDestinationOf(rivian.NavTrip{Name: "N", Lat: 41.2718, Lon: -96.3314, ETA: eta, MetresLeft: 16093.44, HasDist: true, Route: encodeTestPolyline(5, [][2]float64{{41.25, -96.3}, {41.2718, -96.3314}})}, true)
+	if w.Trip == nil || w.Trip.ETA != "2030-01-02T02:04:05Z" || w.Trip.MilesLeft == nil || *w.Trip.MilesLeft != 10 || w.Trip.RoutePrecision != 5 || w.Trip.Route == "" {
 		t.Fatalf("trip %+v", w.Trip)
 	}
 	if w := liveDestinationOf(rivian.NavTrip{Name: "N", MetresLeft: 99999}, true); w.Trip.MilesLeft != nil || w.Trip.RoutePrecision != 0 {
@@ -246,5 +247,61 @@ func TestLiveDestinationOfAParkedVehicleWithStaleProgressIs204(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), destSentinel) {
 		t.Error("a stale trip still named its destination")
+	}
+}
+
+// encodeTestPolyline encodes points as a Google polyline at the given precision.
+func encodeTestPolyline(prec int, pts [][2]float64) string {
+	var out []byte
+	put := func(d int) {
+		d <<= 1
+		if d < 0 {
+			d = ^d
+		}
+		for d >= 0x20 {
+			out = append(out, byte((0x20|(d&0x1f))+63))
+			d >>= 5
+		}
+		out = append(out, byte(d+63))
+	}
+	scale := math.Pow10(prec)
+	var pl, po int
+	for _, p := range pts {
+		la, lo := int(math.Round(p[0]*scale)), int(math.Round(p[1]*scale))
+		put(la - pl)
+		put(lo - po)
+		pl, po = la, lo
+	}
+	return string(out)
+}
+
+func TestLiveDestinationRoutePrecisionPerTrip(t *testing.T) {
+	// The reference route from the polyline format's own documentation: precision 5, ending at 43.252, -126.453.
+	const rivianShaped = "_p~iF~ps|U_ulLnnqC_mqNvxq`@"
+	p6 := encodeTestPolyline(6, [][2]float64{{41.25, -96.3}, {41.26, -96.32}, {41.2718, -96.3314}})
+	cases := []struct {
+		name     string
+		route    string
+		lat, lon float64
+		want     int
+	}{
+		{"precision 5, real shaped", rivianShaped, 43.252, -126.453, 5},
+		{"precision 6", p6, 41.2718, -96.3314, 6},
+		{"precision 5 within 2 km of the destination", rivianShaped, 43.260, -126.453, 5},
+		{"neither fits", rivianShaped, 41.2718, -96.3314, 0},
+		{"precision 5 route, destination far away", encodeTestPolyline(5, [][2]float64{{41.25, -96.3}}), 10, 10, 0},
+		{"empty route", "", 43.252, -126.453, 0},
+		{"malformed route", "!!!", 43.252, -126.453, 0},
+		{"truncated route", rivianShaped[:len(rivianShaped)-1], 43.252, -126.453, 0},
+	}
+	for _, c := range cases {
+		if got := routePrecisionFor(c.route, c.lat, c.lon); got != c.want {
+			t.Errorf("%s: precision %d, want %d", c.name, got, c.want)
+		}
+	}
+	// Neither precision fitting leaves the route out of the body, with the rest of the trip intact.
+	w := liveDestinationOf(rivian.NavTrip{Name: "N", Lat: 41.2718, Lon: -96.3314, Route: rivianShaped}, true)
+	if w.Trip == nil || w.Trip.Route != "" || w.Trip.RoutePrecision != 0 || w.Trip.Name != "N" {
+		t.Errorf("unfit route: %+v", w.Trip)
 	}
 }
