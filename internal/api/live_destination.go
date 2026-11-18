@@ -15,9 +15,8 @@ import (
 	"github.com/apohor/rivolt/internal/rivian"
 )
 
-// liveDestinationRoutePrecision is the polyline precision of the route the endpoint returns. The sim sends 6; the first real drive's
-// frames confirm it (the design's polyline_precision check), and this is the one place that changes if they say 5.
-const liveDestinationRoutePrecision = 6
+// liveDestinationRouteSlackM is how far the route's last point may be from the destination for a precision to count as the right one.
+const liveDestinationRouteSlackM = 2000.0
 
 const metresPerMile = 1609.344
 
@@ -43,9 +42,9 @@ func liveDestinationOf(t rivian.NavTrip, ok bool) liveDestinationWire {
 	if !ok {
 		return liveDestinationWire{}
 	}
-	b := &liveDestinationBody{Name: t.Name, Lat: t.Lat, Lon: t.Lon, ETA: t.ETA.UTC().Format(time.RFC3339), Route: t.Route}
-	if t.Route != "" {
-		b.RoutePrecision = liveDestinationRoutePrecision
+	b := &liveDestinationBody{Name: t.Name, Lat: t.Lat, Lon: t.Lon, ETA: t.ETA.UTC().Format(time.RFC3339)}
+	if prec := routePrecisionFor(t.Route, t.Lat, t.Lon); prec != 0 {
+		b.Route, b.RoutePrecision = t.Route, prec
 	}
 	if t.HasDist { // without a leg distance MetresLeft is the later legs only: leave the miles out
 		mi := math.Round(t.MetresLeft/metresPerMile*10) / 10
@@ -143,4 +142,67 @@ func handleLiveDestination(c rivian.Client, mon *rivian.StateMonitor, sf *stateF
 		}
 		writeJSON(w, http.StatusOK, wire.Trip)
 	}
+}
+
+// routePrecisionFor says which polyline precision (5 or 6) the route was encoded at, or 0 when neither fits. Rivian sends precision 5 and the
+// sim sends 6, and the wrong one scales every point by 10, so the answer is the precision whose last point lands within
+// liveDestinationRouteSlackM of the destination. Neither fitting means the route is not trusted and is left out. Nothing is logged.
+func routePrecisionFor(route string, lat, lon float64) int {
+	if route == "" {
+		return 0
+	}
+	for _, prec := range []int{5, 6} {
+		if rl, ro, ok := polylineLast(route, prec); ok && haversineMetres(rl, ro, lat, lon) <= liveDestinationRouteSlackM {
+			return prec
+		}
+	}
+	return 0
+}
+
+// polylineLast decodes an encoded polyline and returns its last point. It is false for an empty or malformed string (a truncated value, or
+// a byte outside the encoding's range).
+func polylineLast(s string, prec int) (lat, lon float64, ok bool) {
+	var la, lo, n int
+	scale := math.Pow10(prec)
+	for i := 0; i < len(s); {
+		var v [2]int
+		for k := 0; k < 2; k++ {
+			shift, res := 0, 0
+			for {
+				if i >= len(s) || shift > 30 {
+					return 0, 0, false
+				}
+				c := int(s[i]) - 63
+				i++
+				if c < 0 || c > 63 {
+					return 0, 0, false
+				}
+				res |= (c & 0x1f) << shift
+				shift += 5
+				if c < 0x20 {
+					break
+				}
+			}
+			if res&1 != 0 {
+				v[k] = ^(res >> 1)
+			} else {
+				v[k] = res >> 1
+			}
+		}
+		la += v[0]
+		lo += v[1]
+		n++
+	}
+	if n == 0 {
+		return 0, 0, false
+	}
+	return float64(la) / scale, float64(lo) / scale, true
+}
+
+func haversineMetres(lat1, lon1, lat2, lon2 float64) float64 {
+	const r = 6371000.0
+	rad := math.Pi / 180
+	dLat, dLon := (lat2-lat1)*rad, (lon2-lon1)*rad
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * r * math.Asin(math.Sqrt(h))
 }
