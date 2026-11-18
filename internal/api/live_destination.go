@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -43,8 +44,14 @@ func liveDestinationOf(t rivian.NavTrip, ok bool) liveDestinationWire {
 		return liveDestinationWire{}
 	}
 	b := &liveDestinationBody{Name: t.Name, Lat: t.Lat, Lon: t.Lon, ETA: t.ETA.UTC().Format(time.RFC3339)}
-	if prec := routePrecisionFor(t.Route, t.Lat, t.Lon); prec != 0 {
-		b.Route, b.RoutePrecision = t.Route, prec
+	if t.Route != "" {
+		prec := routePrecisionFor(t.Route, t.Lat, t.Lon)
+		if prec != 0 {
+			b.Route, b.RoutePrecision = t.Route, prec
+		}
+		if f := navRoutePrecisionObserver.Load(); f != nil {
+			(*f)(routePrecisionResult(prec))
+		}
 	}
 	if t.HasDist { // without a leg distance MetresLeft is the later legs only: leave the miles out
 		mi := math.Round(t.MetresLeft/metresPerMile*10) / 10
@@ -142,6 +149,28 @@ func handleLiveDestination(c rivian.Client, mon *rivian.StateMonitor, sf *stateF
 		}
 		writeJSON(w, http.StatusOK, wire.Trip)
 	}
+}
+
+// navRoutePrecisionObserver is told, for each answer that had a route, which precision was chosen ("5", "6") or "unfit". Set once at start.
+var navRoutePrecisionObserver atomic.Pointer[func(string)]
+
+// SetNavRoutePrecisionObserver installs the observer for route precision results; nil removes it.
+func SetNavRoutePrecisionObserver(f func(result string)) {
+	if f == nil {
+		navRoutePrecisionObserver.Store(nil)
+		return
+	}
+	navRoutePrecisionObserver.Store(&f)
+}
+
+func routePrecisionResult(prec int) string {
+	switch prec {
+	case 5:
+		return "5"
+	case 6:
+		return "6"
+	}
+	return "unfit"
 }
 
 // routePrecisionFor says which polyline precision (5 or 6) the route was encoded at, or 0 when neither fits. Rivian sends precision 5 and the

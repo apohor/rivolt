@@ -353,6 +353,8 @@ type Metrics struct {
 	NavDecodeTotal  *prometheus.CounterVec
 	NavRangeTotal   *prometheus.CounterVec
 	NavClearedTotal *prometheus.CounterVec
+	// NavRoutePrecisionTotal counts live destination answers that carried a route, by the precision the server chose (5, 6) or unfit (the route was left out).
+	NavRoutePrecisionTotal *prometheus.CounterVec
 	// Charges whose energy the recorder replaced with an estimate from the SoC gain because its integral had lost energy
 	// (a handoff or a restart). No labels: /metrics is public. Every increment is a recorder bug to find.
 	ChargeEnergyFloorTotal prometheus.Counter
@@ -1086,6 +1088,10 @@ func New() *Metrics {
 			Name: "rivolt_nav_range_total",
 			Help: "Navigation frames dropped as out of range, by topic and the check that failed (eta_missing, eta_past, eta_future, stops, leg_distance, coord_shape, coord_range, coord_zero). Never a value.",
 		}, []string{"topic", "field"}),
+		NavRoutePrecisionTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_nav_route_precision_total",
+			Help: "Live destination answers with a route, by the polyline precision chosen (5, 6) or unfit (neither matched the destination, route left out). Counted per answer, not per trip. No vehicle, user or place label.",
+		}, []string{"result"}),
 		NavClearedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_nav_cleared_total",
 			Help: "Held live destinations dropped, by reason (nav_ended, drive_ended, reconnect, stale, flag_off, new_destination, stopped).",
@@ -1324,6 +1330,7 @@ func New() *Metrics {
 		m.NavRejectedTotal,
 		m.NavDecodeTotal,
 		m.NavRangeTotal,
+		m.NavRoutePrecisionTotal,
 		m.NavClearedTotal,
 		m.ChargeEnergyFloorTotal,
 		m.DrivesLocationUnavailableTotal,
@@ -1449,6 +1456,9 @@ func New() *Metrics {
 		for _, field := range []string{"eta_missing", "eta_past", "eta_future", "stops", "leg_distance", "coord_shape", "coord_range", "coord_zero"} {
 			m.NavRangeTotal.WithLabelValues(topic, field).Add(0)
 		}
+	}
+	for _, res := range []string{"5", "6", "unfit"} {
+		m.NavRoutePrecisionTotal.WithLabelValues(res).Add(0)
 	}
 	for _, reason := range []string{"nav_ended", "drive_ended", "reconnect", "stale", "flag_off", "new_destination", "stopped"} {
 		m.NavClearedTotal.WithLabelValues(reason).Add(0)
