@@ -64,6 +64,8 @@ struct HomeView: View {
     /// The truck's position for the parked map, read only when `/now` has none (it has one for the demo account only).
     /// The saved home, for the slot's "Home" label and charger chips (only with now_slot); read again when the tab or the app comes to the front.
     @State private var homeLocation: HomeLocation?
+    /// Counts closings of the Settings sheet; the saved home is read again on each.
+    @State private var settingsClosed = 0
 
     private var selected: Vehicle? {
         VehicleChoice.selected(vehicles, chosen: selectedID, pickedLocked: pickedLocked)
@@ -168,8 +170,8 @@ struct HomeView: View {
             // driving, every minute otherwise (NowRefresh). The loop starts with a read, so coming back to this tab reads at once.
             .task(id: "\(selectedID)|\(tabActive)|\(scenePhase == .active)") { if tabActive, scenePhase == .active { await pollLive() } }
             // The saved home (the slot's Home label and its charger chips) is read again each time this tab comes to the front or
-            // the app returns, so a change in Settings shows; a failed read keeps the last one. The demo has a saved home too (its sample place).
-            .task(id: "\(slotOn)|\(tabActive)|\(scenePhase == .active)") {
+            // the app returns or the Settings sheet closes, so a change in Settings shows; a failed read keeps the last one. The demo has a saved home too (its sample place).
+            .task(id: "\(slotOn)|\(tabActive)|\(scenePhase == .active)|\(settingsClosed)") {
                 guard slotOn, tabActive, scenePhase == .active, let h = try? await state.client.homeLocation() else { return }
                 homeLocation = h
             }
@@ -201,7 +203,7 @@ struct HomeView: View {
             .onChange(of: state.notifications.preferences?.onChargingLive) { Task { await syncLiveActivity() } }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    ThemeTopBar { AccountMenu(vehicleID: selected?.id, onRefresh: { Task { await load(force: true) } }) }
+                    ThemeTopBar { AccountMenu(vehicleID: selected?.id, onRefresh: { Task { await load(force: true) } }, onSettingsClosed: { settingsClosed += 1 }) }
                     titleRow
                 }
             }
