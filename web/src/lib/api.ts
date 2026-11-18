@@ -725,6 +725,11 @@ export type NowSnapshot = {
   } | null;
   // The demo user's public sample point (the demo has no vehicle fix of its own); never sent for real accounts.
   location?: { lat: number; lon: number };
+  // The truck's newest recorded position (own vehicle only; null when there is none): the map's fix while the live state has none, as when asleep.
+  last_fix?: { lat: number; lon: number; at: string } | null;
+  // Only while asleep: when the current sleep began, and the seconds asleep since local midnight (this sleep included).
+  asleep_since?: string | null;
+  asleep_today_s?: number | null;
 };
 export type DemoInfo = { enabled: boolean; vehicle_id: string; home_label: string };
 

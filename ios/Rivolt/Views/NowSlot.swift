@@ -34,6 +34,8 @@ struct NowSlotModel: Equatable {
 
     let content: Content
     var chips: [Chip] = []
+    /// Asleep only: "Asleep for 2 h 15 min" and "Asleep today 18 h 40 min", each when the server sent it, shown under the map.
+    var sleep: [Stat] = []
 
     /// The saved home, for the "Home" label on the map and the home charger.
     struct Home: Equatable {
@@ -60,6 +62,13 @@ struct NowSlotModel: Equatable {
         let miPerKwh: Double?
     }
 
+    /// The map's fix: the demo's sample point, then the live state's, then the server's last recorded position (a sleeping truck may have no live one).
+    static func fix(snapshot: NowSnapshot?, truck: (lat: Double, lon: Double)?) -> (lat: Double, lon: Double)? {
+        if let l = snapshot?.location { return (l.lat, l.lon) }
+        if let truck { return truck }
+        return snapshot?.lastFix.map { ($0.lat, $0.lon) }
+    }
+
     /// Nil when the state has no slot, so the picture stays: charging without a power reading, driving without a speed, parked without a fix.
     static func make(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, liveDrive: LiveDrive?,
                      fix: (lat: Double, lon: Double)?, home: Home?, gear: String? = nil, mode: String? = nil,
@@ -79,11 +88,17 @@ struct NowSlotModel: Equatable {
             if let gear, !gear.isEmpty { chips.append(Chip(text: gear.uppercased(), accent: false)) }
             if let mode, !mode.isEmpty { chips.append(Chip(text: driveModeWords(mode), accent: true)) }
             return NowSlotModel(content: driving(kph: kph, drive: drive(snapshot: snapshot, live: liveDrive, packKwh: summary.packKwh)), chips: chips)
-        case .parked, .plugged:
+        // A sleeping truck is parked: the map at its last fix is what is worth showing then.
+        case .parked, .plugged, .asleep:
             guard let fix else { return nil }
             let hour = calendar.component(.hour, from: clock)
             let weather = snapshot?.ambient.map { weatherView($0, day: hour >= 6 && hour < 20) }
-            return NowSlotModel(content: .parked(lat: fix.lat, lon: fix.lon, label: atHome ? (home?.label ?? "Home") : nil, weather: weather))
+            var sleep: [Stat] = []
+            if summary.kind == .asleep {
+                if let since = snapshot?.asleepSince, clock >= since { sleep.append(Stat(label: "Asleep for", value: NowFormat.duration(clock.timeIntervalSince(since)), note: nil)) }
+                if let today = snapshot?.asleepTodayS, today >= 0 { sleep.append(Stat(label: "Asleep today", value: NowFormat.duration(today), note: nil)) }
+            }
+            return NowSlotModel(content: .parked(lat: fix.lat, lon: fix.lon, label: atHome ? (home?.label ?? "Home") : nil, weather: weather), sleep: sleep)
         default:
             return nil
         }
@@ -212,6 +227,7 @@ struct NowSlotModel: Equatable {
         switch content {
         case .parked(_, _, let label, let weather):
             var parts = [label.map { "Map of where the truck is, at \($0)." } ?? "Map of where the truck is."]
+            for st in sleep { parts.append("\(st.label), \(SpokenText.words(st.value)).") }
             if let w = weather {
                 parts.append("\(SpokenText.words(w.temp)).")
                 if let c = w.condition { parts.append("\(c).") }
