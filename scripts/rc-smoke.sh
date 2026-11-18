@@ -5,7 +5,7 @@
 # Runs on a machine Cloudflare Access lets through (preview is behind it; CI cannot reach it). One browser at a time. Signs in nowhere.
 #
 # RC_GATE_CONTEXT=qa/something  post there instead of qa/rc-gate (a trial run).   RC_WAIT_MIN=40  minutes to wait for the version.
-# A success on the context that is not this script's (description not starting "rc smoke") is never overwritten; set-qa-gate.sh still works.
+# A success or failure on the context that is not this script's (description not starting "rc smoke") is never overwritten; set-qa-gate.sh still works.
 # Not covered: signed-in pages (no preview account here), and iOS (its UI tests use fixtures and run in ios.yml).
 set -euo pipefail
 TAG=${1:?usage: scripts/rc-smoke.sh vX.Y.Z-rc.N [playwright args, e.g. -g Plan for a trial]}
@@ -21,11 +21,15 @@ SHA=$(gh api "repos/$REPO/commits/$TAG" --jq .sha) || { echo "rc tag $TAG not fo
 post() { # state description
   local cur
   cur=$(gh api "repos/$REPO/commits/$SHA/status" --jq "[.statuses[] | select(.context == \"$CONTEXT\")][0] | (.state // \"none\") + \"|\" + (.description // \"\")")
-  if [ "${cur%%|*}" = success ] && [[ ${cur#*|} != "rc smoke"* ]]; then echo "a person's success is on $CONTEXT; not touching it"; return 0; fi
+  case "${cur%%|*}" in success|failure) if [[ ${cur#*|} != "rc smoke"* ]]; then echo "a person's ${cur%%|*} is on $CONTEXT; not touching it"; DONE=1; return 0; fi;; esac
   gh api -X POST "repos/$REPO/statuses/$SHA" -f state="$1" -f context="$CONTEXT" -f description="$2" >/dev/null
+  [ "$1" = pending ] || DONE=1
   echo "$CONTEXT = $1 on ${SHA:0:7}: $2"
 }
 
+# Whatever kills the script after this (npm ci, a gh error, a signal) must not leave "pending" on the commit.
+DONE=0
+trap 'rc=$?; if [ "$DONE" != 1 ] && [ $rc -ne 0 ]; then DONE=1; post failure "rc smoke: script error" || true; fi' EXIT
 post pending "rc smoke: waiting for preview to run $WANT"
 
 deadline=$((SECONDS + ${RC_WAIT_MIN:-40} * 60)); seen=0; got=none
