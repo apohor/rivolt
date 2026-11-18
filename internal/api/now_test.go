@@ -74,6 +74,65 @@ func TestNowHandler(t *testing.T) {
 	}
 }
 
+func TestNowLastFix(t *testing.T) {
+	at := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	fixAt := at.Add(-3 * time.Hour)
+	a := nowAPI{
+		snapshot: func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+			return nowSnapshot{At: &at, State: "parked", Asleep: true, lastFix: &nowFix{Lat: 34.25, Lon: -118.5, At: fixAt}}, nil
+		},
+		connection: func(uuid.UUID) string { return "live" },
+		now:        func() time.Time { return at },
+	}
+	_, m := nowGet(t, a)
+	f, ok := m["last_fix"].(map[string]any)
+	if !ok || f["lat"] != 34.25 || f["lon"] != -118.5 || f["at"] != "2026-10-13T09:00:00Z" {
+		t.Fatalf("last_fix: %v", m["last_fix"])
+	}
+	a.snapshot = func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+		return nowSnapshot{At: &at}, nil
+	}
+	if _, m = nowGet(t, a); m["last_fix"] != nil {
+		t.Fatalf("last_fix should be null: %v", m["last_fix"])
+	}
+}
+
+func TestNowLocalMidnight(t *testing.T) {
+	now := time.Date(2026, 11, 18, 3, 30, 0, 0, time.UTC)
+	for zone, want := range map[string]time.Time{
+		"":                    time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC),
+		"nonsense/zone":       time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC),
+		"America/Los_Angeles": time.Date(2026, 11, 17, 8, 0, 0, 0, time.UTC),
+		"Europe/Berlin":       time.Date(2026, 11, 17, 23, 0, 0, 0, time.UTC),
+	} {
+		if got := nowLocalMidnight(zone, now); !got.Equal(want) {
+			t.Errorf("%q: %v, want %v", zone, got, want)
+		}
+	}
+}
+
+func TestNowAsleepStats(t *testing.T) {
+	at := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	since, secs := at.Add(-2*time.Hour), int64(5400)
+	a := nowAPI{
+		snapshot: func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+			return nowSnapshot{At: &at, State: "asleep", Asleep: true, asleepSince: &since, asleepTodayS: &secs}, nil
+		},
+		connection: func(uuid.UUID) string { return "live" },
+		now:        func() time.Time { return at },
+	}
+	_, m := nowGet(t, a)
+	if m["asleep_since"] != "2026-10-13T10:00:00Z" || m["asleep_today_s"] != float64(5400) {
+		t.Fatalf("asleep stats: %v %v", m["asleep_since"], m["asleep_today_s"])
+	}
+	a.snapshot = func(context.Context, uuid.UUID, string, time.Time) (nowSnapshot, error) {
+		return nowSnapshot{At: &at}, nil
+	}
+	if _, m = nowGet(t, a); m["asleep_since"] != nil || m["asleep_today_s"] != nil {
+		t.Fatalf("awake should be null: %v", m)
+	}
+}
+
 // asleep is independent of the displayed state: a plugged truck whose
 // newest row is power_state=sleep reads state "plugged" and asleep true.
 func TestNowAsleepFlagIndependentOfState(t *testing.T) {
