@@ -426,7 +426,9 @@ extraEnvFrom: []
 # at the surge peak exceed dbConnections.budget. The divisor defaults to roles.<role>.replicaDivisor, else config.replicaDivisor, else the
 # total pod count (replicas + surge, api canary at 2x); the shares must sum to at most 1. Per role, `env` entries (also
 # requestMaxConns) are container env and win over the shared ConfigMap; use them to pin a role's flags. `podLabels` add pod labels to
-# one role, for example a label a Service selects on only the api pods.
+# one role, for example a label a Service selects on only the api pods. `terminationGracePeriodSeconds` sets one role's grace period (default:
+# the top-level value); `terminatingPods` counts the old pods of a long drain that run next to the new ones (the ReplicaSet does not count a
+# terminating pod), so the pool budget and the fallback shares cover them: ingest with a drive-wait cap needs replicaCount of them.
 roles:
   enabled: false
   ingest:
