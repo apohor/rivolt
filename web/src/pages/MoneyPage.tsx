@@ -140,8 +140,9 @@ export default function MoneyPage() {
       <PageHeader
         title="Money"
         subtitle="What charging actually cost"
+        wrap
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
             <VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />
             <MonthPicker month={month} max={thisMonth} onChange={setMonth} />
           </div>
@@ -540,7 +541,7 @@ function Statement({
           </Card>
 
           <SavingsCard area="m-save" />
-          {coachOn && !sample && <CoachCard area="m-coach" vehicleID={vehicleID} />}
+          {coachOn && !sample && !inDemo() && <CoachCard area="m-coach" vehicleID={vehicleID} />}
 
           <Card title="Receipts" area="m-receipts">
             <div className="mb-3 flex flex-wrap gap-1 text-xs" role="group" aria-label="Filter receipts">

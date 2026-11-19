@@ -13,19 +13,13 @@ describe("pickImageForNow", () => {
     expect(pickImageForNow(images, "parked", false)).toBe("https://img.example/three-quarter-dark.png");
     expect(pickImageForNow(images, "plugged", true)).toBe("https://img.example/three-quarter-light.png");
   });
-  it("charging: the plugged side view; driving: the side view", () => {
-    expect(pickImageForNow(images, "charging", false, 11)).toBe("https://img.example/side-charging-dark.png");
+  it("charging: the whole truck, never the cropped side-charging art; driving: the side view", () => {
+    expect(pickImageForNow(images, "charging", false)).toBe("https://img.example/three-quarter-dark.png");
     expect(pickImageForNow(images, "driving", true)).toBe("https://img.example/side-light.png");
   });
-  it("plugged in but not drawing power (complete, idle): the three-quarter view, not the cropped charging art", () => {
-    expect(pickImageForNow(images, "charging", false, 0)).toBe("https://img.example/three-quarter-dark.png");
-    expect(pickImageForNow(images, "charging", false, null)).toBe("https://img.example/three-quarter-dark.png");
-  });
-  it("plug_anim: any plugged-in state shows the side-charging view, power or not; off keeps today's picture", () => {
-    expect(pickImageForNow(images, "plugged", false, null, true)).toBe("https://img.example/side-charging-dark.png");
-    expect(pickImageForNow(images, "charging", true, 0, true)).toBe("https://img.example/side-charging-light.png");
-    expect(pickImageForNow(images, "parked", false, null, true)).toBe("https://img.example/three-quarter-dark.png");
-    expect(pickImageForNow(images, "plugged", false, null, false)).toBe("https://img.example/three-quarter-dark.png");
+  it("plugged in, charging or idle: the three-quarter view in both designs", () => {
+    expect(pickImageForNow(images, "plugged", false)).toBe("https://img.example/three-quarter-dark.png");
+    expect(pickImageForNow(images, "charging", true)).toBe("https://img.example/three-quarter-light.png");
   });
   it("falls back through side, then front, and to the other design", () => {
     expect(pickImageForNow(images.filter((i) => i.placement !== "three-quarter"), "parked", false)).toBe("https://img.example/side-dark.png");
@@ -45,15 +39,10 @@ describe("pickImageForNow", () => {
 describe("pickImageForState (Live)", () => {
   const closed = { frunk_closed: true, liftgate_closed: true, tonneau_closed: true, doors_closed: true } as VehicleState;
   it("charging, driving, frunk open and the default", () => {
-    expect(pickImageForState(images, { ...closed, charger_status: "chrgr_sts_connected_charging", charger_state: "charging_active", charger_power_kw: 11 } as VehicleState, false)).toBe("https://img.example/side-charging-dark.png");
-    for (const cs of ["charging_complete", "charging_ready", "waiting_on_charger"]) {
-      expect(pickImageForState(images, { ...closed, charger_status: "chrgr_sts_connected_no_chrg", charger_state: cs, charger_power_kw: 0 } as VehicleState, false)).toBe("https://img.example/three-quarter-dark.png");
+    // Charging or plugged in, with or without power: the whole truck, never the cropped side-charging art.
+    for (const cs of ["charging_active", "charging_complete", "charging_ready", "waiting_on_charger"]) {
+      expect(pickImageForState(images, { ...closed, charger_status: "chrgr_sts_connected_charging", charger_state: cs, charger_power_kw: 11 } as VehicleState, false)).toBe("https://img.example/three-quarter-dark.png");
     }
-    expect(pickImageForState(images, { ...closed, charger_status: "chrgr_sts_connected_charging", charger_state: "charging_active", charger_power_kw: 0 } as VehicleState, false)).toBe("https://img.example/three-quarter-dark.png");
-    const plugged = { ...closed, charger_status: "chrgr_sts_connected_no_chrg", charger_state: "charging_complete", charger_power_kw: 0 } as VehicleState;
-    expect(pickImageForState(images, plugged, false, true)).toBe("https://img.example/side-charging-dark.png");
-    expect(pickImageForState(images, plugged, false, false)).toBe("https://img.example/three-quarter-dark.png");
-    expect(pickImageForState(images, { ...closed, charger_status: "chrgr_sts_disconnected" } as VehicleState, false, true)).toBe("https://img.example/three-quarter-dark.png");
     expect(pickImageForState(images, { ...closed, gear: "D" } as VehicleState, false)).toBe("https://img.example/side-dark.png");
     expect(pickImageForState(images, { ...closed, frunk_closed: false } as VehicleState, true)).toBe("https://img.example/front-light.png");
     expect(pickImageForState(images, closed, false)).toBe("https://img.example/three-quarter-dark.png");

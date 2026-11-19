@@ -360,6 +360,22 @@ jobs:
       # The migrate Job's pod must never match the Service's (or the PDB's,
       # or the Deployment's) selector: with no readiness probe it would count
       # as Ready and receive traffic (migrations-job design, architect).
+      # A role's own grace period (ingest with a drive-wait cap) reaches only that role, and the old pods of a long drain count toward the pool budget.
+      - name: A role's grace period and its terminating pods
+        run: |
+          set -o pipefail
+          g() { yq 'select(.kind == "Deployment") | .metadata.name + "=" + (.spec.template.spec.terminationGracePeriodSeconds | tostring)'; }
+          out=$(helm template rivolt "$CHART" -f "$CHART/ci/roles-values.yaml" | g)
+          echo "$out"
+          for want in rivolt-ingest=981 rivolt-api=75 rivolt-jobs=75; do
+            echo "$out" | grep -qx "$want" || { echo "::error::expected $want"; exit 1; }
+          done
+          err=$(helm template rivolt "$CHART" -f "$CHART/ci/roles-values.yaml" --set dbConnections.budget=40 2>&1 >/dev/null) && {
+            echo "::error::terminatingPods did not count toward the connection budget"; exit 1
+          }
+          echo "$err" | grep -q "database connections" || { echo "::error::failed, but not on the connection budget: $err"; exit 1; }
+          helm template rivolt "$CHART" -f "$CHART/ci/roles-values.yaml" --set roles.ingest.terminatingPods=0 --set dbConnections.budget=40 --set config.replicaDivisor=8 >/dev/null
+
       - name: Migrate Job pods are no Service endpoint
         run: |
           set -o pipefail

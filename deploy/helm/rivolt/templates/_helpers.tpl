@@ -322,7 +322,7 @@ indentation of a "template:" key two spaces in (its content at four), starting o
       # release Rivian websocket subscriptions cleanly. 75s covers
       # the 35s HTTP drain on top of the lease release; bump it
       # together with httpDrainTimeout in cmd/rivolt/shutdown.go.
-      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ (and .role ((index .Values.roles .role | default dict).terminationGracePeriodSeconds)) | default .Values.terminationGracePeriodSeconds }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -663,8 +663,9 @@ that may run at once (the fallback limits while Redis is down are install-wide, 
 
 {{/*
 rivolt.rolePods: the most pods of the role .role that may run at once (.root is the chart context): replicaCount plus the surge of its
-rolling update; for the api Rollout with traffic routing and no dynamicStableScale the stable set stays at full size while the canary
-scales up, so twice replicaCount. A percentage surge rounds up, as Kubernetes and Argo do.
+rolling update, plus roles.<role>.terminatingPods: old pods a long drain keeps alive after the ReplicaSet stopped counting them (ingest with
+a drive-wait cap holds its groups up to the cap, so up to replicaCount old pods run next to the new ones). For the api Rollout with traffic
+routing and no dynamicStableScale the stable set stays at full size while the canary scales up, so twice replicaCount. A percentage surge rounds up, as Kubernetes and Argo do.
 */}}
 {{- define "rivolt.rolePods" -}}
 {{- $v := .root.Values }}
@@ -682,7 +683,7 @@ scales up, so twice replicaCount. A percentage surge rounds up, as Kubernetes an
 {{- else }}
 {{- $surge = int $ms }}
 {{- end }}
-{{- max $peak (add $n $surge) }}
+{{- max $peak (add (add $n $surge) (int (dig "terminatingPods" 0 (index $v.roles .role | default dict)))) }}
 {{- end }}
 
 {{/*

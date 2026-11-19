@@ -68,7 +68,7 @@ func TestFlagsGet_ListsEveryFlagState(t *testing.T) {
 
 // PUT /api/admin/flags/live-destination writes the live_destination row as
 // {"users":[...]} and the store, and a fresh Store on the same database,
-// reads it back; an empty list turns it off.
+// reads it back; all writes {"all":true}; an empty list turns it off.
 func TestFlagsLiveDestinationPut_WritesTheRow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
@@ -104,11 +104,18 @@ func TestFlagsLiveDestinationPut_WritesTheRow(t *testing.T) {
 	if !store.LiveDestination().Enabled(id) || store.LiveDestination().Enabled("someone-else") {
 		t.Errorf("snapshot = %+v", store.LiveDestination())
 	}
-	if code := put(`{"all":true}`); code != http.StatusBadRequest {
-		t.Errorf("all: %d, want 400", code)
+	if code := put(`{"all":true,"users":["` + id + `"]}`); code != http.StatusBadRequest || store.LiveDestination().All {
+		t.Errorf("all with users: %d, %+v, want 400 and not applied", code, store.LiveDestination())
 	}
-	if store.LiveDestination().All {
-		t.Error("all was applied")
+	if code := put(`{"all":true}`); code != http.StatusOK || !store.LiveDestination().Enabled("someone-else") {
+		t.Fatalf("all: %d, %+v", code, store.LiveDestination())
+	}
+	fresh, err := flags.OpenStore(ctx, pool, nil)
+	if err != nil {
+		t.Fatalf("flags.Open: %v", err)
+	}
+	if !fresh.LiveDestination().All || len(fresh.LiveDestination().Users) != 0 {
+		t.Errorf("fresh store = %+v, want all with no users", fresh.LiveDestination())
 	}
 	if code := put(`{"users":[]}`); code != http.StatusOK || store.LiveDestination().Enabled(id) {
 		t.Errorf("clear: %d, %+v", code, store.LiveDestination())

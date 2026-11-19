@@ -23,8 +23,9 @@ import {
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
-import NowSlot, { slotAvailable, type SlotDrive } from "./NowSlot";
+import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
+import { inDemo } from "../lib/demo";
 import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaNowLine, otaStepFromState } from "../lib/truckHealth";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
@@ -110,7 +111,7 @@ export default function NowCard({
   const stateQ = useQuery({
     queryKey: ["rivian", "state", vehicleID],
     queryFn: () => backend.vehicleState(vehicleID),
-    refetchInterval: 15_000,
+    refetchInterval: (q) => stateRefetchMs(q.state.data),
     retry: 1,
   });
   const homeQ = useQuery({
@@ -269,9 +270,9 @@ export default function NowCard({
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
   // Design "now_slot": the state's figures replace the picture and the rows (shown once, not twice).
   // Parked, the map sits on the state's fix (the demo has none of its own, so the server sends its public sample point).
-  const stateFix = Number.isFinite(state.latitude) && Number.isFinite(state.longitude) && (state.latitude !== 0 || state.longitude !== 0) ? { lat: state.latitude, lon: state.longitude } : null;
-  const fix = server?.location ?? stateFix;
-  const showSlot = slotOn && !offline && !view.stale && slotAvailable(view, fix);
+  // The server's sample point (the demo), then the live state's fix; a sleeping truck may have none (a restart while asleep), so the server's last recorded position comes last.
+  const fix = pickFix(server?.location, state.latitude, state.longitude, server?.last_fix);
+  const showSlot = slotOn && slotShown(view, fix);
   const dq = driveQ.data ?? null;
   // The drive so far comes from /now (the recorder's open drive row, the same for a real and a simulated drive); the Live read stands in for
   // a server that does not send it yet. Efficiency is the distance shown over the energy shown.
@@ -290,13 +291,14 @@ export default function NowCard({
       : null;
   const slotNode = (
     <NowSlot
-      view={view}
+      view={slotView(view)}
       nowMs={nowMs}
       unit={distanceUnit}
       currency={currency}
       gear={state.gear}
       mode={state.drive_mode}
       fix={fix}
+      asleep={view.kind === "asleep" ? { since: server?.asleep_since ?? null, todayS: server?.asleep_today_s ?? null } : null}
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
       placeLabel={view.place === "home" ? homeQ.data?.label || "Home" : null}
@@ -531,6 +533,13 @@ function headline(v: NowView, unit: DistanceUnit): string {
     default:
       return placeLine(v, unit) ?? "Parked";
   }
+}
+
+// How often /state is read: every 2 s while driving (the speed moves, as in the Live panel), 15 s otherwise.
+// The query stops with the tab (React Query does not refetch a hidden tab by default).
+export function stateRefetchMs(s: VehicleState | undefined, demo: boolean = inDemo()): number {
+  // The public demo replays drives in gear D and shares one request budget, so it keeps the slow rate.
+  return !demo && s && isDrivingGear(s) ? 2_000 : 15_000;
 }
 
 export function placeLine(v: NowView, unit: DistanceUnit): string | null {

@@ -76,7 +76,7 @@ export function boundsOf(points: LatLng[]): [[number, number], [number, number]]
 
 export const TRACK_SOURCE = "rivolt-track";
 const DRIVE_LAYERS = ["rivolt-track-glow", "rivolt-track-casing", "rivolt-track-main", "rivolt-drive-gapcase", "rivolt-drive-routed", "rivolt-drive-gap"];
-const CASING = { dark: "#06080C", light: "#FFFFFF" } as const;
+export const CASING = { dark: "#06080C", light: "#FFFFFF" } as const;
 
 export type DriveRoute = {
   // The whole track in order, [lat, lon]: the recorded trace, or the matched segments joined end to end.

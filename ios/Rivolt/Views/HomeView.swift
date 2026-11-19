@@ -55,6 +55,17 @@ struct HomeView: View {
     @State private var showLive = false
     @State private var destinationFailures = 0
     private var v2: Bool { state.designPreview.contains("ios_now_v2") }
+    /// The state slot under the gauge (design_preview key now_slot, on the redesign): the map and weather parked, the figures charging or driving.
+    private var slotOn: Bool { v2 && state.designPreview.contains("now_slot") }
+    private var slotHome: NowSlotModel.Home? {
+        guard let h = homeLocation, h.set else { return nil }
+        return NowSlotModel.Home(lat: h.latitude, lon: h.longitude, label: h.label.flatMap { $0.isEmpty ? nil : $0 })
+    }
+    /// The truck's position for the parked map, read only when `/now` has none (it has one for the demo account only).
+    /// The saved home, for the slot's "Home" label and charger chips (only with now_slot); read again when the tab or the app comes to the front.
+    @State private var homeLocation: HomeLocation?
+    /// Counts closings of the Settings sheet; the saved home is read again on each.
+    @State private var settingsClosed = 0
 
     private var selected: Vehicle? {
         VehicleChoice.selected(vehicles, chosen: selectedID, pickedLocked: pickedLocked)
@@ -82,7 +93,9 @@ struct HomeView: View {
                                 NowCard(vehicle: vehicle, summary: summary, place: ChargingPlace.label(summary: summary, charge: latestCharge),
                                         session: fresh ? session : nil, liveDrive: fresh ? liveDrive : nil, charge: fresh ? latestCharge : nil,
                                         v2: v2, images: vehicle.images, fullChargeRange: v2 ? coldRange?.fullChargeRange : nil,
-                                        onLive: v2 ? { showLive = true } : nil)
+                                        onLive: v2 ? { showLive = true } : nil,
+                                        slotOn: slotOn, snapshot: now, truckFix: vehicleState?.coordinate, home: slotHome,
+                                        gear: vehicleState?.gear, driveMode: vehicleState?.driveMode)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -156,6 +169,12 @@ struct HomeView: View {
             // While the screen is up and the app is in front, the truck is read again: every 10 s while charging or
             // driving, every minute otherwise (NowRefresh). The loop starts with a read, so coming back to this tab reads at once.
             .task(id: "\(selectedID)|\(tabActive)|\(scenePhase == .active)") { if tabActive, scenePhase == .active { await pollLive() } }
+            // The saved home (the slot's Home label and its charger chips) is read again each time this tab comes to the front or
+            // the app returns or the Settings sheet closes, so a change in Settings shows; a failed read keeps the last one. The demo has a saved home too (its sample place).
+            .task(id: "\(slotOn)|\(tabActive)|\(scenePhase == .active)|\(settingsClosed)") {
+                guard slotOn, tabActive, scenePhase == .active, let h = try? await state.client.homeLocation() else { return }
+                homeLocation = h
+            }
             // "Offline" waits for a recent read: if the last one is old (the app was away), ask the server once first.
             .task(id: recheckKey) { if recheckKey != nil { await refreshNow() } }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
@@ -184,7 +203,7 @@ struct HomeView: View {
             .onChange(of: state.notifications.preferences?.onChargingLive) { Task { await syncLiveActivity() } }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    ThemeTopBar { AccountMenu(vehicleID: selected?.id, onRefresh: { Task { await load(force: true) } }) }
+                    ThemeTopBar { AccountMenu(vehicleID: selected?.id, onRefresh: { Task { await load(force: true) } }, onSettingsClosed: { settingsClosed += 1 }) }
                     titleRow
                 }
             }
@@ -392,12 +411,32 @@ struct HomeView: View {
     private func pollLive() async {
         // Read first when the last read is old (the tab was away), then on the state's own cadence.
         if freshness.lastFetchAt.map({ Date.now.timeIntervalSince($0) > NowFreshness.confirmWindow / 3 }) ?? true { await refreshNow() }
+        var lastFull = Date.now
         while !Task.isCancelled {
             let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
-            try? await Task.sleep(for: .seconds(NowRefresh.pollInterval(kind)))
+            let quick = NowRefresh.stateInterval(kind, demo: state.isDemo)
+            try? await Task.sleep(for: .seconds(quick ?? NowRefresh.pollInterval(kind)))
             guard !Task.isCancelled, selected?.id != nil else { continue }
-            await refreshNow()
+            // Driving: /state every 2 s for the speed, the rest (/now, the live reads) on the usual cadence.
+            if quick != nil, Date.now.timeIntervalSince(lastFull) < NowRefresh.pollInterval(kind) {
+                await refreshState()
+            } else {
+                await refreshNow()
+                lastFull = .now
+            }
         }
+    }
+
+    /// Only /state, from the server now: the speed while driving.
+    private func refreshState() async {
+        guard let id = selected?.id else { return }
+        let conn = state.connection
+        let client = state.client
+        guard let s = await NowReads.logged("/state", record: { conn.record(.state, $0) }, { try await client.vehicleState(id: id) }) else { return }
+        vehicleState = s
+        freshness.fetched(at: .now)
+        publishConnection()
+        clockTick = .now
     }
 
     /// Only once there is some history: a brand-new account has the first-day cards instead.

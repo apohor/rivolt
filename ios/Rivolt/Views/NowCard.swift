@@ -24,6 +24,15 @@ struct NowCard: View {
     var fullChargeRange: Int?
     /// Opens the Live screen (the web's Live button on the hero), with the Now redesign.
     var onLive: (() -> Void)?
+    /// The state slot under the gauge (design_preview key now_slot, with the redesign): `/now` for the drive and the weather, and the truck's
+    /// position when `/now` has none. Without the key the picture stays.
+    var slotOn = false
+    var snapshot: NowSnapshot?
+    /// The truck's position from the state read (when `/now` has none), the saved home, and the gear and drive mode for the driving chips.
+    var truckFix: (lat: Double, lon: Double)?
+    var home: NowSlotModel.Home?
+    var gear: String?
+    var driveMode: String?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -67,20 +76,36 @@ struct NowCard: View {
 
     // MARK: The redesigned hero (now_v2)
 
+    /// The slot's content, only while the data is current (a stale or offline card keeps the picture), except for a sleeping truck.
+    private var slot: NowSlotModel? {
+        guard slotOn, NowSlotModel.shown(summary: summary) else { return nil }
+        let fix = NowSlotModel.fix(snapshot: snapshot, truck: truckFix)
+        return NowSlotModel.make(summary: summary, snapshot: snapshot, session: session, charge: charge, liveDrive: liveDrive, fix: fix,
+                                 home: home, gear: gear, mode: driveMode, clock: clock)
+    }
+
     private var heroV2: some View {
-        let showRows = driving || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || chargingRowsV2
+        let slot = self.slot
+        // The slot carries the session and the drive; the rows stay for the comfort and install lines (and all of them under the picture).
+        let sessionRows = slot == nil || slot?.isParked == true
+        let showRows = (driving && sessionRows) || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || (chargingRowsV2 && sessionRows)
         return VStack(alignment: .leading, spacing: 12) {
             if let onLive { liveButton(onLive) }
             VStack(alignment: .leading, spacing: 12) {
-                heroGaugeV2
-                if let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
+                heroGaugeV2(pictureShown: slot == nil)
+                if let slot {
+                    // The rule between the gauge and the slot, as the web's.
+                    Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
+                    NowSlotView(model: slot)
+                }
+                if let line = subline, slot == nil || slot?.isParked == true { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if showRows { detailRows }
                 if let note = freshnessNote { Text(note).themeText(.subline) }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(spoken)
             // Outside the combined element above, so VoiceOver reaches the (i) button and the note it opens.
-            if temperaturesLine != nil { temperatures }
+            if temperaturesLine(outside: !(slot?.isParked ?? false)) != nil { temperatures(outside: !(slot?.isParked ?? false)) }
         }
         .themeHero(live: liveKind, critical: critical)
     }
@@ -148,10 +173,10 @@ struct NowCard: View {
     private var plugAnim: Bool { appState?.designPreview.contains("plug_anim") == true }
 
     @ViewBuilder
-    private var heroGaugeV2: some View {
+    private func heroGaugeV2(pictureShown: Bool) -> some View {
         if typeSize.isAccessibilitySize {
             VStack(alignment: .leading, spacing: 8) {
-                if carURL != nil { car(maxHeight: 72) }
+                if pictureShown, carURL != nil { car(maxHeight: 72) }
                 compactGaugeColumn
             }
         } else {
@@ -164,7 +189,7 @@ struct NowCard: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    if carURL != nil { car(maxHeight: 96) }
+                    if pictureShown, carURL != nil { car(maxHeight: 96) }
                     if let km = summary.rangeKm {
                         let range = NowFormat.usesMetric ? km : km / 1.609344
                         (Text(NumberText.fixed(range, 0)).font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title2)).foregroundColor(Theme.textPrimary)
@@ -177,20 +202,21 @@ struct NowCard: View {
     }
 
     /// "Cabin 72° · Outside 64°", under a rule; the outside figure is looked up, not measured, and says so on a tap.
-    private var temperaturesLine: String? {
+    /// The parked slot shows the weather, so the outside figure is left out there.
+    private func temperaturesLine(outside: Bool) -> String? {
         var parts: [String] = []
         if let cabin = summary.liveComfort?.cabinValue { parts.append("Cabin \(cabin)") }
-        if let t = summary.outsideTempC { parts.append("Outside \(NowComfort.wholeDegrees(celsius: t))") }
+        if outside, let t = summary.outsideTempC { parts.append("Outside \(NowComfort.wholeDegrees(celsius: t))") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     @ViewBuilder
-    private var temperatures: some View {
+    private func temperatures(outside: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Rectangle().fill(Theme.border).frame(height: 1)
             HStack(spacing: 0) {
-                Text(temperaturesLine ?? "").themeText(.value, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                if summary.outsideTempC != nil {
+                Text(temperaturesLine(outside: outside) ?? "").themeText(.value, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                if outside, summary.outsideTempC != nil {
                     Button { outsideInfo.toggle() } label: {
                         Image(systemName: "info.circle").font(.body).foregroundStyle(Theme.textTertiary).frame(width: 44, height: 44)
                     }
@@ -199,7 +225,7 @@ struct NowCard: View {
                     .accessibilityHint(outsideInfo ? "Hides the note" : "Shows how it is worked out")
                 }
             }
-            if outsideInfo, summary.outsideTempC != nil {
+            if outside, outsideInfo, summary.outsideTempC != nil {
                 Text("Outside is an estimate, looked up from Open-Meteo for your truck's location.").themeText(.caption, color: Theme.textSecondary)
             }
         }
@@ -246,9 +272,11 @@ struct NowCard: View {
                 let range = NowFormat.usesMetric ? km : km / 1.609344
                 compactLine("Range", "\(NumberText.fixed(range, 0)) \(NowFormat.usesMetric ? "km" : "mi")")
             }
-            if charging, let t = timeLeft { compactLine("Time left", t) }
-            if charging || plugged, let target = summary.chargeTargetPct { compactLine("Charge limit", "\(Int(target.rounded())) %") }
-            if driving, let kph = summary.speedKph {
+            // The slot says the same (when it reaches the limit, the target, the speed).
+            let figuresSlot = !(slot?.isParked ?? true)
+            if charging, !figuresSlot, let t = timeLeft { compactLine("Time left", t) }
+            if charging || plugged, !figuresSlot, let target = summary.chargeTargetPct { compactLine("Charge limit", "\(Int(target.rounded())) %") }
+            if driving, !figuresSlot, let kph = summary.speedKph {
                 let speed = NowFormat.usesMetric ? kph : kph / 1.609344
                 compactLine("Speed", "\(NumberText.fixed(speed, 0)) \(NowFormat.usesMetric ? "km/h" : "mph")")
             }
@@ -373,8 +401,9 @@ struct NowCard: View {
         if let km = summary.rangeKm {
             parts.append("Range \(NowFormat.distance(mi: km / 1.609344, spoken: true)).")
         }
-        if driving, let kph = summary.speedKph { parts.append("Speed \(NowFormat.speed(mph: kph / 1.609344, spoken: true)).") }
-        if charging {
+        let slot = self.slot
+        if driving, slot == nil, let kph = summary.speedKph { parts.append("Speed \(NowFormat.speed(mph: kph / 1.609344, spoken: true)).") }
+        if charging, slot == nil {
             if let kw = summary.chargePowerKw { parts.append("\(NowFormat.oneDecimal(kw)) kilowatts.") }
             if let e = summary.chargeEta {
                 parts.append(e.source == .truck ? "\(ChartMath.spokenMinutes(Double(e.minutes))) left." : "About \(ChartMath.spokenMinutes(Double(e.minutes))) left, an estimate.")
@@ -386,11 +415,13 @@ struct NowCard: View {
                 parts.append("Cost so far, \(NowFormat.spokenCost(cost)).")
             }
         }
-        if driving, let d = liveDrive, d.distanceMi > 0 {
+        if driving, slot == nil, let d = liveDrive, d.distanceMi > 0 {
             parts.append("Trip so far, \(NowFormat.distance(mi: d.distanceMi, spoken: true)).")
             if d.distanceMi >= 1, d.energyUsedKwh > 0, d.miPerKwh > 0 { parts.append("\(NowFormat.efficiency(miPerKwh: d.miPerKwh, spoken: true)).") }
         }
-        if let temp = summary.outsideTempC {
+        // The slot's own words, from the figures it shows; the parked slot's weather replaces the outside temperature.
+        if let slot { parts.append(slot.spoken) }
+        if let temp = summary.outsideTempC, !(slot?.isParked ?? false) {
             parts.append("\(NowComfort.wholeDegrees(celsius: temp, spoken: true)) outside.")
         }
         if let install = summary.liveInstall { parts.append(install.nowLine + ".") }

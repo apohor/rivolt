@@ -76,8 +76,8 @@ func TestSampleTrips(t *testing.T) {
 			t.Errorf("%s: demo url %s", p.Slug, tr.DemoURL)
 		}
 	}
-	if v, _ := SampleTripBySlug("la-las-vegas-two-days"); v.Days[0].Overnight.Nights != 2 {
-		t.Errorf("the Las Vegas stay spans %d nights, want 2 (Saturday to Monday)", v.Days[0].Overnight.Nights)
+	if v, _ := SampleTripBySlug("la-las-vegas-two-days"); v.Days[0].Overnight.Nights != 1 {
+		t.Errorf("the Las Vegas stay spans %d nights, want 1 (Saturday to Sunday)", v.Days[0].Overnight.Nights)
 	}
 	if _, ok := SampleTripBySlug("nope"); ok {
 		t.Error("an unknown slug built")

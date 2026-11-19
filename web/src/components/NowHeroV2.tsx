@@ -107,7 +107,7 @@ export default function NowHeroV2({
       : null;
   // With the charging or driving slot the context is in the slot itself; the parked slot keeps the full-charge line and takes the outside
   // temperature into its weather row.
-  const parkedSlot = stateSlot != null && (view.kind === "parked" || view.kind === "plugged");
+  const parkedSlot = stateSlot != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
   const subline = stateSlot && !parkedSlot ? null : charging
     ? view.limitPct != null
       ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ≈ ${dist(atLimit)} when done` : ""}`
@@ -120,9 +120,9 @@ export default function NowHeroV2({
       ? formatTemperature(ambient.temp_c, temperatureUnit)
       : null;
   // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
-  // Design "plug_anim": the side-charging picture whenever the cable is in.
+  // Design "plug_anim": the plug badge whenever the cable is in; the picture stays the whole truck.
   const plugPicture = useDesignPreview("plug_anim");
-  const carUrl = pickImageForNow(images, charging ? "charging" : view.kind, light, view.powerKw, plugPicture);
+  const carUrl = pickImageForNow(images, view.kind, light);
   // A Rivian image that fails to load (moved or blocked) gives way to the drawn truck instead of a broken picture.
   const [failedUrl, setFailedUrl] = useState("");
   const [info, setInfo] = useState(false);

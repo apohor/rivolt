@@ -63,7 +63,11 @@ for (const cut of [false, true]) test(`@webkit phone: the map ends just under th
   await expect(page.locator("main h1")).toBeHidden();
   await settled(page, ["[data-plan-area='map']", "[data-plan-sheet]"]);
   const gap = () => page.evaluate(() => Math.round(document.querySelector("[data-plan-area='map']")!.getBoundingClientRect().top - document.querySelector("header.sticky")!.getBoundingClientRect().bottom));
-  await expect.poll(gap, { timeout: 3000 }).toBeGreaterThanOrEqual(6);
+  // The page is put right once the scroll comes to rest, so wait for the final gap itself: the smooth scroll passes through larger gaps on the
+  // way (84 px was seen on a busy runner), and a lower bound alone passed on one of those and then failed the upper bound.
+  await expect.poll(async () => { const g = await gap(); return g >= 6 && g <= 10 ? "under the top bar" : `gap ${g}px`; }, { timeout: 5000 }).toBe("under the top bar");
+  await page.waitForTimeout(500);
+  expect(await gap()).toBeGreaterThanOrEqual(6);
   expect(await gap()).toBeLessThanOrEqual(10);
   await ctx.close();
 });

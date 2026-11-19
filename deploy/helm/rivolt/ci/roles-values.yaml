@@ -13,6 +13,9 @@ roles:
   enabled: true
   ingest:
     replicaCount: 2
+    # A drive-wait drain: the grace period outlasts the cap, and the old pods that stay up for it count toward the pool budget.
+    terminationGracePeriodSeconds: 981
+    terminatingPods: 2
     env:
       RIVOLT_OIDC_PROVIDERS: ""
   api:
@@ -31,11 +34,12 @@ roles:
       RIVOLT_OIDC_EXAMPLE_CLIENT_SECRET: [api]
 dbConnections:
   systemMaxConns: 5
+  budget: 50
 config:
   baseUrl: https://rivolt.example.test
   oidc:
     providers: example
-  replicaDivisor: "8"
+  replicaDivisor: "10"
 extraEnvFrom:
   - secretRef:
       name: archive-credentials

@@ -1268,7 +1268,7 @@ func New(d Deps) http.Handler {
 			}))
 			// The destination of the trip in progress (memory only, owner-pod; the user's live_destination flag, else 404). The flag gate comes
 			// first so a user with the flag off costs nothing and sees the same 404 as an unknown path.
-			r.With(requireLiveDestinationMW(func(uid uuid.UUID) bool { return d.Flags.LiveDestination().Enabled(uid.String()) }), ls.user("live-destination", 30).Middleware, vehicleScoped, vehicleGate).Get("/live-destination/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(requireLiveDestinationMW(func(uid uuid.UUID) bool { return d.Flags.LiveDestination().Enabled(uid.String()) }), ls.user("live-destination", 60).Middleware, vehicleScoped, vehicleGate).Get("/live-destination/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleLiveDestination(clientFor(d, uid), monitorFor(d, uid), d.stateForward(uid))(w, r)
 			}))
 			r.With(vehicleScoped, vehicleGate).Get("/live-drive/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
@@ -1551,9 +1551,9 @@ func New(d Deps) http.Handler {
 						return map[string]any{"all": f.StatementEmail().All, "users_count": len(f.StatementEmail().Users)}
 					})})).
 					Put("/flags/statement-email", handleFlagsStatementEmailPut(d.Flags))
-				r.With(audit(auditSpec{action: "flag.live_destination", targetType: "flag", targetID: "live_destination", custom: usersCount,
+				r.With(audit(auditSpec{action: "flag.live_destination", targetType: "flag", targetID: "live_destination", keys: []string{"all"}, custom: usersCount,
 					before: flagBefore(func(f *flags.Store) map[string]any {
-						return map[string]any{"users_count": len(f.LiveDestination().Users)}
+						return map[string]any{"all": f.LiveDestination().All, "users_count": len(f.LiveDestination().Users)}
 					})})).
 					Put("/flags/live-destination", handleFlagsLiveDestinationPut(d.Flags))
 				r.Get("/signup-cap", handleSignupCapGet(d.Flags, d.SystemDB))

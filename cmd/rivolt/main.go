@@ -574,6 +574,7 @@ func runServer() {
 	// appMetrics owns the Prometheus registry. Built before the request pool (its no-user counter), the rivian client
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
+	api.SetNavRoutePrecisionObserver(func(result string) { appMetrics.NavRoutePrecisionTotal.WithLabelValues(result).Inc() })
 	// The chart's image tag, projected by the chart (the file /api/health reads); empty off-cluster, then the stamp stands in.
 	podTag, _ := os.ReadFile("/etc/podinfo/image-tag")
 	appMetrics.SetBuildInfo(strings.TrimSpace(string(podTag)), version)
@@ -4004,6 +4005,14 @@ func (s *sleepMetrics) OnNavDecode(topic, result string) {
 		return
 	}
 	s.m.NavDecodeTotal.WithLabelValues(topic, result).Inc()
+}
+
+// OnNavRange implements rivian.NavRangeObserver. topic and field come from fixed sets.
+func (s *sleepMetrics) OnNavRange(topic, field string) {
+	if s == nil || s.m == nil {
+		return
+	}
+	s.m.NavRangeTotal.WithLabelValues(topic, field).Inc()
 }
 
 // OnNavCleared implements rivian.NavObserver.

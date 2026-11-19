@@ -28,7 +28,10 @@ export type SlotInput = {
   tempUnit?: TemperatureUnit;
   // A saved place the truck is at ("Home"), shown on the map; none otherwise.
   placeLabel?: string | null;
+  // While asleep: when this sleep began and the seconds asleep today, shown under the map.
+  asleep?: SlotAsleep | null;
 };
+export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
 export type SlotWeather = { temp_c: number; condition?: string; wind_kph?: number; rain_next3h_mm?: number };
 
@@ -94,9 +97,43 @@ export function slotStats(i: SlotInput): Stat[] {
   return out;
 }
 
+// A sleeping truck is parked too: the map at its last fix is the most useful thing to show then.
+const isParkedKind = (k: string) => k === "parked" || k === "plugged" || k === "asleep";
+
+// The map's fix: the server's own point, else the live state's, else the server's last recorded position. A zero or non-finite pair is no fix.
+export function pickFix(location: SlotFix | null | undefined, lat: number, lon: number, last: SlotFix | null | undefined): SlotFix | null {
+  const ok = (p: { lat: number; lon: number } | null | undefined): p is SlotFix => p != null && Number.isFinite(p.lat) && Number.isFinite(p.lon) && (p.lat !== 0 || p.lon !== 0);
+  if (ok(location)) return { lat: location.lat, lon: location.lon };
+  if (ok({ lat, lon })) return { lat, lon };
+  return ok(last) ? { lat: last.lat, lon: last.lon } : null;
+}
+
+// "Asleep for 2 h 15 min" and "Asleep today 18 h 40 min", each only when the server sent it.
+export function asleepFigures(a: SlotAsleep | null | undefined, nowMs: number): { k: string; v: string }[] {
+  const out: { k: string; v: string }[] = [];
+  const since = a?.since ? Date.parse(a.since) : NaN;
+  if (Number.isFinite(since) && nowMs >= since) out.push({ k: "Asleep for", v: timeLeft((nowMs - since) / 3_600_000) });
+  if (a?.todayS != null && a.todayS >= 0) out.push({ k: "Asleep today", v: timeLeft(a.todayS / 3600) });
+  return out;
+}
+
+// A truck whose newest frame says asleep keeps its slot past the stale (30 min) and offline (45 min) limits: sleeping for hours is normal under
+// the sleep gate, and its position does not change. Past the offline limit the view's kind reads "offline", so the slot reads it as asleep.
+export function slotView(v: NowView): NowView {
+  return v.kind === "offline" && v.sleeping ? { ...v, kind: "asleep" } : v;
+}
+
+// Whether the Now card shows the slot: an asleep truck always (when it has a fix); every other state only while its frame is live.
+export function slotShown(v: NowView, fix: SlotFix | null): boolean {
+  const sv = slotView(v);
+  const sleepy = sv.kind === "asleep" || (sv.kind === "plugged" && sv.sleeping);
+  if (!sleepy && (v.kind === "offline" || v.stale)) return false;
+  return slotAvailable(sv, fix);
+}
+
 // Whether the slot has its big figure (or, parked, a map to draw); when not, the picture stays.
 export function slotAvailable(v: NowView, fix: SlotFix | null = null): boolean {
-  return (v.kind === "charging" && v.powerKw != null) || (v.kind === "driving" && v.speedMph != null) || ((v.kind === "parked" || v.kind === "plugged") && fix != null);
+  return (v.kind === "charging" && v.powerKw != null) || (v.kind === "driving" && v.speedMph != null) || (isParkedKind(v.kind) && fix != null);
 }
 
 const CONDITIONS: Record<string, string> = {
@@ -176,12 +213,23 @@ function Chip({ children, tone, testid }: { children: React.ReactNode; tone: "gr
 const ROOT = "pointer-events-none relative mt-4 w-full min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mt-0 min-[900px]:self-start min-[900px]:border-t-0 min-[900px]:pt-0";
 
 // Parked or plugged in: where the truck is on the map, then the weather there as one row (temperature and sky left, wind and rain right).
-function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel }: { fix: SlotFix; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string; nowMs: number; placeLabel: string | null }) {
+function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, asleep }: { fix: SlotFix; asleep: SlotAsleep | null; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string; nowMs: number; placeLabel: string | null }) {
   const hour = new Date(nowMs).getHours();
   const w = weather ? weatherView(weather, tempUnit, unit, hour >= 6 && hour < 20) : null;
+  const sleepFigures = kind === "asleep" ? asleepFigures(asleep, nowMs) : [];
   return (
     <div data-testid="now-slot" data-kind={kind} className={ROOT}>
       <ParkedMap lat={fix.lat} lon={fix.lon} label={placeLabel} caption={inDemo() ? "Sample map, not a real location" : null} />
+      {sleepFigures.length > 0 && (
+        <div data-testid="now-slot-asleep" className="mt-3 grid grid-cols-2 gap-x-4">
+          {sleepFigures.map((f) => (
+            <div key={f.k} data-testid={`now-slot-${f.k.toLowerCase().replace(/ /g, "-")}`}>
+              <p className="ui-label">{f.k}</p>
+              <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">{f.v}</p>
+            </div>
+          ))}
+        </div>
+      )}
       {w && (
         <div data-testid="now-slot-weather" className="mt-3 flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
@@ -205,7 +253,7 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel }: {
 export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
   if (!slotAvailable(view, i.fix ?? null)) return null;
-  if (view.kind === "parked" || view.kind === "plugged") return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} />;
+  if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} asleep={i.asleep ?? null} />;
   const stats = slotStats(i);
   let big = "";
   let bigUnit = "";

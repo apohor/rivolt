@@ -1,6 +1,6 @@
 // LiveDriveMap: the drive in progress on the self-hosted basemap (design_preview "live_v2"): the trail since the drive's start and the truck's
 // dot at its latest fix. The map is made once; each new batch of points replaces the trail in place and eases the camera after the truck when it
-// nears the edge. Once the person pans or zooms, the camera stays where they put it until "Follow the truck" is pressed. MapLibre loads as its
+// nears the edge (with a destination it keeps the truck and the pin in frame instead). Once the person pans or zooms, the camera stays where they put it until "Follow the truck" is pressed. MapLibre loads as its
 // own chunk (loader.ts); without WebGL it says so (the figures beside it are unaffected).
 import { useEffect, useRef, useState } from "react";
 import type { Map as MLMap, Marker } from "maplibre-gl";
@@ -73,7 +73,7 @@ export function LiveDriveMap({ points, destination = null, height = 280 }: { poi
           drawn.markDrawn();
           // The planned route goes under the trail, the pin on top; with no destination both are gone.
           const d = dest.current;
-          setDestinationRoute(map, d ? d.route : [], map.getLayer("rivolt-track-glow") ? "rivolt-track-glow" : firstLabelLayer(map));
+          setDestinationRoute(map, d ? d.route : [], flavor, map.getLayer("rivolt-track-glow") ? "rivolt-track-glow" : firstLabelLayer(map));
         }
         const d = dest.current;
         if (d && Number.isFinite(d.lat) && Number.isFinite(d.lon)) {
@@ -95,6 +95,17 @@ export function LiveDriveMap({ points, destination = null, height = 280 }: { poi
           if (b && box.clientWidth > 0) map.fitBounds(b, { padding: 48, maxZoom: 16, animate: false });
           else map.jumpTo({ center: [here.lon, here.lat], zoom: 15 });
           framed = true;
+          return;
+        }
+        // With a destination the frame stays on the truck and the pin together (until the person pans): re-fit when either has left the view, so the
+        // pin is not left off-frame by the truck's easing.
+        if (d && Number.isFinite(d.lat) && Number.isFinite(d.lon)) {
+          const view = map.getBounds();
+          if (!view.contains([here.lon, here.lat]) || !view.contains([d.lon, d.lat])) {
+            // The truck, the planned route and the pin, not the trail: on a long drive the whole trail would zoom out and never come back in.
+            const b = boundsOf([[here.lat, here.lon], ...d.route, [d.lat, d.lon]]);
+            if (b && box.clientWidth > 0) map.fitBounds(b, { padding: 48, maxZoom: 16, duration: 600 });
+          }
           return;
         }
         // Ease after the truck once it leaves the middle of the map.

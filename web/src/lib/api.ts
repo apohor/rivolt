@@ -725,6 +725,11 @@ export type NowSnapshot = {
   } | null;
   // The demo user's public sample point (the demo has no vehicle fix of its own); never sent for real accounts.
   location?: { lat: number; lon: number };
+  // The truck's newest recorded position (own vehicle only; null when there is none): the map's fix while the live state has none, as when asleep.
+  last_fix?: { lat: number; lon: number; at: string } | null;
+  // Only while asleep: when the current sleep began, and the seconds asleep since local midnight (this sleep included).
+  asleep_since?: string | null;
+  asleep_today_s?: number | null;
 };
 export type DemoInfo = { enabled: boolean; vehicle_id: string; home_label: string };
 
@@ -1761,8 +1766,8 @@ export const backend = {
     ),
   adminFlagsStatementEmailPut: (all: boolean, users: string[]) =>
     api.put<{ statement_email: AudienceFlag }>("/api/admin/flags/statement-email", { all, users }),
-  adminFlagsLiveDestinationPut: (users: string[]) =>
-    api.put<{ live_destination: AudienceFlag }>("/api/admin/flags/live-destination", { users }),
+  adminFlagsLiveDestinationPut: (all: boolean, users: string[]) =>
+    api.put<{ live_destination: AudienceFlag }>("/api/admin/flags/live-destination", { all, users }),
   adminFlagsAICallCapPut: (dailyLimit: number) =>
     api.put<{ ai_call_cap: { daily_limit: number; actor?: string } }>("/api/admin/flags/ai-call-cap", { daily_limit: dailyLimit }),
   // Admin audit log (newest first). `next_before` pages: pass it back as `before`.

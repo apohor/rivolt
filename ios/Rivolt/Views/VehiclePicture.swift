@@ -41,11 +41,10 @@ enum VehiclePicture {
         #endif
     }
 
-    /// Now: actively charging (power flowing) shows the plugged side view, driving the side view, otherwise the three-quarter view.
-    /// Rivian's side-charging art is a cropped close-up, so a plugged-in truck that draws nothing keeps the three-quarter one.
-    /// With `plugPicture` (design_preview plug_anim) any plugged-in state shows the side-charging view, power flowing or not.
+    /// Now: driving shows the side view, every other state the three-quarter view. Rivian's side-charging art is a cropped close-up of the
+    /// front half, which read as a picture cut off at the right (#2249), so it is never chosen here; the plugged-in state is the plug badge
+    /// and glow (`PlugPicture`) on the whole truck. `powerKw` and `plugPicture` stay in the signature for the callers.
     static func forNow(_ images: [VehicleImage]?, kind: NowSnapshot.State, powerKw: Double?, light: Bool, plugPicture: Bool = false) -> URL? {
-        let charging = (kind == .charging && (powerKw ?? 0) > 0) || (plugPicture && (kind == .charging || kind == .plugged))
-        return pick(images, wants: charging ? ["side-charging"] : kind == .driving ? ["side"] : [], light: light)
+        pick(images, wants: kind == .driving ? ["side"] : [], light: light)
     }
 }

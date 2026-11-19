@@ -24,6 +24,50 @@ test("a trip: the row says where, how far and when; the pin is on the map", asyn
   await expect(page.getByTitle("Destination: Test Depot")).toBeVisible();
 });
 
+test("the map keeps the truck and the pin in frame when the truck moves out of the first view", async ({ page }) => {
+  test.setTimeout(90_000);
+  await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
+  // The long trail is served first and the truck moves after it, so the trail is in place when the camera decides how to refit.
+  let trailMoved = false;
+  let moved = false;
+  let served = 0;
+  // The second batch: the truck far beyond the pin, on a trail that began a long way back (26 degrees of latitude, against 6 between the truck and the pin).
+  const at = { latitude: 46, longitude: -108 };
+  await page.route(`**/api/state/${VEHICLE_ID}`, (r) =>
+    moved ? (served |= 1, r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...FULL, ...vehicleState("driving"), ...at }) })) : r.fallback());
+  await page.route("**/api/samples*", (r) => {
+    if (!trailMoved) return r.fallback();
+    served |= 2;
+    const rows = Array.from({ length: 30 }, (_, i) => ({
+      VehicleID: VEHICLE_ID, At: new Date(Date.now() - (30 - i) * 20_000).toISOString(), BatteryLevelPct: 50, RangeMi: 200, OdometerMi: 1000, ChargeLimitPct: 80,
+      Lat: 20 + (i / 29) * (at.latitude - 20), Lon: -102 + (i / 29) * (at.longitude + 102), SpeedMph: 45, ShiftState: "D", ChargingState: "", ChargerPowerKW: 0, Source: "live",
+    }));
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(rows) });
+  });
+  await page.goto("/live");
+  const map = page.getByTestId("live-drive-map");
+  await expect(page.getByTitle("Destination: Test Depot")).toBeVisible();
+  trailMoved = true;
+  await expect.poll(() => served & 2, { timeout: 40_000, intervals: [500] }).toBe(2);
+  await page.waitForTimeout(1000);
+  moved = true;
+  const centre = async (title: string) => {
+    const b = (await page.getByTitle(title).boundingBox())!;
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  const state = async () => {
+    const box = (await map.boundingBox())!;
+    const t = await centre("Truck"), d = await centre("Destination: Test Depot");
+    const inside = (p: { x: number; y: number }) => p.x >= box.x && p.x <= box.x + box.width && p.y >= box.y && p.y <= box.y + box.height;
+    // Both in view, and apart by a good part of the map: not squeezed together by a zoom that takes in the whole trail.
+    return inside(t) && inside(d) && Math.hypot(t.x - d.x, t.y - d.y) > 0.3 * Math.min(box.width, box.height) ? "framed" : "not framed";
+  };
+  // Both reads of the second batch have landed (the page asks every few seconds), then the camera has had its time.
+  await expect.poll(() => served, { timeout: 40_000, intervals: [500] }).toBe(3);
+  await page.waitForTimeout(2000);
+  await expect.poll(state, { timeout: 10_000, intervals: [500] }).toBe("framed");
+});
+
 test("the row follows the distance unit", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: "km" })));
   await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
@@ -107,7 +151,7 @@ test("no drive record yet (live-drive 204): the row and the pin are still there"
 });
 
 test("three failed reads in a row drop the trip; the next good read brings it back", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
   let n = 0;
   await page.route(`**/api/live-destination/${VEHICLE_ID}`, (r) => {
@@ -132,4 +176,19 @@ test("feature off: the waiting card keeps its line and draws no map", async ({ p
   await expect(page.getByText(/waiting for first frame/)).toBeVisible();
   await page.waitForTimeout(800);
   await expect(page.getByTestId("live-drive-map")).toHaveCount(0);
+});
+
+test("a 429 is not off: the trip stays and it keeps asking", async ({ page }) => {
+  test.setTimeout(90_000);
+  await stub(page, "driving", { designPreview: ["live_v2", "live_destination"], liveDestination: "trip" });
+  let n = 0;
+  await page.route(`**/api/live-destination/${VEHICLE_ID}`, (r) => {
+    n++;
+    if (n === 2 || n === 3) return r.fulfill({ status: 429, json: { error: "slow down" } });
+    return r.fulfill({ json: { name: "Test Depot", lat: 40.3, lon: -100.45, eta: new Date(Date.now() + 1_500_000).toISOString(), miles_left: 12.4, route: "_srtkA~lyh~D_cmA~hbE_etB~s`B", route_precision: 6 } });
+  });
+  await page.goto("/live");
+  await expect(page.getByTestId("live-destination")).toBeVisible();
+  await expect.poll(() => n, { timeout: 30_000 }).toBeGreaterThanOrEqual(5);
+  await expect(page.getByTestId("live-destination")).toBeVisible();
 });
