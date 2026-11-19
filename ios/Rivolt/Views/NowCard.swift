@@ -194,10 +194,11 @@ struct NowCard: View {
     private func car(maxHeight: CGFloat) -> some View {
         AsyncImage(url: carURL) { phase in
             if let image = phase.image {
-                image.resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
+                image.resizable().scaledToFit().frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Ideal width 0: the picture takes the room it is given and never decides the ring-beside-range fit by its natural width.
+        .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
         .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
     }
 
