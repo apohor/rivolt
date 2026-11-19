@@ -96,12 +96,17 @@ struct NowCard: View {
         let sessionRows = slot == nil || slot?.isParked == true
         let showRows = (driving && sessionRows) || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || (chargingRowsV2 && sessionRows)
         return VStack(alignment: .leading, spacing: 12) {
-            if tidy, let chip {
-                HStack(alignment: .center, spacing: 8) {
+            if tidy, let chip = tidyChip {
+                // Beside the chip when both fit on one line; on their own rows when the text is large or the chip long, so the word never wraps or goes.
+                let stacked = Self.tidyHeaderStacked(chip: chip, accessibilitySize: typeSize.isAccessibilitySize)
+                let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
+                layout {
                     ThemePill(text: chip, tone: chipTone, identifier: "now-chip", oneLine: true).layoutPriority(1)
-                    if let onLive { liveButton(onLive, compact: chip.count > 22 && !typeSize.isAccessibilitySize) } else { Spacer(minLength: 0) }
+                    if let onLive {
+                        if stacked { liveButton(onLive) } else { HStack(spacing: 0) { Spacer(minLength: 0); liveButton(onLive) } }
+                    } else if !stacked { Spacer(minLength: 0) }
                 }
-            } else if let onLive { liveButton(onLive) }
+            } else if let onLive { HStack { Spacer(minLength: 0); liveButton(onLive) } }
             VStack(alignment: .leading, spacing: 12) {
                 heroGaugeV2(pictureShown: slot == nil)
                 if tidy, driving, isLive, let destination, destination.hasFix {
@@ -126,27 +131,37 @@ struct NowCard: View {
         .themeHero(live: liveKind, critical: critical)
     }
 
-    /// The pill that opens Live: a bordered button with a pulse dot while charging or driving, as the web's.
-    /// `compact` drops the word (the status chip beside it is long); the button keeps its label for VoiceOver.
-    private func liveButton(_ action: @escaping () -> Void, compact: Bool = false) -> some View {
-        HStack {
-            Spacer(minLength: 0)
-            Button(action: action) {
-                HStack(spacing: 8) {
-                    if (charging || driving) && isLive { Circle().fill(Theme.accent).frame(width: 8, height: 8) }
-                    if !compact { Text("Live").font(Theme.sans(ThemeTokens.typeSubline, .medium, relativeTo: .footnote)).foregroundStyle(Theme.textPrimary) }
-                    Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.textSecondary)
-                }
-                .padding(.horizontal, 16).frame(minWidth: 44, minHeight: 44)
-                .background(Theme.card, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.borderStrong, lineWidth: 1))
-                .contentShape(Capsule())
+    /// The status chip with the key on. While the charging card is shown it carries the power and the finish time, so the chip is just the state.
+    private var tidyChip: String? {
+        Self.tidyChip(chip, kind: summary.kind, chargingCardShown: slot != nil)
+    }
+
+    static func tidyChip(_ chip: String?, kind: NowSnapshot.State, chargingCardShown: Bool) -> String? {
+        guard let chip else { return nil }
+        return kind == .charging && chargingCardShown ? "Charging" : chip
+    }
+
+    /// The chip and the Live button take two rows at accessibility sizes or when the chip is long; otherwise they share one.
+    static func tidyHeaderStacked(chip: String, accessibilitySize: Bool) -> Bool { accessibilitySize || chip.count > 22 }
+
+    /// The pill that opens Live: a bordered button with a pulse dot while charging or driving, as the web's. The word stays on one line.
+    private func liveButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if (charging || driving) && isLive { Circle().fill(Theme.accent).frame(width: 8, height: 8) }
+                Text("Live").font(Theme.sans(ThemeTokens.typeSubline, .medium, relativeTo: .footnote)).foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.textSecondary)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Live")
-            .accessibilityHint("Opens the live telemetry")
-            .accessibilityIdentifier("now-live-link")
+            .padding(.horizontal, 16).frame(minWidth: 44, minHeight: 44)
+            .background(Theme.card, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.borderStrong, lineWidth: 1))
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Live")
+        .accessibilityHint("Opens the live telemetry")
+        .accessibilityIdentifier("now-live-link")
     }
 
     /// Charging to the limit and what that buys, or the user's own full-charge range; as the web's hero.

@@ -80,6 +80,65 @@ final class NowCardSnapshotTests: XCTestCase {
         try snapshot("places", PlacesCard(split: split, periodTitle: "Oct 2026"))
     }
 
+    /// With ios_now_tidy the charging card carries the power and the finish time, so the chip is just the state; other states keep their text.
+    func testTidyChipIsJustTheStateWhileTheChargingCardIsShown() {
+        let long = "Charging · 149 kW · done by 8:55 AM"
+        XCTAssertEqual(NowCard.tidyChip(long, kind: .charging, chargingCardShown: true), "Charging")
+        XCTAssertEqual(NowCard.tidyChip(long, kind: .charging, chargingCardShown: false), long, "no card, the chip keeps the figures")
+        XCTAssertEqual(NowCard.tidyChip("Driving · 100 km/h", kind: .driving, chargingCardShown: true), "Driving · 100 km/h")
+        XCTAssertNil(NowCard.tidyChip(nil, kind: .charging, chargingCardShown: true))
+    }
+
+    /// Accessibility text sizes and long chips put the Live button on its own row, so its word is never squeezed.
+    func testTidyHeaderStacksAtAccessibilitySizesAndForLongChips() {
+        for chip in ["Charging", "Driving · 100 km/h"] {
+            XCTAssertFalse(NowCard.tidyHeaderStacked(chip: chip, accessibilitySize: false), chip)
+            XCTAssertTrue(NowCard.tidyHeaderStacked(chip: chip, accessibilitySize: true), chip)
+        }
+        XCTAssertTrue(NowCard.tidyHeaderStacked(chip: "Asleep · since 10:30 PM", accessibilitySize: false))
+    }
+
+    /// The tidy hero with the key on, charging and driving, on a 320 pt and a 430 pt phone at the default and the largest accessibility text size:
+    /// it renders whole (no zero or runaway height). The header never shows the Live word split or the chip twice (see the two tests above).
+    func testRenderTidyAtAccessibilitySizes() throws {
+        let (st, now) = (try Fixture.decode(VehicleState.self, "state"), try Fixture.decode(NowSnapshot.self, "now_v1"))
+        let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]
+        let at = try XCTUnwrap(now.at)
+        let clock = at.addingTimeInterval(120)
+        let charging = NowSummary(state: st, now: now, clock: clock)
+        let driving = NowSummary(input: NowSummary.Input(socPct: 64, rangeKm: 280, chargeTargetPct: 80, gear: "D", powerState: "go", chargerState: "charger_disconnected",
+                                                         chargerPowerKw: 0, at: at, speedKph: 100), now: nil, clock: at.addingTimeInterval(15))
+        let place = try JSON.decoder().decode(LiveDestination.self, from: Data(#"{"name":"Riverside Community Medical Center and Outpatient Pavilion","lat":10.02,"lon":10.03,"eta":"2027-01-15T09:40:00Z","miles_left":12.4}"#.utf8))
+        let cases: [(String, NowSummary, Date)] = [("charging", charging, clock), ("driving", driving, at.addingTimeInterval(15))]
+        // The destination block (the map under it needs the app's state, so the block alone): a long name wraps whole beside no clipped figure.
+        for (width, size) in [(320.0, DynamicTypeSize.large), (320, .accessibility3), (430, .accessibility3)] {
+            let r = ImageRenderer(content: NowDestinationBlock(destination: place).environment(\.dynamicTypeSize, size).padding().frame(width: width))
+            r.scale = 2
+            let img = try XCTUnwrap(r.uiImage)
+            XCTAssertGreaterThan(img.size.height, 40)
+            if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty, let png = img.pngData() {
+                try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("tidy-destblock-\(Int(width))-\(size.isAccessibilitySize ? "ax3" : "large").png"))
+            }
+        }
+        for (name, summary, when) in cases {
+            for (width, size, label) in [(320.0, DynamicTypeSize.large, "se"), (320, .accessibility3, "se-ax3"), (430, .accessibility3, "max-ax3")] {
+                let chip = try XCTUnwrap(NowChip.text(for: summary, clock: when) as String?)
+                let card = NowCard(vehicle: vehicle, summary: summary, clock: when, v2: true, onLive: {}, slotOn: true, snapshot: now, tidy: true, chip: chip, chipTone: .live)
+                    .environment(\.dynamicTypeSize, size)
+                let renderer = ImageRenderer(content: card.padding().frame(width: width).background(Color(.systemGroupedBackground)))
+                renderer.scale = 2
+                let image = try XCTUnwrap(renderer.uiImage, "\(name) \(label) did not render")
+                XCTAssertGreaterThan(image.size.height, 150, "\(name) \(label)")
+                XCTAssertLessThan(image.size.height, 4000, "\(name) \(label)")
+                if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty, let png = image.pngData() {
+                    try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+                    try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("tidy-\(name)-\(label).png"))
+                }
+            }
+        }
+    }
+
     private func snapshot(_ name: String, _ card: some View) throws {
         for scheme in [ColorScheme.light, .dark] {
             let view = card
