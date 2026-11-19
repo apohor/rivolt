@@ -99,21 +99,24 @@ final class NowCardSnapshotTests: XCTestCase {
         let charging = NowSummary(state: st, now: now, clock: clock)
         let driving = NowSummary(input: NowSummary.Input(socPct: 64, rangeKm: 280, chargeTargetPct: 80, gear: "D", powerState: "go", chargerState: "charger_disconnected",
                                                          chargerPowerKw: 0, at: at, speedKph: 100), now: nil, clock: at.addingTimeInterval(15))
+        let parked = NowSummary(input: NowSummary.Input(socPct: 64, rangeKm: 280, chargeTargetPct: 80, gear: "P", powerState: "ready", chargerState: "charger_disconnected",
+                                                        chargerPowerKw: 0, at: at), now: nil, clock: at.addingTimeInterval(15))
         let place = try JSON.decoder().decode(LiveDestination.self, from: Data(#"{"name":"Riverside Community Medical Center and Outpatient Pavilion","lat":10.02,"lon":10.03,"eta":"2027-01-15T09:40:00Z","miles_left":12.4}"#.utf8))
-        let cases: [(String, NowSummary, Date)] = [("charging", charging, clock), ("driving", driving, at.addingTimeInterval(15)), ("driving-22", driving, at.addingTimeInterval(15))]
+        let cases: [(String, NowSummary, Date)] = [("charging", charging, clock), ("driving", driving, at.addingTimeInterval(15)), ("driving-22", driving, at.addingTimeInterval(15)), ("parked", parked, at.addingTimeInterval(15))]
         // The destination block (the map under it needs the app's state, so the block alone): a long name wraps whole beside no clipped figure.
-        for (width, size) in [(320.0, DynamicTypeSize.large), (320, .accessibility3), (430, .accessibility3)] {
+        for (width, size) in [(320.0, DynamicTypeSize.large), (320, .xxxLarge), (320, .accessibility3), (430, .accessibility3)] {
             let r = ImageRenderer(content: NowDestinationBlock(destination: place).environment(\.dynamicTypeSize, size).padding().frame(width: width))
             r.scale = 2
             let img = try XCTUnwrap(r.uiImage)
             XCTAssertGreaterThan(img.size.height, 40)
             if let dir = ProcessInfo.processInfo.environment["SNAPSHOT_DIR"], !dir.isEmpty, let png = img.pngData() {
                 try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-                try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("tidy-destblock-\(Int(width))-\(size.isAccessibilitySize ? "ax3" : "large").png"))
+                try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("tidy-destblock-\(Int(width))-\(size).png"))
             }
         }
         for (name, summary, when) in cases {
-            for (width, size, label) in [(320.0, DynamicTypeSize.large, "se"), (320, .xxxLarge, "se-xxxl"), (320, .accessibility3, "se-ax3"), (430, .accessibility3, "max-ax3")] {
+            for (width, size, label) in [(320.0, DynamicTypeSize.large, "se"), (320, .xxxLarge, "se-xxxl"), (320, .accessibility3, "se-ax3"),
+                                             (430, .large, "max"), (430, .xxxLarge, "max-xxxl"), (430, .accessibility3, "max-ax3")] {
                 // A 22-character chip ("Asleep · since 9:30 PM") is the width that crushed the Live button at xxxLarge: the header must fall back to two rows.
                 let chip = name == "driving-22" ? "Asleep · since 9:30 PM" : try XCTUnwrap(NowChip.text(for: summary, clock: when) as String?)
                 let card = NowCard(vehicle: vehicle, summary: summary, clock: when, v2: true, onLive: {}, slotOn: true, snapshot: now, tidy: true, chip: chip, chipTone: .live)

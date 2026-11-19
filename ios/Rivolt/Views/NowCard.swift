@@ -205,29 +205,34 @@ struct NowCard: View {
 
     @ViewBuilder
     private func heroGaugeV2(pictureShown: Bool) -> some View {
+        // The ring beside the range when both fit whole; the ring above the range otherwise (large text, a narrow phone): the figure is never cut.
+        let stacked = VStack(alignment: .leading, spacing: 8) {
+            if pictureShown, carURL != nil { car(maxHeight: 72) }
+            compactGaugeColumn
+        }
         if typeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 8) {
-                if pictureShown, carURL != nil { car(maxHeight: 72) }
-                compactGaugeColumn
-            }
+            stacked
         } else {
-            HStack(alignment: .center, spacing: 16) {
-                ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
-                            .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
-                        Text("%").themeText(.value, color: Theme.textSecondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 16) {
+                    ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
+                        HStack(alignment: .firstTextBaseline, spacing: 2) {
+                            Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
+                                .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
+                            Text("%").themeText(.value, color: Theme.textSecondary)
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        if pictureShown, carURL != nil { car(maxHeight: 96) }
+                        if let km = summary.rangeKm {
+                            let range = NowFormat.usesMetric ? km : km / 1.609344
+                            (Text(NumberText.fixed(range, 0)).font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title2)).foregroundColor(Theme.textPrimary)
+                                + Text(" \(NowFormat.usesMetric ? "km" : "mi") range").font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote)).foregroundColor(Theme.textSecondary))
+                                .lineLimit(1)
+                        }
                     }
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    if pictureShown, carURL != nil { car(maxHeight: 96) }
-                    if let km = summary.rangeKm {
-                        let range = NowFormat.usesMetric ? km : km / 1.609344
-                        (Text(NumberText.fixed(range, 0)).font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title2)).foregroundColor(Theme.textPrimary)
-                            + Text(" \(NowFormat.usesMetric ? "km" : "mi") range").font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote)).foregroundColor(Theme.textSecondary))
-                            .lineLimit(1).minimumScaleFactor(0.7)
-                    }
-                }
+                stacked
             }
         }
     }
