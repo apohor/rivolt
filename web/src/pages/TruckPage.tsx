@@ -109,6 +109,7 @@ export default function TruckPage() {
         <PageHeader
           title="Truck"
           subtitle={name}
+          wrap
           actions={<VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />}
         />
         <LockedVehicleNotice name={vehicle.name || undefined} />
@@ -121,6 +122,7 @@ export default function TruckPage() {
       <PageHeader
         title="Truck"
         subtitle={name}
+        wrap
         actions={
           <>
             <PeriodPicker value={period} onChange={setPeriod} />

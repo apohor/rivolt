@@ -264,7 +264,7 @@ export default function HomePage() {
   if (lockedVehicle) {
     return (
       <div className="space-y-4" data-ui-grid="now">
-        <PageHeader title="Now" actions={<ScopeBar win={win} onWinChange={setWin} period={period} onPeriodChange={setPeriod} vehicles={vehicles.data ?? []} selectedVehicleID={activeVehicleID} onSelectVehicle={selectVehicle} />} />
+        <PageHeader title="Now" wrap actions={<ScopeBar win={win} onWinChange={setWin} period={period} onPeriodChange={setPeriod} vehicles={vehicles.data ?? []} selectedVehicleID={activeVehicleID} onSelectVehicle={selectVehicle} />} />
         <LockedVehicleNotice name={lockedVehicle.name || undefined} />
       </div>
     );
@@ -338,6 +338,7 @@ export default function HomePage() {
       {historyEmpty && <ElectraFiImportHint />}
       <PageHeader
         title="Now"
+        wrap
         actions={
           <>
           {v2 && !tidy && <div data-now-chip-slot />}
@@ -633,7 +634,7 @@ function ScopeBar({
   onSelectVehicle: (id: string) => void;
 }) {
   return (
-    <div data-ui-area="scope" className="flex flex-wrap items-center justify-end gap-2">
+    <div data-ui-area="scope" className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
       <VehiclePicker vehicles={vehicles} selectedID={selectedVehicleID} onChange={onSelectVehicle} />
       {hidePeriod ? null : period ? <PeriodPicker value={period} onChange={onPeriodChange} /> : <WindowPicker value={win} onChange={onWinChange} />}
     </div>
