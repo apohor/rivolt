@@ -41,6 +41,15 @@ final class LiveDestinationTests: XCTestCase {
         XCTAssertEqual(d.line(metric: false, arrive: arrive), "To Work: arrive 5:40 PM")
     }
 
+    func testTheTwoFiguresAreTheDistanceLeftAndTheArrival() throws {
+        let d = try decode(#"{"name":"Work","lat":10.02,"lon":10.03,"eta":"2026-11-16T17:40:00Z","miles_left":12.4}"#)
+        XCTAssertEqual(d.figures(metric: false, arrive: arrive).left, "12 mi")
+        XCTAssertEqual(d.figures(metric: true, arrive: arrive).left, "20 km")
+        XCTAssertEqual(d.figures(metric: false, arrive: arrive).arrive, "5:40 PM")
+        let unknown = try decode(#"{"name":"Work","lat":10.02,"lon":10.03,"eta":"2026-11-16T17:40:00Z"}"#)
+        XCTAssertNil(unknown.figures(metric: false, arrive: arrive).left)
+    }
+
     func testTheRouteDecodesAtPrecisionSixAndAMissingOneIsEmpty() throws {
         let pts: [(Double, Double)] = [(10, 10), (10.0123, 10.0456), (10.02, 10.03)]
         let d = try decode(#"{"name":"W","lat":10.02,"lon":10.03,"eta":"2026-11-16T17:40:00Z","route":"\#(encode6(pts).replacingOccurrences(of: "\\", with: "\\\\"))","route_precision":6}"#)

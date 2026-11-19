@@ -117,6 +117,8 @@ struct ThemePill: View {
     let text: String
     var tone: Tone = .neutral
     var identifier: String?
+    /// One line, shrunk a little before it would wrap (the Now hero's status chip beside the Live button).
+    var oneLine = false
 
     private var textColor: Color {
         switch tone {
@@ -144,6 +146,8 @@ struct ThemePill: View {
     var body: some View {
         Text(text)
             .themeText(.caption, color: textColor)
+            .lineLimit(oneLine && !typeSize.isAccessibilitySize ? 1 : nil)
+            .minimumScaleFactor(oneLine && !typeSize.isAccessibilitySize ? 0.8 : 1)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, (typeSize.isAccessibilitySize ? 3 : 2) * Theme.unit)
             .padding(.vertical, (typeSize.isAccessibilitySize ? 1.5 : 0.5) * Theme.unit)

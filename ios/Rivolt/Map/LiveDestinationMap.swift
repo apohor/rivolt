@@ -6,6 +6,7 @@ import SwiftUI
 /// route and the place are held while the screen shows them and never stored.
 struct LiveDestinationMap: View {
     let destination: LiveDestination
+    var height: CGFloat = 220
 
     @Environment(AppState.self) private var state
     @Environment(\.colorScheme) private var scheme
@@ -28,7 +29,7 @@ struct LiveDestinationMap: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 220)
+        .frame(height: height)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))

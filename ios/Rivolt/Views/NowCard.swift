@@ -33,6 +33,12 @@ struct NowCard: View {
     var home: NowSlotModel.Home?
     var gear: String?
     var driveMode: String?
+    /// The calmer hero (design_preview key ios_now_tidy): the status chip sits in the card beside the Live button, and a driving truck with a
+    /// destination shows it (the trip and the route map) here too.
+    var tidy = false
+    var chip: String?
+    var chipTone: ThemePill.Tone = .neutral
+    var destination: LiveDestination?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -90,9 +96,19 @@ struct NowCard: View {
         let sessionRows = slot == nil || slot?.isParked == true
         let showRows = (driving && sessionRows) || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || (chargingRowsV2 && sessionRows)
         return VStack(alignment: .leading, spacing: 12) {
-            if let onLive { liveButton(onLive) }
+            if tidy, let chip {
+                HStack(alignment: .center, spacing: 8) {
+                    ThemePill(text: chip, tone: chipTone, identifier: "now-chip", oneLine: true).layoutPriority(1)
+                    if let onLive { liveButton(onLive, compact: chip.count > 22 && !typeSize.isAccessibilitySize) } else { Spacer(minLength: 0) }
+                }
+            } else if let onLive { liveButton(onLive) }
             VStack(alignment: .leading, spacing: 12) {
                 heroGaugeV2(pictureShown: slot == nil)
+                if tidy, driving, isLive, let destination, destination.hasFix {
+                    Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
+                    NowDestinationBlock(destination: destination)
+                    LiveDestinationMap(destination: destination, height: 180)
+                }
                 if let slot {
                     // The rule between the gauge and the slot, as the web's.
                     Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
@@ -111,13 +127,14 @@ struct NowCard: View {
     }
 
     /// The pill that opens Live: a bordered button with a pulse dot while charging or driving, as the web's.
-    private func liveButton(_ action: @escaping () -> Void) -> some View {
+    /// `compact` drops the word (the status chip beside it is long); the button keeps its label for VoiceOver.
+    private func liveButton(_ action: @escaping () -> Void, compact: Bool = false) -> some View {
         HStack {
             Spacer(minLength: 0)
             Button(action: action) {
                 HStack(spacing: 8) {
                     if (charging || driving) && isLive { Circle().fill(Theme.accent).frame(width: 8, height: 8) }
-                    Text("Live").font(Theme.sans(ThemeTokens.typeSubline, .medium, relativeTo: .footnote)).foregroundStyle(Theme.textPrimary)
+                    if !compact { Text("Live").font(Theme.sans(ThemeTokens.typeSubline, .medium, relativeTo: .footnote)).foregroundStyle(Theme.textPrimary) }
                     Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.textSecondary)
                 }
                 .padding(.horizontal, 16).frame(minWidth: 44, minHeight: 44)

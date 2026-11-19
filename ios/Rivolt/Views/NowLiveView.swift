@@ -10,6 +10,8 @@ struct NowLiveView: View {
     /// Where the truck's navigation is going (design_preview key live_destination); nil without a trip or with the design off.
     var destination: LiveDestination?
     var charge: ChargeBrief?
+    /// The calmer layout (design_preview key ios_now_tidy): the destination is its own block with the map under it, above the drive figures.
+    var tidy = false
     var images: [VehicleImage]?
     let onBack: () -> Void
 
@@ -34,8 +36,12 @@ struct NowLiveView: View {
                     .accessibilityElement(children: .combine)
                     truck
                     energy
+                    if tidy, streaming, summary.kind == .driving, let destination, destination.hasFix {
+                        ThemeSection(title: "Destination") { NowDestinationBlock(destination: destination) }
+                        LiveDestinationMap(destination: destination)
+                    }
                     if streaming, summary.kind == .driving || liveDrive != nil { drive }
-                    if streaming, summary.kind == .driving, let destination, destination.hasFix { LiveDestinationMap(destination: destination) }
+                    if !tidy, streaming, summary.kind == .driving, let destination, destination.hasFix { LiveDestinationMap(destination: destination) }
                     if streaming, comfortRows { climate }
                 }
                 .padding(4 * Theme.unit)
@@ -89,7 +95,7 @@ struct NowLiveView: View {
 
     private var drive: some View {
         ThemeSection(title: "Drive") {
-            if streaming, summary.kind == .driving, let destination, destination.hasFix {
+            if !tidy, streaming, summary.kind == .driving, let destination, destination.hasFix {
                 Text(destination.line()).themeText(.value).fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("live-destination")
             }
             row("Speed", summary.speedKph.map { NowFormat.speed(mph: $0 / 1.609344) })

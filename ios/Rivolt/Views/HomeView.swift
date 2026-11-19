@@ -56,6 +56,8 @@ struct HomeView: View {
     @State private var destinationFailures = 0
     private var v2: Bool { state.designPreview.contains("ios_now_v2") }
     /// The state slot under the gauge (design_preview key now_slot, on the redesign): the map and weather parked, the figures charging or driving.
+    /// The calmer Now (design_preview key ios_now_tidy, with the redesign): status inside the card, the destination on Now, asks last.
+    private var tidy: Bool { v2 && state.designPreview.contains("ios_now_tidy") }
     private var slotOn: Bool { v2 && state.designPreview.contains("now_slot") }
     private var slotHome: NowSlotModel.Home? {
         guard let h = homeLocation, h.set else { return nil }
@@ -95,7 +97,8 @@ struct HomeView: View {
                                         v2: v2, images: vehicle.images, fullChargeRange: v2 ? coldRange?.fullChargeRange : nil,
                                         onLive: v2 ? { showLive = true } : nil,
                                         slotOn: slotOn, snapshot: now, truckFix: vehicleState?.coordinate, home: slotHome,
-                                        gear: vehicleState?.gear, driveMode: vehicleState?.driveMode)
+                                        gear: vehicleState?.gear, driveMode: vehicleState?.driveMode,
+                                        tidy: tidy, chip: tidy ? chipText : nil, chipTone: chipTone, destination: fresh ? liveDestination : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -103,14 +106,7 @@ struct HomeView: View {
                             }
                             // The truck comes first (battery, range, charging, status); the asks and the milestone after
                             // it, so they never push it below the fold (the scroll audit: on an SE they did).
-                            if !state.isDemo, state.notifications.shouldAskInApp {
-                                NotificationPromptCard(manager: state.notifications)
-                            }
-                            if let m = extras.current(vehicleID: vehicle.id) {
-                                MilestoneCard(milestone: m, failed: extras.dismissFailed, onShare: { sharingMilestone = m }, canHide: !state.isDemo) {
-                                    Task { await extras.dismiss(m, source: state.client) }
-                                }
-                            }
+                            if !tidy { asks(vehicle) }
                             if !state.isDemo, !v2 { threeThings }
                             if v2 {
                                 NowMonthStrip(figures: NowMonthStripFigure.make(tiles: kpiTiles(summary), metric: NowFormat.usesMetric))
@@ -123,6 +119,8 @@ struct HomeView: View {
                                 PlacesCard(split: split, periodTitle: month.title(calendar: .current))
                             }
                             ChartsSection(model: charts, month: month, limit: vehicleState?.chargeTargetPct)
+                            // The calmer Now puts the asks and the milestone last too.
+                            if tidy { asks(vehicle) }
                             // The redesign puts the three things last, after the figures and charts.
                             if !state.isDemo, v2 { threeThings }
                         }
@@ -152,7 +150,7 @@ struct HomeView: View {
                     let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
                     NowLiveView(vehicle: vehicle, summary: summary, session: summary.freshness != .stale ? session : nil,
                                 liveDrive: summary.freshness != .stale ? liveDrive : nil, destination: summary.freshness != .stale ? liveDestination : nil, charge: summary.freshness != .stale ? latestCharge : nil,
-                                images: vehicle.images) { showLive = false }
+                                tidy: tidy, images: vehicle.images) { showLive = false }
                         .toolbar(.hidden, for: .navigationBar)
                 }
             }
@@ -220,6 +218,19 @@ struct HomeView: View {
         }
     }
 
+    /// The notification ask and the milestone card.
+    @ViewBuilder
+    private func asks(_ vehicle: Vehicle) -> some View {
+        if !state.isDemo, state.notifications.shouldAskInApp {
+            NotificationPromptCard(manager: state.notifications)
+        }
+        if let m = extras.current(vehicleID: vehicle.id) {
+            MilestoneCard(milestone: m, failed: extras.dismissFailed, onShare: { sharingMilestone = m }, canHide: !state.isDemo) {
+                Task { await extras.dismiss(m, source: state.client) }
+            }
+        }
+    }
+
     /// The page title with the month stepper (and, with more than one truck, which one is shown), pinned under the top
     /// bar like the web's.
     private var titleRow: some View {
@@ -250,7 +261,7 @@ struct HomeView: View {
                     }
                     .accessibilityLabel("Switch vehicle")
                 }
-                if v2, let chip = chipText { ThemePill(text: chip, tone: chipTone, identifier: "now-chip") }
+                if v2, !tidy, let chip = chipText { ThemePill(text: chip, tone: chipTone, identifier: "now-chip") }
                 // With the redesign the period stepper sits above the month's figures instead.
                 if !v2 { PeriodControl() }
             }
@@ -363,8 +374,8 @@ struct HomeView: View {
         session = kind == .charging ? (try? await state.client.liveSession(id: id)) ?? nil : nil
         liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
         // Only while in gear, only when the design is on and not told "off"; this runs on the state's own cadence, which the tab and scene gate.
-        // Only while the Live screen is open: nothing else shows it.
-        guard kind == .driving, showLive, state.designPreview.contains("live_destination"), !destinationOff else { liveDestination = nil; destinationFailures = 0; return }
+        // Only while the Live screen is open, or the Now hero shows it (ios_now_tidy): nothing else shows it.
+        guard kind == .driving, showLive || tidy, state.designPreview.contains("live_destination"), !destinationOff else { liveDestination = nil; destinationFailures = 0; return }
         switch try? await state.client.liveDestination(id: id) {
         case .trip(let d): liveDestination = d; destinationFailures = 0
         case .noTrip: liveDestination = nil; destinationFailures = 0

@@ -22,6 +22,16 @@ struct LiveDestination: Decodable, Equatable {
             .filter { abs($0.lat) <= 90 && abs($0.lon) <= 180 }
     }
 
+    /// The two figures of the destination block: the distance left (nil when the car does not know it) and the arrival time.
+    func figures(metric: Bool = NowFormat.usesMetric, arrive: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }) -> (left: String?, arrive: String) {
+        var left: String?
+        if let miles = milesLeft, miles.isFinite, miles >= 0 {
+            let v = metric ? miles * 1.609344 : miles
+            left = "\(NumberText.fixed(v, v < 10 ? 1 : 0)) \(metric ? "km" : "mi")"
+        }
+        return (left, arrive(eta))
+    }
+
     /// The row on the Live screen, as the web's: "To Work: 12 mi left, arrive 5:40 PM" (km on a metric phone; no distance when unknown).
     func line(metric: Bool = NowFormat.usesMetric, arrive: (Date) -> String = { $0.formatted(date: .omitted, time: .shortened) }) -> String {
         var parts: [String] = []
