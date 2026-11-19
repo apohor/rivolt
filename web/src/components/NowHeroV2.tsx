@@ -159,7 +159,7 @@ export default function NowHeroV2({
         aria-hidden
         className={`h-2 w-2 shrink-0 rounded-full ${charging ? "bg-emerald-500" : "bg-neutral-500"}`}
       />
-      <span className="min-w-0 truncate">{chip}</span>
+      <span className={tidy ? "min-w-0 truncate" : undefined}>{chip}</span>
     </span>
   );
   if (tidy) {
@@ -204,7 +204,7 @@ export default function NowHeroV2({
       >
         {telemetryLink && <Link to="/live" aria-label="Full telemetry" className="absolute inset-0 z-0 rounded-2xl" />}
         {/* The one status line: the state and since when, with the Live button on the same row. */}
-        <div className="pointer-events-none relative z-10 mb-4 flex items-center justify-between gap-3 max-[359px]:gap-2 max-[359px]:[&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs">
+        <div className="pointer-events-none relative z-10 mb-4 flex items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs">
           {chipEl}
           {telemetryLink && (
             <Link
