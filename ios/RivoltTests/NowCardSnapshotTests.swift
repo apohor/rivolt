@@ -89,15 +89,6 @@ final class NowCardSnapshotTests: XCTestCase {
         XCTAssertNil(NowCard.tidyChip(nil, kind: .charging, chargingCardShown: true))
     }
 
-    /// Accessibility text sizes and long chips put the Live button on its own row, so its word is never squeezed.
-    func testTidyHeaderStacksAtAccessibilitySizesAndForLongChips() {
-        for chip in ["Charging", "Driving · 100 km/h"] {
-            XCTAssertFalse(NowCard.tidyHeaderStacked(chip: chip, accessibilitySize: false), chip)
-            XCTAssertTrue(NowCard.tidyHeaderStacked(chip: chip, accessibilitySize: true), chip)
-        }
-        XCTAssertTrue(NowCard.tidyHeaderStacked(chip: "Asleep · since 10:30 PM", accessibilitySize: false))
-    }
-
     /// The tidy hero with the key on, charging and driving, on a 320 pt and a 430 pt phone at the default and the largest accessibility text size:
     /// it renders whole (no zero or runaway height). The header never shows the Live word split or the chip twice (see the two tests above).
     func testRenderTidyAtAccessibilitySizes() throws {
@@ -109,7 +100,7 @@ final class NowCardSnapshotTests: XCTestCase {
         let driving = NowSummary(input: NowSummary.Input(socPct: 64, rangeKm: 280, chargeTargetPct: 80, gear: "D", powerState: "go", chargerState: "charger_disconnected",
                                                          chargerPowerKw: 0, at: at, speedKph: 100), now: nil, clock: at.addingTimeInterval(15))
         let place = try JSON.decoder().decode(LiveDestination.self, from: Data(#"{"name":"Riverside Community Medical Center and Outpatient Pavilion","lat":10.02,"lon":10.03,"eta":"2027-01-15T09:40:00Z","miles_left":12.4}"#.utf8))
-        let cases: [(String, NowSummary, Date)] = [("charging", charging, clock), ("driving", driving, at.addingTimeInterval(15))]
+        let cases: [(String, NowSummary, Date)] = [("charging", charging, clock), ("driving", driving, at.addingTimeInterval(15)), ("driving-22", driving, at.addingTimeInterval(15))]
         // The destination block (the map under it needs the app's state, so the block alone): a long name wraps whole beside no clipped figure.
         for (width, size) in [(320.0, DynamicTypeSize.large), (320, .accessibility3), (430, .accessibility3)] {
             let r = ImageRenderer(content: NowDestinationBlock(destination: place).environment(\.dynamicTypeSize, size).padding().frame(width: width))
@@ -122,8 +113,9 @@ final class NowCardSnapshotTests: XCTestCase {
             }
         }
         for (name, summary, when) in cases {
-            for (width, size, label) in [(320.0, DynamicTypeSize.large, "se"), (320, .accessibility3, "se-ax3"), (430, .accessibility3, "max-ax3")] {
-                let chip = try XCTUnwrap(NowChip.text(for: summary, clock: when) as String?)
+            for (width, size, label) in [(320.0, DynamicTypeSize.large, "se"), (320, .xxxLarge, "se-xxxl"), (320, .accessibility3, "se-ax3"), (430, .accessibility3, "max-ax3")] {
+                // A 22-character chip ("Asleep · since 9:30 PM") is the width that crushed the Live button at xxxLarge: the header must fall back to two rows.
+                let chip = name == "driving-22" ? "Asleep · since 9:30 PM" : try XCTUnwrap(NowChip.text(for: summary, clock: when) as String?)
                 let card = NowCard(vehicle: vehicle, summary: summary, clock: when, v2: true, onLive: {}, slotOn: true, snapshot: now, tidy: true, chip: chip, chipTone: .live)
                     .environment(\.dynamicTypeSize, size)
                 let renderer = ImageRenderer(content: card.padding().frame(width: width).background(Color(.systemGroupedBackground)))

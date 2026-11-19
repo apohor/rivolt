@@ -97,15 +97,16 @@ struct NowCard: View {
         let showRows = (driving && sessionRows) || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || (chargingRowsV2 && sessionRows)
         return VStack(alignment: .leading, spacing: 12) {
             if tidy, let chip = tidyChip {
-                // Beside the chip when both fit on one line; on their own rows when the text is large or the chip long, so the word never wraps or goes.
-                let stacked = Self.tidyHeaderStacked(chip: chip, accessibilitySize: typeSize.isAccessibilitySize)
-                let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
-                layout {
+                // Beside the chip when both fit on one line; on their own rows when the text is large or the chip does not leave room, so the word never wraps or goes.
+                let beside = HStack(alignment: .center, spacing: 8) {
                     ThemePill(text: chip, tone: chipTone, identifier: "now-chip", oneLine: true).layoutPriority(1)
-                    if let onLive {
-                        if stacked { liveButton(onLive) } else { HStack(spacing: 0) { Spacer(minLength: 0); liveButton(onLive) } }
-                    } else if !stacked { Spacer(minLength: 0) }
+                    if let onLive { Spacer(minLength: 0); liveButton(onLive) } else { Spacer(minLength: 0) }
                 }
+                let stacked = VStack(alignment: .leading, spacing: 8) {
+                    ThemePill(text: chip, tone: chipTone, identifier: "now-chip", oneLine: true).layoutPriority(1)
+                    if let onLive { liveButton(onLive) }
+                }
+                if typeSize.isAccessibilitySize { stacked } else { ViewThatFits(in: .horizontal) { beside; stacked } }
             } else if let onLive { HStack { Spacer(minLength: 0); liveButton(onLive) } }
             VStack(alignment: .leading, spacing: 12) {
                 heroGaugeV2(pictureShown: slot == nil)
@@ -141,8 +142,6 @@ struct NowCard: View {
         return kind == .charging && chargingCardShown ? "Charging" : chip
     }
 
-    /// The chip and the Live button take two rows at accessibility sizes or when the chip is long; otherwise they share one.
-    static func tidyHeaderStacked(chip: String, accessibilitySize: Bool) -> Bool { accessibilitySize || chip.count > 22 }
 
     /// The pill that opens Live: a bordered button with a pulse dot while charging or driving, as the web's. The word stays on one line.
     private func liveButton(_ action: @escaping () -> Void) -> some View {
