@@ -7,6 +7,7 @@ import HeroTrip from "./landing/HeroTrip";
 import Terrain from "./landing/Terrain";
 import PhoneTour from "./landing/PhoneTour";
 import PlannerShots from "./landing/PlannerShots";
+import { visitSourceProps } from "../lib/visitSource";
 import "../styles/landing.css";
 
 // Public main page for signed-out visitors, rendered at "/" only when the
@@ -83,18 +84,7 @@ export default function LandingPage() {
   const [stuck, setStuck] = useState(false);
   useEffect(() => {
     // Referrer host and utm_source only (tokens, never a full URL).
-    const tok = (v: string | null) => (v && /^[a-z0-9_.-]{1,40}$/.test(v.toLowerCase()) ? v.toLowerCase() : undefined);
-    let host: string | undefined;
-    try {
-      host = document.referrer ? tok(new URL(document.referrer).hostname) : undefined;
-    } catch {
-      host = undefined;
-    }
-    const props: Record<string, string> = {};
-    if (host) props.referrer_host = host;
-    const utm = tok(new URLSearchParams(window.location.search).get("utm_source"));
-    if (utm) props.utm_source = utm;
-    track("landing_view", props);
+    track("landing_view", visitSourceProps(window.location.search, document.referrer));
   }, []);
   useEffect(() => {
     const onScroll = () => setStuck(scrollY > 8);

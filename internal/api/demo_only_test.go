@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,7 +52,9 @@ func TestDemoOnlyPublicSet(t *testing.T) {
 		{"POST", "/api/signup", false},
 		{"POST", "/api/signup/request", false},
 		{"GET", "/api/signup/token/abc", false},
-		{"POST", "/api/events", false},
+		{"POST", "/api/events", true}, // the visit counter; the only write
+		{"GET", "/api/events", false},
+		{"PUT", "/api/events", false},
 		{"GET", "/api/admin/users", false},
 		{"POST", "/api/trips/plan", false},
 		{"GET", "/api/geocode", false},
@@ -142,7 +145,7 @@ func TestDemoOnlyConfig(t *testing.T) {
 	if _, ok := f["app_url"]; ok {
 		t.Errorf("app_url leaked outside the standalone demo: %v", f["app_url"])
 	}
-	// On: demo_only, app_url, and no accounts, events, landing or AI.
+	// On: demo_only, app_url, no accounts, landing or AI; events only as the visit count (events_enabled).
 	demoOnlyEnv(t)
 	t.Setenv("RIVOLT_LANDING", "true")
 	t.Setenv("RIVOLT_EVENTS", "true")
@@ -150,8 +153,8 @@ func TestDemoOnlyConfig(t *testing.T) {
 	if f["demo_only"] != true || f["app_url"] != "https://rivolt.dev" || f["demo_enabled"] != true {
 		t.Errorf("features = %v", f)
 	}
-	if f["signup_enabled"] != false || f["landing_enabled"] != false || f["events_enabled"] != false || f["ai_enabled"] != false {
-		t.Errorf("demo-only left accounts/events/landing/AI on: %v", f)
+	if f["signup_enabled"] != false || f["landing_enabled"] != false || f["events_enabled"] != true || f["ai_enabled"] != false {
+		t.Errorf("demo-only left accounts/landing/AI on, or the visit counter off: %v", f)
 	}
 	if f["trip_planner_enabled"] != true {
 		t.Errorf("planner flag = %v, want true (presets need no flag)", f["trip_planner_enabled"])
@@ -160,5 +163,34 @@ func TestDemoOnlyConfig(t *testing.T) {
 	t.Setenv("RIVOLT_APP_URL", "javascript:alert(1)")
 	if f := get(); f["app_url"] != nil {
 		t.Errorf("bad app_url served: %v", f["app_url"])
+	}
+}
+
+// Through the real router and its demo gate: POST /api/events reaches the
+// visit counter on the standalone demo, and only demo_view is counted.
+func TestDemoOnlyRouter_CountsVisits(t *testing.T) {
+	demoOnlyEnv(t)
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewDemoVisitCounter()
+	router := New(Deps{Auth: svc, AuthEnforced: true, DemoVisits: c})
+	post := func(body string) int {
+		req := httptest.NewRequest("POST", "/api/events", strings.NewReader(body))
+		req.RemoteAddr = "203.0.113.9:4000"
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	b := `{"anon_id":"abcdefghijklmnop1234","events":[{"name":"demo_view","props":{"utm_source":"rivianforums"}},{"name":"money_view"}]}`
+	if code := post(b); code != http.StatusNoContent {
+		t.Fatalf("POST /api/events = %d", code)
+	}
+	if got := demoVisits(t, c, "rivianforums"); got != 1 {
+		t.Errorf("rivianforums = %v, want 1", got)
+	}
+	if n := testutil.CollectAndCount(c.vec); n != len(demoVisitSources) {
+		t.Errorf("series = %d", n)
 	}
 }

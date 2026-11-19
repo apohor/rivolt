@@ -62,6 +62,7 @@ func enumProp(v ...string) propSpec { return propSpec{kind: propEnum, enum: v} }
 var eventAllowlist = map[string]map[string]propSpec{
 	"landing_view":           {"referrer_host": tokenProp, "utm_source": tokenProp},
 	"demo_click":             {"where": enumProp("hero", "footer")},
+	"demo_view":              {"referrer_host": tokenProp, "utm_source": tokenProp},
 	"signup_start":           {"method": enumProp("oidc", "email")},
 	"signup_done":            {"method": enumProp("oidc", "email")},
 	"rivian_connect_start":   {"authorized_driver": boolProp},
