@@ -101,6 +101,8 @@ export default function NowCard({
   const v2 = useDesignPreview("now_v2");
   // Design "now_slot": charging and driving figures take the picture's place in the hero.
   const slotOn = useDesignPreview("now_slot");
+  // Design "now_tidy" (with now_v2): the calmer layout of the hero. Off, the hero is as it was.
+  const tidy = useDesignPreview("now_tidy") && v2;
   const { distanceUnit, temperatureUnit } = usePreferences();
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -298,6 +300,7 @@ export default function NowCard({
       gear={state.gear}
       mode={state.drive_mode}
       fix={fix}
+      tidy={tidy}
       asleep={view.kind === "asleep" ? { since: server?.asleep_since ?? null, todayS: server?.asleep_today_s ?? null } : null}
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
@@ -335,7 +338,10 @@ export default function NowCard({
           images={images}
           model={model}
           stateSlot={showSlot ? slotNode : null}
-          chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text)}
+          chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot)}
+          tidy={tidy}
+          nowMs={nowMs}
+          asleepTodayS={server?.asleep_today_s ?? null}
           pillTone={pill.tone}
           ambient={server?.ambient}
           cabin={cabin}

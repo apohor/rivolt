@@ -23,8 +23,8 @@ const charge = (id: string, at: string) => ({
 // Activity opens on the last 30 days for a device with no saved choice; these tests are about the Month choice, so they save it.
 const MONTH = { kind: "month", offset: 0 };
 
-async function open(page: Page, now: Date, path: string, rows: { drives: unknown[]; charges: unknown[] }, saved?: unknown) {
-  await stubApi(page);
+async function open(page: Page, now: Date, path: string, rows: { drives: unknown[]; charges: unknown[] }, saved?: unknown, designPreview?: string[]) {
+  await stubApi(page, designPreview ? { designPreview } : undefined);
   if (saved) await page.addInitScript((p) => window.localStorage.setItem("rivolt.period", JSON.stringify(p)), saved);
   await page.clock.setFixedTime(now);
   const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
@@ -104,5 +104,17 @@ test("Activity on its first visit opens on the last 30 days, and a saved Month c
   const b = await ctx.newPage();
   await open(b, new Date(2026, 10, 2, 9, 0, 0), "/activity", OCT, MONTH);
   await expect(b.getByRole("button", { name: "Month", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await ctx.close();
+});
+
+test("design now_tidy: the early-month note sits inside the month section, above the charts it explains", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, new Date(2026, 10, 2, 9, 0, 0), "/", OCT, undefined, ["now_v2", "now_tidy"]);
+  const note = page.locator("[data-early-month]");
+  await expect(note).toContainText("this shows the last 30 days");
+  await expect(page.getByTestId("now-month").locator("[data-early-month]")).toHaveCount(1);
+  const miles = (await page.getByRole("heading", { name: "Miles per day" }).boundingBox())!;
+  expect((await note.boundingBox())!.y).toBeLessThan(miles.y);
   await ctx.close();
 });
