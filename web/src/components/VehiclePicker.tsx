@@ -32,16 +32,16 @@ export function VehiclePicker({
   return (
     <label
       className={
-        "inline-flex items-center gap-1.5 rounded-md border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-[11px] text-neutral-300 " +
+        "inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-neutral-800 bg-neutral-950/60 px-2 py-1 text-[11px] text-neutral-300 " +
         className
       }
     >
-      <span className="uppercase tracking-wide text-neutral-500">{label}</span>
+      <span className="shrink-0 uppercase tracking-wide text-neutral-500">{label}</span>
       <select
         aria-label={label}
         value={selectedID ?? ""}
         onChange={(e) => onChange(e.target.value)}
-        className="cursor-pointer border-none bg-transparent text-[11px] text-neutral-200 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+        className="min-w-0 cursor-pointer truncate border-none bg-transparent text-[11px] text-neutral-200 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
       >
         {vehicles.map((v) => (
           <option key={v.id} value={v.id}>

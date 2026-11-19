@@ -142,7 +142,7 @@ export default function MoneyPage() {
         subtitle="What charging actually cost"
         wrap
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
             <VehiclePicker vehicles={vehicles.data ?? []} selectedID={selectedID} onChange={select} />
             <MonthPicker month={month} max={thisMonth} onChange={setMonth} />
           </div>

@@ -18,7 +18,7 @@ for (const [name, vp] of [
   ["1280", { width: 1280, height: 900 }],
 ] as const) {
   for (const scheme of ["light", "dark"] as const) {
-    test(`money header: vehicle picker clears the title · ${name} ${scheme}`, async ({ browser }) => {
+    test(`money header: vehicle picker clears the title on a phone · ${name} ${scheme}`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: vp, colorScheme: scheme });
       const page = await ctx.newPage();
       await stubApi(page, { scenario: "parked" });
@@ -26,7 +26,7 @@ for (const [name, vp] of [
         r.fulfill({
           json: [
             { id: "veh-sample-1", vin: "SAMPLE0000000001", name: "Sample R1S Quad Max", model: "R1S", pack_kwh: 135 },
-            { id: "veh-sample-2", vin: "SAMPLE0000000002", name: "Second truck with a long name", model: "R1T", pack_kwh: 135 },
+            { id: "veh-sample-2", vin: "SAMPLE0000000002", name: "Second truck with a very long name that goes on and on and on", model: "R1T", pack_kwh: 135, pro_locked: true },
           ],
         }),
       );
@@ -43,7 +43,7 @@ for (const [name, vp] of [
         return { x: b.x, y: b.y, width: b.width, height: b.height };
       });
       const veh = await box(picker.locator("xpath=ancestor::label"));
-      const month = await box(page.locator("[data-ui-header] button, [data-ui-header] select, [data-ui-header] input").last());
+      const month = await box(page.locator("[data-ui-header] [data-keep-row]"));
       const apart = (a: typeof title, b: typeof title) => a.x + a.width <= b.x + 0.5 || b.x + b.width <= a.x + 0.5 || a.y + a.height <= b.y + 0.5 || b.y + b.height <= a.y + 0.5;
       expect(apart(title, veh), "title and vehicle picker do not overlap").toBe(true);
       expect(apart(veh, month), "vehicle and month pickers do not overlap").toBe(true);
