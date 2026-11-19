@@ -30,6 +30,8 @@ export type SlotInput = {
   placeLabel?: string | null;
   // While asleep: when this sleep began and the seconds asleep today, shown under the map.
   asleep?: SlotAsleep | null;
+  // Design "now_tidy": see TIDY_ROOT.
+  tidy?: boolean;
 };
 export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
@@ -212,11 +214,40 @@ function Chip({ children, tone, testid }: { children: React.ReactNode; tone: "gr
 
 const ROOT = "pointer-events-none relative mt-4 w-full min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mt-0 min-[900px]:self-start min-[900px]:border-t-0 min-[900px]:pt-0";
 
+// Design "now_tidy": the slot is the map or the state's figures only; the outside conditions and the asleep-today figure move to one row of
+// compact items under it (conditionItems), so the card reads in one hierarchy: status, battery, what the truck is doing, conditions.
+const TIDY_ROOT = "pointer-events-none relative w-full min-w-0";
+
+export type CondItem = { k: string; v: string; note?: string; info?: boolean };
+
+// The conditions row: outside (the sky after the temperature), wind, the next 3 h of rain or snow, the cabin, and while asleep the time asleep today.
+// Same figures and wording as the weather block and rows they replace; "Asleep for" is the status line's "since" and is not repeated.
+export function conditionItems(i: { weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; nowMs: number; cabin: string | null; asleepTodayS: number | null; detail: boolean }): CondItem[] {
+  const out: CondItem[] = [];
+  const hour = new Date(i.nowMs).getHours();
+  const w = i.weather ? weatherView(i.weather, i.tempUnit, i.unit, hour >= 6 && hour < 20) : null;
+  if (w) {
+    const sky = w.condition ? w.condition.replace(/ here now$/, "") : null;
+    out.push({ k: "Outside", v: w.temp, ...(sky ? { note: sky } : {}), info: true });
+    if (i.detail && w.wind) out.push({ k: "Wind", v: w.wind.replace(/^Wind /, "") });
+    if (i.detail && w.precip) out.push({ k: "Next 3 h", v: w.precip.replace(/ next 3 h/, "") });
+  }
+  if (i.cabin) out.push({ k: "Cabin", v: i.cabin });
+  if (i.asleepTodayS != null && i.asleepTodayS >= 0) out.push({ k: "Asleep today", v: timeLeft(i.asleepTodayS / 3600) });
+  return out;
+}
+
 // Parked or plugged in: where the truck is on the map, then the weather there as one row (temperature and sky left, wind and rain right).
-function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, asleep }: { fix: SlotFix; asleep: SlotAsleep | null; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string; nowMs: number; placeLabel: string | null }) {
+function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, asleep, tidy }: { tidy: boolean; fix: SlotFix; asleep: SlotAsleep | null; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string; nowMs: number; placeLabel: string | null }) {
   const hour = new Date(nowMs).getHours();
   const w = weather ? weatherView(weather, tempUnit, unit, hour >= 6 && hour < 20) : null;
-  const sleepFigures = kind === "asleep" ? asleepFigures(asleep, nowMs) : [];
+  const sleepFigures = kind === "asleep" && !tidy ? asleepFigures(asleep, nowMs) : [];
+  if (tidy)
+    return (
+      <div data-testid="now-slot" data-kind={kind} className={TIDY_ROOT}>
+        <ParkedMap lat={fix.lat} lon={fix.lon} label={placeLabel} caption={inDemo() ? "Sample map, not a real location" : null} />
+      </div>
+    );
   return (
     <div data-testid="now-slot" data-kind={kind} className={ROOT}>
       <ParkedMap lat={fix.lat} lon={fix.lon} label={placeLabel} caption={inDemo() ? "Sample map, not a real location" : null} />
@@ -253,7 +284,7 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, asl
 export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
   if (!slotAvailable(view, i.fix ?? null)) return null;
-  if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} asleep={i.asleep ?? null} />;
+  if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
   const stats = slotStats(i);
   let big = "";
   let bigUnit = "";
@@ -281,7 +312,7 @@ export default function NowSlot(i: SlotInput) {
     sub = stats.length > 0 ? "This drive so far" : null;
   }
   return (
-    <div data-testid="now-slot" data-kind={view.kind} className={ROOT}>
+    <div data-testid="now-slot" data-kind={view.kind} className={i.tidy ? TIDY_ROOT : ROOT}>
       <p className="text-4xl font-semibold leading-none tabular-nums text-neutral-100" data-testid="now-slot-big">
         {big}
         <span className="ml-1 text-base font-normal text-neutral-400">{bigUnit}</span>

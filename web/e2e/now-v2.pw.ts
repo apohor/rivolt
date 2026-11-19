@@ -233,3 +233,65 @@ test("design now_slot off: the picture or sketch shows, no slot", async ({ page 
   await expect(page.locator("[data-now-v2]")).toBeVisible();
   await expect(page.getByTestId("now-slot")).toHaveCount(0);
 });
+
+// Design "now_tidy": one hierarchy in the hero (status row, battery and range, the state's slot, one row of conditions); the month's blocks
+// under one heading; the setup cards last.
+test.describe("design now_tidy", () => {
+  for (const width of [393, 1280]) {
+    test(`parked, ${width} px: the status is said once, the conditions share one row of equal items, setup cards come last`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await open(page, true, "parked", true, ["now_slot", "now_tidy"]);
+      const hero = page.locator("[data-now-tidy]");
+      await expect(hero).toBeVisible();
+      // The chip sits in the card, on the row of the Live button, and not in the page header.
+      const chip = (await hero.locator("[data-now-chip]").boundingBox())!;
+      const live = (await hero.getByTestId("now-live-link").boundingBox())!;
+      expect(Math.abs(chip.y + chip.height / 2 - (live.y + live.height / 2))).toBeLessThan(6);
+      await expect(page.locator("[data-now-chip-slot]")).toHaveCount(0);
+      await expect(hero.getByTestId("now-slot-map")).toBeVisible();
+      // Outside, wind, rain and cabin: one label row, one value row (equal tops per row).
+      const items = hero.getByTestId("now-temps").locator("> div");
+      expect(await items.count()).toBeGreaterThanOrEqual(3);
+      const heights = await items.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+      expect(new Set(heights).size).toBe(1);
+      await expect(hero.getByTestId("now-temps")).toContainText("Wind");
+      await expect(hero.getByTestId("now-temps")).toContainText("Cabin");
+      await expect(hero.getByTestId("now-slot-weather")).toHaveCount(0);
+      // Month blocks are inside the one section; the setup cards follow the charts and close the page.
+      const month = page.getByTestId("now-month");
+      await expect(month.getByRole("heading", { name: "Miles per day" })).toBeVisible();
+      await expect(month.getByRole("heading", { name: "Battery (SoC) trend" })).toBeVisible();
+      const trend = (await page.getByRole("heading", { name: "Battery (SoC) trend" }).boundingBox())!;
+      const things = (await page.locator("[data-three-things]").boundingBox())!;
+      expect(things.y).toBeGreaterThan(trend.y);
+      const first = page.getByText("Your first charge");
+      if (await first.count()) expect((await first.boundingBox())!.y).toBeGreaterThan(trend.y);
+    });
+  }
+
+  test("charging: the chip names the state and the slot keeps its figures", async ({ page }) => {
+    await open(page, true, "charging", true, ["now_slot", "now_tidy"]);
+    await expect(page.locator("[data-now-chip]")).toHaveText("Charging");
+    await expect(page.getByTestId("now-slot-big")).toContainText("kW");
+    await expect(page.getByTestId("now-slot-big")).toContainText("Home charger");
+    await expect(page.getByTestId("now-live-link").locator(".animate-pulse")).toHaveCount(1);
+  });
+
+  test("driving: speed and drive figures stay", async ({ page }) => {
+    await open(page, true, "driving", true, ["now_slot", "now_tidy"]);
+    await expect(page.locator("[data-now-chip]")).toHaveText("Driving");
+    await expect(page.getByTestId("now-slot-big")).toContainText("mph");
+  });
+
+  test("the (i) beside Outside explains the estimate", async ({ page }) => {
+    await open(page, true, "parked", true, ["now_slot", "now_tidy"]);
+    await page.getByRole("button", { name: "About the outside temperature" }).click();
+    await expect(page.locator("[data-now-tidy]")).toContainText("looked up from Open-Meteo");
+  });
+
+  test("without now_tidy the hero is the earlier one", async ({ page }) => {
+    await open(page, true, "parked", true, ["now_slot"]);
+    await expect(page.locator("[data-now-v2]")).toBeVisible();
+    await expect(page.locator("[data-now-tidy]")).toHaveCount(0);
+  });
+});

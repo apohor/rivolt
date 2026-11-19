@@ -52,6 +52,8 @@ export default function HomePage() {
   const [period, setPeriod] = usePeriod();
   // Design 1 (design_preview "now_v2"): the month strip replaces the KPI tiles. Off, the page is unchanged.
   const v2 = useDesignPreview("now_v2");
+  // Design "now_tidy" (with now_v2): the month's blocks under one heading, the setup cards at the end, the chip in the hero card.
+  const tidy = useDesignPreview("now_tidy") && v2;
   // The first-run setup sheet (preview only, design key first_screen): once for a connected truck, until it is finished or closed.
   const setupOn = useDesignPreview("first_screen");
   const [setupClosed, setSetupClosed] = useState(setupDismissed);
@@ -268,7 +270,58 @@ export default function HomePage() {
     );
   }
 
+  const firstCharge =
+    !historyEmpty && activeVehicleID && drives.isSuccess && charges.isSuccess ? (
+      <FirstChargeCard vehicleID={activeVehicleID} charges={charges.data ?? []} drives={all} demo={inDemo()} />
+    ) : null;
   const threeThings = !historyEmpty && activeVehicleID && (inDemo() || !!rivianStatus.data?.authenticated) ? <ThreeThingsCard vehicleID={activeVehicleID} demo={inDemo()} /> : null;
+  const sleepTroubleNote = sleepTrouble && (
+            <div role="status">
+            <Link
+              to={`${appPath("/truck")}#sleep`}
+              className="block rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100/90"
+            >
+              <span className="font-medium text-amber-200">Not staying asleep:</span>{" "}
+              {sleepTrouble.failed} of {sleepTrouble.sleeps} sleeps in the last two days ended
+              within a minute. Something keeps waking the car.{" "}
+              <span className="underline">See sleep on Truck</span>
+            </Link>
+            </div>
+          );
+  const monthGroups = (
+    <>
+          {locSplit.total > 0 && (
+            <Card title="Charging locations">
+              <LocationSplit split={locSplit} />
+            </Card>
+          )}
+
+          <Card
+            title={`Miles per day · ${
+              periodLabel(scope)
+            }`}
+          >
+            <BarChart
+              ariaLabel="Miles per day"
+              data={dailyMiles}
+              height={140}
+              formatY={(v) => `${v.toFixed(0)}`}
+              formatX={(label) => dayName(label)}
+              xLabelAt={axisDayIndices(dailyMiles.map((d) => new Date(d.x)))}
+            />
+          </Card>
+
+          <Card title="Battery (SoC) trend">
+              <SocTrendChart
+                trend={trend}
+                charges={winCharges.map((c) => ({ x0: new Date(c.StartedAt).getTime(), x1: new Date(c.EndedAt).getTime(), limit: c.ChargeLimitPct }))}
+                // The whole period, not just up to today: the axis runs to the month's end, as on the iPhone.
+                domain={range.start ? [range.start.getTime(), range.end ? range.end.getTime() : Date.now()] : null}
+                limit={liveState.data && liveState.data.charge_target_pct > 0 ? liveState.data.charge_target_pct : null}
+              />
+          </Card>
+    </>
+  );
   return (
     <div className="space-y-4" data-ui-grid="now">
       <ConnectRivianPrompt
@@ -287,7 +340,7 @@ export default function HomePage() {
         title="Now"
         actions={
           <>
-          {v2 && <div data-now-chip-slot />}
+          {v2 && !tidy && <div data-now-chip-slot />}
           <ScopeBar
             win={win}
             onWinChange={setWin}
@@ -314,8 +367,12 @@ export default function HomePage() {
           showTelemetryLink={!inDemo()}
         />
       )}
+      {tidy && !isError && sleepTroubleNote}
+      {tidy && !inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
       {v2 && !isError && (
         <MonthStrip
+              tidy={tidy}
+              groups={tidy ? monthGroups : null}
               scope={scope}
               period={period}
               onPeriod={setPeriod}
@@ -327,11 +384,9 @@ export default function HomePage() {
       )}
       {early && <EarlyMonthNote />}
       {/* The truck first (the Now card); the first-charge note, the milestone and the asks follow
-          it, so they never push it down (the iPhone does the same). */}
-      {!historyEmpty && activeVehicleID && drives.isSuccess && charges.isSuccess && (
-        <FirstChargeCard vehicleID={activeVehicleID} charges={charges.data ?? []} drives={all} demo={inDemo()} />
-      )}
-      {!inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
+          it, so they never push it down (the iPhone does the same). Tidy: they close the page instead. */}
+      {!tidy && firstCharge}
+      {!tidy && !inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
       {!v2 && threeThings}
 
 
@@ -405,51 +460,10 @@ export default function HomePage() {
           </div>
           )}
 
-          {sleepTrouble && (
-            <div role="status">
-            <Link
-              to={`${appPath("/truck")}#sleep`}
-              className="block rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-100/90"
-            >
-              <span className="font-medium text-amber-200">Not staying asleep:</span>{" "}
-              {sleepTrouble.failed} of {sleepTrouble.sleeps} sleeps in the last two days ended
-              within a minute. Something keeps waking the car.{" "}
-              <span className="underline">See sleep on Truck</span>
-            </Link>
-            </div>
-          )}
-          {locSplit.total > 0 && (
-            <Card title="Charging locations">
-              <LocationSplit split={locSplit} />
-            </Card>
-          )}
-
-          <Card
-            title={`Miles per day · ${
-              periodLabel(scope)
-            }`}
-          >
-            <BarChart
-              ariaLabel="Miles per day"
-              data={dailyMiles}
-              height={140}
-              formatY={(v) => `${v.toFixed(0)}`}
-              formatX={(label) => dayName(label)}
-              xLabelAt={axisDayIndices(dailyMiles.map((d) => new Date(d.x)))}
-            />
-          </Card>
-
-          <Card title="Battery (SoC) trend">
-              <SocTrendChart
-                trend={trend}
-                charges={winCharges.map((c) => ({ x0: new Date(c.StartedAt).getTime(), x1: new Date(c.EndedAt).getTime(), limit: c.ChargeLimitPct }))}
-                // The whole period, not just up to today: the axis runs to the month's end, as on the iPhone.
-                domain={range.start ? [range.start.getTime(), range.end ? range.end.getTime() : Date.now()] : null}
-                limit={liveState.data && liveState.data.charge_target_pct > 0 ? liveState.data.charge_target_pct : null}
-              />
-          </Card>
+          {!tidy && sleepTroubleNote}
+          {!tidy && monthGroups}
           {/* now_v2: the setup nudges close the page, below the trend and above the footer. */}
-          {v2 && threeThings}
+          {v2 && (tidy ? <div className="space-y-3">{firstCharge}{threeThings}</div> : threeThings)}
         </>
       )}
     </div>
@@ -634,7 +648,12 @@ function MonthStrip({
   kwh,
   eff,
   spent,
+  tidy,
+  groups,
 }: {
+  tidy?: boolean;
+  // Design "now_tidy": the month's other blocks (locations, charts) sit under the same heading and picker.
+  groups?: React.ReactNode;
   scope: Period;
   period: Period;
   onPeriod: (p: Period) => void;
@@ -654,8 +673,8 @@ function MonthStrip({
     [spent, "spent"],
   ];
   return (
-    <section data-testid="now-month" aria-label={title}>
-      <div className="mb-2 mt-2 flex items-center justify-between px-0.5">
+    <section data-testid="now-month" aria-label={title} className={tidy ? "space-y-3" : undefined}>
+      <div className={`${tidy ? "" : "mb-2 mt-2 "}flex items-center justify-between px-0.5`}>
         <h2 className="text-sm font-semibold text-neutral-200">{title}</h2>
         <PeriodPicker value={period} onChange={onPeriod} />
       </div>
@@ -667,6 +686,7 @@ function MonthStrip({
           </div>
         ))}
       </div>
+      {groups}
     </section>
   );
 }
