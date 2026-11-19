@@ -88,3 +88,38 @@ test("Money compares a month in progress with the same days of the last month", 
   await expect(hero).toContainText(new RegExp(`vs [A-Za-z]+ 1–${day}(?!\\d)`));
 });
 
+
+// Phone widths: the three tiles never clip their label, share or "sessions" against the tile edge.
+for (const w of [320, 360, 390] as const) {
+  test(`phone ${w} px: Charging locations tiles keep every word inside the tile`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: 900 });
+    await page.addInitScript(() => {
+      localStorage.setItem("rivolt.period", JSON.stringify({ kind: "all", offset: 0 }));
+    });
+    await stubApi(page, { scenario: "parked" });
+    await page.route("**/api/charges/clusters", (r) =>
+      r.fulfill({ json: [
+        { label: "Home", lat: 0, lon: 0, sessions: 29, energy_kwh: 272.1, radius_m: 50, member_ids: ["charge-1"] },
+        { label: "Public", lat: 0, lon: 0, sessions: 12, energy_kwh: 105.3, radius_m: 50, member_ids: ["charge-2"] },
+        { label: "Fast", lat: 0, lon: 0, sessions: 12, energy_kwh: 150.4, radius_m: 50, member_ids: ["charge-3"] },
+      ] }),
+    );
+    await page.goto("/");
+    const section = page.getByText("Charging locations").locator("xpath=ancestor::section[1]");
+    await expect(section).toBeVisible();
+    const over = await section.evaluate((el) => {
+      const out: string[] = [];
+      for (const tile of el.querySelectorAll("div.rounded-xl")) {
+        const t = tile.getBoundingClientRect();
+        for (const c of tile.querySelectorAll("span, div")) {
+          const b = c.getBoundingClientRect();
+          if (b.width > 0 && (b.right > t.right + 0.5 || b.left < t.left - 0.5)) out.push(`${c.textContent}`);
+        }
+        if (tile.scrollWidth > tile.clientWidth) out.push("scroll");
+      }
+      return out;
+    });
+    expect(over).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(w);
+  });
+}
