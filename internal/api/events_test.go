@@ -126,9 +126,9 @@ func TestDNTContextMiddleware(t *testing.T) {
 	}
 }
 
-// demo_click carries only a fixed `where`; the never-emitted demo_view and
-// demo_tab are gone from the vocabulary, so the stats can't imply data we
-// don't collect.
+// demo_click carries only a fixed `where`; the never-emitted demo_tab is
+// gone from the vocabulary, so the stats can't imply data we don't collect.
+// demo_view is back, with the same two token props as landing_view.
 func TestEvents_DemoClickVocabulary(t *testing.T) {
 	if got := sanitizeProps("demo_click", map[string]any{"where": "hero"}); got["where"] != "hero" {
 		t.Errorf("hero dropped: %v", got)
@@ -144,7 +144,7 @@ func TestEvents_DemoClickVocabulary(t *testing.T) {
 	if got := sanitizeProps("demo_click", map[string]any{"where": "hero", "utm_source": "x", "tab": "now"}); len(got) != 1 {
 		t.Errorf("extra props kept: %v", got)
 	}
-	for _, gone := range []string{"demo_view", "demo_tab"} {
+	for _, gone := range []string{"demo_tab"} {
 		s := &fakeSink{}
 		body := `{"anon_id":"` + anon + `","events":[{"name":"` + gone + `"}]}`
 		if rec := postEvents(handleEvents(s), body, nil); rec.Code != http.StatusBadRequest || s.n != 0 {
@@ -154,5 +154,23 @@ func TestEvents_DemoClickVocabulary(t *testing.T) {
 	s := &fakeSink{}
 	if rec := postEvents(handleEvents(s), `{"anon_id":"`+anon+`","events":[{"name":"demo_click","props":{"where":"hero"}}]}`, nil); rec.Code != http.StatusNoContent || s.n != 1 {
 		t.Errorf("demo_click: code %d stored %d", rec.Code, s.n)
+	}
+}
+
+func TestEvents_DemoViewVocabulary(t *testing.T) {
+	got := sanitizeProps("demo_view", map[string]any{"utm_source": "reddit", "referrer_host": "www.reddit.com", "path": "/demo", "ua": "x"})
+	if len(got) != 2 || got["utm_source"] != "reddit" || got["referrer_host"] != "www.reddit.com" {
+		t.Errorf("demo_view props = %v", got)
+	}
+	for _, bad := range []any{"https://x.test/?a=b", "UPPER space", strings.Repeat("a", 41), "", 3} {
+		if got := sanitizeProps("demo_view", map[string]any{"utm_source": bad}); len(got) != 0 {
+			t.Errorf("utm_source=%v kept: %v", bad, got)
+		}
+	}
+	// landing_view keeps its meaning: a demo_view never shows up as one.
+	s := &fakeSink{}
+	body := `{"anon_id":"` + anon + `","events":[{"name":"demo_view","props":{"utm_source":"x"}}]}`
+	if rec := postEvents(handleEvents(s), body, nil); rec.Code != http.StatusNoContent || len(s.evs) != 1 || s.evs[0].Name != "demo_view" {
+		t.Errorf("demo_view: code %d stored %v", rec.Code, s.evs)
 	}
 }

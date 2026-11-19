@@ -477,6 +477,9 @@ func demoAllowed(method, path, vehicleID string) bool {
 // standalone demo (demo.OnlyEnabled): the SPA's config and health reads,
 // demo discovery, the static preset trips, and the demo allowlist.
 func demoOnlyPublic(method, path, vehicleID string) bool {
+	if method == http.MethodPost && strings.TrimSuffix(path, "/") == "/api/events" {
+		return true // the visit counter (handleDemoVisits); nothing else is written
+	}
 	if method != http.MethodGet && method != http.MethodHead {
 		return false
 	}

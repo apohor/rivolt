@@ -3495,8 +3495,11 @@ func runServer() {
 	}
 	appBuild := api.NewAppBuildCounter()
 	appMetrics.Registry().MustRegister(appBuild.Collector())
+	demoVisits := api.NewDemoVisitCounter()
+	appMetrics.Registry().MustRegister(demoVisits.Collector())
 	handler := api.New(api.Deps{
 		AppBuild:              appBuild,
+		DemoVisits:            demoVisits,
 		FirstScreen:           firstScreen,
 		HistoryImport:         os.Getenv("RIVOLT_HISTORY_IMPORT") == "1" && pgPool != nil,
 		DesignPreview:         api.ParseDesignPreview(os.Getenv("RIVOLT_DESIGN_PREVIEW")),

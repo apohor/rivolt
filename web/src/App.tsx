@@ -1,8 +1,9 @@
 import { useLandingGate } from "./lib/landingGate";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "./lib/api";
 import { inDemo } from "./lib/demo";
+import { trackDemoVisit } from "./lib/demoVisit";
 import { termsGateActive } from "./lib/terms";
 import { useImpersonationTarget } from "./lib/impersonation";
 import { TermsGate } from "./components/TermsGate";
@@ -70,6 +71,10 @@ export default function App() {
   // /demo (landing, login, signup, onboarding, the app routes) goes to /demo.
   const demoOnly = useDemoOnly();
   const adminOnly = useAdminOnly();
+  // One demo_view per page load that lands on the demo; waits for the config so the standalone host is known.
+  useEffect(() => {
+    if (!demoOnly.loading) trackDemoVisit(demoOnly.only);
+  }, [demoOnly.loading, demoOnly.only]);
   // Signed-out visitors at "/" see the landing page when the install
   // enables it (RIVOLT_LANDING); otherwise this is a pass-through.
   const landing = useLandingGate(demoOnly.only ? "/demo" : location.pathname);

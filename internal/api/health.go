@@ -358,14 +358,14 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	base.Features.IOSAppURL = iosapp.URL()
 	base.Features.LandingEnabled = strings.EqualFold(strings.TrimSpace(os.Getenv("RIVOLT_LANDING")), "true")
 	if demo.OnlyEnabled() {
-		// The standalone demo has no accounts, AI, events or landing page;
+		// The standalone demo has no accounts, AI or landing page, and events only as a visit count;
 		// its planner is the static presets.
 		base.Features.DemoOnly = true
 		base.Features.AppURL = demo.AppURL()
 		base.Features.IOSAppURL = ""
 		base.Features.SignupEnabled = false
 		base.Features.LandingEnabled = false
-		base.Features.EventsEnabled = false
+		base.Features.EventsEnabled = true // the visit counter only (handleDemoVisits)
 		base.AI.Enabled = false
 	}
 	return func(w http.ResponseWriter, _ *http.Request) {

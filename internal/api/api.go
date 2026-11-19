@@ -384,6 +384,8 @@ type Deps struct {
 	Metrics *metrics.Metrics
 	// AppBuild counts app-session requests by the app's build number; nil: not counted.
 	AppBuild *AppBuildCounter
+	// DemoVisits counts standalone-demo visits by source bucket; nil: not counted.
+	DemoVisits *DemoVisitCounter
 	// Users, when non-nil, provisions user identities in the
 	// configured IdP on POST /api/admin/users and DELETE.
 	// nil (or a disabled provider) skips IdP provisioning —
@@ -968,9 +970,16 @@ func New(d Deps) http.Handler {
 		if d.SystemDB != nil {
 			startEventsPurge(d.SystemDB) // regardless of the flag: retention is a promise. System pool: a retention job across users
 		}
-		if d.SystemDB != nil && eventsEnabled() {
+		var eventsHandler http.HandlerFunc
+		switch {
+		case demo.OnlyEnabled() && d.DemoVisits != nil:
+			eventsHandler = handleDemoVisits(d.DemoVisits) // the standalone demo keeps no events rows: a count by source bucket only
+		case d.SystemDB != nil && eventsEnabled() && !demo.OnlyEnabled():
+			eventsHandler = handleEvents(newPGEventsSink(d.SystemDB)) // system pool: anonymous callers have no user, and the row's user is optional
+		}
+		if eventsHandler != nil {
 			evLimiter := ls.ip("events", eventsRatePerMin, time.Minute, time.Hour)
-			r.With(evLimiter.Middleware, maxBodyBytes(eventsMaxBody)).Post("/events", handleEvents(newPGEventsSink(d.SystemDB))) // system pool: anonymous callers have no user, and the row's user is optional
+			r.With(evLimiter.Middleware, maxBodyBytes(eventsMaxBody)).Post("/events", eventsHandler)
 		}
 
 		// Everything else sits behind requireUser when auth is

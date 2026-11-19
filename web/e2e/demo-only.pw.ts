@@ -57,3 +57,37 @@ test("normal deployment: /login is still the login page and the CTA stays in-app
   await page.goto("/demo");
   await expect(page.getByRole("link", { name: "Connect with a driver account" })).toHaveAttribute("href", "/signup");
 });
+
+// The standalone demo counts where visitors come from: one demo_view per
+// page load with the sanitised utm_source and referrer host, read from the
+// entry URL before the redirect to /demo drops the query.
+test("demo-only: a visit with utm_source sends one demo_view, source only", async ({ page }) => {
+  await stubApi(page, { demoOnly: true, signedIn: false });
+  const posts: { anon_id: string; events: { name: string; props?: Record<string, string> }[] }[] = [];
+  await page.route("**/api/events", (r) => {
+    posts.push(r.request().postDataJSON());
+    return r.fulfill({ status: 204 });
+  });
+  await page.goto("/?utm_source=Reddit&utm_medium=post&token=secret");
+  await expect(page).toHaveURL(/\/demo$/);
+  await expect(page.getByText(/Sample truck\./).first()).toBeVisible();
+  await page.goto("/demo/activity", { waitUntil: "load" }); // a second page load is a second visit, with no source
+  await expect.poll(() => posts.length).toBe(2);
+  expect(posts[0].events).toEqual([{ name: "demo_view", props: { utm_source: "reddit" } }]);
+  expect(posts[1].events).toEqual([{ name: "demo_view", props: {} }]);
+  expect(JSON.stringify(posts)).not.toContain("secret");
+});
+
+test("demo-only: Global Privacy Control sends no demo_view", async ({ page }) => {
+  await stubApi(page, { demoOnly: true, signedIn: false });
+  await page.addInitScript(() => Object.defineProperty(navigator, "globalPrivacyControl", { value: true, configurable: true }));
+  const posts: unknown[] = [];
+  await page.route("**/api/events", (r) => {
+    posts.push(r.request().postDataJSON());
+    return r.fulfill({ status: 204 });
+  });
+  await page.goto("/demo?utm_source=reddit");
+  await expect(page.getByText(/Sample truck\./).first()).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(posts).toEqual([]);
+});
