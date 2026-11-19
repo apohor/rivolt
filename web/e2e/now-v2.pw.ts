@@ -277,6 +277,42 @@ test.describe("design now_tidy, phone and desktop", () => {
     });
   }
 
+  test("320 px: the status chip and the Live button share one line", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await open(page, true, "asleep", true, ["now_slot", "now_tidy"]);
+    const chip = (await page.locator("[data-now-tidy] [data-now-chip]").boundingBox())!;
+    const live = (await page.getByTestId("now-live-link").boundingBox())!;
+    expect(chip.height).toBeLessThan(34);
+    expect(chip.x + chip.width).toBeLessThanOrEqual(live.x);
+  });
+
+  for (const width of [320, 360, 390]) {
+    test(`${width} px, charging with no slot: a long chip is cut short, Live stays inside the card, no sideways scroll`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await open(page, true, "charging", true, ["now_tidy"]);
+      const card = (await page.locator("[data-now-tidy]").boundingBox())!;
+      const chip = (await page.locator("[data-now-tidy] [data-now-chip]").boundingBox())!;
+      const live = (await page.getByTestId("now-live-link").boundingBox())!;
+      expect(chip.height).toBeLessThan(34);
+      expect(live.x + live.width).toBeLessThanOrEqual(card.x + card.width);
+      expect(chip.x + chip.width).toBeLessThanOrEqual(live.x);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    });
+  }
+
+  test("flag off, 320 px: the header chip wraps beside the title as before, not over it", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await open(page, true, "charging", true, ["now_slot"]);
+    const titleEl = page.getByRole("heading", { name: "Now", exact: true });
+    const chipEl = page.locator("[data-now-chip]");
+    await expect(titleEl).toBeVisible();
+    await expect(chipEl).toBeVisible();
+    const title = (await titleEl.boundingBox())!;
+    const chip = (await chipEl.boundingBox())!;
+    expect(chip.x).toBeGreaterThanOrEqual(title.x + title.width);
+    expect(chip.height).toBeGreaterThan(34);
+  });
+
   test("charging: the chip names the state and the slot keeps its figures", async ({ page }) => {
     await open(page, true, "charging", true, ["now_slot", "now_tidy"]);
     await expect(page.locator("[data-now-chip]")).toHaveText("Charging");
