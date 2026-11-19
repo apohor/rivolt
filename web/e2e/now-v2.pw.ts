@@ -313,7 +313,7 @@ test.describe("design now_tidy, phone and desktop", () => {
     const beside = chip.x >= title.x + title.width;
     const under = chip.y >= title.y + title.height;
     expect(beside || under).toBe(true);
-    expect(chip.height).toBeGreaterThan(34);
+    expect(chip.x + chip.width).toBeLessThanOrEqual(320);
   });
 
   test("charging: the chip names the state and the slot keeps its figures", async ({ page }) => {
