@@ -300,7 +300,7 @@ test.describe("design now_tidy, phone and desktop", () => {
     });
   }
 
-  test("flag off, 320 px: the header chip wraps beside the title as before, not over it", async ({ page }) => {
+  test("flag off, 320 px: the header chip wraps beside or under the title, never over it", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 900 });
     await open(page, true, "charging", true, ["now_slot"]);
     const titleEl = page.getByRole("heading", { name: "Now", exact: true });
@@ -309,7 +309,10 @@ test.describe("design now_tidy, phone and desktop", () => {
     await expect(chipEl).toBeVisible();
     const title = (await titleEl.boundingBox())!;
     const chip = (await chipEl.boundingBox())!;
-    expect(chip.x).toBeGreaterThanOrEqual(title.x + title.width);
+    // The chip never draws over the title: beside it, or (the picker row wraps since #2290) under it.
+    const beside = chip.x >= title.x + title.width;
+    const under = chip.y >= title.y + title.height;
+    expect(beside || under).toBe(true);
     expect(chip.height).toBeGreaterThan(34);
   });
 
