@@ -10,7 +10,7 @@ import { useAmbientTemp } from "../lib/ambientTemp";
 import { useDesignPreview } from "../lib/config";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { clock, type NowView } from "../lib/nowState";
-import { conditionItems, type SlotWeather } from "./NowSlot";
+import { conditionItems, type CondItem, type SlotWeather } from "./NowSlot";
 
 // The redesigned Now hero (design_preview "now_v2"): a status chip, then one card with the gauge, the range,
 // one line of context and the temperatures. Same data as the card it replaces; only the layout is new.
@@ -167,6 +167,21 @@ export default function NowHeroV2({
     // The parked slot showed the weather whatever the outside-temperature setting; elsewhere the setting rules.
     const weather = ambient && (parked || amb.enabled) ? ambient : null;
     const items = conditionItems({ weather, tempUnit: temperatureUnit, unit: distanceUnit, nowMs, cabin, asleepTodayS: view.kind === "asleep" || (view.kind === "offline" && view.sleeping) ? asleepTodayS : null, detail: parked });
+    const infoBtn = (c: CondItem) =>
+      c.info && (
+        <button
+          type="button"
+          aria-label="About the outside temperature"
+          aria-expanded={info}
+          onClick={() => setInfo((o) => !o)}
+          className="pointer-events-auto -my-4 -mr-4 ml-0 inline-flex p-4 text-neutral-500 hover:text-neutral-300"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 11v6M12 7.5v.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      );
     const picture =
       stateSlot ? null : carUrl && carUrl !== failedUrl ? (
         plugPicture && (view.kind === "plugged" || view.kind === "charging") ? (
@@ -251,32 +266,39 @@ export default function NowHeroV2({
               </dl>
             )}
             {items.length > 0 && (
-              <div data-testid="now-temps" className="pointer-events-none relative grid grid-cols-2 min-[480px]:grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-x-4 gap-y-3">
-                {items.map((c) => (
-                  <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0 last:odd:col-span-2 min-[480px]:last:odd:col-span-1">
+              <div className="pointer-events-none relative space-y-3">
+                <div data-testid="now-temps" className="grid grid-cols-2 gap-x-4 gap-y-3 min-[480px]:grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))]">
+                  {items.slice(0, items.length - (items.length % 2)).map((c) => (
+                    <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
+                      <p className="ui-label flex items-center">
+                        {c.k}
+                        {infoBtn(c)}
+                      </p>
+                      <p className="text-lg font-semibold tabular-nums text-neutral-100">
+                        {c.v}
+                        {c.note && <span className="ml-1.5 text-sm font-normal text-neutral-400">{c.note}</span>}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {items.length % 2 === 1 && (
+                  // An odd last item is a footer line, so the grid above always ends evenly.
+                  <div
+                    data-testid={`now-cond-${items[items.length - 1].k.split(" ")[0].toLowerCase()}`}
+                    className="flex items-baseline justify-between gap-3 border-t border-neutral-800 pt-3"
+                  >
                     <p className="ui-label flex items-center">
-                      {c.k}
-                      {c.info && (
-                        <button
-                          type="button"
-                          aria-label="About the outside temperature"
-                          aria-expanded={info}
-                          onClick={() => setInfo((o) => !o)}
-                          className="pointer-events-auto -my-4 -mr-4 ml-0 inline-flex p-4 text-neutral-500 hover:text-neutral-300"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                            <circle cx="12" cy="12" r="9" />
-                            <path d="M12 11v6M12 7.5v.5" strokeLinecap="round" />
-                          </svg>
-                        </button>
-                      )}
+                      {items[items.length - 1].k}
+                      {infoBtn(items[items.length - 1])}
                     </p>
                     <p className="text-lg font-semibold tabular-nums text-neutral-100">
-                      {c.v}
-                      {c.note && <span className="ml-1.5 text-sm font-normal text-neutral-400">{c.note}</span>}
+                      {items[items.length - 1].v}
+                      {items[items.length - 1].note && (
+                        <span className="ml-1.5 text-sm font-normal text-neutral-400">{items[items.length - 1].note}</span>
+                      )}
                     </p>
                   </div>
-                ))}
+                )}
               </div>
             )}
             {info && (

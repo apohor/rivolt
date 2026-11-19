@@ -373,6 +373,7 @@ export default function HomePage() {
         <MonthStrip
               tidy={tidy}
               groups={tidy ? monthGroups : null}
+              early={!!early}
               scope={scope}
               period={period}
               onPeriod={setPeriod}
@@ -382,7 +383,7 @@ export default function HomePage() {
               spent={chargingSpend != null ? formatMoney(chargingSpend.total, chargingSpend.currency) : "—"}
             />
       )}
-      {early && <EarlyMonthNote />}
+      {early && !tidy && <EarlyMonthNote />}
       {/* The truck first (the Now card); the first-charge note, the milestone and the asks follow
           it, so they never push it down (the iPhone does the same). Tidy: they close the page instead. */}
       {!tidy && firstCharge}
@@ -650,10 +651,13 @@ function MonthStrip({
   spent,
   tidy,
   groups,
+  early,
 }: {
   tidy?: boolean;
   // Design "now_tidy": the month's other blocks (locations, charts) sit under the same heading and picker.
   groups?: React.ReactNode;
+  // Design "now_tidy": the early-month note sits right under the stats, before the blocks it explains.
+  early?: boolean;
   scope: Period;
   period: Period;
   onPeriod: (p: Period) => void;
@@ -686,6 +690,7 @@ function MonthStrip({
           </div>
         ))}
       </div>
+      {tidy && early && <EarlyMonthNote />}
       {groups}
     </section>
   );

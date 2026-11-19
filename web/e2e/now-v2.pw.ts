@@ -5,7 +5,7 @@ import { e2eNow } from "./clock";
 // Design 1 (design_preview "now_v2"): the redesigned Now. Off, the screen is the one users have today.
 const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
 
-async function open(page: Page, flag: boolean, scenario: "parked" | "charging" | "driving" = "parked", ambientOn = true, extraKeys: string[] = []) {
+async function open(page: Page, flag: boolean, scenario: "parked" | "asleep" | "charging" | "driving" = "parked", ambientOn = true, extraKeys: string[] = []) {
   await stubApi(page, { scenario, nowEndpoint: true, designPreview: flag ? ["now_v2", ...extraKeys] : [] });
   await page.route("**/api/settings/ambient-temp", (r) => r.fulfill(j({ enabled: ambientOn })));
   // The "Three things" card has something to offer.
@@ -17,6 +17,7 @@ async function open(page: Page, flag: boolean, scenario: "parked" | "charging" |
       j({
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: scenario, state_since: iso(2 * 3_600_000),
         soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0, charge: null,
+        ...(scenario === "asleep" ? { asleep_since: iso(2 * 3_600_000), asleep_today_s: 18 * 3600 + 40 * 60 } : {}),
         ambient: { temp_c: 15, source: "open-meteo", as_of: iso(60_000), condition: "partly_cloudy", wind_kph: 16, rain_next3h_mm: 3 },
       }),
     );
@@ -236,11 +237,11 @@ test("design now_slot off: the picture or sketch shows, no slot", async ({ page 
 
 // Design "now_tidy": one hierarchy in the hero (status row, battery and range, the state's slot, one row of conditions); the month's blocks
 // under one heading; the setup cards last.
-test.describe("design now_tidy", () => {
+test.describe("design now_tidy, phone and desktop", () => {
   for (const width of [393, 1280]) {
-    test(`parked, ${width} px: the status is said once, the conditions share one row of equal items, setup cards come last`, async ({ page }) => {
+    test(`asleep, ${width} px: the status is said once, the conditions share one row of equal items, setup cards come last`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 });
-      await open(page, true, "parked", true, ["now_slot", "now_tidy"]);
+      await open(page, true, "asleep", true, ["now_slot", "now_tidy"]);
       const hero = page.locator("[data-now-tidy]");
       await expect(hero).toBeVisible();
       // The chip sits in the card, on the row of the Live button, and not in the page header.
@@ -257,6 +258,12 @@ test.describe("design now_tidy", () => {
       await expect(hero.getByTestId("now-temps")).toContainText("Wind");
       await expect(hero.getByTestId("now-temps")).toContainText("Cabin");
       await expect(hero.getByTestId("now-slot-weather")).toHaveCount(0);
+      // An odd count ends in a footer line (label left, value right under a hairline), not a lone cell in the grid.
+      const foot = hero.getByTestId("now-cond-asleep");
+      const g = (await hero.getByTestId("now-temps").boundingBox())!;
+      const f = (await foot.boundingBox())!;
+      expect(f.y).toBeGreaterThan(g.y + g.height);
+      expect(Math.abs(f.width - g.width)).toBeLessThan(2);
       // Month blocks are inside the one section; the setup cards follow the charts and close the page.
       const month = page.getByTestId("now-month");
       await expect(month.getByRole("heading", { name: "Miles per day" })).toBeVisible();
@@ -264,8 +271,9 @@ test.describe("design now_tidy", () => {
       const trend = (await page.getByRole("heading", { name: "Battery (SoC) trend" }).boundingBox())!;
       const things = (await page.locator("[data-three-things]").boundingBox())!;
       expect(things.y).toBeGreaterThan(trend.y);
-      const first = page.getByText("Your first charge");
-      if (await first.count()) expect((await first.boundingBox())!.y).toBeGreaterThan(trend.y);
+      const first = (await page.getByText("Your first charge").boundingBox())!;
+      expect(first.y).toBeGreaterThan(trend.y);
+      expect(things.y).toBeGreaterThan(first.y);
     });
   }
 
