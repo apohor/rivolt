@@ -90,7 +90,7 @@ final class NowCardSnapshotTests: XCTestCase {
     }
 
     /// The tidy hero with the key on, charging and driving, on a 320 pt and a 430 pt phone at the default and the largest accessibility text size:
-    /// it renders whole (no zero or runaway height). The header never shows the Live word split or the chip twice (see the two tests above).
+    /// it renders whole (no zero or runaway height). The header never shows the Live word split or the chip twice (see the test above).
     func testRenderTidyAtAccessibilitySizes() throws {
         let (st, now) = (try Fixture.decode(VehicleState.self, "state"), try Fixture.decode(NowSnapshot.self, "now_v1"))
         let vehicle = try Fixture.decode([Vehicle].self, "vehicles")[0]
@@ -156,5 +156,25 @@ final class NowCardSnapshotTests: XCTestCase {
                 try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent(file))
             }
         }
+    }
+
+    /// A loaded truck picture must not push the hero to the stacked form (ImageRenderer never loads AsyncImage, so the picture is injected).
+    @MainActor func testLoadedPictureDoesNotForceStackedHero() {
+        let big = UIGraphicsImageRenderer(size: CGSize(width: 1200, height: 600)).image { $0.cgContext.fill(CGRect(x: 0, y: 0, width: 1200, height: 600)) }
+        func fits(withPicture: Bool) -> Bool {
+            let side = HStack(spacing: 16) {
+                Color.clear.frame(width: 120, height: 120)
+                VStack(alignment: .leading) {
+                    if withPicture { NowCard.carImage(Image(uiImage: big), maxHeight: 96) }
+                    Text("174 mi range").fixedSize()
+                }
+            }
+            let picked = ViewThatFits(in: .horizontal) { side; Color.clear.frame(width: 1, height: 1) }
+            let r = ImageRenderer(content: picked.frame(width: 320))
+            r.scale = 1
+            return (r.uiImage?.size.height ?? 0) > 10
+        }
+        XCTAssertTrue(fits(withPicture: false))
+        XCTAssertTrue(fits(withPicture: true))
     }
 }

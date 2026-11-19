@@ -194,12 +194,17 @@ struct NowCard: View {
     private func car(maxHeight: CGFloat) -> some View {
         AsyncImage(url: carURL) { phase in
             if let image = phase.image {
-                image.resizable().scaledToFit().frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
+                Self.carImage(image, maxHeight: maxHeight)
             }
         }
         // Ideal width 0: the picture takes the room it is given and never decides the ring-beside-range fit by its natural width.
         .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
         .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
+    }
+
+    /// Zero ideal width keeps a loaded picture out of ViewThatFits' measurement, so the ring-beside-range form is chosen by the text alone.
+    static func carImage(_ image: Image, maxHeight: CGFloat) -> some View {
+        image.resizable().scaledToFit().frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
     }
 
     private var plugAnim: Bool { appState?.designPreview.contains("plug_anim") == true }
