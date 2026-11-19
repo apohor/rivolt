@@ -303,8 +303,12 @@ test.describe("design now_tidy, phone and desktop", () => {
   test("flag off, 320 px: the header chip wraps beside the title as before, not over it", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 900 });
     await open(page, true, "charging", true, ["now_slot"]);
-    const title = (await page.getByRole("heading", { name: "Now", exact: true }).boundingBox())!;
-    const chip = (await page.locator("[data-now-chip]").boundingBox())!;
+    const titleEl = page.getByRole("heading", { name: "Now", exact: true });
+    const chipEl = page.locator("[data-now-chip]");
+    await expect(titleEl).toBeVisible();
+    await expect(chipEl).toBeVisible();
+    const title = (await titleEl.boundingBox())!;
+    const chip = (await chipEl.boundingBox())!;
     expect(chip.x).toBeGreaterThanOrEqual(title.x + title.width);
     expect(chip.height).toBeGreaterThan(34);
   });
