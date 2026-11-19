@@ -1086,7 +1086,7 @@ func New() *Metrics {
 		}, []string{"topic", "result"}),
 		NavRangeTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_nav_range_total",
-			Help: "Navigation frames dropped as out of range, by topic and the check that failed (eta_missing, eta_past, eta_future, stops, leg_distance, coord_shape, coord_range, coord_zero). Never a value.",
+			Help: "Navigation frames dropped as out of range, by topic and the check that failed (eta_missing, eta_past, eta_past_10m, eta_past_1h, eta_past_24h, eta_duration, eta_future, stops, leg_distance, coord_shape, coord_range, coord_zero). Never a value.",
 		}, []string{"topic", "field"}),
 		NavRoutePrecisionTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_nav_route_precision_total",
@@ -1453,7 +1453,7 @@ func New() *Metrics {
 		for _, res := range []string{"ok", "dropped_size", "dropped_malformed", "dropped_range"} {
 			m.NavDecodeTotal.WithLabelValues(topic, res).Add(0)
 		}
-		for _, field := range []string{"eta_missing", "eta_past", "eta_future", "stops", "leg_distance", "coord_shape", "coord_range", "coord_zero"} {
+		for _, field := range []string{"eta_missing", "eta_past", "eta_past_10m", "eta_past_1h", "eta_past_24h", "eta_duration", "eta_future", "stops", "leg_distance", "coord_shape", "coord_range", "coord_zero"} {
 			m.NavRangeTotal.WithLabelValues(topic, field).Add(0)
 		}
 	}

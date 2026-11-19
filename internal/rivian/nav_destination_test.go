@@ -502,7 +502,12 @@ func TestDecodeNavRangeNamesTheCheck(t *testing.T) {
 		want      string
 	}{
 		{"eta missing", rvmNavTripProgress, fxCat(fxVarint(3, 0), fxDouble(4, 10)), NavRangeETAMissing},
-		{"eta past", rvmNavTripProgress, fxProgress(navNow.Add(-time.Hour), 0, 10), NavRangeETAPast},
+		{"eta past 5m", rvmNavTripProgress, fxProgress(navNow.Add(-5*time.Minute), 0, 10), NavRangeETAPast10m},
+		{"eta past 10m edge", rvmNavTripProgress, fxProgress(navNow.Add(-10*time.Minute), 0, 10), NavRangeETAPast10m},
+		{"eta past 1h", rvmNavTripProgress, fxProgress(navNow.Add(-time.Hour), 0, 10), NavRangeETAPast1h},
+		{"eta past 6h (a zone offset)", rvmNavTripProgress, fxProgress(navNow.Add(-6*time.Hour), 0, 10), NavRangeETAPast24h},
+		{"eta past 3 days", rvmNavTripProgress, fxProgress(navNow.Add(-72*time.Hour), 0, 10), NavRangeETAPast},
+		{"eta is a duration", rvmNavTripProgress, fxProgress(time.Unix(1800, 0), 0, 10), NavRangeETADuration},
 		{"eta future", rvmNavTripProgress, fxProgress(navNow.Add(72*time.Hour), 0, 10), NavRangeETAFuture},
 		{"leg distance", rvmNavTripProgress, fxProgress(navNow.Add(time.Hour), 0, -1), NavRangeLegDistance},
 		{"stops", rvmNavTripProgress, fxProgress(navNow.Add(time.Hour), navMaxStops+1, 10), NavRangeStops},

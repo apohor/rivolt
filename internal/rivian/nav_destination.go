@@ -28,6 +28,8 @@ const (
 	navMaxMetres     = 5_000_000 // 5000 km
 	navETAPast       = 2 * time.Minute
 	navETAFuture     = 48 * time.Hour
+	// navDurationBelow: a "timestamp" under this (Sep 2001) is a seconds count.
+	navDurationBelow = 1_000_000_000
 	// navStaleFloor is how long a trip stays shown without a trip_progress
 	// frame. The design says max(3 min, 3x the p95 gap); the p95 is read from
 	// the count-only counter before this is raised.
@@ -121,7 +123,11 @@ func (e navRangeError) Error() string { return NavResultRange }
 // The range check that failed, the only label values the range counter carries.
 const (
 	NavRangeETAMissing  = "eta_missing"
-	NavRangeETAPast     = "eta_past"
+	NavRangeETAPast     = "eta_past" // older than a day
+	NavRangeETAPast10m  = "eta_past_10m"
+	NavRangeETAPast1h   = "eta_past_1h"
+	NavRangeETAPast24h  = "eta_past_24h"
+	NavRangeETADuration = "eta_duration" // a seconds count, not a clock time
 	NavRangeETAFuture   = "eta_future"
 	NavRangeStops       = "stops"
 	NavRangeLegDistance = "leg_distance"
@@ -246,11 +252,29 @@ func decodeNavProgress(raw []byte, now time.Time) (*NavProgress, error) {
 	case !etaOK:
 		return nil, navRangeError(NavRangeETAMissing)
 	case p.ETA.Before(now.Add(-navETAPast)):
-		return nil, navRangeError(NavRangeETAPast)
+		return nil, navRangeError(navETAPastField(p.ETA, now))
 	case p.ETA.After(now.Add(navETAFuture)):
 		return nil, navRangeError(NavRangeETAFuture)
 	}
 	return p, nil
+}
+
+// navETAPastField names how far in the past a dropped ETA was, in coarse
+// buckets, so the live counter says what shape the car sends (arrival lag,
+// a stale heartbeat, a duration in the clock field) without any value.
+func navETAPastField(eta, now time.Time) string {
+	age := now.Sub(eta)
+	switch {
+	case eta.Unix() < navDurationBelow:
+		return NavRangeETADuration
+	case age <= 10*time.Minute:
+		return NavRangeETAPast10m
+	case age <= time.Hour:
+		return NavRangeETAPast1h
+	case age <= 24*time.Hour:
+		return NavRangeETAPast24h
+	}
+	return NavRangeETAPast
 }
 
 func decodeNavInfo(raw []byte) (*NavInfo, error) {
