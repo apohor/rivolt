@@ -303,17 +303,30 @@ test.describe("design now_tidy, phone and desktop", () => {
   test("flag off, 320 px: the header chip wraps beside or under the title, never over it", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 900 });
     await open(page, true, "charging", true, ["now_slot"]);
-    const titleEl = page.getByRole("heading", { name: "Now", exact: true });
-    const chipEl = page.locator("[data-now-chip]");
-    await expect(titleEl).toBeVisible();
-    await expect(chipEl).toBeVisible();
-    const title = (await titleEl.boundingBox())!;
-    const chip = (await chipEl.boundingBox())!;
-    // The chip never draws over the title: beside it, or (the picker row wraps since #2290) under it.
-    const beside = chip.x >= title.x + title.width;
-    const under = chip.y >= title.y + title.height;
-    expect(beside || under).toBe(true);
-    expect(chip.x + chip.width).toBeLessThanOrEqual(320);
+    await expect(page.getByRole("heading", { name: "Now", exact: true })).toBeVisible();
+    await expect(page.locator("[data-now-chip]")).toBeVisible();
+    // Measure the title text (the h1 box can be squeezed), the chip, and the header around them.
+    const m = await page.evaluate(() => {
+      const h1 = [...document.querySelectorAll("h1")].find((h) => h.textContent?.trim() === "Now")!;
+      const range = document.createRange();
+      range.selectNodeContents(h1);
+      const text = range.getBoundingClientRect();
+      const chipNode = document.querySelector("[data-now-chip]")!;
+      const chip = chipNode.getBoundingClientRect();
+      const header = h1.closest("[data-ui-header]")!.getBoundingClientRect();
+      const clipped = [chipNode, ...chipNode.querySelectorAll("*")].some((n) => n.scrollWidth > n.clientWidth);
+      const r = (b: DOMRect) => ({ left: b.left, right: b.right, top: b.top, bottom: b.bottom });
+      return { text: r(text), chip: r(chip), header: r(header), clipped };
+    });
+    // Never over the title: beside it, or (the picker row wraps since #2290) under it.
+    expect(m.chip.left >= m.text.right || m.chip.top >= m.text.bottom).toBe(true);
+    // Inside the header and the screen, nothing cut off inside the chip.
+    expect(m.chip.right).toBeLessThanOrEqual(320);
+    expect(m.chip.left).toBeGreaterThanOrEqual(m.header.left);
+    expect(m.chip.right).toBeLessThanOrEqual(m.header.right);
+    expect(m.chip.top).toBeGreaterThanOrEqual(m.header.top);
+    expect(m.chip.bottom).toBeLessThanOrEqual(m.header.bottom);
+    expect(m.clipped).toBe(false);
   });
 
   test("charging: the chip names the state and the slot keeps its figures", async ({ page }) => {
