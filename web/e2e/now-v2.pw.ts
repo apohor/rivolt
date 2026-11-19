@@ -286,6 +286,17 @@ test.describe("design now_tidy, phone and desktop", () => {
     expect(chip.x + chip.width).toBeLessThanOrEqual(live.x);
   });
 
+  test("320 px, charging with no slot: a long chip is cut short, Live stays inside the card", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 900 });
+    await open(page, true, "charging", true, ["now_tidy"]);
+    const card = (await page.locator("[data-now-tidy]").boundingBox())!;
+    const chip = (await page.locator("[data-now-tidy] [data-now-chip]").boundingBox())!;
+    const live = (await page.getByTestId("now-live-link").boundingBox())!;
+    expect(chip.height).toBeLessThan(34);
+    expect(live.x + live.width).toBeLessThanOrEqual(card.x + card.width);
+    expect(chip.x + chip.width).toBeLessThanOrEqual(live.x);
+  });
+
   test("charging: the chip names the state and the slot keeps its figures", async ({ page }) => {
     await open(page, true, "charging", true, ["now_slot", "now_tidy"]);
     await expect(page.locator("[data-now-chip]")).toHaveText("Charging");
