@@ -96,12 +96,18 @@ struct NowCard: View {
         let sessionRows = slot == nil || slot?.isParked == true
         let showRows = (driving && sessionRows) || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || (chargingRowsV2 && sessionRows)
         return VStack(alignment: .leading, spacing: 12) {
-            if tidy, let chip {
-                HStack(alignment: .center, spacing: 8) {
+            if tidy, let chip = tidyChip {
+                // Beside the chip when both fit on one line; on their own rows when the text is large or the chip does not leave room, so the word never wraps or goes.
+                let beside = HStack(alignment: .center, spacing: 8) {
                     ThemePill(text: chip, tone: chipTone, identifier: "now-chip", oneLine: true).layoutPriority(1)
-                    if let onLive { liveButton(onLive, compact: chip.count > 22 && !typeSize.isAccessibilitySize) } else { Spacer(minLength: 0) }
+                    if let onLive { Spacer(minLength: 0); liveButton(onLive) } else { Spacer(minLength: 0) }
                 }
-            } else if let onLive { liveButton(onLive) }
+                let stacked = VStack(alignment: .leading, spacing: 8) {
+                    ThemePill(text: chip, tone: chipTone, identifier: "now-chip", oneLine: true).layoutPriority(1)
+                    if let onLive { liveButton(onLive) }
+                }
+                if typeSize.isAccessibilitySize { stacked } else { ViewThatFits(in: .horizontal) { beside; stacked } }
+            } else if let onLive { HStack { Spacer(minLength: 0); liveButton(onLive) } }
             VStack(alignment: .leading, spacing: 12) {
                 heroGaugeV2(pictureShown: slot == nil)
                 if tidy, driving, isLive, let destination, destination.hasFix {
@@ -126,27 +132,35 @@ struct NowCard: View {
         .themeHero(live: liveKind, critical: critical)
     }
 
-    /// The pill that opens Live: a bordered button with a pulse dot while charging or driving, as the web's.
-    /// `compact` drops the word (the status chip beside it is long); the button keeps its label for VoiceOver.
-    private func liveButton(_ action: @escaping () -> Void, compact: Bool = false) -> some View {
-        HStack {
-            Spacer(minLength: 0)
-            Button(action: action) {
-                HStack(spacing: 8) {
-                    if (charging || driving) && isLive { Circle().fill(Theme.accent).frame(width: 8, height: 8) }
-                    if !compact { Text("Live").font(Theme.sans(ThemeTokens.typeSubline, .medium, relativeTo: .footnote)).foregroundStyle(Theme.textPrimary) }
-                    Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.textSecondary)
-                }
-                .padding(.horizontal, 16).frame(minWidth: 44, minHeight: 44)
-                .background(Theme.card, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.borderStrong, lineWidth: 1))
-                .contentShape(Capsule())
+    /// The status chip with the key on. While the charging card is shown it carries the power and the finish time, so the chip is just the state.
+    private var tidyChip: String? {
+        Self.tidyChip(chip, kind: summary.kind, chargingCardShown: slot != nil)
+    }
+
+    static func tidyChip(_ chip: String?, kind: NowSnapshot.State, chargingCardShown: Bool) -> String? {
+        guard let chip else { return nil }
+        return kind == .charging && chargingCardShown ? "Charging" : chip
+    }
+
+
+    /// The pill that opens Live: a bordered button with a pulse dot while charging or driving, as the web's. The word stays on one line.
+    private func liveButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if (charging || driving) && isLive { Circle().fill(Theme.accent).frame(width: 8, height: 8) }
+                Text("Live").font(Theme.sans(ThemeTokens.typeSubline, .medium, relativeTo: .footnote)).foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.textSecondary)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Live")
-            .accessibilityHint("Opens the live telemetry")
-            .accessibilityIdentifier("now-live-link")
+            .padding(.horizontal, 16).frame(minWidth: 44, minHeight: 44)
+            .background(Theme.card, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.borderStrong, lineWidth: 1))
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Live")
+        .accessibilityHint("Opens the live telemetry")
+        .accessibilityIdentifier("now-live-link")
     }
 
     /// Charging to the limit and what that buys, or the user's own full-charge range; as the web's hero.
@@ -180,40 +194,51 @@ struct NowCard: View {
     private func car(maxHeight: CGFloat) -> some View {
         AsyncImage(url: carURL) { phase in
             if let image = phase.image {
-                image.resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
+                Self.carImage(image, maxHeight: maxHeight)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Ideal width 0: the picture takes the room it is given and never decides the ring-beside-range fit by its natural width.
+        .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
         .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
+    }
+
+    /// Zero ideal width keeps a loaded picture out of ViewThatFits' measurement, so the ring-beside-range form is chosen by the text alone.
+    static func carImage(_ image: Image, maxHeight: CGFloat) -> some View {
+        image.resizable().scaledToFit().frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
     }
 
     private var plugAnim: Bool { appState?.designPreview.contains("plug_anim") == true }
 
     @ViewBuilder
     private func heroGaugeV2(pictureShown: Bool) -> some View {
+        // The ring beside the range when both fit whole; the ring above the range otherwise (large text, a narrow phone): the figure is never cut.
+        let stacked = VStack(alignment: .leading, spacing: 8) {
+            if pictureShown, carURL != nil { car(maxHeight: 72) }
+            compactGaugeColumn
+        }
         if typeSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 8) {
-                if pictureShown, carURL != nil { car(maxHeight: 72) }
-                compactGaugeColumn
-            }
+            stacked
         } else {
-            HStack(alignment: .center, spacing: 16) {
-                ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
-                            .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
-                        Text("%").themeText(.value, color: Theme.textSecondary)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 16) {
+                    ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
+                        HStack(alignment: .firstTextBaseline, spacing: 2) {
+                            Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
+                                .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
+                            Text("%").themeText(.value, color: Theme.textSecondary)
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        if pictureShown, carURL != nil { car(maxHeight: 96) }
+                        if let km = summary.rangeKm {
+                            let range = NowFormat.usesMetric ? km : km / 1.609344
+                            (Text(NumberText.fixed(range, 0)).font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title2)).foregroundColor(Theme.textPrimary)
+                                + Text(" \(NowFormat.usesMetric ? "km" : "mi") range").font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote)).foregroundColor(Theme.textSecondary))
+                                .lineLimit(1)
+                        }
                     }
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    if pictureShown, carURL != nil { car(maxHeight: 96) }
-                    if let km = summary.rangeKm {
-                        let range = NowFormat.usesMetric ? km : km / 1.609344
-                        (Text(NumberText.fixed(range, 0)).font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title2)).foregroundColor(Theme.textPrimary)
-                            + Text(" \(NowFormat.usesMetric ? "km" : "mi") range").font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote)).foregroundColor(Theme.textSecondary))
-                            .lineLimit(1).minimumScaleFactor(0.7)
-                    }
-                }
+                stacked
             }
         }
     }

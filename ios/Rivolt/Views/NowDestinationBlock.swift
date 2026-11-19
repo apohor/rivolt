@@ -11,7 +11,7 @@ struct NowDestinationBlock: View {
         let f = destination.figures()
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(alignment: .top, spacing: 24))
         return VStack(alignment: .leading, spacing: 8) {
-            Text("To \(destination.name)").themeText(.value).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            Text("To \(destination.name)").themeText(.value).fixedSize(horizontal: false, vertical: true)
             layout {
                 if let left = f.left { figure("Left", left) }
                 figure("Arrive", f.arrive)
