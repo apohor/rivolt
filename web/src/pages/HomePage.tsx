@@ -576,15 +576,15 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
   // session-count share.
   const kwhShares = shareByEnergy(rows.map((r) => r.energyKWh));
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-3 gap-3 max-[359px]:gap-2">
       {rows.map((r, idx) => {
         const sharePct = kwhShares[idx];
         return (
           <div
             key={r.label}
-            className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3"
+            className="min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 max-[359px]:p-2"
           >
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-x-1 gap-y-1">
               <span
                 className={`text-xs px-2 py-0.5 rounded-full border ${r.tone}`}
               >
@@ -594,7 +594,7 @@ function LocationSplit({ split }: { split: LocationSplitBuckets }) {
                 {sharePct.toFixed(0)}%
               </span>
             </div>
-            <div className="mt-2 text-xl font-semibold tabular-nums text-neutral-100">
+            <div className="mt-2 flex flex-wrap items-baseline text-xl font-semibold tabular-nums text-neutral-100">
               {r.sessions}
               <span className="ml-1 text-xs font-normal text-neutral-500">
                 {r.sessions === 1 ? "session" : "sessions"}
