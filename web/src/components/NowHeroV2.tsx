@@ -225,7 +225,7 @@ export default function NowHeroV2({
             <div className="min-w-0 min-[900px]:text-center">
               {view.rangeMi != null && (
                 <p>
-                  <span className="text-3xl font-semibold tabular-nums text-neutral-100">{dist(view.rangeMi)}</span>{" "}
+                  <span className="whitespace-nowrap text-2xl font-semibold min-[360px]:text-3xl tabular-nums text-neutral-100">{dist(view.rangeMi)}</span>{" "}
                   <span className="text-sm text-neutral-400">range</span>
                 </p>
               )}
@@ -251,9 +251,9 @@ export default function NowHeroV2({
               </dl>
             )}
             {items.length > 0 && (
-              <div data-testid="now-temps" className="pointer-events-none relative grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-x-4 gap-y-3">
+              <div data-testid="now-temps" className="pointer-events-none relative grid grid-cols-2 min-[480px]:grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-x-4 gap-y-3">
                 {items.map((c) => (
-                  <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
+                  <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0 last:odd:col-span-2 min-[480px]:last:odd:col-span-1">
                     <p className="ui-label flex items-center">
                       {c.k}
                       {c.info && (
