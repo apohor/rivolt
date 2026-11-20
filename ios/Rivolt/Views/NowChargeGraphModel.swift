@@ -106,9 +106,10 @@ enum NowGraphCurve {
     /// This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
     /// first one's height; `segments` then draws it with no slope at the held indices. A gentle pair is left alone, and a reading that carries a dot or
     /// label (its index in `pinned`) is never moved: the ramp starts at it instead. Same rule as the web's easeSteps.
-    static func easeSteps(_ pts: [CGPoint], pinned: Set<Int> = [], minDrop: CGFloat = 3, slope: CGFloat = 1.2) -> (points: [CGPoint], hold: Set<Int>) {
+    static func easeSteps(_ pts: [CGPoint], pinned: Set<Int> = [], minDrop: CGFloat = 0.2, slope: CGFloat = 0.1) -> (points: [CGPoint], hold: Set<Int>) {
         guard let first = pts.first else { return ([], []) }
         var out: [CGPoint] = [first]
+        var outPin: [Bool] = [pinned.contains(0)]
         var hold = Set<Int>()
         for i in 1..<max(pts.count, 1) {
             let a = pts[i - 1]
@@ -116,9 +117,16 @@ enum NowGraphCurve {
             let dy = abs(b.y - a.y)
             if dy < minDrop || dy / max(b.x - a.x, 0.5) <= slope {
                 out.append(b)
+                outPin.append(pinned.contains(i))
                 continue
             }
-            let run = min(max(dy * 2, 12), 28)
+            // The level stretch this step leaves: readings at the same height, none of them carrying a dot or already eased.
+            var k = out.count - 1
+            while k > 0, abs(out[k - 1].y - a.y) < 0.5, !outPin[k - 1], !hold.contains(k - 1) { k -= 1 }
+            let level = k < out.count - 1
+            let from = level ? out[k].x : (out.count > 1 ? out[out.count - 2].x : a.x)
+            // A small step after a long level stretch is eased over most of that stretch; a big jump over a short run.
+            let run = min(max(dy * 8, 0.85 * (a.x - from) + (b.x - a.x), 10), 60)
             let last = out[out.count - 1]
             if pinned.contains(i - 1) {
                 hold.insert(out.count - 1)
@@ -126,6 +134,7 @@ enum NowGraphCurve {
                 if !pinned.contains(i), i + 1 < pts.count { x = min(max(b.x, a.x + run), b.x + 0.4 * (pts[i + 1].x - b.x)) }
                 hold.insert(out.count)
                 out.append(CGPoint(x: x, y: b.y))
+                outPin.append(pinned.contains(i))
                 continue
             }
             if hold.contains(out.count - 1) {
@@ -134,14 +143,27 @@ enum NowGraphCurve {
                 if x > last.x + 0.5 {
                     hold.insert(out.count)
                     out.append(CGPoint(x: x, y: a.y))
+                    outPin.append(false)
                 }
             } else {
-                let from = out.count > 1 ? out[out.count - 2].x : a.x
-                out[out.count - 1] = CGPoint(x: max(b.x - run, from + 0.4 * (a.x - from)), y: a.y)
+                let x0 = max(b.x - run, from + (level ? 0.1 : 0.4) * (a.x - from))
+                while out.count - 1 > k, out[out.count - 1].x > x0 {
+                    out.removeLast()
+                    outPin.removeLast()
+                }
+                if level {
+                    if x0 > out[out.count - 1].x + 0.05 {
+                        out.append(CGPoint(x: x0, y: a.y))
+                        outPin.append(false)
+                    }
+                } else {
+                    out[out.count - 1] = CGPoint(x: x0, y: a.y)
+                }
                 hold.insert(out.count - 1)
             }
             hold.insert(out.count)
             out.append(b)
+            outPin.append(pinned.contains(i))
         }
         return (out, hold)
     }
