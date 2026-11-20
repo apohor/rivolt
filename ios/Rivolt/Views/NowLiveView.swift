@@ -69,7 +69,7 @@ struct NowLiveView: View {
 
     @ViewBuilder
     private var truck: some View {
-        let urls = VehiclePicture.liveCandidates(images, imageURL: vehicle.imageUrl, state: pictureState, light: colorScheme == .light)
+        let urls = VehiclePicture.showsOnLive(kind: summary.kind, streaming: streaming) ? VehiclePicture.liveCandidates(images, imageURL: vehicle.imageUrl, state: pictureState, light: colorScheme == .light) : []
         return Group {
             if !urls.isEmpty { LiveTruckPicture(urls: urls) }
         }

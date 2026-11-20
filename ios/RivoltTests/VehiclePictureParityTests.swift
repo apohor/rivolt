@@ -44,4 +44,12 @@ final class VehiclePictureParityTests: XCTestCase {
         XCTAssertEqual(s.doorsClosed, false)
         XCTAssertEqual(s.frunkClosed, false)
     }
+
+    /// Driving or charging, the Live screen has no picture and the panel takes the width; every other state keeps it.
+    func testTheLivePictureIsAbsentWhileDrivingOrCharging() {
+        XCTAssertFalse(VehiclePicture.showsOnLive(kind: .driving, streaming: true))
+        XCTAssertFalse(VehiclePicture.showsOnLive(kind: .charging, streaming: true))
+        XCTAssertTrue(VehiclePicture.showsOnLive(kind: .parked, streaming: true))
+        XCTAssertTrue(VehiclePicture.showsOnLive(kind: .driving, streaming: false), "a stale truck keeps its picture")
+    }
 }

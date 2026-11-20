@@ -80,6 +80,12 @@ enum VehiclePicture {
         return pick(images, wants: wants, light: light)
     }
 
+    /// Whether the Live screen draws the picture at all: not while the truck drives or charges (the panel takes the whole width, as on the web's
+    /// Live card); parked, asleep, offline or stale it stays, since it shows the open doors, frunk and tailgate.
+    static func showsOnLive(kind: NowSnapshot.State, streaming: Bool) -> Bool {
+        !(streaming && (kind == .driving || kind == .charging))
+    }
+
     /// The Live pictures to try in order: the state's pick, then the vehicle's own `image_url`; one that failed to load is skipped
     /// (the web's `pickLiveImage`).
     static func liveCandidates(_ images: [VehicleImage]?, imageURL: String?, state: LiveInputs?, light: Bool, failed: Set<URL> = []) -> [URL] {
