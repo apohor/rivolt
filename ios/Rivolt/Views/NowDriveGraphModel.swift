@@ -10,6 +10,9 @@ struct NowDriveGraphModel: Equatable {
     /// Under this much of the drive (90 s) or four points, the card is as it was: no frame, no "collecting".
     static let minSpan: TimeInterval = 90
     static let minPoints = 4
+    /// How long into a drive the card says it just started (the minimum span and a minute and a half); after that, no readings.
+    static let justStartedWindow: TimeInterval = minSpan + 90
+    static func justStarted(startedAt: Date, now: Date) -> Bool { now.timeIntervalSince(startedAt) < justStartedWindow }
     /// At most this many readings per line, evenly spaced in time, so the curve through them has nothing to kink on.
     static let seriesPoints = 36
 

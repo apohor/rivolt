@@ -20,6 +20,22 @@ final class NowChargeGraphModelTests: XCTestCase {
         XCTAssertEqual(m.change, "+18%")
     }
 
+    /// The newest sample is 40 s old and the finish is 30.006 min away: the pill says 31 minutes from now, as the chip and the slot do.
+    func testThePillCountsWholeMinutesFromNowNotFromTheLastSample() throws {
+        let now = t0.addingTimeInterval(2440)
+        let minutes = 31
+        let m = try XCTUnwrap(NowChargeGraphModel.make(series: series(minutes: 40), startPct: 41, nowPct: 59, target: 80, etaHours: Double(minutes) / 60, now: now))
+        let when = now.addingTimeInterval(Double(minutes) * 60).formatted(date: .omitted, time: .shortened)
+        XCTAssertEqual(m.estimate?.pill, "80% · \(when)")
+    }
+
+    /// The sample says 11 kW, the card's live reading 12: one number, the card's.
+    func testTheLegendNamesTheLivePower() throws {
+        let m = try XCTUnwrap(NowChargeGraphModel.make(series: series(minutes: 40, kw: 11), startPct: 41, nowPct: 59, target: 80, etaHours: 1, powerKw: 12, now: t0.addingTimeInterval(2400)))
+        XCTAssertEqual(m.powerNow, "12")
+        XCTAssertTrue(m.spoken.contains("12 kilowatts"))
+    }
+
     func testTooLittleIsCollecting() {
         XCTAssertNil(NowChargeGraphModel.make(series: series(minutes: 1), startPct: 41, nowPct: 42, target: 80, etaHours: 2, now: t0.addingTimeInterval(60)))
         XCTAssertNil(NowChargeGraphModel.make(series: ChargeCurve.Series(), startPct: nil, nowPct: 42, target: 80, etaHours: 2, now: t0))

@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { cardHeight, cardKind, claimCardHeights, forgetCardHeights, placeholderHeight, rememberCardHeight } from "./nowCardSize";
+import { cardHeight, cardKind, claimCardHeights, forgetCardHeights, placeholderHeight, rememberCardHeight, startCardHeightLoad } from "./nowCardSize";
 
 describe("the Now card's remembered height", () => {
-  beforeEach(() => window.localStorage.clear());
+  beforeEach(() => {
+    window.localStorage.clear();
+    startCardHeightLoad();
+  });
 
   it("keeps a height per kind of card, so a parked card does not take a charging card's", () => {
     rememberCardHeight("v1", true, "charging", 827);
@@ -52,5 +55,29 @@ describe("the Now card's remembered height", () => {
     rememberCardHeight("v1", true, "charging", 827);
     claimCardHeights("u1");
     expect(cardHeight("v1", true, "charging")).toBeNull();
+  });
+
+  const load = (h: number[]) => {
+    startCardHeightLoad();
+    for (const x of h) rememberCardHeight("v1", true, "charging", x);
+  };
+
+  it("keeps the tallest of the last three loads, since a charging card grows and shrinks while it is up", () => {
+    load([720]);
+    load([538]);
+    load([505]);
+    expect(cardHeight("v1", true, "charging")).toBe(720);
+    load([520]);
+    expect(cardHeight("v1", true, "charging")).toBe(538);
+  });
+
+  it("a load's later measurements replace its own entry (the card grows while it loads)", () => {
+    load([505, 600, 720]);
+    expect(cardHeight("v1", true, "charging")).toBe(720);
+    load([505]);
+    load([505]);
+    expect(cardHeight("v1", true, "charging")).toBe(720);
+    load([505]);
+    expect(cardHeight("v1", true, "charging")).toBe(505);
   });
 });

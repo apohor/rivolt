@@ -76,11 +76,28 @@ for (const v of [
     await page.keyboard.press("End");
     await expect(page.locator("[data-elevation-readout]")).toHaveText(/^270 mi · /);
 
-    // A tap on the route puts the chart's marker there: park the chart at 20%, tap where the dot was at 80%.
-    await page.keyboard.press("Home");
-    await expect(page.locator("[data-elevation-readout]")).toHaveText(/^0 mi/);
-    await page.mouse.click(at80.x + at80.width / 2, at80.y + at80.height / 2);
-    await expect(page.locator("[data-elevation-readout]")).toHaveText(/^21\d mi · /);
+    // A tap on the route puts the chart's marker there: park the chart at the start, tap where the dot was at 80%. The map re-fits when the page
+    // settles (the readout changes length, the sheet moves), which moves the route under a position measured earlier, so the dot is read again
+    // once it has held still, right before the tap, and the whole step is tried again if the map moved in between.
+    await expect(async () => {
+      const q = await chartAt(page, 0.8);
+      await page.mouse.move(q.x, q.y);
+      await expect(page.locator("[data-elevation-readout]")).toHaveText(/^21[5-7] mi · /);
+      let last = "";
+      await expect.poll(async () => {
+        const r = (await dot.boundingBox())!;
+        const now = `${Math.round(r.x)},${Math.round(r.y)}`;
+        const same = now === last;
+        last = now;
+        return same;
+      }).toBe(true);
+      const at = (await dot.boundingBox())!;
+      await chart.focus();
+      await page.keyboard.press("Home");
+      await expect(page.locator("[data-elevation-readout]")).toHaveText(/^0 mi/);
+      await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+      await expect(page.locator("[data-elevation-readout]")).toHaveText(/^21\d mi · /, { timeout: 1500 });
+    }).toPass({ timeout: 15_000 });
     await expect(page.locator("[data-elevation-cursor]")).toBeVisible();
 
     const shot = info.outputPath(`elevation-${v.n}.png`);

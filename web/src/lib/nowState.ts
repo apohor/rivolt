@@ -327,6 +327,12 @@ export function nowAlerts(opts: {
   return out.slice(0, 2);
 }
 
+// The instant a charge finishes, from the card's time left: whole minutes rounded up (the slot's "N min left" text), so the chip, the slot's
+// "Reaches ... at", the graph's pill and the minutes shown all agree: the clock is that many minutes from now.
+export function chargeFinishMs(etaHours: number, nowMs: number): number {
+  return nowMs + Math.max(1, Math.ceil(etaHours * 60 - 1e-6)) * 60_000;
+}
+
 export function formatEta(hours: number, nowMs: number, approx = true): string {
   const tilde = approx ? "~" : "";
   if (hours < 1) return `${tilde}${Math.max(1, Math.round(hours * 60))} min`;

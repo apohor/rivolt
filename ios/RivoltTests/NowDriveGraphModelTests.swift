@@ -45,6 +45,12 @@ final class NowDriveGraphModelTests: XCTestCase {
         XCTAssertEqual(m.startTime, "-90")
     }
 
+    func testJustStartedOnlyInTheFirstMinutes() {
+        XCTAssertTrue(NowDriveGraphModel.justStarted(startedAt: t0, now: t0.addingTimeInterval(60)))
+        XCTAssertTrue(NowDriveGraphModel.justStarted(startedAt: t0, now: t0.addingTimeInterval(170)))
+        XCTAssertFalse(NowDriveGraphModel.justStarted(startedAt: t0, now: t0.addingTimeInterval(40 * 60)), "40 minutes in with no line is not a drive that just started")
+    }
+
     func testTheTopIsARealReadingNotTheSmoothedCurve() throws {
         let m = try XCTUnwrap(make(drive(minutes: 22)))
         XCTAssertEqual(m.top?.label, "80 mph")

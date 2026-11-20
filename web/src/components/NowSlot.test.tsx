@@ -2,12 +2,28 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import NowSlot, { asleepFigures, pickFix, slotAvailable, slotShown, slotView, slotStats, weatherView, type SlotInput } from "./NowSlot";
 import type { NowView } from "../lib/nowState";
+import { nowChip } from "./NowHeroV2";
+import { clock } from "../lib/nowState";
 
 const charging = { kind: "charging", powerKw: 7.4, etaHours: 1.2, etaSource: "truck", limitPct: 80, energyKwh: 18.24, chargeFlavor: "home_l2", speedMph: null } as unknown as NowView;
 const driving = { kind: "driving", speedMph: 62, powerKw: null } as unknown as NowView;
 const session = { range_added_km: 98, total_charged_energy_kwh: 18.24, time_elapsed_seconds: 3900, kilometers_charged_per_hour: 61 };
 const drive = { tripMi: 12.34, elapsed_sec: 1500, energy_used_kwh: 4.2, effMiPerKwh: 12.34 / 4.2 };
 const base = (v: NowView, extra: Partial<SlotInput> = {}): SlotInput => ({ view: v, nowMs: Date.UTC(2026, 0, 1, 12), unit: "mi", currency: "USD", ...extra });
+
+describe("one finish time", () => {
+  // 30.006 minutes left: the slot says "31 min left", so the chip and "Reaches" both say 31 minutes from now, to the minute.
+  it("the chip, the slot's Reaches line and the shown minutes name the same instant", () => {
+    const nowMs = Date.UTC(2026, 0, 1, 12, 0, 20);
+    const view = { ...charging, etaHours: 30.006 / 60 } as unknown as NowView;
+    const { unmount } = render(<NowSlot {...base(view, { nowMs })} />);
+    const when = clock(nowMs + 31 * 60_000);
+    expect(screen.getByTestId("now-slot-small").textContent).toMatch(/^31 min left/);
+    expect(screen.getByTestId("now-slot-sub").textContent).toBe(`Reaches 80% at ${when}`);
+    expect(nowChip(view, null, nowMs, "", false)).toBe(`Charging · 7.4 kW · done by ${when}`);
+    unmount();
+  });
+});
 
 describe("NowSlot", () => {
   it("charging shows power, charger, the limit, the session and the priced cost", () => {
@@ -148,5 +164,17 @@ describe("parked slot weather", () => {
   it("without a fix nothing renders", () => {
     const { container } = render(<NowSlot {...base({ kind: "parked" } as unknown as NowView)} />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("the drive graph's frame before a line", () => {
+  const started = Date.UTC(2026, 0, 1, 12);
+  it("says the drive just started in its first minutes, and that there are no readings later", async () => {
+    const { DriveGraph } = await import("./DriveGraph");
+    const early = render(<DriveGraph series={null} startedMs={started} nowMs={started + 60_000} unit="mi" nowPct={70} />);
+    expect(screen.getByTestId("now-drive-just-started").textContent).toBe("Drive just started");
+    early.unmount();
+    render(<DriveGraph series={null} startedMs={started} nowMs={started + 40 * 60_000} unit="mi" nowPct={70} />);
+    expect(screen.getByTestId("now-drive-just-started").textContent).toBe("No speed readings yet");
   });
 });

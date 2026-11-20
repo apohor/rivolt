@@ -214,7 +214,14 @@ export function GraphHead({ title, change, since, testid, sinceAlone = false }: 
   return (
     <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3">
       <span className="ui-label">{title}</span>
-      {!change && sinceAlone && since && <span data-testid={testid ? `${testid}-since` : undefined} className="ml-auto text-xs text-neutral-400">{since}</span>}
+      {/* The same line height as the change it makes room for, so the header does not grow when the change arrives. */}
+      {!change && sinceAlone && since && (
+        <span className="ml-auto text-sm">
+          <span data-testid={testid ? `${testid}-since` : undefined} className="text-xs text-neutral-400">
+            {since}
+          </span>
+        </span>
+      )}
       {change && (
         <span data-testid={testid} className="ml-auto text-sm font-semibold tabular-nums text-neutral-100">
           {change}

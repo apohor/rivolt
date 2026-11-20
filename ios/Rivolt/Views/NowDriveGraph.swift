@@ -9,7 +9,7 @@ struct NowDriveGraph: View {
     var destination: String?
 
     /// The plot's height, also the "just started" frame's, so the card does not change height when the line appears.
-    static let plotHeight: CGFloat = 170
+    static let plotHeight: CGFloat = 150
     private let padT: CGFloat = 30
     private let padB: CGFloat = 26
     private let padL: CGFloat = 6
@@ -134,6 +134,8 @@ struct NowDriveStart: View {
     /// "since 11:38 AM".
     let since: String
     let speedUnit: String
+    /// "Drive just started" in the first minutes of a drive; later "No speed readings yet" (the stream is down, a long gap).
+    var justStarted = true
     var destination: String?
 
     var body: some View {
@@ -147,7 +149,7 @@ struct NowDriveStart: View {
                 Text(destination).themeText(.subline, color: Theme.textBody).lineLimit(1).truncationMode(.tail)
                     .accessibilityIdentifier("now-drive-dest")
             }
-            Text("Drive just started").themeText(.subline, color: Theme.textSecondary)
+            Text(justStarted ? "Drive just started" : "No speed readings yet").themeText(.subline, color: Theme.textSecondary)
                 .frame(maxWidth: .infinity, minHeight: NowDriveGraph.plotHeight)
                 .accessibilityIdentifier("now-drive-just-started")
             HStack(spacing: 6) {
@@ -157,7 +159,7 @@ struct NowDriveStart: View {
             .padding(.top, 4)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Drive just started, \(since)" + (destination.map { ". \($0)" } ?? ""))
+        .accessibilityLabel("\(justStarted ? "Drive just started" : "No speed readings yet"), \(since)" + (destination.map { ". \($0)" } ?? ""))
         .accessibilityIdentifier("now-drive-graph")
     }
 }
