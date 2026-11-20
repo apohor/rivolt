@@ -7,17 +7,19 @@ for (const [name, opts] of [
   ["driving", { scenario: "driving" }],
   ["charging", { scenario: "charging" }],
 ] as const) {
-  test(`Now at 320 px and 200% text has no overflow (${name})`, async ({ page }) => {
+ for (const wide of [false, true]) {
+  // wide: a wider face than the one the shots use (CI's fonts differ from a laptop's).
+  test(`Now at 320 px and 200% text has no overflow (${name}${wide ? ", wide font" : ""})`, async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 700 });
     await stubApi(page, { nowEndpoint: true, ...opts, designPreview: ["now_v2", "now_tidy", "now_slot", "now_drive_graph"], liveDestination: "trip", driveCase: { elapsedMin: 22, mph: (m: number) => 50 + 5 * Math.sin(m), soc: (m: number) => 71 - m * 0.18 } });
     await page.goto("/");
-    await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+    await page.addStyleTag({ content: "html { font-size: 200% !important; }" + (wide ? " body, body * { font-family: Georgia, serif !important; letter-spacing: 0.04em; }" : "") });
     const month = page.getByTestId("now-month");
     await expect(month).toBeVisible();
     await page.waitForTimeout(500);
     // Fixed bars would sit over the shots.
     await page.addStyleTag({ content: ".fixed, .sticky, [class*='fixed'], [class*='sticky'] { visibility: hidden !important; }" });
-    await page.screenshot({ path: `test-results/narrow-320-${name}.png`, fullPage: true, clip: { x: 0, y: 0, width: 320, height: 1800 } });
+    if (!wide) await page.screenshot({ path: `test-results/narrow-320-${name}.png`, fullPage: true, clip: { x: 0, y: 0, width: 320, height: 1800 } });
     const bad = await page.evaluate(() => {
       const w = document.documentElement.clientWidth;
       const out: string[] = [];
@@ -49,7 +51,7 @@ for (const [name, opts] of [
       }),
     );
     expect(over).toEqual([]);
-    await month.screenshot({ path: `test-results/narrow-320-${name}-month.png` });
+    if (!wide) await month.screenshot({ path: `test-results/narrow-320-${name}-month.png` });
     // The month's four figures: each label stays inside its own cell.
     const cells = await month.locator("div.flex-col").evaluateAll((els) =>
       els.map((c) => {
@@ -62,4 +64,5 @@ for (const [name, opts] of [
     );
     expect(cells.every(Boolean), `month cells ${cells}`).toBe(true);
   });
+ }
 }

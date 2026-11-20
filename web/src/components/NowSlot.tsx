@@ -332,7 +332,7 @@ export default function NowSlot(i: SlotInput) {
       {sub && <p className="mt-2 text-sm font-medium text-neutral-200" data-testid="now-slot-sub">{sub}</p>}
       {small && <p className="text-xs text-neutral-400" data-testid="now-slot-small">{small}</p>}
       {stats.length > 0 && !i.soft && (
-        <div className={`mt-3 grid grid-cols-2 gap-x-2 gap-y-3 min-[360px]:gap-x-4 ${i.half ? "" : "min-[900px]:grid-cols-3"}`}>
+        <div className={`mt-3 grid grid-cols-[repeat(2,minmax(min-content,1fr))] gap-x-2 gap-y-3 min-[360px]:gap-x-4 ${i.half ? "" : "min-[900px]:grid-cols-3"}`}>
           {stats.map((s) => (
             <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`} className="min-w-0">
               <p className="ui-label">{s.k}</p>
