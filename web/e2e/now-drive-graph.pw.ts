@@ -68,7 +68,7 @@ test("with a destination or without, the graph and the slot do not overlap @webk
 
 if (SHOTS) {
   // The image-gate matrix: the cases at 393 and 1280, both themes, miles and kilometres, with and without a destination.
-  for (const c of ["middle", "stop"]) for (const w of [393, 1280]) for (const scheme of ["light", "dark"] as const) for (const unit of ["mi", "km"]) {
+  for (const c of ["middle", "stop"]) for (const w of [393, 1280, 1440]) for (const scheme of ["light", "dark"] as const) for (const unit of ["mi", "km"]) {
     test(`shot ${c} ${w} ${scheme} ${unit}`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: { width: w, height: w < 900 ? 1700 : 1000 }, colorScheme: scheme });
       const page = await ctx.newPage();
