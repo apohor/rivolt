@@ -257,7 +257,7 @@ final class NowSlotTests: XCTestCase {
         guard case .figures(_, _, _, _, let stats) = atHome.content else { return XCTFail("figures") }
         let cost = try XCTUnwrap(stats.first { $0.label == "Cost so far" })
         XCTAssertFalse(cost.value.contains("≈"), cost.value)
-        XCTAssertEqual(cost.note, "at your home rate")
+        XCTAssertEqual(cost.note, "estimate · at your home rate")
         XCTAssertEqual(atHome.chips.map(\.text), ["Home charger"])
         let away = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (35.0, -118.1), home: home, clock: at))
         XCTAssertEqual(away.chips.map(\.text), ["Public charger"])
