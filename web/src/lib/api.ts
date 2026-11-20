@@ -733,6 +733,22 @@ export type NowSnapshot = {
 };
 export type DemoInfo = { enabled: boolean; vehicle_id: string; home_label: string };
 
+// ParkedSeries is GET /api/vehicles/{id}/parked-series?tz= (24 h of stored rows, no Rivian call). Every figure and the projection are the
+// server's, so the web and the iPhone say the same numbers; clients only format. Sparse data answers empty arrays and null figures.
+export type ParkedSeries = {
+  version: number;
+  from: string;
+  to: string;
+  parked_since: string | null;
+  parked: boolean;
+  change_pct: number | null;
+  points: { t: string; soc: number; seg: number }[];
+  sleeps: { from: string; to: string; open: boolean }[];
+  wakes: { t: string; soc_before: number; soc_after: number }[];
+  figures: { asleep_today_s: number; wake_ups: number; wake_cost_pct: number | null; idle_pct_per_day: number | null; idle_mi_per_day: number | null } | null;
+  projection: { at: string; soc: number } | null;
+};
+
 // DrainSnapshot is GET /api/vehicles/{id}/drain (drain-contract v1).
 // Nulls mean unknown, never 0. Reports what happened, not why.
 export type DrainWindow = {
@@ -1462,6 +1478,16 @@ export const backend = {
   vehicleDrain: async (vehicleID: string): Promise<DrainSnapshot | null> => {
     try {
       return await api.get<DrainSnapshot>(`/api/vehicles/${encodeURIComponent(vehicleID)}/drain`);
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
+      throw e;
+    }
+  },
+  // vehicleParkedSeries: the Now card's battery-while-parked graph; null when the endpoint is absent (an older server).
+  vehicleParkedSeries: async (vehicleID: string, tz: string): Promise<ParkedSeries | null> => {
+    try {
+      const s = await api.get<ParkedSeries>(`/api/vehicles/${encodeURIComponent(vehicleID)}/parked-series?tz=${encodeURIComponent(tz)}`);
+      return s && Array.isArray(s.points) && Array.isArray(s.sleeps) ? s : null;
     } catch (e) {
       if (e instanceof ApiError && (e.status === 404 || e.status === 501)) return null;
       throw e;
