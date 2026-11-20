@@ -69,14 +69,17 @@ struct LiveSession: Decodable, Equatable {
 /// `GET /api/live-drive/{id}`: the drive in progress (while the truck is in gear). Distances are miles on this wire.
 struct LiveDrive: Decodable, Equatable {
     let elapsedSec: Double
+    /// When the drive began, as the server counts it (elapsedSec is measured to the last frame, so now minus it lands late by the frame's age).
+    let startedAt: Date?
     let distanceMi: Double
     let maxSpeedMph: Double
     let avgSpeedMph: Double
     let energyUsedKwh: Double
     let miPerKwh: Double
 
-    init(elapsedSec: Double = 0, distanceMi: Double = 0, maxSpeedMph: Double = 0, avgSpeedMph: Double = 0, energyUsedKwh: Double = 0, miPerKwh: Double = 0) {
+    init(elapsedSec: Double = 0, startedAt: Date? = nil, distanceMi: Double = 0, maxSpeedMph: Double = 0, avgSpeedMph: Double = 0, energyUsedKwh: Double = 0, miPerKwh: Double = 0) {
         self.elapsedSec = elapsedSec
+        self.startedAt = startedAt
         self.distanceMi = distanceMi
         self.maxSpeedMph = maxSpeedMph
         self.avgSpeedMph = avgSpeedMph
@@ -87,6 +90,7 @@ struct LiveDrive: Decodable, Equatable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         elapsedSec = try c.decodeIfPresent(Double.self, forKey: .elapsedSec) ?? 0
+        startedAt = try? c.decodeIfPresent(Date.self, forKey: .startedAt)
         distanceMi = try c.decodeIfPresent(Double.self, forKey: .distanceMi) ?? 0
         maxSpeedMph = try c.decodeIfPresent(Double.self, forKey: .maxSpeedMph) ?? 0
         avgSpeedMph = try c.decodeIfPresent(Double.self, forKey: .avgSpeedMph) ?? 0
@@ -95,7 +99,7 @@ struct LiveDrive: Decodable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case elapsedSec, distanceMi, maxSpeedMph, avgSpeedMph, energyUsedKwh, miPerKwh
+        case elapsedSec, startedAt, distanceMi, maxSpeedMph, avgSpeedMph, energyUsedKwh, miPerKwh
     }
 }
 

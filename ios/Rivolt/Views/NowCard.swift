@@ -52,6 +52,9 @@ struct NowCard: View {
     /// The parked graph (design_preview key now_parked_graph, with ios_now_tidy and now_slot): the last 24 hours of the battery on a parked, plugged
     /// or asleep truck. Nil without the key; a series with no line to draw leaves the card as it was.
     var parkedSeries: NowParkedSeriesModel?
+    /// The driving graph (design_preview key now_drive_graph, with ios_now_tidy and now_slot): the stored samples of the drive in progress. Nil without
+    /// the key; a drive too short to draw leaves the card as it was.
+    var driveSeries: NowDriveSeriesModel?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -124,8 +127,15 @@ struct NowCard: View {
         return NowChargeGraphModel.make(series: series.series, startPct: series.startPct, nowPct: soc, target: summary.chargeTargetPct, etaHours: eta, now: clock)
     }
 
+    /// The driving graph's numbers; the ring's value is the change's end.
+    private var driveModel: NowDriveGraphModel? {
+        guard tidy, slotOn, driving, isLive, let series = driveSeries, let start = series.startedAt else { return nil }
+        return NowDriveGraphModel.make(samples: series.samples, startedAt: start, nowPct: summary.socPct, metric: NowFormat.usesMetric)
+    }
+
     private var heroV2: some View {
         let slot = self.slot
+        let drive = driveModel
         // The slot carries the session and the drive; the rows stay for the comfort and install lines (and all of them under the picture).
         let sessionRows = slot == nil || slot?.isParked == true
         let showRows = (driving && sessionRows) || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || (chargingRowsV2 && sessionRows)
@@ -147,7 +157,8 @@ struct NowCard: View {
                 if soft || parkedSoft, let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if tidy, driving, isLive, let destination, destination.hasFix {
                     Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
-                    NowDestinationBlock(destination: destination)
+                    // With the graph the destination is its one line; the block would say it twice.
+                    if drive == nil || slot == nil { NowDestinationBlock(destination: destination) }
                     LiveDestinationMap(destination: destination, height: 180)
                 }
                 if let slot {
@@ -159,6 +170,10 @@ struct NowCard: View {
                     }
                     NowSlotView(model: slot, soft: soft)
                     if soft { Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true); NowChargeGraph(model: graphModel) }
+                    if let drive, !slot.isParked {
+                        Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
+                        NowDriveGraph(model: drive, destination: isLive ? destination.flatMap { $0.hasFix ? NowDriveGraphModel.destinationLine($0) : nil } : nil)
+                    }
                 }
                 if let line = subline, !parkedSoft, slot == nil || slot?.isParked == true { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if showRows { detailRows }
