@@ -59,6 +59,23 @@ final class NowSlotTests: XCTestCase {
         XCTAssertTrue(model.isParked)
     }
 
+    /// The parked card with the graph has one line where the map was: the saved place at home, how far from home away, none with no saved home.
+    func testTheParkedPlaceLine() throws {
+        let now = try snapshot("parked")
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_disconnected", kw: 0), now: now, clock: at)
+        func place(_ fix: (Double, Double), home: NowSlotModel.Home?, metric: Bool = false) throws -> String? {
+            try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: fix, home: home, metric: metric, clock: at)).place
+        }
+        XCTAssertEqual(try place((34.1, -118.1), home: .init(lat: 34.1, lon: -118.1, label: nil)), "At Home")
+        XCTAssertEqual(try place((34.1, -118.1), home: .init(lat: 34.1, lon: -118.1, label: "")), "At Home", "an empty saved name is Home")
+        XCTAssertEqual(try place((34.1, -118.1), home: .init(lat: 34.1, lon: -118.1, label: "Cabin")), "At Cabin")
+        XCTAssertEqual(try place((34.15, -118.1), home: .init(lat: 34.1, lon: -118.1, label: nil)), "Away · 3.5 mi from home")
+        XCTAssertEqual(try place((34.15, -118.1), home: .init(lat: 34.1, lon: -118.1, label: nil), metric: true), "Away · 5.6 km from home")
+        XCTAssertNil(try place((34.1, -118.1), home: nil), "no saved home: no line, not an empty row")
+        XCTAssertEqual(NowSlotModel.distanceWords(km: 400, metric: false), "250 mi", "steps of 5 from 60 mi")
+        XCTAssertEqual(NowSlotModel.distanceWords(km: 40, metric: false), "25 mi")
+    }
+
     func testASleepingTruckWithOnlyALastFixShowsTheMapAndTheSleepFigures() throws {
         let since = ISO8601DateFormatter().string(from: at.addingTimeInterval(-(2 * 3600 + 15 * 60)))
         let extra = #","last_fix":{"lat":34.1,"lon":-118.1,"at":"\#(since)"},"asleep_since":"\#(since)","asleep_today_s":67200"#
