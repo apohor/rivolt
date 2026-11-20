@@ -69,12 +69,15 @@ struct NowLiveView: View {
 
     @ViewBuilder
     private var truck: some View {
-        let urls = VehiclePicture.liveCandidates(images, imageURL: vehicle.imageUrl, state: pictureState, light: colorScheme == .light)
+        let urls = VehiclePicture.showsOnLive(kind: summary.kind, streaming: streaming) ? VehiclePicture.liveCandidates(images, imageURL: vehicle.imageUrl, state: pictureState, light: colorScheme == .light) : []
+        // No picture, nothing to hang the plug badge and glow on: the overlay goes with the picture.
         return Group {
-            if !urls.isEmpty { LiveTruckPicture(urls: urls) }
+            if urls.isEmpty { EmptyView() } else {
+                LiveTruckPicture(urls: urls)
+                    .frame(maxWidth: .infinity)
+                    .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
+            }
         }
-        .frame(maxWidth: .infinity)
-        .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
     }
 
     private var plugAnim: Bool { appState?.designPreview.contains("plug_anim") == true }
