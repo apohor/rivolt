@@ -19,6 +19,13 @@ final class NowGraphCurveEaseTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(eased.points[2].x - eased.points[1].x, 12)
     }
 
+    func testARealJumpAfterALongPlateauKeepsAShortRun() {
+        let flat = (0..<10).map { CGPoint(x: CGFloat($0) * 10, y: 50) }
+        let eased = NowGraphCurve.easeSteps(flat + [CGPoint(x: 100, y: 62), CGPoint(x: 110, y: 62)])
+        let start = eased.points.last(where: { $0.y == 50 && $0.x <= 100 })!
+        XCTAssertLessThanOrEqual(100 - start.x, 28)
+    }
+
     func testHeldPointsLeaveAndArriveLevel() {
         let segs = NowGraphCurve.segments([CGPoint(x: 0, y: 0), CGPoint(x: 20, y: 30)], hold: [0, 1])
         XCTAssertEqual(segs.count, 1)

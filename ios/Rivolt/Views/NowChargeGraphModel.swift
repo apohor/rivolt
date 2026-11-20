@@ -125,8 +125,8 @@ enum NowGraphCurve {
             while k > 0, abs(out[k - 1].y - a.y) < 0.5, !outPin[k - 1], !hold.contains(k - 1) { k -= 1 }
             let level = k < out.count - 1
             let from = level ? out[k].x : (out.count > 1 ? out[out.count - 2].x : a.x)
-            // A small step after a long level stretch is eased over most of that stretch; a big jump over a short run.
-            let run = min(max(dy * 8, 0.85 * (a.x - from) + (b.x - a.x), 10), 60)
+            // A rounding step (1.5 pt or less) after a long level stretch is eased over most of that stretch; a real jump keeps a short run.
+            let run = dy <= 1.5 ? min(max(dy * 8, 0.85 * (a.x - from) + (b.x - a.x), 10), 60) : min(max(dy * 1.5, 12), 28)
             let last = out[out.count - 1]
             if pinned.contains(i - 1) {
                 hold.insert(out.count - 1)
