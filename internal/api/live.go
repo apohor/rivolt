@@ -86,18 +86,25 @@ func handleLiveSessionForwarded(c rivian.Client, mon *rivian.StateMonitor, store
 // truth — there's no REST fallback because Rivian exposes no drive
 // equivalent of getLiveSessionHistory, and the snapshot is derived
 // entirely from locally-observed telemetry frames.
-func handleLiveDrive(mon *rivian.StateMonitor) http.HandlerFunc {
+func handleLiveDrive(c rivian.Client, mon *rivian.StateMonitor, sf *stateForward) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "vehicleID")
 		if id == "" {
 			http.Error(w, "vehicleID required", http.StatusBadRequest)
 			return
 		}
-		if mon == nil {
-			w.WriteHeader(http.StatusNoContent)
-			return
+		var drive *rivian.LiveDrive
+		if rivian.IsUnheld(c) && sf != nil && sf.fw != nil && sf.groupOf != nil {
+			// No tokens and so no stream here: the group's owner holds the drive (this pod answers itself only when it is the owner).
+			wire, err := sf.forwardLiveDrive(r.Context(), id)
+			if err != nil {
+				writeUnheld(w)
+				return
+			}
+			drive = wire.Drive
+		} else if mon != nil {
+			drive = mon.ActiveDrive(id)
 		}
-		drive := mon.ActiveDrive(id)
 		if drive == nil {
 			w.WriteHeader(http.StatusNoContent)
 			return

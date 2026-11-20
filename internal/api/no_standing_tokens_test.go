@@ -450,3 +450,68 @@ func TestServeLiveSessionReturnsTheMonitorsRead(t *testing.T) {
 		t.Fatalf("ServeLiveSession without a monitor = %d, want 503", got.Status)
 	}
 }
+
+// liveDriveGet drives GET /api/live-drive/{id} through the real router on a token-less pod whose forwarder is fw.
+func liveDriveGet(t *testing.T, fw StateForwarder) *httptest.ResponseRecorder {
+	t.Helper()
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := New(Deps{Auth: svc, AuthEnforced: true, Accounts: gatedRegistry(), StateForward: fw,
+		GroupOfVehicle: func(string) (string, bool) { return fwdGroup, true }})
+	req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev/api/live-drive/"+fwdVehicle, nil)
+	req.RemoteAddr = "203.0.113.9:4000"
+	ctx := auth.WithUser(req.Context(), uuid.New())
+	ctx = auth.WithSession(ctx, auth.SessionRef{ID: uuid.New(), Kind: "web"})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req.WithContext(ctx))
+	return rec
+}
+
+// The api pod holds no monitor: the open drive comes from the owner's, through a live_drive forward (it used to answer 204 on every such pod,
+// so the Live panel waited for a first frame for ever).
+func TestLiveDriveRouteOnATokenlessPodAnswersWithTheOwnersDrive(t *testing.T) {
+	body, _ := json.Marshal(liveDriveWire{Drive: &rivian.LiveDrive{VehicleID: fwdVehicle, Number: 7, DistanceMi: 12.5}})
+	fw := &fakeStateForwarder{res: forward.Result{Status: 200, Body: body}}
+	rec := liveDriveGet(t, fw)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("live-drive = %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	var got rivian.LiveDrive
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Number != 7 || got.DistanceMi != 12.5 {
+		t.Fatalf("live-drive body %s (%v), want the owner's drive", rec.Body.String(), err)
+	}
+	if len(fw.calls) != 1 || fw.calls[0].Kind != forward.KindLiveDrive || fw.calls[0].Group != fwdGroup {
+		t.Fatalf("forwarder calls %+v, want one live_drive to the vehicle's group", fw.calls)
+	}
+}
+
+// The owner has no open drive: 204, as before.
+func TestLiveDriveRouteOnATokenlessPodWithNoDriveIs204(t *testing.T) {
+	body, _ := json.Marshal(liveDriveWire{})
+	rec := liveDriveGet(t, &fakeStateForwarder{res: forward.Result{Status: 200, Body: body}})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("live-drive with no drive = %d (%s), want 204", rec.Code, rec.Body.String())
+	}
+}
+
+// No owner to ask: a retry-able 503, never a 204 the panel would read as "no drive".
+func TestLiveDriveRouteOnATokenlessPodWithNoOwnerIsRetryable(t *testing.T) {
+	rec := liveDriveGet(t, &fakeStateForwarder{res: forward.UnavailableResult()})
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+		t.Fatalf("live-drive with no owner = %d, Retry-After %q; want 503 with Retry-After", rec.Code, rec.Header().Get("Retry-After"))
+	}
+}
+
+// The owner's runner side: a monitor with no drive answers 200 with a null drive, no monitor answers unavailable.
+func TestServeLiveDriveReturnsTheMonitorsRead(t *testing.T) {
+	res := ServeLiveDrive(rivian.NewStateMonitor(nil, nil), fwdVehicle)
+	var w liveDriveWire
+	if res.Status != http.StatusOK || json.Unmarshal(res.Body, &w) != nil || w.Drive != nil {
+		t.Fatalf("ServeLiveDrive = %d %s, want 200 with no drive", res.Status, res.Body)
+	}
+	if res := ServeLiveDrive(nil, fwdVehicle); res.Status != http.StatusServiceUnavailable {
+		t.Fatalf("ServeLiveDrive(nil) = %d, want 503", res.Status)
+	}
+}
