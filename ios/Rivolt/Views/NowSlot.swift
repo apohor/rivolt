@@ -139,10 +139,10 @@ struct NowSlotModel: Equatable {
             rangeKm = range / soc * added
         }
         let mark = estimated ? "≈ " : ""
-        if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.distance(mi: km / 1.609344))", note: nil)) }
+        if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.slotDistance(mi: km / 1.609344))", note: nil)) }
         let truckRate = detail.rateKmPerHour.flatMap { $0 > 0 ? $0 : nil }
         let rate = truckRate ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
-        if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil ? "≈ " : "")\(NowFormat.distance(mi: rate / 1.609344))/h", note: nil)) }
+        if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil ? "≈ " : "")\(NowFormat.slotDistance(mi: rate / 1.609344))/h", note: nil)) }
         if let elapsed { stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil)) }
         // The cost so far is the server's (`/now` charge), as the web: ≈ when it is an estimate, with where it comes from.
         if let c = snapshot?.charge, let cost = c.cost {
@@ -171,7 +171,7 @@ struct NowSlotModel: Equatable {
         let metric = NowFormat.usesMetric
         var stats: [Stat] = []
         if let d = drive {
-            if d.distanceMi > 0 { stats.append(Stat(label: "Distance", value: NowFormat.distance(mi: d.distanceMi), note: nil)) }
+            if d.distanceMi > 0 { stats.append(Stat(label: "Distance", value: NowFormat.slotDistance(mi: d.distanceMi), note: nil)) }
             if d.elapsedSec > 0 { stats.append(Stat(label: "Time", value: NowFormat.duration(d.elapsedSec), note: nil)) }
             if let eff = d.miPerKwh, eff > 0 { stats.append(Stat(label: "Efficiency", value: NowFormat.efficiency(miPerKwh: eff), note: nil)) }
             if let kwh = d.energyKwh, kwh > 0 { stats.append(Stat(label: "Energy used", value: "\(NowFormat.oneDecimal(kwh)) kWh", note: nil)) }

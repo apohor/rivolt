@@ -3,8 +3,12 @@ import XCTest
 /// With design_preview now_charge_graph (and ios_now_v2, ios_now_tidy, now_slot): a charge that began 40 minutes ago, answered from generated fixtures
 /// (`-uitest-charging`, Rivolt/App/UITestFixtures.swift), shows the battery graph, the session rows and the pack temperature, as the web's card does.
 final class NowChargeGraphUITests: XCTestCase {
-    private func launch() -> XCUIApplication {
+    private func launch(_ chargeCase: String = "ac", dark: Bool = false, xxxLarge: Bool = false, metric: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchEnvironment["RIVOLT_UITEST_CHARGE_CASE"] = chargeCase
+        if dark { app.launchArguments += ["-rivolt.appearance", "dark"] }
+        if xxxLarge { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"] }
+        app.launchEnvironment["RIVOLT_UITEST_UNITS"] = metric ? "km" : "mi"
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let ios = here.deletingLastPathComponent()
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = [here.appendingPathComponent("Fixtures").path, ios.appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
@@ -42,5 +46,25 @@ final class NowChargeGraphUITests: XCTestCase {
         shot(app, "now-charge-graph-middle")
         app.swipeUp()
         shot(app, "now-charge-graph-scrolled")
+    }
+
+    /// The parity shots: the same states as the web's e2e matrix (web/e2e/now-charge-graph.pw.ts), so the two cards can be set side by side.
+    /// Not a gate beyond "the graph appears"; the shots are looked at by hand and filed under _shared/charge-graph/ios.
+    func testParityShots() throws {
+        guard ProcessInfo.processInfo.environment["RIVOLT_PARITY_SHOTS"] != nil || FileManager.default.fileExists(atPath: "/tmp/rivolt-ui-shots/.parity") else { throw XCTSkip("shots on request") }
+        let combos: [(String, Bool, Bool, Bool)] = [
+            ("dc", true, false, false), ("dc", false, false, false), ("dc", true, false, true), ("dc", true, true, false),
+            ("slow", true, false, false), ("slow", false, false, false), ("slow", true, true, false), ("slow", true, false, true),
+            ("ac", true, false, false), ("ac", false, false, true),
+        ]
+        for (name, dark, big, metric) in combos {
+            let app = launch(name, dark: dark, xxxLarge: big, metric: metric)
+            XCTAssertTrue(element(app, "now-charge-graph").waitForExistence(timeout: 30), "\(name) graph")
+            let tag = "\(name)-\(dark ? "dark" : "light")-\(big ? "xxxl" : "std")-\(metric ? "km" : "mi")"
+            shot(app, "parity-\(tag)-top")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+            shot(app, "parity-\(tag)-middle")
+            app.terminate()
+        }
     }
 }
