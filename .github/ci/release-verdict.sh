@@ -85,7 +85,9 @@ if [ -z "$RC" ]; then
       # success and preview on the rc image. Say so here, so this verdict cannot say WOULD TAG for a tag tag-validate refuses.
       # The rc tags are listed the way final-gate.sh lists them (origin's, not this clone's; RC_TAG_REFS stands in for tests): an annotated tag
       # lists twice, the object and its peeled commit (^{}), which wins.
-      if ! refs=${RC_TAG_REFS-$(git ls-remote --tags origin "refs/tags/$VERSION-rc.*" 2>/dev/null)}; then refuse "could not list the release candidate tags (final-gate.sh would refuse too)"; finish; fi
+      # A checkout with no origin (a test fixture) has only its own tags to read.
+      lister=(git ls-remote --tags origin "refs/tags/$VERSION-rc.*"); git remote get-url origin >/dev/null 2>&1 || lister=(git show-ref --tags -d)
+      if ! refs=${RC_TAG_REFS-$("${lister[@]}" 2>/dev/null)}; then refuse "could not list the release candidate tags (final-gate.sh would refuse too)"; finish; fi
       match=$(awk '{ r=$2; sub("^refs/tags/", "", r); peeled = (r ~ /\^\{\}$/); sub(/\^\{\}$/, "", r); if (peeled || !(r in c)) c[r]=$1 } END { for (r in c) print r, c[r] }' <<<"$refs" |
         awk -v s="$FULL" '$2 == s { print $1 }' | grep -E "^${VERSION//./\\.}-rc\.[1-9][0-9]*$" | sort -t. -k4 -n | tail -1 || true)
       if [ -n "$match" ]; then
