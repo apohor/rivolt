@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { displayTimeZone } from "../lib/format";
 import { formatScheduleStart, nextScheduledStartMin } from "../lib/chargingSchedule";
 import { ArcGauge } from "./ArcGauge";
@@ -32,6 +32,7 @@ import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
 import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaNowLine, otaStepFromState } from "../lib/truckHealth";
+import { lastCardHeight, rememberCardHeight } from "../lib/nowCardSize";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
 
 // The Now card (ux-slice-spec §3): one state-driven hero for the
@@ -83,12 +84,16 @@ function advance(t: Tracker, s: VehicleState, nowMs: number): Tracker {
   return next;
 }
 
-// The card while its data is on the way, as tall as the card usually is (the redesigned hero and the plain card differ), so what is under it
-// does not jump down when it arrives.
-export function NowCardSkeleton({ tall }: { tall: boolean }) {
+// The card while its data is on the way, as tall as the card was last time for this truck (a charging or driving card with its graph is taller than
+// a parked one), else as tall as a parked card (the redesigned hero and the plain card differ), so what is under it does not jump down when it arrives.
+export function NowCardSkeleton({ tall, vehicleID }: { tall: boolean; vehicleID?: string }) {
+  const last = lastCardHeight(vehicleID, tall);
   return (
     <section aria-label="Now" data-testid="now-skeleton" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
-      <div className={`${tall ? "h-[25rem] lg:h-[16.5rem]" : "h-[17.25rem] md:h-[15.5rem] lg:h-[16.5rem]"} animate-pulse rounded bg-neutral-800/60`} />
+      <div
+        style={last ? { height: last - 42 } : undefined}
+        className={`${last ? "" : tall ? "h-[25rem] lg:h-[16.5rem]" : "h-[17.25rem] md:h-[15.5rem] lg:h-[16.5rem]"} animate-pulse rounded bg-neutral-800/60`}
+      />
     </section>
   );
 }
@@ -126,6 +131,7 @@ export default function NowCard({
     return () => window.clearInterval(id);
   }, []);
 
+  const stopMeasuring = useRef<(() => void) | null>(null);
   const stateQ = useQuery({
     queryKey: ["rivian", "state", vehicleID],
     queryFn: () => backend.vehicleState(vehicleID),
@@ -269,7 +275,37 @@ export default function NowCard({
   const fromSeries = asleepOn && parkedSeries ? openSleepSince(parkedSeries) : undefined;
   const chipAsleepSince = asleepOn && parkedWaiting ? null : fromSeries === undefined ? tracker.asleepSinceMs : fromSeries;
 
-  if (stateQ.isLoading) return <NowCardSkeleton tall={v2} />;
+  // The card's height as drawn (it grows when the graph arrives): remembered for the next load's placeholder. On a wide screen the card is
+  // `display: contents` (its parts sit in the page grid): then it is the parts' span, and the parts are what is watched.
+  const measureRef = useCallback(
+    (el: HTMLElement | null) => {
+      stopMeasuring.current?.();
+      stopMeasuring.current = null;
+      if (!el || typeof ResizeObserver === "undefined") return;
+      const height = () => {
+        if (getComputedStyle(el).display !== "contents") return el.getBoundingClientRect().height;
+        const r = [...el.children].map((c) => c.getBoundingClientRect());
+        return r.length ? Math.max(...r.map((x) => x.bottom)) - Math.min(...r.map((x) => x.top)) : 0;
+      };
+      const save = () => rememberCardHeight(vehicleID, v2, height());
+      const ro = new ResizeObserver(save);
+      const watch = () => {
+        ro.disconnect();
+        ro.observe(el);
+        for (const c of el.children) ro.observe(c);
+        save();
+      };
+      const mo = new MutationObserver(watch);
+      mo.observe(el, { childList: true });
+      watch();
+      stopMeasuring.current = () => {
+        ro.disconnect();
+        mo.disconnect();
+      };
+    },
+    [vehicleID, v2],
+  );
+  if (stateQ.isLoading) return <NowCardSkeleton tall={v2} vehicleID={vehicleID} />;
   if (!state || !view) {
     return (
       <section aria-label="Now" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
@@ -371,7 +407,7 @@ export default function NowCard({
 
   if (v2) {
     return (
-      <section aria-label="Now" data-ui-area="hero" className="space-y-2">
+      <section ref={measureRef} aria-label="Now" data-ui-area="hero" className="space-y-2">
         <ChargeSeriesProvider vehicleId={vehicleID} enabled={soft}>
         <NowHeroV2
           view={view}
@@ -430,7 +466,7 @@ export default function NowCard({
   }
 
   return (
-    <section aria-label="Now" data-ui-area="hero" className="space-y-2">
+    <section ref={measureRef} aria-label="Now" data-ui-area="hero" className="space-y-2">
       <div
         data-ui-hero="true"
         data-live={liveKind}
