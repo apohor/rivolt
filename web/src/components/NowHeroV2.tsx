@@ -129,7 +129,7 @@ export default function NowHeroV2({
   // With the charging or driving slot the context is in the slot itself; the parked slot keeps the full-charge line and takes the outside
   // temperature into its weather row.
   const parkedSlot = stateSlot != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
-  const subline = stateSlot && !parkedSlot && !soft ? null : charging
+  const subline = stateSlot && ((!parkedSlot && !soft) || view.kind === "driving") ? null : charging
     ? view.limitPct != null
       ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ≈\u00a0${dist(atLimit)} when done` : ""}`
       : null
