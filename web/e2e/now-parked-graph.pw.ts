@@ -32,11 +32,49 @@ test("an overnight park draws the line, the sleeps, the wake-ups and the three f
   await expect(page.getByTestId(wide ? "now-parked-row-idle" : "now-parked-tile-idle")).toContainText(/6% a day/);
 });
 
-test("the end label is the real reading and the ring says it rounded @webkit", async ({ page }) => {
+test("the graph ends at the ring's battery, starts at the first reading, and the header is their difference @webkit", async ({ page }) => {
   await open(page, "overnight");
-  const label = (await page.getByTestId("now-parked-graph").locator("svg").getAttribute("aria-label"))!;
+  const g = page.getByTestId("now-parked-graph");
+  const label = (await g.locator("svg").getAttribute("aria-label"))!;
   const [, from, to] = label.match(/(\d+)% 24 hours ago to (\d+)% now/)!.map(Number);
-  expect(from).toBeGreaterThan(to);
+  const texts = await g.locator("svg text").allTextContents();
+  const pcts = texts.filter((t) => /^\d+\.\d%$/.test(t)).map(parseFloat);
+  const [start, end] = [pcts[0], pcts[pcts.length - 1]];
+  expect(Math.round(start)).toBe(from);
+  expect(Math.round(end)).toBe(to);
+  // The ring says the same battery as the end label.
+  await expect(page.getByRole("img", { name: new RegExp(`Battery ${to} percent`) })).toBeVisible();
+  const head = (await g.getByTestId("now-parked-change").textContent())!;
+  const delta = parseFloat(head.replace("\u2212", "-"));
+  expect(delta).toBeCloseTo(end - start, 1);
+});
+
+test("one parked time: the chip, the pill and nothing else says another @webkit", async ({ page }) => {
+  await open(page, "overnight");
+  const chip = (await page.getByTestId("now-pill").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
+  const g = page.getByTestId("now-parked-graph");
+  const pill = await g.locator("svg text", { hasText: /^Parked / }).allTextContents();
+  for (const t of pill) expect(t).toBe(`Parked ${chip}`);
+  await expect(g.getByTestId("now-parked-change")).not.toContainText("since");
+});
+
+test("the line is one continuous path and the sleeps fill under it @webkit", async ({ page }) => {
+  await open(page, "overnight");
+  const g = page.getByTestId("now-parked-graph");
+  await expect(g.locator('path[stroke-width="3"]')).toHaveCount(1);
+  await expect(g.locator("path[clip-path]")).toHaveCount(5);
+});
+
+test("the bottom row has Outside as on the charging card @webkit", async ({ page }) => {
+  await open(page, "overnight");
+  await expect(page.getByTestId("now-temps")).toHaveText(/Cabin.*Outside|Outside.*Cabin/);
+});
+
+test("the three figures sit in one row on a phone at the default text size @webkit", async ({ page }) => {
+  await open(page, "overnight");
+  if ((page.viewportSize()?.width ?? 0) >= 900 || (page.viewportSize()?.width ?? 0) < 360) return;
+  const tops = await page.getByTestId("now-parked-tiles").locator("> div").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+  expect(new Set(tops).size).toBe(1);
 });
 
 test("an asleep truck shows an open sleep that ends at now @webkit", async ({ page }) => {

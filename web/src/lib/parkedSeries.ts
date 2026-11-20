@@ -29,18 +29,12 @@ export function bandDuration(sec: number): string {
 export type ParkedFigure = { id: "asleep" | "wakes" | "idle"; value: string; note: string; label: string; rowLabel: string; rowValue: string };
 
 export type ParkedText = {
-  // "−2.4%" and "since 5:20 PM"; null until the truck has two readings since parking.
-  change: { value: string; since: string } | null;
-  // Parked since, as the pill on the graph.
-  parkedAt: string | null;
   figures: ParkedFigure[];
   // "At this rate: about 61% by Monday 8:00 AM (estimate)."; null until parked a few hours.
   projection: string | null;
 };
 
 export function parkedText(s: ParkedSeries, unit: "mi" | "km"): ParkedText {
-  const since = s.parked_since ? clock(Date.parse(s.parked_since)) : null;
-  const change = s.change_pct != null && since ? { value: `${s.change_pct < 0 ? MIN : s.change_pct > 0 ? "+" : ""}${Math.abs(s.change_pct).toFixed(1)}%`, since: `since ${since}` } : null;
   const f = s.figures;
   const figures: ParkedFigure[] = [];
   if (f) {
@@ -60,7 +54,21 @@ export function parkedText(s: ParkedSeries, unit: "mi" | "km"): ParkedText {
     const day = at.toLocaleDateString(undefined, { weekday: "long", timeZone: displayTimeZone() });
     projection = `At this rate: about ${Math.round(s.projection.soc)}% by ${day} ${clock(at.getTime())} (estimate).`;
   }
-  return { change, parkedAt: since ? `Parked ${since}` : null, figures, projection };
+  return { figures, projection };
+}
+
+// The header's change: the card's battery now less the first stored reading in the window, so it is the difference of the two labels on the
+// graph. "−2.0%" and "in 24 h" (or "in 3 h 20" for a window that starts later).
+export function windowChange(firstPct: number, nowPct: number, spanMs: number): { value: string; since: string } {
+  const d = Math.round((nowPct - firstPct) * 10) / 10;
+  const m = Math.max(1, Math.round(spanMs / 60_000));
+  const span = m < 60 ? `${m} min` : m % 60 === 0 || m >= 24 * 60 - 30 ? `${Math.round(m / 60)} h` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
+  return { value: `${d < 0 ? MIN : d > 0 ? "+" : ""}${Math.abs(d).toFixed(1)}%`, since: `in ${span}` };
+}
+
+// "Parked 5:20 PM": the chip's own time, so the card says one parked time.
+export function parkedAtLabel(ms: number): string {
+  return `Parked ${clock(ms)}`;
 }
 
 // The graph draws only when there is a line to draw: a few readings over the window.

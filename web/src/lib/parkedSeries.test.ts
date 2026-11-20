@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ParkedSeries } from "./api";
-import { bandDuration, longDuration, parkedDrawable, parkedText } from "./parkedSeries";
+import { bandDuration, longDuration, parkedDrawable, windowChange, parkedText } from "./parkedSeries";
 
 const base: ParkedSeries = {
   version: 1,
@@ -42,13 +42,12 @@ describe("parked series text", () => {
     expect(t.projection).toBeNull();
     const none = parkedText({ ...base, figures: { ...base.figures!, wake_ups: 0, wake_cost_pct: null }, change_pct: null, parked_since: null }, "mi");
     expect(none.figures.map((f) => f.id)).toEqual(["asleep", "idle"]);
-    expect(none.change).toBeNull();
-    expect(none.parkedAt).toBeNull();
   });
 
-  it("writes the change with a true minus and one decimal", () => {
-    expect(parkedText(base, "mi").change?.value).toBe("−2.4%");
-    expect(parkedText({ ...base, change_pct: 0.5 }, "mi").change?.value).toBe("+0.5%");
+  it("writes the change as the difference of the two labels, with a true minus and one decimal", () => {
+    expect(windowChange(79.9, 77.9, 24 * 3_600_000)).toEqual({ value: "−2.0%", since: "in 24 h" });
+    expect(windowChange(60, 60.5, 3 * 3_600_000 + 20 * 60_000)).toEqual({ value: "+0.5%", since: "in 3 h 20" });
+    expect(windowChange(60, 60, 40 * 60_000).value).toBe("0.0%");
   });
 
   it("words the projection with the rounded battery and the estimate label", () => {
