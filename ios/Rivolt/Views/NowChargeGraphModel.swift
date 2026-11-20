@@ -106,27 +106,33 @@ enum NowGraphCurve {
     /// This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
     /// first one's height; `segments` then draws it with no slope at the held indices. A gentle pair is left alone. Same rule as the web's easeSteps.
     static func easeSteps(_ pts: [CGPoint], minDrop: CGFloat = 3, slope: CGFloat = 1.2) -> (points: [CGPoint], hold: Set<Int>) {
-        var out: [CGPoint] = []
+        guard let first = pts.first else { return ([], []) }
+        var out: [CGPoint] = [first]
         var hold = Set<Int>()
-        var i = 0
-        while i < pts.count {
-            let a = pts[i]
-            if i + 1 < pts.count {
-                let b = pts[i + 1]
-                let dy = abs(b.y - a.y)
-                if dy >= minDrop, dy / max(b.x - a.x, 0.5) > slope {
-                    let run = min(max(dy * 2, 12), 28)
-                    let from = out.last?.x ?? a.x
-                    hold.insert(out.count)
-                    out.append(CGPoint(x: max(b.x - run, from + 0.4 * (a.x - from)), y: a.y))
-                    hold.insert(out.count)
-                    out.append(b)
-                    i += 2
-                    continue
-                }
+        for i in 1..<max(pts.count, 1) {
+            let a = pts[i - 1]
+            let b = pts[i]
+            let dy = abs(b.y - a.y)
+            if dy < minDrop || dy / max(b.x - a.x, 0.5) <= slope {
+                out.append(b)
+                continue
             }
-            out.append(a)
-            i += 1
+            let run = min(max(dy * 2, 12), 28)
+            let last = out[out.count - 1]
+            if hold.contains(out.count - 1) {
+                // The first reading ends the jump before this one: it stays, and the next ramp starts level after it if there is room.
+                let x = max(b.x - run, last.x)
+                if x > last.x + 0.5 {
+                    hold.insert(out.count)
+                    out.append(CGPoint(x: x, y: a.y))
+                }
+            } else {
+                let from = out.count > 1 ? out[out.count - 2].x : a.x
+                out[out.count - 1] = CGPoint(x: max(b.x - run, from + 0.4 * (a.x - from)), y: a.y)
+                hold.insert(out.count - 1)
+            }
+            hold.insert(out.count)
+            out.append(b)
         }
         return (out, hold)
     }

@@ -26,6 +26,15 @@ final class NowGraphCurveEaseTests: XCTestCase {
         XCTAssertEqual(segs[0].c2.y, 30, accuracy: 0.001)
     }
 
+    func testTwoJumpsInARowAreBothEased() {
+        let pts = [(0.0, 0.0), (100, 0), (103, 30), (160, 30), (163, 60), (220, 60)].map { CGPoint(x: $0.0, y: $0.1) }
+        let eased = NowGraphCurve.easeSteps(pts)
+        let into = eased.points.firstIndex { $0.x == 163 }!
+        XCTAssertTrue(eased.hold.contains(into))
+        XCTAssertTrue(eased.hold.contains(into - 1))
+        XCTAssertGreaterThanOrEqual(eased.points[into].x - eased.points[into - 1].x, 12)
+    }
+
     func testNeverReordersTheReadings() {
         let pts = [(0.0, 0.0), (5, 0), (7, 30), (9, 31), (11, 70), (40, 71)].map { CGPoint(x: $0.0, y: $0.1) }
         let xs = NowGraphCurve.easeSteps(pts).points.map(\.x)
