@@ -179,7 +179,8 @@ test("the hero wraps at 320 px and 200% text: the chip's words and the range lab
   const page = await ctx.newPage();
   await open(page, "overnight");
   await page.addStyleTag({ content: "html{font-size:200%}" });
-  await page.waitForTimeout(300);
+  // The parked chip shows its time once the series has answered.
+  await expect(page.getByTestId("now-pill")).toContainText("since");
   const clipped = await page.evaluate(() => {
     const card = document.querySelector("[data-now-v2]")!.getBoundingClientRect();
     const chip = document.querySelector("[data-now-chip]")!;
