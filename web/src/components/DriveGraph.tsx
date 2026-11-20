@@ -120,7 +120,7 @@ export function DriveGraph({ series, unit, nowPct, destination = null }: { serie
     <div data-testid="now-drive-graph" className="flex min-w-0 flex-col min-[900px]:h-full">
       <GraphHead title="This drive" change={used != null && used > 0 ? `−${used}%` : null} since={`since ${clock(first.x)}`} testid="now-drive-change" />
       {destination && (
-        <p data-testid="now-drive-dest" className="mb-1 truncate text-sm text-neutral-300">
+        <p data-testid="now-drive-dest" className="mb-1 break-words text-sm text-neutral-300">
           {destinationShort(destination, unit)}
         </p>
       )}

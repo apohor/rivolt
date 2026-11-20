@@ -292,7 +292,7 @@ export default function NowHeroV2({
               <div className="min-w-[min(10rem,100%)] flex-1 space-y-1">
                 {view.rangeMi != null && (
                   <p>
-                    <span className="whitespace-nowrap text-2xl font-semibold tabular-nums text-neutral-100 min-[360px]:text-3xl">{dist(view.rangeMi)}</span>{" "}
+                    <span className="text-2xl font-semibold tabular-nums text-neutral-100 min-[360px]:text-3xl">{dist(view.rangeMi)}</span>{" "}
                     <span className="text-sm text-neutral-400">range</span>
                   </p>
                 )}
@@ -353,7 +353,7 @@ export default function NowHeroV2({
         </div>
         <div className="min-[900px]:grid min-[900px]:grid-cols-[auto_minmax(0,1fr)] min-[900px]:items-center min-[900px]:gap-x-12">
           {/* Battery and range are the hero. */}
-          <div className="pointer-events-none relative flex items-center gap-5 min-[900px]:flex-col min-[900px]:items-center min-[900px]:gap-3">
+          <div className="pointer-events-none relative flex flex-wrap items-center gap-x-5 gap-y-3 min-[900px]:flex-col min-[900px]:flex-nowrap min-[900px]:items-center min-[900px]:gap-3">
             <ArcGauge
               value={view.soc}
               label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
@@ -371,7 +371,7 @@ export default function NowHeroV2({
             <div className="min-w-0 min-[900px]:text-center">
               {view.rangeMi != null && (
                 <p>
-                  <span className="whitespace-nowrap text-2xl font-semibold min-[360px]:text-3xl tabular-nums text-neutral-100">{dist(view.rangeMi)}</span>{" "}
+                  <span className="text-2xl font-semibold min-[360px]:text-3xl tabular-nums text-neutral-100">{dist(view.rangeMi)}</span>{" "}
                   <span className="text-sm text-neutral-400">range</span>
                 </p>
               )}

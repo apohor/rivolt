@@ -1,0 +1,57 @@
+import { expect, test } from "@playwright/test";
+import { stubApi } from "./stub";
+
+// A 320 px phone with the text at 200%: nothing on Now runs past the screen or into its neighbour.
+for (const [name, opts] of [
+  ["parked", { scenario: "parked" }],
+  ["driving", { scenario: "driving" }],
+  ["charging", { scenario: "charging" }],
+] as const) {
+  test(`Now at 320 px and 200% text has no overflow (${name})`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 });
+    await stubApi(page, { nowEndpoint: true, ...opts, designPreview: ["now_v2", "now_tidy", "now_slot", "now_drive_graph"], liveDestination: "trip", driveCase: { elapsedMin: 22, mph: (m: number) => 50 + 5 * Math.sin(m), soc: (m: number) => 71 - m * 0.18 } });
+    await page.goto("/");
+    await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+    const month = page.getByTestId("now-month");
+    await expect(month).toBeVisible();
+    await page.waitForTimeout(500);
+    // Fixed bars would sit over the shots.
+    await page.addStyleTag({ content: ".fixed, .sticky, [class*='fixed'], [class*='sticky'] { visibility: hidden !important; }" });
+    await page.screenshot({ path: `test-results/narrow-320-${name}.png`, fullPage: true, clip: { x: 0, y: 0, width: 320, height: 1800 } });
+    const bad = await page.evaluate(() => {
+      const w = document.documentElement.clientWidth;
+      const out: string[] = [];
+      if (document.documentElement.scrollWidth > w) out.push(`page scrolls sideways: ${document.documentElement.scrollWidth} > ${w}`);
+      for (const el of document.querySelectorAll<HTMLElement>("main *")) {
+        const r = el.getBoundingClientRect();
+        if (r.width && r.right > w + 1 && !el.closest("[data-keep-row]") ) out.push(`${el.tagName} ${(el.className + "").slice(0, 60)} left=${Math.round(r.left)} right=${Math.round(r.right)} parent=${Math.round(el.parentElement!.getBoundingClientRect().right)} ${el.parentElement!.className.slice(0,80)}`);
+        // Text cut off by its own box (a clipped label), unless it is meant to ellipsize one-liners we allow to wrap.
+        if (el.children.length === 0 && el.clientWidth > 0 && el.textContent?.trim() && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflow !== "visible")
+          out.push(`clipped "${el.textContent.trim().slice(0, 30)}" ${el.scrollWidth} > ${el.clientWidth}`);
+      }
+      return out;
+    });
+    expect(bad.slice(0, 12)).toEqual([]);
+    // The destination line says all of it, wrapped.
+    if (name === "driving") {
+      const dest = page.getByTestId("now-drive-dest");
+      await expect(dest).toBeVisible();
+      expect(await dest.evaluate((e) => e.scrollWidth <= e.clientWidth + 1 && getComputedStyle(e).textOverflow !== "ellipsis")).toBe(true);
+    }
+    // Each stat in the slot stays inside its own cell, too.
+    const slot = await page.getByTestId("now-slot").locator("p").evaluateAll((els) => els.every((e) => e.getBoundingClientRect().right <= document.documentElement.clientWidth));
+    expect(slot).toBe(true);
+    await month.screenshot({ path: `test-results/narrow-320-${name}-month.png` });
+    // The month's four figures: each label stays inside its own cell.
+    const cells = await month.locator("div.flex-col").evaluateAll((els) =>
+      els.map((c) => {
+        const cr = c.getBoundingClientRect();
+        return [...c.children].every((s) => {
+          const r = s.getBoundingClientRect();
+          return r.left >= cr.left - 1 && r.right <= cr.right + 1;
+        });
+      }),
+    );
+    expect(cells.every(Boolean), `month cells ${cells}`).toBe(true);
+  });
+}

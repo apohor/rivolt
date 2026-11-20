@@ -680,15 +680,15 @@ function MonthStrip({
   ];
   return (
     <section data-testid="now-month" aria-label={title} className={tidy ? "space-y-3" : undefined}>
-      <div className={`${tidy ? "" : "mb-2 mt-2 "}flex items-center justify-between px-0.5`}>
+      <div className={`${tidy ? "" : "mb-2 mt-2 "}flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-0.5`}>
         <h2 className="text-sm font-semibold text-neutral-200">{title}</h2>
         <PeriodPicker value={period} onChange={onPeriod} />
       </div>
       <div className="grid grid-cols-2 gap-px overflow-hidden sm:flex sm:flex-wrap rounded-2xl border border-neutral-800 bg-neutral-800">
         {items.map(([v, l]) => (
-          <div key={l} className="flex min-w-0 flex-col gap-0.5 whitespace-nowrap bg-neutral-900 px-3 py-3 sm:min-w-fit sm:flex-1 sm:basis-20">
-            <span className="text-xl font-semibold tabular-nums text-neutral-100">{v}</span>
-            <span className="text-sm text-neutral-400">{l}</span>
+          <div key={l} className="flex min-w-0 flex-col gap-0.5 bg-neutral-900 px-2 py-3 min-[360px]:px-3 sm:min-w-fit sm:flex-1 sm:basis-20 sm:whitespace-nowrap">
+            <span className="whitespace-nowrap text-xl font-semibold tabular-nums text-neutral-100 max-[359px]:text-lg">{v}</span>
+            <span className="break-words text-sm text-neutral-400 max-[359px]:text-xs">{l}</span>
           </div>
         ))}
       </div>
