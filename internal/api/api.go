@@ -1247,6 +1247,9 @@ func New(d Deps) http.Handler {
 			if d.DB != nil {
 				dr := newDrainAPI(newDrainStore(d.DB))
 				r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/drain", withUser(dr.handle))
+				// The Now card's "Battery while parked" graph (design now_parked_graph): 24 h of stored rows, never Rivian, any pod.
+				ps := newParkedSeriesAPI(newParkedSeriesStore(d.DB))
+				r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/parked-series", withUser(ps.handle))
 			}
 			// This week's short sleeps against this truck's own last 30 days (display only).
 			r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/sleep-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
