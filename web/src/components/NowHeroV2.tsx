@@ -73,6 +73,8 @@ export default function NowHeroV2({
   tidy = false,
   nowMs = 0,
   asleepTodayS = null,
+  soft = false,
+  graph = null,
 }: {
   view: NowView;
   vehicleID: string;
@@ -96,6 +98,9 @@ export default function NowHeroV2({
   nowMs?: number;
   // While asleep: the seconds asleep today, shown in the conditions row.
   asleepTodayS?: number | null;
+  // Design "now_charge_graph": the card in two balanced halves from 900 px (ring, range and figures left, the graph right), with the truck picture.
+  soft?: boolean;
+  graph?: React.ReactNode;
 }) {
   const { temperatureUnit, distanceUnit } = usePreferences();
   const light = useIsLight();
@@ -121,9 +126,9 @@ export default function NowHeroV2({
   // With the charging or driving slot the context is in the slot itself; the parked slot keeps the full-charge line and takes the outside
   // temperature into its weather row.
   const parkedSlot = stateSlot != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
-  const subline = stateSlot && !parkedSlot ? null : charging
+  const subline = stateSlot && !parkedSlot && !soft ? null : charging
     ? view.limitPct != null
-      ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ≈ ${dist(atLimit)} when done` : ""}`
+      ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ≈\u00a0${dist(atLimit)} when done` : ""}`
       : null
     : fullCharge != null
       ? `Full charge today ≈ ${fullCharge} ${distanceUnit}`
@@ -183,7 +188,7 @@ export default function NowHeroV2({
         </button>
       );
     const picture =
-      stateSlot ? null : carUrl && carUrl !== failedUrl ? (
+      stateSlot && !soft ? null : carUrl && carUrl !== failedUrl ? (
         plugPicture && (view.kind === "plugged" || view.kind === "charging") ? (
           <PlugPicture kw={view.powerKw} className="w-full">
             <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-32 w-full object-contain object-left min-[900px]:max-h-60 min-[900px]:object-center" />
@@ -194,6 +199,94 @@ export default function NowHeroV2({
       ) : (
         <CarSketch model={model} charging={charging} className="min-[900px]:mx-auto min-[900px]:max-w-[440px]" />
       );
+    if (soft) {
+      const condBlock = items.length > 0 && (
+        <div data-testid="now-temps" className="pointer-events-none relative flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 text-sm">
+          {[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin")).map((c) => (
+            <p key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0 text-neutral-400">
+              {c.k}{" "}
+              <span className="font-semibold tabular-nums text-neutral-100">{c.v}</span>
+              {c.note && <span className="ml-1.5 text-neutral-400">{c.note}</span>}
+              {infoBtn(c)}
+            </p>
+          ))}
+        </div>
+      );
+      return (
+        <div
+          data-now-v2="true"
+          data-now-tidy="true"
+          data-now-soft="true"
+          data-ui-hero="true"
+          data-live="charging"
+          className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : "border-emerald-500/30"}`}
+        >
+          {telemetryLink && <Link to="/live" aria-label="Full telemetry" className="absolute inset-0 z-0 rounded-2xl" />}
+          <div className="pointer-events-none relative z-10 mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 max-[359px]:gap-x-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
+            {chipEl}
+            {telemetryLink && (
+              <Link
+                to="/live"
+                data-testid="now-live-link"
+                className="pointer-events-auto inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium pointer-fine:min-h-8 pointer-fine:min-w-8 pointer-fine:gap-1.5 pointer-fine:px-3 pointer-fine:text-xs text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
+              >
+                <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />
+                Live
+                <svg aria-hidden className="max-[430px]:hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m9 5 7 7-7 7" />
+                </svg>
+              </Link>
+            )}
+          </div>
+          <div className="grid gap-y-4 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] min-[900px]:gap-x-10">
+            <div className="pointer-events-none relative flex items-center gap-5 min-[900px]:col-start-1">
+              <ArcGauge
+                value={view.soc}
+                label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
+                live
+                tone={offline ? "idle" : critical ? "critical" : "ok"}
+                limit={view.limitPct}
+              >
+                {(shown) => (
+                  <span className={`font-semibold leading-none tabular-nums ${tone}`}>
+                    <span className="text-5xl">{view.soc > 0 ? Math.round(shown) : "—"}</span>
+                    <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
+                  </span>
+                )}
+              </ArcGauge>
+              <div className="min-w-0 flex-1 space-y-1 [&_img]:max-h-24 min-[900px]:[&_img]:max-h-28">
+                {picture}
+                {view.rangeMi != null && (
+                  <p>
+                    <span className="whitespace-nowrap text-2xl font-semibold tabular-nums text-neutral-100 min-[360px]:text-3xl">{dist(view.rangeMi)}</span>{" "}
+                    <span className="text-sm text-neutral-400">range</span>
+                  </p>
+                )}
+                {subline && (
+                  <p data-testid="now-subline" className="text-sm text-neutral-400 [text-wrap:balance]">
+                    {subline}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-1">{stateSlot}</div>
+            <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>
+            {(condBlock || info) && (
+              <div className="min-w-0 space-y-2 border-t border-neutral-800 pt-4 min-[900px]:col-start-1">
+                {condBlock}
+                {info && (
+                  <p className="pointer-events-none relative text-xs text-neutral-400">
+                    Outside is an estimate, looked up from Open-Meteo for your truck&apos;s location.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">{extra}</div>
+          {footer}
+        </div>
+      );
+    }
     return (
       <div
         data-now-v2="true"

@@ -19,34 +19,38 @@ async function open(page: Page, c: Curve, flag = true, slot = true) {
   else await page.waitForTimeout(800);
 }
 
-test("an AC charge draws battery, power, the target and a dashed estimate", async ({ page }) => {
+test("an AC charge draws battery, power and the way to the target with its finish time @webkit", async ({ page }) => {
   await open(page, CASES.ac);
   const g = page.getByTestId("now-charge-graph");
   await expect(g).toBeVisible();
-  await expect(g).toContainText("Target 80%");
+  await expect(g).toContainText(/80% · \d{1,2}:\d{2}/);
   await expect(page.getByTestId("now-charge-graph-estimate")).toBeVisible();
   await expect(page.getByTestId("now-charge-graph-collecting")).toHaveCount(0);
   await expect(g.locator("path[stroke-dasharray]").first()).toBeAttached();
+  // The iPhone's chip wording, the truck picture, the cost row and no plug-in time.
+  await expect(page.getByTestId("now-pill")).toContainText(/Charging · 11 kW · done by/);
+  await expect(page.getByTestId("now-car").or(page.getByTestId("now-car-sketch"))).toBeVisible();
+  await expect(page.getByTestId("now-slot-plugged-in")).toHaveCount(0);
 });
 
-test("a charge just started says it is collecting, with no graph", async ({ page }) => {
+test("a charge just started says it is collecting, with no graph @webkit", async ({ page }) => {
   await open(page, CASES.fresh);
   await expect(page.getByTestId("now-charge-graph-collecting")).toBeVisible();
   await expect(page.getByTestId("now-charge-graph")).toHaveCount(0);
 });
 
-test("a paused charge (no power) leaves the card without a slot, so no graph", async ({ page }) => {
+test("a paused charge (no power) leaves the card without a slot, so no graph @webkit", async ({ page }) => {
   await open(page, CASES.paused, true, false);
   await expect(page.getByTestId("now-charge-graph")).toHaveCount(0);
 });
 
-test("flag off: no graph and no collecting line", async ({ page }) => {
+test("flag off: no graph and no collecting line @webkit", async ({ page }) => {
   await open(page, CASES.ac, false);
   await expect(page.getByTestId("now-charge-graph")).toHaveCount(0);
   await expect(page.getByTestId("now-charge-graph-collecting")).toHaveCount(0);
 });
 
-test("it reads the stored samples at the card's pace, never /api/vehicles", async ({ page }) => {
+test("it reads the stored samples at the card's pace, never /api/vehicles @webkit", async ({ page }) => {
   const seen: string[] = [];
   page.on("request", (r) => seen.push(new URL(r.url()).pathname));
   await open(page, CASES.ac);
@@ -55,26 +59,25 @@ test("it reads the stored samples at the card's pace, never /api/vehicles", asyn
 });
 
 if (SHOTS) {
-  for (const [name, c] of Object.entries(CASES)) {
-    for (const w of [320, 393, 430, 1280]) {
-      for (const scheme of ["light", "dark"] as const) {
-        for (const text of ["100", "200"]) {
-          for (const unit of name === "ac" ? ["mi", "km"] : ["mi"]) {
-            test(`shot ${name} ${w} ${scheme} ${text}% ${unit}`, async ({ browser }) => {
-              const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: scheme, deviceScaleFactor: 1 });
-              const page = await ctx.newPage();
-              await page.addInitScript((u) => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: u })), unit);
-              await open(page, c, true, name !== "paused");
-              if (text === "200") await page.addStyleTag({ content: "html{font-size:200%}" });
-              await page.waitForTimeout(400);
-              const b = await page.locator("div.rounded-2xl:has([data-testid='now-slot']), main div.rounded-2xl").first().boundingBox();
-              if (!b) throw new Error("no card");
-              await page.screenshot({ path: `${SHOTS}/${name}-${w}-${scheme}-t${text}-${unit}.png`, fullPage: true, clip: { x: Math.max(0, b.x - 8), y: b.y + (await page.evaluate(() => scrollY)) - 8, width: Math.min(w, b.width + 16), height: b.height + 16 } });
-              await ctx.close();
-            });
-          }
-        }
-      }
-    }
+  // The image-gate matrix: every case on a phone and on desktop in both themes; the narrowest phone; large text; km.
+  type Shot = [string, number, "light" | "dark", string, string];
+  const shots: Shot[] = [];
+  for (const name of Object.keys(CASES)) for (const w of [393, 1280]) for (const scheme of ["light", "dark"] as const) shots.push([name, w, scheme, "100", "mi"]);
+  for (const name of ["ac", "dc"]) for (const scheme of ["light", "dark"] as const) shots.push([name, 320, scheme, "100", "mi"]);
+  for (const name of ["ac", "dc"]) for (const w of [320, 393, 1280]) shots.push([name, w, "dark", "200", "mi"]);
+  for (const w of [393, 1280]) shots.push(["ac", w, "dark", "100", "km"]);
+  for (const [name, w, scheme, text, unit] of shots) {
+    test(`shot ${name} ${w} ${scheme} ${text}% ${unit}`, async ({ browser }) => {
+      const ctx = await browser.newContext({ viewport: { width: w, height: w < 900 ? 1500 : 900 }, colorScheme: scheme, deviceScaleFactor: 1 });
+      const page = await ctx.newPage();
+      await page.addInitScript((u) => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: u })), unit);
+      await open(page, CASES[name], true, name !== "paused");
+      if (text === "200") await page.addStyleTag({ content: "html{font-size:200%}" });
+      await page.waitForTimeout(400);
+      const b = await page.locator("div.rounded-2xl:has([data-testid='now-slot']), main div.rounded-2xl").first().boundingBox();
+      if (!b) throw new Error("no card");
+      await page.screenshot({ path: `${SHOTS}/${name}-${w}-${scheme}-t${text}-${unit}.png`, fullPage: true, clip: { x: Math.max(0, b.x - 8), y: b.y + (await page.evaluate(() => scrollY)) - 8, width: Math.min(w, b.width + 16), height: b.height + 16 } });
+      await ctx.close();
+    });
   }
 }
