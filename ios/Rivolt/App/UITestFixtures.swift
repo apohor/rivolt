@@ -65,7 +65,7 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/app/config"): return "app_config"
         // The preview-only designs: off unless the UI test asks for the theme switch.
         case ("GET", "/api/config"): let args = ProcessInfo.processInfo.arguments
-            return args.contains("-uitest-trip-receipt") ? "config_trip_receipt" : args.contains("-uitest-share-map") ? "config_share_map" : args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
+            return args.contains("-uitest-charging") ? "config_now_charge" : args.contains("-uitest-trip-receipt") ? "config_trip_receipt" : args.contains("-uitest-share-map") ? "config_share_map" : args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
         // The round-trip launch: one merged drive of three real legs (a zero-distance stub between two of them left out), each leg's own route and the samples.
         case ("GET", "/api/activity") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "activity_round_trip"
         case ("GET", "/api/samples") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "samples_round_trip"
@@ -116,6 +116,69 @@ final class FixtureURLProtocol: URLProtocol {
         return try? JSONSerialization.data(withJSONObject: ["pois": kept, "total": kept.count, "asof": json["asof"] ?? "2026-10-20"])
     }
 
+    /// A charge in progress for the Now card's charging graph (`-uitest-charging`), the same three cases as the web's e2e stub (web/e2e/now-charge-graph.pw.ts),
+    /// chosen by RIVOLT_UITEST_CHARGE_CASE: "ac" (11 kW, 90 min), "dc" (a fast charge, 25 min), "slow" (4.8 kW, 30 min). The truck read, `/now` and the
+    /// stored samples every 30 s, their times counted back from the launch so the card is live whenever the test runs.
+    private func chargingAnswer(path: String) -> Data? {
+        let name = ProcessInfo.processInfo.environment["RIVOLT_UITEST_CHARGE_CASE"] ?? "ac"
+        let elapsedMin: Double = name == "dc" ? 25 : name == "slow" ? 30 : 90
+        let soc: (Double) -> Double = { m in
+            name == "dc" ? 15 + 40 * (1 - exp(-m / 20)) : name == "slow" ? 40 + m * 0.09 : 40 + m * 0.136
+        }
+        let kw: (Double) -> Double = { m in name == "dc" ? 190 * exp(-m / 22) + 40 : name == "slow" ? 4.8 : 11 }
+        let now = Date()
+        let iso = ISO8601DateFormatter()
+        let started = now.addingTimeInterval(-elapsedMin * 60)
+        func rewrite(_ name: String, _ patch: (inout [String: Any]) -> Void) -> Data? {
+            guard let raw = data(named: name), var json = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] else { return nil }
+            patch(&json)
+            return try? JSONSerialization.data(withJSONObject: json)
+        }
+        // The slow and the 11 kW charges are at the saved home (the fixture state's fix), the fast one is away from it, as in the web's stub.
+        if path == "/api/settings/home-location", name != "dc" {
+            return try? JSONSerialization.data(withJSONObject: ["set": true, "latitude": 30.2672, "longitude": -97.7431, "label": "Home", "source": "coordinates", "previous_set": false, "address_search": false] as [String: Any])
+        }
+        if path == "/api/auth/me", let units = ProcessInfo.processInfo.environment["RIVOLT_UITEST_UNITS"] {
+            return rewrite("me") { j in
+                j["units"] = ["distance_unit": units, "temperature_unit": units == "km" ? "c" : "f", "distance_source": "user", "temperature_source": "follows_distance"]
+            }
+        }
+        if path.contains("/state/") {
+            return rewrite("state") { j in
+                j["at"] = iso.string(from: now)
+                j["location_fix_at"] = iso.string(from: now)
+                j["battery_level_pct"] = soc(elapsedMin)
+                j["charger_power_kw"] = kw(elapsedMin)
+                j["cabin_temp_c"] = 21.0
+            }
+        }
+        if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/now") {
+            // The web stub's believable price: kWh added at a home or a public rate.
+            let cost = ((soc(elapsedMin) - soc(0)) * 1.35 * (kw(0) >= 50 ? 0.48 : 0.15) * 100).rounded() / 100
+            return rewrite("now_v1") { j in
+                j["at"] = iso.string(from: now)
+                j["location_fix_at"] = iso.string(from: now)
+                j["vehicle_state_frame_at"] = iso.string(from: now)
+                j["state_since"] = iso.string(from: started)
+                j["soc_at_state_start"] = soc(0).rounded()
+                j["charge"] = ["started_at": iso.string(from: started), "soc_start": soc(0).rounded(), "peak_kw": 11.2, "cost": cost, "currency": "USD", "cost_is_estimate": true]
+                j["ambient"] = ["temp_c": 12.0, "source": "open-meteo", "as_of": iso.string(from: now)]
+            }
+        }
+        if path == "/api/samples" {
+            var rows: [[String: Any]] = []
+            var t = started.addingTimeInterval(-30)
+            while t <= now {
+                let m = max(0, t.timeIntervalSince(started) / 60)
+                rows.append(["At": iso.string(from: t), "BatteryLevelPct": soc(m), "ChargerPowerKW": kw(m),
+                             "pack_temp_avg_c": 30.0, "pack_temp_min_c": 29.0, "pack_temp_max_c": 31.0, "ChargeLimitPct": 80.0])
+                t = t.addingTimeInterval(30)
+            }
+            return try? JSONSerialization.data(withJSONObject: rows)
+        }
+        return nil
+    }
+
     override func startLoading() {
         guard let url = request.url else { return }
         let method = request.httpMethod ?? "GET"
@@ -147,6 +210,8 @@ final class FixtureURLProtocol: URLProtocol {
         } else if ProcessInfo.processInfo.environment[UITestLaunch.stateFailsVariable] != nil, method == "GET", url.path.hasPrefix("/api/vehicles/"), url.path.hasSuffix("/state") {
             failed = 503
             answer = Data(#"{"error":"upstream unavailable","class":"transient"}"#.utf8)
+        } else if ProcessInfo.processInfo.arguments.contains("-uitest-charging"), method == "GET", let live = chargingAnswer(path: url.path) {
+            answer = live
         } else if let name = Self.file(method: method, path: url.path) {
             answer = data(named: name)
         }

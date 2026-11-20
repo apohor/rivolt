@@ -232,6 +232,12 @@ extension NowFormat {
         return "\(NumberText.fixed(metric ? mi * 1.609344 : mi, 1)) \(unit)"
     }
 
+    /// The Now slot's distance rows, the web's rule: kilometres to one decimal, miles to one decimal under 100 and whole from 100.
+    static func slotDistance(mi: Double) -> String {
+        let metric = usesMetric
+        return "\(NumberText.fixed(metric ? mi * 1.609344 : mi, metric || mi < 100 ? 1 : 0)) \(metric ? "km" : "mi")"
+    }
+
     static func speed(mph: Double, spoken: Bool = false) -> String {
         let metric = usesMetric
         let unit = spoken ? (metric ? "kilometres per hour" : "miles per hour") : (metric ? "km/h" : "mph")

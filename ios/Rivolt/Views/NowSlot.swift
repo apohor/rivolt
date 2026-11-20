@@ -79,7 +79,7 @@ struct NowSlotModel: Equatable {
     /// Nil when the state has no slot, so the picture stays: charging without a power reading, driving without a speed, parked without a fix.
     static func make(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, liveDrive: LiveDrive?,
                      fix: (lat: Double, lon: Double)?, home: Home?, gear: String? = nil, mode: String? = nil,
-                     clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
+                     soft: Bool = false, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
         let atHome = home != nil && fix != nil && ChargerPin.distanceM(home!.lat, home!.lon, fix!.lat, fix!.lon) <= homeRadiusM
         switch summary.kind {
         case .charging:
@@ -87,7 +87,7 @@ struct NowSlotModel: Equatable {
             // As the web: fast at a session peak of 50 kW or more, else the home charger at home, else public only with a saved home, a fix away from it and a known peak.
             let peak = max(snapshot?.charge?.peakKw ?? 0, kw)
             let kind = peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
-            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, clock: clock),
+            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, clock: clock),
                                 chips: kind.map { [Chip(text: $0, accent: true)] } ?? [])
         case .driving:
             guard let kph = summary.speedKph else { return nil }
@@ -116,15 +116,15 @@ struct NowSlotModel: Equatable {
     private static let costNotes = ["rivian": "billed by Rivian", "user": "your price", "home_rate": "at your home rate",
                                     "network_estimate": "network rate", "observed_estimate": "from similar sessions"]
 
-    private static func charging(summary: NowSummary, detail: ChargingDetail, kw: Double, snapshot: NowSnapshot?, clock: Date) -> Content {
+    private static func charging(summary: NowSummary, detail: ChargingDetail, kw: Double, snapshot: NowSnapshot?, soft: Bool, clock: Date) -> Content {
         var sub: String?
         var small: String?
         if let eta = summary.chargeEta {
             let when = clock.addingTimeInterval(TimeInterval(eta.minutes) * 60).formatted(date: .omitted, time: .shortened)
             let limit = summary.chargeTargetPct
-            if let limit, limit < 100 { sub = "Reaches \(Int(limit.rounded()))% at \(when)" } else { sub = "Full at \(when)" }
+            if soft { sub = nil } else if let limit, limit < 100 { sub = "Reaches \(Int(limit.rounded()))% at \(when)" } else { sub = "Full at \(when)" }
             small = "\(NowFormat.duration(TimeInterval(eta.minutes) * 60)) left\(eta.source == .truck ? "" : " (est.)")"
-                + (limit.map { " · target \(Int($0.rounded()))%" } ?? "")
+                + (soft ? "" : limit.map { " · target \(Int($0.rounded()))%" } ?? "")
         }
         var stats: [Stat] = []
         if let kwh = detail.energyKwh, kwh > 0 {
@@ -139,10 +139,10 @@ struct NowSlotModel: Equatable {
             rangeKm = range / soc * added
         }
         let mark = estimated ? "≈ " : ""
-        if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.distance(mi: km / 1.609344))", note: nil)) }
+        if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.slotDistance(mi: km / 1.609344))", note: nil)) }
         let truckRate = detail.rateKmPerHour.flatMap { $0 > 0 ? $0 : nil }
         let rate = truckRate ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
-        if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil ? "≈ " : "")\(NowFormat.distance(mi: rate / 1.609344))/h", note: nil)) }
+        if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil ? "≈ " : "")\(NowFormat.slotDistance(mi: rate / 1.609344))/h", note: nil)) }
         if let elapsed { stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil)) }
         // The cost so far is the server's (`/now` charge), as the web: ≈ when it is an estimate, with where it comes from.
         if let c = snapshot?.charge, let cost = c.cost {
@@ -150,7 +150,7 @@ struct NowSlotModel: Equatable {
             stats.append(Stat(label: "Cost so far", value: "\(estimate ? "≈ " : "")\(NowFormat.money(cost, currency: c.currency ?? "USD"))",
                               note: c.costSource.flatMap { costNotes[$0] } ?? (estimate ? "estimate" : nil)))
         }
-        if let started { stats.append(Stat(label: "Plugged in", value: started.formatted(date: .omitted, time: .shortened), note: nil)) }
+        if !soft, let started { stats.append(Stat(label: "Plugged in", value: started.formatted(date: .omitted, time: .shortened), note: nil)) }
         return .figures(big: NumberText.fixed(kw, kw < 10 ? 1 : 0), unit: "kW", sub: sub, small: small, stats: stats)
     }
 
@@ -171,7 +171,7 @@ struct NowSlotModel: Equatable {
         let metric = NowFormat.usesMetric
         var stats: [Stat] = []
         if let d = drive {
-            if d.distanceMi > 0 { stats.append(Stat(label: "Distance", value: NowFormat.distance(mi: d.distanceMi), note: nil)) }
+            if d.distanceMi > 0 { stats.append(Stat(label: "Distance", value: NowFormat.slotDistance(mi: d.distanceMi), note: nil)) }
             if d.elapsedSec > 0 { stats.append(Stat(label: "Time", value: NowFormat.duration(d.elapsedSec), note: nil)) }
             if let eff = d.miPerKwh, eff > 0 { stats.append(Stat(label: "Efficiency", value: NowFormat.efficiency(miPerKwh: eff), note: nil)) }
             if let kwh = d.energyKwh, kwh > 0 { stats.append(Stat(label: "Energy used", value: "\(NowFormat.oneDecimal(kwh)) kWh", note: nil)) }

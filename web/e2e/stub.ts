@@ -321,7 +321,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       return json(route, {
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: st,
         state_since: parkedFix ? (scenario === "parked" && parkedFix.wakes.length ? parkedFix.wakes[parkedFix.wakes.length - 1].t : parkedFix.parked_since) : iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0,
-        charge: scenario === "charging" ? { started_at: iso(chargeCase ? chargeCase.elapsedMin * 60_000 : 3_600_000), soc_start: chargeCase ? Math.round(chargeCase.soc(0)) : 40, peak_kw: 11, ...(chargeCase ? { cost: 2.4, currency: "USD", cost_is_estimate: true } : {}) } : null,
+        charge: scenario === "charging" ? { started_at: iso(chargeCase ? chargeCase.elapsedMin * 60_000 : 3_600_000), soc_start: chargeCase ? Math.round(chargeCase.soc(0)) : 40, peak_kw: 11, ...(chargeCase ? { cost: Math.round((chargeCase.soc(chargeCase.elapsedMin) - chargeCase.soc(0)) * 1.35 * (chargeCase.kw(0) >= 50 ? 0.48 : 0.15) * 100) / 100, currency: "USD", cost_is_estimate: true } : {}) } : null,
         ...((chargeCase && scenario === "charging") || parkedFix ? { ambient: { temp_c: 12 } } : {}),
       });
     }

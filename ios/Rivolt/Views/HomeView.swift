@@ -60,6 +60,14 @@ struct HomeView: View {
     /// The calmer Now (design_preview key ios_now_tidy, with the redesign): status inside the card, the destination on Now, asks last.
     private var tidy: Bool { v2 && state.designPreview.contains("ios_now_tidy") }
     private var slotOn: Bool { v2 && state.designPreview.contains("now_slot") }
+    /// The charging graph on the Now card (design_preview key now_charge_graph, with the calm Now and the slot; on the web the same key).
+    private var chargeGraphOn: Bool { tidy && slotOn && state.designPreview.contains("now_charge_graph") }
+    @State private var chargeSeries = NowChargeSeriesModel()
+    /// When the open charge began, only while one is open: what the graph reads from.
+    private var chargeSampleStart: Date? {
+        let s = NowSummary(state: vehicleState, now: now, clock: .now)
+        return s.kind == .charging ? s.chargeStartedAt : nil
+    }
     private var slotHome: NowSlotModel.Home? {
         guard let h = homeLocation, h.set else { return nil }
         return NowSlotModel.Home(lat: h.latitude, lon: h.longitude, label: h.label.flatMap { $0.isEmpty ? nil : $0 })
@@ -99,7 +107,8 @@ struct HomeView: View {
                                         onLive: v2 ? { showLive = true } : nil,
                                         slotOn: slotOn, snapshot: now, truckFix: vehicleState?.coordinate, home: slotHome,
                                         gear: vehicleState?.gear, driveMode: vehicleState?.driveMode,
-                                        tidy: tidy, chip: tidy ? chipText : nil, chipTone: chipTone, destination: fresh ? liveDestination : nil)
+                                        tidy: tidy, chip: tidy ? chipText : nil, chipTone: chipTone, destination: fresh ? liveDestination : nil,
+                                        chargeSeries: chargeGraphOn && chargeSeries.matches(vehicleID: selected?.id, startedAt: chargeSampleStart) ? chargeSeries : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -173,6 +182,14 @@ struct HomeView: View {
             .task(id: "\(slotOn)|\(tabActive)|\(scenePhase == .active)|\(settingsClosed)") {
                 guard slotOn, tabActive, scenePhase == .active, let h = try? await state.client.homeLocation() else { return }
                 homeLocation = h
+            }
+            // The open charge's stored samples for the graph, read again every 30 s while this tab and the app are in front.
+            .task(id: "\(chargeGraphOn)|\(selectedID)|\(tabActive)|\(scenePhase == .active)|\(chargeSampleStart?.timeIntervalSince1970 ?? 0)") {
+                guard chargeGraphOn, tabActive, scenePhase == .active, let id = selected?.id, let started = chargeSampleStart else { return }
+                while !Task.isCancelled {
+                    await chargeSeries.load(source: state.client, vehicleID: id, startedAt: started)
+                    try? await Task.sleep(for: .seconds(NowChargeSeriesModel.refresh))
+                }
             }
             // "Offline" waits for a recent read: if the last one is old (the app was away), ask the server once first.
             .task(id: recheckKey) { if recheckKey != nil { await refreshNow() } }

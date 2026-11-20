@@ -5,6 +5,8 @@ import SwiftUI
 /// what is shown.
 struct NowSlotView: View {
     let model: NowSlotModel
+    /// The charging graph's card (now_charge_graph): the session figures are quiet label and value rows, as the web's.
+    var soft = false
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -26,7 +28,7 @@ struct NowSlotView: View {
                 }
                 if let sub { Text(sub).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true) }
                 if let small { Text(small).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
-                if !stats.isEmpty { grid(stats).padding(.top, 4) }
+                if !stats.isEmpty { (soft ? AnyView(rows(stats)) : AnyView(grid(stats))).padding(.top, 4) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("now-slot-figures")
@@ -38,6 +40,22 @@ struct NowSlotView: View {
             .padding(.horizontal, 8).padding(.vertical, 2)
             .background(Capsule().fill((c.accent ? Theme.accent : Theme.textSecondary).opacity(0.18)))
             .padding(.leading, 4)
+    }
+
+    private func rows(_ stats: [NowSlotModel.Stat]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(stats, id: \.label) { s in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(s.label).themeText(.value, color: Theme.textSecondary)
+                    Spacer(minLength: 8)
+                    (Text(s.value).foregroundColor(Theme.textPrimary) + Text(s.note.map { " \($0)" } ?? "").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textTertiary))
+                        .font(Theme.sans(ThemeTokens.typeValue, .semibold, relativeTo: .body)).monospacedDigit().multilineTextAlignment(.trailing)
+                }
+                .padding(.vertical, 8)
+                .overlay(alignment: .bottom) { Rectangle().fill(Theme.border.opacity(0.6)).frame(height: 1) }
+                .accessibilityIdentifier("now-slot-row-\(s.label)")
+            }
+        }
     }
 
     private func grid(_ stats: [NowSlotModel.Stat]) -> some View {

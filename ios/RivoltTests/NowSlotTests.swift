@@ -17,6 +17,16 @@ final class NowSlotTests: XCTestCase {
         .init(socPct: 60, rangeKm: 250, chargeTargetPct: 80, gear: gear, powerState: "ready", chargerState: charger, chargerPowerKw: kw, at: at, packKwh: 100, speedKph: kph)
     }
 
+    func testSlotDistancesFollowTheWebsDecimals() {
+        DisplayUnits.demo = true // miles
+        XCTAssertEqual(NowFormat.slotDistance(mi: 99.94), "99.9 mi", "one decimal under 100 mi")
+        XCTAssertEqual(NowFormat.slotDistance(mi: 127.4), "127 mi", "whole from 100 mi")
+        DisplayUnits.demo = false
+        DisplayUnits.apply(distance: "km", temperature: nil)
+        defer { DisplayUnits.reset() }
+        XCTAssertEqual(NowFormat.slotDistance(mi: 100), "160.9 km", "kilometres keep their decimal")
+    }
+
     func testSnapshotDecodesTheNewFields() throws {
         let now = try snapshot("parked", extra: #","ambient":{"temp_c":21.5,"source":"open-meteo","as_of":"2026-11-17T12:00:00Z","condition":"rain","wind_kph":16,"rain_next3h_mm":3},"location":{"lat":34.1613,"lon":-118.1676}"#)
         XCTAssertEqual(now.ambient?.condition, "rain")

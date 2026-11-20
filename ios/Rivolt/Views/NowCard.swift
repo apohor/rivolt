@@ -39,12 +39,16 @@ struct NowCard: View {
     var chip: String?
     var chipTone: ThemePill.Tone = .neutral
     var destination: LiveDestination?
+    /// The charging graph (design_preview key now_charge_graph, with ios_now_tidy and now_slot): the stored samples of the open charge, the card in the
+    /// soft look, and the pack temperature from the newest sample. Nil without the key.
+    var chargeSeries: NowChargeSeriesModel?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
     @Environment(AppState.self) private var appState: AppState?
     @ScaledMetric(relativeTo: .largeTitle) private var gaugeWidth = CGFloat(ThemeTokens.gaugeSize)
     @State private var outsideInfo = false
+    @State private var cardWidth: CGFloat = 0
 
     private var offline: Bool { summary.presence == .offline }
     private var charging: Bool { summary.kind == .charging && !offline }
@@ -87,7 +91,17 @@ struct NowCard: View {
         guard slotOn, NowSlotModel.shown(summary: summary) else { return nil }
         let fix = NowSlotModel.fix(snapshot: snapshot, truck: truckFix)
         return NowSlotModel.make(summary: summary, snapshot: snapshot, session: session, charge: charge, liveDrive: liveDrive, fix: fix,
-                                 home: home, gear: gear, mode: driveMode, clock: clock)
+                                 home: home, gear: gear, mode: driveMode, soft: soft, clock: clock)
+    }
+
+    /// The charging card in its soft look: the key on, the slot and the calm hero showing, a charge in progress.
+    private var soft: Bool { chargeSeries != nil && slotOn && tidy && charging }
+
+    /// The graph's numbers, from the stored samples and the figures the card shows (the ring's value is the end label).
+    private var graphModel: NowChargeGraphModel? {
+        guard let series = chargeSeries, let soc = summary.socPct else { return nil }
+        let eta = summary.chargeEta.map { Double($0.minutes) / 60 }
+        return NowChargeGraphModel.make(series: series.series, startPct: series.startPct, nowPct: soc, target: summary.chargeTargetPct, etaHours: eta, now: clock)
     }
 
     private var heroV2: some View {
@@ -96,7 +110,7 @@ struct NowCard: View {
         let sessionRows = slot == nil || slot?.isParked == true
         let showRows = (driving && sessionRows) || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || (chargingRowsV2 && sessionRows)
         return VStack(alignment: .leading, spacing: 12) {
-            if tidy, let chip = tidyChip {
+            if tidy, let chip = tidyChip.map({ soft ? Self.softChip($0, wide: cardWidth >= Self.wideCard) : $0 }) {
                 // Beside the chip when both fit on one line; on their own rows when the text is large or the chip does not leave room, so the word never wraps or goes.
                 let beside = HStack(alignment: .center, spacing: 8) {
                     ThemePill(text: chip, tone: chipTone, identifier: "now-chip", oneLine: true).layoutPriority(1)
@@ -110,6 +124,7 @@ struct NowCard: View {
             } else if let onLive { HStack { Spacer(minLength: 0); liveButton(onLive) } }
             VStack(alignment: .leading, spacing: 12) {
                 heroGaugeV2(pictureShown: slot == nil)
+                if soft, let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if tidy, driving, isLive, let destination, destination.hasFix {
                     Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
                     NowDestinationBlock(destination: destination)
@@ -118,7 +133,8 @@ struct NowCard: View {
                 if let slot {
                     // The rule between the gauge and the slot, as the web's.
                     Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
-                    NowSlotView(model: slot)
+                    NowSlotView(model: slot, soft: soft)
+                    if soft { Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true); NowChargeGraph(model: graphModel) }
                 }
                 if let line = subline, slot == nil || slot?.isParked == true { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if showRows { detailRows }
@@ -130,16 +146,26 @@ struct NowCard: View {
             if temperaturesLine(outside: !(slot?.isParked ?? false)) != nil { temperatures(outside: !(slot?.isParked ?? false)) }
         }
         .themeHero(live: liveKind, critical: critical)
+        .background(GeometryReader { g in Color.clear.onAppear { cardWidth = g.size.width }.onChange(of: g.size.width) { cardWidth = $1 } })
     }
 
     /// The status chip with the key on. While the charging card is shown it carries the power and the finish time, so the chip is just the state.
     private var tidyChip: String? {
-        Self.tidyChip(chip, kind: summary.kind, chargingCardShown: slot != nil)
+        Self.tidyChip(chip, kind: summary.kind, chargingCardShown: slot != nil, soft: soft)
     }
 
-    static func tidyChip(_ chip: String?, kind: NowSnapshot.State, chargingCardShown: Bool) -> String? {
+    static func tidyChip(_ chip: String?, kind: NowSnapshot.State, chargingCardShown: Bool, soft: Bool = false) -> String? {
         guard let chip else { return nil }
-        return kind == .charging && chargingCardShown ? "Charging" : chip
+        return kind == .charging && chargingCardShown && !soft ? "Charging" : chip
+    }
+
+    /// A card this wide or wider (a 431 pt screen less the page margins, as the web's breakpoint) keeps the finish time in the chip.
+    static let wideCard: CGFloat = 399
+
+    /// "Charging · 11 kW · done by 3:24 PM" in full on a wide card; without the finish time on a narrow one (the card says it in its own line).
+    static func softChip(_ chip: String, wide: Bool) -> String {
+        guard !wide, let r = chip.range(of: " · done by ") else { return chip }
+        return String(chip[..<r.lowerBound])
     }
 
 
@@ -247,6 +273,7 @@ struct NowCard: View {
     /// The parked slot shows the weather, so the outside figure is left out there.
     private func temperaturesLine(outside: Bool) -> String? {
         var parts: [String] = []
+        if soft, let c = chargeSeries?.packTempC(now: clock) { parts.append("Pack \(NowComfort.wholeDegrees(celsius: c))") }
         if let cabin = summary.liveComfort?.cabinValue { parts.append("Cabin \(cabin)") }
         if outside, let t = summary.outsideTempC { parts.append("Outside \(NowComfort.wholeDegrees(celsius: t))") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
@@ -463,6 +490,7 @@ struct NowCard: View {
         }
         // The slot's own words, from the figures it shows; the parked slot's weather replaces the outside temperature.
         if let slot { parts.append(slot.spoken) }
+        if soft { parts.append(graphModel?.spoken ?? "Collecting this charge's first minutes.") }
         if let temp = summary.outsideTempC, !(slot?.isParked ?? false) {
             parts.append("\(NowComfort.wholeDegrees(celsius: temp, spoken: true)) outside.")
         }
