@@ -162,4 +162,11 @@ final class ShareBasemapTests: XCTestCase {
         }
         return out
     }
+
+    func testOnlyARealRenderFailureIsMapUnavailable() {
+        let pic = ShareBasemap.Picture(image: UIImage(), lines: [], size: .zero)
+        XCTAssertTrue(ShareBasemap.failed(band: 200, picture: nil), "asked for a map and got none")
+        XCTAssertFalse(ShareBasemap.failed(band: nil, picture: nil), "no room for a band: no map was asked for, so no note")
+        XCTAssertFalse(ShareBasemap.failed(band: 200, picture: pic))
+    }
 }

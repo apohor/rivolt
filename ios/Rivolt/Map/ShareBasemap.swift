@@ -16,6 +16,8 @@ enum ShareBasemap {
     static let maxHeight = 300.0
     static let maxZoom = 12.0
     static let pad = 0.1
+    /// Whether drawing the map failed, so the sheet may say "Map unavailable": a card with no band (too full to give the map room) never asked.
+    static func failed(band: Double?, picture: Picture?) -> Bool { band != nil && picture == nil }
     /// MapLibre's world is 512 points wide at zoom 0.
     private static let tile = 512.0
     private static let timeoutSeconds = 15.0
