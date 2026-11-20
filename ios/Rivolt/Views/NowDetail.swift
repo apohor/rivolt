@@ -21,7 +21,7 @@ struct ChargingDetail: Equatable {
     let rateKmPerHour: Double?
     let rangeAddedKm: Double?
     let energyKwh: Double?
-    /// The energy is our own figure (the open charge row, or the battery's gain times the pack), not the session's total: shown with a "≈".
+    /// The energy is our own figure (the open charge row, or the battery's gain times the pack), not the session's total: shown with "est.".
     let energyEstimated: Bool
     let elapsed: TimeInterval?
     let remaining: TimeInterval?
@@ -193,7 +193,7 @@ enum NowFormat {
     static func costText(_ c: ChargingDetail.Cost) -> String {
         switch c {
         case .billed(let a, let cur): return money(a, currency: cur)
-        case .estimate(let a, let cur): return "~\(money(a, currency: cur)) (estimate)"
+        case .estimate(let a, let cur): return "\(money(a, currency: cur)) (estimate)"
         case .free: return "Free"
         }
     }
