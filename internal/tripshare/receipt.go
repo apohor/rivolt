@@ -147,6 +147,9 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 			pl.label = "Stop · " + pl.name
 			if w.Source == "overnight" {
 				pl.label = "Overnight · " + pl.name
+			} else if w.Source == "planner" {
+				// A planner charger hidden because it is inside home or the cut: no name, but it is still a charge and counts as one.
+				pl.label, pl.isCharg = "Charging · "+pl.name, true
 			}
 		}
 		stops = append(stops, pl)
@@ -177,7 +180,11 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 		switch {
 		case i == len(stops)-1:
 		case b.isCharg:
-			r.Legs = append(r.Legs, ReceiptRow{Kind: "charge", Name: b.name, DurS: b.w.ChargeDurationSec, FromSoC: b.w.ArrivalSoC, ToSoC: b.w.DepartureSoC, MaxKW: b.w.MaxPowerKW})
+			row := ReceiptRow{Kind: "charge", Name: chargeName(b.name, b.label), DurS: b.w.ChargeDurationSec, FromSoC: b.w.ArrivalSoC, ToSoC: b.w.DepartureSoC, MaxKW: b.w.MaxPowerKW}
+			if b.label != "" {
+				row.MaxKW = 0 // a hidden charger shows its area only: a kW figure could single the charger out
+			}
+			r.Legs = append(r.Legs, row)
 			r.Totals.ChargeS += b.w.ChargeDurationSec
 			r.Totals.Stops++
 		default:
@@ -201,4 +208,12 @@ func secsBetween(a, b string) float64 {
 		return 0
 	}
 	return tb.Sub(ta).Seconds()
+}
+
+// chargeName is a public charger's own name, or the "Charging · <area>" label of one hidden inside a private place.
+func chargeName(name, label string) string {
+	if label != "" {
+		return label
+	}
+	return name
 }

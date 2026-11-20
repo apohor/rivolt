@@ -1873,7 +1873,7 @@ func New(d Deps) http.Handler {
 			}
 			if d.Trips != nil && designPreviewOn(d, tripReceiptKey) {
 				receiptLimit := ls.user("trip-receipt", 20)
-				r.With(receiptLimit.Middleware, maxBodyBytes(1024)).Post("/trips/saved/{id}/receipt", withUser(handleTripReceipt(d.Trips, d.Settings, d.Photon)))
+				r.With(requireTripPlannerEnabledMW(d.Flags), receiptLimit.Middleware, maxBodyBytes(1024)).Post("/trips/saved/{id}/receipt", withUser(handleTripReceipt(d.Trips, d.Settings, d.Photon)))
 			}
 			if ts := d.tripShare; ts != nil {
 				// 10 a minute per account on top of the 20 an hour and 25 live the store enforces.
