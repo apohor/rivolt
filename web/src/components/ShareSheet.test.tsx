@@ -11,6 +11,7 @@ vi.mock("../lib/shareCard", () => ({
 const renderShareBasemap = vi.fn();
 vi.mock("../map/shareBasemap", () => ({ renderShareBasemap: (...a: unknown[]) => renderShareBasemap(...a) }));
 
+import { shareMapBand } from "../lib/shareCard";
 import { ShareSheet } from "./ShareSheet";
 
 describe("ShareSheet onShared", () => {
@@ -61,5 +62,18 @@ describe("ShareSheet onShared", () => {
     fireEvent.click(screen.getByLabelText(/Include map/));
     await waitFor(() => expect(renderShareBasemap).toHaveBeenCalled());
     expect(screen.queryByText(/Map unavailable/)).toBeNull();
+  });
+
+  it("shows no note when the card has no room for a map", async () => {
+    renderShareBasemap.mockClear();
+    renderShareBasemap.mockResolvedValue(null);
+    vi.mocked(shareMapBand).mockReturnValue(null);
+    const build = vi.fn((_c: boolean, _o: boolean, map: boolean) => (map ? { map: { segments: ["c"] } } : {}) as never);
+    render(<ShareSheet build={build} fileName="t.png" withCostToggle withMapToggle onClose={() => {}} />);
+    fireEvent.click(screen.getByLabelText(/Include map/));
+    await waitFor(() => expect(build).toHaveBeenLastCalledWith(false, false, true));
+    expect(renderShareBasemap).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Map unavailable/)).toBeNull();
+    vi.mocked(shareMapBand).mockReturnValue({ w: 920, h: 200 });
   });
 });

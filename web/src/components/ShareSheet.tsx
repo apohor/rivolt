@@ -68,7 +68,8 @@ export function ShareSheet({
     // The line first, the map as soon as its tiles are in.
     paintShareCard(canvas.current, model);
     setMapFailed(false);
-    if (!model.map) return;
+    // No band (a card too full to give the map room) is not a failure: the card draws no map and the note would say a line is drawn.
+    if (!model.map || !shareMapBand(model)) return;
     let cancelled = false;
     void basemapFor(model).then((b) => {
       if (cancelled) return;
@@ -175,9 +176,9 @@ export function ShareSheet({
             </span>
           </label>
         )}
-        {withMapToggle && includeMap && mapFailed && (
-          <p aria-live="polite" className="text-xs text-amber-300">
-            Map unavailable. The card shows the route as a line.
+        {withMapToggle && (
+          <p aria-live="polite" className="text-xs text-amber-300 empty:mt-0!">
+            {includeMap && mapFailed ? "Map unavailable. The card shows the route as a line." : ""}
           </p>
         )}
         <p className="text-xs text-neutral-500">Made on your device. Nothing is uploaded or posted.</p>
