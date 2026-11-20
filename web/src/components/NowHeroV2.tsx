@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { ArcGauge } from "./ArcGauge";
@@ -157,7 +157,8 @@ export default function NowHeroV2({
   const [failedUrl, setFailedUrl] = useState("");
   const [info, setInfo] = useState(false);
   const [slot, setSlot] = useState<Element | null>(null);
-  useEffect(() => {
+  // Before the first paint: a passive effect let one frame draw the chip in the card and then move it up, shifting the card.
+  useLayoutEffect(() => {
     setSlot(document.querySelector("[data-now-chip-slot]"));
   }, []);
   const chipEl = (
