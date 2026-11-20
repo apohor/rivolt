@@ -74,7 +74,8 @@ export function buildReceiptModel(r: TripReceipt, o: { model: string; unit: Dist
     const tilde = row.rounded ? "~" : "";
     if (row.kind === "drive") {
       return {
-        title: `DRIVE · ${tilde}${dist(row.dist_m ?? 0, o.unit)}`,
+        // A rounded leg that rounds to nothing is "under one step" (the server rounds to 5), not "about 0".
+        title: `DRIVE · ${row.rounded && Math.round((row.dist_m ?? 0) / (o.unit === "km" ? KM : MI)) === 0 ? `< 5 ${o.unit}` : `${tilde}${dist(row.dist_m ?? 0, o.unit)}`}`,
         right: row.dur_s ? `${tilde}${hmin(row.dur_s)}` : "",
         sub: `${row.from ?? ""} → ${row.to ?? ""}`,
         subRight: `${pct(row.from_soc)} → ${pct(row.to_soc)}`,
