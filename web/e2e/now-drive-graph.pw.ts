@@ -26,6 +26,7 @@ test("a drive in progress draws the speed and the battery from its start @webkit
   await expect(g).toContainText("This drive");
   await expect(g.getByTestId("now-drive-change")).toHaveText(/^−\d+%\s*since \d{1,2}:\d{2}/);
   await expect(g.locator("svg")).toHaveAttribute("aria-label", /Speed since \d{1,2}:\d{2}.*now, top \d+ mph/);
+  await expect(g.getByTestId("now-drive-top")).toHaveText(/^\d+ mph$/);
   await expect(g).toContainText("Speed (mph)");
   await expect(g).toContainText("Battery");
   // The card's own state and slot are still there.

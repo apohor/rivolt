@@ -389,7 +389,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === `/api/live-destination/${VEHICLE_ID}`) {
       if (!liveDestination) return json(route, { error: "not found" }, 404);
       if (liveDestination === "none") return route.fulfill({ status: 204 });
-      return json(route, { name: "Test Depot", lat: 40.3, lon: -100.45, eta: new Date(Date.now() + 1_500_000).toISOString(), miles_left: 12.4, route: "_srtkA~lyh~D_cmA~hbE_etB~s`B", route_precision: 6 });
+      return json(route, { name: "Test Depot", lat: 40.3, lon: -100.45, eta: iso(-1_500_000), miles_left: 12.4, route: "_srtkA~lyh~D_cmA~hbE_etB~s`B", route_precision: 6 });
     }
     if (p === `/api/live-drive/${VEHICLE_ID}`) {
       if (scenario !== "driving") return route.fulfill({ status: 204 });

@@ -24,4 +24,9 @@ describe("driveSeries", () => {
     const s = driveSeries([...run(120), row(130, -2), row(140, 0), row(150, 0)], T0)!;
     expect(Math.min(...s.speed.map((p) => p.y))).toBeGreaterThanOrEqual(0);
   });
+  it("the top speed is the highest real reading, not the smoothed curve", () => {
+    const s = driveSeries([...run(200), row(210, 71), ...[220, 230, 240, 250, 260].map((t) => row(t, 20))], T0)!;
+    expect(s.top.y).toBe(71);
+    expect(Math.max(...s.speed.map((p) => p.y))).toBeLessThan(71);
+  });
 });

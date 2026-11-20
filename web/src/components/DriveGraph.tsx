@@ -15,7 +15,7 @@ const MIN_POINTS = 4;
 const PAD = { t: 30, b: 26, l: 6, r: 10 };
 const MPH_TO_KMH = 1.609344;
 
-export type DriveSeries = { speed: Pt[]; soc: Pt[]; startPct: number | null; startedMs: number };
+export type DriveSeries = { speed: Pt[]; soc: Pt[]; startPct: number | null; startedMs: number; top: Pt };
 
 // At most SERIES_POINTS readings, evenly spaced in time (read off the smoothed line, the last one exactly), so the curve through them has no
 // bunches of close readings to kink on; a short series is kept as it is.
@@ -48,7 +48,7 @@ export function driveSeries(rows: Sample[], startedMs: number): DriveSeries | nu
   const first = speed[0];
   const last = speed[speed.length - 1];
   if (!first || !last || speed.length < MIN_POINTS || last.x - first.x < MIN_SPAN_MS) return null;
-  return { speed, soc, startPct: mine.find((p) => p.BatteryLevelPct > 0)?.BatteryLevelPct ?? null, startedMs };
+  return { speed, soc, startPct: mine.find((p) => p.BatteryLevelPct > 0)?.BatteryLevelPct ?? null, startedMs, top: raw.reduce((m, p) => (p.y > m.y ? p : m), raw[0]) };
 }
 
 // The drive so far, read at the card's pace; null while the drive is not known or too short to draw.
@@ -90,7 +90,8 @@ export function DriveGraph({ series, unit, nowPct, destination = null }: { serie
   const { speed, soc, startPct } = series;
   const first = speed[0];
   const last = speed[speed.length - 1];
-  const peak = Math.max(...speed.map((p) => p.y * k), 10);
+  // The top is a real reading (the line itself is a smoothed summary), so the scale makes room for it.
+  const peak = Math.max(...speed.map((p) => p.y * k), series.top.y * k, 10);
   const top = Math.ceil((peak * 1.15) / 10) * 10;
   const base = h - PAD.b;
   const sx = (x: number) => PAD.l + ((x - first.x) / (last.x - first.x)) * (w - PAD.l - PAD.r);
@@ -131,6 +132,11 @@ export function DriveGraph({ series, unit, nowPct, destination = null }: { serie
             {socPts.length > 1 && <QuietLine d={softPath(socPts)} color={ink.quiet} />}
             <SoftLine id={id} d={line} color={ink.line} />
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
+            {series.top.y * k >= 10 && series.top.x >= first.x && series.top.x < last.x - 60_000 && (
+              <text x={Math.min(Math.max(sx(series.top.x), PAD.l + 24), lx - 40)} y={Math.max(sv(series.top.y * k) - 8, 12)} textAnchor="middle" data-testid="now-drive-top" className="fill-neutral-400 text-xs">
+                {Math.round(series.top.y * k)} {speedUnit}
+              </text>
+            )}
             <text x={PAD.l} y={h - 6} className="fill-neutral-500 text-xs">
               {w >= 260 ? `Left ${clock(series.startedMs)}` : clock(series.startedMs)}
             </text>
