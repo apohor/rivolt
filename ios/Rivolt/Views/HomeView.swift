@@ -372,7 +372,12 @@ struct HomeView: View {
         if state.isDemo { session = nil; liveDrive = nil; liveDestination = nil; return }
         let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
         session = kind == .charging ? (try? await state.client.liveSession(id: id)) ?? nil : nil
-        liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
+        if kind == .driving {
+            // A failed read (503 while the owner pod is busy or rolling) keeps the card shown until the next poll; "no drive" (204) clears it.
+            do { liveDrive = try await state.client.liveDrive(id: id) } catch { /* keep the card */ }
+        } else {
+            liveDrive = nil
+        }
         // Only while in gear, only when the design is on and not told "off"; this runs on the state's own cadence, which the tab and scene gate.
         // Only while the Live screen is open, or the Now hero shows it (ios_now_tidy): nothing else shows it.
         guard kind == .driving, showLive || tidy, state.designPreview.contains("live_destination"), !destinationOff else { liveDestination = nil; destinationFailures = 0; return }
