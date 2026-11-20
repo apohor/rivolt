@@ -32,6 +32,19 @@ final class NowChargeGraphUITests: XCTestCase {
 
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
 
+    /// A truck that is charging has no picture on the Live screen, so the plug badge and glow (design_preview plug_anim) have nothing to sit on and are not drawn.
+    func testLiveWhileChargingHasNoPictureAndNoPlugBadge() {
+        let app = launch()
+        XCTAssertTrue(element(app, "now-charge-graph").waitForExistence(timeout: 30))
+        let live = app.buttons["now-live-link"].firstMatch
+        XCTAssertTrue(live.waitForExistence(timeout: 10))
+        live.tap()
+        XCTAssertTrue(element(app, "now-live-screen").waitForExistence(timeout: 10), "Live opens")
+        shot(app, "live-charging-no-picture")
+        XCTAssertTrue(app.staticTexts["Streaming vehicle state from Rivian"].exists, "the truck is streaming, so this is the charging Live screen")
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Charging, ' OR label BEGINSWITH 'Plugged in, not'")).firstMatch.exists, "no plug badge on a missing picture")
+    }
+
     func testTheChargingCardShowsTheGraphAndTheQuietRows() {
         let app = launch()
         let graph = element(app, "now-charge-graph")
