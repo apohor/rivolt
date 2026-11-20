@@ -166,21 +166,31 @@ function diffSummary() {
   return summariseDiff(a.validated, a.rc, git("log", "--format=%H%x09%s", range), git("diff", "--name-only", `${a.validated}...${a.rc}`));
 }
 
+// One line per stage, `STAGE <iso time> <name>`, also kept in results.json: the gate's own duration is measured, and a delivery-metrics
+// reader can take the lines as events. The sim stages (sim drive/charge start/end) use the same call when the runner books them.
+const stages = [];
+const stage = (name) => { const at = new Date().toISOString(); stages.push({ name, at }); console.log(`STAGE ${at} ${name}`); };
+stage("start");
 const vg = await versionGate();
+stage("version");
 const browser = await pw[a.browser].launch();
 let state;
 try { state = await signIn(browser); } catch (e) { console.error(`sign-in failed: ${String(e.message).split("\n")[0]}`); await browser.close(); process.exit(2); }
+stage("sign-in");
 const combos = manifest.viewports.flatMap((vp) => manifest.schemes.map((s) => [vp, s]));
 const caps = (await Promise.all(combos.map(([vp, s]) => captureContext(browser, state, vp, s)))).flat();
+stage("screens done");
 const lines = [];
 lines.push({ id: "version", screen: "version", vp: "-", scheme: "-", check: "version", status: !vg.version ? FAIL : vg.want && vg.version !== vg.want ? FAIL : PASS, detail: `${vg.version ?? "unreachable"}${vg.want ? ` (expected ${vg.want})` : " (no --expect-version)"}` });
 for (const c of caps) lines.push(...evaluateCapture(manifest, manifest.screens.find((s) => s.id === c.screen), c));
 lines.push(...stateLines(manifest, caps));
 if (!a["no-signout"] && manifest.signOut) lines.push(...(await signOut(browser, state)));
 await browser.close();
+stage("sign-out");
 
 const diff = diffSummary();
-const meta = { base, version: vg.version, expectVersion: vg.want, at: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000) };
+stage("verdict");
+const meta = { stages, base, version: vg.version, expectVersion: vg.want, at: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000) };
 writeFileSync(join(out, "results.json"), JSON.stringify({ meta, tally: tally(lines), lines, diff }, null, 1));
 writeFileSync(join(out, "index.html"), renderSheet({ meta, lines, caps, diff, manifest }));
 const t = tally(lines);
