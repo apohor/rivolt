@@ -1744,7 +1744,10 @@ func (c *Coordinator) noteMove(reason string) {
 // vehicle, group or user.
 func (c *Coordinator) logMoves() {
 	c.moveMu.Lock()
-	t := c.moveTally
+	t := make(map[string]int, len(c.moveTally)) // copied under the lock: a reconcile still in flight can write the tally
+	for k, v := range c.moveTally {
+		t[k] = v
+	}
 	c.moveMu.Unlock()
 	if len(t) == 0 {
 		return
