@@ -1281,7 +1281,7 @@ func New(d Deps) http.Handler {
 				handleLiveDestination(clientFor(d, uid), monitorFor(d, uid), d.stateForward(uid))(w, r)
 			}))
 			r.With(vehicleScoped, vehicleGate).Get("/live-drive/{vehicleID}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
-				handleLiveDrive(monitorFor(d, uid))(w, r)
+				handleLiveDrive(clientFor(d, uid), monitorFor(d, uid), d.stateForward(uid))(w, r)
 			}))
 			if d.AdminDebugProbes { // the same gate as state/{id}/debug above
 				r.Get("/charging-schema", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {

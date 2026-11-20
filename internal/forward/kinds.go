@@ -26,6 +26,7 @@ const (
 	// KindLiveDestination is one read of the owner's in-memory navigation destination for a vehicle (no Rivian call). Its reply is sealed
 	// (Spec.Sealed): the destination is never readable in Redis, not even for the 5 s a reply lives there.
 	KindLiveDestination Kind = "live_destination"
+	KindLiveDrive       Kind = "live_drive" // one read of the owner's open drive for a vehicle (no Rivian call: the owner's monitor answers)
 )
 
 // Spec is what the allowlist holds for a kind.
@@ -68,6 +69,7 @@ var Kinds = map[Kind]Spec{
 			}
 			return ""
 		}},
+	KindLiveDrive: {Timeout: 4 * time.Second, DrainWait: 4 * time.Second, Retry: true, Validate: func(a json.RawMessage) (any, error) { return decodeArgs[LiveDriveArgs](a) }},
 }
 
 // ErrBadArgs: args that fail the kind's schema.
@@ -251,6 +253,13 @@ type LiveSessionArgs struct {
 }
 
 func (a *LiveSessionArgs) validate() error { return checkVehicle(a.VehicleID) }
+
+// LiveDriveArgs: one live-drive read.
+type LiveDriveArgs struct {
+	VehicleID string `json:"vehicle_id"`
+}
+
+func (a *LiveDriveArgs) validate() error { return checkVehicle(a.VehicleID) }
 
 // LiveDestinationArgs: one live-destination read. The request carries the vehicle id and nothing else.
 type LiveDestinationArgs struct {

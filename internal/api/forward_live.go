@@ -84,3 +84,45 @@ func (sf *stateForward) forwardLiveSession(ctx context.Context, c rivian.Client,
 	}
 	return out, nil
 }
+
+// liveDriveWire is the owner's answer to a forwarded live_drive: its open drive for the vehicle, nil when there is none.
+type liveDriveWire struct {
+	Drive *rivian.LiveDrive `json:"drive"`
+}
+
+// ServeLiveDrive is the owner's side of a forwarded live_drive: the same read the live-drive handler makes from the monitor.
+func ServeLiveDrive(mon *rivian.StateMonitor, vehicleID string) forward.Result {
+	if mon == nil {
+		return forward.Result{Status: http.StatusServiceUnavailable, Class: forward.ClassUnavailable, Body: json.RawMessage(`{}`)}
+	}
+	raw, err := json.Marshal(liveDriveWire{Drive: mon.ActiveDrive(vehicleID)})
+	if err != nil {
+		return forward.Result{Status: http.StatusBadGateway, Class: forward.ClassInternal}
+	}
+	return forward.Result{Status: http.StatusOK, Body: raw}
+}
+
+// forwardLiveDrive reads the open drive from the vehicle's group owner. It is only asked on a pod that holds no tokens for the account, so
+// that pod has no drive of its own: when the forwarder falls soft and runs the call here, "no drive" would be a guess, and the caller gets
+// the retryable 503 instead.
+func (sf *stateForward) forwardLiveDrive(ctx context.Context, vehicleID string) (liveDriveWire, error) {
+	group, ok := sf.groupOf(vehicleID)
+	if !ok {
+		return liveDriveWire{}, errOwnerUnavailable
+	}
+	res, _, err := sf.fw.Do(ctx, forward.Call{Kind: forward.KindLiveDrive, User: sf.user.String(), Group: group, Args: forward.LiveDriveArgs{VehicleID: vehicleID}},
+		func(context.Context) (forward.Result, error) {
+			return forward.Result{}, errOwnerUnavailable
+		})
+	if err != nil {
+		return liveDriveWire{}, err
+	}
+	if res.Status != http.StatusOK {
+		return liveDriveWire{}, errOwnerUnavailable
+	}
+	var out liveDriveWire
+	if err := json.Unmarshal(res.Body, &out); err != nil {
+		return liveDriveWire{}, errOwnerUnavailable
+	}
+	return out, nil
+}

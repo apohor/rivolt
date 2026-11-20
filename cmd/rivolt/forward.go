@@ -55,6 +55,8 @@ func (r *forwardRunner) Run(ctx context.Context, kind forward.Kind, user, group 
 		return r.liveSession(ctx, user, group, args)
 	case forward.KindLiveDestination:
 		return r.liveDestination(ctx, user, group, args)
+	case forward.KindLiveDrive:
+		return r.liveDrive(ctx, user, group, args)
 	case forward.KindReceiptsSync:
 		return r.receiptsSync(ctx, user)
 	}
@@ -109,6 +111,20 @@ func (r *forwardRunner) liveSession(_ context.Context, user, group string, args 
 		return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
 	}
 	return api.ServeLiveSession(r.monitors.For(uid), a.VehicleID), nil
+}
+
+// liveDrive serves one open-drive read for a requester that does not hold the group: this pod's monitor answers, no Rivian call is made.
+// The vehicle must belong to the named group and the monitor is the named user's own, as for live_session.
+func (r *forwardRunner) liveDrive(_ context.Context, user, group string, args any) (forward.Result, error) {
+	a, ok := args.(*forward.LiveDriveArgs)
+	uid, err := uuid.Parse(user)
+	if !ok || err != nil || r.monitors == nil || r.store == nil {
+		return forward.Result{Status: 400, Class: "bad_request"}, nil
+	}
+	if g, known := r.store.GroupOfVehicle(a.VehicleID); !known || g != group {
+		return forward.Result{Status: 404, Class: "not_found", Body: json.RawMessage(`{}`)}, nil
+	}
+	return api.ServeLiveDrive(r.monitors.For(uid), a.VehicleID), nil
 }
 
 // liveDestination serves one destination read for a requester that does not hold the group: this pod's monitor answers from memory, no
