@@ -20,7 +20,9 @@ const LABEL_MIN_W = 58;
 const SERIES_WAIT_MS = 3000;
 
 // The series for the card; null while loading, absent, or without a line to draw (the graph then shows nothing and the card is as it was).
-// waiting is true from the first ask until the answer, a failure, or SERIES_WAIT_MS: the chip shows no time meanwhile, so it never changes by hours as the series arrives.
+// Only an answer that arrived after this was enabled counts: an older cached one (the truck parked before, drove, and parked again) has a
+// parked-since from before the drive. waiting is true from the enable until that answer, a failure, or SERIES_WAIT_MS: the chip shows no
+// time meanwhile, so it never changes by hours as the series arrives.
 export function useParkedSeries(vehicleID: string, enabled: boolean): { series: ParkedSeries | null; waiting: boolean } {
   const q = useQuery({
     queryKey: ["parked-series", vehicleID],
@@ -29,13 +31,19 @@ export function useParkedSeries(vehicleID: string, enabled: boolean): { series: 
     refetchInterval: 60_000,
     retry: 0,
   });
-  const [late, setLate] = useState(false);
+  // The moment this truck's series was last switched on; a new truck or a later re-enable starts a new wait.
+  const key = `${enabled}|${vehicleID}`;
+  const [gate, setGate] = useState({ key, at: Date.now() });
+  if (gate.key !== key) setGate({ key, at: Date.now() });
+  const [lateFor, setLateFor] = useState(0);
   useEffect(() => {
     if (!enabled) return;
-    const t = setTimeout(() => setLate(true), SERIES_WAIT_MS);
+    const t = setTimeout(() => setLateFor(gate.at), SERIES_WAIT_MS);
     return () => clearTimeout(t);
-  }, [enabled, vehicleID]);
-  return { series: enabled && parkedDrawable(q.data) ? q.data : null, waiting: enabled && q.isPending && !late };
+  }, [enabled, gate.at]);
+  const fresh = q.dataUpdatedAt >= gate.at;
+  const answered = fresh || q.errorUpdatedAt >= gate.at;
+  return { series: enabled && fresh && parkedDrawable(q.data) ? q.data : null, waiting: enabled && !answered && lateFor !== gate.at };
 }
 
 const ms = (iso: string) => Date.parse(iso);
