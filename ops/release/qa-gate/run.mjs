@@ -30,6 +30,7 @@ const { values: a } = parseArgs({
     web: { type: "string", default: join(repo, "web") },
     keychain: { type: "string", default: "rivolt-preview-login" },
     "no-signout": { type: "boolean", default: false },
+    reads: { type: "string", default: "8" },
   },
 });
 if (!a.out) { console.error("usage: run.mjs --base URL --out DIR [options]; see the header of this file"); process.exit(2); }
@@ -54,6 +55,13 @@ function credentials() {
 
 async function health() {
   try { return (await (await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(15000) })).json()).version ?? null; } catch { return null; }
+}
+
+// N quick /api/health reads (N at least twice the replicas, so every pod answers): the versions seen, null for a read that failed.
+async function healthSample() {
+  const got = [];
+  for (let i = 0; i < Number(a.reads); i++) { got.push(await health()); await sleep(300); }
+  return got;
 }
 
 // Waits for the expected version on three reads in a row (a half-rolled preview can still answer from an old pod).
@@ -172,6 +180,7 @@ const stages = [];
 const stage = (name) => { const at = new Date().toISOString(); stages.push({ name, at }); console.log(`STAGE ${at} ${name}`); };
 stage("start");
 const vg = await versionGate();
+const before = await healthSample();
 stage("version");
 const browser = await pw[a.browser].launch();
 let state;
@@ -180,6 +189,10 @@ stage("sign-in");
 const combos = manifest.viewports.flatMap((vp) => manifest.schemes.map((s) => [vp, s]));
 const caps = (await Promise.all(combos.map(([vp, s]) => captureContext(browser, state, vp, s)))).flat();
 stage("screens done");
+const after = await healthSample();
+// A version change or a mix of versions during the screens (a roll under way) makes the pictures a mix of two builds: INVALID, not FAIL.
+const seen = [...new Set([...before, ...after])];
+const invalid = seen.length > 1 || seen.includes(null) ? `versions seen during the run: ${seen.map((v) => v ?? "no answer").join(", ")}` : null;
 const lines = [];
 lines.push({ id: "version", screen: "version", vp: "-", scheme: "-", check: "version", status: !vg.version ? FAIL : vg.want && vg.version !== vg.want ? FAIL : PASS, detail: `${vg.version ?? "unreachable"}${vg.want ? ` (expected ${vg.want})` : " (no --expect-version)"}` });
 for (const c of caps) lines.push(...evaluateCapture(manifest, manifest.screens.find((s) => s.id === c.screen), c));
@@ -190,11 +203,12 @@ stage("sign-out");
 
 const diff = diffSummary();
 stage("verdict");
-const meta = { stages, base, version: vg.version, expectVersion: vg.want, at: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000) };
+const meta = { stages, invalid, base, version: vg.version, expectVersion: vg.want, at: new Date().toISOString(), seconds: Math.round((Date.now() - t0) / 1000) };
 writeFileSync(join(out, "results.json"), JSON.stringify({ meta, tally: tally(lines), lines, diff }, null, 1));
 writeFileSync(join(out, "index.html"), renderSheet({ meta, lines, caps, diff, manifest }));
 const t = tally(lines);
 for (const l of lines.filter((x) => x.status !== PASS)) console.log(`${l.status.padEnd(8)} ${l.id}${l.detail ? "  " + l.detail : ""}`);
 if (diff) console.log(diffText(diff));
 console.log(`${t.PASS} PASS, ${t.FAIL} FAIL, ${t["NOT SEEN"]} NOT SEEN in ${meta.seconds}s -> ${join(out, "index.html")}`);
+if (invalid) { console.log(`INVALID  ${invalid}: the gate starts only when preview is stable on the rc; run it again`); process.exit(3); }
 process.exit(t.FAIL ? 1 : 0);

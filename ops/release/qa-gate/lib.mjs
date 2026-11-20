@@ -124,7 +124,7 @@ export function renderSheet({ meta, lines, caps, diff, manifest }) {
 .FAIL td:first-child{background:#fbb}.NOT-SEEN td:first-child{background:#fe9}.g{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}figure{margin:0}
 figure.v393 img{width:196px}figure.v1440 img{width:480px}img{border:1px solid #ccc;display:block}pre{background:#eee;padding:8px;overflow:auto}</style>
 <h1>Rivolt QA gate</h1>
-<p>${esc(meta.base)} &middot; version ${esc(meta.version ?? "?")}${meta.expectVersion ? " (expected " + esc(meta.expectVersion) + ")" : ""} &middot; ${esc(meta.at)} &middot; ${meta.seconds}s</p>
+<p>${esc(meta.base)} &middot; version ${esc(meta.version ?? "?")}${meta.expectVersion ? " (expected " + esc(meta.expectVersion) + ")" : ""} &middot; ${esc(meta.at)} &middot; ${meta.seconds}s</p>${meta.invalid ? `<p><b>INVALID: ${esc(meta.invalid)}. Not a verdict; run again once preview is stable.</b></p>` : ""}
 <p><b>${t[PASS]} PASS &middot; ${t[FAIL]} FAIL &middot; ${t[NOT_SEEN]} NOT SEEN</b></p>
 <table>${rows || "<tr><td>Every line passed.</td></tr>"}</table>${d}${grid}`;
 }
