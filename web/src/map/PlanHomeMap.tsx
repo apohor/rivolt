@@ -108,5 +108,6 @@ export function PlanHomeMap({
         The map can&apos;t be drawn in this browser (WebGL is off or unsupported).
       </div>
     );
-  return <div ref={ref} data-testid="plan-home-map" className="absolute inset-0 [&_.maplibregl-ctrl-top-left]:hidden" />;
+  // "!absolute": MapLibre's stylesheet gives .maplibregl-map position: relative, which would otherwise win and collapse this fill to no height.
+  return <div ref={ref} data-testid="plan-home-map" className="!absolute inset-0 [&_.maplibregl-ctrl-top-left]:hidden" />;
 }
