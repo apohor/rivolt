@@ -6,6 +6,10 @@
 import chargeClusters from "../../../ios/RivoltTests/Fixtures/charge_clusters.json";
 import chargesLast from "../../../ios/RivoltTests/Fixtures/charges_last.json";
 import coldRange from "../../../ios/RivoltTests/Fixtures/cold_range.json";
+import parkedOvernight from "../../../ios/RivoltTests/Fixtures/parked_series_overnight.json";
+import parkedAsleep from "../../../ios/RivoltTests/Fixtures/parked_series_asleep.json";
+import parkedCharged from "../../../ios/RivoltTests/Fixtures/parked_series_charged.json";
+import parkedNeverSlept from "../../../ios/RivoltTests/Fixtures/parked_series_never_slept.json";
 import drain from "../../../ios/RivoltTests/Fixtures/drain.json";
 import drivesLast from "../../../ios/RivoltTests/Fixtures/drives_last.json";
 import leaseStatus from "../../../ios/RivoltTests/Fixtures/lease_status.json";
@@ -54,7 +58,7 @@ import yearNotYet from "../../../ios/RivoltTests/Fixtures/year_in_rivolt_not_yet
 import type {
   DayActivity, EfficiencyInsights, LiveDrive, PackHealthResponse,
   AccountUnits, AuthUser, Charge, ChargeCluster, ChargingSettings, ColdRange, DrainSnapshot, Drive, HomeLocation,
-  LeaseStatus, LeaseTerms, LiveSession, MilestoneItem, NowSnapshot, SleepHealth, StatementEmailSettings, TruckTrends, Vehicle,
+  LeaseStatus, LeaseTerms, LiveSession, MilestoneItem, NowSnapshot, ParkedSeries, SleepHealth, StatementEmailSettings, TruckTrends, Vehicle,
   VehicleState, YearInRivolt,
 } from "../lib/api";
 import type { LedgerMonth, LedgerSummary } from "../lib/ledger";
@@ -80,6 +84,10 @@ export const _chargeClusters: Wide<ChargeCluster[]> = chargeClusters;
 export const _charges: Wide<Charge[]> = chargesLast;
 export const _coldRange: Wide<ColdRange> = coldRange;
 export const _drain: Wide<DrainSnapshot> = drain;
+export const _parkedOvernight: Wide<ParkedSeries> = parkedOvernight;
+export const _parkedAsleep: Wide<ParkedSeries> = parkedAsleep;
+export const _parkedCharged: Wide<ParkedSeries> = parkedCharged;
+export const _parkedNeverSlept: Wide<ParkedSeries> = parkedNeverSlept;
 export const _drives: Wide<Drive[]> = drivesLast;
 export const _leaseStatus: Wide<LeaseStatus> = leaseStatus;
 export const _leaseTerms: Wide<LeaseTerms> = leaseTerms;
