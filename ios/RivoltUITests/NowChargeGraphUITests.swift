@@ -64,6 +64,8 @@ final class NowChargeGraphUITests: XCTestCase {
             XCTAssertTrue(element(app, "now-charge-graph").waitForExistence(timeout: 30), "\(name) graph")
             let tag = "\(name)-\(dark ? "dark" : "light")-\(big ? "xxxl" : "std")-\(metric ? "km" : "mi")"
             shot(app, "parity-\(tag)-top")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42)))
+            shot(app, "parity-\(tag)-graph")
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
             shot(app, "parity-\(tag)-middle")
             app.terminate()
