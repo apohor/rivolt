@@ -2260,6 +2260,9 @@ export const backend = {
     api.post<TripShareCreated>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/share`, body),
   tripShareList: (savedTripID: string) =>
     api.get<{ links: TripShareLink[] }>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/shares`),
+  // The data for the receipt image of a saved trip (areas only, rounded near the ends); the route sketch is sent only when asked for.
+  tripReceipt: (savedTripID: string, body: { sketch: boolean; metric: boolean }) =>
+    api.post<TripReceipt>(`/api/trips/saved/${encodeURIComponent(savedTripID)}/receipt`, body),
   tripShareRevoke: (shareID: string) =>
     api.del<void>(`/api/trips/shares/${encodeURIComponent(shareID)}`),
   // Multipart upload of one or more ElectraFi CSV files. Returns a per-
@@ -3555,6 +3558,31 @@ export type SavedTripBody = {
   inputs: SavedTripInputs;
   plan?: TripPlan | SavedMultidayPlan;
   advice?: TripAdvice;
+};
+
+// POST /api/trips/saved/{id}/receipt (design key trip_receipt). Every place is an area ("Pasadena area") or a public charger's own name; figures
+// near the start, the destination and added stops are rounded (rounded: true); sketch is the route cut at both ends, every added stop and home.
+export type TripReceiptRow = {
+  kind: "drive" | "charge" | "stop";
+  from?: string;
+  to?: string;
+  name?: string;
+  dist_m?: number;
+  dur_s?: number;
+  from_soc: number;
+  to_soc: number;
+  max_kw?: number;
+  rounded?: boolean;
+};
+export type TripReceipt = {
+  depart_at?: string;
+  tz?: string;
+  start_soc: number;
+  start: string;
+  end: string;
+  rows: TripReceiptRow[];
+  totals: { dist_m: number; drive_s: number; charge_s: number; stops: number; arrive_at?: string; arrival_soc: number };
+  sketch?: string[];
 };
 
 // A shared trip link as the owner lists it (never the token).

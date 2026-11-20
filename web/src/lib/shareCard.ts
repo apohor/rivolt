@@ -152,12 +152,12 @@ function wrap(g: CanvasRenderingContext2D, text: string, x: number, y: number, l
 }
 
 // The server's segments decoded, each kept apart so the cut-off stretches are never joined by a line.
-function routePaths(segments: string[]): [number, number][][] {
+export function routePaths(segments: string[]): [number, number][][] {
   return segments.map((s) => decodePolyline(s, 6)).filter((p) => p.length >= 2);
 }
 
 // Draws the paths fitted into the box (equirectangular, so a mile north is as long as a mile east), as a bare line.
-function drawRoute(g: CanvasRenderingContext2D, paths: [number, number][][], x: number, y: number, w: number, h: number) {
+export function drawRoute(g: CanvasRenderingContext2D, paths: [number, number][][], x: number, y: number, w: number, h: number, color = "#e5e5e5") {
   let minLat = Infinity;
   let maxLat = -Infinity;
   let minLon = Infinity;
@@ -176,7 +176,7 @@ function drawRoute(g: CanvasRenderingContext2D, paths: [number, number][][], x: 
   const k = Math.min(w / spanX, h / spanY);
   const ox = x + (w - spanX * k) / 2;
   const oy = y + (h - spanY * k) / 2;
-  g.strokeStyle = "#e5e5e5";
+  g.strokeStyle = color;
   g.lineWidth = 7;
   g.lineJoin = "round";
   g.lineCap = "round";
