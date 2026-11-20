@@ -240,16 +240,29 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 	}
 	r.Totals.DistM = roundDist(dest.DistanceFromOriginMeters-origin.DistanceFromOriginMeters, in.Metric)
 	r.Totals.DriveS = roundSecs(float64(r.Totals.DriveS))
-	r.Totals.TripS = tripS
-	if first > 0 || last < len(stops)-1 || anyRounded {
-		r.Totals.TripS = roundSecs(float64(tripS))
-	}
 	r.Totals.ArrivalSoC = rt.ArrivalSoC
 	r.Totals.ArriveAt = roundTime(dest.ArrivalTimeUTC)
+	// The whole trip is Arrive minus Leave, so the card's Leave + total = Arrive holds whatever the stops (added ones included) took; the
+	// sum of driving and charging stands in only when either time is missing.
+	r.Totals.TripS = tripS
+	if dep, arr := parseTime(r.DepartAt), parseTime(r.Totals.ArriveAt); !dep.IsZero() && !arr.IsZero() && arr.After(dep) {
+		r.Totals.TripS = int(arr.Sub(dep).Seconds())
+	}
+	if first > 0 || last < len(stops)-1 || anyRounded {
+		r.Totals.TripS = roundSecs(float64(r.Totals.TripS))
+	}
 	if in.Sketch {
 		r.Sketch = snap.Route.Segments
 	}
 	return r, nil
+}
+
+func parseTime(iso string) time.Time {
+	t, err := time.Parse(time.RFC3339, iso)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
 
 func secsBetween(a, b string) float64 {
