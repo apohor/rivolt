@@ -795,6 +795,13 @@
   background: oklch(78% 0.15 168);
 }
 
+/* Desktop: the radar legend sits at the map's bottom left edge (TripRouteMap); the trip card, a map control at the bottom left, rides above it. */
+@media (min-width: 1024px) {
+  :root [data-trip-map]:has([data-radar-label]) .maplibregl-ctrl-bottom-left {
+    bottom: 2rem; /* the strip's height and its 0.5rem margin, in rem so larger text lifts the card as much */
+  }
+}
+
 /* The Layers button is only for a tight map (below). */
 :root [data-map-layers-button] {
   display: none;
