@@ -46,11 +46,12 @@ export function useOpenChargeSeries(vehicleId: string, enabled = true) {
     const rows = (samples.data ?? []).filter((p) => new Date(p.At).getTime() >= startedMs - 60_000);
     const at = (p: Sample) => new Date(p.At).getTime();
     const soc = smoothGaussianTime(rows.filter((p) => p.BatteryLevelPct > 0).map((p) => ({ x: at(p), y: p.BatteryLevelPct })), 30_000);
+    const startPct = rows.find((p) => p.BatteryLevelPct > 0)?.BatteryLevelPct ?? null;
     const power = smoothGaussianTime(rows.filter((p) => p.ChargerPowerKW > 0).map((p) => ({ x: at(p), y: p.ChargerPowerKW })), 45_000);
     // The pack's cell temperature: absent or 0 on a row recorded while the car slept (the charge page drops the same sentinel).
     const withPack = rows.filter((p) => Number.isFinite(p.pack_temp_avg_c) && (p.pack_temp_avg_c ?? 0) !== 0);
     const last = withPack[withPack.length - 1];
-    return { soc, power, pack: last ? { avg: last.pack_temp_avg_c as number, min: last.pack_temp_min_c, max: last.pack_temp_max_c, at: new Date(last.At).getTime() } : null };
+    return { soc, power, startPct, pack: last ? { avg: last.pack_temp_avg_c as number, min: last.pack_temp_min_c, max: last.pack_temp_max_c, at: new Date(last.At).getTime() } : null };
   }, [samples.data, startedMs]);
 
   return { open, startedMs, ...data };

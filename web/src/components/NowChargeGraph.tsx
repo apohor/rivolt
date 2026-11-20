@@ -8,6 +8,8 @@ import { GraphHead, HaloDot, Legend, Pill, QuietLine, SoftDefs, SoftFill, SoftLi
 // soft dotted continuation with the finish time in a small pill. The series are the Live page's (stored samples, no Rivian call), read at
 // its 30 s pace. Under two minutes of samples it says so instead of drawing a stub.
 const MIN_SPAN_MS = 120_000;
+// The estimate's width, relative to the session so far.
+const EST_SHARE = 0.8;
 const PAD = { t: 30, b: 26, l: 6, r: 10 };
 
 // The open charge's series, read once for the card: the graph draws it and the temperatures row takes the pack's reading from it.
@@ -24,9 +26,9 @@ export function usePackTemp(nowMs: number): number | null {
   return pack && nowMs - pack.at <= PACK_FRESH_MS ? pack.avg : null;
 }
 
-export function NowChargeGraph({ nowMs, targetPct, etaHours }: { nowMs: number; targetPct: number | null; etaHours: number | null }) {
+export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours }: { nowMs: number; nowPct: number; targetPct: number | null; etaHours: number | null }) {
   const series = useContext(SeriesContext);
-  const { open, soc, power } = series ?? { open: undefined, soc: [], power: [] };
+  const { open, soc, power, startPct } = series ?? { open: undefined, soc: [], power: [], startPct: null };
   const [ref, { w, h }] = useBox();
   const ink = useSoftInk();
   const id = useSoftId();
@@ -40,13 +42,18 @@ export function NowChargeGraph({ nowMs, targetPct, etaHours }: { nowMs: number; 
       </p>
     );
   }
-  const target = targetPct != null && targetPct > last.y ? targetPct : null;
+  const target = targetPct != null && targetPct > nowPct ? targetPct : null;
   const endX = target != null && etaHours != null && etaHours > 0 ? Math.max(last.x, nowMs) + etaHours * 3_600_000 : null;
   const peak = power.reduce((m, p) => Math.max(m, p.y), 0);
   const lastPower = power[power.length - 1];
-  const gained = Math.round(last.y - first.y);
+  // The two numbers the graph shows are the first stored reading and the card's own battery figure (the ring), so the change is exactly their difference.
+  const startShown = Math.round(startPct ?? first.y);
+  const nowShown = Math.round(nowPct);
+  const gained = nowShown - startShown;
 
-  const x1 = endX ?? last.x;
+  // The estimate takes at most this share of the width again as the session so far, so a slow charge with hours left still shows its start readably
+  // (the dotted way on is then not to scale; the pill carries the finish time).
+  const x1 = endX != null ? last.x + Math.min(endX - last.x, (last.x - first.x) * EST_SHARE) : last.x;
   const hi = Math.max(last.y, target ?? 0, ...soc.map((p) => p.y));
   const lo = Math.min(...soc.map((p) => p.y));
   const span = Math.max(hi - lo, 4);
@@ -60,7 +67,7 @@ export function NowChargeGraph({ nowMs, targetPct, etaHours }: { nowMs: number; 
   const line = softPath(socPts);
   const lx = sx(last.x);
   const ly = sy(last.y);
-  const ex = endX != null ? sx(endX) : null;
+  const ex = endX != null ? sx(x1) : null;
   const ey = target != null ? sy(target) : null;
   const pill = target != null ? `${Math.round(target)}% · ${clock(endX ?? last.x)}` : null;
   const startText = w >= 260 ? `Plugged in ${clock(first.x)}` : clock(first.x);
@@ -78,7 +85,7 @@ export function NowChargeGraph({ nowMs, targetPct, etaHours }: { nowMs: number; 
             height={h}
             viewBox={`0 0 ${w} ${h}`}
             role="img"
-            aria-label={`Battery from ${Math.round(first.y)}% to ${Math.round(last.y)}% since ${clock(first.x)}${lastPower ? `, charging at ${Math.round(lastPower.y)} kilowatts` : ""}${pill ? `, reaching ${pill.replace("·", "at")}` : ""}`}
+            aria-label={`Battery from ${startShown}% to ${nowShown}% since ${clock(first.x)}${lastPower ? `, charging at ${Math.round(lastPower.y)} kilowatts` : ""}${pill ? `, reaching ${pill.replace("·", "at")}` : ""}`}
             className="block overflow-visible"
           >
             <SoftDefs id={id} ink={ink} />
@@ -97,11 +104,11 @@ export function NowChargeGraph({ nowMs, targetPct, etaHours }: { nowMs: number; 
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
             {labelStartValue && (
               <text x={socPts[0].x + 2} y={Math.max(socPts[0].y - 14, 12)} className="fill-neutral-300 text-xs">
-                {Math.round(first.y)}%
+                {startShown}%
               </text>
             )}
             <text x={valueLeft ? lx - 10 : lx + 10} y={Math.max(ly - 12, 12)} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
-              {Math.round(last.y)}%
+              {nowShown}%
             </text>
             <text x={PAD.l} y={h - 6} className="fill-neutral-500 text-xs">
               {startText}

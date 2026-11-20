@@ -99,7 +99,7 @@ export default function NowHeroV2({
   nowMs?: number;
   // While asleep: the seconds asleep today, shown in the conditions row.
   asleepTodayS?: number | null;
-  // Design "now_charge_graph": the card in two balanced halves from 900 px (ring, range and figures left, the graph right), with the truck picture.
+  // Design "now_charge_graph": the card in two balanced halves from 900 px (ring, range and figures left, the graph right).
   soft?: boolean;
   graph?: React.ReactNode;
 }) {
@@ -198,7 +198,7 @@ export default function NowHeroV2({
         </button>
       );
     const picture =
-      stateSlot && !soft ? null : carUrl && carUrl !== failedUrl ? (
+      stateSlot ? null : carUrl && carUrl !== failedUrl ? (
         plugPicture && (view.kind === "plugged" || view.kind === "charging") ? (
           <PlugPicture kw={view.powerKw} className="w-full">
             <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-32 w-full object-contain object-left min-[900px]:max-h-60 min-[900px]:object-center" />
@@ -264,8 +264,7 @@ export default function NowHeroV2({
                   </span>
                 )}
               </ArcGauge>
-              <div className="min-w-[10rem] flex-1 space-y-1 [&_img]:max-h-24 min-[900px]:[&_img]:max-h-28">
-                {picture}
+              <div className="min-w-[10rem] flex-1 space-y-1">
                 {view.rangeMi != null && (
                   <p>
                     <span className="whitespace-nowrap text-2xl font-semibold tabular-nums text-neutral-100 min-[360px]:text-3xl">{dist(view.rangeMi)}</span>{" "}

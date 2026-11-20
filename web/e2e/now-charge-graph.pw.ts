@@ -7,6 +7,7 @@ type Curve = { elapsedMin: number; soc: (m: number) => number; kw: (m: number) =
 const CASES: Record<string, Curve> = {
   ac: { elapsedMin: 90, soc: (m) => 40 + m * 0.136, kw: () => 11 },
   dc: { elapsedMin: 25, soc: (m) => 15 + 40 * (1 - Math.exp(-m / 20)), kw: (m) => 190 * Math.exp(-m / 22) + 40 },
+  slow: { elapsedMin: 30, soc: (m) => 40 + m * 0.09, kw: () => 4.8 },
   fresh: { elapsedMin: 1, soc: (m) => 40 + m * 0.136, kw: () => 11 },
   paused: { elapsedMin: 60, soc: (m) => 40 + Math.min(m, 30) * 0.136, kw: (m) => (m < 30 ? 11 : 0) },
 };
@@ -27,9 +28,10 @@ test("an AC charge draws battery, power and the way to the target with its finis
   await expect(page.getByTestId("now-charge-graph-estimate")).toBeVisible();
   await expect(page.getByTestId("now-charge-graph-collecting")).toHaveCount(0);
   await expect(g.locator("path[stroke-dasharray]").first()).toBeAttached();
-  // The iPhone's chip wording, the truck picture, the cost row and no plug-in time.
+  // The iPhone's chip wording and no plug-in time; no truck picture here (it comes with the image-proxy change, never straight from Rivian).
   await expect(page.getByTestId("now-pill")).toContainText(/Charging · 11 kW · done by/);
-  await expect(page.getByTestId("now-car").or(page.getByTestId("now-car-sketch"))).toBeVisible();
+  await expect(page.getByTestId("now-car")).toHaveCount(0);
+  await expect(page.getByTestId("now-slot")).not.toContainText(/Reaches/);
   await expect(page.getByTestId("now-slot-plugged-in")).toHaveCount(0);
   // The cost row and the temperatures: pack (from the stored samples), cabin, outside, in that order.
   await expect(page.getByTestId("now-slot")).toContainText(/Cost so far/);
@@ -38,6 +40,27 @@ test("an AC charge draws battery, power and the way to the target with its finis
   const chip = await page.getByTestId("now-pill").boundingBox();
   const live = await page.getByTestId("now-live-link").boundingBox();
   if (chip && live && (page.viewportSize()?.width ?? 1280) < 431) expect(Math.abs(chip.y - live.y)).toBeLessThan(12);
+});
+
+test("the graph's start and now labels are the real readings and the change is their difference @webkit", async ({ page }) => {
+  await open(page, CASES.ac);
+  const g = page.getByTestId("now-charge-graph");
+  await expect(g).toBeVisible();
+  const [, from, to] = (await g.locator("svg").getAttribute("aria-label"))!.match(/from (\d+)% to (\d+)%/)!.map(Number);
+  const ringLabel = (await page.locator("[aria-label^='Battery ']").first().getAttribute("aria-label"))!;
+  expect(to).toBe(Number(ringLabel.match(/\d+/)![0]));
+  const change = Number((await g.innerText()).match(/\+(\d+)%/)![1]);
+  expect(change).toBe(to - from);
+});
+
+test("a slow home charge with hours left still gives the session so far most of the width @webkit", async ({ page }) => {
+  await open(page, CASES.slow);
+  const g = page.getByTestId("now-charge-graph");
+  await expect(g).toBeVisible();
+  const svg = await g.locator("svg").boundingBox();
+  const dot = await g.locator('[data-testid="now-charge-graph-estimate-line"]').evaluate((el) => (el as SVGPathElement).getBBox().x);
+  // The dotted way on starts past half the width: the data so far is not squeezed into a stub.
+  expect(dot / (svg?.width ?? 1)).toBeGreaterThan(0.5);
 });
 
 test("a charge just started says it is collecting, with no graph @webkit", async ({ page }) => {

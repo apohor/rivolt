@@ -300,7 +300,7 @@ export default function NowSlot(i: SlotInput) {
     if (label) chips.push(<Chip key="c" tone="green" testid="now-slot-charger">{label}</Chip>);
     if (view.etaHours != null) {
       const when = clock(nowMs + view.etaHours * 3_600_000);
-      sub = view.limitPct != null && view.limitPct < 100 ? `Reaches ${Math.round(view.limitPct)}% at ${when}` : `Full at ${when}`;
+      sub = i.soft ? null : view.limitPct != null && view.limitPct < 100 ? `Reaches ${Math.round(view.limitPct)}% at ${when}` : `Full at ${when}`;
       small = `${timeLeft(view.etaHours)} left${view.etaSource === "truck" ? "" : " (est.)"}${view.limitPct != null && !i.soft ? ` · target ${Math.round(view.limitPct)}%` : ""}`;
     }
   } else if (view.kind === "driving" && view.speedMph != null) {

@@ -348,7 +348,7 @@ export default function NowCard({
           stateSlot={showSlot ? slotNode : null}
           chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot && !soft)}
           soft={soft}
-          graph={soft ? <NowChargeGraph nowMs={nowMs} targetPct={view.limitPct} etaHours={view.etaHours} /> : null}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : null}
           tidy={tidy}
           nowMs={nowMs}
           asleepTodayS={server?.asleep_today_s ?? null}
