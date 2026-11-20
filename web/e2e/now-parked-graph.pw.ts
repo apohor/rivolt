@@ -94,8 +94,11 @@ test("a charge in the window does not turn the header into a gain @webkit", asyn
 
 test("one parked time: the chip, the pill and the header say the same @webkit", async ({ page }) => {
   await open(page, "overnight");
-  const chip = (await page.getByTestId("now-pill").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
   const g = page.getByTestId("now-parked-graph");
+  // The chip takes the series' parked time once it is read; wait for the graph's header (same read) before taking the chip's.
+  await expect(g.getByTestId("now-parked-change")).toContainText(/since \d/);
+  await expect(page.getByTestId("now-pill")).toContainText(/since \d+:\d+ [AP]M/);
+  const chip = (await page.getByTestId("now-pill").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
   const pill = await g.locator("svg text", { hasText: /^Parked / }).allTextContents();
   for (const t of pill) expect(t).toBe(`Parked ${chip}`);
   await expect(g.getByTestId("now-parked-change")).toContainText(chip);
@@ -171,7 +174,7 @@ if (SHOTS) {
   for (const w of [393, 1280]) shots.push(["overnight", "parked", w, "dark", "100", "km"]);
   for (const [c, sc, w, scheme, text, unit] of shots) {
     test(`shot ${c} ${w} ${scheme} ${text}% ${unit}`, async ({ browser }) => {
-      const ctx = await browser.newContext({ viewport: { width: w, height: w < 900 ? 1700 : 1000 }, colorScheme: scheme, deviceScaleFactor: 1 });
+      const ctx = await browser.newContext({ viewport: { width: w, height: w < 900 ? 1700 : 1000 }, colorScheme: scheme, deviceScaleFactor: Number(process.env.DSF ?? 1) });
       const page = await ctx.newPage();
       await page.addInitScript((u) => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: u })), unit);
       await open(page, c, sc);
@@ -180,6 +183,7 @@ if (SHOTS) {
       await page.waitForTimeout(500);
       const card = page.locator("[data-now-v2]").first();
       await card.screenshot({ path: `${SHOTS}/${c}-${w}-${scheme}-t${text}-${unit}.png` });
+      if (process.env.DSF) await page.getByTestId("now-parked-graph").locator("svg").first().screenshot({ path: `${SHOTS}/graph-${c}-${w}-${scheme}.png` });
       await ctx.close();
     });
   }

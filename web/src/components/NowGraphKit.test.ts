@@ -17,6 +17,37 @@ describe("easeSteps", () => {
     expect(out[1].x).toBeGreaterThan(out[0].x);
   });
 
+  it("eases two jumps in a row", () => {
+    const out = easeSteps([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 103, y: 30 }, { x: 160, y: 30 }, { x: 163, y: 60 }, { x: 220, y: 60 }]);
+    expect(out.filter((p) => p.hold).length).toBeGreaterThanOrEqual(4);
+    expect(out.find((p) => p.x === 163)?.hold).toBe(true);
+    const into = out.findIndex((p) => p.x === 163);
+    expect(out[into - 1].hold).toBe(true);
+    expect(out[into].x - out[into - 1].x).toBeGreaterThanOrEqual(12);
+  });
+
+  it("never moves a pinned reading: a wake dot followed by a drive stays on the line", () => {
+    const out = easeSteps([{ x: 0, y: 50 }, { x: 60, y: 50 }, { x: 100, y: 50, pin: true }, { x: 103, y: 80 }, { x: 200, y: 81 }]);
+    const dot = out.find((p) => p.x === 100);
+    expect(dot).toEqual({ x: 100, y: 50, hold: true, pin: true });
+    expect(out.find((p) => p.x > 100 && p.y === 80)).toBeTruthy();
+    for (let i = 1; i < out.length; i++) expect(out[i].x).toBeGreaterThanOrEqual(out[i - 1].x);
+  });
+
+  it("eases a small step over the level stretch before it", () => {
+    const flat = Array.from({ length: 10 }, (_, i) => ({ x: i * 3, y: 50 }));
+    const out = easeSteps([...flat, { x: 30, y: 52 }, { x: 33, y: 52 }]);
+    for (let i = 1; i < out.length; i++) expect(Math.abs(out[i].y - out[i - 1].y) / Math.max(out[i].x - out[i - 1].x, 0.01)).toBeLessThan(0.3);
+    expect(out[out.length - 2]).toMatchObject({ x: 30, y: 52 });
+  });
+
+  it("keeps a real jump on a short run, even after a long plateau", () => {
+    const flat = Array.from({ length: 10 }, (_, i) => ({ x: i * 10, y: 50 }));
+    const out = easeSteps([...flat, { x: 100, y: 62 }, { x: 110, y: 62 }]);
+    const start = out.find((p) => p.y === 50 && p.hold);
+    expect(100 - (start?.x ?? 0)).toBeLessThanOrEqual(28);
+  });
+
   it("never reorders the readings", () => {
     const out = easeSteps([{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 7, y: 30 }, { x: 9, y: 31 }, { x: 11, y: 70 }, { x: 40, y: 71 }]);
     for (let i = 1; i < out.length; i++) expect(out[i].x).toBeGreaterThanOrEqual(out[i - 1].x);

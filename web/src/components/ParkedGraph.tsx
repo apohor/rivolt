@@ -60,7 +60,10 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
   const bar = light ? "#6366f1" : "#a5b4fc";
   const amber = ink.warm;
 
-  const line: Pt[] = pts.map((p) => ({ x: sx(ms(p.t)), y: sy(p.soc) }));
+  const wakeAt = new Set(series.wakes.map((k) => ms(k.t)));
+  const markerPt = pts.find((p) => p.seg === last.seg);
+  // The readings that carry a dot or a label stay on the line when it is eased: the wake-ups, the first and last, and the parked marker's.
+  const line: Pt[] = pts.map((p, i) => ({ x: sx(ms(p.t)), y: sy(p.soc), pin: i === 0 || i === pts.length - 1 || wakeAt.has(ms(p.t)) || p === markerPt }));
   const lx = sx(ms(last.t));
   const ly = sy(last.soc);
   const fx = sx(ms(first.t));
