@@ -310,6 +310,8 @@ export default function NowCard({
   // The server's sample point (the demo), then the live state's fix; a sleeping truck may have none (a restart while asleep), so the server's last recorded position comes last.
   const fix = pickFix(server?.location, state.latitude, state.longitude, server?.last_fix);
   const showSlot = slotOn && slotShown(view, fix);
+  // With the parked graph (or while its answer is awaited) the graph is the card's content: the map gives way to one line.
+  const parkedMapGone = parkedKindOn && (parkedSeries != null || parkedWaiting);
   // Design "now_charge_graph" (with now_slot and now_tidy), charging: the figures as rows beside the graph, the truck picture and the chip that
   // says power and finish time, as on the iPhone.
   const soft = chargeGraphKey && tidy && showSlot && view.kind === "charging";
@@ -345,6 +347,8 @@ export default function NowCard({
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
       placeLabel={view.place === "home" ? homeQ.data?.label || "Home" : null}
+      noMap={parkedMapGone}
+      placeText={parkedPlaceText(view, homeQ.data?.label, distanceUnit)}
       session={sessionQ.data?.active ? sessionQ.data : null}
       charge={server?.charge ?? null}
       drive={slotDrive}
@@ -592,6 +596,13 @@ function headline(v: NowView, unit: DistanceUnit): string {
 export function stateRefetchMs(s: VehicleState | undefined, demo: boolean = inDemo()): number {
   // The public demo replays drives in gear D and shares one request budget, so it keeps the slow rate.
   return !demo && s && isDrivingGear(s) ? 2_000 : 15_000;
+}
+
+// The parked graph's place line: the saved place the truck is at, else how far from home; nothing when there is no home or no fix.
+export function parkedPlaceText(v: NowView, homeLabel: string | undefined, unit: DistanceUnit): string | null {
+  if (v.place === "home") return `At ${homeLabel || "Home"}`;
+  if (v.place === "away" && v.kmFromHome != null) return `Away · ${formatDistance(v.kmFromHome, unit, { fine: true })} from home`;
+  return null;
 }
 
 export function placeLine(v: NowView, unit: DistanceUnit): string | null {

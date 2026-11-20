@@ -9,8 +9,8 @@ import { parkedSeriesFixture, type ParkedCase } from "./parkedSeriesFixture";
 const SHOTS = process.env.SHOTS_DIR;
 const KEYS = ["now_v2", "now_tidy", "now_slot", "now_parked_graph"];
 
-async function open(page: Page, parkedCase: ParkedCase, scenario: "parked" | "asleep" = "parked", keys = KEYS, parkedDelayMs = 0) {
-  await stubApi(page, { scenario, nowEndpoint: true, designPreview: keys, parkedCase, parkedDelayMs });
+async function open(page: Page, parkedCase: ParkedCase, scenario: "parked" | "asleep" = "parked", keys = KEYS, parkedDelayMs = 0, parkedPlace: "home" | "away" | "unknown" = "home") {
+  await stubApi(page, { scenario, nowEndpoint: true, designPreview: keys, parkedCase, parkedDelayMs, parkedPlace });
   await page.goto("/");
   await expect(page.getByTestId("now-pill")).toBeVisible();
 }
@@ -303,3 +303,31 @@ if (SHOTS) {
     });
   }
 }
+
+// The graph is the card's content: no map, one line saying where the truck is (the saved place, else how far from home), nothing when it is not known.
+for (const [place, want] of [["home", /^At Home$/], ["away", /^Away · [\d.]+ (mi|km) from home$/]] as const) {
+  test(`the parked card has no map and says ${place === "home" ? "At Home" : "how far from home"} @webkit`, async ({ page }) => {
+    await open(page, "overnight", "asleep", KEYS, 0, place);
+    await expect(page.getByTestId("now-parked-graph")).toBeVisible();
+    await expect(page.getByTestId("now-slot-map")).toHaveCount(0);
+    const line = page.getByTestId("now-parked-place");
+    await expect(line).toHaveText(want);
+    // The card around it opens Live: the line is not a control of its own.
+    await expect(page.getByRole("link", { name: "Full telemetry" })).toBeVisible();
+  });
+}
+
+test("a truck whose place is not known has no map and no empty row @webkit", async ({ page }) => {
+  await open(page, "overnight", "asleep", KEYS, 0, "unknown");
+  await expect(page.getByTestId("now-parked-graph")).toBeVisible();
+  await expect(page.getByTestId("now-slot-map")).toHaveCount(0);
+  await expect(page.getByTestId("now-parked-place")).toHaveCount(0);
+  await expect(page.getByTestId("now-slot")).toHaveCount(0);
+});
+
+test("without the key the parked card keeps its map and has no place line @webkit", async ({ page }) => {
+  await open(page, "overnight", "asleep", ["now_v2", "now_tidy", "now_slot"]);
+  await expect(page.getByTestId("now-slot")).toBeVisible();
+  await expect(page.getByTestId("now-parked-place")).toHaveCount(0);
+  await expect(page.getByTestId("now-parked-graph")).toHaveCount(0);
+});
