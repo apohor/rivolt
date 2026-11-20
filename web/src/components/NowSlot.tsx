@@ -289,9 +289,9 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, asl
 // Null when the state has no slot, so the picture stays.
 export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
+  const packC = usePackTemp(nowMs);
   if (!slotAvailable(view, i.fix ?? null)) return null;
   if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
-  const packC = usePackTemp(nowMs);
   const stats = slotStats({ ...i, packC });
   let big = "";
   let bigUnit = "";
