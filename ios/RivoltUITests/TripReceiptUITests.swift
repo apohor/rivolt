@@ -27,7 +27,7 @@ final class TripReceiptUITests: XCTestCase {
         XCTAssertEqual(sketch.value as? String, "0", "the route sketch is off on the first open")
         XCTAssertTrue(app.buttons["Share"].firstMatch.waitForExistence(timeout: 20), "the card is painted, so it can be shared")
         sketch.tap()
-        XCTAssertEqual(sketch.value as? String, "1")
+        XCTAssertTrue(sketch.becomesValue("1"), "the route sketch turned on: \(sketch.value as? String ?? "?")")
         if let dir = ProcessInfo.processInfo.environment["RECEIPT_SHOTS"] {
             sleep(2)
             try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("ios-receipt-sheet-\(ProcessInfo.processInfo.environment["RECEIPT_MODE"] ?? "x").png"))
