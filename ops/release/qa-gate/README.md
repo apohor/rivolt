@@ -29,6 +29,7 @@ Run the runner once more after the sim runs end if a state shown NOT SEEN (a sim
 - Lines come from `manifest.json`: add a `must` / `mustNot` regex to a screen, or a state with its own lines, to make a release check it. Expected-to-fail requests go in `failedIgnore`.
 - Per capture: loaded, no console errors, no failed requests, no horizontal overflow, texts that must or must not show. Sign-out runs last because it ends the session.
 - Output: `index.html` (contact sheet, failures first), `results.json` (`PASS` / `FAIL` / `NOT SEEN` per line), one PNG per capture. Exit code 1 on any FAIL.
+- **Start only when preview is stable on the rc.** The runner reads `/api/health` `--reads` times (default 8, at least twice the replicas) before and after the screens. A version change or a mix of versions in those reads (a roll under way, or a read with no answer) makes the run INVALID, not FAIL: the sheet says so, exit code 3, and the run is repeated once preview is stable. A page that loaded one build's index and another build's chunks otherwise shows up as a false lazy-chunk error.
 
 ## Sim runs
 
