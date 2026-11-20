@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -121,13 +122,39 @@ func TestBuildParkedSeriesNeverSlept(t *testing.T) {
 func TestBuildParkedSeriesChargeStartsNewSegment(t *testing.T) {
 	now := time.Date(2026, 11, 20, 14, 0, 0, 0, time.UTC)
 	rows := []parkedRow{pr(now.Add(-10*time.Hour), 50, "p", false), pr(now.Add(-9*time.Hour), 49, "p", false),
-		pr(now.Add(-8*time.Hour), 60, "c", false), pr(now.Add(-6*time.Hour), 80, "p", false), pr(now.Add(-4*time.Hour), 79, "p", false), pr(now, 78, "p", false)}
+		pr(now.Add(-8*time.Hour), 60, "c", false), pr(now.Add(-6*time.Hour), 80, "p", false), pr(now.Add(-4*time.Hour), 79, "p", false), pr(now.Add(-2*time.Hour), 78.5, "p", false), pr(now, 78, "p", false)}
 	out := buildParkedSeries(rows, now, time.UTC)
-	if len(out.Points) != 5 || out.Points[1].Seg != 0 || out.Points[2].Seg != 1 {
+	if len(out.Points) != 6 || out.Points[1].Seg != 0 || out.Points[2].Seg != 1 {
 		t.Fatalf("%+v", out.Points)
 	}
 	if out.ParkedSince == nil || !out.ParkedSince.Equal(now.Add(-6*time.Hour)) || *out.ChangePct != -2 {
 		t.Fatalf("since %v change %v", out.ParkedSince, out.ChangePct)
+	}
+	// The charge's gain is not "while parked": the rate and the projection count only the run after it (2 points over 6 h = 8 a day).
+	if out.Figures.IdlePctPerDay == nil || math.Abs(*out.Figures.IdlePctPerDay-8) > 1e-9 {
+		t.Fatalf("rate %v", out.Figures.IdlePctPerDay)
+	}
+	if out.Projection == nil || out.Projection.SoC >= 78 || out.Projection.SoC < 70 {
+		t.Fatalf("projection %+v", out.Projection)
+	}
+}
+
+// A sleep ends where the drive or the charge begins; it never runs across one.
+func TestBuildParkedSeriesSleepStopsAtADriveAndAtACharge(t *testing.T) {
+	now := time.Date(2026, 11, 20, 14, 0, 0, 0, time.UTC)
+	rows := []parkedRow{pr(now.Add(-12*time.Hour), 80, "p", true), pr(now.Add(-11*time.Hour), 79.8, "p", true),
+		pr(now.Add(-10*time.Hour), 79, "d", false), pr(now.Add(-9*time.Hour), 70, "p", false),
+		pr(now.Add(-8*time.Hour), 69.9, "p", true), pr(now.Add(-7*time.Hour), 69.8, "p", true),
+		pr(now.Add(-6*time.Hour), 70, "c", false), pr(now.Add(-4*time.Hour), 90, "p", false), pr(now, 89, "p", false)}
+	out := buildParkedSeries(rows, now, time.UTC)
+	if len(out.Sleeps) != 2 || !out.Sleeps[0].To.Equal(now.Add(-10*time.Hour)) || !out.Sleeps[1].To.Equal(now.Add(-6*time.Hour)) {
+		t.Fatalf("%+v", out.Sleeps)
+	}
+	if len(out.Wakes) != 0 {
+		t.Fatalf("a sleep ended by a drive or a charge is not a wake-up: %+v", out.Wakes)
+	}
+	if out.ParkedSince == nil || !out.ParkedSince.Equal(now.Add(-4*time.Hour)) {
+		t.Fatalf("since %v", out.ParkedSince)
 	}
 }
 

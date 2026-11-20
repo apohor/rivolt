@@ -156,10 +156,10 @@ export const labelWidth = (text: string) => Math.ceil(text.length * 6.6 + 20);
 // "-2.4%" style header of a graph: a small caps title left, the change right.
 export function GraphHead({ title, change, since, testid }: { title: string; change: string | null; since?: string; testid?: string }) {
   return (
-    <div className="mb-1 flex items-baseline justify-between gap-3">
+    <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3">
       <span className="ui-label">{title}</span>
       {change && (
-        <span data-testid={testid} className="text-sm font-semibold tabular-nums text-neutral-100">
+        <span data-testid={testid} className="ml-auto text-sm font-semibold tabular-nums text-neutral-100">
           {change}
           {since && <span className="ml-1 text-xs font-normal text-neutral-400">{since}</span>}
         </span>

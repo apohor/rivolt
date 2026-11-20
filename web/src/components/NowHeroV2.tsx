@@ -76,6 +76,7 @@ export default function NowHeroV2({
   asleepTodayS = null,
   soft = false,
   graph = null,
+  parkedRows = null,
 }: {
   view: NowView;
   vehicleID: string;
@@ -102,6 +103,8 @@ export default function NowHeroV2({
   // Design "now_charge_graph": the card in two balanced halves from 900 px (ring, range and figures left, the graph right).
   soft?: boolean;
   graph?: React.ReactNode;
+  // Design "now_parked_graph" (soft, not charging): the figures as rows under the range from 900 px; the graph sits between the ring and the map on a phone.
+  parkedRows?: React.ReactNode;
 }) {
   const { temperatureUnit, distanceUnit } = usePreferences();
   const light = useIsLight();
@@ -228,8 +231,8 @@ export default function NowHeroV2({
           data-now-tidy="true"
           data-now-soft="true"
           data-ui-hero="true"
-          data-live="charging"
-          className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : "border-emerald-500/30"}`}
+          data-live={charging ? "charging" : undefined}
+          className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
         >
           {telemetryLink && <Link to="/live" aria-label="Full telemetry" className="absolute inset-0 z-0 rounded-2xl" />}
           <div className="pointer-events-none relative z-10 mb-4 flex items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
@@ -240,7 +243,7 @@ export default function NowHeroV2({
                 data-testid="now-live-link"
                 className="pointer-events-auto inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium pointer-fine:min-h-8 pointer-fine:min-w-8 pointer-fine:gap-1.5 pointer-fine:px-3 pointer-fine:text-xs text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
               >
-                <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />
+                {charging && <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />}
                 Live
                 <svg aria-hidden className="max-[430px]:hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                   <path d="m9 5 7 7-7 7" />
@@ -253,7 +256,7 @@ export default function NowHeroV2({
               <ArcGauge
                 value={view.soc}
                 label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
-                live
+                live={charging}
                 tone={offline ? "idle" : critical ? "critical" : "ok"}
                 limit={view.limitPct}
               >
@@ -278,10 +281,14 @@ export default function NowHeroV2({
                 )}
               </div>
             </div>
-            <div className="min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-1">{stateSlot}</div>
-            <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>
+            {!charging && (
+              <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>
+            )}
+            {!charging && parkedRows && <div className="pointer-events-none relative min-w-0 min-[900px]:col-start-1 min-[900px]:row-start-2">{parkedRows}</div>}
+            <div className={`min-w-0 border-t border-neutral-800 pt-4 ${charging ? "min-[900px]:col-start-1" : "min-[900px]:col-span-2 min-[900px]:row-start-4"}`}>{stateSlot}</div>
+            {charging && <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>}
             {(condBlock || info) && (
-              <div className="min-w-0 space-y-2 border-t border-neutral-800 pt-4 min-[900px]:col-start-1">
+              <div className={`min-w-0 space-y-2 border-t border-neutral-800 pt-4 min-[900px]:col-start-1 ${charging ? "" : "min-[900px]:row-start-3"}`}>
                 {condBlock}
                 {info && (
                   <p className="pointer-events-none relative text-xs text-neutral-400">
