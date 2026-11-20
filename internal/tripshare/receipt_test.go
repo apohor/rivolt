@@ -172,3 +172,24 @@ func TestReceiptRefusesWhatBuildRefuses(t *testing.T) {
 		t.Errorf("multi-day: %v, want ErrUnsupported", err)
 	}
 }
+
+// A planner charger inside home is not named, but it is still a charge: "Charging · <area>", and it counts in the stops and the charge time.
+func TestReceiptChargerInsideHomeStaysACharge(t *testing.T) {
+	line := eastLine(36.9, -104.5, 1000, 121)
+	rec, js := receiptFor(t, false, false, &Circle{Lat: line[72][0], Lon: line[72][1], RadiusM: 250})
+	if strings.Contains(js, "Barstow") || strings.Contains(js, "Adventure") {
+		t.Errorf("a charger inside home is named: %s", js)
+	}
+	var charge *ReceiptRow
+	for i := range rec.Legs {
+		if rec.Legs[i].Kind == "charge" {
+			charge = &rec.Legs[i]
+		}
+	}
+	if charge == nil || !strings.HasPrefix(charge.Name, "Charging · Area ") {
+		t.Fatalf("no Charging · area row: %s", js)
+	}
+	if rec.Totals.Stops != 1 || rec.Totals.ChargeS != 1080 {
+		t.Errorf("not counted: stops=%d charge=%d", rec.Totals.Stops, rec.Totals.ChargeS)
+	}
+}
