@@ -9,6 +9,14 @@ struct NowSlotModel: Equatable {
         let label: String
         let value: String
         let note: String?
+        /// Our own figure, worked out here rather than the truck's: the soft card says so once in words (`estimatedHeading`) or, in a mixed set, with a small "est." on the cell.
+        var estimated = false
+    }
+
+    /// The soft card's grid names its figures once: "Estimated so far" when every cell but the elapsed time is ours, none otherwise (then each derived cell carries "est.").
+    static func estimatedHeading(_ stats: [Stat]) -> Bool {
+        let counted = stats.filter { $0.label != "Elapsed" }
+        return !counted.isEmpty && counted.allSatisfy(\.estimated)
     }
 
     struct Weather: Equatable {
@@ -92,7 +100,7 @@ struct NowSlotModel: Equatable {
     /// Nil when the state has no slot, so the picture stays: charging without a power reading, driving without a speed, parked without a fix.
     static func make(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, liveDrive: LiveDrive?,
                      fix: (lat: Double, lon: Double)?, home: Home?, gear: String? = nil, mode: String? = nil,
-                     soft: Bool = false, packC: Double? = nil, parkedGraph: Bool = false, metric: Bool = NowFormat.usesMetric, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
+                     soft: Bool = false, parkedGraph: Bool = false, metric: Bool = NowFormat.usesMetric, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
         let atHome = home != nil && fix != nil && ChargerPin.distanceM(home!.lat, home!.lon, fix!.lat, fix!.lon) <= homeRadiusM
         switch summary.kind {
         case .charging:
@@ -100,7 +108,7 @@ struct NowSlotModel: Equatable {
             // As the web: fast at a session peak of 50 kW or more, else the home charger at home, else public only with a saved home, a fix away from it and a known peak.
             let peak = max(snapshot?.charge?.peakKw ?? 0, kw)
             let kind = peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
-            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, packC: packC, clock: clock),
+            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, clock: clock),
                                 chips: kind.map { [Chip(text: $0, accent: true)] } ?? [])
         case .driving:
             guard let kph = summary.speedKph else { return nil }
@@ -133,7 +141,7 @@ struct NowSlotModel: Equatable {
     private static let costNotes = ["rivian": "billed by Rivian", "user": "your price", "home_rate": "at your home rate",
                                     "network_estimate": "network rate", "observed_estimate": "from similar sessions"]
 
-    private static func charging(summary: NowSummary, detail: ChargingDetail, kw: Double, snapshot: NowSnapshot?, soft: Bool, packC: Double?, clock: Date) -> Content {
+    private static func charging(summary: NowSummary, detail: ChargingDetail, kw: Double, snapshot: NowSnapshot?, soft: Bool, clock: Date) -> Content {
         var sub: String?
         var small: String?
         if let eta = summary.chargeEta {
@@ -145,7 +153,7 @@ struct NowSlotModel: Equatable {
         }
         var stats: [Stat] = []
         if let kwh = detail.energyKwh, kwh > 0 {
-            stats.append(Stat(label: "Added", value: "\(detail.energyEstimated ? "≈ " : "")+\(NowFormat.oneDecimal(kwh)) kWh", note: nil))
+            stats.append(Stat(label: "Added", value: "\(detail.energyEstimated && !soft ? "≈ " : "")+\(NowFormat.oneDecimal(kwh)) kWh", note: nil, estimated: detail.energyEstimated))
         }
         // The truck's own figures come from the live session; without one (the demo, a home charge) the battery's gain at today's km per percent, marked ≈.
         let started = summary.chargeStartedAt ?? snapshot?.charge?.startedAt
@@ -155,19 +163,18 @@ struct NowSlotModel: Equatable {
         if estimated, let added = summary.chargeAddedPct, added > 0, let soc = summary.socPct, soc > 0, let range = summary.rangeKm {
             rangeKm = range / soc * added
         }
-        let mark = estimated ? "≈ " : ""
-        if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.slotDistance(mi: km / 1.609344))", note: nil)) }
+        let mark = estimated && !soft ? "≈ " : ""
+        if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.slotDistance(mi: km / 1.609344))", note: nil, estimated: estimated)) }
         let truckRate = detail.rateKmPerHour.flatMap { $0 > 0 ? $0 : nil }
         let rate = truckRate ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
-        if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil ? "≈ " : "")\(NowFormat.slotDistance(mi: rate / 1.609344))/h", note: nil)) }
-        // The pack's temperature from the newest stored sample (the soft card only, while it is recent): its own row after Rate, as the web's.
-        if soft, let packC { stats.append(Stat(label: "Pack temperature", value: NowComfort.wholeDegrees(celsius: packC), note: nil)) }
+        if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil && !soft ? "≈ " : "")\(NowFormat.slotDistance(mi: rate / 1.609344))/h", note: nil, estimated: truckRate == nil)) }
         if let elapsed { stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil)) }
         // The cost so far is the server's (`/now` charge), as the web: ≈ when it is an estimate, with where it comes from.
         if let c = snapshot?.charge, let cost = c.cost {
             let estimate = c.costIsEstimate != false
-            stats.append(Stat(label: "Cost so far", value: "\(estimate ? "≈ " : "")\(NowFormat.money(cost, currency: c.currency ?? "USD"))",
-                              note: c.costSource.flatMap { costNotes[$0] } ?? (estimate ? "estimate" : nil)))
+            stats.append(Stat(label: "Cost so far", value: "\(estimate && !soft ? "≈ " : "")\(NowFormat.money(cost, currency: c.currency ?? "USD"))",
+                              note: soft ? ([estimate ? "estimate" : nil, c.costSource.flatMap { costNotes[$0] }].compactMap { $0 }.joined(separator: " · ") as String?).flatMap { $0.isEmpty ? nil : $0 }
+                                            : c.costSource.flatMap { costNotes[$0] } ?? (estimate ? "estimate" : nil), estimated: estimate))
         }
         if !soft, let started { stats.append(Stat(label: "Plugged in", value: started.formatted(date: .omitted, time: .shortened), note: nil)) }
         return .figures(big: NumberText.fixed(kw, kw < 10 ? 1 : 0), unit: "kW", sub: sub, small: small, stats: stats)
@@ -246,7 +253,7 @@ struct NowSlotModel: Equatable {
             if let sub { parts.append("\(SpokenText.words(sub)).") }
             if let small { parts.append("\(SpokenText.words(small)).") }
             for st in stats {
-                parts.append("\(st.label), \(SpokenText.words(st.value))\(st.note.map { ", \($0)" } ?? "").")
+                parts.append("\(st.label), \(st.estimated && !st.value.hasPrefix("≈") ? "estimated " : "")\(SpokenText.words(st.value))\(st.note.map { ", \($0)" } ?? "").")
             }
             return parts.joined(separator: " ")
         }

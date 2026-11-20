@@ -3,7 +3,7 @@ import Foundation
 /// The numbers behind the Now card's charging graph (design_preview key now_charge_graph), as the web's NowChargeGraph works them out: the open
 /// charge's battery from plug-in to now, the charger's power as a quieter line, and, when the card has a finish time, the way on to the target.
 /// The start and now labels are the real readings (the first stored one and the ring's own figure), so the change is exactly their difference.
-/// The estimate takes at most `estShare` of the session so far again in width, so a slow charge with hours left still shows its start readably.
+/// The session so far takes its true share of the whole charge in width, never under `minHistoryShare`, so a slow charge with hours left still shows its start readably.
 /// Pure: no network, no views. Points are in plot space: x across 0...1, y from the bottom 0...1.
 struct NowChargeGraphModel: Equatable {
     struct Pt: Equatable {
@@ -13,7 +13,7 @@ struct NowChargeGraphModel: Equatable {
 
     /// Under this much of the session (two minutes) or three samples, the card says it is collecting instead of drawing a stub.
     static let minSpan: TimeInterval = 120
-    static let estShare = 0.8
+    static let minHistoryShare = 0.25
     /// At most this many points per line: a path of a few dozen curves is as smooth as one of two thousand.
     static let maxPoints = 48
 
@@ -28,10 +28,17 @@ struct NowChargeGraphModel: Equatable {
     let estimate: (end: Pt, pill: String)?
     /// "11 kW" in the slot's format, for the legend.
     let powerNow: String?
+    /// The pack's temperature as a thin third line on its own scale (plot space), only over the measured part; empty without two readings and a recent newest one.
+    let pack: [Pt]
+    /// "86°F" in the account's unit, for the line's end and the legend; nil with no line.
+    let packNow: String?
+    /// For VoiceOver: "86 degrees Fahrenheit now, up 4 degrees over the charge".
+    let packSpoken: String?
 
     static func == (a: Self, b: Self) -> Bool {
         a.startedAt == b.startedAt && a.startShown == b.startShown && a.nowShown == b.nowShown && a.soc == b.soc && a.power == b.power
             && a.last == b.last && a.estimate?.end == b.estimate?.end && a.estimate?.pill == b.estimate?.pill && a.powerNow == b.powerNow
+            && a.pack == b.pack && a.packNow == b.packNow && a.packSpoken == b.packSpoken
     }
 
     var gained: Int { nowShown - startShown }
@@ -46,26 +53,51 @@ struct NowChargeGraphModel: Equatable {
     /// The kW figure in the slot's format: one decimal under 10, whole above.
     static func kw(_ v: Double) -> String { NumberText.fixed(v, v < 10 ? 1 : 0) }
 
+    /// The pack's line is never tighter than this many degrees Celsius, so a flat pack stays flat.
+    static let packMinSpanC = 3.0
+
     /// The finish time counts from now, as the chip and the slot do (the minutes shown from now), never from the newest stored sample; the power named is the card's live kW.
-    /// Nil while the charge has too little to draw (the card then says it is collecting).
-    static func make(series: ChargeCurve.Series, startPct: Double?, nowPct: Double, target: Double?, etaHours: Double?, powerKw: Double? = nil, now: Date) -> NowChargeGraphModel? {
+    /// Nil while the charge has too little to draw (the card then says it is collecting). `packC` is the newest pack reading while it is recent (`NowChargeSeriesModel.packTempC`); with fewer than two readings in the session or none recent there is no pack line.
+    static func make(series: ChargeCurve.Series, startPct: Double?, nowPct: Double, target: Double?, etaHours: Double?, powerKw: Double? = nil, packC: Double? = nil, now: Date) -> NowChargeGraphModel? {
         guard series.soc.count >= 3, let first = series.soc.first, let last = series.soc.last,
               last.at.timeIntervalSince(first.at) >= minSpan else { return nil }
         let goal = target.flatMap { $0 > nowPct ? $0 : nil }
         let tLast = last.at.timeIntervalSince(first.at)
         let endAt: Date? = goal != nil && (etaHours ?? 0) > 0 ? now.addingTimeInterval((etaHours ?? 0) * 3600) : nil
         let tEnd = endAt.map { $0.timeIntervalSince(first.at) }
-        let t1 = tEnd.map { tLast + min($0 - tLast, tLast * estShare) } ?? tLast
+        let t1 = tEnd.map { end -> TimeInterval in
+            let share = max(tLast / (tLast + max(end - tLast, 1)), minHistoryShare)
+            return tLast + tLast * (1 - share) / share
+        } ?? tLast
         let hi = max(last.value, goal ?? 0, series.soc.map(\.value).max() ?? 0)
         let lo = series.soc.map(\.value).min() ?? last.value
         let span = max(hi - lo, 4)
-        let yLo = lo - span * 0.12
+        let yLo = lo - span * 0.1
+        let yHi = hi + span * 0.06
         let peak = series.power.map(\.value).max() ?? 0
         let pMax = powerMax(peak)
         let sx = { (t: TimeInterval) in t / t1 }
-        let sy = { (v: Double) in (v - yLo) / (hi - yLo) }
+        let sy = { (v: Double) in (v - yLo) / (yHi - yLo) }
         let socPts = thin(series.soc).map { Pt(x: sx($0.at.timeIntervalSince(first.at)), y: sy($0.value)) }
         let powPts = thin(series.power).map { Pt(x: sx($0.at.timeIntervalSince(first.at)), y: min(1, max(0, $0.value / pMax))) }
+        let packSeries = series.packAvgC.filter { $0.at >= first.at && $0.at <= last.at }
+        var packPts: [Pt] = []
+        var packNow: String?
+        var packSpoken: String?
+        if let packC, packSeries.count >= 2, let pFirst = packSeries.first {
+            let vals = packSeries.map(\.value)
+            let pMin = vals.min() ?? packC
+            let pMax = vals.max() ?? packC
+            let pSpan = max(pMax - pMin, packMinSpanC)
+            let pMid = (pMin + pMax) / 2
+            let pLo = pMid - pSpan * 0.65
+            let pHi = pMid + pSpan * 0.65
+            packPts = thin(packSeries).map { Pt(x: sx($0.at.timeIntervalSince(first.at)), y: 0.06 + 0.88 * (($0.value - pLo) / (pHi - pLo))) }
+            packNow = NowComfort.wholeDegrees(celsius: packC)
+            let delta = Int(((packC - pFirst.value) * (DisplayUnits.celsius ? 1 : 1.8)).rounded())
+            let change = delta == 0 ? "unchanged" : "\(delta > 0 ? "up" : "down") \(abs(delta)) degrees"
+            packSpoken = "\(NowComfort.wholeDegrees(celsius: packC, spoken: true)) now, \(change) over the charge"
+        }
         let est: (end: Pt, pill: String)? = goal.map { g in
             (Pt(x: 1, y: sy(g)), "\(Int(g.rounded()))% · \((endAt ?? last.at).formatted(date: .omitted, time: .shortened))")
         }
@@ -76,7 +108,8 @@ struct NowChargeGraphModel: Equatable {
             soc: socPts, power: powPts,
             last: Pt(x: sx(tLast), y: sy(last.value)),
             estimate: tEnd == nil ? nil : est,
-            powerNow: (powerKw ?? series.power.last?.value).map { kw($0) })
+            powerNow: (powerKw ?? series.power.last?.value).map { kw($0) },
+            pack: packPts, packNow: packNow, packSpoken: packSpoken)
     }
 
     /// At most `maxPoints`, evenly picked and always keeping the last.
@@ -97,6 +130,7 @@ struct NowChargeGraphModel: Equatable {
         var s = "Battery from \(startShown) percent to \(nowShown) percent \(since)"
         if let p = powerNow { s += ", charging at \(p.replacingOccurrences(of: ".0", with: "")) kilowatts" }
         if let e = estimate { s += ", reaching \(e.pill.replacingOccurrences(of: "·", with: "at"))" }
+        if let p = packSpoken { s += ", pack temperature \(p)" }
         return s + "."
     }
 }

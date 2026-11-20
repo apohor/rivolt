@@ -44,14 +44,12 @@ final class NowChargeGraphUITests: XCTestCase {
         XCTAssertTrue(card.exists, "the session rows")
         XCTAssertFalse(card.label.contains("Plugged in"), "plug-in time is the graph's label, not a row")
         XCTAssertTrue(card.label.contains("Cost so far"), "the cost so far row")
-        XCTAssertTrue(card.label.contains("≈") && card.label.contains("estimate"), "an estimated cost carries its mark: \(card.label)")
-        // The pack's temperature (newest stored sample) is a figure row right after Rate; the bottom row is cabin and outside only.
-        let words = card.label
-        XCTAssertTrue(words.contains("Pack temperature"), "the pack temperature row: \(words)")
-        if let rate = words.range(of: "Rate"), let pack = words.range(of: "Pack temperature"), let elapsed = words.range(of: "Elapsed") {
-            XCTAssertTrue(rate.lowerBound < pack.lowerBound && pack.lowerBound < elapsed.lowerBound, "after Rate, before Elapsed: \(words)")
-        }
-        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Pack ' AND NOT label BEGINSWITH 'Pack temperature'")).firstMatch.exists, "no pack figure in the temperatures row")
+        XCTAssertFalse(card.label.contains("≈"), "no approximately sign: \(card.label)")
+        XCTAssertTrue(card.label.contains("estimated"), "an estimated figure is spoken as estimated: \(card.label)")
+        // The pack's temperature is the graph's third line: the graph's words say it, and no hero figure or row carries it.
+        XCTAssertTrue(graph.label.contains("pack temperature"), "the graph says the pack now: \(graph.label)")
+        XCTAssertFalse(card.label.contains(" pack."), "no hero pack figure: \(card.label)")
+        XCTAssertFalse(card.label.contains("Pack temperature"), "no pack temperature row: \(card.label)")
         shot(app, "now-charge-graph-top")
         let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
         from.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))

@@ -175,7 +175,7 @@ final class FixtureURLProtocol: URLProtocol {
             while t <= now {
                 let m = max(0, t.timeIntervalSince(started) / 60)
                 rows.append(["At": iso.string(from: t), "BatteryLevelPct": soc(m), "ChargerPowerKW": kw(m),
-                             "pack_temp_avg_c": 30.0, "pack_temp_min_c": 29.0, "pack_temp_max_c": 31.0, "ChargeLimitPct": 80.0])
+                             "pack_temp_avg_c": 21.0 + 14.0 * pow(min(1, m / max(elapsedMin, 1)), 0.7), "pack_temp_min_c": 20.0 + 14.0 * pow(min(1, m / max(elapsedMin, 1)), 0.7), "pack_temp_max_c": 22.0 + 14.0 * pow(min(1, m / max(elapsedMin, 1)), 0.7), "ChargeLimitPct": 80.0])
                 t = t.addingTimeInterval(30)
             }
             return try? JSONSerialization.data(withJSONObject: rows)
