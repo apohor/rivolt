@@ -42,7 +42,11 @@ type ReceiptRow struct {
 type ReceiptTotal struct {
 	DistM      int     `json:"dist_m"`
 	DriveS     int     `json:"drive_s"`
-	ChargeS    int     `json:"charge_s"`
+	// ChargeS is the charging time of the charge rows shown, so the "Charging" line adds up with them; the home charges folded away are in TripS only.
+	ChargeS int `json:"charge_s"`
+	// TripS is the whole trip: all driving and all charging, folded home charges included, so Leave + TripS reaches Arrive. Rounded to 5 min when
+	// anything was folded at home or a row is rounded, so a gap to Driving + Charging reads as rounding, not as an exact hidden stop.
+	TripS      int     `json:"trip_s"`
 	Stops      int     `json:"stops"`
 	ArriveAt   string  `json:"arrive_at,omitempty"`
 	ArrivalSoC float64 `json:"arrival_soc"`
@@ -186,6 +190,8 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 	if origin.DistanceFromOriginMeters == 0 && dest.DistanceFromOriginMeters == 0 {
 		return nil, ErrNoLegs
 	}
+	var tripS int
+	anyRounded := false
 	prevDepart := origin.DepartureTimeUTC
 	if prevDepart == "" {
 		prevDepart = in.DepartAt
@@ -209,13 +215,15 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 			r.Legs = append(r.Legs, row)
 		}
 		r.Totals.DriveS += int(dur)
+		tripS += int(dur)
+		anyRounded = anyRounded || (shown && !exact)
 		prevDepart = b.w.DepartureTimeUTC
 		switch {
 		case i == len(stops)-1:
 		case !shown || i == last:
 			// Hidden with the home area, but its charging time still counts.
 			if b.isCharg {
-				r.Totals.ChargeS += b.w.ChargeDurationSec
+				tripS += b.w.ChargeDurationSec
 			}
 		case b.isCharg:
 			row := ReceiptRow{Kind: "charge", Name: chargeName(b.name, b.label), DurS: b.w.ChargeDurationSec, FromSoC: b.w.ArrivalSoC, ToSoC: b.w.DepartureSoC, MaxKW: b.w.MaxPowerKW}
@@ -224,6 +232,7 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 			}
 			r.Legs = append(r.Legs, row)
 			r.Totals.ChargeS += b.w.ChargeDurationSec
+			tripS += b.w.ChargeDurationSec
 			r.Totals.Stops++
 		default:
 			r.Legs = append(r.Legs, ReceiptRow{Kind: "stop", Name: b.label, DurS: roundSecs(secsBetween(b.w.ArrivalTimeUTC, b.w.DepartureTimeUTC)), FromSoC: b.w.ArrivalSoC, ToSoC: b.w.DepartureSoC})
@@ -231,6 +240,10 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 	}
 	r.Totals.DistM = roundDist(dest.DistanceFromOriginMeters-origin.DistanceFromOriginMeters, in.Metric)
 	r.Totals.DriveS = roundSecs(float64(r.Totals.DriveS))
+	r.Totals.TripS = tripS
+	if first > 0 || last < len(stops)-1 || anyRounded {
+		r.Totals.TripS = roundSecs(float64(tripS))
+	}
 	r.Totals.ArrivalSoC = rt.ArrivalSoC
 	r.Totals.ArriveAt = roundTime(dest.ArrivalTimeUTC)
 	if in.Sketch {

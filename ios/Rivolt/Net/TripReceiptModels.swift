@@ -22,6 +22,8 @@ struct TripReceipt: Decodable, Equatable {
         var distM: Double
         var driveS: Double
         var chargeS: Double
+        /// The whole trip, folded home charges included; absent from a server that predates it.
+        var tripS: Double?
         var stops: Int
         var arriveAt: Date?
         var arrivalSoc: Double

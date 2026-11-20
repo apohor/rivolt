@@ -212,8 +212,16 @@ func TestReceiptFoldsTheHomeStart(t *testing.T) {
 	if rec.Totals.Stops != 1 {
 		t.Errorf("stops %d, want 1 (only the shown charge)", rec.Totals.Stops)
 	}
-	if rec.Totals.ChargeS != 1080+600 {
-		t.Errorf("charge time %d, want all of it (1680)", rec.Totals.ChargeS)
+	if rec.Totals.ChargeS != 1080 {
+		t.Errorf("charge time %d, want only the shown charge (1080): the folded home charge is not in the Charging line", rec.Totals.ChargeS)
+	}
+	if rec.Totals.TripS != 127*60-120 || rec.Totals.TripS%300 != 0 {
+		t.Errorf("trip time %d, want all 127 min rounded to 5 min (7500)", rec.Totals.TripS)
+	}
+	dep, _ := time.Parse(time.RFC3339, rec.DepartAt)
+	arr, _ := time.Parse(time.RFC3339, rec.Totals.ArriveAt)
+	if !dep.Add(time.Duration(rec.Totals.TripS) * time.Second).Equal(arr) {
+		t.Errorf("Leave %s + total %d s != Arrive %s", rec.DepartAt, rec.Totals.TripS, rec.Totals.ArriveAt)
 	}
 	if rec.DepartAt != "2026-11-21T15:00:00Z" {
 		t.Errorf("leave moved to %q", rec.DepartAt)
@@ -247,7 +255,7 @@ func TestReceiptFoldsTheHomeEnd(t *testing.T) {
 	if len(rec.Legs) != 3 || rec.Legs[2].Kind != "drive" || rec.Legs[2].To != rec.End {
 		t.Fatalf("rows %+v: want drive, the public charge, a drive that ends at the end area", rec.Legs)
 	}
-	if rec.Totals.Stops != 1 || rec.Totals.ChargeS != 1080+600 {
+	if rec.Totals.Stops != 1 || rec.Totals.ChargeS != 1080 || rec.Totals.TripS%300 != 0 {
 		t.Errorf("stops %d charge %d", rec.Totals.Stops, rec.Totals.ChargeS)
 	}
 }

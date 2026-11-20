@@ -132,7 +132,7 @@ enum TripReceiptLogic {
             lines: lines,
             totals: totals,
             cost: costLine,
-            big: ("~\(dist(t.distM, metric: metric))", "~\(hmin(t.driveS + t.chargeS))"),
+            big: ("~\(dist(t.distM, metric: metric))", "~\(hmin(t.tripS ?? t.driveS + t.chargeS))"),
             footer: footer)
     }
 
