@@ -66,6 +66,10 @@ struct NowParkedGraph: View {
             // The start label is right-anchored when the parked marker sits close to now, so it never runs into the end value.
             let startRight = sinceIn && now.x - start.x < 90
             let valueLeft = now.x - padL > 60
+            // The start value is left out when it would repeat the current one or sit on top of it: the header already gives the change.
+            let showStart = NumberText.fixed(model.start.pct, 1) != NumberText.fixed(model.last.pct, 1) && now.x - start.x >= 60
+            // What came before the parked marker (a drive, a charge, an earlier parking) is dimmed: the picture reads as "while parked".
+            let dimTo: CGFloat? = model.parkedX.map { padL + $0 * (w - padL - padR) }.flatMap { $0 > padL ? $0 : nil }
             let parkedPt = model.parkedX.map { CGPoint(x: padL + $0 * (w - padL - padR), y: 0) }
             let pillW = (model.parkedLabel.map { CGFloat($0.count) * 6.4 } ?? 0) + 20
             let pill: String? = {
@@ -86,12 +90,14 @@ struct NowParkedGraph: View {
                         let b = padL + sl.x1 * (w - padL - padR)
                         guard b - a >= 2 else { continue }
                         var layer = ctx
+                        let old = dimTo.map { b <= $0 + 1 } ?? false
+                        layer.opacity = old ? 0.45 : 1
                         // Rounded corners: a sleep is a soft shape, never a hard-cornered block.
                         layer.clip(to: Path(roundedRect: CGRect(x: a + 1, y: 0, width: max(b - a - 2, 1), height: sleepBase), cornerRadius: 10))
                         layer.fill(fill, with: .linearGradient(Gradient(colors: [band.opacity(scheme == .light ? 0.22 : 0.34), band.opacity(scheme == .light ? 0.04 : 0.05)]),
                                                                startPoint: CGPoint(x: 0, y: padT), endPoint: CGPoint(x: 0, y: sleepBase)))
                         ctx.fill(Path(roundedRect: CGRect(x: a + 1, y: base - bar, width: max(b - a - 2, 1), height: bar), cornerRadius: bar / 2),
-                                 with: .color(band.opacity(0.75)))
+                                 with: .color(band.opacity(old ? 0.34 : 0.75)))
                     }
                     if let p = parkedPt, p.x > padL {
                         var rule = Path()
@@ -99,11 +105,21 @@ struct NowParkedGraph: View {
                         rule.addLine(to: CGPoint(x: p.x, y: sleepBase))
                         ctx.stroke(rule, with: .color(Theme.textTertiary.opacity(0.35)), lineWidth: 1)
                     }
-                    var glow = ctx
+                    var lit = ctx
+                    if let d = dimTo {
+                        // Before the marker the line is quiet: thinner, no glow; the glowing line is clipped to the parked stretch.
+                        ctx.stroke(path, with: .color(Theme.accent.opacity(0.6)), style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                        lit.clip(to: Path(CGRect(x: d, y: 0, width: max(w - d + 12, 1), height: h)))
+                    }
+                    var glow = lit
                     glow.addFilter(.blur(radius: 4))
                     glow.stroke(path, with: .color(Theme.accent.opacity(0.5)), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                    ctx.stroke(path, with: .color(Theme.accent.opacity(0.95)), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                    for k in model.wakes { Self.dot(&ctx, at(k), color: wake, big: false) }
+                    lit.stroke(path, with: .color(Theme.accent.opacity(0.95)), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                    for k in model.wakes {
+                        var d = ctx
+                        if let dt = dimTo, at(k).x < dt { d.opacity = 0.45 }
+                        Self.dot(&d, at(k), color: wake, big: false)
+                    }
                     Self.dot(&ctx, now, color: Theme.accent, big: true)
                 }
                 ForEach(Array(model.sleeps.enumerated()), id: \.offset) { _, sl in
@@ -111,6 +127,7 @@ struct NowParkedGraph: View {
                     let b = padL + sl.x1 * (w - padL - padR)
                     if b - a > labelMinW * (typeSize.isAccessibilitySize ? 1.6 : 1) {
                         text(sl.label, x: (a + b) / 2, y: base - bar - 10, anchor: .center, w: w, h: h, color: band, strong: false)
+                            .opacity(dimTo.map { b <= $0 + 1 } ?? false ? 0.45 : 1)
                     }
                 }
                 if let pill, let p = parkedPt {
@@ -121,8 +138,8 @@ struct NowParkedGraph: View {
                         .position(x: p.x, y: 12)
                         .frame(width: w, height: h, alignment: .topLeading)
                 }
-                text(NumberText.fixed(model.start.pct, 1) + "%", x: start.x + (startRight ? -4 : 2), y: sinceIn ? start.y + 20 : max(start.y - 14, 12),
-                     anchor: startRight ? .trailing : .leading, w: w, h: h, color: Theme.textSecondary, strong: false)
+                if showStart { text(NumberText.fixed(model.start.pct, 1) + "%", x: start.x + (startRight ? -4 : 2), y: sinceIn ? start.y + 20 : max(start.y - 14, 12),
+                     anchor: startRight ? .trailing : .leading, w: w, h: h, color: Theme.textSecondary, strong: false) }
                 text(NumberText.fixed(model.last.pct, 1) + "%", x: valueLeft ? now.x - 10 : now.x + 10, y: now.y + 22,
                      anchor: valueLeft ? .trailing : .leading, w: w, h: h, color: Theme.textPrimary, strong: true)
                 text("24 h ago", x: padL, y: h - 8, anchor: .leading, w: w, h: h, color: Theme.textTertiary, strong: false)

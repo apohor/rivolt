@@ -323,6 +323,9 @@ struct HomeView: View {
         var s = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
         if parkedGraphOn, s.kind == .parked {
             s.since = parkedSeries.chipSince(vehicleID: selected?.id, state: s.since, late: parkedChipLate)
+        } else if parkedGraphOn, s.kind == .asleep {
+            // An asleep truck says when its current sleep began in the series, never the card's own guess (its run restarts when the app opens on it).
+            s.since = parkedSeries.chipAsleepSince(vehicleID: selected?.id, state: s.since, late: parkedChipLate)
         }
         return s
     }

@@ -79,8 +79,16 @@ struct NowParkedGraphModel: Equatable {
     static func parkedChange(base: Double, now: Double, since: Date?) -> (value: String, since: String) {
         let d = (now - base) * 10
         let r = d.rounded() / 10
-        let sign = r < 0 ? "−" : r > 0 ? "+" : ""
-        return ("\(sign)\(NumberText.fixed(abs(r), 1))%", since.map { "since \(clock($0))" } ?? "in 24 h")
+        let sign = r < 0 ? "−" : "+"
+        let value = r == 0 ? "No loss" : "\(sign)\(NumberText.fixed(abs(r), 1))%"
+        return (value, since.map { "since \(clock($0))" } ?? "in 24 h")
+    }
+
+    /// The start of the sleep an asleep truck is in, from the series: a time; `.some(nil)` when that sleep began before the 24 h window (its start is
+    /// not known); `nil` when the series has no open sleep.
+    static func openSleepSince(_ s: ParkedSeries) -> Date?? {
+        guard let sl = s.sleeps.last, sl.open else { return nil }
+        return sl.from <= s.from ? .some(nil) : .some(sl.from)
     }
 
     /// "Parked 5:20 PM": the chip's own time, so the card says one parked time.
@@ -94,7 +102,8 @@ struct NowParkedGraphModel: Equatable {
         var out = [Figure(id: .asleep, value: longDuration(f.asleepTodayS), note: "", tileNote: "", label: "asleep today", rowLabel: "Asleep today",
                           rowValue: longDuration(f.asleepTodayS))]
         if f.wakeUps > 0 {
-            let note = f.wakeCostPct.map { "≈ \(NumberText.fixed($0, 1))% each" } ?? ""
+            // A cost that rounds to 0.0% says nothing: the count stands alone.
+            let note = f.wakeCostPct.flatMap { $0 >= 0.05 ? "≈ \(NumberText.fixed($0, 1))% each" : nil } ?? ""
             out.append(Figure(id: .wakes, value: "\(f.wakeUps) \(f.wakeUps == 1 ? "wake-up" : "wake-ups")", note: note, tileNote: note, label: "wake-ups",
                               rowLabel: "Wake-ups", rowValue: String(f.wakeUps)))
         }

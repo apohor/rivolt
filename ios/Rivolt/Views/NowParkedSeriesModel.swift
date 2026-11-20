@@ -37,6 +37,14 @@ final class NowParkedSeriesModel {
         return (mine && settled) || late ? state : nil
     }
 
+    /// The same for an asleep truck: the start of the open sleep in the series (no time when that sleep began before the window); the state's own
+    /// time only when the series has no open sleep.
+    func chipAsleepSince(vehicleID id: String?, state: Date?, late: Bool) -> Date? {
+        let mine = vehicleID == id
+        if mine, let s = series, let open = NowParkedGraphModel.openSleepSince(s) { return open }
+        return (mine && settled) || late ? state : nil
+    }
+
     func apply(_ s: ParkedSeries?) { series = NowParkedGraphModel.drawable(s) ? s : nil }
 
     func clear() { series = nil; settled = false; vehicleID = nil }
