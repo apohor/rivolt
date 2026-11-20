@@ -56,7 +56,7 @@ final class PlannerLayerPinsUITests: XCTestCase {
         expectPins(map, "3 places along the route", "the layers reach the two-day map too (they did not once)")
         for chip in ["Whole trip", "Day 1", "Day 2"] { XCTAssertTrue(app.buttons[chip].firstMatch.waitForExistence(timeout: 10), "\(chip) is there") }
         app.buttons["Day 2"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["Day 2"].firstMatch.isSelected, "Day 2 is the one picked")
+        XCTAssertTrue(app.buttons["Day 2"].firstMatch.becomesSelected(), "Day 2 is the one picked")
         XCTAssertFalse(app.buttons["Whole trip"].firstMatch.isSelected)
         expectPins(map, "3 places along the route", "a day still has its pins")
     }
@@ -104,7 +104,7 @@ final class PlannerLayerPinsUITests: XCTestCase {
         let hittable = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: day2)], timeout: 5)
         XCTAssertEqual(hittable, .completed, "after the sheet is opened, Day 2 can be tapped (the sheet is \(handle.value ?? "?"))")
         day2.tap()
-        XCTAssertTrue(day2.isSelected, "Day 2 is the one picked")
+        XCTAssertTrue(day2.becomesSelected(), "Day 2 is the one picked")
         expectPins(map, "3 places along the route", "a day still has its pins")
     }
 

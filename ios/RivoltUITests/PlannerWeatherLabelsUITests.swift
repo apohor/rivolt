@@ -127,13 +127,13 @@ final class PlannerWeatherLabelsUITests: XCTestCase {
         }
         planTwoDays()
         app.buttons["Day 2"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["Day 2"].firstMatch.isSelected)
+        XCTAssertTrue(app.buttons["Day 2"].firstMatch.becomesSelected())
         let back = app.buttons["Back to one day"].firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 10))
         reveal(back, in: app)
         back.tap()
         planTwoDays()
-        XCTAssertTrue(app.buttons["Whole trip"].firstMatch.isSelected, "the new days open on the whole trip")
+        XCTAssertTrue(app.buttons["Whole trip"].firstMatch.becomesSelected(), "the new days open on the whole trip")
         XCTAssertFalse(app.buttons["Day 2"].firstMatch.isSelected)
     }
 
