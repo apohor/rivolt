@@ -260,21 +260,10 @@ func handleSignupTokenLookup(store *signuprequests.Store, m *metrics.Metrics, lo
 		token := chi.URLParam(r, "token")
 		req, err := store.LookupToken(r.Context(), token)
 		if err != nil {
-			result := signupTokenResult(err)
-			countSignupToken(m, result)
-			if result == "error" {
-				// A real failure (the database), not a bad link: 5xx so the SPA retries,
-				// and a log line with no token and no email.
-				if logger != nil {
-					logger.ErrorContext(r.Context(), "signup token lookup failed", slog.String("err", logging.ScrubErr(err)))
-				}
-				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "lookup failed"})
-				return
-			}
-			writeJSON(w, http.StatusGone, map[string]any{"error": "token invalid or expired"})
+			signupTokenFailed(w, r, m, logger, "get", err, "token invalid or expired")
 			return
 		}
-		countSignupToken(m, "ok")
+		countSignupToken(m, "get", "ok")
 		out := map[string]any{
 			"email": req.Email,
 		}
@@ -298,13 +287,35 @@ func signupTokenResult(err error) string {
 		return "expired"
 	case errors.Is(err, signuprequests.ErrTokenInvalid):
 		return "not_found"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
 	}
 	return "error"
 }
 
-func countSignupToken(m *metrics.Metrics, result string) {
+func countSignupToken(m *metrics.Metrics, step, result string) {
 	if m != nil {
-		m.SignupTokenLookupsTotal.WithLabelValues(result).Inc()
+		m.SignupTokenLookupsTotal.WithLabelValues(step, result).Inc()
+	}
+}
+
+// signupTokenFailed counts a failed link lookup (step get or post) and answers
+// it. A bad link is 410 with msg, whatever the reason. A real failure (the
+// database) is 500 and one log line with no token and no email, so it is not
+// mistaken for a bad link; a client that hung up is counted, not logged.
+func signupTokenFailed(w http.ResponseWriter, r *http.Request, m *metrics.Metrics, logger *slog.Logger, step string, err error, msg string) {
+	result := signupTokenResult(err)
+	countSignupToken(m, step, result)
+	switch result {
+	case "error":
+		if logger != nil {
+			logger.ErrorContext(r.Context(), "signup token lookup failed", slog.String("step", step), slog.String("err", logging.ScrubErr(err)))
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "lookup failed"})
+	case "canceled":
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "lookup canceled"})
+	default:
+		writeJSON(w, http.StatusGone, map[string]any{"error": msg})
 	}
 }
 

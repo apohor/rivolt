@@ -197,7 +197,7 @@ func TestSignupEmailPathEndToEnd(t *testing.T) {
 	r := chi.NewRouter()
 	r.Post("/api/signup/request", handleSignupRequestCreate(store, nil, nil, auto))
 	r.Get("/api/signup/token/{token}", handleSignupTokenLookup(store, m, nil))
-	r.Post("/api/signup", handleSignup(pool, store, nil, nil, nil, nil, func(context.Context) (bool, error) { return true, nil }))
+	r.Post("/api/signup", handleSignup(pool, store, nil, nil, m, nil, func(context.Context) (bool, error) { return true, nil }))
 	do := func(method, path, body string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
@@ -234,8 +234,9 @@ func TestSignupEmailPathEndToEnd(t *testing.T) {
 		t.Errorf("unknown link: %d, want 410", rec.Code)
 	}
 
-	for label, want := range map[string]float64{"ok": 1, "used": 1, "not_found": 1, "error": 0} {
-		if got := testutil.ToFloat64(m.SignupTokenLookupsTotal.WithLabelValues(label)); got != want {
+	for label, want := range map[string]float64{"get/ok": 1, "get/used": 1, "get/not_found": 1, "get/error": 0, "post/ok": 1} {
+		step, res, _ := strings.Cut(label, "/")
+		if got := testutil.ToFloat64(m.SignupTokenLookupsTotal.WithLabelValues(step, res)); got != want {
 			t.Errorf("lookups %s = %v, want %v", label, got, want)
 		}
 	}

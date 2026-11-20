@@ -32,6 +32,7 @@ func TestSignupTokenResult(t *testing.T) {
 		{signuprequests.ErrTokenExpired, "expired"},
 		{signuprequests.ErrTokenInvalid, "not_found"},
 		{fmt.Errorf("wrapped: %w", signuprequests.ErrTokenUsed), "used"},
+		{fmt.Errorf("lookup: %w", context.Canceled), "canceled"},
 		{errors.New("sql: connection refused"), "error"},
 	} {
 		if got := signupTokenResult(c.err); got != c.want {
@@ -61,7 +62,7 @@ func TestSignupTokenLookupDatabaseErrorIs5xx(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status %d, want 500", rec.Code)
 	}
-	if got := testutil.ToFloat64(m.SignupTokenLookupsTotal.WithLabelValues("error")); got != 1 {
+	if got := testutil.ToFloat64(m.SignupTokenLookupsTotal.WithLabelValues("get", "error")); got != 1 {
 		t.Errorf("error count %v, want 1", got)
 	}
 	if !strings.Contains(buf.String(), "signup token lookup failed") {

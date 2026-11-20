@@ -124,9 +124,10 @@ func handleSignup(d *sql.DB, srs *signuprequests.Store, ac idp.UserProvider, iss
 		}
 		tokenReq, err := srs.LookupToken(r.Context(), body.SignupToken)
 		if err != nil {
-			writeJSON(w, http.StatusGone, map[string]any{"error": "signup link is invalid or expired"})
+			signupTokenFailed(w, r, m, log, "post", err, "signup link is invalid or expired")
 			return
 		}
+		countSignupToken(m, "post", "ok")
 		// A link approved automatically (no admin named) is only good while
 		// there is room: the cap is checked again here, because many links
 		// can be out at once. An admin's approval is exempt, as always.

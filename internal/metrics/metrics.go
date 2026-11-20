@@ -347,7 +347,7 @@ type Metrics struct {
 	// Navigation frames (trip_info, trip_progress) seen and their decoded payload bytes, by topic. Count only: no content, no vehicle label.
 	NavFramesTotal     *prometheus.CounterVec
 	NavFrameBytesTotal *prometheus.CounterVec
-	// SignupTokenLookupsTotal counts signup link lookups by result (ok, not_found, used, expired, not_approved, error); SignupMailTotal counts
+	// SignupTokenLookupsTotal counts signup link lookups by step (get: the page prefill, post: the sign-up itself) and result (ok, not_found, used, expired, not_approved, canceled, error); SignupMailTotal counts
 	// approval mails by path (admin, auto) and result (sent, failed). No address, token or user label.
 	SignupTokenLookupsTotal *prometheus.CounterVec
 	SignupMailTotal         *prometheus.CounterVec
@@ -1078,8 +1078,8 @@ func New() *Metrics {
 		}, []string{"topic"}),
 		SignupTokenLookupsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_signup_token_lookups_total",
-			Help: "Signup link lookups (GET /api/signup/token/{token}) by result: ok, not_found, used, expired, not_approved, error. The client sees 410 for all but ok and error.",
-		}, []string{"result"}),
+			Help: "Signup link lookups by step (get: GET /api/signup/token/{token}, post: POST /api/signup) and result: ok, not_found, used, expired, not_approved, canceled, error. The client sees 410 for the first five invalid results and 500 for error and canceled.",
+		}, []string{"step", "result"}),
 		SignupMailTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rivolt_signup_mail_total",
 			Help: "Signup approval mails by path (admin, auto) and result (sent, failed).",
@@ -1463,8 +1463,10 @@ func New() *Metrics {
 		m.RolloutHandoffsTotal.WithLabelValues(reason).Add(0)
 	}
 	m.NavRejectedTotal.Add(0)
-	for _, res := range []string{"ok", "not_found", "used", "expired", "not_approved", "error"} {
-		m.SignupTokenLookupsTotal.WithLabelValues(res).Add(0)
+	for _, step := range []string{"get", "post"} {
+		for _, res := range []string{"ok", "not_found", "used", "expired", "not_approved", "canceled", "error"} {
+			m.SignupTokenLookupsTotal.WithLabelValues(step, res).Add(0)
+		}
 	}
 	for _, path := range []string{"admin", "auto"} {
 		for _, res := range []string{"sent", "failed"} {
