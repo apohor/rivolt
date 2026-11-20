@@ -54,6 +54,11 @@ export function driveSeries(rows: Sample[], startedMs: number): DriveSeries | nu
 
 // The drive so far, read at the charge graph's pace (the line is a smoothed summary, a faster poll would only re-read the whole drive); null while the drive is not known or too short to draw.
 export function useDriveSeries(vehicleId: string, enabled: boolean, startedMs: number): DriveSeries | null {
+  return useDriveSeriesState(vehicleId, enabled, startedMs).series;
+}
+
+// The same, and whether the read is still on its way (the card keeps its height until it has answered).
+export function useDriveSeriesState(vehicleId: string, enabled: boolean, startedMs: number): { series: DriveSeries | null; pending: boolean } {
   const on = enabled && Number.isFinite(startedMs);
   const q = useQuery<Sample[]>({
     queryKey: ["samples", "now-drive", vehicleId, startedMs],
@@ -63,7 +68,8 @@ export function useDriveSeries(vehicleId: string, enabled: boolean, startedMs: n
     refetchIntervalInBackground: false,
     staleTime: 1_000,
   });
-  return useMemo(() => (on && q.data ? driveSeries(q.data, startedMs) : null), [on, q.data, startedMs]);
+  const series = useMemo(() => (on && q.data ? driveSeries(q.data, startedMs) : null), [on, q.data, startedMs]);
+  return { series, pending: on && q.isPending };
 }
 
 // Where the truck's own navigation is taking it (the endpoint's own answer: a 404 is off and nothing is shown, a 204 no trip). Read while the

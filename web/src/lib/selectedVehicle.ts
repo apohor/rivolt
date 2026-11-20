@@ -29,7 +29,7 @@ const STORAGE_KEY = "rivolt.selectedVehicleID";
 // readStoredID is a safe wrapper — localStorage throws in
 // private-browsing / SSR-ish contexts, and we never want
 // selection logic to crash the page.
-function readStoredID(): string | null {
+export function readStoredID(): string | null {
   try {
     return window.localStorage.getItem(STORAGE_KEY);
   } catch {

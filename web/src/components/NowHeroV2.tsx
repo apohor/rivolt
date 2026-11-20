@@ -10,6 +10,7 @@ import { useAmbientTemp } from "../lib/ambientTemp";
 import { useDesignPreview } from "../lib/config";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { clock, type NowView } from "../lib/nowState";
+import { useChargePending } from "./NowChargeGraph";
 import { conditionItems, type CondItem, type SlotWeather } from "./NowSlot";
 
 // The redesigned Now hero (design_preview "now_v2"): a status chip, then one card with the gauge, the range,
@@ -76,6 +77,8 @@ export default function NowHeroV2({
   soft = false,
   graph = null,
   parkedRows = null,
+  holdHeight = null,
+  holdPending = false,
 }: {
   view: NowView;
   vehicleID: string;
@@ -104,7 +107,13 @@ export default function NowHeroV2({
   graph?: React.ReactNode;
   // Design "now_parked_graph" (soft, not charging): the figures as rows under the range from 900 px; the graph sits between the ring and the map on a phone.
   parkedRows?: React.ReactNode;
+  // The card's height the last time (this kind of card), kept while a graph's series is on its way (`holdPending`, or the charge graph's own read), so
+  // the card does not come up short and grow when the series arrives.
+  holdHeight?: number | null;
+  holdPending?: boolean;
 }) {
+  const chargePending = useChargePending();
+  const hold = holdHeight != null && (holdPending || chargePending) ? { minHeight: holdHeight } : undefined;
   const { temperatureUnit, distanceUnit } = usePreferences();
   const light = useIsLight();
   // Every distance on the card is in the user's unit (the truck reports miles).
@@ -239,6 +248,7 @@ export default function NowHeroV2({
       return (
         <div
           data-now-v2="true"
+          style={hold}
           data-now-tidy="true"
           data-now-soft="true"
           data-ui-hero="true"
@@ -319,6 +329,7 @@ export default function NowHeroV2({
     return (
       <div
         data-now-v2="true"
+        style={hold}
         data-now-tidy="true"
         data-ui-hero="true"
         data-live={charging ? "charging" : view.kind === "driving" ? "driving" : undefined}
@@ -447,6 +458,7 @@ export default function NowHeroV2({
       )}
       <div
         data-now-v2="true"
+        style={hold}
         data-ui-hero="true"
         data-live={
           charging
