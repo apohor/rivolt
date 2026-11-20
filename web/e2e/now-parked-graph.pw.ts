@@ -95,10 +95,10 @@ test("a charge in the window does not turn the header into a gain @webkit", asyn
 test("one parked time: the chip, the pill and the header say the same @webkit", async ({ page }) => {
   await open(page, "overnight");
   const g = page.getByTestId("now-parked-graph");
-  // The chip takes the series' parked time once it is read; wait for the graph's header (same read) before taking the chip's.
+  // The chip first shows the live read's parked time and takes the series' once that is read: the header comes from the series, so wait for the chip to say what the header says.
   await expect(g.getByTestId("now-parked-change")).toContainText(/since \d/);
-  await expect(page.getByTestId("now-pill")).toContainText(/since \d+:\d+ [AP]M/);
-  const chip = (await page.getByTestId("now-pill").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
+  const chip = (await g.getByTestId("now-parked-change").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
+  await expect(page.getByTestId("now-pill")).toContainText(`since ${chip}`);
   const pill = await g.locator("svg text", { hasText: /^Parked / }).allTextContents();
   for (const t of pill) expect(t).toBe(`Parked ${chip}`);
   await expect(g.getByTestId("now-parked-change")).toContainText(chip);
