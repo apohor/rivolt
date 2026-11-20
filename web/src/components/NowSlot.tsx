@@ -45,7 +45,7 @@ export type SlotFix = { lat: number; lon: number };
 export type SlotWeather = { temp_c: number; condition?: string; wind_kph?: number };
 
 const KM_PER_MI = 1.609344;
-// `est`: a figure we worked out ourselves (not the truck's own). The keyed card says so in words once instead of marking each with a sign; the unkeyed card keeps its sign.
+// `est`: a figure we worked out ourselves (not the truck's own). The keyed card says so in words once instead of marking each with a sign; the unkeyed card marks each derived cell "est." and has no heading.
 type Stat = { k: string; v: string; note?: string; est?: boolean };
 
 const COST_NOTE: Record<string, string> = {
@@ -73,30 +73,29 @@ export function slotStats(i: SlotInput): Stat[] {
   const { view: v, unit } = i;
   const dist = (mi: number) => `${(unit === "km" ? mi * KM_PER_MI : mi).toFixed(unit === "km" || mi < 100 ? 1 : 0)} ${unit}`;
   const out: Stat[] = [];
-  const sign = i.soft ? "" : "≈ ";
   if (v.kind === "charging") {
     const s = i.session;
-    // The truck's own session figure when it reports one; the SoC-based estimate (≈) otherwise.
+    // The truck's own session figure when it reports one; the SoC-based estimate otherwise.
     if (s && s.total_charged_energy_kwh > 0) out.push({ k: "Added", v: `+${s.total_charged_energy_kwh.toFixed(1)} kWh` });
-    else if (v.energyKwh != null && v.energyKwh > 0) out.push({ k: "Added", v: `${sign}+${v.energyKwh.toFixed(1)} kWh`, est: true });
+    else if (v.energyKwh != null && v.energyKwh > 0) out.push({ k: "Added", v: `+${v.energyKwh.toFixed(1)} kWh`, est: true });
     const c = i.charge;
     const startedMs = c ? Date.parse(c.started_at) : NaN;
     // The truck's own elapsed time; the recorded session's start otherwise.
     const elapsedSec = s && s.time_elapsed_seconds > 0 ? s.time_elapsed_seconds : Number.isFinite(startedMs) && i.nowMs > startedMs ? (i.nowMs - startedMs) / 1000 : null;
     // The truck's own figures come from the live session; without one (the demo, a home charge) the battery's gain at today's km per percent,
-    // marked ≈ (as the iPhone's), and the rate from it once the charge is 5 min old.
+    // marked est. (as the iPhone's), and the rate from it once the charge is 5 min old.
     const truckRangeKm = s && s.range_added_km > 0 ? s.range_added_km : null;
     const addedPct = c?.soc_start != null && v.soc > c.soc_start ? v.soc - c.soc_start : null;
     const estRangeKm = truckRangeKm == null && addedPct != null && v.soc > 0 && v.rangeMi != null ? ((v.rangeMi * KM_PER_MI) / v.soc) * addedPct : null;
     const rangeKm = truckRangeKm ?? estRangeKm;
-    if (rangeKm != null) out.push({ k: "Range added", v: `${truckRangeKm == null ? sign : ""}+${dist(rangeKm / KM_PER_MI)}`, est: truckRangeKm == null });
+    if (rangeKm != null) out.push({ k: "Range added", v: `+${dist(rangeKm / KM_PER_MI)}`, est: truckRangeKm == null });
     const truckRate = s && s.kilometers_charged_per_hour > 0 ? s.kilometers_charged_per_hour : null;
     const rate = truckRate ?? (rangeKm != null && elapsedSec != null && elapsedSec >= 300 ? rangeKm / (elapsedSec / 3600) : null);
-    if (rate != null) out.push({ k: "Rate", v: `${truckRate == null ? sign : ""}${dist(rate / KM_PER_MI)}/h`, est: truckRate == null });
+    if (rate != null) out.push({ k: "Rate", v: `${dist(rate / KM_PER_MI)}/h`, est: truckRate == null });
     if (elapsedSec != null) out.push({ k: "Elapsed", v: duration(elapsedSec) });
     if (c && c.cost != null) {
       const est = c.cost_is_estimate !== false;
-      out.push({ k: "Cost so far", v: `${est ? sign : ""}${formatMoney(c.cost, c.currency || i.currency)}`, note: (c.cost_source && COST_NOTE[c.cost_source]) || (est && !i.soft ? "estimate" : undefined), est });
+      out.push({ k: "Cost so far", v: formatMoney(c.cost, c.currency || i.currency), note: [est ? "estimate" : "", c.cost_source ? COST_NOTE[c.cost_source] : ""].filter(Boolean).join(" · ") || undefined, est });
     }
     if (Number.isFinite(startedMs) && !i.soft) out.push({ k: "Plugged in", v: clock(startedMs) });
   } else if (v.kind === "driving" && i.drive) {
@@ -330,10 +329,15 @@ export default function NowSlot(i: SlotInput) {
       {small && <p className="text-xs text-neutral-400" data-testid="now-slot-small">{small}</p>}
       {stats.length > 0 && !i.soft && (
         <div className={`mt-3 grid grid-cols-[repeat(2,minmax(min-content,1fr))] gap-x-2 gap-y-3 min-[360px]:gap-x-4 ${i.half ? "" : "min-[900px]:grid-cols-3"}`}>
+          {allEstimated(stats) && <p data-testid="now-slot-estimated" className="col-span-full ui-label">Estimated so far</p>}
           {stats.map((s) => (
             <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`} className="min-w-0">
               <p className="ui-label">{s.k}</p>
-              <p className="text-lg font-semibold tabular-nums text-neutral-100 max-[359px]:text-base"><StatValue v={s.v} /></p>
+              <p className="text-lg font-semibold tabular-nums text-neutral-100 max-[359px]:text-base">
+                {s.est && <span className="sr-only">estimated </span>}
+                <StatValue v={s.v} />
+                {s.est && !allEstimated(stats) && s.k !== "Cost so far" && <span aria-hidden="true" className="ml-1 text-xs font-normal text-neutral-500">est.</span>}
+              </p>
               {s.note && <p className="text-xs text-neutral-500">{s.note}</p>}
             </div>
           ))}
@@ -344,17 +348,22 @@ export default function NowSlot(i: SlotInput) {
   );
 }
 
+// Elapsed and Plugged in are clock facts, out of the count: one heading says so when every other figure is our own estimate (both grids use this rule).
+function allEstimated(stats: Stat[]) {
+  const counted = stats.filter((s) => s.k !== "Elapsed" && s.k !== "Plugged in");
+  return counted.length > 0 && counted.every((s) => s.est);
+}
+
 // The keyed card's figures: a tight two-column grid of label-over-value cells. When every worked-out figure (all but the elapsed time) is our own
 // estimate, one quiet heading says so inside the grid; when the set is mixed, only the derived cells carry a small "est." (the cost keeps the word
 // "estimate" and its source note, heading or not). A truck-reported figure never carries a mark. Screen readers get "estimated" with each estimated value in both cases.
 function SoftStats({ stats }: { stats: Stat[] }) {
-  const counted = stats.filter((s) => s.k !== "Elapsed");
-  const all = counted.length > 0 && counted.every((s) => s.est);
+  const all = allEstimated(stats);
   return (
     <div data-testid="now-slot-figures" className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
       {all && <p data-testid="now-slot-estimated" className="col-span-2 ui-label">Estimated so far</p>}
       {stats.map((s) => {
-        const note = s.k === "Cost so far" && s.est ? ["estimate", s.note].filter(Boolean).join(" · ") : s.note;
+        const note = s.note;
         return (
           <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`} className="min-w-0">
             <p className="ui-label">{s.k}</p>

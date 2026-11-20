@@ -41,13 +41,13 @@ export function parkedText(s: ParkedSeries, unit: "mi" | "km"): ParkedText {
     figures.push({ id: "asleep", value: longDuration(f.asleep_today_s), note: "", tileNote: "", label: "asleep today", rowLabel: "Asleep today", rowValue: longDuration(f.asleep_today_s) });
     if (f.wake_ups > 0) {
       // A cost that rounds to 0.0% says nothing: the count stands alone.
-      const cost = f.wake_cost_pct != null && f.wake_cost_pct >= 0.05 ? `≈ ${f.wake_cost_pct.toFixed(1)}% each` : "";
+      const cost = f.wake_cost_pct != null && f.wake_cost_pct >= 0.05 ? `${f.wake_cost_pct.toFixed(1)}% each` : "";
       figures.push({ id: "wakes", value: `${f.wake_ups} ${f.wake_ups === 1 ? "wake-up" : "wake-ups"}`, note: cost, tileNote: cost, label: "wake-ups", rowLabel: "Wake-ups", rowValue: String(f.wake_ups) });
     }
     if (f.idle_pct_per_day != null) {
       const mi = f.idle_mi_per_day;
       const dist = mi != null ? Math.round(unit === "km" ? mi * KM_PER_MI : mi) : null;
-      figures.push({ id: "idle", value: `${Math.round(f.idle_pct_per_day)}% a day`, note: dist != null ? `≈ ${dist} ${unit} of range` : "", tileNote: dist != null ? `≈ ${dist} ${unit}` : "", label: "idle loss", rowLabel: "Idle loss", rowValue: `${Math.round(f.idle_pct_per_day)}% a day` });
+      figures.push({ id: "idle", value: `${Math.round(f.idle_pct_per_day)}% a day`, note: dist != null ? `${dist} ${unit} of range` : "", tileNote: dist != null ? `${dist} ${unit}` : "", label: "idle loss", rowLabel: "Idle loss", rowValue: `${Math.round(f.idle_pct_per_day)}% a day` });
     }
   }
   let projection: string | null = null;
