@@ -162,7 +162,8 @@ struct ShareCardSheet: View {
             drawingMap = false
         }
         let map = picture?.map
-        mapUnavailable = map == nil
+        // No band (a card too full to give the map room) is not a failure: the note says the card shows a line, and then none is drawn.
+        mapUnavailable = ShareBasemap.failed(band: picture?.band, picture: map)
         png = MoneyShareCardCanvas.png(card, basemap: map)
     }
 }
