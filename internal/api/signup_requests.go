@@ -20,6 +20,7 @@ import (
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/emailshell"
 	"github.com/apohor/rivolt/internal/logging"
+	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/signuprequests"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -180,7 +181,7 @@ func handleAdminSignupRequestsList(store *signuprequests.Store) http.HandlerFunc
 // Resend has a hiccup. We no longer mint invite_codes on approval;
 // the legacy code-redeem path stays only for codes already
 // distributed before this flow shipped.
-func handleAdminSignupRequestApprove(d *sql.DB, store *signuprequests.Store, mailer *email.Client, baseURL string, logger *slog.Logger) http.HandlerFunc {
+func handleAdminSignupRequestApprove(d *sql.DB, store *signuprequests.Store, mailer *email.Client, baseURL string, logger *slog.Logger, m *metrics.Metrics) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		adminID, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -212,6 +213,7 @@ func handleAdminSignupRequestApprove(d *sql.DB, store *signuprequests.Store, mai
 		link := signupLink(baseURL, token)
 		// Best-effort email; never blocks the approval response.
 		emailErr := sendApprovalEmail(r.Context(), mailer, row.Email, link)
+		countSignupMail(m, "admin", emailErr)
 		if emailErr != nil && logger != nil {
 			logger.WarnContext(r.Context(), "signup approval email failed",
 				slog.String("email_hash", logging.IDHash(row.Email)),
@@ -249,7 +251,7 @@ func signupLink(baseURL, token string) string {
 // it is missing / used / expired so the SPA can branch to a friendly
 // "this link is no longer valid, please request a new invite" view
 // without leaking which condition failed.
-func handleSignupTokenLookup(store *signuprequests.Store) http.HandlerFunc {
+func handleSignupTokenLookup(store *signuprequests.Store, m *metrics.Metrics, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if store == nil {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "signup tokens disabled"})
@@ -258,9 +260,10 @@ func handleSignupTokenLookup(store *signuprequests.Store) http.HandlerFunc {
 		token := chi.URLParam(r, "token")
 		req, err := store.LookupToken(r.Context(), token)
 		if err != nil {
-			writeJSON(w, http.StatusGone, map[string]any{"error": "token invalid or expired"})
+			signupTokenFailed(w, r, m, logger, "get", err, "token invalid or expired")
 			return
 		}
+		countSignupToken(m, "get", "ok")
 		out := map[string]any{
 			"email": req.Email,
 		}
@@ -269,6 +272,63 @@ func handleSignupTokenLookup(store *signuprequests.Store) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, out)
 	}
+}
+
+// signupTokenResult names why a lookup failed, from a fixed set.
+func signupTokenResult(err error) string {
+	switch {
+	case errors.Is(err, signuprequests.ErrTokenNotFound):
+		return "not_found"
+	case errors.Is(err, signuprequests.ErrTokenNotApproved):
+		return "not_approved"
+	case errors.Is(err, signuprequests.ErrTokenUsed):
+		return "used"
+	case errors.Is(err, signuprequests.ErrTokenExpired):
+		return "expired"
+	case errors.Is(err, signuprequests.ErrTokenInvalid):
+		return "not_found"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	}
+	return "error"
+}
+
+func countSignupToken(m *metrics.Metrics, step, result string) {
+	if m != nil {
+		m.SignupTokenLookupsTotal.WithLabelValues(step, result).Inc()
+	}
+}
+
+// signupTokenFailed counts a failed link lookup (step get or post) and answers
+// it. A bad link is 410 with msg, whatever the reason. A real failure (the
+// database) is 500 and one log line with no token and no email, so it is not
+// mistaken for a bad link; a client that hung up is counted, not logged.
+func signupTokenFailed(w http.ResponseWriter, r *http.Request, m *metrics.Metrics, logger *slog.Logger, step string, err error, msg string) {
+	result := signupTokenResult(err)
+	countSignupToken(m, step, result)
+	switch result {
+	case "error":
+		if logger != nil {
+			logger.ErrorContext(r.Context(), "signup token lookup failed", slog.String("step", step), slog.String("err", logging.ScrubErr(err)))
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "lookup failed"})
+	case "canceled":
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "lookup canceled"})
+	default:
+		writeJSON(w, http.StatusGone, map[string]any{"error": msg})
+	}
+}
+
+// countSignupMail counts an approval mail by path (admin, auto) and result.
+func countSignupMail(m *metrics.Metrics, path string, err error) {
+	if m == nil {
+		return
+	}
+	res := "sent"
+	if err != nil {
+		res = "failed"
+	}
+	m.SignupMailTotal.WithLabelValues(path, res).Inc()
 }
 
 // handleAdminSignupRequestReject — POST /api/admin/signup-requests/{id}/reject
@@ -342,6 +402,8 @@ type autoApprove struct {
 	now     func() time.Time
 	// wg, when set, counts in-flight background sends (tests wait on it).
 	wg *sync.WaitGroup
+	// metrics, when set, counts the mails sent.
+	metrics *metrics.Metrics
 }
 
 // Per address: at most this many requests in autoWindow get a link, so the
@@ -416,7 +478,9 @@ func (a *autoApprove) try(w http.ResponseWriter, r *http.Request, store *signupr
 		}
 		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
-		if err := a.send(sctx, to, link); err != nil && logger != nil {
+		err := a.send(sctx, to, link)
+		countSignupMail(a.metrics, "auto", err)
+		if err != nil && logger != nil {
 			logger.WarnContext(sctx, "auto-approve: email failed",
 				slog.String("email_hash", logging.IDHash(reqEmail)), slog.String("err", logging.ScrubErr(err)))
 		}

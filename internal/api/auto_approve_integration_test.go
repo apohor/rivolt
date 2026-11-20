@@ -12,9 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/signuprequests"
 )
 
@@ -168,4 +171,76 @@ func TestSignupTokenCapRecheck(t *testing.T) {
 		t.Errorf("admin link at the cap = %d, want 201", code)
 	}
 	_ = time.Second
+}
+
+// The whole email sign-up path once: request, automatic approval, the link in
+// the mail, the lookup the SPA makes on it, the sign-up itself, and the same
+// link afterwards. Each lookup and mail is counted by result.
+func TestSignupEmailPathEndToEnd(t *testing.T) {
+	ctx, pool := openGateDB(t)
+	cleanUsers(t, ctx, pool)
+	if _, err := pool.ExecContext(ctx, `DELETE FROM signup_requests`); err != nil {
+		t.Fatal(err)
+	}
+	store := signuprequests.New(pool)
+	mail := &linkMail{}
+	var wg sync.WaitGroup
+	m := metrics.New()
+	auto := &autoApprove{
+		capOK:      func(context.Context) (bool, error) { return true, nil },
+		userExists: func(ctx context.Context, e string) (bool, error) { return db.UserExistsByUsername(ctx, pool, e) },
+		send:       mail.send,
+		wg:         &wg,
+		baseURL:    "https://rivolt.test",
+		metrics:    m,
+	}
+	r := chi.NewRouter()
+	r.Post("/api/signup/request", handleSignupRequestCreate(store, nil, nil, auto))
+	r.Get("/api/signup/token/{token}", handleSignupTokenLookup(store, m, nil))
+	r.Post("/api/signup", handleSignup(pool, store, nil, nil, m, nil, func(context.Context) (bool, error) { return true, nil }))
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+		wg.Wait()
+		return rec
+	}
+
+	if rec := do("POST", "/api/signup/request", `{"email":"path@example.com"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("request: %d %s", rec.Code, rec.Body)
+	}
+	links := mail.links["path@example.com"]
+	if len(links) != 1 {
+		t.Fatalf("mails: %v", mail.links)
+	}
+	token := strings.TrimPrefix(links[0], "https://rivolt.test/signup?token=")
+	if token == links[0] || token == "" {
+		t.Fatalf("link has no token: %q", links[0])
+	}
+
+	rec := do("GET", "/api/signup/token/"+token, "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "path@example.com") {
+		t.Fatalf("lookup: %d %s", rec.Code, rec.Body)
+	}
+	if rec := do("POST", "/api/signup", `{"signup_token":"`+token+`","password":"Correct-Horse-9-Battery!"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("signup: %d %s", rec.Code, rec.Body)
+	}
+	if exists, _ := db.UserExistsByUsername(ctx, pool, "path@example.com"); !exists {
+		t.Error("no account after sign-up")
+	}
+	if rec := do("GET", "/api/signup/token/"+token, ""); rec.Code != http.StatusGone {
+		t.Errorf("used link: %d, want 410", rec.Code)
+	}
+	if rec := do("GET", "/api/signup/token/nope", ""); rec.Code != http.StatusGone {
+		t.Errorf("unknown link: %d, want 410", rec.Code)
+	}
+
+	for label, want := range map[string]float64{"get/ok": 1, "get/used": 1, "get/not_found": 1, "get/error": 0, "post/ok": 1} {
+		step, res, _ := strings.Cut(label, "/")
+		if got := testutil.ToFloat64(m.SignupTokenLookupsTotal.WithLabelValues(step, res)); got != want {
+			t.Errorf("lookups %s = %v, want %v", label, got, want)
+		}
+	}
+	if got := testutil.ToFloat64(m.SignupMailTotal.WithLabelValues("auto", "sent")); got != 1 {
+		t.Errorf("auto mails sent = %v, want 1", got)
+	}
 }

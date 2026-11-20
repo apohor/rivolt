@@ -961,7 +961,7 @@ func New(d Deps) http.Handler {
 			// Magic-link prefill — the SPA hits this on /signup?token=…
 			// to resolve the token to its email before rendering the
 			// password form.
-			r.Get("/signup/token/{token}", handleSignupTokenLookup(d.SignupRequests))
+			r.Get("/signup/token/{token}", handleSignupTokenLookup(d.SignupRequests, d.Metrics, d.Logger))
 		}
 
 		// First-party product events (counts and enums only). Public with
@@ -1610,7 +1610,7 @@ func New(d Deps) http.Handler {
 				if d.SignupRequests != nil && !signupgate.Disabled() {
 					r.Get("/signup-requests", handleAdminSignupRequestsList(d.SignupRequests))
 					r.With(audit(auditSpec{action: "signup_request.approve", targetType: "signup_request", idParam: "id"})).
-						Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.SystemDB, d.SignupRequests, d.Email, d.BaseURL, d.Logger))
+						Post("/signup-requests/{id}/approve", handleAdminSignupRequestApprove(d.SystemDB, d.SignupRequests, d.Email, d.BaseURL, d.Logger, d.Metrics))
 					r.With(audit(auditSpec{action: "signup_request.reject", targetType: "signup_request", idParam: "id"})).
 						Post("/signup-requests/{id}/reject", handleAdminSignupRequestReject(d.SignupRequests))
 				}
@@ -2195,5 +2195,6 @@ func newAutoApprove(d Deps) *autoApprove {
 			return sendApprovalEmail(ctx, d.Email, to, link)
 		},
 		baseURL: d.BaseURL,
+		metrics: d.Metrics,
 	}
 }
