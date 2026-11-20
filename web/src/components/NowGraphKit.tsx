@@ -91,7 +91,7 @@ export function SoftDefs({ id, ink }: { id: string; ink: SoftInk }) {
         <stop offset="1" stopColor={ink.line} stopOpacity="0" />
       </linearGradient>
       <linearGradient id={`${id}-band`} x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stopColor={ink.band} stopOpacity=".035" />
+        <stop offset="0" stopColor={ink.band} stopOpacity=".08" />
         <stop offset="1" stopColor={ink.band} stopOpacity="0" />
       </linearGradient>
       <filter id={`${id}-glow`} x="-20%" y="-80%" width="140%" height="260%">
@@ -100,6 +100,9 @@ export function SoftDefs({ id, ink }: { id: string; ink: SoftInk }) {
           <feMergeNode in="b" />
           <feMergeNode in="SourceGraphic" />
         </feMerge>
+      </filter>
+      <filter id={`${id}-soften`} x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="9" />
       </filter>
       <filter id={`${id}-halo`}>
         <feGaussianBlur stdDeviation="3" />

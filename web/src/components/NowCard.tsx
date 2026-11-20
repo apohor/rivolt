@@ -23,7 +23,7 @@ import {
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
-import { NowChargeGraph } from "./NowChargeGraph";
+import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
 import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
@@ -339,6 +339,7 @@ export default function NowCard({
   if (v2) {
     return (
       <section aria-label="Now" data-ui-area="hero" className="space-y-2">
+        <ChargeSeriesProvider vehicleId={vehicleID} enabled={soft}>
         <NowHeroV2
           view={view}
           vehicleID={vehicleID}
@@ -347,7 +348,7 @@ export default function NowCard({
           stateSlot={showSlot ? slotNode : null}
           chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot && !soft)}
           soft={soft}
-          graph={soft ? <NowChargeGraph vehicleId={vehicleID} nowMs={nowMs} targetPct={view.limitPct} etaHours={view.etaHours} /> : null}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} targetPct={view.limitPct} etaHours={view.etaHours} /> : null}
           tidy={tidy}
           nowMs={nowMs}
           asleepTodayS={server?.asleep_today_s ?? null}
@@ -387,6 +388,7 @@ export default function NowCard({
           }
           telemetryLink={!impersonating && showTelemetryLink}
         />
+        </ChargeSeriesProvider>
         {alertList}
       </section>
     );

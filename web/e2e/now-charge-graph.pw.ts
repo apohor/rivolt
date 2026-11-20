@@ -31,6 +31,13 @@ test("an AC charge draws battery, power and the way to the target with its finis
   await expect(page.getByTestId("now-pill")).toContainText(/Charging · 11 kW · done by/);
   await expect(page.getByTestId("now-car").or(page.getByTestId("now-car-sketch"))).toBeVisible();
   await expect(page.getByTestId("now-slot-plugged-in")).toHaveCount(0);
+  // The cost row and the temperatures: pack (from the stored samples), cabin, outside, in that order.
+  await expect(page.getByTestId("now-slot")).toContainText(/Cost so far/);
+  await expect(page.getByTestId("now-temps")).toHaveText(/Pack.*Cabin.*Outside/);
+  // On a phone the Live button keeps the status row with the chip (the chip drops the finish time there).
+  const chip = await page.getByTestId("now-pill").boundingBox();
+  const live = await page.getByTestId("now-live-link").boundingBox();
+  if (chip && live && (page.viewportSize()?.width ?? 1280) < 431) expect(Math.abs(chip.y - live.y)).toBeLessThan(12);
 });
 
 test("a charge just started says it is collecting, with no graph @webkit", async ({ page }) => {

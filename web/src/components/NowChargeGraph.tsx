@@ -1,3 +1,4 @@
+import { createContext, useContext, type ReactNode } from "react";
 import { clock } from "../lib/nowState";
 import { powerMax, useOpenChargeSeries } from "./LiveChargeGraph";
 import { GraphHead, HaloDot, Legend, Pill, QuietLine, SoftDefs, SoftFill, SoftLine, labelWidth, softPath, thin, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
@@ -9,8 +10,23 @@ import { GraphHead, HaloDot, Legend, Pill, QuietLine, SoftDefs, SoftFill, SoftLi
 const MIN_SPAN_MS = 120_000;
 const PAD = { t: 30, b: 26, l: 6, r: 10 };
 
-export function NowChargeGraph({ vehicleId, nowMs, targetPct, etaHours }: { vehicleId: string; nowMs: number; targetPct: number | null; etaHours: number | null }) {
-  const { open, soc, power } = useOpenChargeSeries(vehicleId);
+// The open charge's series, read once for the card: the graph draws it and the temperatures row takes the pack's reading from it.
+const SeriesContext = createContext<ReturnType<typeof useOpenChargeSeries> | null>(null);
+
+export function ChargeSeriesProvider({ vehicleId, enabled, children }: { vehicleId: string; enabled: boolean; children: ReactNode }) {
+  return <SeriesContext.Provider value={useOpenChargeSeries(vehicleId, enabled)}>{children}</SeriesContext.Provider>;
+}
+
+// The pack's temperature from the newest stored sample, only while it is recent (a reading older than this is not shown).
+const PACK_FRESH_MS = 15 * 60_000;
+export function usePackTemp(nowMs: number): number | null {
+  const pack = useContext(SeriesContext)?.pack;
+  return pack && nowMs - pack.at <= PACK_FRESH_MS ? pack.avg : null;
+}
+
+export function NowChargeGraph({ nowMs, targetPct, etaHours }: { nowMs: number; targetPct: number | null; etaHours: number | null }) {
+  const series = useContext(SeriesContext);
+  const { open, soc, power } = series ?? { open: undefined, soc: [], power: [] };
   const [ref, { w, h }] = useBox();
   const ink = useSoftInk();
   const id = useSoftId();
@@ -66,7 +82,7 @@ export function NowChargeGraph({ vehicleId, nowMs, targetPct, etaHours }: { vehi
             className="block overflow-visible"
           >
             <SoftDefs id={id} ink={ink} />
-            {ex != null && <rect x={lx + 4} y={PAD.t - 6} width={Math.max(ex - lx - 8, 4)} height={base - PAD.t + 6} rx={12} fill={`url(#${id}-band)`} />}
+            {ex != null && <rect x={lx + 12} y={PAD.t + 4} width={Math.max(ex - lx - 20, 4)} height={base - PAD.t - 4} rx={14} fill={`url(#${id}-band)`} filter={`url(#${id}-soften)`} />}
             <SoftFill id={id} d={line} baseY={base} x0={socPts[0].x} x1={lx} />
             {powPts.length > 1 && <QuietLine d={softPath(powPts)} color={ink.quiet} />}
             <SoftLine id={id} d={line} color={ink.line} />

@@ -10,6 +10,7 @@ import { useAmbientTemp } from "../lib/ambientTemp";
 import { useDesignPreview } from "../lib/config";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { clock, type NowView } from "../lib/nowState";
+import { usePackTemp } from "./NowChargeGraph";
 import { conditionItems, type CondItem, type SlotWeather } from "./NowSlot";
 
 // The redesigned Now hero (design_preview "now_v2"): a status chip, then one card with the gauge, the range,
@@ -133,6 +134,7 @@ export default function NowHeroV2({
     : fullCharge != null
       ? `Full charge today ≈ ${fullCharge} ${distanceUnit}`
       : null;
+  const packTemp = usePackTemp(nowMs);
   const outside =
     amb.enabled && ambient && !parkedSlot
       ? formatTemperature(ambient.temp_c, temperatureUnit)
@@ -164,7 +166,15 @@ export default function NowHeroV2({
         aria-hidden
         className={`h-2 w-2 shrink-0 rounded-full ${charging ? "bg-emerald-500" : "bg-neutral-500"}`}
       />
-      <span className={tidy ? "min-w-0 truncate" : undefined}>{chip}</span>
+      {soft && chip.includes(" · done by ") ? (
+        // Under 431 px the chip drops the finish time (the card says it in its own line), so the Live button keeps the row; the iPhone does the same.
+        <>
+          <span className="min-w-0 truncate min-[431px]:hidden">{chip.slice(0, chip.indexOf(" · done by "))}</span>
+          <span className="min-w-0 truncate max-[430px]:hidden">{chip}</span>
+        </>
+      ) : (
+        <span className={tidy ? "min-w-0 truncate" : undefined}>{chip}</span>
+      )}
     </span>
   );
   if (tidy) {
@@ -200,9 +210,9 @@ export default function NowHeroV2({
         <CarSketch model={model} charging={charging} className="min-[900px]:mx-auto min-[900px]:max-w-[440px]" />
       );
     if (soft) {
-      const condBlock = items.length > 0 && (
+      const condBlock = (items.length > 0 || packTemp != null) && (
         <div data-testid="now-temps" className="pointer-events-none relative flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 text-sm">
-          {[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin")).map((c) => (
+          {[...(packTemp != null ? [{ k: "Pack", v: formatTemperature(packTemp, temperatureUnit) } as CondItem] : []), ...[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin"))].map((c) => (
             <p key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0 text-neutral-400">
               {c.k}{" "}
               <span className="font-semibold tabular-nums text-neutral-100">{c.v}</span>
@@ -222,7 +232,7 @@ export default function NowHeroV2({
           className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : "border-emerald-500/30"}`}
         >
           {telemetryLink && <Link to="/live" aria-label="Full telemetry" className="absolute inset-0 z-0 rounded-2xl" />}
-          <div className="pointer-events-none relative z-10 mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 max-[359px]:gap-x-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
+          <div className="pointer-events-none relative z-10 mb-4 flex items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
             {chipEl}
             {telemetryLink && (
               <Link
