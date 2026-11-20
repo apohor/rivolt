@@ -641,6 +641,11 @@ actor APIClient {
         try await request("PUT", "/api/trips/saved/\(pathID(id))", body: body)
     }
 
+    /// The data for the receipt image of a saved trip (409 when it has no receipt yet, 422 when it is too short, 404 when the preview key is off).
+    func tripReceipt(savedID: String, sketch: Bool, metric: Bool) async throws -> TripReceipt {
+        try await request("POST", "/api/trips/saved/\(pathID(savedID))/receipt", body: TripReceiptRequest(sketch: sketch, metric: metric))
+    }
+
     /// A saved trip against the outing that was driven (one comparison, or one per day).
     func planVsActual(savedID: String) async throws -> PlanVsActualAnswer {
         try await request("GET", "/api/trips/saved/\(pathID(savedID))/actual")

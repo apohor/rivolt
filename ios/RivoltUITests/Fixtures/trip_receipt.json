@@ -1,0 +1,66 @@
+{
+ "depart_at": "2026-11-21T15:00:00Z",
+ "tz": "America/Los_Angeles",
+ "start_soc": 90,
+ "start": "Trinidad area",
+ "end": "Walsenburg area",
+ "rows": [
+  {
+   "kind": "drive",
+   "from": "Trinidad area",
+   "to": "Pueblo area",
+   "dist_m": 32187,
+   "dur_s": 1800,
+   "from_soc": 90,
+   "to_soc": 70,
+   "rounded": true
+  },
+  {
+   "kind": "stop",
+   "name": "Stop · Pueblo area",
+   "dur_s": 300,
+   "from_soc": 70,
+   "to_soc": 70
+  },
+  {
+   "kind": "drive",
+   "from": "Pueblo area",
+   "to": "Barstow, CA · Rivian Adventure Network",
+   "dist_m": 32187,
+   "dur_s": 1800,
+   "from_soc": 70,
+   "to_soc": 40,
+   "rounded": true
+  },
+  {
+   "kind": "charge",
+   "name": "Barstow, CA · Rivian Adventure Network",
+   "dur_s": 1080,
+   "from_soc": 40,
+   "to_soc": 80,
+   "max_kw": 150
+  },
+  {
+   "kind": "drive",
+   "from": "Barstow, CA · Rivian Adventure Network",
+   "to": "Walsenburg area",
+   "dist_m": 48280,
+   "dur_s": 2700,
+   "from_soc": 80,
+   "to_soc": 30,
+   "rounded": true
+  }
+ ],
+ "totals": {
+  "dist_m": 120701,
+  "drive_s": 6300,
+  "charge_s": 1080,
+  "stops": 1,
+  "arrive_at": "2026-11-21T17:05:00Z",
+  "arrival_soc": 31.5
+ },
+ "sketch": [
+  "kjdmeArc|gfEcp@q^cp@o^cp@q^kq`@_uTyg`@_uT_{_@_uTek_@_uTex^_uTgb^_uTki]_uTsm\\_uTao[_uTymZ_uT}iY_uTscX_uT{zV_uT}oU_uTybT}tTwsR_uTybQ_uTepO_uT_|M_uTmfL_uTqoJ_uTuwH_uT}~F_uTkeE_uTikC_uTwpA_uTcV_uTrb@_uTf}A_uTpwC_uTbRa~@bRc~@bRa~@bRc~@",
+  "mxw{eAxhuneEbf@im@df@gm@df@gm@bf@gm@df@im@df@gm@bf@gm@df@gm@df@im@bf@gm@df@gm@df@gm@bf@im@df@gm@nzR_uTrhT_uTrtU_uTp~V_uT`fX_uTfkY_uTzmZ_uTzm[_uTdk\\_uTre]_uTd}]}tTxq^_uTnc_@_uT~q_@_uTn}_@_uTxe`@_uT`k`@_uT~l`@_uTzk`@_uTpg`@_uTb``@_uTpu_@_uTzg_@_uTbw^_uTnc^_uTxl]_uTjs\\_uTbw[_uTbxZ_uTrvY_uTrrX_uTblW_uTncV_uTtxT_uTxkS_uT`}Q_uTtlP_uTrzN_uTdgM_uTjrK_uTn|I_uTteH_uT`nF_uTxuD}tT~|B_uT`dA_uTzJ_uTgl@_uTceB_uTs}C_uTquE_uTwlG_uTecI_uTmxJ_uTqlL_uTk_N_uTspO_uTe`Q_uTanR_uT_zS_uT{cU_uTskV_uT_qW_uTctX_uTutY_uTurZ_uT_n[_uTsf\\_uTk|\\_uTko]_uTi_^_uTml^_uTmv^_uTq}^_uToa_@_uTqb_@_uTo`_@}tTqo@a`@so@a`@qo@_`@so@a`@qo@a`@so@a`@qo@_`@qo@a`@so@a`@qo@a`@so@_`@qo@a`@so@a`@qo@a`@qo@_`@so@a`@qo@a`@so@a`@qo@_`@so@a`@qo@a`@"
+ ]
+}
