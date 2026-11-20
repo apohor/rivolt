@@ -9,17 +9,24 @@ import Observation
 final class NowParkedSeriesModel {
     static let refresh: TimeInterval = 60
 
+    /// How long the chip waits for the first answer before it shows the state's own parked time.
+    static let chipWait: Duration = .seconds(3)
+
     private(set) var series: ParkedSeries?
+    /// True once a read has answered or failed: until then the chip shows no parked time, so it never changes by hours as the series arrives.
+    private(set) var settled = false
 
     func load(source: some ParkedSeriesSource, vehicleID: String, zone: String = TimeZone.current.identifier) async {
         do {
             apply(try await source.parkedSeries(vehicleID: vehicleID, tz: zone))
+            settled = true
         } catch {
             if Task.isCancelled { return }
+            settled = true
         }
     }
 
     func apply(_ s: ParkedSeries?) { series = NowParkedGraphModel.drawable(s) ? s : nil }
 
-    func clear() { series = nil }
+    func clear() { series = nil; settled = false }
 }

@@ -112,4 +112,26 @@ final class NowParkedGraphModelTests: XCTestCase {
         XCTAssertTrue(m.spoken.contains("to 76 percent now, minus 1.7%"), m.spoken)
         XCTAssertTrue(m.spoken.hasSuffix("5 sleeps, 4 wake-ups."), m.spoken)
     }
+
+    private struct Source: ParkedSeriesSource {
+        let answer: ParkedSeries?
+        let fails: Bool
+        func parkedSeries(vehicleID: String, tz: String) async throws -> ParkedSeries? {
+            if fails { throw URLError(.timedOut) }
+            return answer
+        }
+    }
+
+    func testTheChipWaitsForTheSeriesAnswerOrItsFailure() async throws {
+        let m = NowParkedSeriesModel()
+        XCTAssertFalse(m.settled)
+        await m.load(source: Source(answer: try series("overnight"), fails: false), vehicleID: "v")
+        XCTAssertTrue(m.settled)
+        XCTAssertNotNil(m.series?.parkedSince)
+        m.clear()
+        XCTAssertFalse(m.settled)
+        await m.load(source: Source(answer: nil, fails: true), vehicleID: "v")
+        XCTAssertTrue(m.settled)
+        XCTAssertNil(m.series)
+    }
 }

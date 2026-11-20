@@ -66,6 +66,8 @@ struct HomeView: View {
     /// The parked graph on the Now card (design_preview key now_parked_graph, with the calm Now and the slot; on the web the same key).
     private var parkedGraphOn: Bool { tidy && slotOn && state.designPreview.contains("now_parked_graph") }
     @State private var parkedSeries = NowParkedSeriesModel()
+    /// The parked series took longer than NowParkedSeriesModel.chipWait: the chip then shows the state's own parked time.
+    @State private var parkedChipLate = false
     /// A parked, plugged or sleeping truck: the states the graph is for.
     private var parkedKind: Bool {
         let s = NowSummary(state: vehicleState, now: now, clock: .now)
@@ -207,6 +209,12 @@ struct HomeView: View {
                     try? await Task.sleep(for: .seconds(NowParkedSeriesModel.refresh))
                 }
             }
+            .task(id: "\(parkedGraphOn)|\(parkedKind)|\(selectedID)") {
+                parkedChipLate = false
+                guard parkedGraphOn, parkedKind else { return }
+                try? await Task.sleep(for: NowParkedSeriesModel.chipWait)
+                if !Task.isCancelled { parkedChipLate = true }
+            }
             // "Offline" waits for a recent read: if the last one is old (the app was away), ask the server once first.
             .task(id: recheckKey) { if recheckKey != nil { await refreshNow() } }
             // Charts: from the in-memory cache unless the truck or period changed (pull-to-refresh forces a read).
@@ -312,7 +320,10 @@ struct HomeView: View {
     /// one parked time (the state run restarts at every wake-up).
     private var chipSummary: NowSummary {
         var s = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
-        if parkedGraphOn, s.kind == .parked, let since = parkedSeries.series?.parkedSince { s.since = since }
+        if parkedGraphOn, s.kind == .parked {
+            if let since = parkedSeries.series?.parkedSince { s.since = since }
+            else if !parkedSeries.settled, !parkedChipLate { s.since = nil }
+        }
         return s
     }
 
