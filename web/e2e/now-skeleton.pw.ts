@@ -41,7 +41,7 @@ const kinds = [
   { name: "parked", graph: "now-parked-graph", opts: { scenario: "parked", parkedCase: "overnight" } },
 ] as const;
 for (const kind of kinds) {
-  for (const [width, alert] of [[393, false], [1280, false], [393, true], [1280, true]] as const) {
+  for (const [width, alert] of [[393, false], [1280, false], [1440, false], [393, true], [1280, true]] as const) {
     // With an alert under the card (the wake-up one) the card's own box is shorter than the section that is remembered for the placeholder.
     test(`the page does not jump while a ${kind.name} card's data arrives (${width}${alert ? ", with an alert" : ""})`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });

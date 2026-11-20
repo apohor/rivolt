@@ -65,12 +65,16 @@ test("the key off leaves the card as it was @webkit", async ({ page }) => {
 test("with a destination or without, the graph and the slot do not overlap @webkit", async ({ page }) => {
   for (const d of ["trip", "none"] as const) {
     await open(page, CASES.middle, KEYS, d);
-    const g = await page.getByTestId("now-drive-graph").boundingBox();
-    const s = await page.getByTestId("now-slot").boundingBox();
-    expect(g).not.toBeNull();
-    expect(s).not.toBeNull();
-    const apart = g!.y + g!.height <= s!.y + 1 || s!.y + s!.height <= g!.y + 1 || g!.x + g!.width <= s!.x + 1 || s!.x + s!.width <= g!.x + 1;
-    expect(apart).toBe(true);
+    // Read both boxes together until they are there (the card remounts its graph once as the state settles, and a box read in between is null).
+    await expect
+      .poll(async () => {
+        const g = await page.getByTestId("now-drive-graph").boundingBox();
+        const s = await page.getByTestId("now-slot").boundingBox();
+        if (!g || !s) return "not drawn";
+        const apart = g.y + g.height <= s.y + 1 || s.y + s.height <= g.y + 1 || g.x + g.width <= s.x + 1 || s.x + s.width <= g.x + 1;
+        return apart ? "apart" : "overlap";
+      })
+      .toBe("apart");
   }
 });
 

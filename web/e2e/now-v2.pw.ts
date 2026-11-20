@@ -301,6 +301,30 @@ test.describe("design now_tidy, phone and desktop", () => {
     });
   }
 
+  test("flag off: the chip is in the header's slot in every frame it is drawn, never first in the card", async ({ page }) => {
+    // Every animation frame: where is the chip? It used to move to the slot in a passive effect, so a frame (and a measure) could land between
+    // the first render, with the chip in the card, and the move: the card sat one row lower, then jumped up.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __chipFrames: { seen: number; inCard: number } };
+      w.__chipFrames = { seen: 0, inCard: 0 };
+      const tick = () => {
+        const chip = document.querySelector("[data-now-chip]");
+        if (chip) {
+          w.__chipFrames.seen++;
+          if (!chip.closest("[data-now-chip-slot]")) w.__chipFrames.inCard++;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await open(page, true, "charging", true, ["now_slot"]);
+    await expect(page.locator("[data-now-chip]")).toBeVisible();
+    await page.waitForTimeout(300);
+    const f = await page.evaluate(() => (window as unknown as { __chipFrames: { seen: number; inCard: number } }).__chipFrames);
+    expect(f.seen).toBeGreaterThan(0);
+    expect(f.inCard).toBe(0);
+  });
+
   test("flag off, 320 px: the header chip wraps beside or under the title, never over it", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 900 });
     await open(page, true, "charging", true, ["now_slot"]);
