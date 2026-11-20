@@ -94,7 +94,7 @@ struct ActivityDetailView: View {
             let segments = postcard?.id == d.id ? postcard?.segments ?? [] : []
             ShareCardSheet(fileName: MoneyShareCard.fileName(kind: "trip", date: d.startedAt, calendar: calendar),
                            costHint: (d.estimatedCost ?? 0) > 0 ? "Adds the estimated charging cost." : nil,
-                           mapHint: segments.isEmpty ? nil : "Draws the route as a line. The start and end are cut off, and so is the area around your saved home. No labels.") { cost, map in
+                           mapHint: segments.isEmpty ? nil : "Adds a map of the area you drove through, without place names. The start and end are cut off, and so is the area around your saved home.") { cost, map in
                 MoneyShareCard.trip(d, includeCost: cost, routeSegments: map ? segments : [], calendar: calendar)
             }
             .followsAppearance()

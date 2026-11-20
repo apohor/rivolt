@@ -71,11 +71,20 @@ struct MoneyShareCard: Equatable {
 
 /// The card painted as the web paints it: a fixed 1080 x 1080 dark image in the system font, the same positions and
 /// sizes as `paintShareCard` (pixels of the exported image, not the app's type scale).
+/// Carries the map band's height out of the canvas (the layout decides it; the render is synchronous).
+final class BandProbe {
+    var height: CGFloat?
+}
+
 struct MoneyShareCardCanvas: View {
     let card: MoneyShareCard
     /// Six longer rows (the year card): painted a little smaller and closer so a value never meets its label. It is how the card
     /// is painted, not part of what the card says, so it is not on the model.
     var compact = false
+    /// The trip card's basemap (design-preview key `share_map`), drawn under the line in its band; nil draws the bare line.
+    var basemap: ShareBasemap.Picture?
+    /// Told the height of the band the card leaves for the map (nil when it leaves none), so the picture is framed at that size.
+    var probe: BandProbe?
 
     static let side: CGFloat = 1080
     private static let column: CGFloat = side - 160
@@ -102,8 +111,9 @@ struct MoneyShareCardCanvas: View {
                 let footerTop = w - 70 - CGFloat(MoneyShareCard.footer.count - 1) * 44 - 36
                 let below = CGFloat(rows.count) * step + CGFloat(card.notes.count) * 44 + 24
                 let bandH = min(300, footerTop - below - y - 20)
+                probe?.height = bandH >= 120 ? bandH : nil
                 if bandH >= 120 {
-                    Self.drawRoute(ctx, paths, x: 80, y: y, w: w - 160, h: bandH)
+                    Self.drawRoute(ctx, paths, x: 80, y: y, w: w - 160, h: bandH, basemap: basemap)
                     y += bandH + 50
                 } else {
                     y += 30
@@ -133,8 +143,31 @@ struct MoneyShareCardCanvas: View {
     }
 
     /// The paths fitted into the box (equirectangular, so a mile north is as long as a mile east), each its own line so the
-    /// cut-off stretches are never joined. Bare: no marker or label.
-    private static func drawRoute(_ ctx: GraphicsContext, _ paths: [[DriveRoute.Point]], x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) {
+    /// cut-off stretches are never joined. Bare: no marker or label. With a basemap the picture fills the box (cropped evenly top and
+    /// bottom when the box is shorter) and the same segments run over it in its own pixels, light on a dark casing, with the credit
+    /// in the corner.
+    private static func drawRoute(_ ctx: GraphicsContext, _ paths: [[DriveRoute.Point]], x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat,
+                                  basemap: ShareBasemap.Picture? = nil) {
+        if let basemap {
+            let dy = (h - basemap.size.height) / 2
+            let box = CGRect(x: x, y: y, width: w, height: h)
+            var c = ctx
+            c.clip(to: Path(roundedRect: box, cornerRadius: 12))
+            c.draw(Image(uiImage: basemap.image), in: CGRect(x: x, y: y + dy, width: basemap.size.width, height: basemap.size.height))
+            for casing in [true, false] {
+                for p in basemap.lines {
+                    var line = Path()
+                    for (i, pt) in p.enumerated() {
+                        let q = CGPoint(x: x + pt.x, y: y + dy + pt.y)
+                        if i == 0 { line.move(to: q) } else { line.addLine(to: q) }
+                    }
+                    c.stroke(line, with: .color(casing ? Theme.shareCardBackground : Theme.shareCardValue),
+                             style: StrokeStyle(lineWidth: casing ? 13 : 7, lineCap: .round, lineJoin: .round))
+                }
+            }
+            text(c, "© OpenStreetMap", size: 22, weight: .regular, color: Theme.shareCardMuted, x: x + w - 14, baseline: y + h - 12, trailing: true)
+            return
+        }
         let all = paths.flatMap { $0 }
         guard let minLat = all.map(\.lat).min(), let maxLat = all.map(\.lat).max(),
               let minLon = all.map(\.lon).min(), let maxLon = all.map(\.lon).max() else { return }
@@ -198,8 +231,8 @@ struct MoneyShareCardCanvas: View {
 
     /// The card as a PNG, made on the phone.
     @MainActor
-    static func png(_ card: MoneyShareCard, compact: Bool = false) -> Data? {
-        let r = ImageRenderer(content: MoneyShareCardCanvas(card: card, compact: compact))
+    static func png(_ card: MoneyShareCard, compact: Bool = false, basemap: ShareBasemap.Picture? = nil, probe: BandProbe? = nil) -> Data? {
+        let r = ImageRenderer(content: MoneyShareCardCanvas(card: card, compact: compact, basemap: basemap, probe: probe))
         r.scale = 1
         return r.uiImage?.pngData()
     }

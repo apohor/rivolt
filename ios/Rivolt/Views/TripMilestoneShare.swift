@@ -68,10 +68,17 @@ struct ShareCardSheet: View {
     var mapHint: String?
     let build: (_ includeCost: Bool, _ includeMap: Bool) -> MoneyShareCard
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var state
 
     @State private var includeCost = false
     @State private var includeMap = false
     @State private var png: Data?
+    /// The map is being drawn: the card shows the line meanwhile, and Share waits so it never sends the line when the map is coming.
+    @State private var drawingMap = false
+    /// The map could not be drawn, so the card carries the plain line.
+    @State private var mapUnavailable = false
+    /// The last map drawn, kept while only the cost toggle changes.
+    @State private var picture: (segments: [String], band: Double?, map: ShareBasemap.Picture?)?
 
     private var card: MoneyShareCard { build(includeCost, mapHint != nil && includeMap) }
 
@@ -109,8 +116,11 @@ struct ShareCardSheet: View {
                         }
                         .tint(Theme.accentButton)
                     }
+                    if mapUnavailable, includeMap {
+                        Text("Map unavailable. The card shows the route as a line.").themeText(.subline, color: Theme.textTertiary)
+                    }
                     Text("Made on your device. Nothing is uploaded or posted.").themeText(.subline, color: Theme.textTertiary)
-                    if let png {
+                    if let png, !drawingMap {
                         ShareLink(item: MoneySharePNG(data: png, name: fileName),
                                   preview: SharePreview(card.title, image: Image(uiImage: UIImage(data: png) ?? UIImage()))) {
                             Text("Share")
@@ -126,7 +136,33 @@ struct ShareCardSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
-            .task(id: card) { png = MoneyShareCardCanvas.png(card) }
+            .task(id: card) { await paint() }
         }
+    }
+
+    /// The card as a PNG. A card with a route paints the line at once, then the basemap under it when the tiles are in.
+    private func paint() async {
+        let segments = card.routeSegments
+        guard !segments.isEmpty else {
+            mapUnavailable = false
+            drawingMap = false
+            png = MoneyShareCardCanvas.png(card)
+            return
+        }
+        // The bare line first; the layout says how tall a band the map gets, and the map is framed at that size.
+        let probe = BandProbe()
+        png = MoneyShareCardCanvas.png(card, probe: probe)
+        let band = probe.height.map(Double.init)
+        if picture?.segments != segments || picture?.band != band {
+            drawingMap = true
+            var map: ShareBasemap.Picture?
+            if let band { map = await ShareBasemap.render(segments: segments, height: band, server: state.mapServer, token: state.mapToken) }
+            if Task.isCancelled { return }
+            picture = (segments, band, map)
+            drawingMap = false
+        }
+        let map = picture?.map
+        mapUnavailable = map == nil
+        png = MoneyShareCardCanvas.png(card, basemap: map)
     }
 }
