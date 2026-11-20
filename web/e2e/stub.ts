@@ -5,6 +5,7 @@
 import type { Page, Route } from "@playwright/test";
 import { ledgerMonthFixture, ledgerSummaryFixture, currentMonth } from "../src/lib/ledger";
 import { e2eNow, pinClock } from "./clock";
+import { parkedSeriesFixture, type ParkedCase } from "./parkedSeriesFixture";
 
 export const VEHICLE_ID = "veh-sample-1";
 const HOME = { latitude: 40.0, longitude: -100.0 };
@@ -215,12 +216,14 @@ export type StubOptions = {
   // A charge in progress for the Now card's graph (charging scenario): minutes since plug-in, the battery and the charger's power over those
   // minutes, and what the state says now. Overrides the state, the open charge row, /now's charge and the samples.
   chargeCase?: { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number; targetPct?: number };
+  // GET /api/vehicles/{id}/parked-series for the Now card's graph (design key now_parked_graph); absent answers 404.
+  parkedCase?: ParkedCase;
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
   // A live run (E2E_LIVE_URL, the rc smoke against preview) uses the real backend: stub nothing.
   if (process.env.E2E_LIVE_URL) return;
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase, parkedCase } = opts;
   const month = currentMonth(new Date(e2eNow()));
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -323,6 +326,10 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     // This week's short sleeps against the truck's own last 30 days: 9 against a usual 5.
     if (p === `/api/vehicles/${VEHICLE_ID}/sleep-health`) {
       return json(route, { version: 1, state: "more", this_week: { days: 7, sleeps: 30, failed_sleeps: 9 }, baseline_days: 30, usual_failed_sleeps: 5, more_by: 4 });
+    }
+    if (p === `/api/vehicles/${VEHICLE_ID}/parked-series`) {
+      if (!parkedCase || parkedCase === "gone") return json(route, { error: "not stubbed" }, 404);
+      return json(route, parkedSeriesFixture(parkedCase));
     }
     if (p === `/api/vehicles/${VEHICLE_ID}/drain`) {
       if (drain === "absent") return json(route, { error: "not stubbed" }, 404);
