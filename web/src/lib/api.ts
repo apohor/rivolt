@@ -12,6 +12,7 @@ import type { OffpeakSchedule } from "./offpeak";
 //   POST /api/push/subscribe     → persists a browser subscription
 
 import { noteVehicleScope } from "./vehicleScope";
+import { forgetCardHeights } from "./nowCardSize";
 import { IMPERSONATE_HEADER, impersonationHeaderID } from "./impersonation";
 
 // How many samples a drive or charge detail page asks for. The server buckets a window that goes over the limit across its
@@ -164,6 +165,7 @@ async function request<T>(
     const closedSignup =
       res.status === 401 && res.headers.get("X-Rivolt-Auth-Error") === "signups_disabled";
     if (closedSignup && !new URLSearchParams(window.location.search).has("error")) {
+      forgetCardHeights();
       window.location.replace("/login?error=signups_disabled");
     }
     // Exclusive with the generic bounce below, which would otherwise
@@ -182,6 +184,8 @@ async function request<T>(
     ) {
       const here = window.location.pathname + window.location.search;
       if (!window.location.pathname.startsWith("/login")) {
+        // The session is over: what the Now card remembers of the truck goes with it.
+        forgetCardHeights();
         const next = here === "/" ? "" : `?next=${encodeURIComponent(here)}`;
         window.location.assign(`/login${next}`);
       }

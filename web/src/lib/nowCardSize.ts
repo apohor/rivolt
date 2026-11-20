@@ -1,11 +1,12 @@
 // How tall the Now card was the last time it was drawn, per vehicle, layout and kind of card, so its placeholder (and the card itself, while its graph
 // is on the way) can be that tall on the next load. A charging or driving card with its graph is taller than a parked one; with the last height the
 // page below does not jump when the state and the series arrive. Only pixel counts under the vehicle's id, and which card was drawn last (no state,
-// no place); sign-out clears it.
+// no place); it is cleared whenever the session ends: sign-out, a 401 that sends the user to /login, another account signing in.
 import { readStoredID } from "./selectedVehicle";
 
 const KEY = "rivolt.nowCardHeights";
 const LAST = "rivolt.nowCardLast";
+const OWNER = "rivolt.nowCardOwner";
 
 export type CardKind = "parked" | "charging" | "driving";
 
@@ -83,7 +84,21 @@ export function forgetCardHeights() {
   try {
     window.localStorage.removeItem(KEY);
     window.localStorage.removeItem(LAST);
+    window.localStorage.removeItem(OWNER);
   } catch {
     /* nothing stored */
+  }
+}
+
+// The account the stored heights belong to. Another account on the same browser (signed in without the Sign out button: the session cookie
+// replaced, or a heights store from before this was kept) starts with nothing remembered.
+export function claimCardHeights(userID: string) {
+  try {
+    const owner = window.localStorage.getItem(OWNER);
+    if (owner === userID) return;
+    if (owner !== null || window.localStorage.getItem(KEY) !== null || window.localStorage.getItem(LAST) !== null) forgetCardHeights();
+    window.localStorage.setItem(OWNER, userID);
+  } catch {
+    /* private mode */
   }
 }

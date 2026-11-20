@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { cardHeight, cardKind, forgetCardHeights, placeholderHeight, rememberCardHeight } from "./nowCardSize";
+import { cardHeight, cardKind, claimCardHeights, forgetCardHeights, placeholderHeight, rememberCardHeight } from "./nowCardSize";
 
 describe("the Now card's remembered height", () => {
   beforeEach(() => window.localStorage.clear());
@@ -37,5 +37,20 @@ describe("the Now card's remembered height", () => {
 
   it("counts plugged, asleep and offline as the parked kind", () => {
     expect(["charging", "driving", "parked", "plugged", "asleep", "offline"].map(cardKind)).toEqual(["charging", "driving", "parked", "parked", "parked", "parked"]);
+  });
+
+  it("forgets them for another account, and keeps them for the same one", () => {
+    claimCardHeights("u1");
+    rememberCardHeight("v1", true, "charging", 827);
+    claimCardHeights("u1");
+    expect(cardHeight("v1", true, "charging")).toBe(827);
+    claimCardHeights("u2");
+    expect(cardHeight("v1", true, "charging")).toBeNull();
+    expect(placeholderHeight("v1")).toBeNull();
+    // A store from before the owner was kept belongs to nobody we know.
+    window.localStorage.clear();
+    rememberCardHeight("v1", true, "charging", 827);
+    claimCardHeights("u1");
+    expect(cardHeight("v1", true, "charging")).toBeNull();
   });
 });

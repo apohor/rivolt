@@ -38,6 +38,19 @@ describe("api 401 handling", () => {
     expect(assign).toHaveBeenCalledWith("/login");
   });
 
+  it("forgets the Now card's remembered heights when the 401 ends the session, and only then", async () => {
+    window.localStorage.setItem("rivolt.nowCardHeights", '{"v1:v2:narrow:parked":463}');
+    window.localStorage.setItem("rivolt.nowCardLast", '{"id":"v1","v2":true,"kind":"parked"}');
+    mockFetch(401, { error: "re-authentication required", class: "user_action" }, "application/json");
+    await expect(api.get("/api/vehicles")).rejects.toBeInstanceOf(ApiError);
+    expect(window.localStorage.getItem("rivolt.nowCardHeights")).not.toBeNull();
+    mockFetch(401, "unauthorized", "text/plain");
+    await expect(api.get("/api/drives")).rejects.toBeInstanceOf(ApiError);
+    expect(assign).toHaveBeenCalledWith("/login");
+    expect(window.localStorage.getItem("rivolt.nowCardHeights")).toBeNull();
+    expect(window.localStorage.getItem("rivolt.nowCardLast")).toBeNull();
+  });
+
   it("does NOT redirect on a Rivian-upstream 401 (needs_reauth)", async () => {
     mockFetch(
       401,

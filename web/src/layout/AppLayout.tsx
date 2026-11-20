@@ -1,5 +1,6 @@
 import { useRefreshListsWhenSessionCloses } from "../lib/activityLists";
 import { useAccountUnits } from "../lib/accountUnits";
+import { claimCardHeights } from "../lib/nowCardSize";
 import { rememberAppSeen, useSystemTheme } from "../lib/theme";
 import { Footer } from "../components/Footer";
 import { useEffect } from "react";
@@ -48,6 +49,11 @@ function UserLayout() {
   const impersonating = useImpersonationTarget();
   // The units follow the account (not while an admin views as someone: that must not change their units).
   useAccountUnits(impersonating ? null : me.data);
+  // The Now card's remembered heights are this account's: another account signing in on the browser starts clean.
+  const signedInAs = me.data?.user_id;
+  useEffect(() => {
+    if (signedInAs) claimCardHeights(signedInAs);
+  }, [signedInAs]);
   useEffect(() => {
     if (impersonating) return;
     if (me.data && me.data.onboarding_completed === false) {
