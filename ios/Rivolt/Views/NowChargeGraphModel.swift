@@ -102,8 +102,37 @@ struct NowChargeGraphModel: Equatable {
 
 /// A smooth monotone-cubic line through points (the web's `softPath`): no overshoot between samples.
 enum NowGraphCurve {
-    /// Control points for each segment, in the order the points come.
-    static func segments(_ pts: [CGPoint]) -> [(c1: CGPoint, c2: CGPoint, end: CGPoint)] {
+    /// Readings that jump (a drive or charge between two readings, a wake-up) arrive a few points apart, which a curve can only draw as a corner.
+    /// This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
+    /// first one's height; `segments` then draws it with no slope at the held indices. A gentle pair is left alone. Same rule as the web's easeSteps.
+    static func easeSteps(_ pts: [CGPoint], minDrop: CGFloat = 3, slope: CGFloat = 1.2) -> (points: [CGPoint], hold: Set<Int>) {
+        var out: [CGPoint] = []
+        var hold = Set<Int>()
+        var i = 0
+        while i < pts.count {
+            let a = pts[i]
+            if i + 1 < pts.count {
+                let b = pts[i + 1]
+                let dy = abs(b.y - a.y)
+                if dy >= minDrop, dy / max(b.x - a.x, 0.5) > slope {
+                    let run = min(max(dy * 2, 12), 28)
+                    let from = out.last?.x ?? a.x
+                    hold.insert(out.count)
+                    out.append(CGPoint(x: max(b.x - run, from + 0.4 * (a.x - from)), y: a.y))
+                    hold.insert(out.count)
+                    out.append(b)
+                    i += 2
+                    continue
+                }
+            }
+            out.append(a)
+            i += 1
+        }
+        return (out, hold)
+    }
+
+    /// Control points for each segment, in the order the points come. Points whose index is in `hold` leave and arrive level.
+    static func segments(_ pts: [CGPoint], hold: Set<Int> = []) -> [(c1: CGPoint, c2: CGPoint, end: CGPoint)] {
         let n = pts.count
         guard n >= 2 else { return [] }
         var dx: [CGFloat] = []
@@ -115,6 +144,7 @@ enum NowGraphCurve {
         var t: [CGFloat] = [m[0]]
         for i in 1..<max(n - 1, 1) where i < n - 1 { t.append(m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2) }
         t.append(m[n - 2])
+        for i in hold where i < n { t[i] = 0 }
         for i in 0..<(n - 1) {
             if m[i] == 0 { t[i] = 0; t[i + 1] = 0; continue }
             let a = t[i] / m[i]

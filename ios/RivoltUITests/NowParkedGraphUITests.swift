@@ -6,6 +6,12 @@ final class NowParkedGraphUITests: XCTestCase {
     private func launch(_ parkedCase: String = "overnight", dark: Bool = false, xxxLarge: Bool = false, metric: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["RIVOLT_UITEST_PARKED_CASE"] = parkedCase
+        // Fixture times sit against a five-minute mark just behind the real time; the web shots are taken at the same instant (STUB_NOW).
+        let mark = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 / 300).rounded(.down) * 300)
+        let stamp = ISO8601DateFormatter().string(from: mark)
+        app.launchEnvironment["RIVOLT_UITEST_PARKED_NOW"] = stamp
+        try? FileManager.default.createDirectory(atPath: "/tmp/rivolt-ui-shots", withIntermediateDirectories: true)
+        try? stamp.write(toFile: "/tmp/rivolt-ui-shots/parked-now-\(parkedCase)", atomically: true, encoding: .utf8)
         if dark { app.launchArguments += ["-rivolt.appearance", "dark"] }
         if xxxLarge { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"] }
         app.launchEnvironment["RIVOLT_UITEST_UNITS"] = metric ? "km" : "mi"
@@ -31,7 +37,9 @@ final class NowParkedGraphUITests: XCTestCase {
     func testAnOvernightParkDrawsTheGraphAndTheFigures() {
         let app = launch()
         let graph = element(app, "now-parked-graph")
-        XCTAssertTrue(graph.waitForExistence(timeout: 30), "the graph appears once the series is read")
+        let appeared = graph.waitForExistence(timeout: 30)
+        if !appeared { shot(app, "now-parked-graph-missing") }
+        XCTAssertTrue(appeared, "the graph appears once the series is read")
         XCTAssertTrue(graph.label.contains("Battery while parked"), "VoiceOver says what it is")
         XCTAssertTrue(graph.label.contains("5 sleeps, 4 wake-ups"), "and the counts")
         XCTAssertTrue(element(app, "now-parked-change").exists, "the header's change")

@@ -70,7 +70,7 @@ struct NowParkedGraph: View {
             let pillW = (model.parkedLabel.map { CGFloat($0.count) * 6.4 } ?? 0) + 20
             let pill: String? = {
                 guard !typeSize.isAccessibilitySize, let label = model.parkedLabel, let p = parkedPt else { return nil }
-                return p.x - pillW / 2 > start.x + 56 && p.x + pillW / 2 < w - padR ? label : nil
+                return p.x - pillW / 2 > (line.first?.x ?? start.x) + 56 && p.x + pillW / 2 < w - padR ? label : nil
             }()
             ZStack(alignment: .topLeading) {
                 Canvas { ctx, _ in
@@ -183,7 +183,10 @@ struct NowParkedGraph: View {
         guard let first = pts.first else { return p }
         p.move(to: first)
         if pts.count == 1 { return p }
-        for s in NowGraphCurve.segments(pts) { p.addCurve(to: s.end, control1: s.c1, control2: s.c2) }
+        let eased = NowGraphCurve.easeSteps(pts)
+        p = Path()
+        p.move(to: eased.points[0])
+        for s in NowGraphCurve.segments(eased.points, hold: eased.hold) { p.addCurve(to: s.end, control1: s.c1, control2: s.c2) }
         return p
     }
 

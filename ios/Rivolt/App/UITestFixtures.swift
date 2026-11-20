@@ -186,7 +186,11 @@ final class FixtureURLProtocol: URLProtocol {
     private func parkedAnswer(path: String) -> Data? {
         let name = ProcessInfo.processInfo.environment["RIVOLT_UITEST_PARKED_CASE"] ?? "overnight"
         let pinned = Date(timeIntervalSince1970: 1_794_938_400)  // 2026-11-17T18:00:00Z, the stub clock
-        let now = Date()
+        // RIVOLT_UITEST_PARKED_NOW (RFC 3339, a little before the real time) places every fixture time against that instant, so the web stub can be
+        // run at the same one (STUB_NOW) and the two cards show the same clock times.
+        let plain = ISO8601DateFormatter()
+        let now = ProcessInfo.processInfo.environment["RIVOLT_UITEST_PARKED_NOW"].flatMap { plain.date(from: $0) } ?? Date()
+        let live = Date()  // freshness stamps stay current; only the history is placed against the mark
         let shift = now.timeIntervalSince(pinned)
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -226,23 +230,24 @@ final class FixtureURLProtocol: URLProtocol {
         }
         if path.contains("/state/") {
             return rewrite("state") { j in
-                j["at"] = isoPlain.string(from: now)
-                j["location_fix_at"] = isoPlain.string(from: now)
+                j["at"] = isoPlain.string(from: live)
+                j["location_fix_at"] = isoPlain.string(from: live)
                 j["battery_level_pct"] = soc
                 j["charger_state"] = "charging_complete"
                 j["charger_power_kw"] = 0
                 j["charger_status"] = "chrgr_sts_not_connected"
                 j["power_state"] = asleepNow ? "sleep" : "ready"
                 j["cabin_temp_c"] = 21.0
+                j["distance_to_empty"] = 299.5  // 186 mi, the web stub's figure
             }
         }
         if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/now") {
             let figures = series?["figures"] as? [String: Any]
             let sleeps = series?["sleeps"] as? [[String: Any]] ?? []
             return rewrite("now_v1") { j in
-                j["at"] = isoPlain.string(from: now)
-                j["location_fix_at"] = isoPlain.string(from: now)
-                j["vehicle_state_frame_at"] = isoPlain.string(from: now)
+                j["at"] = isoPlain.string(from: live)
+                j["location_fix_at"] = isoPlain.string(from: live)
+                j["vehicle_state_frame_at"] = isoPlain.string(from: live)
                 j["state"] = asleepNow ? "asleep" : "parked"
                 j["asleep"] = asleepNow
                 j["state_since"] = asleepNow ? (sleeps.last?["from"] ?? parkedSince) : parkedSince
@@ -250,7 +255,7 @@ final class FixtureURLProtocol: URLProtocol {
                 j["charge"] = nil
                 if asleepNow, let from = sleeps.last?["from"] { j["asleep_since"] = from }
                 if let today = figures?["asleep_today_s"] { j["asleep_today_s"] = today }
-                j["ambient"] = ["temp_c": 12.0, "source": "open-meteo", "as_of": isoPlain.string(from: now)]
+                j["ambient"] = ["temp_c": 12.0, "source": "open-meteo", "as_of": isoPlain.string(from: live)]
             }
         }
         return nil
