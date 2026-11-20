@@ -58,4 +58,9 @@ describe("buildReceiptModel", () => {
     expect(m.lines[1].right).toBe("");
     expect(m.lines[1].subRight).toBe("60% → 58%");
   });
+  it("shows a leg that rounds to nothing as under one rounding step", () => {
+    const m = buildReceiptModel({ ...R, rows: [{ kind: "drive", from: "A area", to: "B area", dist_m: 0, dur_s: 600, from_soc: 90, to_soc: 88, rounded: true }] }, o);
+    expect(m.lines[0].title).toBe("DRIVE · < 5 mi");
+    expect(buildReceiptModel({ ...R, rows: [{ kind: "drive", from: "A", to: "B", dist_m: 0, dur_s: 600, from_soc: 90, to_soc: 88, rounded: true }] }, { ...o, unit: "km" }).lines[0].title).toBe("DRIVE · < 5 km");
+  });
 });
