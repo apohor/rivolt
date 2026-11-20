@@ -38,7 +38,7 @@ describe("NowSlot", () => {
     expect(screen.getByTestId("now-slot-added").textContent).toContain("+18.2 kWh");
     expect(screen.getByTestId("now-slot-range-added").textContent).toContain("+60.9 mi");
     expect(screen.getByTestId("now-slot-elapsed").textContent).toContain("1 h 05");
-    expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/estimated .*2\.91.*at your home rate/);
+    expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/estimated .*2\.91.*estimate · at your home rate/);
     expect(screen.getByTestId("now-slot-added").textContent).not.toMatch(/≈|est/);
     expect(screen.getByTestId("now-slot-plugged-in")).toBeTruthy();
   });

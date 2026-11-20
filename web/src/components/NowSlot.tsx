@@ -95,7 +95,7 @@ export function slotStats(i: SlotInput): Stat[] {
     if (elapsedSec != null) out.push({ k: "Elapsed", v: duration(elapsedSec) });
     if (c && c.cost != null) {
       const est = c.cost_is_estimate !== false;
-      out.push({ k: "Cost so far", v: formatMoney(c.cost, c.currency || i.currency), note: (c.cost_source && COST_NOTE[c.cost_source]) || (est && !i.soft ? "estimate" : undefined), est });
+      out.push({ k: "Cost so far", v: formatMoney(c.cost, c.currency || i.currency), note: [est ? "estimate" : "", c.cost_source ? COST_NOTE[c.cost_source] : ""].filter(Boolean).join(" · ") || undefined, est });
     }
     if (Number.isFinite(startedMs) && !i.soft) out.push({ k: "Plugged in", v: clock(startedMs) });
   } else if (v.kind === "driving" && i.drive) {
@@ -357,7 +357,7 @@ function SoftStats({ stats }: { stats: Stat[] }) {
     <div data-testid="now-slot-figures" className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
       {all && <p data-testid="now-slot-estimated" className="col-span-2 ui-label">Estimated so far</p>}
       {stats.map((s) => {
-        const note = s.k === "Cost so far" && s.est ? ["estimate", s.note].filter(Boolean).join(" · ") : s.note;
+        const note = s.note;
         return (
           <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`} className="min-w-0">
             <p className="ui-label">{s.k}</p>
