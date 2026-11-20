@@ -3,7 +3,7 @@ import { backend, type ParkedSeries } from "../lib/api";
 import { clock } from "../lib/nowState";
 import { useIsLight } from "../lib/vehicleImage";
 import { bandDuration, parkedAtLabel, parkedDrawable, parkedChange, parkedText, parkedZone, type ParkedFigure } from "../lib/parkedSeries";
-import { GraphHead, HaloDot, Legend, Pill, SoftDefs, SoftLine, labelWidth, softPath, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
+import { GraphHead, HaloDot, Legend, Pill, SoftDefs, SoftLine, labelWidth, easeSteps, softPath, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
 
 // The Now card's "Battery while parked" graph (design_preview "now_parked_graph"), for the parked, plugged and asleep states: the last 24 hours
 // of the battery as one continuous soft line (a drive or charge between readings is bridged, not split), each sleep as a soft indigo fill under
@@ -74,7 +74,7 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
   const start = sinceIn != null ? curSeg[0] : first;
   const change = parkedChange(start.soc, last.soc, sinceIn);
   const sleepBase = base - BAR - 3;
-  const linePath = softPath(line);
+  const linePath = softPath(easeSteps(line));
   const valueLeft = lx - PAD.l > 60;
   // The "Parked 5:20 PM" pill needs room clear of the start value and the edges; the header says the same time when it is left out.
   const pillW = labelWidth(parkedLabel ?? "");
@@ -104,7 +104,7 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
               return (
                 <g key={`${sl.from}-${i}`} data-testid="now-parked-sleep">
                   <clipPath id={`${id}-sl${i}`}>
-                    <rect x={a + 1} y={0} width={Math.max(sw - 2, 1)} height={sleepBase} />
+                    <rect x={a + 1} y={0} width={Math.max(sw - 2, 1)} height={sleepBase} rx={10} />
                   </clipPath>
                   <path d={`${linePath} L${lx.toFixed(1)} ${sleepBase} L${fx.toFixed(1)} ${sleepBase} Z`} fill={`url(#${id}-sleep)`} clipPath={`url(#${id}-sl${i})`} />
                   <rect x={a + 1} y={base - BAR} width={Math.max(sw - 2, 1)} height={BAR} rx={BAR / 2} fill={bar} fillOpacity=".75" />
