@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ParkedSeries } from "./api";
-import { bandDuration, longDuration, parkedDrawable, windowChange, parkedText } from "./parkedSeries";
+import { bandDuration, longDuration, parkedDrawable, parkedChange, parkedText } from "./parkedSeries";
 
 const base: ParkedSeries = {
   version: 1,
@@ -29,10 +29,10 @@ describe("parked series text", () => {
     expect(mi.map((f) => [f.value, f.note])).toEqual([
       ["18 h 40 min", ""],
       ["5 wake-ups", "≈ 0.4% each"],
-      ["6% a day", "≈ 18 mi of range"],
+      ["6% a day", "≈ 18 mi"],
     ]);
     expect(mi[1].rowValue).toBe("5");
-    expect(parkedText(base, "km").figures[2].note).toBe("≈ 29 km of range");
+    expect(parkedText(base, "km").figures[2].note).toBe("≈ 29 km");
   });
 
   it("leaves out what it cannot say", () => {
@@ -45,9 +45,10 @@ describe("parked series text", () => {
   });
 
   it("writes the change as the difference of the two labels, with a true minus and one decimal", () => {
-    expect(windowChange(79.9, 77.9, 24 * 3_600_000)).toEqual({ value: "−2.0%", since: "in 24 h" });
-    expect(windowChange(60, 60.5, 3 * 3_600_000 + 20 * 60_000)).toEqual({ value: "+0.5%", since: "in 3 h 20" });
-    expect(windowChange(60, 60, 40 * 60_000).value).toBe("0.0%");
+    expect(parkedChange(79.9, 77.9, null)).toEqual({ value: "−2.0%", since: "in 24 h" });
+    expect(parkedChange(60, 60.5, null).value).toBe("+0.5%");
+    expect(parkedChange(60, 60, null).value).toBe("0.0%");
+    expect(parkedChange(80, 77.6, Date.UTC(2026, 10, 19, 17, 20)).since).toMatch(/^since \d{1,2}:20/);
   });
 
   it("words the projection with the rounded battery and the estimate label", () => {

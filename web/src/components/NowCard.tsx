@@ -236,6 +236,9 @@ export default function NowCard({
   // wake-ups. Without a line to draw (parked a few minutes, no data, an older server) the card is as it was.
   const parkedKind = view != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
   const parkedSeries = useParkedSeries(vehicleID, useDesignPreview("now_parked_graph") && tidy && parkedKind);
+  // The chip, the graph's pill and its header say one parked time. The state run restarts at every wake-up, so a parked truck's chip
+  // takes the server's own parked-since from the series when it has one.
+  const chipView = view != null && parkedSeries?.parked_since && view.kind === "parked" ? { ...view, stateSinceMs: Date.parse(parkedSeries.parked_since) } : view;
 
   if (stateQ.isLoading) {
     return (
@@ -352,9 +355,9 @@ export default function NowCard({
           images={images}
           model={model}
           stateSlot={showSlot ? slotNode : null}
-          chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot && !soft)}
+          chip={nowChip(chipView ?? view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot && !soft)}
           soft={soft || parkedSeries != null}
-          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} sinceMs={view.stateSinceMs} /> : null}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : null}
           parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
           tidy={tidy}
           nowMs={nowMs}

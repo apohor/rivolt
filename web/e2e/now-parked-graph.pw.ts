@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
-import type { ParkedCase } from "./parkedSeriesFixture";
+import { parkedSeriesFixture, type ParkedCase } from "./parkedSeriesFixture";
 
 // Design "now_parked_graph" (with now_tidy): the Now card of a parked, plugged or asleep truck draws the last 24 hours of the battery with its
 // sleeps and wake-ups, three figures and the projection. Too little data, an older server, or the key off: the card is as it was.
@@ -28,34 +28,67 @@ test("an overnight park draws the line, the sleeps, the wake-ups and the three f
   const wide = (page.viewportSize()?.width ?? 0) >= 900;
   await expect(page.getByTestId("now-parked-tiles")).toBeVisible({ visible: !wide });
   await expect(page.getByTestId("now-parked-rows")).toBeVisible({ visible: wide });
-  await expect(page.getByTestId(wide ? "now-parked-row-wakes" : "now-parked-tile-wakes")).toContainText(/5/);
+  await expect(page.getByTestId(wide ? "now-parked-row-wakes" : "now-parked-tile-wakes")).toContainText(/4/);
   await expect(page.getByTestId(wide ? "now-parked-row-idle" : "now-parked-tile-idle")).toContainText(/6% a day/);
 });
 
-test("the graph ends at the ring's battery, starts at the first reading, and the header is their difference @webkit", async ({ page }) => {
+// The header counts only the loss since the parked marker: the reading there to the ring's battery.
+async function headerDelta(page: Page, parkedCase: ParkedCase) {
+  const fix = parkedSeriesFixture(parkedCase);
+  const cur = fix.points.filter((p) => p.seg === fix.points[fix.points.length - 1].seg);
+  const g = page.getByTestId("now-parked-graph");
+  const head = (await g.getByTestId("now-parked-change").textContent())!;
+  const delta = parseFloat(head.replace("\u2212", "-"));
+  return { head, delta, sinceParked: cur[cur.length - 1].soc - cur[0].soc, windowWide: fix.points[fix.points.length - 1].soc - fix.points[0].soc };
+}
+
+test("the graph ends at the ring's battery and starts at the first reading @webkit", async ({ page }) => {
   await open(page, "overnight");
   const g = page.getByTestId("now-parked-graph");
   const label = (await g.locator("svg").getAttribute("aria-label"))!;
   const [, from, to] = label.match(/(\d+)% 24 hours ago to (\d+)% now/)!.map(Number);
   const texts = await g.locator("svg text").allTextContents();
   const pcts = texts.filter((t) => /^\d+\.\d%$/.test(t)).map(parseFloat);
-  const [start, end] = [pcts[0], pcts[pcts.length - 1]];
-  expect(Math.round(start)).toBe(from);
-  expect(Math.round(end)).toBe(to);
+  expect(Math.round(pcts[0])).toBe(from);
+  expect(Math.round(pcts[pcts.length - 1])).toBe(to);
   // The ring says the same battery as the end label.
   await expect(page.getByRole("img", { name: new RegExp(`Battery ${to} percent`) })).toBeVisible();
-  const head = (await g.getByTestId("now-parked-change").textContent())!;
-  const delta = parseFloat(head.replace("\u2212", "-"));
-  expect(delta).toBeCloseTo(end - start, 1);
 });
 
-test("one parked time: the chip, the pill and nothing else says another @webkit", async ({ page }) => {
+test("the header is the loss since the truck was parked, and says when @webkit", async ({ page }) => {
+  await open(page, "overnight");
+  const { head, delta, sinceParked } = await headerDelta(page, "overnight");
+  expect(delta).toBeCloseTo(sinceParked, 0);
+  const chip = (await page.getByTestId("now-pill").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
+  expect(head).toContain(`since ${chip}`);
+});
+
+test("a drive in the window does not count toward the header, the rate or the projection @webkit", async ({ page }) => {
+  await open(page, "overnight");
+  const { delta, sinceParked, windowWide } = await headerDelta(page, "overnight");
+  // The drive cost 0.6 points and sits before the marker, so the two counts differ by about that.
+  expect(Math.abs(delta - sinceParked)).toBeLessThan(0.15);
+  expect(Math.abs(windowWide - sinceParked)).toBeGreaterThan(0.4);
+  expect(Math.abs(delta - windowWide)).toBeGreaterThan(0.4);
+});
+
+test("a charge in the window does not turn the header into a gain @webkit", async ({ page }) => {
+  await open(page, "charged");
+  const { head, delta, sinceParked, windowWide } = await headerDelta(page, "charged");
+  expect(windowWide).toBeGreaterThan(0 - 30); // the window as a whole is up or nearly flat across the charge
+  expect(sinceParked).toBeLessThan(0);
+  expect(delta).toBeCloseTo(sinceParked, 0);
+  expect(head).toMatch(/^\u2212/);
+  await expect(page.getByTestId("now-parked-graph").getByTestId("now-parked-projection")).toContainText(/At this rate/);
+});
+
+test("one parked time: the chip, the pill and the header say the same @webkit", async ({ page }) => {
   await open(page, "overnight");
   const chip = (await page.getByTestId("now-pill").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
   const g = page.getByTestId("now-parked-graph");
   const pill = await g.locator("svg text", { hasText: /^Parked / }).allTextContents();
   for (const t of pill) expect(t).toBe(`Parked ${chip}`);
-  await expect(g.getByTestId("now-parked-change")).not.toContainText("since");
+  await expect(g.getByTestId("now-parked-change")).toContainText(chip);
 });
 
 test("the line is one continuous path and the sleeps fill under it @webkit", async ({ page }) => {
@@ -82,6 +115,9 @@ test("an asleep truck shows an open sleep that ends at now @webkit", async ({ pa
   const g = page.getByTestId("now-parked-graph");
   await expect(g).toBeVisible();
   await expect(g.getByTestId("now-parked-sleep")).toHaveCount(5);
+  // The chip says when the open sleep began; the header and the pill say when the truck was parked. Both are on the card and both are right.
+  const chipText = (await page.getByTestId("now-pill").textContent())!;
+  expect(chipText).toMatch(/^Asleep · since \d+:\d+ [AP]M/);
   // "Asleep today" is in the figures, not repeated in the conditions row.
   await expect(page.getByTestId("now-cond-asleep")).toHaveCount(0);
 });
@@ -118,7 +154,7 @@ if (SHOTS) {
   // The image-gate matrix: widths 320/393/430/1280/1440, both themes, text 100% and 200%, every state, miles and kilometres.
   type Shot = [ParkedCase, "parked" | "asleep", number, "light" | "dark", string, string];
   const shots: Shot[] = [];
-  const CASES: [ParkedCase, "parked" | "asleep"][] = [["overnight", "parked"], ["asleep", "asleep"], ["never_slept", "parked"], ["minutes", "parked"], ["gone", "parked"]];
+  const CASES: [ParkedCase, "parked" | "asleep"][] = [["overnight", "parked"], ["asleep", "asleep"], ["never_slept", "parked"], ["charged", "parked"], ["minutes", "parked"], ["gone", "parked"]];
   for (const [c, sc] of CASES) for (const w of [393, 1280]) for (const scheme of ["light", "dark"] as const) shots.push([c, sc, w, scheme, "100", "mi"]);
   for (const w of [320, 430, 1440]) for (const scheme of ["light", "dark"] as const) shots.push(["overnight", "parked", w, scheme, "100", "mi"]);
   for (const w of [320, 393, 1280]) shots.push(["overnight", "parked", w, "dark", "200", "mi"]);
@@ -129,7 +165,8 @@ if (SHOTS) {
       const page = await ctx.newPage();
       await page.addInitScript((u) => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: u })), unit);
       await open(page, c, sc);
-      if (text === "200") await page.addStyleTag({ content: "html{font-size:200%}" });
+      // The fixed header and tab bar sit over the card in a tall element shot; they are not part of it.
+      await page.addStyleTag({ content: `${text === "200" ? "html{font-size:200%}" : ""} header, nav, .fixed, .sticky, [data-ui-header] { visibility: hidden !important }` });
       await page.waitForTimeout(500);
       const card = page.locator("[data-now-v2]").first();
       await card.screenshot({ path: `${SHOTS}/${c}-${w}-${scheme}-t${text}-${unit}.png` });

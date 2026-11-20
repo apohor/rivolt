@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { backend, type ParkedSeries } from "../lib/api";
 import { useIsLight } from "../lib/vehicleImage";
-import { bandDuration, parkedAtLabel, parkedDrawable, parkedText, parkedZone, windowChange, type ParkedFigure } from "../lib/parkedSeries";
+import { bandDuration, parkedAtLabel, parkedDrawable, parkedChange, parkedText, parkedZone, type ParkedFigure } from "../lib/parkedSeries";
 import { GraphHead, HaloDot, Legend, Pill, SoftDefs, SoftLine, labelWidth, softPath, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
 
 // The Now card's "Battery while parked" graph (design_preview "now_parked_graph"), for the parked, plugged and asleep states: the last 24 hours
@@ -33,7 +33,7 @@ function useTextScale(): number {
   return (typeof document !== "undefined" ? parseFloat(getComputedStyle(document.documentElement).fontSize) || 16 : 16) / 16;
 }
 
-export function ParkedGraph({ series, unit, nowPct, sinceMs }: { series: ParkedSeries; unit: "mi" | "km"; nowPct: number | null; sinceMs: number | null }) {
+export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; unit: "mi" | "km"; nowPct: number | null }) {
   const [ref, { w, h }] = useBox();
   const light = useIsLight();
   const ink = useSoftInk();
@@ -64,10 +64,13 @@ export function ParkedGraph({ series, unit, nowPct, sinceMs }: { series: ParkedS
   const ly = sy(last.soc);
   const fx = sx(ms(first.t));
   const fy = sy(first.soc);
-  const parkedMs = sinceMs ?? (series.parked_since ? ms(series.parked_since) : null);
+  const parkedMs = series.parked_since ? ms(series.parked_since) : null;
   const parkedX = parkedMs != null && parkedMs > t0 && parkedMs < t1 ? sx(parkedMs) : null;
   const parkedLabel = parkedMs != null ? parkedAtLabel(parkedMs) : null;
-  const change = windowChange(first.soc, last.soc, t1 - ms(first.t));
+  // Only readings from the parked marker on count toward the change: a drive or a charge earlier in the window is not "while parked".
+  const curSeg = pts.filter((p) => p.seg === last.seg);
+  const sinceIn = parkedMs != null && parkedMs > t0 ? parkedMs : null;
+  const change = parkedChange(curSeg[0].soc, last.soc, sinceIn);
   const sleepBase = base - BAR - 3;
   const linePath = softPath(line);
   const valueLeft = lx - PAD.l > 60;
@@ -75,7 +78,7 @@ export function ParkedGraph({ series, unit, nowPct, sinceMs }: { series: ParkedS
   const pillW = labelWidth(parkedLabel ?? "");
   const pill = scale <= 1.25 && parkedX != null && parkedX - pillW / 2 > fx + 56 && parkedX + pillW / 2 < w - PAD.r ? parkedLabel : null;
   const showMid = w >= 240 * scale;
-  const ariaLabel = `Battery while parked, ${Math.round(first.soc)}% 24 hours ago to ${Math.round(last.soc)}% now${change.value.replace("−", "minus ")} ${change.since}, ${series.sleeps.length} ${series.sleeps.length === 1 ? "sleep" : "sleeps"}, ${series.wakes.length} ${series.wakes.length === 1 ? "wake-up" : "wake-ups"}`;
+  const ariaLabel = `Battery while parked, ${Math.round(first.soc)}% 24 hours ago to ${Math.round(last.soc)}% now, ${change.value.replace("−", "minus ")} ${change.since}, ${series.sleeps.length} ${series.sleeps.length === 1 ? "sleep" : "sleeps"}, ${series.wakes.length} ${series.wakes.length === 1 ? "wake-up" : "wake-ups"}`;
 
   return (
     <div data-testid="now-parked-graph" className="flex min-w-0 flex-col min-[900px]:h-full">

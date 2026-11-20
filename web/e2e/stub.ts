@@ -320,7 +320,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       const st = scenario === "charging" ? "charging" : scenario === "driving" ? "driving" : scenario === "asleep" ? "asleep" : "parked";
       return json(route, {
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: st,
-        state_since: parkedFix ? parkedFix.parked_since : iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0,
+        state_since: parkedFix ? (scenario === "parked" && parkedFix.wakes.length ? parkedFix.wakes[parkedFix.wakes.length - 1].t : parkedFix.parked_since) : iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0,
         charge: scenario === "charging" ? { started_at: iso(chargeCase ? chargeCase.elapsedMin * 60_000 : 3_600_000), soc_start: chargeCase ? Math.round(chargeCase.soc(0)) : 40, peak_kw: 11, ...(chargeCase ? { cost: 2.4, currency: "USD", cost_is_estimate: true } : {}) } : null,
         ...((chargeCase && scenario === "charging") || parkedFix ? { ambient: { temp_c: 12 } } : {}),
       });
@@ -358,6 +358,9 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       const st = vehicleState(scenario);
       // The Now card's ring says the battery the graph ends at.
       if (parkedFix?.points.length) st.battery_level_pct = parkedFix.points[parkedFix.points.length - 1].soc;
+      // A truck that is asleep sends no frames: its last one is when the open sleep began, which is the time the chip says.
+      const openSleep = scenario === "asleep" ? parkedFix?.sleeps.find((x) => x.open) : null;
+      if (openSleep) st.at = openSleep.from;
       if (chargeCase && scenario === "charging") {
         const m = chargeCase.elapsedMin;
         Object.assign(st, { battery_level_pct: chargeCase.soc(m), charger_power_kw: chargeCase.kw(m), charge_target_pct: chargeCase.targetPct ?? 80 });
