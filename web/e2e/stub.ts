@@ -216,6 +216,9 @@ export type StubOptions = {
   // A charge in progress for the Now card's graph (charging scenario): minutes since plug-in, the battery and the charger's power over those
   // minutes, and what the state says now. Overrides the state, the open charge row, /now's charge and the samples.
   chargeCase?: { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number; targetPct?: number };
+  // A drive in progress for the Now card's graph (driving scenario): minutes since it began, the speed (mph) and the battery over those minutes.
+  // Overrides the live-drive start and the samples; the state says the last values.
+  driveCase?: { elapsedMin: number; mph: (m: number) => number; soc: (m: number) => number };
   // GET /api/vehicles/{id}/parked-series for the Now card's graph (design key now_parked_graph); absent answers 404.
   parkedCase?: ParkedCase;
   // Hold the parked-series answer this long (ms), for the chip that waits for it.
@@ -225,7 +228,7 @@ export type StubOptions = {
 export async function stubApi(page: Page, opts: StubOptions = {}) {
   // A live run (E2E_LIVE_URL, the rc smoke against preview) uses the real backend: stub nothing.
   if (process.env.E2E_LIVE_URL) return;
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase, parkedCase, parkedDelayMs = 0 } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase, driveCase, parkedCase, parkedDelayMs = 0 } = opts;
   // The parked-series answer; the state and the /now snapshot take their battery and parked time from it, so the card never contradicts itself.
   const parkedFix = parkedCase && parkedCase !== "gone" ? parkedSeriesFixture(parkedCase) : null;
   const month = currentMonth(new Date(e2eNow()));
@@ -316,7 +319,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/vehicles") {
       return json(route, [{ id: VEHICLE_ID, vin: "SAMPLE0000000001", name: "Sample R1S", model: "R1S", pack_kwh: 135 }]);
     }
-    if ((chargeCase || parkedCase) && p === "/api/settings/ambient-temp") return json(route, { enabled: true });
+    if ((chargeCase || parkedCase || driveCase) && p === "/api/settings/ambient-temp") return json(route, { enabled: true });
     if (p === `/api/vehicles/${VEHICLE_ID}/now`) {
       if (!nowEndpoint) return json(route, { error: "not stubbed" }, 404);
       const st = scenario === "charging" ? "charging" : scenario === "driving" ? "driving" : scenario === "asleep" ? "asleep" : "parked";
@@ -324,7 +327,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: st,
         state_since: parkedFix ? (scenario === "parked" && parkedFix.wakes.length ? parkedFix.wakes[parkedFix.wakes.length - 1].t : parkedFix.parked_since) : iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0,
         charge: scenario === "charging" ? { started_at: iso(chargeCase ? chargeCase.elapsedMin * 60_000 : 3_600_000), soc_start: chargeCase ? Math.round(chargeCase.soc(0)) : 40, peak_kw: 11, ...(chargeCase ? { cost: Math.round((chargeCase.soc(chargeCase.elapsedMin) - chargeCase.soc(0)) * 1.35 * (chargeCase.kw(0) >= 50 ? 0.48 : 0.15) * 100) / 100, currency: "USD", cost_is_estimate: true } : {}) } : null,
-        ...((chargeCase && scenario === "charging") || parkedFix ? { ambient: { temp_c: 12 } } : {}),
+        ...((chargeCase && scenario === "charging") || (driveCase && scenario === "driving") || parkedFix ? { ambient: { temp_c: 12 } } : {}),
       });
     }
     // This week's short sleeps against the truck's own last 30 days: 9 against a usual 5.
@@ -364,6 +367,10 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       // A truck that is asleep sends no frames: its last one is when the open sleep began, which is the time the chip says.
       const openSleep = scenario === "asleep" ? parkedFix?.sleeps.find((x) => x.open) : null;
       if (openSleep) st.at = openSleep.from;
+      if (driveCase && scenario === "driving") {
+        const m = driveCase.elapsedMin;
+        Object.assign(st, { speed_kph: driveCase.mph(m) * 1.609344, battery_level_pct: driveCase.soc(m) });
+      }
       if (chargeCase && scenario === "charging") {
         const m = chargeCase.elapsedMin;
         Object.assign(st, { battery_level_pct: chargeCase.soc(m), charger_power_kw: chargeCase.kw(m), charge_target_pct: chargeCase.targetPct ?? 80 });
@@ -382,12 +389,12 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === `/api/live-destination/${VEHICLE_ID}`) {
       if (!liveDestination) return json(route, { error: "not found" }, 404);
       if (liveDestination === "none") return route.fulfill({ status: 204 });
-      return json(route, { name: "Test Depot", lat: 40.3, lon: -100.45, eta: new Date(Date.now() + 1_500_000).toISOString(), miles_left: 12.4, route: "_srtkA~lyh~D_cmA~hbE_etB~s`B", route_precision: 6 });
+      return json(route, { name: "Test Depot", lat: 40.3, lon: -100.45, eta: iso(-1_500_000), miles_left: 12.4, route: "_srtkA~lyh~D_cmA~hbE_etB~s`B", route_precision: 6 });
     }
     if (p === `/api/live-drive/${VEHICLE_ID}`) {
       if (scenario !== "driving") return route.fulfill({ status: 204 });
       return json(route, {
-        vehicle_id: VEHICLE_ID, number: 1, started_at: iso(600_000), ended_at: iso(0), elapsed_sec: 600,
+        vehicle_id: VEHICLE_ID, number: 1, started_at: iso(driveCase ? driveCase.elapsedMin * 60_000 : 600_000), ended_at: iso(0), elapsed_sec: driveCase ? driveCase.elapsedMin * 60 : 600,
         start_soc_pct: 60, end_soc_pct: 58, soc_used_pct: 2, start_odometer_mi: 12_417, end_odometer_mi: 12_427,
         distance_mi: 10, max_speed_mph: 62, avg_speed_mph: 40, energy_used_kwh: 2.7, mi_per_kwh: 3.7, pack_kwh: 135,
       });
@@ -449,6 +456,15 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         for (let t = Math.max(since, start), i = 0; t <= Math.min(until, now) && i < 2000; t += 30_000, i++) {
           const m = (t - start) / 60_000;
           out.push({ VehicleID: VEHICLE_ID, At: new Date(t).toISOString(), BatteryLevelPct: chargeCase.soc(m), RangeMi: 200, OdometerMi: 1000, ChargeLimitPct: chargeCase.targetPct ?? 80, InsideTempC: 20, OutsideTempC: 12, Source: "live", Lat: 40, Lon: -100, SpeedMph: 0, ShiftState: "P", ChargingState: "charging_active", ChargerPowerKW: chargeCase.kw(m), pack_temp_avg_c: 30 });
+        }
+        return json(route, out);
+      }
+      if (driveCase && scenario === "driving") {
+        const now = e2eNow();
+        const start = now - driveCase.elapsedMin * 60_000;
+        for (let t = Math.max(since, start), i = 0; t <= Math.min(until, now) && i < 2000; t += 10_000, i++) {
+          const m = (t - start) / 60_000;
+          out.push({ VehicleID: VEHICLE_ID, At: new Date(t).toISOString(), BatteryLevelPct: driveCase.soc(m), RangeMi: 200, OdometerMi: 1000 + m, ChargeLimitPct: 80, InsideTempC: 20, OutsideTempC: 12, Source: "live", Lat: 40.2 + m * 0.002, Lon: -100.3 + m * 0.002, SpeedMph: driveCase.mph(m), ShiftState: "D", ChargingState: "", ChargerPowerKW: 0 });
         }
         return json(route, out);
       }

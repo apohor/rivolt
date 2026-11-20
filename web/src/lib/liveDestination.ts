@@ -27,3 +27,11 @@ function distanceLeft(miles: number, unit: DistanceUnit): string {
   const v = unit === "km" ? miles * KM_PER_MI : miles;
   return `${v < 10 ? v.toFixed(1) : String(Math.round(v))} ${unit}`;
 }
+
+// destinationShort is the one line on the Now card's drive graph: "12 mi to Work · arrive 5:40 PM" (no distance when unknown).
+export function destinationShort(d: LiveDestination, unit: DistanceUnit): string {
+  const eta = new Date(d.eta);
+  const arrive = Number.isFinite(eta.getTime()) ? eta.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: displayTimeZone() }) : "";
+  const left = typeof d.miles_left === "number" && Number.isFinite(d.miles_left) && d.miles_left >= 0 ? distanceLeft(d.miles_left, unit) : "";
+  return [left ? `${left} to ${d.name}` : `To ${d.name}`, arrive ? `arrive ${arrive}` : ""].filter(Boolean).join(" · ");
+}
