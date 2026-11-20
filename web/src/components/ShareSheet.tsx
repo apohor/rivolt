@@ -176,7 +176,7 @@ export function ShareSheet({
           </label>
         )}
         {withMapToggle && includeMap && mapFailed && (
-          <p role="status" className="text-xs text-amber-300">
+          <p aria-live="polite" className="text-xs text-amber-300">
             Map unavailable. The card shows the route as a line.
           </p>
         )}
