@@ -63,6 +63,14 @@ struct HomeView: View {
     /// The charging graph on the Now card (design_preview key now_charge_graph, with the calm Now and the slot; on the web the same key).
     private var chargeGraphOn: Bool { tidy && slotOn && state.designPreview.contains("now_charge_graph") }
     @State private var chargeSeries = NowChargeSeriesModel()
+    /// The parked graph on the Now card (design_preview key now_parked_graph, with the calm Now and the slot; on the web the same key).
+    private var parkedGraphOn: Bool { tidy && slotOn && state.designPreview.contains("now_parked_graph") }
+    @State private var parkedSeries = NowParkedSeriesModel()
+    /// A parked, plugged or sleeping truck: the states the graph is for.
+    private var parkedKind: Bool {
+        let s = NowSummary(state: vehicleState, now: now, clock: .now)
+        return [.parked, .plugged, .asleep].contains(s.kind) || s.sleeping
+    }
     /// When the open charge began, only while one is open: what the graph reads from.
     private var chargeSampleStart: Date? {
         let s = NowSummary(state: vehicleState, now: now, clock: .now)
@@ -108,7 +116,7 @@ struct HomeView: View {
                                         slotOn: slotOn, snapshot: now, truckFix: vehicleState?.coordinate, home: slotHome,
                                         gear: vehicleState?.gear, driveMode: vehicleState?.driveMode,
                                         tidy: tidy, chip: tidy ? chipText : nil, chipTone: chipTone, destination: fresh ? liveDestination : nil,
-                                        chargeSeries: chargeGraphOn && chargeSeries.matches(vehicleID: selected?.id, startedAt: chargeSampleStart) ? chargeSeries : nil)
+                                        chargeSeries: chargeGraphOn && chargeSeries.matches(vehicleID: selected?.id, startedAt: chargeSampleStart) ? chargeSeries : nil, parkedSeries: parkedGraphOn ? parkedSeries : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -189,6 +197,14 @@ struct HomeView: View {
                 while !Task.isCancelled {
                     await chargeSeries.load(source: state.client, vehicleID: id, startedAt: started)
                     try? await Task.sleep(for: .seconds(NowChargeSeriesModel.refresh))
+                }
+            }
+            // The parked graph's series, read again every minute while this tab and the app are in front and the truck is parked.
+            .task(id: "\(parkedGraphOn)|\(parkedKind)|\(selectedID)|\(tabActive)|\(scenePhase == .active)") {
+                guard parkedGraphOn, parkedKind, tabActive, scenePhase == .active, let id = selected?.id else { parkedSeries.clear(); return }
+                while !Task.isCancelled {
+                    await parkedSeries.load(source: state.client, vehicleID: id)
+                    try? await Task.sleep(for: .seconds(NowParkedSeriesModel.refresh))
                 }
             }
             // "Offline" waits for a recent read: if the last one is old (the app was away), ask the server once first.
@@ -289,11 +305,19 @@ struct HomeView: View {
     /// The truck's state beside the title, once there is something to say (never "Live": that is the hero's button).
     private var chipText: String? {
         guard vehicleState != nil || now != nil else { return nil }
-        return NowChip.text(for: freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now), clock: .now)
+        return NowChip.text(for: chipSummary, clock: .now)
+    }
+
+    /// The summary the chip speaks for: a parked truck takes the parked graph's own parked-since, so the chip, the graph's pill and its header say
+    /// one parked time (the state run restarts at every wake-up).
+    private var chipSummary: NowSummary {
+        var s = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
+        if parkedGraphOn, s.kind == .parked, let since = parkedSeries.series?.parkedSince { s.since = since }
+        return s
     }
 
     private var chipTone: ThemePill.Tone {
-        let s = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
+        let s = chipSummary
         if s.kind == .charging, s.presence != .offline { return .live }
         return NowCard.pill(for: s, clock: .now).tone
     }

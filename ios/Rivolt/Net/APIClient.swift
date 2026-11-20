@@ -428,6 +428,12 @@ actor APIClient {
         try await optional("/api/vehicles/\(pathID(vehicleID))/drain")
     }
 
+    /// The last 24 hours of battery with the sleeps and wake-ups, for the Now card's parked graph (design_preview key now_parked_graph). The
+    /// server works every figure out; `tz` is the zone it counts "today" and 08:00 in. Nil from an older server without the endpoint.
+    func parkedSeries(vehicleID: String, tz: String) async throws -> ParkedSeries? {
+        try await optional("/api/vehicles/\(pathID(vehicleID))/parked-series?tz=\(queryValue(tz))")
+    }
+
     /// This week's short sleeps against the truck's own last 30 days; nil from an older server without the endpoint.
     func sleepHealth(vehicleID: String) async throws -> SleepHealth? {
         try await optional("/api/vehicles/\(pathID(vehicleID))/sleep-health")
@@ -917,6 +923,7 @@ enum AnyJSON: Encodable {
 
 extension APIClient: ChartsSource {}
 extension APIClient: ChargeSamplesSource {}
+extension APIClient: ParkedSeriesSource {}
 extension APIClient: ChargeRowSource {}
 extension APIClient: ChargingRatesSource {}
 extension APIClient: ChargingSettingsSource {}

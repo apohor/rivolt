@@ -79,7 +79,7 @@ struct NowSlotModel: Equatable {
     /// Nil when the state has no slot, so the picture stays: charging without a power reading, driving without a speed, parked without a fix.
     static func make(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, liveDrive: LiveDrive?,
                      fix: (lat: Double, lon: Double)?, home: Home?, gear: String? = nil, mode: String? = nil,
-                     soft: Bool = false, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
+                     soft: Bool = false, parkedGraph: Bool = false, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
         let atHome = home != nil && fix != nil && ChargerPin.distanceM(home!.lat, home!.lon, fix!.lat, fix!.lon) <= homeRadiusM
         switch summary.kind {
         case .charging:
@@ -103,7 +103,8 @@ struct NowSlotModel: Equatable {
             var sleep: [Stat] = []
             if summary.kind == .asleep {
                 if let since = snapshot?.asleepSince, clock >= since { sleep.append(Stat(label: "Asleep for", value: NowFormat.duration(clock.timeIntervalSince(since)), note: nil)) }
-                if let today = snapshot?.asleepTodayS, today >= 0 { sleep.append(Stat(label: "Asleep today", value: NowFormat.duration(today), note: nil)) }
+                // With the parked graph the figure is one of its tiles, so the slot does not say it twice.
+                if !parkedGraph, let today = snapshot?.asleepTodayS, today >= 0 { sleep.append(Stat(label: "Asleep today", value: NowFormat.duration(today), note: nil)) }
             }
             return NowSlotModel(content: .parked(lat: fix.lat, lon: fix.lon, label: atHome ? (home?.label ?? "Home") : nil, weather: weather), sleep: sleep)
         default:
