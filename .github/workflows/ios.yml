@@ -113,7 +113,6 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath "$RUNNER_TEMP/ios.xcresult" \
             -derivedDataPath "$RUNNER_TEMP/dd" \
-            ${{ matrix.select }} \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY=- \
             DEVELOPMENT_TEAM= \
@@ -227,6 +226,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath "$RUNNER_TEMP/ui.xcresult" \
             -derivedDataPath "$RUNNER_TEMP/dd" \
+            ${{ matrix.select }} \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY=- \
             DEVELOPMENT_TEAM= \
