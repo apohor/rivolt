@@ -514,7 +514,7 @@ struct NowCard: View {
             if !v2, let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
             if !v2, let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", t) }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
-                readout("Added", "\(NowFormat.oneDecimal(added / 100 * pack)) kWh est.")
+                readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
             }
             if let cost = ChargingDetail.make(summary: summary, session: session, charge: charge)?.cost {
                 readout("Cost so far", NowFormat.costText(cost))

@@ -212,13 +212,20 @@ struct NowChargeGraph: View {
         if m.estimate != nil { taken.append(Box(x0: pillLeft, x1: w - padR, y0: pillMidY - 10, y1: pillMidY + 10)) }
         if let end { taken.append(Box(x0: end.x - 12, x1: end.x + 12, y0: end.y - 12, y1: end.y + 12)) }
         let powTop = (pow.count > 1 ? pow.map(\.y).min() : nil).map { $0 - 8 } ?? last.y
-        let spots: [(CGFloat, CGFloat, Bool)] = [
+        // First choice, as the web's: above its own line, left of the dot, ending where the line has risen to that spot's height, so it reads as the pack's.
+        func packYAt(_ x: CGFloat) -> CGFloat {
+            for i in 1..<pack.count where pack[i].x >= x {
+                return pack[i - 1].y + (pack[i].y - pack[i - 1].y) * (x - pack[i - 1].x) / max(1, pack[i].x - pack[i - 1].x)
+            }
+            return last.y
+        }
+        let spots: [(CGFloat, CGFloat, Bool)] = [28, 48, 72, 100].map { (last.x - $0, packYAt(last.x - $0) - 9, false) } + [
             (last.x - 10, last.y - 10, false), (last.x - 10, last.y + 18, false), (last.x + 10, last.y + 4, true), (last.x + 10, last.y - 10, true),
             (last.x + 10, last.y + 18, true), (last.x - 56, last.y - 10, false), (last.x - 56, last.y + 18, false), (last.x - 110, last.y - 10, false),
             (last.x - 110, last.y + 18, false), (last.x - 10, powTop, false), (last.x - 70, powTop, false),
         ]
         // Each line on its own (no joins between battery, pack and the dotted way on), the dotted way as a straight run from "now" to the end dot.
-        let estimateLine: [CGPoint] = end.map { e in stride(from: 0.0, through: 1.0, by: 0.125).map { CGPoint(x: last.x + (e.x - last.x) * $0, y: last.y + (e.y - last.y) * $0) } } ?? []
+        let estimateLine: [CGPoint] = end.map { e in stride(from: 0.0, through: 1.0, by: 0.125).map { CGPoint(x: now.x + (e.x - now.x) * $0, y: now.y + (e.y - now.y) * $0) } } ?? []
         func onLine(_ b: Box) -> Bool {
             for line in [soc, pack, estimateLine] {
                 for (i, p) in line.enumerated() {
@@ -234,7 +241,9 @@ struct NowChargeGraph: View {
         }
         for (x, y, leading) in spots {
             let b = box(x: x, y: y, tw: tw, leading: leading)
-            let clear = b.x0 >= padL && b.x1 <= w - padR && b.y0 >= 0 && b.y1 <= base + 2
+            // Well apart from the now value: 24 pt across or 14 pt up and down, so the two numbers never read as one.
+            let apart = b.x0 > nowBox.x1 + 24 || b.x1 < nowBox.x0 - 24 || b.y0 > nowBox.y1 + 14 || b.y1 < nowBox.y0 - 14
+            let clear = apart && b.x0 >= padL && b.x1 <= w - padR && b.y0 >= 0 && b.y1 <= base + 2
                 && !taken.contains { b.x0 < $0.x1 + 3 && b.x1 > $0.x0 - 3 && b.y0 < $0.y1 + 2 && b.y1 > $0.y0 - 2 }
             if clear, !onLine(b) { return (x, y, leading) }
         }
