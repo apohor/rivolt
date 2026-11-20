@@ -172,11 +172,11 @@ export default function NowHeroV2({
       {soft && chip.includes(" · done by ") ? (
         // Under 431 px the chip drops the finish time (the card says it in its own line), so the Live button keeps the row; the iPhone does the same.
         <>
-          <span className="min-w-0 min-[431px]:hidden">{chip.slice(0, chip.indexOf(" · done by "))}</span>
-          <span className="min-w-0 max-[430px]:hidden">{chip}</span>
+          <span className="min-w-0 @[22rem]:truncate min-[431px]:hidden">{chip.slice(0, chip.indexOf(" · done by "))}</span>
+          <span className="min-w-0 @[22rem]:truncate max-[430px]:hidden">{chip}</span>
         </>
       ) : (
-        <span className={tidy ? (soft ? "min-w-0" : "min-w-0 truncate") : undefined}>{chip}</span>
+        <span className={tidy ? (soft ? "min-w-0 @[22rem]:truncate" : "min-w-0 truncate") : undefined}>{chip}</span>
       )}
     </span>
   );
@@ -235,7 +235,8 @@ export default function NowHeroV2({
           className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
         >
           {telemetryLink && <Link to="/live" aria-label="Full telemetry" className="absolute inset-0 z-0 rounded-2xl" />}
-          <div className="pointer-events-none relative z-10 mb-4 flex flex-wrap items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
+          <div className="@container pointer-events-none relative z-10 mb-4">
+            <div className="flex flex-wrap @[22rem]:flex-nowrap items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
             {chipEl}
             {telemetryLink && (
               <Link
@@ -250,6 +251,7 @@ export default function NowHeroV2({
                 </svg>
               </Link>
             )}
+          </div>
           </div>
           <div className="grid grid-cols-[minmax(0,1fr)] gap-y-4 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] min-[900px]:gap-x-10">
             <div className="pointer-events-none relative flex min-w-0 flex-wrap items-center gap-x-5 gap-y-3 min-[900px]:col-start-1">
