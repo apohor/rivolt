@@ -159,3 +159,20 @@ if (SHOTS) {
     });
   }
 }
+
+// The charging card: the conditions are one row with no "Next 3 h" line, at every width.
+for (const width of [320, 393, 1440]) {
+  test(`the conditions row is one row, no rain line, ${width} px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1900 });
+    await open(page, CASES.ac);
+    const row = page.getByTestId("now-temps");
+    await expect(row).toBeVisible();
+    await expect(page.locator("[data-now-v2]")).not.toContainText(/next 3 h/i);
+    const items = row.locator("> div");
+    expect(await items.count()).toBeGreaterThanOrEqual(2);
+    // The card settles as the weather and the cabin arrive: wait for the row, then check it.
+    await expect
+      .poll(async () => new Set(await items.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))).size)
+      .toBe(1);
+  });
+}

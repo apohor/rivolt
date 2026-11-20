@@ -331,3 +331,24 @@ test("without the key the parked card keeps its map and has no place line @webki
   await expect(page.getByTestId("now-parked-place")).toHaveCount(0);
   await expect(page.getByTestId("now-parked-graph")).toHaveCount(0);
 });
+
+// The weather row is Cabin, Outside and Wind in one row, with no "Next 3 h" and nothing alone on a second row, at every width.
+for (const width of [320, 393, 1440]) {
+  test(`the conditions row is one row, no rain line, ${width} px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1900 });
+    await open(page, "overnight");
+    const row = page.getByTestId("now-temps");
+    await expect(row).toBeVisible();
+    await expect(row).not.toContainText("Next 3 h");
+    await expect(page.locator("[data-now-v2]")).not.toContainText(/next 3 h/i);
+    const items = row.locator("> div");
+    expect(await items.count()).toBeGreaterThanOrEqual(2);
+    // The card settles as the weather and the cabin arrive: wait for the row, then check it.
+    await expect
+      .poll(async () => new Set(await items.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))).size)
+      .toBe(1);
+    const box = (await row.boundingBox())!;
+    const right = await items.evaluateAll((els) => Math.max(...els.map((e) => e.getBoundingClientRect().right)));
+    expect(right).toBeLessThanOrEqual(box.x + box.width + 1);
+  });
+}
