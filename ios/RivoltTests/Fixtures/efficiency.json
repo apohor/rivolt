@@ -15,7 +15,7 @@
   "by_temperature": [
     {
       "key": "below_0c",
-      "label": "Below 32 °F",
+      "label": "Below 32°F",
       "distance": 0,
       "energy_kwh": 0,
       "efficiency": null,
@@ -24,7 +24,7 @@
     },
     {
       "key": "0_10c",
-      "label": "32–50 °F",
+      "label": "32–50°F",
       "distance": 42,
       "energy_kwh": 17.5,
       "efficiency": 2.4,
@@ -33,7 +33,7 @@
     },
     {
       "key": "10_20c",
-      "label": "50–68 °F",
+      "label": "50–68°F",
       "distance": 93,
       "energy_kwh": 33.3,
       "efficiency": 2.79,
@@ -42,7 +42,7 @@
     },
     {
       "key": "20_30c",
-      "label": "68–86 °F",
+      "label": "68–86°F",
       "distance": 73,
       "energy_kwh": 25.8,
       "efficiency": 2.83,
@@ -51,7 +51,7 @@
     },
     {
       "key": "30c_up",
-      "label": "86 °F and above",
+      "label": "86°F and above",
       "distance": 3,
       "energy_kwh": 1.4,
       "efficiency": 2.14,

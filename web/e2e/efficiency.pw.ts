@@ -15,7 +15,7 @@ const b = (key: string, label: string, eff: number | null, drives: number, o: Re
 const FULL = {
   units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", min_bucket_distance: 25,
   total: b("total", "All drives", 2.31, 34),
-  by_temperature: [b("lt32", "Below 32 °F", 1.62, 6), b("32_50", "32–50 °F", 1.95, 8), b("50_68", "50–68 °F", 2.28, 9), b("68_86", "68–86 °F", 2.52, 8), b("gt86", "Above 86 °F", 2.4, 1)],
+  by_temperature: [b("lt32", "Below 32°F", 1.62, 6), b("32_50", "32–50°F", 1.95, 8), b("50_68", "50–68°F", 2.28, 9), b("68_86", "68–86°F", 2.52, 8), b("gt86", "Above 86°F", 2.4, 1)],
   by_speed: [b("city", "City (under 35 mph)", 2.6, 7), b("suburb", "Suburban (35–55 mph)", 2.45, 10), b("highway", "Highway (55–70 mph)", 2.15, 9), b("fast", "Fast (70+ mph)", null, 0)],
   by_drive_mode: [b("everyday", "All-Purpose", 2.38, 20), b("conserve", "Conserve", 2.62, 9), b("sport", "Sport", 2.1, 1)],
   excluded: { no_energy: 2, duplicates: 0, no_temperature: 1, no_drive_mode: 0 },
@@ -47,7 +47,7 @@ for (const theme of ["dark", "light"] as const) {
       expect(await page.locator("[data-eff-chart]").nth(0).locator("[data-eff-bar][data-thin]").count()).toBe(1);
       expect(await page.locator("[data-eff-chart]").nth(1).locator("[data-eff-empty]").count()).toBe(1);
       await expect(page.locator("[data-eff-chart]").nth(1).locator("[data-eff-avg]")).toBeVisible();
-      await expect(page.locator("[data-eff-chart]").nth(0).locator("li").first()).toHaveAttribute("aria-label", /Below 32 °F: 1\.62 mi\/kWh, 6 drives/);
+      await expect(page.locator("[data-eff-chart]").nth(0).locator("li").first()).toHaveAttribute("aria-label", /Below 32°F: 1\.62 mi\/kWh, 6 drives/);
       // Labels come from the server, split into a name and a range for the speed bands.
       await expect(page.locator("[data-eff-chart]").nth(1)).toContainText("Highway");
       await expect(page.locator("[data-eff-chart]").nth(1)).toContainText("55–70 mph");

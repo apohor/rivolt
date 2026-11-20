@@ -30,7 +30,7 @@ final class EfficiencyTests: XCTestCase {
         XCTAssertEqual(EfficiencyLogic.best(e.byTemperature), e.byTemperature[3].key)
         XCTAssertEqual(EfficiencyLogic.split("Highway (55–70 mph)").main, "Highway")
         XCTAssertEqual(EfficiencyLogic.split("Highway (55–70 mph)").sub, "55–70 mph")
-        XCTAssertEqual(EfficiencyLogic.split("32–50 °F").main, "32–50 °F")
+        XCTAssertEqual(EfficiencyLogic.split("32–50°F").main, "32–50°F")
         XCTAssertEqual(EfficiencyLogic.notEnough(e, month: "October 2026"),
                        "Not enough data yet for October 2026: efficiency needs drives with recorded energy, at least 25 mi.")
     }
@@ -50,7 +50,7 @@ final class EfficiencyTests: XCTestCase {
 
     func testVoiceOverSaysThinBestAndNoData() throws {
         let t = try fixture().byTemperature
-        XCTAssertEqual(EfficiencyLogic.spoken(t[0], unit: "mi/kWh", best: false), "Below 32 °F: no data")
+        XCTAssertEqual(EfficiencyLogic.spoken(t[0], unit: "mi/kWh", best: false), "Below 32°F: no data")
         XCTAssertTrue(EfficiencyLogic.spoken(t[4], unit: "mi/kWh", best: false).contains("thin"))
         let best = EfficiencyLogic.spoken(t[3], unit: "mi/kWh", best: true)
         XCTAssertTrue(best.hasSuffix(", best"), best)
