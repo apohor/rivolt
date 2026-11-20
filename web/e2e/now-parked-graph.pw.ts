@@ -173,6 +173,29 @@ test("an older server without the endpoint leaves the card as it was @webkit", a
   await expect(page.getByTestId("now-parked-graph")).toHaveCount(0);
 });
 
+// #2326: at 320 px and 200% text the hero wraps; the chip keeps its words and the range keeps its label inside the card.
+test("the hero wraps at 320 px and 200% text: the chip's words and the range label stay inside the card", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 1700 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, "overnight");
+  await page.addStyleTag({ content: "html{font-size:200%}" });
+  // The parked chip shows its time once the series has answered.
+  await expect(page.getByTestId("now-pill")).toContainText("since");
+  const clipped = await page.evaluate(() => {
+    const card = document.querySelector("[data-now-v2]")!.getBoundingClientRect();
+    const chip = document.querySelector("[data-now-chip]")!;
+    const range = [...document.querySelectorAll("[data-now-v2] span")].find((e) => e.textContent === "range")!;
+    const inside = (e: Element) => e.getBoundingClientRect().right <= card.right + 0.5;
+    const cut = [...chip.querySelectorAll("span")].some((e) => e.scrollWidth > e.clientWidth + 1);
+    return { chipCut: cut, chipIn: inside(chip), rangeIn: inside(range), chipText: chip.textContent };
+  });
+  expect(clipped.chipCut).toBe(false);
+  expect(clipped.chipIn).toBe(true);
+  expect(clipped.rangeIn).toBe(true);
+  expect(clipped.chipText).toContain("since");
+  await ctx.close();
+});
+
 test("key off: no graph and no request @webkit", async ({ page }) => {
   const seen: string[] = [];
   page.on("request", (r) => seen.push(new URL(r.url()).pathname));
