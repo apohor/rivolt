@@ -135,6 +135,8 @@ type planWaypoint struct {
 	ArrivalTimeUTC    string
 	DepartureTimeUTC  string
 	Source            string
+	// DistanceFromOriginMeters is read by the receipt only, never by the snapshot.
+	DistanceFromOriginMeters float64
 }
 
 // plan is the part of the stored plan envelope that is read.
