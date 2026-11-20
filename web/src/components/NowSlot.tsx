@@ -2,7 +2,6 @@ import { chargeFinishMs, clock, type NowView } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
 import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../lib/preferences";
-import { usePackTemp } from "./NowChargeGraph";
 import { ParkedMap } from "../map/ParkedMap";
 import { inDemo } from "../lib/demo";
 
@@ -40,8 +39,6 @@ export type SlotInput = {
   soft?: boolean;
   // Design "now_drive_graph": the figures sit in the left half beside the graph, two to a row at every width.
   half?: boolean;
-  // Design "now_charge_graph": the pack's temperature (°C) from the newest stored sample, only while it is recent; shown beside the power figure.
-  packC?: number | null;
 };
 export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
@@ -292,20 +289,17 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, pla
 // Null when the state has no slot, so the picture stays.
 export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
-  const packC = usePackTemp(nowMs);
   if (!slotAvailable(view, i.fix ?? null)) return null;
   if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} placeText={i.placeText ?? null} noMap={i.noMap ?? false} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
-  const stats = slotStats({ ...i, packC });
+  const stats = slotStats(i);
   let big = "";
   let bigUnit = "";
   let sub: string | null = null;
   let small: string | null = null;
   const chips: React.ReactNode[] = [];
-  let pack: string | null = null;
   if (view.kind === "charging" && view.powerKw != null) {
     big = view.powerKw.toFixed(view.powerKw < 10 ? 1 : 0);
     bigUnit = "kW";
-    if (i.soft && packC != null) pack = formatTemperature(packC, i.tempUnit ?? "c");
     const label = view.chargeFlavor ? CHARGER[view.chargeFlavor] : null;
     if (label) chips.push(<Chip key="c" tone="green" testid="now-slot-charger">{label}</Chip>);
     if (view.etaHours != null) {
@@ -328,12 +322,6 @@ export default function NowSlot(i: SlotInput) {
       <p className="text-4xl font-semibold leading-none tabular-nums text-neutral-100" data-testid="now-slot-big">
         {big}
         <span className="ml-1 text-base font-normal text-neutral-400">{bigUnit}</span>
-        {pack && (
-          <span data-testid="now-slot-pack" className="ml-3 whitespace-nowrap align-baseline text-2xl font-semibold text-neutral-100">
-            {pack}
-            <span className="ml-1 text-base font-normal text-neutral-400">pack</span>
-          </span>
-        )}
         {chips}
       </p>
       {sub && <p className="mt-2 text-sm font-medium text-neutral-200" data-testid="now-slot-sub">{sub}</p>}

@@ -442,7 +442,7 @@ export default function NowCard({
           holdHeight={holdHeight}
           holdPending={(parkedKindOn && parkedWaiting) || (driveGraphOn && (drivePending || driveQ.isPending))}
           soft={soft || parkedSeries != null || driveFrame}
-          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} powerKw={view.powerKw} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveFrame ? <DriveGraph series={driveSeries} startedMs={driveStartedMs} nowMs={nowMs} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} powerKw={view.powerKw} tempUnit={temperatureUnit} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveFrame ? <DriveGraph series={driveSeries} startedMs={driveStartedMs} nowMs={nowMs} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
           parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
           tidy={tidy}
           nowMs={nowMs}

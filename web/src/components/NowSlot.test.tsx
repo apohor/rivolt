@@ -60,9 +60,6 @@ describe("NowSlot", () => {
     const charge = { started_at: "2026-01-01T11:00:00Z", soc_start: 40 };
     // 20 points of 60 at 150 mi: 50 mi, over the hour since the start.
     const est = slotStats(base(v, { charge }));
-    // The pack's temperature sits beside the power figure, never as a row.
-    expect(slotStats(base(v, { soft: true, packC: 30, tempUnit: "f", charge })).some((r) => r.k === "Pack temperature")).toBe(false);
-
     expect(est.find((s) => s.k === "Range added")?.v).toBe("≈ +50.0 mi");
     expect(est.find((s) => s.k === "Rate")?.v).toBe("≈ 50.0 mi/h");
     const zero = slotStats(base(v, { charge, session: { ...session, range_added_km: 0, kilometers_charged_per_hour: 0 } }));

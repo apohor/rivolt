@@ -51,7 +51,9 @@ export function useOpenChargeSeries(vehicleId: string, enabled = true) {
     // The pack's cell temperature: absent or 0 on a row recorded while the car slept (the charge page drops the same sentinel).
     const withPack = rows.filter((p) => Number.isFinite(p.pack_temp_avg_c) && (p.pack_temp_avg_c ?? 0) !== 0);
     const last = withPack[withPack.length - 1];
-    return { soc, power, startPct, pack: last ? { avg: last.pack_temp_avg_c as number, min: last.pack_temp_min_c, max: last.pack_temp_max_c, at: new Date(last.At).getTime() } : null };
+    // The same readings as a line over the session (the Now card's graph draws it); the live page does not.
+    const packLine = withPack.map((p) => ({ x: at(p), y: p.pack_temp_avg_c as number }));
+    return { soc, power, startPct, packLine, pack: last ? { avg: last.pack_temp_avg_c as number, min: last.pack_temp_min_c, max: last.pack_temp_max_c, at: new Date(last.At).getTime() } : null };
   }, [samples.data, startedMs]);
 
   // Still on its way: the open charge, or its samples, not answered yet.
