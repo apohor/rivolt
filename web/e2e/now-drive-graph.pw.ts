@@ -23,7 +23,7 @@ test("a drive in progress draws the speed and the battery from its start @webkit
   await open(page, CASES.middle);
   const g = page.getByTestId("now-drive-graph");
   await expect(g).toBeVisible();
-  await expect(g).toContainText("Speed while driving");
+  await expect(g).toContainText("This drive");
   await expect(g.getByTestId("now-drive-change")).toHaveText(/^−\d+%\s*since \d{1,2}:\d{2}/);
   await expect(g.locator("svg")).toHaveAttribute("aria-label", /Speed since \d{1,2}:\d{2}.*now, top \d+ mph/);
   await expect(g).toContainText("Speed (mph)");
@@ -64,6 +64,16 @@ test("with a destination or without, the graph and the slot do not overlap @webk
     const apart = g!.y + g!.height <= s!.y + 1 || s!.y + s!.height <= g!.y + 1 || g!.x + g!.width <= s!.x + 1 || s!.x + s!.width <= g!.x + 1;
     expect(apart).toBe(true);
   }
+});
+
+test("the destination is said near the header only when the trip has one, and Cabin and Outside both show @webkit", async ({ page }) => {
+  await open(page, CASES.middle, KEYS, "trip");
+  await expect(page.getByTestId("now-drive-dest")).toHaveText(/^12 mi to Test Depot · arrive \d{1,2}:\d{2}/);
+  await expect(page.getByTestId("now-cond-cabin")).toBeVisible();
+  await expect(page.getByTestId("now-cond-outside")).toBeVisible();
+  await open(page, CASES.middle, KEYS, "none");
+  await expect(page.getByTestId("now-drive-graph")).toBeVisible();
+  await expect(page.getByTestId("now-drive-dest")).toHaveCount(0);
 });
 
 if (SHOTS) {

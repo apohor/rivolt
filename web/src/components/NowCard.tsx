@@ -24,7 +24,7 @@ import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
 import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
-import { DriveGraph, useDriveSeries } from "./DriveGraph";
+import { DriveGraph, useDriveDestination, useDriveSeries } from "./DriveGraph";
 import { ParkedGraph, ParkedRows, useParkedSeries } from "./ParkedGraph";
 import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
@@ -240,6 +240,7 @@ export default function NowCard({
   // Design "now_drive_graph" (with now_slot and now_tidy), driving: the speed from the start of the drive to now, the battery as a second line, read from
   // the stored samples at the card's own pace. Too short a drive: no graph, and the card is as it was.
   const driveGraphOn = useDesignPreview("now_drive_graph") && slotOn && tidy && view?.kind === "driving";
+  const driveDest = useDriveDestination(vehicleID, driveGraphOn);
   const driveSeries = useDriveSeries(vehicleID, driveGraphOn, driveQ.data ? Date.parse(driveQ.data.started_at) : NaN, stateRefetchMs(stateQ.data));
   // The chip, the graph's pill and its header say one parked time. The state run restarts at every wake-up, so a parked truck's chip
   // takes the server's own parked-since from the series when it has one, and shows no time until the series has answered (or failed, or taken
@@ -328,6 +329,7 @@ export default function NowCard({
       fix={fix}
       tidy={tidy}
       soft={soft}
+      half={driveSeries != null}
       asleep={view.kind === "asleep" ? { since: server?.asleep_since ?? null, todayS: server?.asleep_today_s ?? null } : null}
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
@@ -368,7 +370,7 @@ export default function NowCard({
           stateSlot={showSlot ? slotNode : null}
           chip={nowChip(chipView ?? view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot && !soft)}
           soft={soft || parkedSeries != null || driveSeries != null}
-          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveSeries ? <DriveGraph series={driveSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : null}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveSeries ? <DriveGraph series={driveSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
           parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
           tidy={tidy}
           nowMs={nowMs}

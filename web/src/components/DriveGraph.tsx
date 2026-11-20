@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { backend, DETAIL_SAMPLE_LIMIT, type Sample } from "../lib/api";
 import { clock } from "../lib/nowState";
 import { smoothGaussianTime } from "../lib/smooth";
+import { destinationShort, type LiveDestination } from "../lib/liveDestination";
 import { forVehicle } from "../lib/vehicleSamples";
 import { GraphHead, HaloDot, Legend, QuietLine, SoftDefs, SoftFill, SoftLine, softPath, thin, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
 
@@ -16,11 +17,33 @@ const MPH_TO_KMH = 1.609344;
 
 export type DriveSeries = { speed: Pt[]; soc: Pt[]; startPct: number | null; startedMs: number };
 
+// At most SERIES_POINTS readings, evenly spaced in time (read off the smoothed line, the last one exactly), so the curve through them has no
+// bunches of close readings to kink on; a short series is kept as it is.
+const SERIES_POINTS = 36;
+function evenly(pts: Pt[]): Pt[] {
+  if (pts.length <= SERIES_POINTS) return pts;
+  const x0 = pts[0].x;
+  const x1 = pts[pts.length - 1].x;
+  const out: Pt[] = [];
+  let j = 0;
+  for (let i = 0; i < SERIES_POINTS; i++) {
+    const x = i === SERIES_POINTS - 1 ? x1 : x0 + ((x1 - x0) * i) / (SERIES_POINTS - 1);
+    while (j < pts.length - 2 && pts[j + 1].x < x) j++;
+    const a = pts[j];
+    const b = pts[j + 1];
+    out.push({ x, y: b.x === a.x ? b.y : a.y + ((b.y - a.y) * Math.min(Math.max((x - a.x) / (b.x - a.x), 0), 1)) });
+  }
+  return out;
+}
+
 // The drive's series from its samples; null while there is not enough of a drive to draw.
 export function driveSeries(rows: Sample[], startedMs: number): DriveSeries | null {
   const at = (p: Sample) => new Date(p.At).getTime();
   const mine = rows.filter((p) => at(p) >= startedMs - 5_000);
-  const speed = smoothGaussianTime(mine.map((p) => ({ x: at(p), y: Math.max(p.SpeedMph || 0, 0) })), 12_000);
+  const raw = mine.map((p) => ({ x: at(p), y: Math.max(p.SpeedMph || 0, 0) }));
+  // The window grows with the drive (a thirtieth of it, 12 s to a minute), so a long drive is drawn as its shape and not as every reading's jitter.
+  const span = raw.length > 1 ? raw[raw.length - 1].x - raw[0].x : 0;
+  const speed = evenly(smoothGaussianTime(raw, Math.min(Math.max(span / 30, 12_000), 60_000)));
   const soc = smoothGaussianTime(mine.filter((p) => p.BatteryLevelPct > 0).map((p) => ({ x: at(p), y: p.BatteryLevelPct })), 30_000);
   const first = speed[0];
   const last = speed[speed.length - 1];
@@ -42,7 +65,23 @@ export function useDriveSeries(vehicleId: string, enabled: boolean, startedMs: n
   return useMemo(() => (on && q.data ? driveSeries(q.data, startedMs) : null), [on, q.data, startedMs]);
 }
 
-export function DriveGraph({ series, unit, nowPct }: { series: DriveSeries; unit: "mi" | "km"; nowPct: number | null }) {
+// Where the truck's own navigation is taking it (the endpoint's own answer: a 404 is off and nothing is shown, a 204 no trip). Read while the
+// drive is on screen and nothing is kept after.
+export function useDriveDestination(vehicleId: string, enabled: boolean): LiveDestination | null {
+  const q = useQuery<LiveDestination | null | "off">({
+    queryKey: ["live-destination", vehicleId],
+    enabled,
+    queryFn: () => backend.liveDestination(vehicleId),
+    refetchInterval: (query) => (query.state.data === "off" ? false : 10_000),
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    retry: false,
+    gcTime: 0,
+  });
+  return enabled && q.data && q.data !== "off" ? q.data : null;
+}
+
+export function DriveGraph({ series, unit, nowPct, destination = null }: { series: DriveSeries; unit: "mi" | "km"; nowPct: number | null; destination?: LiveDestination | null }) {
   const [ref, { w, h }] = useBox();
   const ink = useSoftInk();
   const id = useSoftId();
@@ -60,7 +99,7 @@ export function DriveGraph({ series, unit, nowPct }: { series: DriveSeries; unit
   const socLo = Math.min(...soc.map((p) => p.y), socHi);
   const socSpan = Math.max(socHi - socLo, 3);
   const ss = (v: number) => PAD.t + (1 - (v - (socLo - socSpan * 0.1)) / (socSpan * 1.2)) * (base - PAD.t);
-  const speedPts: Pt[] = thin(speed).map((p) => ({ x: sx(p.x), y: sv(p.y * k) }));
+  const speedPts: Pt[] = speed.map((p) => ({ x: sx(p.x), y: sv(p.y * k) }));
   const socPts: Pt[] = thin(soc).map((p) => ({ x: sx(p.x), y: ss(p.y) }));
   const line = softPath(speedPts);
   const lx = sx(last.x);
@@ -68,11 +107,15 @@ export function DriveGraph({ series, unit, nowPct }: { series: DriveSeries; unit
   const nowSpeed = Math.round(last.y * k);
   // The change is the card's own battery figure (the ring) against the first stored reading, as the charging graph does.
   const used = nowPct != null && nowPct > 0 && startPct != null ? Math.round(startPct) - Math.round(nowPct) : null;
-  const valueLeft = lx - PAD.l > 60;
 
   return (
     <div data-testid="now-drive-graph" className="flex min-w-0 flex-col min-[900px]:h-full">
-      <GraphHead title="Speed while driving" change={used != null && used > 0 ? `−${used}%` : null} since={`since ${clock(first.x)}`} testid="now-drive-change" />
+      <GraphHead title="This drive" change={used != null && used > 0 ? `−${used}%` : null} since={`since ${clock(first.x)}`} testid="now-drive-change" />
+      {destination && (
+        <p data-testid="now-drive-dest" className="mb-1 truncate text-sm text-neutral-300">
+          {destinationShort(destination, unit)}
+        </p>
+      )}
       <div ref={ref} className="h-[12rem] min-w-0 min-[900px]:h-auto min-[900px]:min-h-[14rem] min-[900px]:flex-1">
         {w > 0 && h > 0 && (
           <svg
@@ -88,9 +131,6 @@ export function DriveGraph({ series, unit, nowPct }: { series: DriveSeries; unit
             {socPts.length > 1 && <QuietLine d={softPath(socPts)} color={ink.quiet} />}
             <SoftLine id={id} d={line} color={ink.line} />
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
-            <text x={valueLeft ? lx - 10 : lx + 10} y={Math.max(ly - 12, 12)} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
-              {nowSpeed}
-            </text>
             <text x={PAD.l} y={h - 6} className="fill-neutral-500 text-xs">
               {w >= 260 ? `Left ${clock(series.startedMs)}` : clock(series.startedMs)}
             </text>

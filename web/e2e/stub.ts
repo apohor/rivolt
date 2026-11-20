@@ -319,7 +319,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     if (p === "/api/vehicles") {
       return json(route, [{ id: VEHICLE_ID, vin: "SAMPLE0000000001", name: "Sample R1S", model: "R1S", pack_kwh: 135 }]);
     }
-    if ((chargeCase || parkedCase) && p === "/api/settings/ambient-temp") return json(route, { enabled: true });
+    if ((chargeCase || parkedCase || driveCase) && p === "/api/settings/ambient-temp") return json(route, { enabled: true });
     if (p === `/api/vehicles/${VEHICLE_ID}/now`) {
       if (!nowEndpoint) return json(route, { error: "not stubbed" }, 404);
       const st = scenario === "charging" ? "charging" : scenario === "driving" ? "driving" : scenario === "asleep" ? "asleep" : "parked";
@@ -327,7 +327,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: st,
         state_since: parkedFix ? (scenario === "parked" && parkedFix.wakes.length ? parkedFix.wakes[parkedFix.wakes.length - 1].t : parkedFix.parked_since) : iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0,
         charge: scenario === "charging" ? { started_at: iso(chargeCase ? chargeCase.elapsedMin * 60_000 : 3_600_000), soc_start: chargeCase ? Math.round(chargeCase.soc(0)) : 40, peak_kw: 11, ...(chargeCase ? { cost: Math.round((chargeCase.soc(chargeCase.elapsedMin) - chargeCase.soc(0)) * 1.35 * (chargeCase.kw(0) >= 50 ? 0.48 : 0.15) * 100) / 100, currency: "USD", cost_is_estimate: true } : {}) } : null,
-        ...((chargeCase && scenario === "charging") || parkedFix ? { ambient: { temp_c: 12 } } : {}),
+        ...((chargeCase && scenario === "charging") || (driveCase && scenario === "driving") || parkedFix ? { ambient: { temp_c: 12 } } : {}),
       });
     }
     // This week's short sleeps against the truck's own last 30 days: 9 against a usual 5.
