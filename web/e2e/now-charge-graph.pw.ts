@@ -3,14 +3,14 @@ import { stubApi } from "./stub";
 
 // Design "now_charge_graph" (with now_slot): the Now card's charging slot draws the open charge so far (battery, power, the target, a dashed
 // estimate to it). Too few samples: a "collecting" line and no frame. Off, the card is as it was. SHOTS_DIR makes the image-gate shots.
-type Curve = { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number };
+type Curve = { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number; targetPct?: number };
 const CASES: Record<string, Curve> = {
   ac: { elapsedMin: 90, soc: (m) => 40 + m * 0.136, kw: () => 11 },
   dc: { elapsedMin: 25, soc: (m) => 15 + 40 * (1 - Math.exp(-m / 20)), kw: (m) => 190 * Math.exp(-m / 22) + 40 },
   slow: { elapsedMin: 30, soc: (m) => 40 + m * 0.09, kw: () => 4.8 },
   fresh: { elapsedMin: 1, soc: (m) => 40 + m * 0.136, kw: () => 11 },
-  // Three minutes in with 1 h 34 min left (a fast charger just plugged in), and a charge about to finish.
-  start: { elapsedMin: 3, soc: (m) => 33 + m * 0.2, kw: () => 40 },
+  // Three minutes in on a home charger with hours still to go (limit 60%), and a charge about to finish.
+  start: { elapsedMin: 3, soc: (m) => 33 + m * 0.136, kw: () => 11, targetPct: 60 },
   end: { elapsedMin: 80, soc: (m) => 40 + m * 0.45, kw: () => 11 },
   paused: { elapsedMin: 60, soc: (m) => 40 + Math.min(m, 30) * 0.136, kw: (m) => (m < 30 ? 11 : 0) },
 };
