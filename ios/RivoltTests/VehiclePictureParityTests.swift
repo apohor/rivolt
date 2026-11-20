@@ -1,7 +1,7 @@
 import XCTest
 @testable import Rivolt
 
-/// The Live picture's pick, one table for both platforms: `Fixtures/vehicle_picture_parity.json` is also read by the web's
+/// The Live picture's pick, one table for both platforms: `Parity/vehicle_picture_parity.json` is also read by the web's
 /// `lib/vehicleImage.test.ts`, so a change to the rule on one side fails the other until it follows.
 final class VehiclePictureParityTests: XCTestCase {
     private struct Table: Decodable {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pickImageForNow, pickImageForState, pickLiveImage, pickVehicleImage } from "./vehicleImage";
-import parity from "../../../ios/RivoltTests/Fixtures/vehicle_picture_parity.json";
+import parity from "../../../ios/RivoltTests/Parity/vehicle_picture_parity.json";
 import type { VehicleState } from "./api";
 
 // Placement and design names as Rivian sends them; the URLs are made up.

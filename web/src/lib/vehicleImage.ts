@@ -32,7 +32,7 @@ export function pickVehicleImage(images: readonly PlacedImage[] | undefined, wan
 }
 
 // Live: the angle that illustrates the vehicle's state right now (the iPhone's VehiclePicture.live is the same rule: the parity table in
-// ios/RivoltTests/Fixtures/vehicle_picture_parity.json holds both). A closure the truck has not reported counts as shut.
+// ios/RivoltTests/Parity/vehicle_picture_parity.json holds both). A closure the truck has not reported counts as shut.
 // Rivian's side-charging art is a cropped close-up of the front half, so it is never chosen: the whole truck shows while plugged in.
 export function pickImageForState(images: readonly PlacedImage[] | undefined, state: VehicleState | undefined, light: boolean): string {
   const wants: string[] = [];
