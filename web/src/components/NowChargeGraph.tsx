@@ -69,6 +69,18 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours }: { nowMs: 
   const ly = sy(last.y);
   const ex = endX != null ? sx(x1) : null;
   const ey = target != null ? sy(target) : null;
+  // The estimate leaves "now" as a curve: it starts with the slope the battery line had over its last stretch (the last ~24 px or so; never steeper than the way to the
+  // target) and eases in level at the target, so there is no angle at the "now" dot. It still ends at the real finish time.
+  const estimate = (() => {
+    if (ex == null || ey == null) return "";
+    const dx = ex - lx;
+    const dy = ey - ly;
+    const from = socPts.find((p) => p.x >= lx - Math.max(24, 0.08 * (lx - socPts[0].x))) ?? socPts[0];
+    const m = lx - from.x > 1 ? (ly - from.y) / (lx - from.x) : 0;
+    const rise = Math.min(0, Math.max(dy, m * dx * 0.4));
+    const f = (v: number) => v.toFixed(1);
+    return `M${f(lx)} ${f(ly)} C${f(lx + dx * 0.4)} ${f(ly + rise)} ${f(ex - dx * 0.35)} ${f(ey)} ${f(ex)} ${f(ey)}`;
+  })();
   const pill = target != null ? `${Math.round(target)}% · ${clock(endX ?? last.x)}` : null;
   const startText = w >= 260 ? `Plugged in ${clock(first.x)}` : clock(first.x);
   const labelNow = lx - PAD.l > 170;
@@ -89,13 +101,13 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours }: { nowMs: 
             className="block overflow-visible"
           >
             <SoftDefs id={id} ink={ink} />
-            {ex != null && <rect x={lx + 12} y={PAD.t + 4} width={Math.max(ex - lx - 20, 4)} height={base - PAD.t - 4} rx={14} fill={`url(#${id}-band)`} filter={`url(#${id}-soften)`} />}
+            {ex != null && <rect x={lx + 12} y={PAD.t + 4} width={Math.max(ex - lx - 20, 4)} height={base - PAD.t - 4} rx={28} fill={`url(#${id}-band)`} filter={`url(#${id}-soften)`} />}
             <SoftFill id={id} d={line} baseY={base} x0={socPts[0].x} x1={lx} />
             {powPts.length > 1 && <QuietLine d={softPath(powPts)} color={ink.quiet} />}
             <SoftLine id={id} d={line} color={ink.line} />
             {ex != null && ey != null && (
               <>
-                <path d={`M${lx.toFixed(1)} ${ly.toFixed(1)} L${ex.toFixed(1)} ${ey.toFixed(1)}`} data-testid="now-charge-graph-estimate-line" fill="none" stroke={ink.line} strokeWidth={2.2} strokeLinecap="round" strokeDasharray="0.1 7" strokeOpacity=".8" />
+                <path d={estimate} data-testid="now-charge-graph-estimate-line" fill="none" stroke={ink.line} strokeWidth={2.2} strokeLinecap="round" strokeDasharray="0.1 7" strokeOpacity=".8" />
                 <HaloDot id={id} x={ex} y={ey} color={ink.line} />
                 <Pill x={w - PAD.r} y={Math.max(ey - 18, 12)} text={pill ?? ""} w={labelWidth(pill ?? "")} anchor="end" />
               </>

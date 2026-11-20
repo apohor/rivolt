@@ -63,6 +63,29 @@ test("a slow home charge with hours left still gives the session so far most of 
   expect(dot / (svg?.width ?? 1)).toBeGreaterThan(0.5);
 });
 
+test("the estimate leaves \"now\" with the slope of the battery line, not at an angle @webkit", async ({ page }) => {
+  for (const c of [CASES.slow, CASES.dc]) {
+    await open(page, c);
+    const g = page.getByTestId("now-charge-graph");
+    await expect(g.getByTestId("now-charge-graph-estimate-line")).toBeAttached();
+    const r = await g.evaluate((root) => {
+      const est = root.querySelector('[data-testid="now-charge-graph-estimate-line"]') as SVGPathElement;
+      const paths = [...root.querySelectorAll("svg path")].filter((p) => p !== est && (p as SVGPathElement).getAttribute("stroke") && (p as SVGPathElement).getAttribute("fill") === "none") as SVGPathElement[];
+      // The battery line is the one that ends where the estimate starts (the power line ends elsewhere).
+      const s0 = est.getPointAtLength(0);
+      const gap = (p: SVGPathElement) => Math.hypot(p.getPointAtLength(p.getTotalLength()).x - s0.x, p.getPointAtLength(p.getTotalLength()).y - s0.y);
+      const line = paths.reduce((a, b) => (gap(b) < gap(a) ? b : a));
+      const at = (p: SVGPathElement, l: number) => p.getPointAtLength(l);
+      const L = line.getTotalLength();
+      const a = at(line, L - 6), b = at(line, L - 0.5), c = at(est, 0.5), d = at(est, 6);
+      return { before: (b.y - a.y) / (b.x - a.x), after: (d.y - c.y) / (d.x - c.x), startX: at(est, 0).x - b.x };
+    });
+    expect(Math.abs(r.startX)).toBeLessThan(2);
+    // Within a few degrees of each other: the old straight line left the slow charge at a visible angle.
+    expect(Math.abs(Math.atan(r.after) - Math.atan(r.before))).toBeLessThan(0.15);
+  }
+});
+
 test("a charge just started says it is collecting, with no graph @webkit", async ({ page }) => {
   await open(page, CASES.fresh);
   await expect(page.getByTestId("now-charge-graph-collecting")).toBeVisible();
@@ -98,7 +121,7 @@ if (SHOTS) {
   for (const w of [393, 1280]) shots.push(["ac", w, "dark", "100", "km"]);
   for (const [name, w, scheme, text, unit] of shots) {
     test(`shot ${name} ${w} ${scheme} ${text}% ${unit}`, async ({ browser }) => {
-      const ctx = await browser.newContext({ viewport: { width: w, height: w < 900 ? 1500 : 900 }, colorScheme: scheme, deviceScaleFactor: 1 });
+      const ctx = await browser.newContext({ viewport: { width: w, height: w < 900 ? 1500 : 900 }, colorScheme: scheme, deviceScaleFactor: Number(process.env.DSF ?? 1) });
       const page = await ctx.newPage();
       await page.addInitScript((u) => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: u })), unit);
       await open(page, CASES[name], true, name !== "paused");
@@ -107,6 +130,7 @@ if (SHOTS) {
       const b = await page.locator("div.rounded-2xl:has([data-testid='now-slot']), main div.rounded-2xl").first().boundingBox();
       if (!b) throw new Error("no card");
       await page.screenshot({ path: `${SHOTS}/${name}-${w}-${scheme}-t${text}-${unit}.png`, fullPage: true, clip: { x: Math.max(0, b.x - 8), y: b.y + (await page.evaluate(() => scrollY)) - 8, width: Math.min(w, b.width + 16), height: b.height + 16 } });
+      if (process.env.DSF) await page.getByTestId("now-charge-graph").locator("svg").first().screenshot({ path: `${SHOTS}/graph-${name}-${w}-${scheme}.png` });
       await ctx.close();
     });
   }
