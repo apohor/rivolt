@@ -200,6 +200,14 @@ test("parked a few minutes after a drive: the pill ends at the card edge and the
   expect(labelY).toBeGreaterThan(dotY);
 });
 
+test("a sleep before the parked marker draws its fill at 0.65, as on iPhone (the group's and the fill's opacity multiply) @webkit", async ({ page }) => {
+  await open(page, "just", "parked");
+  const sleeps = page.getByTestId("now-parked-sleep");
+  await expect(sleeps.first()).toBeVisible();
+  const shown = await sleeps.first().evaluate((g) => Number(g.getAttribute("opacity") ?? 1) * Number(g.querySelector("path")?.getAttribute("fill-opacity") ?? 1));
+  expect(shown).toBeCloseTo(0.65, 2);
+});
+
 test("a truck that never slept has no sleep spans, no wake-up dots and a faster rate @webkit", async ({ page }) => {
   await open(page, "never_slept");
   const g = page.getByTestId("now-parked-graph");
