@@ -81,21 +81,13 @@ describe("NowSlot", () => {
 
 describe("parked slot weather", () => {
   it("shows only what the server sent", () => {
-    expect(weatherView({ temp_c: 20 }, "c", "mi")).toEqual({ temp: "20°C", condition: null, icon: null, wind: null, precip: null });
-    const w = weatherView({ temp_c: 20, condition: "partly_cloudy", wind_kph: 16, rain_next3h_mm: 0 }, "f", "mi");
-    expect(w).toEqual({ temp: "68°F", condition: "Partly cloudy here now", icon: "partly_cloudy", wind: "Wind 10 mph", precip: "No rain next 3 h" });
+    expect(weatherView({ temp_c: 20 }, "c", "mi")).toEqual({ temp: "20°C", condition: null, icon: null, wind: null });
+    const w = weatherView({ temp_c: 20, condition: "partly_cloudy", wind_kph: 16 }, "f", "mi");
+    expect(w).toEqual({ temp: "68°F", condition: "Partly cloudy here now", icon: "partly_cloudy", wind: "Wind 10 mph" });
   });
   it("a clear sky is Sunny by day, Clear by night", () => {
     expect(weatherView({ temp_c: 20, condition: "clear" }, "c", "mi", true)).toMatchObject({ condition: "Sunny here now", icon: "clear" });
     expect(weatherView({ temp_c: 20, condition: "clear" }, "c", "mi", false)).toMatchObject({ condition: "Clear here now", icon: "night" });
-  });
-  it("rain amounts follow the distance unit and small ones read as less than; snow has no amount", () => {
-    expect(weatherView({ temp_c: 8, condition: "rain", rain_next3h_mm: 3 }, "c", "km").precip).toBe("Rain next 3 h · 3 mm");
-    expect(weatherView({ temp_c: 8, condition: "rain", rain_next3h_mm: 3 }, "c", "mi").precip).toBe("Rain next 3 h · 0.1 in");
-    expect(weatherView({ temp_c: 8, condition: "drizzle", rain_next3h_mm: 0.06 }, "c", "mi").precip).toBe("Rain next 3 h · < 0.1 in");
-    expect(weatherView({ temp_c: 8, condition: "drizzle", rain_next3h_mm: 0.06 }, "c", "km").precip).toBe("Rain next 3 h · < 0.1 mm");
-    expect(weatherView({ temp_c: -2, condition: "snow", rain_next3h_mm: 3.4 }, "c", "km").precip).toBe("Snow next 3 h");
-    expect(weatherView({ temp_c: -2, condition: "snow", rain_next3h_mm: 0 }, "c", "km").precip).toBe("No snow next 3 h");
   });
   it("a parked truck has a slot only with a fix", () => {
     const v = { kind: "parked" } as unknown as NowView;

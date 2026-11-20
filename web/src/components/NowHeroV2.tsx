@@ -185,6 +185,9 @@ export default function NowHeroV2({
     // The parked slot showed the weather whatever the outside-temperature setting; elsewhere the setting rules.
     const weather = ambient && (parked || amb.enabled) ? ambient : null;
     const items = conditionItems({ weather, tempUnit: temperatureUnit, unit: distanceUnit, nowMs, cabin, asleepTodayS: view.kind === "asleep" || (view.kind === "offline" && view.sleeping) ? asleepTodayS : null, detail: parked });
+    const asleepItem = items.find((c) => c.k === "Asleep today");
+    const footItem = asleepItem ?? (items.length % 2 === 1 && items.length !== 3 ? items[items.length - 1] : undefined);
+    const gridItems = items.filter((c) => c !== footItem);
     const infoBtn = (c: CondItem) =>
       c.info && (
         <button
@@ -192,7 +195,7 @@ export default function NowHeroV2({
           aria-label="About the outside temperature"
           aria-expanded={info}
           onClick={() => setInfo((o) => !o)}
-          className="pointer-events-auto -my-4 -mr-4 ml-0 inline-flex p-4 text-neutral-500 hover:text-neutral-300"
+          className="pointer-events-auto -my-4 -ml-2 -mr-4 inline-flex p-4 text-neutral-500 hover:text-neutral-300"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <circle cx="12" cy="12" r="9" />
@@ -216,14 +219,20 @@ export default function NowHeroV2({
       // The charging and the driving card share one layout: ring, then the figures under it on the left, the graph on the right.
       const rail = charging || view.kind === "driving";
       const condBlock = items.length > 0 && (
-        <div data-testid="now-temps" className="pointer-events-none relative flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 text-sm">
+        // Cabin, Outside and Wind: three equal columns under their labels (the sky word wraps inside Outside), so nothing hangs alone on a second row.
+        <div
+          data-testid="now-temps"
+          className={`pointer-events-none relative grid gap-x-3 gap-y-2 text-sm ${items.length === 3 ? "grid-cols-3" : "grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))]"}`}
+        >
           {[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin")).map((c) => (
-            <p key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0 text-neutral-400">
-              {c.k}{" "}
-              <span className="font-semibold tabular-nums text-neutral-100">{c.v}</span>
-              {c.note && <span className="ml-1.5 text-neutral-400">{c.note}</span>}
-              {infoBtn(c)}
-            </p>
+            <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
+              <p className="flex items-center text-neutral-400">
+                {c.k}
+                {infoBtn(c)}
+              </p>
+              <p className="font-semibold tabular-nums text-neutral-100">{c.v}</p>
+              {c.note && <p className="break-words text-xs text-neutral-400">{c.note}</p>}
+            </div>
           ))}
         </div>
       );
@@ -380,8 +389,11 @@ export default function NowHeroV2({
             )}
             {items.length > 0 && (
               <div className="pointer-events-none relative space-y-3">
-                <div data-testid="now-temps" className="grid grid-cols-2 gap-x-4 gap-y-3 min-[480px]:grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))]">
-                  {items.slice(0, items.length - (items.length % 2)).map((c) => (
+                <div
+                  data-testid="now-temps"
+                  className={`grid gap-x-4 gap-y-3 ${gridItems.length === 3 ? "grid-cols-3 gap-x-3" : "grid-cols-2 min-[480px]:grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))]"}`}
+                >
+                  {gridItems.map((c) => (
                     <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
                       <p className="ui-label flex items-center">
                         {c.k}
@@ -394,20 +406,20 @@ export default function NowHeroV2({
                     </div>
                   ))}
                 </div>
-                {items.length % 2 === 1 && (
-                  // An odd last item is a footer line, so the grid above always ends evenly.
+                {footItem && (
+                  // The time asleep (or an odd last item) is a footer line, so the grid above always ends evenly.
                   <div
-                    data-testid={`now-cond-${items[items.length - 1].k.split(" ")[0].toLowerCase()}`}
+                    data-testid={`now-cond-${footItem.k.split(" ")[0].toLowerCase()}`}
                     className="flex items-baseline justify-between gap-3 border-t border-neutral-800 pt-3"
                   >
                     <p className="ui-label flex items-center">
-                      {items[items.length - 1].k}
-                      {infoBtn(items[items.length - 1])}
+                      {footItem.k}
+                      {infoBtn(footItem)}
                     </p>
                     <p className="text-lg font-semibold tabular-nums text-neutral-100">
-                      {items[items.length - 1].v}
-                      {items[items.length - 1].note && (
-                        <span className="ml-1.5 text-sm font-normal text-neutral-400">{items[items.length - 1].note}</span>
+                      {footItem.v}
+                      {footItem.note && (
+                        <span className="ml-1.5 text-sm font-normal text-neutral-400">{footItem.note}</span>
                       )}
                     </p>
                   </div>

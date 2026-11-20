@@ -45,7 +45,7 @@ export type SlotInput = {
 };
 export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
-export type SlotWeather = { temp_c: number; condition?: string; wind_kph?: number; rain_next3h_mm?: number };
+export type SlotWeather = { temp_c: number; condition?: string; wind_kph?: number };
 
 const KM_PER_MI = 1.609344;
 type Stat = { k: string; v: string; note?: string };
@@ -161,29 +161,17 @@ const CONDITIONS: Record<string, string> = {
   thunder: "Thunderstorms",
 };
 
-export type WeatherView = { temp: string; condition: string | null; icon: string | null; wind: string | null; precip: string | null };
+export type WeatherView = { temp: string; condition: string | null; icon: string | null; wind: string | null };
 
-// The weather of the parked slot: only what the server sent. By day a clear sky is "Sunny"; the 3 h figure is rain or snow by the current
-// condition. Snow has no amount (the forecast is water-equivalent, which understates it); small rain amounts read "< 0.1 in" / "< 0.1 mm".
+// The weather of the parked slot: only what the server sent. By day a clear sky is "Sunny"; no rain forecast.
 export function weatherView(w: SlotWeather, tempUnit: TemperatureUnit, unit: DistanceUnit, day = true): WeatherView {
   const cond = w.condition ? CONDITIONS[w.condition] : undefined;
   const label = cond ? (w.condition === "clear" && day ? "Sunny" : cond) : null;
-  let precip: string | null = null;
-  if (w.rain_next3h_mm != null) {
-    const mm = w.rain_next3h_mm;
-    if (w.condition === "snow") precip = mm < 0.05 ? "No snow next 3 h" : "Snow next 3 h";
-    else if (mm < 0.05) precip = "No rain next 3 h";
-    else {
-      const amount = unit === "km" ? (mm < 0.1 ? "< 0.1 mm" : `${+mm.toFixed(1)} mm`) : mm / 25.4 < 0.1 ? "< 0.1 in" : `${+(mm / 25.4).toFixed(1)} in`;
-      precip = `Rain next 3 h · ${amount}`;
-    }
-  }
   return {
     temp: formatTemperature(w.temp_c, tempUnit),
     condition: label ? `${label} here now` : null,
     icon: w.condition === "clear" && !day ? "night" : (w.condition ?? null),
     wind: w.wind_kph != null ? `Wind ${unit === "km" ? `${Math.round(w.wind_kph)} km/h` : `${Math.round(w.wind_kph / KM_PER_MI)} mph`}` : null,
-    precip,
   };
 }
 
@@ -232,7 +220,7 @@ const TIDY_ROOT = "pointer-events-none relative w-full min-w-0";
 
 export type CondItem = { k: string; v: string; note?: string; info?: boolean };
 
-// The conditions row: outside (the sky after the temperature), wind, the next 3 h of rain or snow, the cabin, and while asleep the time asleep today.
+// The conditions row: outside (the sky after the temperature), wind, the cabin, and while asleep the time asleep today.
 // Same figures and wording as the weather block and rows they replace; "Asleep for" is the status line's "since" and is not repeated.
 export function conditionItems(i: { weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; nowMs: number; cabin: string | null; asleepTodayS: number | null; detail: boolean }): CondItem[] {
   const out: CondItem[] = [];
@@ -242,14 +230,13 @@ export function conditionItems(i: { weather: SlotWeather | null; tempUnit: Tempe
     const sky = w.condition ? w.condition.replace(/ here now$/, "") : null;
     out.push({ k: "Outside", v: w.temp, ...(sky ? { note: sky } : {}), info: true });
     if (i.detail && w.wind) out.push({ k: "Wind", v: w.wind.replace(/^Wind /, "") });
-    if (i.detail && w.precip) out.push({ k: "Next 3 h", v: w.precip.replace(/ next 3 h/, "") });
   }
   if (i.cabin) out.push({ k: "Cabin", v: i.cabin });
   if (i.asleepTodayS != null && i.asleepTodayS >= 0) out.push({ k: "Asleep today", v: timeLeft(i.asleepTodayS / 3600) });
   return out;
 }
 
-// Parked or plugged in: where the truck is on the map, then the weather there as one row (temperature and sky left, wind and rain right).
+// Parked or plugged in: where the truck is on the map, then the weather there as one row (temperature and sky left, wind right).
 function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, placeText, noMap, asleep, tidy }: { tidy: boolean; placeText: string | null; noMap: boolean; fix: SlotFix; asleep: SlotAsleep | null; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string; nowMs: number; placeLabel: string | null }) {
   const hour = new Date(nowMs).getHours();
   const w = weather ? weatherView(weather, tempUnit, unit, hour >= 6 && hour < 20) : null;
@@ -296,7 +283,6 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, pla
           </div>
           <div className="shrink-0 text-right text-sm text-neutral-400">
             {w.wind && <p>{w.wind}</p>}
-            {w.precip && <p>{w.precip}</p>}
           </div>
         </div>
       )}
