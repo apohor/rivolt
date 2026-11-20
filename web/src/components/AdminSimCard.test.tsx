@@ -45,4 +45,13 @@ describe("the preview's simulated drive and charge card", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start a simulated drive now" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("away from home");
   });
+
+  it("books a short drive and queues the short charge behind it", async () => {
+    const run = { id: "r", kind: "drive", start: "2026-11-14T18:00:00Z", end: "2026-11-14T18:08:00Z", added_mi: 5, short: true };
+    const f = stubFetchRoutes({ "/api/admin/sim/drive": { body: { active: run } }, "/api/admin/sim/charge": { body: { active: run } }, "/api/admin/sim": { body: { active: null } } });
+    wrap();
+    fireEvent.click(await screen.findByRole("button", { name: "Start a short drive, then a short charge" }));
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).endsWith("/api/admin/sim/charge?short=1&queue=1"))).toBe(true));
+    expect(f.mock.calls.some((c) => String(c[0]).endsWith("/api/admin/sim/drive?short=1") && (c[1] as RequestInit).method === "POST")).toBe(true);
+  });
 });

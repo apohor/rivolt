@@ -45,6 +45,8 @@ const (
 	simChargeMin = 22
 	// simDriveMin is the length of the drive itself.
 	simDriveMin = 24
+	// simShortChargeMin is the charging slice of the short variant.
+	simShortChargeMin = 5
 )
 
 // SimRun is one requested run, in wall-clock time.
@@ -55,6 +57,9 @@ type SimRun struct {
 	End   time.Time `json:"end"`
 	// AddedMi is the odometer the run adds: every frame at or after End carries it.
 	AddedMi float64 `json:"added_mi"`
+	// Short is the quick variant (shortSpec). It is stored with the run, because every pod rebuilds the run from (Kind, Start, Short): a pod that
+	// does not know the field would rebuild the full-length run inside the short window, so none is booked until every pod runs this code.
+	Short bool `json:"short,omitempty"`
 }
 
 // SimState is the stored document.
@@ -91,6 +96,25 @@ type SimRefusal struct{ Reason string }
 
 func (e *SimRefusal) Error() string { return e.Reason }
 
+// simSpec is what differs between a run's full and short variants. Both are the same physics at the same speeds and power: the short drive
+// is a nearer errand at the full drive's cruise speed, the short charge is the same kW for fewer minutes, so speed, distance, time and
+// energy agree in either, and only the length changes. The clock is never sped up.
+type simSpec struct {
+	errand     samplePoint
+	errandName string
+	chargeMin  float64
+	driveTail  time.Duration // parked after the drive
+	doneTail   time.Duration // plugged in at 0 kW after the charge
+	cableTail  time.Duration // cable out
+}
+
+func specFor(short bool) simSpec {
+	if short {
+		return simSpec{errand: sampleErrand[2], errandName: "Pasadena City Hall", chargeMin: simShortChargeMin, driveTail: time.Minute, doneTail: time.Minute, cableTail: 30 * time.Second}
+	}
+	return simSpec{errand: sampleErrand[0], errandName: "Santa Anita Park", chargeMin: simChargeMin, driveTail: 3 * time.Minute, doneTail: 4 * time.Minute, cableTail: time.Minute}
+}
+
 // simPlan is a run's frames-to-be, in corpus time.
 type simPlan struct {
 	segs    []sampleSeg
@@ -101,7 +125,8 @@ type simPlan struct {
 }
 
 // planSim builds the run that starts at wall time start, or says why it cannot.
-func planSim(kind SimKind, start time.Time) (simPlan, error) {
+func planSim(kind SimKind, start time.Time, short bool) (simPlan, error) {
+	sp := specFor(short)
 	c, tl := sampleShared()
 	k := tl.loopAt(start)
 	shift := tl.loopStart(k).Sub(tl.start)
@@ -133,20 +158,20 @@ func planSim(kind SimKind, start time.Time) (simPlan, error) {
 		if b.soc < 25 {
 			return simPlan{}, &SimRefusal{"the sample truck's battery is too low for a drive"}
 		}
-		way := []samplePoint{b.at, sampleErrand[0], b.at}
-		_, miles := sampleRoad(way)
-		cruise := miles / (float64(simDriveMin) / 60)
-		b.drive(cruise, sampleErrand[0], SampleHome)
-		b.parkSim(3*time.Minute, "ready")
+		// The cruise speed is the full drive's whatever the variant: the full route's miles over its 24 minutes.
+		_, fullMiles := sampleRoad([]samplePoint{b.at, specFor(false).errand, b.at})
+		cruise := fullMiles / (float64(simDriveMin) / 60)
+		b.drive(cruise, sp.errand, SampleHome)
+		b.parkSim(sp.driveTail, "ready")
 	case SimCharge:
-		gain := sampleL2KW * float64(simChargeMin) / 60 / samplePackKWh * 100
+		gain := sampleL2KW * sp.chargeMin / 60 / samplePackKWh * 100
 		if b.soc+gain > 100 {
 			return simPlan{}, &SimRefusal{"the sample truck's battery is full"}
 		}
 		b.charge(b.soc+gain, sampleL2KW, false)
-		b.parkSim(4*time.Minute, "ready") // plugged in at 0 kW (charging complete)
+		b.parkSim(sp.doneTail, "ready") // plugged in at 0 kW (charging complete)
 		b.plugged = false
-		b.parkSim(time.Minute, "ready") // cable out
+		b.parkSim(sp.cableTail, "ready") // cable out
 	default:
 		return simPlan{}, &SimRefusal{"unknown run: " + string(kind)}
 	}
@@ -177,22 +202,37 @@ type SimControl struct {
 // NewSimControl builds the control over store.
 func NewSimControl(store SimStore) *SimControl { return &SimControl{store: store, now: time.Now} }
 
-// Start books a run of kind that begins a moment from now.
-func (c *SimControl) Start(ctx context.Context, kind SimKind) (SimRun, error) {
+// SimOpts are how a run is asked for.
+type SimOpts struct {
+	// Short asks for the quick variant (simSpec).
+	Short bool
+	// Queue books the run to begin when the run under way ends, instead of refusing while one is. One run may be waiting, no more.
+	Queue bool
+}
+
+// Start books a run of kind that begins a moment from now, or (opts.Queue) when the run under way ends.
+func (c *SimControl) Start(ctx context.Context, kind SimKind, opts SimOpts) (SimRun, error) {
 	var run SimRun
 	err := c.store.Update(ctx, func(st SimState) (SimState, error) {
 		now := c.now()
+		start := now.Add(simLead).Truncate(sampleAwakeStep).Add(sampleAwakeStep)
+		unfinished := 0
 		for _, r := range st.Runs {
 			if r.End.After(now) {
-				return st, ErrSimBusy
+				unfinished++
+				if opts.Queue && r.End.After(start) {
+					start = r.End // runs are booked in order, so the last unfinished one sets it
+				}
 			}
 		}
-		start := now.Add(simLead).Truncate(sampleAwakeStep).Add(sampleAwakeStep)
-		p, err := planSim(kind, start)
+		if unfinished > 0 && (!opts.Queue || unfinished > 1) {
+			return st, ErrSimBusy
+		}
+		p, err := planSim(kind, start, opts.Short)
 		if err != nil {
 			return st, err
 		}
-		run = SimRun{ID: uuid.NewString(), Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi)}
+		run = SimRun{ID: uuid.NewString(), Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi), Short: opts.Short}
 		st.Runs = append(st.Runs, run)
 		kept := st.Runs[:0]
 		for _, r := range st.Runs {
@@ -279,7 +319,7 @@ func (f *ReplayFeed) withSim(ctx context.Context, from, to time.Time, in []State
 		if !r.Start.Before(to) || !r.End.After(from) {
 			continue
 		}
-		p, err := planSim(r.Kind, r.Start)
+		p, err := planSim(r.Kind, r.Start, r.Short)
 		if err != nil {
 			f.logger.Warn("replay sim: run cannot be rebuilt", "run", r.ID, "err", err.Error())
 			continue
