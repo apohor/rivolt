@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backend, type ParkedSeries } from "../lib/api";
 import { clock } from "../lib/nowState";
@@ -15,16 +16,36 @@ const PAD = { t: 34, b: 26, l: 6, r: 10 };
 const BAR = 5;
 const LABEL_MIN_W = 58;
 
+// How long the chip waits for the series before it falls back to the state's own parked time.
+const SERIES_WAIT_MS = 3000;
+
 // The series for the card; null while loading, absent, or without a line to draw (the graph then shows nothing and the card is as it was).
-export function useParkedSeries(vehicleID: string, enabled: boolean): ParkedSeries | null {
+// Only an answer that arrived after this was enabled counts: an older cached one (the truck parked before, drove, and parked again) has a
+// parked-since from before the drive. waiting is true from the enable until that answer, a failure, or SERIES_WAIT_MS: the chip shows no
+// time meanwhile, so it never changes by hours as the series arrives.
+export function useParkedSeries(vehicleID: string, enabled: boolean): { series: ParkedSeries | null; waiting: boolean } {
   const q = useQuery({
     queryKey: ["parked-series", vehicleID],
     queryFn: () => backend.vehicleParkedSeries(vehicleID, parkedZone()),
     enabled,
     refetchInterval: 60_000,
     retry: 0,
+    // Every enable asks again (the app default keeps an answer fresh for 30 s, which would hide the graph and hold the chip to its timeout).
+    staleTime: 0,
   });
-  return enabled && parkedDrawable(q.data) ? q.data : null;
+  // The moment this truck's series was last switched on; a new truck or a later re-enable starts a new wait.
+  const key = `${enabled}|${vehicleID}`;
+  const [gate, setGate] = useState({ key, at: Date.now() });
+  if (gate.key !== key) setGate({ key, at: Date.now() });
+  const [lateFor, setLateFor] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    const t = setTimeout(() => setLateFor(gate.at), SERIES_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [enabled, gate.at]);
+  const fresh = q.dataUpdatedAt >= gate.at;
+  const answered = fresh || q.errorUpdatedAt >= gate.at;
+  return { series: enabled && fresh && parkedDrawable(q.data) ? q.data : null, waiting: enabled && !answered && lateFor !== gate.at };
 }
 
 const ms = (iso: string) => Date.parse(iso);

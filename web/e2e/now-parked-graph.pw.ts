@@ -8,8 +8,8 @@ import { parkedSeriesFixture, type ParkedCase } from "./parkedSeriesFixture";
 const SHOTS = process.env.SHOTS_DIR;
 const KEYS = ["now_v2", "now_tidy", "now_slot", "now_parked_graph"];
 
-async function open(page: Page, parkedCase: ParkedCase, scenario: "parked" | "asleep" = "parked", keys = KEYS) {
-  await stubApi(page, { scenario, nowEndpoint: true, designPreview: keys, parkedCase });
+async function open(page: Page, parkedCase: ParkedCase, scenario: "parked" | "asleep" = "parked", keys = KEYS, parkedDelayMs = 0) {
+  await stubApi(page, { scenario, nowEndpoint: true, designPreview: keys, parkedCase, parkedDelayMs });
   await page.goto("/");
   await expect(page.getByTestId("now-pill")).toBeVisible();
 }
@@ -95,13 +95,31 @@ test("a charge in the window does not turn the header into a gain @webkit", asyn
 test("one parked time: the chip, the pill and the header say the same @webkit", async ({ page }) => {
   await open(page, "overnight");
   const g = page.getByTestId("now-parked-graph");
-  // The chip takes the series' parked time once it is read; wait for the graph's header (same read) before taking the chip's.
+  // The chip first shows the live read's parked time and takes the series' once that is read: the header comes from the series, so wait for the chip to say what the header says.
   await expect(g.getByTestId("now-parked-change")).toContainText(/since \d/);
-  await expect(page.getByTestId("now-pill")).toContainText(/since \d+:\d+ [AP]M/);
-  const chip = (await page.getByTestId("now-pill").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
+  const chip = (await g.getByTestId("now-parked-change").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
+  await expect(page.getByTestId("now-pill")).toContainText(`since ${chip}`);
   const pill = await g.locator("svg text", { hasText: /^Parked / }).allTextContents();
   for (const t of pill) expect(t).toBe(`Parked ${chip}`);
   await expect(g.getByTestId("now-parked-change")).toContainText(chip);
+});
+
+test("the chip shows no parked time until the series answers, then the header's @webkit", async ({ page }) => {
+  await open(page, "overnight", "parked", KEYS, 1200);
+  const pill = page.getByTestId("now-pill");
+  // While the series is out, the chip names the state without a time: it never shows one that the header then contradicts.
+  await expect(pill).toHaveText(/^Parked$/);
+  const g = page.getByTestId("now-parked-graph");
+  await expect(g.getByTestId("now-parked-change")).toContainText(/since \d/);
+  const head = (await g.getByTestId("now-parked-change").textContent())!.match(/since (\d+:\d+ [AP]M)/)![1];
+  await expect(pill).toContainText(`since ${head}`);
+});
+
+test("a series that takes too long leaves the chip with the state's own time @webkit", async ({ page }) => {
+  await open(page, "overnight", "parked", KEYS, 6000);
+  await expect(page.getByTestId("now-pill")).toHaveText(/^Parked$/);
+  await expect(page.getByTestId("now-pill")).toContainText(/Parked · since \d+:\d+ [AP]M/, { timeout: 5000 });
+  await expect(page.getByTestId("now-parked-graph")).toHaveCount(0);
 });
 
 test("the line is one continuous path and the sleeps fill under it @webkit", async ({ page }) => {
