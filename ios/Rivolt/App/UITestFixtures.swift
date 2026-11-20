@@ -126,7 +126,10 @@ final class FixtureURLProtocol: URLProtocol {
             name == "dc" ? 15 + 40 * (1 - exp(-m / 20)) : name == "slow" ? 40 + m * 0.09 : 40 + m * 0.136
         }
         let kw: (Double) -> Double = { m in name == "dc" ? 190 * exp(-m / 22) + 40 : name == "slow" ? 4.8 : 11 }
-        let now = Date()
+        // RIVOLT_UITEST_CHARGE_NOW (RFC 3339, a little before the real time) places the charge's history against that instant, so the web stub can run at the
+        // same one (STUB_NOW) and the two cards show the same clock times; the freshness stamps stay current.
+        let live = Date()
+        let now = ProcessInfo.processInfo.environment["RIVOLT_UITEST_CHARGE_NOW"].flatMap { ISO8601DateFormatter().date(from: $0) } ?? live
         let iso = ISO8601DateFormatter()
         let started = now.addingTimeInterval(-elapsedMin * 60)
         func rewrite(_ name: String, _ patch: (inout [String: Any]) -> Void) -> Data? {
@@ -145,29 +148,30 @@ final class FixtureURLProtocol: URLProtocol {
         }
         if path.contains("/state/") {
             return rewrite("state") { j in
-                j["at"] = iso.string(from: now)
-                j["location_fix_at"] = iso.string(from: now)
+                j["at"] = iso.string(from: live)
+                j["location_fix_at"] = iso.string(from: live)
                 j["battery_level_pct"] = soc(elapsedMin)
                 j["charger_power_kw"] = kw(elapsedMin)
-                j["cabin_temp_c"] = 21.0
+                j["cabin_temp_c"] = 28.6
+                j["distance_to_empty"] = 300.0  // the web stub's numbers, so a pair shows only real differences
             }
         }
         if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/now") {
             // The web stub's believable price: kWh added at a home or a public rate.
             let cost = ((soc(elapsedMin) - soc(0)) * 1.35 * (kw(0) >= 50 ? 0.48 : 0.15) * 100).rounded() / 100
             return rewrite("now_v1") { j in
-                j["at"] = iso.string(from: now)
-                j["location_fix_at"] = iso.string(from: now)
-                j["vehicle_state_frame_at"] = iso.string(from: now)
+                j["at"] = iso.string(from: live)
+                j["location_fix_at"] = iso.string(from: live)
+                j["vehicle_state_frame_at"] = iso.string(from: live)
                 j["state_since"] = iso.string(from: started)
                 j["soc_at_state_start"] = soc(0).rounded()
-                j["charge"] = ["started_at": iso.string(from: started), "soc_start": soc(0).rounded(), "peak_kw": 11.2, "cost": cost, "currency": "USD", "cost_is_estimate": true]
-                j["ambient"] = ["temp_c": 12.0, "source": "open-meteo", "as_of": iso.string(from: now)]
+                j["charge"] = ["started_at": iso.string(from: started), "soc_start": soc(0).rounded(), "peak_kw": 11, "cost": cost, "currency": "USD", "cost_is_estimate": true]
+                j["ambient"] = ["temp_c": 12.0, "source": "open-meteo", "as_of": iso.string(from: live)]
             }
         }
         if path == "/api/samples" {
             var rows: [[String: Any]] = []
-            var t = started.addingTimeInterval(-30)
+            var t = started
             while t <= now {
                 let m = max(0, t.timeIntervalSince(started) / 60)
                 rows.append(["At": iso.string(from: t), "BatteryLevelPct": soc(m), "ChargerPowerKW": kw(m),

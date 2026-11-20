@@ -8,6 +8,10 @@ final class NowChargeGraphUITests: XCTestCase {
         app.launchEnvironment["RIVOLT_UITEST_CHARGE_CASE"] = chargeCase
         if dark { app.launchArguments += ["-rivolt.appearance", "dark"] }
         if xxxLarge { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"] }
+        // The parity shots place the history at the instant the web shots were taken at (STUB_NOW), so both show the same clock times.
+        if let pinned = try? String(contentsOfFile: "/tmp/rivolt-ui-shots/.parity-now", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), !pinned.isEmpty {
+            app.launchEnvironment["RIVOLT_UITEST_CHARGE_NOW"] = pinned
+        }
         app.launchEnvironment["RIVOLT_UITEST_UNITS"] = metric ? "km" : "mi"
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let ios = here.deletingLastPathComponent()
@@ -41,7 +45,13 @@ final class NowChargeGraphUITests: XCTestCase {
         XCTAssertFalse(card.label.contains("Plugged in"), "plug-in time is the graph's label, not a row")
         XCTAssertTrue(card.label.contains("Cost so far"), "the cost so far row")
         XCTAssertTrue(card.label.contains("≈") && card.label.contains("estimate"), "an estimated cost carries its mark: \(card.label)")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Pack '")).firstMatch.exists, "the pack temperature, from the newest stored sample")
+        // The pack's temperature (newest stored sample) is a figure row right after Rate; the bottom row is cabin and outside only.
+        let words = card.label
+        XCTAssertTrue(words.contains("Pack temperature"), "the pack temperature row: \(words)")
+        if let rate = words.range(of: "Rate"), let pack = words.range(of: "Pack temperature"), let elapsed = words.range(of: "Elapsed") {
+            XCTAssertTrue(rate.lowerBound < pack.lowerBound && pack.lowerBound < elapsed.lowerBound, "after Rate, before Elapsed: \(words)")
+        }
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Pack ' AND NOT label BEGINSWITH 'Pack temperature'")).firstMatch.exists, "no pack figure in the temperatures row")
         shot(app, "now-charge-graph-top")
         let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
         from.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))

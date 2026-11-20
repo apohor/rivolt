@@ -22,6 +22,16 @@ describe("NowSlot", () => {
     expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/≈ .*2\.91.*at your home rate/);
     expect(screen.getByTestId("now-slot-plugged-in")).toBeTruthy();
   });
+  it("the time left rounds up to the whole minute, as the iPhone's", () => {
+    const left = (hours: number, etaSource: string) => {
+      const { container, unmount } = render(<NowSlot {...base({ ...charging, etaHours: hours, etaSource } as unknown as NowView)} />);
+      const t = container.querySelector('[data-testid="now-slot-small"]')?.textContent;
+      unmount();
+      return t;
+    };
+    expect(left(0.4878, "estimate")).toBe("30 min left (est.) · target 80%");
+    expect(left(29 / 60, "truck")).toBe("29 min left · target 80%");
+  });
   it("a billed cost has no estimate mark; no cost shows no cost; no session falls back to the estimate", () => {
     const billed = slotStats(base(charging, { charge: { started_at: "x", cost: 5, cost_source: "rivian", cost_is_estimate: false } }));
     expect(billed.find((s) => s.k === "Cost so far")).toMatchObject({ v: "$5.00", note: "billed by Rivian" });
@@ -34,6 +44,12 @@ describe("NowSlot", () => {
     const charge = { started_at: "2026-01-01T11:00:00Z", soc_start: 40 };
     // 20 points of 60 at 150 mi: 50 mi, over the hour since the start.
     const est = slotStats(base(v, { charge }));
+    const withPack = slotStats(base(v, { soft: true, packC: 30, tempUnit: "f", charge })).map((r) => r.k);
+    expect(withPack).toContain("Pack temperature");
+    expect(withPack.indexOf("Pack temperature")).toBe(withPack.indexOf("Rate") + 1);
+    expect(slotStats(base(v, { soft: true, packC: null })).some((r) => r.k === "Pack temperature")).toBe(false);
+    expect(slotStats(base(v, { packC: 30 })).some((r) => r.k === "Pack temperature")).toBe(false);
+
     expect(est.find((s) => s.k === "Range added")?.v).toBe("≈ +50.0 mi");
     expect(est.find((s) => s.k === "Rate")?.v).toBe("≈ 50.0 mi/h");
     const zero = slotStats(base(v, { charge, session: { ...session, range_added_km: 0, kilometers_charged_per_hour: 0 } }));

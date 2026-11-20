@@ -10,7 +10,6 @@ import { useAmbientTemp } from "../lib/ambientTemp";
 import { useDesignPreview } from "../lib/config";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { clock, type NowView } from "../lib/nowState";
-import { usePackTemp } from "./NowChargeGraph";
 import { conditionItems, type CondItem, type SlotWeather } from "./NowSlot";
 
 // The redesigned Now hero (design_preview "now_v2"): a status chip, then one card with the gauge, the range,
@@ -137,7 +136,6 @@ export default function NowHeroV2({
     : fullCharge != null
       ? `Full charge today ≈ ${fullCharge} ${distanceUnit}`
       : null;
-  const packTemp = usePackTemp(nowMs);
   const outside =
     amb.enabled && ambient && !parkedSlot
       ? formatTemperature(ambient.temp_c, temperatureUnit)
@@ -213,9 +211,9 @@ export default function NowHeroV2({
         <CarSketch model={model} charging={charging} className="min-[900px]:mx-auto min-[900px]:max-w-[440px]" />
       );
     if (soft) {
-      const condBlock = (items.length > 0 || packTemp != null) && (
+      const condBlock = items.length > 0 && (
         <div data-testid="now-temps" className="pointer-events-none relative flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 text-sm">
-          {[...(packTemp != null ? [{ k: "Pack", v: formatTemperature(packTemp, temperatureUnit) } as CondItem] : []), ...[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin"))].map((c) => (
+          {[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin")).map((c) => (
             <p key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0 text-neutral-400">
               {c.k}{" "}
               <span className="font-semibold tabular-nums text-neutral-100">{c.v}</span>

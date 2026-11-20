@@ -2,6 +2,7 @@ import { clock, type NowView } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
 import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../lib/preferences";
+import { usePackTemp } from "./NowChargeGraph";
 import { ParkedMap } from "../map/ParkedMap";
 import { inDemo } from "../lib/demo";
 
@@ -34,6 +35,8 @@ export type SlotInput = {
   tidy?: boolean;
   // Design "now_charge_graph": the figures as rows (the graph sits beside them), the target said once, and no plug-in time (the graph's start says it).
   soft?: boolean;
+  // Design "now_charge_graph": the pack's temperature (°C) from the newest stored sample, only while it is recent; its own row after Rate.
+  packC?: number | null;
 };
 export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
@@ -52,8 +55,9 @@ const COST_NOTE: Record<string, string> = {
 const CHARGER: Record<string, string> = { home_l2: "Home charger", dcfc: "Fast charger", away_ac: "Public charger" };
 
 // The mock's wording: "3 h 26 min", "45 min" (no tilde; our own estimate says so after it).
-function timeLeft(hours: number): string {
-  const m = Math.max(1, Math.round(hours * 60));
+// `up`: a time left rounds up to the whole minute (the iPhone's rule: never say less than there is); a duration so far rounds to the nearest.
+function timeLeft(hours: number, up = false): string {
+  const m = Math.max(1, up ? Math.ceil(hours * 60 - 1e-6) : Math.round(hours * 60));
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
 }
 
@@ -85,6 +89,7 @@ export function slotStats(i: SlotInput): Stat[] {
     const truckRate = s && s.kilometers_charged_per_hour > 0 ? s.kilometers_charged_per_hour : null;
     const rate = truckRate ?? (rangeKm != null && elapsedSec != null && elapsedSec >= 300 ? rangeKm / (elapsedSec / 3600) : null);
     if (rate != null) out.push({ k: "Rate", v: `${truckRate == null ? "≈ " : ""}${dist(rate / KM_PER_MI)}/h` });
+    if (i.soft && i.packC != null) out.push({ k: "Pack temperature", v: formatTemperature(i.packC, i.tempUnit ?? "c") });
     if (elapsedSec != null) out.push({ k: "Elapsed", v: duration(elapsedSec) });
     if (c && c.cost != null) {
       const est = c.cost_is_estimate !== false;
@@ -285,9 +290,10 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, asl
 // Null when the state has no slot, so the picture stays.
 export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
+  const packC = usePackTemp(nowMs);
   if (!slotAvailable(view, i.fix ?? null)) return null;
   if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
-  const stats = slotStats(i);
+  const stats = slotStats({ ...i, packC });
   let big = "";
   let bigUnit = "";
   let sub: string | null = null;
@@ -301,7 +307,7 @@ export default function NowSlot(i: SlotInput) {
     if (view.etaHours != null) {
       const when = clock(nowMs + view.etaHours * 3_600_000);
       sub = i.soft ? null : view.limitPct != null && view.limitPct < 100 ? `Reaches ${Math.round(view.limitPct)}% at ${when}` : `Full at ${when}`;
-      small = `${timeLeft(view.etaHours)} left${view.etaSource === "truck" ? "" : " (est.)"}${view.limitPct != null && !i.soft ? ` · target ${Math.round(view.limitPct)}%` : ""}`;
+      small = `${timeLeft(view.etaHours, true)} left${view.etaSource === "truck" ? "" : " (est.)"}${view.limitPct != null && !i.soft ? ` · target ${Math.round(view.limitPct)}%` : ""}`;
     }
   } else if (view.kind === "driving" && view.speedMph != null) {
     const sp = unit === "km" ? view.speedMph * KM_PER_MI : view.speedMph;

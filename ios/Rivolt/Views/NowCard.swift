@@ -8,7 +8,14 @@ import UIKit
 struct NowCard: View {
     let vehicle: Vehicle
     let summary: NowSummary
-    var clock: Date = .now
+    var clock: Date = Self.defaultClock
+    /// The real time, or RIVOLT_UITEST_CHARGE_NOW in a debug fixture run (the parity shots, so elapsed, rate and clock times equal the web stub's).
+    static var defaultClock: Date {
+        #if DEBUG
+        if let pinned = ProcessInfo.processInfo.environment["RIVOLT_UITEST_CHARGE_NOW"], let at = ISO8601DateFormatter().date(from: pinned) { return at }
+        #endif
+        return .now
+    }
     /// Home, Away or Fast from the latest charge's ledger place, when it is known (no location is used for it).
     var place: String?
     /// The charge in progress and the drive in progress, from their live reads; they add the cost so far and the trip.
@@ -94,7 +101,7 @@ struct NowCard: View {
         guard slotOn, NowSlotModel.shown(summary: summary) else { return nil }
         let fix = NowSlotModel.fix(snapshot: snapshot, truck: truckFix)
         return NowSlotModel.make(summary: summary, snapshot: snapshot, session: session, charge: charge, liveDrive: liveDrive, fix: fix,
-                                 home: home, gear: gear, mode: driveMode, soft: soft, parkedGraph: parkedSoft, clock: clock)
+                                 home: home, gear: gear, mode: driveMode, soft: soft, packC: soft ? chargeSeries?.packTempC(now: clock) : nil, parkedGraph: parkedSoft, clock: clock)
     }
 
     /// The charging card in its soft look: the key on, the slot and the calm hero showing, a charge in progress.
@@ -290,7 +297,6 @@ struct NowCard: View {
     /// The parked slot shows the weather, so the outside figure is left out there.
     private func temperaturesLine(outside: Bool) -> String? {
         var parts: [String] = []
-        if soft, let c = chargeSeries?.packTempC(now: clock) { parts.append("Pack \(NowComfort.wholeDegrees(celsius: c))") }
         if let cabin = summary.liveComfort?.cabinValue { parts.append("Cabin \(cabin)") }
         if outside, let t = summary.outsideTempC { parts.append("Outside \(NowComfort.wholeDegrees(celsius: t))") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
