@@ -1,7 +1,7 @@
 import { e2eNow } from "./clock";
 
 // GET /api/vehicles/{id}/parked-series as the server would answer it for the Now card's parked graph. Times are hours before "now".
-export type ParkedCase = "overnight" | "asleep" | "never_slept" | "charged" | "flat" | "minutes" | "gone";
+export type ParkedCase = "overnight" | "asleep" | "never_slept" | "charged" | "flat" | "just" | "minutes" | "gone";
 
 const H = 3_600_000;
 
@@ -15,6 +15,7 @@ const SLEEPS: Record<string, Sleep[]> = {
   charged: [[22, 19], [18, 12], [11.4, 7.1], [6.4, 3.2], [2.6, 1.2]],
   // Asleep through the parked stretch with no loss at all, as a truck that sleeps well reads (the sleeps end at the parked marker's wake).
   flat: [[22, 19], [18, 11.9], [11.4, 7], [6.4, 3.2], [2.6, 0]],
+  just: [[22, 19], [18, 11.9], [11.4, 7], [6.4, 3.2], [2.6, 0.6]],
 };
 
 // What breaks the line: [start, end] in hours ago and the battery change over it (no readings inside). A drive costs a little; a charge adds a lot.
@@ -24,6 +25,8 @@ const BREAK: Record<string, [number, number, number]> = {
   never_slept: [11.9, 11.7, -0.6],
   charged: [7.1, 6.7, 18],
   flat: [11.9, 11.7, -0.6],
+  // Parked a few minutes ago after a short drive: the whole window is "before the parked marker".
+  just: [0.5, 0.2, -5],
 };
 
 export function parkedSeriesFixture(kind: ParkedCase) {
