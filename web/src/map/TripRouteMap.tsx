@@ -611,15 +611,16 @@ export function TripRouteMap({
         // A card that is not drawn (hidden under 200 px, where the sheet's peek says the same) needs no room.
         const tripCardEl = el.querySelector<HTMLElement>(".rivolt-trip-card");
         const card = tripCardEl?.getClientRects().length ? tripCardEl : null;
-        // On a phone the card rides above the sheet, and above the radar strip on its edge (reserved whether or not the radar is on, as at the top).
-        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 : 0) : 0) : 0;
+        // The card rides above the radar strip at the map's bottom (on a phone, on the sheet's edge): room reserved whether or not the radar is on, as at the top.
+        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() : 0) + (fill && radarOnRef.current ? 28 : 0) : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
         // ...and the radar strip under them (one line, and the label of a pin that sits just under it), when this visitor has radar: reserved whether or not it is on, so turning it on covers no pin.
         // On a phone the strip rides the sheet's edge instead, inside the bottom's room.
         const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom + (radarOnRef.current && !sheetEdge() ? 52 : 0)) : 24;
-        const base = fill ? (narrow ? 40 : 24) : 24;
+        // Without a card the strip alone is the bottom's obstacle (22 px high, 8 px up).
+        const base = fill ? (narrow ? 40 : radarOnRef.current ? 40 : 24) : 24;
         // The phone's sheet covers the lower part of the map at half: the route clears it and the strip on its edge.
         const cover = sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 : 0) + 12 : 0;
         const bottom = Math.max(base, Math.min(Math.max(lift, cover), el.clientHeight - top - 60));
@@ -1194,8 +1195,8 @@ export function TripRouteMap({
     );
   }
 
-  // The radar legend: on the map it rides next to the Radar chip (not under the Chargers box, where it crowded the chip row and hid a map label); in the
-  // flow layout it sits above the map.
+  // The radar legend: on the map it sits at the very bottom, inside it (bottom left, under the trip card; on a phone CSS puts it on the sheet's edge);
+  // in the flow layout it sits above the map.
   const radarStrip = showRadar && radarLabel ? (
         // One line, as on the iPhone: a short gradient named light, moderate, heavy, then the credit and the picture's time ("NOAA/NWS · 6:42 PM").
         // NOAA's colours as they are drawn. A feed that is down or stale says "Radar unavailable" and draws nothing, so nothing reads as "no rain".
@@ -1204,7 +1205,7 @@ export function TripRouteMap({
           role="status"
           aria-label={radarSpokenLabel}
           data-radar-label
-          className={`pointer-events-auto flex w-fit ${fill ? "max-w-[min(20rem,calc(100vw-6rem))]" : "max-w-full"} items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-neutral-950/85 px-2 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}
+          className={`pointer-events-auto flex w-fit ${fill ? "max-w-[min(20rem,100%)]" : "max-w-full"} items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-neutral-950/85 px-2 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}
         >
           {radarLabel.startsWith("NOAA") && (
             <span aria-hidden="true" className="flex items-center gap-1 text-neutral-400">
@@ -1275,7 +1276,7 @@ export function TripRouteMap({
         </div>
   );
   return (
-    <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
+    <div data-trip-map data-trip-map-fill={fill ? "" : undefined} className={fill ? "relative isolate h-full" : "isolate"}>
       {/* The chips and, under them, the radar strip: one column at the map's top left, so the strip never lands on the route. */}
       <div className={fill ? "pointer-events-none absolute left-14 right-2 top-3 z-[500] flex flex-col items-start gap-1 max-[200px]:left-12 max-[200px]:right-1" : "contents"}>
       {!noChargerSource && chargerChips(false)}
@@ -1311,8 +1312,11 @@ export function TripRouteMap({
           >
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><path d="M12 12l6-6" /></svg>
           </button>
-          {fill && !layersOpen && radarStrip}
         </div>
+      )}
+      {fill && !layersOpen && (
+        // At the bottom edge of the map, left: the trip card (a map control at the bottom left) is lifted above it (next-plan.css), the credits are bottom right.
+        <div className="pointer-events-none absolute bottom-2 left-2.5 right-14 z-[500]">{radarStrip}</div>
       )}
       {fill && (radarOn || !noChargerSource) && (
         // Shown only while tight (CSS): the one way to the layers there.
