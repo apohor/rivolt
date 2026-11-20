@@ -8,7 +8,7 @@ import { ApiError, backend, isReconnecting, type Charge, type Drive, type LiveDr
 import { Card, ErrorBox, Spinner } from "./ui";
 import { num, pct } from "../lib/format";
 import { formatMoney } from "../lib/ledger";
-import { pickImageForState, useIsLight } from "../lib/vehicleImage";
+import { pickLiveImage, useIsLight } from "../lib/vehicleImage";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { useDesignPreview } from "../lib/config";
 import { PlugPicture } from "./PlugPicture";
@@ -152,7 +152,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   // frunk open shows front, liftgate/tonneau shows rear, etc.
   // An image that fails to load (moved or blocked) is dropped, no broken picture; the image_url fallback gets its turn.
   const [badUrls, setBadUrls] = useState<string[]>([]);
-  const heroUrl = [pickImageForState(vehicle.images, s, light), vehicle.image_url || ""].find((u) => u && !badUrls.includes(u)) || "";
+  const heroUrl = pickLiveImage(vehicle.images, s, light, vehicle.image_url, badUrls);
 
   return (
     <Card

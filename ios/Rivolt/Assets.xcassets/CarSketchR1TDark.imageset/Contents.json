@@ -1,0 +1,15 @@
+{
+  "images": [
+    {
+      "filename": "car-r1t-dark.svg",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  },
+  "properties": {
+    "preserves-vector-representation": true
+  }
+}

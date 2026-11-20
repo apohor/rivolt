@@ -175,7 +175,7 @@ struct HomeView: View {
                     let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
                     NowLiveView(vehicle: vehicle, summary: summary, session: summary.freshness != .stale ? session : nil,
                                 liveDrive: summary.freshness != .stale ? liveDrive : nil, destination: summary.freshness != .stale ? liveDestination : nil, charge: summary.freshness != .stale ? latestCharge : nil,
-                                tidy: tidy, images: vehicle.images) { showLive = false }
+                                tidy: tidy, images: vehicle.images, pictureState: vehicleState.map(VehiclePicture.LiveInputs.init)) { showLive = false }
                         .toolbar(.hidden, for: .navigationBar)
                 }
             }

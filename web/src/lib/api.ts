@@ -709,8 +709,6 @@ export type NowSnapshot = {
     as_of: string;
     condition?: "clear" | "partly_cloudy" | "cloudy" | "fog" | "drizzle" | "rain" | "snow" | "thunder";
     wind_kph?: number;
-    // Forecast precipitation over the next 3 h (rain or snow), 0 = dry; absent when unknown.
-    rain_next3h_mm?: number;
   };
   // The drive in progress, from the recorder's open drive row; null when none (or the row is stale).
   drive?: {

@@ -24,7 +24,7 @@ import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
 import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
-import { DriveGraph, useDriveDestination, useDriveSeries } from "./DriveGraph";
+import { DriveGraph, useDriveDestination, useDriveSeriesState } from "./DriveGraph";
 import { ParkedGraph, ParkedRows, useParkedSeries } from "./ParkedGraph";
 import { openSleepSince } from "../lib/parkedSeries";
 import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
@@ -32,7 +32,7 @@ import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
 import { cabinValue, comfortParts } from "../lib/comfort";
 import { otaNowLine, otaStepFromState } from "../lib/truckHealth";
-import { lastCardHeight, rememberCardHeight } from "../lib/nowCardSize";
+import { cardHeight, cardKind, placeholderHeight, rememberCardHeight } from "../lib/nowCardSize";
 import { formatDistance, usePreferences, type DistanceUnit } from "../lib/preferences";
 
 // The Now card (ux-slice-spec §3): one state-driven hero for the
@@ -84,10 +84,13 @@ function advance(t: Tracker, s: VehicleState, nowMs: number): Tracker {
   return next;
 }
 
-// The card while its data is on the way, as tall as the card was last time for this truck (a charging or driving card with its graph is taller than
-// a parked one), else as tall as a parked card (the redesigned hero and the plain card differ), so what is under it does not jump down when it arrives.
+const HOLD_MAX_MS = 8000;
+
+// The card while its data is on the way, as tall as the card was last time (a charging or driving card with its graph is taller than a parked one),
+// else as tall as a parked card (the redesigned hero and the plain card differ), so what is under it does not jump down when it arrives. Before
+// the vehicle list has answered it is the truck the user last picked.
 export function NowCardSkeleton({ tall, vehicleID }: { tall: boolean; vehicleID?: string }) {
-  const last = lastCardHeight(vehicleID, tall);
+  const last = placeholderHeight(vehicleID);
   return (
     <section aria-label="Now" data-testid="now-skeleton" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
       <div
@@ -259,7 +262,15 @@ export default function NowCard({
   // the stored samples at the card's own pace. Too short a drive: no graph, and the card is as it was.
   const driveGraphOn = useDesignPreview("now_drive_graph") && slotOn && tidy && view?.kind === "driving";
   const driveDest = useDriveDestination(vehicleID, driveGraphOn);
-  const driveSeries = useDriveSeries(vehicleID, driveGraphOn, driveQ.data ? Date.parse(driveQ.data.started_at) : NaN);
+  const { series: driveSeries, pending: drivePending } = useDriveSeriesState(vehicleID, driveGraphOn, driveQ.data ? Date.parse(driveQ.data.started_at) : NaN);
+  // The card keeps its last height while a graph's series is on its way, for no longer than this after the state arrived (a read that hangs does not hold it).
+  const stateIn = !!stateQ.data;
+  const [holdOver, setHoldOver] = useState(false);
+  useEffect(() => {
+    if (!stateIn) return;
+    const t = window.setTimeout(() => setHoldOver(true), HOLD_MAX_MS);
+    return () => window.clearTimeout(t);
+  }, [stateIn]);
   // The chip, the graph's pill and its header say one parked time. The state run restarts at every wake-up, so a parked truck's chip
   // takes the server's own parked-since from the series when it has one, and shows no time until the series has answered (or failed, or taken
   // about 3 s), so the time never changes by hours a moment after the card draws.
@@ -275,6 +286,7 @@ export default function NowCard({
   const fromSeries = asleepOn && parkedSeries ? openSleepSince(parkedSeries) : undefined;
   const chipAsleepSince = asleepOn && parkedWaiting ? null : fromSeries === undefined ? tracker.asleepSinceMs : fromSeries;
 
+  const kind = cardKind(view?.kind ?? "parked");
   // The card's height as drawn (it grows when the graph arrives): remembered for the next load's placeholder. On a wide screen the card is
   // `display: contents` (its parts sit in the page grid): then it is the parts' span, and the parts are what is watched.
   const measureRef = useCallback(
@@ -287,7 +299,8 @@ export default function NowCard({
         const r = [...el.children].map((c) => c.getBoundingClientRect());
         return r.length ? Math.max(...r.map((x) => x.bottom)) - Math.min(...r.map((x) => x.top)) : 0;
       };
-      const save = () => rememberCardHeight(vehicleID, v2, height());
+      const hero = () => el.querySelector(":scope > [data-now-v2]")?.getBoundingClientRect().height;
+      const save = () => rememberCardHeight(vehicleID, v2, kind, height(), hero());
       const ro = new ResizeObserver(save);
       const watch = () => {
         ro.disconnect();
@@ -303,7 +316,7 @@ export default function NowCard({
         mo.disconnect();
       };
     },
-    [vehicleID, v2],
+    [vehicleID, v2, kind],
   );
   if (stateQ.isLoading) return <NowCardSkeleton tall={v2} vehicleID={vehicleID} />;
   if (!state || !view) {
@@ -347,6 +360,7 @@ export default function NowCard({
   const fix = pickFix(server?.location, state.latitude, state.longitude, server?.last_fix);
   const showSlot = slotOn && slotShown(view, fix);
   // With the parked graph (or while its answer is awaited) the graph is the card's content: the map gives way to one line.
+  const holdHeight = !holdOver ? cardHeight(vehicleID, v2, kind, true) : null;
   const parkedMapGone = parkedKindOn && (parkedSeries != null || parkedWaiting);
   // Design "now_charge_graph" (with now_slot and now_tidy), charging: the figures as rows beside the graph, the truck picture and the chip that
   // says power and finish time, as on the iPhone.
@@ -420,6 +434,8 @@ export default function NowCard({
           model={model}
           stateSlot={showSlot ? slotNode : null}
           chip={nowChip(chipView ?? view, chipAsleepSince, nowMs, pill.text, tidy && showSlot && !soft)}
+          holdHeight={holdHeight}
+          holdPending={(parkedKindOn && parkedWaiting) || (driveGraphOn && drivePending)}
           soft={soft || parkedSeries != null || driveSeries != null}
           graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} powerKw={view.powerKw} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveSeries ? <DriveGraph series={driveSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
           parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}

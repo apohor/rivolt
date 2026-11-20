@@ -18,7 +18,7 @@ async function open(page: Page, flag: boolean, scenario: "parked" | "asleep" | "
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: scenario, state_since: iso(2 * 3_600_000),
         soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0, charge: null,
         ...(scenario === "asleep" ? { asleep_since: iso(2 * 3_600_000), asleep_today_s: 18 * 3600 + 40 * 60 } : {}),
-        ambient: { temp_c: 15, source: "open-meteo", as_of: iso(60_000), condition: "partly_cloudy", wind_kph: 16, rain_next3h_mm: 3 },
+        ambient: { temp_c: 15, source: "open-meteo", as_of: iso(60_000), condition: "partly_cloudy", wind_kph: 16 },
       }),
     );
   });
@@ -200,7 +200,7 @@ test("design now_slot: parked shows the map and the weather in place of the pict
   const weather = slot.getByTestId("now-slot-weather");
   await expect(weather).toContainText("Partly cloudy here now");
   await expect(weather.getByTestId("now-slot-icon")).toBeVisible();
-  await expect(weather).toContainText("Rain next 3 h · 0.1 in");
+  await expect(weather).not.toContainText("next 3 h");
   await expect(page.getByTestId("now-car")).toHaveCount(0);
   // The full-charge line stays, and the outside temperature is shown once (in the weather), not twice.
   await expect(page.getByTestId("now-subline")).toContainText("Full charge today");

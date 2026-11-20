@@ -1,0 +1,455 @@
+{
+ "about": "The Live picture's pick, one table for both platforms: web/src/lib/vehicleImage.test.ts and ios/RivoltTests/VehiclePictureParityTests.swift read it. Keys are the wire names; a missing closure counts as shut.",
+ "images": [
+  {
+   "url": "https://img.example/front-dark.png",
+   "placement": "front",
+   "design": "dark",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/front-light.png",
+   "placement": "front",
+   "design": "light",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/in-use-dark.png",
+   "placement": "in-use",
+   "design": "dark",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/in-use-light.png",
+   "placement": "in-use",
+   "design": "light",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/overhead-dark.png",
+   "placement": "overhead",
+   "design": "dark",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/overhead-light.png",
+   "placement": "overhead",
+   "design": "light",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/rear-dark.png",
+   "placement": "rear",
+   "design": "dark",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/rear-light.png",
+   "placement": "rear",
+   "design": "light",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/side-charging-dark.png",
+   "placement": "side-charging",
+   "design": "dark",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/side-charging-light.png",
+   "placement": "side-charging",
+   "design": "light",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/side-rear-dark.png",
+   "placement": "side-rear",
+   "design": "dark",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/side-rear-light.png",
+   "placement": "side-rear",
+   "design": "light",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/side-dark.png",
+   "placement": "side",
+   "design": "dark",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/side-light.png",
+   "placement": "side",
+   "design": "light",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/three-quarter-dark.png",
+   "placement": "three-quarter",
+   "design": "dark",
+   "size": "large"
+  },
+  {
+   "url": "https://img.example/three-quarter-light.png",
+   "placement": "three-quarter",
+   "design": "light",
+   "size": "large"
+  }
+ ],
+ "cases": [
+  {
+   "name": "all closed, parked",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "https://img.example/three-quarter-dark.png"
+  },
+  {
+   "name": "all closed, light design",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": true,
+   "expect": "https://img.example/three-quarter-light.png"
+  },
+  {
+   "name": "no state read yet",
+   "state": null,
+   "light": false,
+   "expect": "https://img.example/three-quarter-dark.png"
+  },
+  {
+   "name": "closures not reported",
+   "state": {
+    "gear": "P"
+   },
+   "light": false,
+   "expect": "https://img.example/three-quarter-dark.png"
+  },
+  {
+   "name": "gear D",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true,
+    "gear": "D"
+   },
+   "light": false,
+   "expect": "https://img.example/side-dark.png"
+  },
+  {
+   "name": "gear R",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true,
+    "gear": "R"
+   },
+   "light": false,
+   "expect": "https://img.example/side-dark.png"
+  },
+  {
+   "name": "gear N, lower case",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true,
+    "gear": "n"
+   },
+   "light": false,
+   "expect": "https://img.example/side-dark.png"
+  },
+  {
+   "name": "gear P",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true,
+    "gear": "P"
+   },
+   "light": false,
+   "expect": "https://img.example/three-quarter-dark.png"
+  },
+  {
+   "name": "frunk open",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": false,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "https://img.example/front-dark.png"
+  },
+  {
+   "name": "frunk open, light",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": false,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": true,
+   "expect": "https://img.example/front-light.png"
+  },
+  {
+   "name": "liftgate open",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": false,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "https://img.example/rear-dark.png"
+  },
+  {
+   "name": "tonneau open",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": false
+   },
+   "light": false,
+   "expect": "https://img.example/rear-dark.png"
+  },
+  {
+   "name": "door open",
+   "state": {
+    "doors_closed": false,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "https://img.example/side-dark.png"
+  },
+  {
+   "name": "driving beats an open frunk",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": false,
+    "liftgate_closed": true,
+    "tonneau_closed": true,
+    "gear": "D"
+   },
+   "light": false,
+   "expect": "https://img.example/side-dark.png"
+  },
+  {
+   "name": "frunk beats an open door",
+   "state": {
+    "doors_closed": false,
+    "frunk_closed": false,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "https://img.example/front-dark.png"
+  },
+  {
+   "name": "rear beats an open door",
+   "state": {
+    "doors_closed": false,
+    "frunk_closed": true,
+    "liftgate_closed": false,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "https://img.example/rear-dark.png"
+  },
+  {
+   "name": "charging truck, all closed: never side-charging art",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true,
+    "charger_state": "charging_active",
+    "charger_power_kw": 11
+   },
+   "light": false,
+   "expect": "https://img.example/three-quarter-dark.png"
+  },
+  {
+   "name": "only side-charging art: nothing from the pick",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "",
+   "images": [
+    {
+     "url": "https://img.example/side-charging-dark.png",
+     "placement": "side-charging",
+     "design": "dark",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/side-charging-light.png",
+     "placement": "side-charging",
+     "design": "light",
+     "size": "large"
+    }
+   ]
+  },
+  {
+   "name": "no front art: open frunk falls back to three-quarter",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": false,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "https://img.example/three-quarter-dark.png",
+   "images": [
+    {
+     "url": "https://img.example/in-use-dark.png",
+     "placement": "in-use",
+     "design": "dark",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/in-use-light.png",
+     "placement": "in-use",
+     "design": "light",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/overhead-dark.png",
+     "placement": "overhead",
+     "design": "dark",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/overhead-light.png",
+     "placement": "overhead",
+     "design": "light",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/rear-dark.png",
+     "placement": "rear",
+     "design": "dark",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/rear-light.png",
+     "placement": "rear",
+     "design": "light",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/side-charging-dark.png",
+     "placement": "side-charging",
+     "design": "dark",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/side-charging-light.png",
+     "placement": "side-charging",
+     "design": "light",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/side-rear-dark.png",
+     "placement": "side-rear",
+     "design": "dark",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/side-rear-light.png",
+     "placement": "side-rear",
+     "design": "light",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/side-dark.png",
+     "placement": "side",
+     "design": "dark",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/side-light.png",
+     "placement": "side",
+     "design": "light",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/three-quarter-dark.png",
+     "placement": "three-quarter",
+     "design": "dark",
+     "size": "large"
+    },
+    {
+     "url": "https://img.example/three-quarter-light.png",
+     "placement": "three-quarter",
+     "design": "light",
+     "size": "large"
+    }
+   ]
+  },
+  {
+   "name": "no pictures: image_url",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "https://img.example/own.png",
+   "image_url": "https://img.example/own.png",
+   "images": []
+  },
+  {
+   "name": "picked view failed: image_url",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "https://img.example/own.png",
+   "image_url": "https://img.example/own.png",
+   "failed": [
+    "https://img.example/three-quarter-dark.png"
+   ]
+  },
+  {
+   "name": "both failed: nothing",
+   "state": {
+    "doors_closed": true,
+    "frunk_closed": true,
+    "liftgate_closed": true,
+    "tonneau_closed": true
+   },
+   "light": false,
+   "expect": "",
+   "image_url": "https://img.example/own.png",
+   "failed": [
+    "https://img.example/three-quarter-dark.png",
+    "https://img.example/own.png"
+   ]
+  }
+ ]
+}

@@ -19,6 +19,11 @@ export function ChargeSeriesProvider({ vehicleId, enabled, children }: { vehicle
   return <SeriesContext.Provider value={useOpenChargeSeries(vehicleId, enabled)}>{children}</SeriesContext.Provider>;
 }
 
+// Whether the charge's series is still on its way (the card keeps its height until it has answered).
+export function useChargePending(): boolean {
+  return useContext(SeriesContext)?.pending ?? false;
+}
+
 // The pack's temperature from the newest stored sample, only while it is recent (a reading older than this is not shown).
 const PACK_FRESH_MS = 15 * 60_000;
 export function usePackTemp(nowMs: number): number | null {
