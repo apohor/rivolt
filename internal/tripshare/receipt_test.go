@@ -68,6 +68,9 @@ func TestReceiptHasNoStoredLabels(t *testing.T) {
 	if stop == nil || !strings.HasPrefix(stop.Name, "Stop · Area ") {
 		t.Errorf("added stop row %+v: want \"Stop · <area>\"", stop)
 	}
+	if stop != nil && stop.DurS != 300 {
+		t.Errorf("added stop length %d s, want 300 (5 min, rounded)", stop.DurS)
+	}
 	if charge == nil || charge.Name != "Barstow, CA · Rivian Adventure Network" {
 		t.Errorf("public charger row %+v", charge)
 	}

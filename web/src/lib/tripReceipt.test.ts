@@ -18,7 +18,7 @@ const R: TripReceipt = {
   totals: { dist_m: 402335, drive_s: 14400, charge_s: 1080, stops: 1, arrive_at: "2026-11-21T21:00:00Z", arrival_soc: 30 },
   sketch: ["_p~iF~ps|U_ulLnnqC"],
 };
-const o = { model: "R1S", unit: "mi" as const, includeSketch: false, includeCost: false };
+const o = { model: "R1S", unit: "mi" as const, includeSketch: false, includeCost: false, viewerTZ: "America/Chicago" };
 
 describe("buildReceiptModel", () => {
   it("says only areas, the model and the footer, never a stored label", () => {
@@ -44,5 +44,18 @@ describe("buildReceiptModel", () => {
     const cost = { currency: "USD", dcfc_spend_low: 10, dcfc_spend_high: 14 } as never;
     expect(buildReceiptModel(R, { ...o, cost }).cost).toBeNull();
     expect(buildReceiptModel(R, { ...o, includeCost: true, cost }).cost?.label).toMatch(/estimate/);
+  });
+  it("states the zone of the leave time and of the arrival, so a trip across zones reconciles", () => {
+    const m = buildReceiptModel(R, o);
+    // Leave 15:00Z in Chicago (CST, UTC-6) and arrive 21:00Z in Los Angeles (PST, UTC-8): 9:00 AM CST + 6 h = 3:00 PM CST = 1:00 PM PST.
+    expect(m.sub).toMatch(/9:00\sAM\sCST/);
+    expect(m.totals.find((t) => t.label === "Arrive")?.value).toMatch(/1:00\sPM\sPST/);
+  });
+  it("shows how long an added stop lasts and drops an unchanged battery line", () => {
+    const m = buildReceiptModel({ ...R, rows: [{ kind: "stop", name: "Stop · Baker area", dur_s: 1800, from_soc: 60, to_soc: 60 }, { kind: "stop", name: "Stop · Baker area", from_soc: 60, to_soc: 58 }] }, o);
+    expect(m.lines[0].right).toBe("30 min");
+    expect(m.lines[0].subRight).toBe("");
+    expect(m.lines[1].right).toBe("");
+    expect(m.lines[1].subRight).toBe("60% → 58%");
   });
 });

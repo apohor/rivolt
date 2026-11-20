@@ -188,7 +188,7 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 			r.Totals.ChargeS += b.w.ChargeDurationSec
 			r.Totals.Stops++
 		default:
-			r.Legs = append(r.Legs, ReceiptRow{Kind: "stop", Name: b.label, FromSoC: b.w.ArrivalSoC, ToSoC: b.w.DepartureSoC})
+			r.Legs = append(r.Legs, ReceiptRow{Kind: "stop", Name: b.label, DurS: roundSecs(secsBetween(b.w.ArrivalTimeUTC, b.w.DepartureTimeUTC)), FromSoC: b.w.ArrivalSoC, ToSoC: b.w.DepartureSoC})
 		}
 	}
 	r.Totals.DistM = roundDist(dest.DistanceFromOriginMeters-origin.DistanceFromOriginMeters, in.Metric)

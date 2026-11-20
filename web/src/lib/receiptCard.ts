@@ -19,6 +19,21 @@ function clip(g: CanvasRenderingContext2D, text: string, max: number): string {
   return t + "…";
 }
 
+// wrap breaks text at spaces into lines no wider than max, so a long place name moves to the next line instead of being cut off.
+function wrap(g: CanvasRenderingContext2D, text: string, max: number): string[] {
+  const out: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && g.measureText(next).width > max) {
+      out.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) out.push(line);
+  return out.length > 0 ? out : [""];
+}
+
 function rule(g: CanvasRenderingContext2D, y: number, dotted = false) {
   g.save();
   g.strokeStyle = "#a8a395";
@@ -85,8 +100,11 @@ function draw(g: CanvasRenderingContext2D, m: ReceiptModel): number {
       g.fillText(l.subRight, R, y);
       const sw = g.measureText(l.subRight).width;
       g.textAlign = "left";
-      g.fillText(clip(g, l.sub, inner - sw - 24), L, y);
-      y += 40;
+      const lines = wrap(g, l.sub, inner - sw - 24);
+      lines.forEach((t, i) => {
+        g.fillText(clip(g, t, inner - sw - 24), L, y + i * 36);
+      });
+      y += 40 + (lines.length - 1) * 36;
     }
     y += 22;
   }
