@@ -472,5 +472,5 @@ func gatedDesignPreview(gates bool) []string {
 	if !gates {
 		return nil
 	}
-	return []string{"trip_receipt"}
+	return []string{"trip_receipt", "now_parked_graph"}
 }

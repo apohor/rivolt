@@ -13,6 +13,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// parkedGraphKey is the design key that turns the parked graph on (preview first). Off, the route does not exist.
+const parkedGraphKey = "now_parked_graph"
+
 // Parked-series endpoint (design now_parked_graph): the last 24 h of one truck's battery while it was parked, with its sleeps and
 // wake-ups, for the Now card's "Battery while parked" graph. Stored vehicle_state rows only (never Rivian, so it cannot wake the truck),
 // a plain DB read on any pod. Every figure the card shows is computed here, so the web and the iPhone app print the same numbers.
