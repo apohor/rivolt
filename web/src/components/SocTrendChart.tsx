@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { axisDayIndices } from "../lib/period";
-import { CHART_AXIS_PX } from "../lib/chartAxis";
+import { axisLabelWidth, CHART_AXIS_PX, fitAxisLabels } from "../lib/chartAxis";
 
 // Battery (SoC) trend for the app, calm, the same chart as the iPhone's: a soft band for each day from
 // its lowest to highest level (smoothed between days), one smooth line over it for where the day ended, only the
@@ -369,7 +369,7 @@ export function SocTrendChart({
             ))}
           </g>
         )}
-        {ticks.map((t) => (
+        {fitAxisLabels(ticks.map((t) => ({ x: X(t.x), w: axisLabelWidth(t.label), anchor: tickAnchor(t.x) }))).map((k) => ticks[k]).map((t) => (
           <text key={t.x} x={X(t.x)} y={H - 6} textAnchor={tickAnchor(t.x)} className="fill-neutral-400" fontSize={CHART_AXIS_PX}>{t.label}</text>
         ))}
         {hover != null && hv && (

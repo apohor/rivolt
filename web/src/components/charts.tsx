@@ -2,7 +2,7 @@
 // overview dashboards; if we ever need interactivity/zoom we can swap
 // individual charts for uplot without touching call sites.
 
-import { CHART_AXIS_PX, niceAxis } from "../lib/chartAxis";
+import { axisLabelWidth, CHART_AXIS_PX, fitAxisLabels, niceAxis } from "../lib/chartAxis";
 import {
   useCallback,
   useId,
@@ -753,22 +753,24 @@ export function BarChart({
       {/* sparse x labels: first, last, middle unless told which — edges
           anchored so they can't overflow the chart bounds. */}
       {data.length > 0 &&
-        (xLabelAt ?? [0, Math.floor(data.length / 2), data.length - 1])
-          .filter((v, i, a) => v >= 0 && v < data.length && a.indexOf(v) === i)
-          .map((i) => {
-            const anchor: "start" | "middle" | "end" =
-              i === 0 ? "start" : i === data.length - 1 ? "end" : "middle";
+        (() => {
+          const idx = (xLabelAt ?? [0, Math.floor(data.length / 2), data.length - 1]).filter((v, i, a) => v >= 0 && v < data.length && a.indexOf(v) === i);
+          const anchorOf = (i: number): "start" | "middle" | "end" => (i === 0 ? "start" : i === data.length - 1 ? "end" : "middle");
+          const textOf = (i: number) => (formatX ? formatX(data[i].label, i) : data[i].label);
+          const cx = (i: number) => padL + i * (innerW / data.length) + barW / 2;
+          // On a narrow screen the labels would run into each other: the ones that do not fit are left out (screen px: the text is counter-scaled).
+          const fit = fitAxisLabels(idx.map((i) => ({ x: cx(i) * aspect.fx, w: axisLabelWidth(String(textOf(i))), anchor: anchorOf(i) })));
+          return fit.map((k) => {
+            const i = idx[k];
             return (
-              <g
-                key={`xl${i}`}
-                transform={textTF(padL + i * (innerW / data.length) + barW / 2, height - 6)}
-              >
-                <text textAnchor={anchor} className="fill-neutral-400" fontSize={CHART_AXIS_PX}>
-                  {formatX ? formatX(data[i].label, i) : data[i].label}
+              <g key={`xl${i}`} transform={textTF(cx(i), height - 6)}>
+                <text textAnchor={anchorOf(i)} className="fill-neutral-400" fontSize={CHART_AXIS_PX}>
+                  {textOf(i)}
                 </text>
               </g>
             );
-          })}
+          });
+        })()}
     </svg>
   );
 }

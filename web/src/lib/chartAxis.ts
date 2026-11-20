@@ -39,3 +39,27 @@ export function dayName(d: Date | string): string {
   const day = typeof d === "string" ? new Date(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10))) : d;
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(day);
 }
+
+// Which of an axis's labels fit side by side: each is `x` (its anchor, in screen px), `w` (its text's width in px) and `anchor`. The first and
+// the last are kept when they can be; a label that would touch the one before it (with `gap` px between) is dropped, and the last wins over
+// the one before it, since the end of the period is what the axis is for. Returns the kept indices, in order.
+export function fitAxisLabels(items: { x: number; w: number; anchor: "start" | "middle" | "end" }[], gap = 6): number[] {
+  const span = (it: { x: number; w: number; anchor: "start" | "middle" | "end" }) => {
+    const left = it.anchor === "start" ? it.x : it.anchor === "end" ? it.x - it.w : it.x - it.w / 2;
+    return [left, left + it.w] as const;
+  };
+  const kept: number[] = [];
+  items.forEach((it, i) => {
+    const last = i === items.length - 1;
+    while (kept.length && span(items[kept[kept.length - 1]])[1] + gap > span(it)[0]) {
+      // Overlap: the last label displaces the one before it (never the first), any other label gives way.
+      if (last && kept.length > 1) kept.pop();
+      else return;
+    }
+    kept.push(i);
+  });
+  return kept;
+}
+
+/** An estimate of a label's drawn width at the chart axis size (digits and letters of a UI font are about 0.6 em wide). */
+export const axisLabelWidth = (text: string): number => Math.ceil(text.length * CHART_AXIS_PX * 0.6);
