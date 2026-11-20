@@ -74,8 +74,12 @@ struct NowParkedGraph: View {
             let pillW = (model.parkedLabel.map { CGFloat($0.count) * 6.4 } ?? 0) + 20
             let pill: String? = {
                 guard !typeSize.isAccessibilitySize, let label = model.parkedLabel, let p = parkedPt else { return nil }
-                return p.x - pillW / 2 > (line.first?.x ?? start.x) + 56 && p.x + pillW / 2 < w - padR ? label : nil
+                return p.x - pillW / 2 > padL ? label : nil
             }()
+            // Near the right edge (a short parked stretch) the pill ends at the card edge instead of being left out; the marker line still points at the time.
+            let pillX = parkedPt.map { min($0.x, w - padR - pillW / 2) }
+            // The current value sits left of and below the dot, and drops below any reading of the line under it (a dip right before "now").
+            let valueY = min(max(now.y + 22, line.filter { $0.x > now.x - 56 && $0.x < now.x }.map { $0.y + 18 }.max() ?? 0), sleepBase - 14)
             ZStack(alignment: .topLeading) {
                 Canvas { ctx, _ in
                     // The readings that carry a dot or a label stay on the line when it is eased: the first and last, the wake-ups and the parked marker's.
@@ -91,13 +95,13 @@ struct NowParkedGraph: View {
                         guard b - a >= 2 else { continue }
                         var layer = ctx
                         let old = dimTo.map { b <= $0 + 1 } ?? false
-                        layer.opacity = old ? 0.45 : 1
+                        layer.opacity = old ? 0.65 : 1
                         // Rounded corners: a sleep is a soft shape, never a hard-cornered block.
                         layer.clip(to: Path(roundedRect: CGRect(x: a + 1, y: 0, width: max(b - a - 2, 1), height: sleepBase), cornerRadius: 10))
                         layer.fill(fill, with: .linearGradient(Gradient(colors: [band.opacity(scheme == .light ? 0.22 : 0.34), band.opacity(scheme == .light ? 0.04 : 0.05)]),
                                                                startPoint: CGPoint(x: 0, y: padT), endPoint: CGPoint(x: 0, y: sleepBase)))
                         ctx.fill(Path(roundedRect: CGRect(x: a + 1, y: base - bar, width: max(b - a - 2, 1), height: bar), cornerRadius: bar / 2),
-                                 with: .color(band.opacity(old ? 0.34 : 0.75)))
+                                 with: .color(band.opacity(old ? 0.56 : 0.75)))
                     }
                     if let p = parkedPt, p.x > padL {
                         var rule = Path()
@@ -117,7 +121,7 @@ struct NowParkedGraph: View {
                     lit.stroke(path, with: .color(Theme.accent.opacity(0.95)), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
                     for k in model.wakes {
                         var d = ctx
-                        if let dt = dimTo, at(k).x < dt { d.opacity = 0.45 }
+                        if let dt = dimTo, at(k).x < dt { d.opacity = 0.6 }
                         Self.dot(&d, at(k), color: wake, big: false)
                     }
                     Self.dot(&ctx, now, color: Theme.accent, big: true)
@@ -127,7 +131,7 @@ struct NowParkedGraph: View {
                     let b = padL + sl.x1 * (w - padL - padR)
                     if b - a > labelMinW * (typeSize.isAccessibilitySize ? 1.6 : 1) {
                         text(sl.label, x: (a + b) / 2, y: base - bar - 10, anchor: .center, w: w, h: h, color: band, strong: false)
-                            .opacity(dimTo.map { b <= $0 + 1 } ?? false ? 0.45 : 1)
+                            .opacity(dimTo.map { b <= $0 + 1 } ?? false ? 0.75 : 1)
                     }
                 }
                 if let pill, let p = parkedPt {
@@ -135,12 +139,12 @@ struct NowParkedGraph: View {
                         .padding(.horizontal, 10).padding(.vertical, 3)
                         .background(Capsule().fill(Theme.textSecondary.opacity(0.15)))
                         .fixedSize()
-                        .position(x: p.x, y: 12)
+                        .position(x: pillX ?? p.x, y: 12)
                         .frame(width: w, height: h, alignment: .topLeading)
                 }
                 if showStart { text(NumberText.fixed(model.start.pct, 1) + "%", x: start.x + (startRight ? -4 : 2), y: sinceIn ? start.y + 20 : max(start.y - 14, 12),
                      anchor: startRight ? .trailing : .leading, w: w, h: h, color: Theme.textSecondary, strong: false) }
-                text(NumberText.fixed(model.last.pct, 1) + "%", x: valueLeft ? now.x - 10 : now.x + 10, y: now.y + 22,
+                text(NumberText.fixed(model.last.pct, 1) + "%", x: valueLeft ? now.x - 10 : now.x + 10, y: valueY,
                      anchor: valueLeft ? .trailing : .leading, w: w, h: h, color: Theme.textPrimary, strong: true)
                 text("24 h ago", x: padL, y: h - 8, anchor: .leading, w: w, h: h, color: Theme.textTertiary, strong: false)
                 if w >= 240 { text("12 h", x: (padL + w - padR) / 2, y: h - 8, anchor: .center, w: w, h: h, color: Theme.textTertiary, strong: false) }
