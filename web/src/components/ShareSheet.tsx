@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { paintShareCard, shareCardBlob, type ShareCardModel } from "../lib/shareCard";
+import { paintShareCard, shareCardBlob, shareMapBand, type ShareCardModel } from "../lib/shareCard";
+import { renderShareBasemap, type Basemap } from "../map/shareBasemap";
 import { ensureConfig } from "../lib/config";
 
 const btn = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500 disabled:opacity-50";
@@ -46,8 +47,32 @@ export function ShareSheet({
       cancelled = true;
     };
   }, []);
+  // The basemap under the route, drawn once per route (the same segments give the same promise) and shared by the preview and every export.
+  const maps = useRef(new Map<string[], Promise<Basemap | null>>());
+  const basemapFor = (m: ShareCardModel): Promise<Basemap | null> => {
+    const segs = m.map?.segments;
+    const band = segs && shareMapBand(m);
+    if (!segs || !band) return Promise.resolve(null);
+    let p = maps.current.get(segs);
+    if (!p) {
+      p = renderShareBasemap(segs, band.w, band.h);
+      maps.current.set(segs, p);
+    }
+    return p;
+  };
   useEffect(() => {
-    if (canvas.current) paintShareCard(canvas.current, build(includeCost, includeOffpeak, withMapToggle && includeMap));
+    if (!canvas.current) return;
+    const model = build(includeCost, includeOffpeak, withMapToggle && includeMap);
+    // The line first, the map as soon as its tiles are in.
+    paintShareCard(canvas.current, model);
+    if (!model.map) return;
+    let cancelled = false;
+    void basemapFor(model).then((b) => {
+      if (!cancelled && b && canvas.current) paintShareCard(canvas.current, model, b);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [build, includeCost, includeOffpeak, includeMap, withMapToggle, cfgReady]);
   const dialog = useRef<HTMLDivElement | null>(null);
   // Focus goes into the sheet, Tab stays inside it, and closing hands focus back to what opened it.
@@ -78,7 +103,8 @@ export function ShareSheet({
   }, [onClose]);
 
   async function blob(): Promise<Blob> {
-    const b = await shareCardBlob(build(includeCost, includeOffpeak, withMapToggle && includeMap));
+    const model = build(includeCost, includeOffpeak, withMapToggle && includeMap);
+    const b = await shareCardBlob(model, await basemapFor(model));
     if (!b) throw new Error("Image export isn't available in this browser.");
     return b;
   }
@@ -140,7 +166,7 @@ export function ShareSheet({
             <input type="checkbox" className="mt-1 accent-emerald-500" checked={includeMap} onChange={(e) => setIncludeMap(e.target.checked)} />
             <span>
               Include map
-              <span className="block text-xs text-neutral-400">Draws the route as a line. The start and end are cut off, and so is the area around your saved home. No labels.</span>
+              <span className="block text-xs text-neutral-400">Adds a map of the area you drove through, without place names. The start and end are cut off, and so is the area around your saved home.</span>
             </span>
           </label>
         )}

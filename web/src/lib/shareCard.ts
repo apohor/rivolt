@@ -2,7 +2,7 @@
 // text (no place, id, coordinate or VIN field, so none can reach the painter), and it is painted in the browser
 // from figures the page already has. Nothing is uploaded, posted or tracked. Cost is opt-in on every card.
 // The one exception is the trip card's opt-in map: the server's trimmed postcard route (GET /api/drives/{id}/postcard,
-// both ends and the saved home already cut off), drawn as a bare line with no label, marker, date or time.
+// both ends and the saved home already cut off), drawn as a line with no label, marker, date or time, over a place-name-free basemap of the area when one could be drawn (map/shareBasemap.ts).
 
 import { driveDurationSeconds } from "./drives";
 import { estimatedShare, formatMoney, monthLabel, type LedgerMonth } from "./ledger";
@@ -12,6 +12,7 @@ import { getConfig } from "./config";
 import { decodePolyline } from "./polyline";
 import type { Drive, MilestoneItem } from "./api";
 import type { DistanceUnit } from "./preferences";
+import type { Basemap } from "../map/shareBasemap";
 
 export type ShareKind = "month" | "trip" | "milestone" | "year";
 export type ShareStat = { label: string; value: string };
@@ -191,8 +192,52 @@ function drawRoute(g: CanvasRenderingContext2D, paths: [number, number][][], x: 
   }
 }
 
+// The basemap picture in its rounded box with the route over it (dark casing, light line) and the credit in the corner.
+function drawBasemap(g: CanvasRenderingContext2D, b: Basemap, x: number, y: number, w: number, h: number) {
+  g.save();
+  g.beginPath();
+  g.roundRect(x, y, w, h, 24);
+  g.clip();
+  g.drawImage(b.image, x, y, w, h);
+  const kx = w / b.w;
+  const ky = h / b.h;
+  g.lineJoin = "round";
+  g.lineCap = "round";
+  for (const [style, width] of [["#0a0a0a", 12], ["#e5e5e5", 7]] as const) {
+    g.strokeStyle = style;
+    g.lineWidth = width;
+    for (const p of b.lines) {
+      g.beginPath();
+      p.forEach(([px, py], i) => (i === 0 ? g.moveTo(x + px * kx, y + py * ky) : g.lineTo(x + px * kx, y + py * ky)));
+      g.stroke();
+    }
+  }
+  g.font = `400 22px ${FONT}`;
+  g.textAlign = "right";
+  g.textBaseline = "alphabetic";
+  g.fillStyle = "rgba(10,10,10,0.55)";
+  const credit = "© OpenStreetMap";
+  const cw = g.measureText(credit).width;
+  g.fillRect(x + w - cw - 24, y + h - 36, cw + 24, 36);
+  g.fillStyle = "#a3a3a3";
+  g.fillText(credit, x + w - 12, y + h - 11);
+  g.restore();
+  g.textAlign = "left";
+}
+
 // Paints the model to a canvas, fixed 1080x1080 so it posts anywhere. Fonts are the system's: nothing is fetched.
-export function paintShareCard(canvas: HTMLCanvasElement, c: ShareCardModel): boolean {
+export function paintShareCard(canvas: HTMLCanvasElement, c: ShareCardModel, basemap?: Basemap | null): boolean {
+  return paint(canvas, c, basemap ?? null);
+}
+
+// The box the map goes in on a trip card (the layout depends on the card's rows and notes), or null when the card has no map band.
+export function shareMapBand(c: ShareCardModel): { w: number; h: number } | null {
+  let band: { w: number; h: number } | null = null;
+  paint(document.createElement("canvas"), c, null, (w, h) => (band = { w, h }));
+  return band;
+}
+
+function paint(canvas: HTMLCanvasElement, c: ShareCardModel, basemap: Basemap | null, onBand?: (w: number, h: number) => void): boolean {
   const g = canvas.getContext("2d");
   if (!g) return false;
   canvas.width = W;
@@ -224,7 +269,9 @@ export function paintShareCard(canvas: HTMLCanvasElement, c: ShareCardModel): bo
     const below = rows.length * step + c.notes.length * 44 + 24;
     const bandH = Math.min(300, footerTop - below - y - 20);
     if (bandH >= 120) {
-      drawRoute(g, paths, 80, y, W - 160, bandH);
+      onBand?.(W - 160, bandH);
+      if (basemap) drawBasemap(g, basemap, 80, y, W - 160, bandH);
+      else drawRoute(g, paths, 80, y, W - 160, bandH);
       y += bandH + 50;
     } else y += 30;
   }
@@ -260,8 +307,8 @@ export function paintShareCard(canvas: HTMLCanvasElement, c: ShareCardModel): bo
   return true;
 }
 
-export async function shareCardBlob(c: ShareCardModel): Promise<Blob | null> {
+export async function shareCardBlob(c: ShareCardModel, basemap?: Basemap | null): Promise<Blob | null> {
   const canvas = document.createElement("canvas");
-  if (!paintShareCard(canvas, c)) return null;
+  if (!paintShareCard(canvas, c, basemap)) return null;
   return new Promise((res) => canvas.toBlob((b) => res(b), "image/png"));
 }
