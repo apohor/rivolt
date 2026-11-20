@@ -82,7 +82,7 @@ export function buildReceiptModel(r: TripReceipt, o: { model: string; unit: Dist
       };
     }
     if (row.kind === "charge") {
-      return { title: "CHARGE", right: hmin(row.dur_s ?? 0), sub: `${row.name ?? ""}${row.max_kw ? ` · ${Math.round(row.max_kw)} kW` : ""}`, subRight: `${pct(row.from_soc)} → ${pct(row.to_soc)}` };
+      return { title: `CHARGE${row.max_kw ? ` · ${Math.round(row.max_kw)} kW` : ""}`, right: hmin(row.dur_s ?? 0), sub: row.name ?? "", subRight: `${pct(row.from_soc)} → ${pct(row.to_soc)}` };
     }
     return { title: row.name ?? "", right: "", sub: "", subRight: `${pct(row.from_soc)} → ${pct(row.to_soc)}` };
   });
