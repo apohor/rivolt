@@ -64,8 +64,11 @@ describe("runtime config: the design list follows the server while the tab lives
 
   it("takes a new list on refresh, at most once a minute, and keeps the old one on a bad answer", async () => {
     vi.resetModules();
-    const lists: unknown[] = [["a"], ["a", "b"], "oops", ["c"]];
-    const fetchMock = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({ features: { design_preview: lists.shift() } }) }));
+    const lists: unknown[] = [["a"], ["a", "b"], null, ["c"]];
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      const l = lists.shift();
+      return l === null ? { ok: false, json: async () => ({}) } : { ok: true, json: async () => ({ features: { design_preview: l } }) };
+    });
     vi.stubGlobal("fetch", fetchMock);
     const mod = await import("./config");
     expect((await mod.ensureConfig()).designPreview).toEqual(["a"]);
@@ -74,7 +77,7 @@ describe("runtime config: the design list follows the server while the tab lives
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await mod.refreshDesignPreview(t0 + 61_000);
     expect(mod.getConfig().designPreview).toEqual(["a", "b"]);
-    await mod.refreshDesignPreview(t0 + 130_000); // not a list: keep
+    await mod.refreshDesignPreview(t0 + 130_000); // the call failed: keep
     expect(mod.getConfig().designPreview).toEqual(["a", "b"]);
     await mod.refreshDesignPreview(t0 + 200_000);
     expect(mod.getConfig().designPreview).toEqual(["c"]); // a key off under the tab: the list just shrinks
