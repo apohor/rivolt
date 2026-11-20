@@ -45,13 +45,10 @@ final class NowChargeGraphUITests: XCTestCase {
         XCTAssertFalse(card.label.contains("Plugged in"), "plug-in time is the graph's label, not a row")
         XCTAssertTrue(card.label.contains("Cost so far"), "the cost so far row")
         XCTAssertTrue(card.label.contains("≈") && card.label.contains("estimate"), "an estimated cost carries its mark: \(card.label)")
-        // The pack's temperature (newest stored sample) is a figure row right after Rate; the bottom row is cabin and outside only.
+        // The pack's temperature (newest stored sample) sits beside the power figure, said right after it; it is no figure row.
         let words = card.label
-        XCTAssertTrue(words.contains("Pack temperature"), "the pack temperature row: \(words)")
-        if let rate = words.range(of: "Rate"), let pack = words.range(of: "Pack temperature"), let elapsed = words.range(of: "Elapsed") {
-            XCTAssertTrue(rate.lowerBound < pack.lowerBound && pack.lowerBound < elapsed.lowerBound, "after Rate, before Elapsed: \(words)")
-        }
-        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Pack ' AND NOT label BEGINSWITH 'Pack temperature'")).firstMatch.exists, "no pack figure in the temperatures row")
+        XCTAssertTrue(words.contains(" pack."), "the pack temperature beside the power: \(words)")
+        XCTAssertFalse(words.contains("Pack temperature"), "no pack temperature row: \(words)")
         shot(app, "now-charge-graph-top")
         let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
         from.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))

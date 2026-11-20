@@ -30,6 +30,11 @@ struct NowSlotView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(big).font(Theme.sans(ThemeTokens.typeHero, .semibold, relativeTo: .largeTitle)).foregroundStyle(Theme.textPrimary)
                     Text(unit).themeText(.value, color: Theme.textSecondary)
+                    if let pack = model.pack {
+                        (Text(pack).font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title3)).foregroundColor(Theme.textPrimary)
+                            + Text(" pack").font(Theme.sans(ThemeTokens.typeValue, .regular, relativeTo: .body)).foregroundColor(Theme.textSecondary))
+                            .monospacedDigit().padding(.leading, 8).accessibilityIdentifier("now-slot-pack")
+                    }
                     ForEach(model.chips, id: \.text) { chip($0) }
                 }
                 if let sub { Text(sub).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true) }

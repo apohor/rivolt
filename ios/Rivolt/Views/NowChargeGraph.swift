@@ -21,7 +21,7 @@ struct NowChargeGraph: View {
         if let model {
             VStack(alignment: .leading, spacing: 4) {
                 header(model)
-                plot(model).frame(height: 170)
+                plot(model).frame(height: 150)
                 legend(model)
             }
             .accessibilityElement(children: .ignore)
@@ -62,6 +62,12 @@ struct NowChargeGraph: View {
             let labelNow = now.x - padL > 170
             let labelStartValue = now.x - padL > 90
             let valueLeft = now.x - padL > 60
+            // Near the end of a charge the "now" value would sit under the finish pill: it goes below the dot then.
+            let pillWidth = CGFloat((m.estimate?.pill.count ?? 0)) * 6.5 + 24
+            let pillLeft = w - padR - pillWidth
+            let pillMidY = max((end?.y ?? 0) - 30, 2) + 11
+            let valueEdge = valueLeft ? now.x - 10 : now.x + 40
+            let nowBelow = end != nil && m.estimate?.pill != nil && abs(max(now.y - 12, 12) - pillMidY) < 20 && valueEdge > pillLeft - 6
             ZStack(alignment: .topLeading) {
                 Canvas { ctx, _ in
                     if let end {
@@ -108,7 +114,11 @@ struct NowChargeGraph: View {
                 if labelStartValue, let s = soc.first {
                     text("\(m.startShown)%", x: s.x + 2, y: max(s.y - 14, 12), anchor: .leading, w: w, h: h, color: Theme.textSecondary, strong: false)
                 }
-                text("\(m.nowShown)%", x: valueLeft ? now.x - 10 : now.x + 10, y: max(now.y - 12, 12), anchor: valueLeft ? .trailing : .leading, w: w, h: h, color: Theme.textPrimary, strong: true)
+                if nowBelow {
+                    text("\(m.nowShown)%", x: now.x + 8, y: now.y + 24, anchor: .leading, w: w, h: h, color: Theme.textPrimary, strong: true)
+                } else {
+                    text("\(m.nowShown)%", x: valueLeft ? now.x - 10 : now.x + 10, y: max(now.y - 12, 12), anchor: valueLeft ? .trailing : .leading, w: w, h: h, color: Theme.textPrimary, strong: true)
+                }
                 text(w >= 260 ? "Plugged in \(startText)" : startText, x: padL, y: h - 8, anchor: .leading, w: w, h: h, color: Theme.textTertiary, strong: false)
                 if labelNow { text("now", x: now.x, y: h - 8, anchor: .center, w: w, h: h, color: Theme.textTertiary, strong: false) }
             }

@@ -33,6 +33,8 @@ struct NowSlotModel: Equatable {
 
     let content: Content
     var chips: [Chip] = []
+    /// Charging on the soft card: the pack's temperature from the newest stored sample while it is recent ("72°F"), beside the power figure.
+    var pack: String?
     /// Asleep only: "Asleep for 2 h 15 min" and "Asleep today 18 h 40 min", each when the server sent it, shown under the map.
     var sleep: [Stat] = []
     /// Where the truck is, in one line, for the card that has the parked graph instead of the map (now_parked_graph): "At Home" (the saved
@@ -101,7 +103,8 @@ struct NowSlotModel: Equatable {
             let peak = max(snapshot?.charge?.peakKw ?? 0, kw)
             let kind = peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
             return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, packC: packC, clock: clock),
-                                chips: kind.map { [Chip(text: $0, accent: true)] } ?? [])
+                                chips: kind.map { [Chip(text: $0, accent: true)] } ?? [],
+                                pack: soft ? packC.map { NowComfort.wholeDegrees(celsius: $0) } : nil)
         case .driving:
             guard let kph = summary.speedKph else { return nil }
             var chips: [Chip] = []
@@ -160,8 +163,6 @@ struct NowSlotModel: Equatable {
         let truckRate = detail.rateKmPerHour.flatMap { $0 > 0 ? $0 : nil }
         let rate = truckRate ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
         if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil ? "≈ " : "")\(NowFormat.slotDistance(mi: rate / 1.609344))/h", note: nil)) }
-        // The pack's temperature from the newest stored sample (the soft card only, while it is recent): its own row after Rate, as the web's.
-        if soft, let packC { stats.append(Stat(label: "Pack temperature", value: NowComfort.wholeDegrees(celsius: packC), note: nil)) }
         if let elapsed { stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil)) }
         // The cost so far is the server's (`/now` charge), as the web: ≈ when it is an estimate, with where it comes from.
         if let c = snapshot?.charge, let cost = c.cost {
@@ -242,6 +243,7 @@ struct NowSlotModel: Equatable {
             return parts.joined(separator: " ")
         case .figures(let big, let unit, let sub, let small, let stats):
             var parts = ["\(SpokenText.words("\(big) \(unit)"))."]
+            if let pack { parts.append("\(SpokenText.words(pack)) pack.") }
             parts.append(contentsOf: chips.map { "\(SpokenText.words($0.text))." })
             if let sub { parts.append("\(SpokenText.words(sub)).") }
             if let small { parts.append("\(SpokenText.words(small)).") }

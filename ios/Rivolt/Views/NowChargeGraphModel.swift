@@ -3,7 +3,7 @@ import Foundation
 /// The numbers behind the Now card's charging graph (design_preview key now_charge_graph), as the web's NowChargeGraph works them out: the open
 /// charge's battery from plug-in to now, the charger's power as a quieter line, and, when the card has a finish time, the way on to the target.
 /// The start and now labels are the real readings (the first stored one and the ring's own figure), so the change is exactly their difference.
-/// The estimate takes at most `estShare` of the session so far again in width, so a slow charge with hours left still shows its start readably.
+/// The session so far takes its true share of the whole charge in width, never under `minHistoryShare`, so a slow charge with hours left still shows its start readably.
 /// Pure: no network, no views. Points are in plot space: x across 0...1, y from the bottom 0...1.
 struct NowChargeGraphModel: Equatable {
     struct Pt: Equatable {
@@ -13,7 +13,7 @@ struct NowChargeGraphModel: Equatable {
 
     /// Under this much of the session (two minutes) or three samples, the card says it is collecting instead of drawing a stub.
     static let minSpan: TimeInterval = 120
-    static let estShare = 0.8
+    static let minHistoryShare = 0.25
     /// At most this many points per line: a path of a few dozen curves is as smooth as one of two thousand.
     static let maxPoints = 48
 
@@ -55,15 +55,19 @@ struct NowChargeGraphModel: Equatable {
         let tLast = last.at.timeIntervalSince(first.at)
         let endAt: Date? = goal != nil && (etaHours ?? 0) > 0 ? now.addingTimeInterval((etaHours ?? 0) * 3600) : nil
         let tEnd = endAt.map { $0.timeIntervalSince(first.at) }
-        let t1 = tEnd.map { tLast + min($0 - tLast, tLast * estShare) } ?? tLast
+        let t1 = tEnd.map { end -> TimeInterval in
+            let share = max(tLast / (tLast + max(end - tLast, 1)), minHistoryShare)
+            return tLast + tLast * (1 - share) / share
+        } ?? tLast
         let hi = max(last.value, goal ?? 0, series.soc.map(\.value).max() ?? 0)
         let lo = series.soc.map(\.value).min() ?? last.value
         let span = max(hi - lo, 4)
-        let yLo = lo - span * 0.12
+        let yLo = lo - span * 0.1
+        let yHi = hi + span * 0.06
         let peak = series.power.map(\.value).max() ?? 0
         let pMax = powerMax(peak)
         let sx = { (t: TimeInterval) in t / t1 }
-        let sy = { (v: Double) in (v - yLo) / (hi - yLo) }
+        let sy = { (v: Double) in (v - yLo) / (yHi - yLo) }
         let socPts = thin(series.soc).map { Pt(x: sx($0.at.timeIntervalSince(first.at)), y: sy($0.value)) }
         let powPts = thin(series.power).map { Pt(x: sx($0.at.timeIntervalSince(first.at)), y: min(1, max(0, $0.value / pMax))) }
         let est: (end: Pt, pill: String)? = goal.map { g in

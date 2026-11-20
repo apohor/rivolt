@@ -41,11 +41,14 @@ final class NowChargeGraphModelTests: XCTestCase {
         XCTAssertNil(NowChargeGraphModel.make(series: ChargeCurve.Series(), startPct: nil, nowPct: 42, target: 80, etaHours: 2, now: t0))
     }
 
-    func testTheEstimateTakesAtMostEightyPercentOfTheSessionWidth() throws {
-        let m = try XCTUnwrap(NowChargeGraphModel.make(series: series(minutes: 40), startPct: 41, nowPct: 59, target: 80, etaHours: 20, now: t0.addingTimeInterval(2400)))
-        // The session is 1 / 1.8 of the plot's width, however far away the finish is.
-        XCTAssertEqual(m.last.x, 1 / 1.8, accuracy: 0.001)
-        XCTAssertEqual(m.estimate?.end.x, 1)
+    func testTheSessionTakesItsTrueShareOfTheWidthWithAFloorOfAQuarter() throws {
+        // 40 min in, 20 h to go: the floor, a quarter of the width.
+        let far = try XCTUnwrap(NowChargeGraphModel.make(series: series(minutes: 40), startPct: 41, nowPct: 59, target: 80, etaHours: 20, now: t0.addingTimeInterval(2400)))
+        XCTAssertEqual(far.last.x, 0.25, accuracy: 0.001)
+        XCTAssertEqual(far.estimate?.end.x, 1)
+        // 40 min in, 40 min to go: half and half.
+        let even = try XCTUnwrap(NowChargeGraphModel.make(series: series(minutes: 40), startPct: 41, nowPct: 59, target: 80, etaHours: 2.0 / 3, now: t0.addingTimeInterval(2400)))
+        XCTAssertEqual(even.last.x, 0.5, accuracy: 0.001)
     }
 
     func testNoFinishTimeNoEstimate() throws {
