@@ -71,7 +71,7 @@ struct NowDriveGraph: View {
                 }
                 if let top = model.top {
                     let p = at(top.pt)
-                    text(top.label, x: min(max(p.x, padL + 24), now.x - 40), y: max(p.y - 8, 12), anchor: .center, w: w, h: h, color: Theme.textTertiary)
+                    text(top.label, x: min(max(p.x, padL + 24), now.x - 40), y: max(p.y - 8, 12), anchor: .center, w: w, h: h, color: Theme.textTertiary, halo: true)
                         .accessibilityIdentifier("now-drive-top")
                 }
                 text(w >= 260 ? "Left \(model.startTime)" : model.startTime, x: padL, y: h - 8, anchor: .leading, w: w, h: h, color: Theme.textTertiary)
@@ -96,8 +96,10 @@ struct NowDriveGraph: View {
     }
 
     /// A short label with its leading, centre or trailing edge at `x`.
-    private func text(_ s: String, x: CGFloat, y: CGFloat, anchor: HorizontalAlignment, w: CGFloat, h: CGFloat, color: Color) -> some View {
+    private func text(_ s: String, x: CGFloat, y: CGFloat, anchor: HorizontalAlignment, w: CGFloat, h: CGFloat, color: Color, halo: Bool = false) -> some View {
         let label = Text(s).font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).monospacedDigit().foregroundStyle(color).fixedSize()
+            // The top label sits over the battery line at times: a ring of the card's own colour keeps it readable (web draws it with a stroke behind the text).
+            .shadow(color: halo ? Theme.card : .clear, radius: 1.5).shadow(color: halo ? Theme.card : .clear, radius: 1.5)
         let align: Alignment = anchor == .leading ? .leading : anchor == .trailing ? .trailing : .center
         let box: CGFloat = anchor == .leading ? max(w - x, 1) : anchor == .trailing ? max(x, 1) : w
         let cx: CGFloat = anchor == .leading ? x + box / 2 : anchor == .trailing ? x / 2 : x

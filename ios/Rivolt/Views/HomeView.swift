@@ -207,12 +207,12 @@ struct HomeView: View {
                 }
             }
             // The drive's stored samples for the graph, read again every 30 s while this tab and the app are in front and the truck drives. The drive's start
-            // is the elapsed time before now (the same drive's start wanders by seconds between reads, which the series allows for).
+            // is the server's started_at (the web card's own); an older answer without it falls back to the elapsed time before now.
             .task(id: "\(driveGraphOn)|\(drivingNow)|\(liveDrive != nil)|\(selectedID)|\(tabActive)|\(scenePhase == .active)") {
                 guard driveGraphOn, drivingNow, tabActive, scenePhase == .active, let id = selected?.id else { driveSeries.clear(); return }
                 while !Task.isCancelled {
-                    if let elapsed = liveDrive?.elapsedSec, elapsed > 0 {
-                        await driveSeries.load(source: state.client, vehicleID: id, startedAt: Date.now.addingTimeInterval(-elapsed))
+                    if let drive = liveDrive, let start = drive.startedAt ?? (drive.elapsedSec > 0 ? Date.now.addingTimeInterval(-drive.elapsedSec) : nil) {
+                        await driveSeries.load(source: state.client, vehicleID: id, startedAt: start)
                     }
                     try? await Task.sleep(for: .seconds(NowDriveSeriesModel.refresh))
                 }

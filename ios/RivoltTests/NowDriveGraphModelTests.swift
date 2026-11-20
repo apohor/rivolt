@@ -101,4 +101,12 @@ final class NowDriveGraphModelTests: XCTestCase {
         await model.load(source: Source(rows: [], fails: true), vehicleID: "a", startedAt: t0.addingTimeInterval(3600))
         XCTAssertTrue(model.samples.isEmpty)
     }
+
+    /// The drive's start is the server's own started_at, not now minus the elapsed time (that is measured to the last frame).
+    func testLiveDriveCarriesTheServersStart() throws {
+        let d = try JSON.decoder().decode(LiveDrive.self, from: Data(#"{"started_at":"2026-11-20T11:38:00Z","elapsed_sec":1320,"distance_mi":10}"#.utf8))
+        XCTAssertEqual(d.startedAt, ISO8601DateFormatter().date(from: "2026-11-20T11:38:00Z"))
+        let old = try JSON.decoder().decode(LiveDrive.self, from: Data(#"{"elapsed_sec":60}"#.utf8))
+        XCTAssertNil(old.startedAt)
+    }
 }
