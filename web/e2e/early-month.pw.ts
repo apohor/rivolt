@@ -114,7 +114,13 @@ test("design now_tidy: the early-month note sits inside the month section, above
   const note = page.locator("[data-early-month]");
   await expect(note).toContainText("this shows the last 30 days");
   await expect(page.getByTestId("now-month").locator("[data-early-month]")).toHaveCount(1);
-  const miles = (await page.getByRole("heading", { name: "Miles per day" }).boundingBox())!;
-  expect((await note.boundingBox())!.y).toBeLessThan(miles.y);
+  await expect(page.getByRole("heading", { name: "Miles per day" })).toBeVisible();
+  // Both positions in one evaluate: content above the month section (the hero, the cards) mounts as the data
+  // arrives and moves everything below it, so two separate boundingBox reads can straddle a shift.
+  const noteAbove = await page.getByRole("heading", { name: "Miles per day" }).evaluate((h) => {
+    const n = document.querySelector("[data-early-month]")!;
+    return n.getBoundingClientRect().y < h.getBoundingClientRect().y && !!(n.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  expect(noteAbove).toBe(true);
   await ctx.close();
 });
