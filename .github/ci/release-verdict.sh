@@ -79,7 +79,21 @@ if [ -z "$RC" ]; then
   if [ -z "$GATED_RC" ]; then
     if [ -z "$NO_RC_REASON" ]; then refuse "name the gated rc (gated_rc) or give a no_rc_reason"
     elif ! why=$(python3 -I "$CTL" no-rc-check "$NO_RC_REASON" 2>&1); then refuse "$why"
-    else note "no gated rc, reason accepted: '$NO_RC_REASON'. The real run runs in the release-bypass environment (main only, no reviewer) and writes the rc-bypass.log line first"; fi
+    else
+      note "no gated rc, reason accepted: '$NO_RC_REASON'. The real run runs in the release-bypass environment (main only, no reviewer) and writes the rc-bypass.log line first"
+      # final-gate.sh (tag-validate) never reads rc-bypass.log when the commit is a release candidate's: it then needs that rc's qa/rc-gate
+      # success and preview on the rc image. Say so here, so this verdict cannot say WOULD TAG for a tag tag-validate refuses.
+      match=$(git for-each-ref --format='%(refname:strip=2) %(objectname) %(*objectname)' "refs/tags/$VERSION-rc.*" |
+        awk -v s="$FULL" '$3 == s || ($3 == "" && $2 == s) { print $1 }' | grep -E "^${VERSION//./\\.}-rc\.[1-9][0-9]*$" | sort -t. -k4 -n | tail -1 || true)
+      if [ -n "$match" ]; then
+        st=$(gh api "repos/$REPO/commits/$FULL/status" --jq '[.statuses[] | select(.context == "qa/rc-gate")][0].state // "none"' 2>/dev/null) || st="unreadable"
+        if [ "$st" != success ]; then refuse "${FULL:0:7} is $match's commit, so the bypass is not consulted (final-gate.sh): qa/rc-gate on it is '$st', not success. Gate the rc (gated_rc), or tag a commit that is no rc's"; fi
+        for f in rivolt-preview rivolt-admin-preview; do
+          got=$(python3 -I "$CTL" get-tag "$INFRA_DIR/apps/platform/$f/values.yaml" 2>/dev/null) || got=""
+          [ "${got#v}" = "${match#v}" ] || refuse "$f runs '${got:-?}', not $match: final-gate.sh needs preview on the rc whose commit this is"
+        done
+      fi
+    fi
   else
     [[ $GATED_RC =~ ^[1-9][0-9]*$ ]] || { refuse "gated_rc '$GATED_RC' is not a positive number"; finish; }
     RCTAG="$VERSION-rc.$GATED_RC"

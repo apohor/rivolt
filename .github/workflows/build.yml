@@ -931,6 +931,8 @@ jobs:
           fetch-depth: 0
       - name: The check's own tests
         run: bash .github/scripts/policy-date-check.test.sh
+      - name: The release verdict's final-gate mirror
+        run: bash .github/ci/release-verdict.test.sh
       - name: Policy text changed, date moved
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
