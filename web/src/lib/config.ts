@@ -231,7 +231,6 @@ export function ensureConfig(): Promise<RuntimeConfig> {
     inflight = loadConfig().then((c) => {
       cached = c;
       configLoaded = true;
-      lastDesignFetch = Date.now();
       return c;
     });
   }
@@ -566,32 +565,9 @@ export function useDesignPreview(key: string): boolean {
     ensureConfig().then((c) => {
       if (!cancelled) setOn(c.designPreview.includes(key));
     });
-    // The server's list changes while it runs (no restart); a tab that comes back to the front picks the new list up (refreshDesignPreview).
-    const listener = () => {
-      if (!cancelled) setOn(cached.designPreview.includes(key));
-    };
-    designListeners.add(listener);
     return () => {
       cancelled = true;
-      designListeners.delete(listener);
     };
   }, [key]);
   return on;
-}
-
-// The design list changes without a restart (the server re-reads its file every 10 s): a tab that comes back to the front refreshes just that list, at most once a minute.
-const designListeners = new Set<() => void>();
-let lastDesignFetch = Date.now();
-
-export async function refreshDesignPreview(now: number = Date.now()): Promise<void> {
-  if (!configLoaded || now - lastDesignFetch < 60_000) return;
-  lastDesignFetch = now;
-  const c = await loadConfig();
-  if (c === fallback) return; // the call failed: keep the list the tab has
-  cached = { ...cached, designPreview: c.designPreview };
-  designListeners.forEach((l) => l());
-}
-
-if (typeof document !== "undefined") {
-  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && void refreshDesignPreview());
 }
