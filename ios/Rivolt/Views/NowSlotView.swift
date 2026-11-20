@@ -70,7 +70,7 @@ struct NowSlotView: View {
         }
     }
 
-    /// Temperature and sky left, wind and rain right; stacked at accessibility sizes.
+    /// Temperature and sky left, wind right; stacked at accessibility sizes.
     private func weatherRow(_ w: NowSlotModel.Weather) -> some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
         return layout {
@@ -84,7 +84,6 @@ struct NowSlotView: View {
             if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
             VStack(alignment: typeSize.isAccessibilitySize ? .leading : .trailing, spacing: 2) {
                 if let wind = w.wind { Text(wind) }
-                if let p = w.precip { Text(p) }
             }
             .themeText(.subline, color: Theme.textSecondary)
             .multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)

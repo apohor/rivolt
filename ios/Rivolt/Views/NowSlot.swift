@@ -18,7 +18,6 @@ struct NowSlotModel: Equatable {
         /// An SF Symbol name.
         let symbol: String?
         let wind: String?
-        let precip: String?
     }
 
     enum Content: Equatable {
@@ -191,37 +190,17 @@ struct NowSlotModel: Equatable {
         "snow": ("Snow", "cloud.snow"), "thunder": ("Thunderstorms", "cloud.bolt"),
     ]
 
-    /// Only what the server sent. By day a clear sky is "Sunny"; the 3 h figure is rain or snow by the current condition. Snow has no amount
-    /// (the forecast is water-equivalent, which understates it); small rain amounts read "< 0.1 in" or "< 0.1 mm".
+    /// Only what the server sent. By day a clear sky is "Sunny"; there is no rain forecast.
     static func weatherView(_ w: NowSnapshot.Ambient, day: Bool) -> Weather {
         let metric = NowFormat.usesMetric
         let known = w.condition.flatMap { conditions[$0] }
-        var precip: String?
-        if let mm = w.rainNext3hMm {
-            if w.condition == "snow" {
-                precip = mm < 0.05 ? "No snow next 3 h" : "Snow next 3 h"
-            } else if mm < 0.05 {
-                precip = "No rain next 3 h"
-            } else {
-                let amount: String
-                if metric { amount = mm < 0.1 ? "< 0.1 mm" : "\(trimmed(mm)) mm" } else { amount = mm / 25.4 < 0.1 ? "< 0.1 in" : "\(trimmed(mm / 25.4)) in" }
-                precip = "Rain next 3 h · \(amount)"
-            }
-        }
         let label = known.map { w.condition == "clear" && day ? "Sunny" : $0.label }
         let symbol = w.condition == "clear" && !day ? "moon" : known?.symbol
         return Weather(
             temp: NowComfort.wholeDegrees(celsius: w.tempC),
             condition: label.map { "\($0) here now" },
             symbol: symbol,
-            wind: w.windKph.map { "Wind \(metric ? "\(Int($0.rounded())) km/h" : "\(Int(($0 / 1.609344).rounded())) mph")" },
-            precip: precip)
-    }
-
-    /// One decimal, the trailing zero dropped ("3", "0.4").
-    private static func trimmed(_ v: Double) -> String {
-        let r = (v * 10).rounded() / 10
-        return r == r.rounded() ? NumberText.fixed(r, 0) : NumberText.fixed(r, 1)
+            wind: w.windKph.map { "Wind \(metric ? "\(Int($0.rounded())) km/h" : "\(Int(($0 / 1.609344).rounded())) mph")" })
     }
 
     /// The drive mode as the truck's app words it.
@@ -242,7 +221,6 @@ struct NowSlotModel: Equatable {
                 parts.append("\(SpokenText.words(w.temp)).")
                 if let c = w.condition { parts.append("\(c).") }
                 if let wind = w.wind { parts.append("\(SpokenText.words(wind)).") }
-                if let p = w.precip { parts.append("\(SpokenText.words(p)).") }
             }
             return parts.joined(separator: " ")
         case .figures(let big, let unit, let sub, let small, let stats):

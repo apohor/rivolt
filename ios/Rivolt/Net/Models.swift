@@ -208,14 +208,6 @@ struct NowSnapshot: Decodable, Equatable {
         /// clear, partly_cloudy, cloudy, fog, drizzle, rain, snow or thunder; absent on servers older than the field.
         let condition: String?
         let windKph: Double?
-        /// Water-equivalent precipitation over the next three hours (snow included); 0 is dry.
-        let rainNext3hMm: Double?
-
-        /// `.convertFromSnakeCase` reads "next3h" as "Next3H" (see `NowSnapshot.CodingKeys`).
-        private enum CodingKeys: String, CodingKey {
-            case tempC, source, asOf, condition, windKph
-            case rainNext3hMm = "rainNext3HMm"
-        }
     }
 
     /// Where the truck is, for the demo account only (a public sample point); no real account gets one.

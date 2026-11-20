@@ -31,7 +31,7 @@ final class NowSlotTests: XCTestCase {
         let now = try snapshot("parked", extra: #","ambient":{"temp_c":21.5,"source":"open-meteo","as_of":"2026-11-17T12:00:00Z","condition":"rain","wind_kph":16,"rain_next3h_mm":3},"location":{"lat":34.1613,"lon":-118.1676}"#)
         XCTAssertEqual(now.ambient?.condition, "rain")
         XCTAssertEqual(now.ambient?.windKph, 16)
-        XCTAssertEqual(now.ambient?.rainNext3hMm, 3)
+        // A server that still sends rain_next3h_mm is read fine; the card shows no rain line.
         XCTAssertEqual(now.location, NowSnapshot.Location(lat: 34.1613, lon: -118.1676))
         let driving = try snapshot("driving", extra: #","drive":{"started_at":"2026-11-17T12:00:00Z","distance_mi":12.4,"duration_s":1500,"energy_kwh":4.1,"efficiency_mi_per_kwh":3.02,"avg_speed_mph":30}"#)
         XCTAssertEqual(driving.drive?.distanceMi, 12.4)
@@ -40,13 +40,13 @@ final class NowSlotTests: XCTestCase {
     }
 
     func testParkedNeedsAFixAndShowsTheWeather() throws {
-        let now = try snapshot("parked", extra: #","ambient":{"temp_c":20,"source":"open-meteo","as_of":"2026-11-17T12:00:00Z","condition":"clear","wind_kph":16,"rain_next3h_mm":0}"#)
+        let now = try snapshot("parked", extra: #","ambient":{"temp_c":20,"source":"open-meteo","as_of":"2026-11-17T12:00:00Z","condition":"clear","wind_kph":16}"#)
         let summary = NowSummary(input: input(gear: "P", charger: "charger_disconnected", kw: 0), now: now, clock: at)
         XCTAssertNil(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at), "no fix, the picture stays")
         let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (34.1, -118.1), home: .init(lat: 34.1, lon: -118.1, label: nil), clock: at))
         guard case .parked(_, _, let label, let weather?) = model.content else { return XCTFail("parked") }
         XCTAssertEqual(label, "Home")
-        XCTAssertEqual(weather.precip, "No rain next 3 h")
+        XCTAssertNotNil(weather.wind)
         XCTAssertTrue(model.isParked)
     }
 
@@ -106,21 +106,15 @@ final class NowSlotTests: XCTestCase {
     }
 
     func testWeatherWording() throws {
-        func view(_ condition: String, _ mm: Double?, day: Bool = true) throws -> NowSlotModel.Weather {
-            let mmJSON = mm.map { #","rain_next3h_mm":\#($0)"# } ?? ""
-            let now = try snapshot("parked", extra: #","ambient":{"temp_c":10,"source":"s","as_of":"2026-11-17T12:00:00Z","condition":"\#(condition)"\#(mmJSON)}"#)
+        func view(_ condition: String, day: Bool = true) throws -> NowSlotModel.Weather {
+            let now = try snapshot("parked", extra: #","ambient":{"temp_c":10,"source":"s","as_of":"2026-11-17T12:00:00Z","condition":"\#(condition)"}"#)
             return NowSlotModel.weatherView(try XCTUnwrap(now.ambient), day: day)
         }
         DisplayUnits.demo = true // miles
         defer { DisplayUnits.demo = false }
-        XCTAssertEqual(try view("clear", 0).condition, "Sunny here now")
-        XCTAssertEqual(try view("clear", 0, day: false).condition, "Clear here now")
-        XCTAssertEqual(try view("clear", 0, day: false).symbol, "moon")
-        XCTAssertEqual(try view("rain", 3).precip, "Rain next 3 h · 0.1 in")
-        XCTAssertEqual(try view("rain", 1).precip, "Rain next 3 h · < 0.1 in")
-        XCTAssertEqual(try view("snow", 2).precip, "Snow next 3 h", "snow has no amount")
-        XCTAssertEqual(try view("snow", 0).precip, "No snow next 3 h")
-        XCTAssertNil(try view("rain", nil).precip)
+        XCTAssertEqual(try view("clear").condition, "Sunny here now")
+        XCTAssertEqual(try view("clear", day: false).condition, "Clear here now")
+        XCTAssertEqual(try view("clear", day: false).symbol, "moon")
     }
 
     func testDrivingPrefersTheServersDrive() throws {
