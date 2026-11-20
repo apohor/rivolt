@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import { clock } from "../lib/nowState";
+import { chargeFinishMs, clock } from "../lib/nowState";
 import { powerMax, useOpenChargeSeries } from "./LiveChargeGraph";
 import { GraphHead, HaloDot, Legend, Pill, QuietLine, SoftDefs, SoftFill, SoftLine, labelWidth, softPath, thin, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
 
@@ -31,7 +31,7 @@ export function usePackTemp(nowMs: number): number | null {
   return pack && nowMs - pack.at <= PACK_FRESH_MS ? pack.avg : null;
 }
 
-export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours }: { nowMs: number; nowPct: number; targetPct: number | null; etaHours: number | null }) {
+export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = null }: { nowMs: number; nowPct: number; targetPct: number | null; etaHours: number | null; powerKw?: number | null }) {
   const series = useContext(SeriesContext);
   const { open, soc, power, startPct } = series ?? { open: undefined, soc: [], power: [], startPct: null };
   const [ref, { w, h }] = useBox();
@@ -48,10 +48,12 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours }: { nowMs: 
     );
   }
   const target = targetPct != null && targetPct > nowPct ? targetPct : null;
-  // The time left is read in whole minutes (rounded up, as the slot's text and the iPhone's), so the pill's clock is that many minutes from now.
-  const endX = target != null && etaHours != null && etaHours > 0 ? Math.max(last.x, nowMs) + Math.ceil(etaHours * 60 - 1e-6) * 60_000 : null;
+  // The pill's clock is the chip's and the slot's (chargeFinishMs: the shown whole minutes from now, never from the last stored sample).
+  const endX = target != null && etaHours != null && etaHours > 0 ? chargeFinishMs(etaHours, nowMs) : null;
   const peak = power.reduce((m, p) => Math.max(m, p.y), 0);
+  // The power named is the card's live figure (the slot's big number), so one kW is said once; the line itself is the stored samples.
   const lastPower = power[power.length - 1];
+  const nowKw = powerKw ?? lastPower?.y ?? null;
   // The two numbers the graph shows are the first stored reading and the card's own battery figure (the ring), so the change is exactly their difference.
   const startShown = Math.round(startPct ?? first.y);
   const nowShown = Math.round(nowPct);
@@ -103,7 +105,7 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours }: { nowMs: 
             height={h}
             viewBox={`0 0 ${w} ${h}`}
             role="img"
-            aria-label={`Battery from ${startShown}% to ${nowShown}% since ${clock(first.x)}${lastPower ? `, charging at ${Math.round(lastPower.y)} kilowatts` : ""}${pill ? `, reaching ${pill.replace("·", "at")}` : ""}`}
+            aria-label={`Battery from ${startShown}% to ${nowShown}% since ${clock(first.x)}${nowKw != null ? `, charging at ${Math.round(nowKw)} kilowatts` : ""}${pill ? `, reaching ${pill.replace("·", "at")}` : ""}`}
             className="block overflow-visible"
           >
             <SoftDefs id={id} ink={ink} />
@@ -142,7 +144,7 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours }: { nowMs: 
       <Legend
         items={[
           { swatch: "line", color: ink.line, label: "Battery" },
-          ...(lastPower ? [{ swatch: "line" as const, color: ink.quiet, label: `Power ${lastPower.y.toFixed(lastPower.y < 10 ? 1 : 0)} kW now` }] : []),
+          ...(nowKw != null ? [{ swatch: "line" as const, color: ink.quiet, label: `Power ${nowKw.toFixed(nowKw < 10 ? 1 : 0)} kW now` }] : []),
           ...(endX != null ? [{ swatch: "dash" as const, color: ink.line, label: "Estimate", testid: "now-charge-graph-estimate" }] : []),
         ]}
       />
