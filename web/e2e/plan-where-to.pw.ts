@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { DEMO_PLAN, stubApi } from "./stub";
+import { DEMO_PLAN, DEMO_PRESETS, stubApi } from "./stub";
 
 // design_preview "plan_where_to": the planner opens on the map with "Where to?", the saved trips and the samples under it. Without the key the page
 // is what it was. SHOTS=<dir> also writes the screenshots the PR carries (widths 320/393/430/desktop, light and dark, the states).
@@ -10,9 +10,18 @@ const INPUTS = { origin: pt("Rose Bowl parking", 34.16, -118.17), destination: p
 const SAVED = ["Vegas weekend", "Pasadena to Kettleman City", "Mammoth with a very long name that has to wrap, not clip"].map((name, i) => ({ id: `st-${i}`, name, inputs: INPUTS, plan: DEMO_PLAN, created_at: "2026-11-01T00:00:00Z", updated_at: "2026-11-0" + (i + 1) + "T00:00:00Z" }));
 const json = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
 
+const TWO_DAY = {
+  id: "la-vegas-2day",
+  name: "Las Vegas, 2 days",
+  inputs: { origin: pt("Los Angeles", 34.05, -118.24), destination: pt("Los Angeles", 34.05, -118.24), extra_stops: [pt("Sample Inn, Las Vegas", 36.17, -115.14)], overnight_flags: [true], starting_soc: "90", target_soc: "20" },
+  summary: { distance_mi: 530, duration_min: 490, charge_stops: 2, arrival_soc_pct: 24 },
+  saved_trip_id: "st-demo-2day",
+};
+
 async function open(page: Page, o: { flag?: boolean; saved?: boolean; demo?: boolean }) {
   await stubApi(page, { designPreview: o.flag === false ? [] : ["plan_where_to"], demo: !!o.demo, signedIn: !o.demo });
   if (!o.demo) await page.route("**/api/trips/saved", (r) => r.fulfill(json(o.saved === false ? [] : SAVED)));
+  if (o.demo) await page.route("**/api/demo/trips", (r) => r.fulfill(json({ trips: [...DEMO_PRESETS, TWO_DAY] })));
   await page.route("**/api/geocode*", (r) => r.fulfill(json([{ name: "Las Vegas", admin1: "Nevada", country: "US", latitude: 36.17, longitude: -115.14 }])));
   await page.route("**/api/trips/plan", (r) => r.fulfill(json(DEMO_PLAN)));
   await page.goto(o.demo ? "/demo/trips/plan" : "/trips/plan");
@@ -32,11 +41,13 @@ test("without the key the planner is unchanged", async ({ page }) => {
   await expect(page.locator("[data-plan-form]")).toBeVisible();
 });
 
-test("with the key: Where to? over the map, saved trips below, a pick plans the trip", async ({ page }) => {
+test("with the key: Where to? over the map @webkit, saved trips below, a pick plans the trip", async ({ page }) => {
   await open(page, {});
   await expect(page.locator("[data-where-to]")).toBeVisible();
   await expect(page.locator("[data-plan-form]")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Recent and saved" })).toBeVisible();
+  // Each saved row leads with its icon tile, as in the mock.
+  await expect(page.locator("[data-trip-icon]")).toHaveCount(3);
   await expect(page.getByRole("button", { name: /Saved trips \(3\)/ })).toBeVisible();
   await page.getByRole("textbox", { name: "Where to?" }).fill("Las Vegas");
   await page.getByRole("button", { name: /^Las Vegas Nevada/ }).click();
@@ -62,16 +73,19 @@ test("with the key, signed out: the entry filters the samples and a sample opens
   await expect(page.locator("[data-where-to]")).toBeVisible();
   const samples = page.getByTestId("demo-presets").getByRole("button");
   await expect(samples.first()).toBeVisible();
+  // The multi-day sample comes first and says what it is, as in the mock: "530 mi · hotel night".
+  await expect(samples.first()).toContainText("Las Vegas, 2 days");
+  await expect(samples.first()).toContainText("530 mi · hotel night");
   await page.getByRole("searchbox", { name: /Where to/ }).fill("zzzz");
   await expect(page.getByText("No sample trip matches that.")).toBeVisible();
   await page.getByRole("searchbox", { name: /Where to/ }).fill("");
-  await samples.first().click();
+  await samples.filter({ hasText: "LA to Las Vegas" }).click();
   await expect(page.locator("[data-where-to]")).toHaveCount(0);
 });
 
 for (const w of [320, 393, 430, 1280]) {
   for (const scheme of ["dark", "light"] as const) {
-    test(`layout ${w} px ${scheme}: nothing clipped, no sideways scroll`, async ({ browser }) => {
+    test(`layout ${w} px ${scheme}: nothing clipped, no sideways scroll @webkit`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: { width: w, height: w > 1000 ? 860 : 800 }, colorScheme: scheme });
       const page = await ctx.newPage();
       await open(page, {});
@@ -102,7 +116,7 @@ test("states: no saved trips, signed-out demo, a planned route (393, dark and li
     const p2 = await c2.newPage();
     await open(p2, { demo: true });
     await shot(p2, `demo-393-${scheme}`);
-    await p2.getByTestId("demo-presets").getByRole("button").first().click();
+    await p2.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
     await expect(p2.locator("[data-where-to]")).toHaveCount(0);
     await shot(p2, `demo-route-393-${scheme}`);
     await c2.close();

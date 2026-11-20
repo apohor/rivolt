@@ -159,12 +159,21 @@ export function WhereToHome({
                 const m = tripMeters(t);
                 return (
                   <li key={t.id}>
-                    <button type="button" onClick={() => onOpenSaved(t)} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-left">
+                    <button type="button" onClick={() => onOpenSaved(t)} className="flex w-full items-start gap-3 py-2.5 text-left">
+                      <span aria-hidden data-trip-icon className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-neutral-700 bg-neutral-900 text-neutral-300">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3 12a9 9 0 1 0 3-6.7" />
+                          <path d="M3 4v5h5" />
+                          <path d="M12 8v4l3 2" />
+                        </svg>
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
                       <span className="min-w-0 flex-auto">
                         <span className="block text-base font-medium text-neutral-100 break-words">{t.name}</span>
                         <span className="block text-xs text-neutral-400 break-words">{tripSubtitle(t.inputs)}</span>
                       </span>
                       {m != null && <span className="shrink-0 text-xs text-neutral-400">{miles(m)}</span>}
+                      </span>
                     </button>
                   </li>
                 );
@@ -200,7 +209,7 @@ export function WhereToHome({
                     <span className="block text-neutral-100 break-words">{p.name}</span>
                     <span className="block text-xs text-neutral-400">
                       {Math.round(p.summary.distance_mi)} mi
-                      {tripTag(p.inputs) && <span className="ml-1.5 rounded-sm bg-emerald-900/40 px-1.5 py-0.5 text-[11px] font-medium text-emerald-200">{tripTag(p.inputs)}</span>}
+                      {tripTag(p.inputs) && <span data-trip-tag> · {tripTag(p.inputs)!.split(" · ").slice(1).join(" · ")}</span>}
                     </span>
                   </button>
                 </li>
