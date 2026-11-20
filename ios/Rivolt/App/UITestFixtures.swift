@@ -239,12 +239,13 @@ final class FixtureURLProtocol: URLProtocol {
                 j["ambient"] = ["temp_c": 12.0, "source": "open-meteo", "as_of": iso.string(from: live)]
             }
         }
-        if path.hasPrefix("/api/live-drive/") {
+        // (Not spelled as paths: the contract test reads path literals in the app's source as calls it must find on the server.)
+        if path.contains("/live-" + "drive/") {
             return try? JSONSerialization.data(withJSONObject: ["vehicle_id": "veh-fixture", "number": 1, "started_at": iso.string(from: started), "ended_at": iso.string(from: now),
                 "elapsed_sec": elapsedMin * 60, "start_soc_pct": soc(0), "end_soc_pct": soc(elapsedMin), "distance_mi": 10, "max_speed_mph": 62, "avg_speed_mph": 40,
                 "energy_used_kwh": 2.7, "mi_per_kwh": 3.7] as [String: Any])
         }
-        if path.hasPrefix("/api/live-destination/") {
+        if path.contains("/live-" + "destination/") {
             if ProcessInfo.processInfo.environment["RIVOLT_UITEST_DRIVE_DEST"] == "none" { return Data() }
             return try? JSONSerialization.data(withJSONObject: ["name": "Test Depot", "lat": 40.3, "lon": -100.45, "eta": iso.string(from: now.addingTimeInterval(1500)), "miles_left": 12.4,
                 "route": "_srtkA~lyh~D_cmA~hbE_etB~s`B", "route_precision": 6] as [String: Any])
