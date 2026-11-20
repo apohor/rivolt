@@ -218,12 +218,14 @@ export type StubOptions = {
   chargeCase?: { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number; targetPct?: number };
   // GET /api/vehicles/{id}/parked-series for the Now card's graph (design key now_parked_graph); absent answers 404.
   parkedCase?: ParkedCase;
+  // Hold the parked-series answer this long (ms), for the chip that waits for it.
+  parkedDelayMs?: number;
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
   // A live run (E2E_LIVE_URL, the rc smoke against preview) uses the real backend: stub nothing.
   if (process.env.E2E_LIVE_URL) return;
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase, parkedCase } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase, parkedCase, parkedDelayMs = 0 } = opts;
   // The parked-series answer; the state and the /now snapshot take their battery and parked time from it, so the card never contradicts itself.
   const parkedFix = parkedCase && parkedCase !== "gone" ? parkedSeriesFixture(parkedCase) : null;
   const month = currentMonth(new Date(e2eNow()));
@@ -330,6 +332,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       return json(route, { version: 1, state: "more", this_week: { days: 7, sleeps: 30, failed_sleeps: 9 }, baseline_days: 30, usual_failed_sleeps: 5, more_by: 4 });
     }
     if (p === `/api/vehicles/${VEHICLE_ID}/parked-series`) {
+      if (parkedDelayMs > 0) await new Promise((r) => setTimeout(r, parkedDelayMs));
       if (!parkedCase || parkedCase === "gone") return json(route, { error: "not stubbed" }, 404);
       return json(route, parkedFix);
     }

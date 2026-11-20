@@ -235,10 +235,16 @@ export default function NowCard({
   // Design "now_parked_graph" (with now_tidy): the last 24 hours of the battery on a parked, plugged or asleep truck, with the sleeps and
   // wake-ups. Without a line to draw (parked a few minutes, no data, an older server) the card is as it was.
   const parkedKind = view != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
-  const parkedSeries = useParkedSeries(vehicleID, useDesignPreview("now_parked_graph") && tidy && parkedKind);
+  const { series: parkedSeries, waiting: parkedWaiting } = useParkedSeries(vehicleID, useDesignPreview("now_parked_graph") && tidy && parkedKind);
   // The chip, the graph's pill and its header say one parked time. The state run restarts at every wake-up, so a parked truck's chip
-  // takes the server's own parked-since from the series when it has one.
-  const chipView = view != null && parkedSeries?.parked_since && view.kind === "parked" ? { ...view, stateSinceMs: Date.parse(parkedSeries.parked_since) } : view;
+  // takes the server's own parked-since from the series when it has one, and shows no time until the series has answered (or failed, or taken
+  // about 3 s), so the time never changes by hours a moment after the card draws.
+  const chipView =
+    view != null && view.kind === "parked" && parkedWaiting
+      ? { ...view, stateSinceMs: null }
+      : view != null && parkedSeries?.parked_since && view.kind === "parked"
+        ? { ...view, stateSinceMs: Date.parse(parkedSeries.parked_since) }
+        : view;
 
   if (stateQ.isLoading) {
     return (

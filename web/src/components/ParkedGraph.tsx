@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { backend, type ParkedSeries } from "../lib/api";
 import { clock } from "../lib/nowState";
@@ -15,8 +16,12 @@ const PAD = { t: 34, b: 26, l: 6, r: 10 };
 const BAR = 5;
 const LABEL_MIN_W = 58;
 
+// How long the chip waits for the series before it falls back to the state's own parked time.
+const SERIES_WAIT_MS = 3000;
+
 // The series for the card; null while loading, absent, or without a line to draw (the graph then shows nothing and the card is as it was).
-export function useParkedSeries(vehicleID: string, enabled: boolean): ParkedSeries | null {
+// waiting is true from the first ask until the answer, a failure, or SERIES_WAIT_MS: the chip shows no time meanwhile, so it never changes by hours as the series arrives.
+export function useParkedSeries(vehicleID: string, enabled: boolean): { series: ParkedSeries | null; waiting: boolean } {
   const q = useQuery({
     queryKey: ["parked-series", vehicleID],
     queryFn: () => backend.vehicleParkedSeries(vehicleID, parkedZone()),
@@ -24,7 +29,13 @@ export function useParkedSeries(vehicleID: string, enabled: boolean): ParkedSeri
     refetchInterval: 60_000,
     retry: 0,
   });
-  return enabled && parkedDrawable(q.data) ? q.data : null;
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    if (!enabled) return;
+    const t = setTimeout(() => setLate(true), SERIES_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [enabled, vehicleID]);
+  return { series: enabled && parkedDrawable(q.data) ? q.data : null, waiting: enabled && q.isPending && !late };
 }
 
 const ms = (iso: string) => Date.parse(iso);
