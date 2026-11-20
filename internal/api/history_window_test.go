@@ -134,6 +134,7 @@ var routeClasses = map[string]windowClass{
 	"GET /api/charging-frames":                    {"exempt", "a live probe of the vehicle now"},
 	"GET /api/charging-networks":                  {"exempt", "the public charging-network catalog, no user history"},
 	"GET /api/trips/saved":                        {"exempt", "saved trips are capped by count, not by date: the list marks trips past the free cap read_only (handler-level, see pro_gates.go)"},
+	"POST /api/trips/saved/{id}/receipt":          {"exempt", "the data for a receipt image of one saved plan (areas and rounded figures); it holds a plan, not history"},
 	"POST /api/trips/saved/{id}/share":            {"exempt", "makes a link to a frozen copy of one saved plan; sharing is free, and the copy holds a plan, not history"},
 	"GET /api/trips/saved/{id}/shares":            {"exempt", "lists the caller's own links for one saved trip; no history"},
 	"DELETE /api/trips/shares/{id}":               {"exempt", "turns off one of the caller's own links; no history"},
