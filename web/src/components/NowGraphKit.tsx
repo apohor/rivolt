@@ -19,6 +19,10 @@ export function useSoftInk(): SoftInk {
     : { line: "#6ee7b7", quiet: "#fbbf24", warm: "#fcd34d", band: "#818cf8", pack: "#c4b5fd" };
 }
 
+// The outline behind a label that crosses a line: the card's own surface colour. The neutral tokens flip with the app's theme (data-theme),
+// which the dark: variant does not (it follows the device), so a dark app on a light device keeps a dark outline.
+export const HALO_TEXT = "stroke-neutral-900";
+
 // The width and height of an element, as it is laid out: the chart draws in real pixels, so its text is the app's text size at any width.
 export function useBox(): [(el: HTMLDivElement | null) => void, { w: number; h: number }] {
   const [box, setBox] = useState({ w: 0, h: 0 });

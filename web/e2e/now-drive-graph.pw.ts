@@ -103,3 +103,26 @@ if (SHOTS) {
     });
   }
 }
+
+// The top-speed label's outline is the card's own surface colour in both themes, set by the app's theme (not the device's): never white on a dark card.
+for (const theme of ["dark", "light"] as const) {
+  for (const device of ["dark", "light"] as const) {
+    test(`the top label's outline follows the ${theme} app theme on a ${device} device @webkit`, async ({ browser }) => {
+      const ctx = await browser.newContext({ viewport: { width: 393, height: 900 }, colorScheme: device });
+      const page = await ctx.newPage();
+      await open(page, CASES.middle);
+      await page.evaluate((t) => (t === "light" ? document.documentElement.setAttribute("data-theme", "light") : document.documentElement.removeAttribute("data-theme")), theme);
+      const got = await page.getByTestId("now-drive-top").evaluate((el) => {
+        const probe = document.createElement("div");
+        probe.style.color = "var(--color-neutral-900)";
+        document.body.appendChild(probe);
+        const surface = getComputedStyle(probe).color;
+        probe.remove();
+        return { stroke: getComputedStyle(el).stroke, surface };
+      });
+      expect(got.stroke).toBe(got.surface);
+      if (theme === "dark") expect(got.stroke).not.toBe("rgb(255, 255, 255)");
+      await ctx.close();
+    });
+  }
+}

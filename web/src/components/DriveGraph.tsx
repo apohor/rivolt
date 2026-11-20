@@ -6,7 +6,7 @@ import { smoothGaussianTime } from "../lib/smooth";
 import { destinationShort, type LiveDestination } from "../lib/liveDestination";
 import { forVehicle } from "../lib/vehicleSamples";
 import { LIVE_GRAPH_REFRESH_MS } from "./LiveChargeGraph";
-import { GraphHead, HaloDot, Legend, QuietLine, SoftDefs, SoftFill, SoftLine, softPath, thin, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
+import { GraphHead, HALO_TEXT, HaloDot, Legend, QuietLine, SoftDefs, SoftFill, SoftLine, softPath, thin, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
 
 // The Now card's graph while driving (design_preview "now_drive_graph"): the speed from the start of the drive to now as one soft line, the
 // battery as a quieter second line. The series are the stored samples (the endpoint the Live page reads, no Rivian call), read at the card's own
@@ -141,7 +141,7 @@ export function DriveGraph({ series, startedMs, nowMs, unit, nowPct, destination
             <SoftLine id={id} d={line} color={ink.line} />
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
             {series.top.y * k >= 10 && series.top.x >= first.x && series.top.x < last.x - 60_000 && (
-              <text x={Math.min(Math.max(sx(series.top.x), PAD.l + 24), lx - 40)} y={Math.max(sv(series.top.y * k) - 8, 12)} textAnchor="middle" data-testid="now-drive-top" className="fill-neutral-400 stroke-white text-xs dark:stroke-neutral-900" strokeWidth={4} paintOrder="stroke" strokeLinejoin="round">
+              <text x={Math.min(Math.max(sx(series.top.x), PAD.l + 24), lx - 40)} y={Math.max(sv(series.top.y * k) - 8, 12)} textAnchor="middle" data-testid="now-drive-top" className={`fill-neutral-400 text-xs ${HALO_TEXT}`} strokeWidth={4} paintOrder="stroke" strokeLinejoin="round">
                 {Math.round(series.top.y * k)} {speedUnit}
               </text>
             )}
