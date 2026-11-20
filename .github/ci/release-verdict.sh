@@ -79,7 +79,26 @@ if [ -z "$RC" ]; then
   if [ -z "$GATED_RC" ]; then
     if [ -z "$NO_RC_REASON" ]; then refuse "name the gated rc (gated_rc) or give a no_rc_reason"
     elif ! why=$(python3 -I "$CTL" no-rc-check "$NO_RC_REASON" 2>&1); then refuse "$why"
-    else note "no gated rc, reason accepted: '$NO_RC_REASON'. The real run runs in the release-bypass environment (main only, no reviewer) and writes the rc-bypass.log line first"; fi
+    else
+      note "no gated rc, reason accepted: '$NO_RC_REASON'. The real run runs in the release-bypass environment (main only, no reviewer) and writes the rc-bypass.log line first"
+      # final-gate.sh (tag-validate) never reads rc-bypass.log when the commit is a release candidate's: it then needs that rc's qa/rc-gate
+      # success and preview on the rc image. Say so here, so this verdict cannot say WOULD TAG for a tag tag-validate refuses.
+      # The rc tags are listed the way final-gate.sh lists them (origin's, not this clone's; RC_TAG_REFS stands in for tests): an annotated tag
+      # lists twice, the object and its peeled commit (^{}), which wins.
+      # A checkout with no origin (a test fixture) has only its own tags to read.
+      lister=(git ls-remote --tags origin "refs/tags/$VERSION-rc.*"); git remote get-url origin >/dev/null 2>&1 || lister=(git show-ref --tags -d)
+      if ! refs=${RC_TAG_REFS-$("${lister[@]}" 2>/dev/null)}; then refuse "could not list the release candidate tags (final-gate.sh would refuse too)"; finish; fi
+      match=$(awk '{ r=$2; sub("^refs/tags/", "", r); peeled = (r ~ /\^\{\}$/); sub(/\^\{\}$/, "", r); if (peeled || !(r in c)) c[r]=$1 } END { for (r in c) print r, c[r] }' <<<"$refs" |
+        awk -v s="$FULL" '$2 == s { print $1 }' | grep -E "^${VERSION//./\\.}-rc\.[1-9][0-9]*$" | sort -t. -k4 -n | tail -1 || true)
+      if [ -n "$match" ]; then
+        st=$(gh api "repos/$REPO/commits/$FULL/status" --jq '[.statuses[] | select(.context == "qa/rc-gate")][0].state // "none"' 2>/dev/null) || st="unreadable"
+        if [ "$st" != success ]; then refuse "${FULL:0:7} is $match's commit, so the bypass is not consulted (final-gate.sh): qa/rc-gate on it is '$st', not success. Gate the rc (gated_rc), or tag a commit that is no rc's"; fi
+        for f in rivolt-preview rivolt-admin-preview; do
+          got=$(python3 -I "$CTL" get-tag "$INFRA_DIR/apps/platform/$f/values.yaml" 2>/dev/null) || got=""
+          [ "$got" = "${match#v}" ] || refuse "$f runs '${got:-?}', not ${match#v}: final-gate.sh needs preview on the rc whose commit this is, spelled exactly"
+        done
+      fi
+    fi
   else
     [[ $GATED_RC =~ ^[1-9][0-9]*$ ]] || { refuse "gated_rc '$GATED_RC' is not a positive number"; finish; }
     RCTAG="$VERSION-rc.$GATED_RC"
