@@ -27,7 +27,7 @@ func TestFlagsSimStoreBooksOneRunAtATime(t *testing.T) {
 
 	errs := make(chan error, 2)
 	for i := 0; i < 2; i++ {
-		go func() { _, err := ctl.Start(ctx, SimDrive); errs <- err }()
+		go func() { _, err := ctl.Start(ctx, SimDrive, SimOpts{}); errs <- err }()
 	}
 	var ok, busy int
 	for i := 0; i < 2; i++ {

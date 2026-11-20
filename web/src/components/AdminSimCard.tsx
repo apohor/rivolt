@@ -2,6 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backend, type AdminSimRun } from "../lib/api";
 import { Card } from "./ui";
 
+type Go = { kind: "drive" | "charge"; short?: boolean; then?: "charge" };
+const BTN = "rounded-md border border-neutral-600 px-3 py-1.5 text-sm font-medium text-neutral-100 hover:bg-neutral-800 disabled:opacity-50";
+const GOES: [string, Go][] = [
+  ["Start a simulated drive now", { kind: "drive" }],
+  ["Start a simulated charge now", { kind: "charge" }],
+  ["Start a short drive now", { kind: "drive", short: true }],
+  ["Start a short charge now", { kind: "charge", short: true }],
+  ["Start a short drive, then a short charge", { kind: "drive", short: true, then: "charge" }],
+];
+
 const clock = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 // Preview's simulated drive and charge: one run of about half an hour (or the short variant, about eight minutes, same speed and power) through the real recorder, from a few seconds from now. The
@@ -15,7 +25,7 @@ export function AdminSimCard() {
     refetchInterval: (q) => (q.state.data?.active ? 15_000 : false),
   });
   const start = useMutation({
-    mutationFn: async (go: { kind: "drive" | "charge"; short?: boolean; then?: "charge" }) => {
+    mutationFn: async (go: Go) => {
       const first = await backend.adminSimStart(go.kind, { short: go.short });
       // The charge follows the drive straight on: queued, so the gate sees both without waiting between them.
       return go.then ? backend.adminSimStart(go.then, { short: go.short, queue: true }) : first;
@@ -33,23 +43,11 @@ export function AdminSimCard() {
           Refused while the truck is driving or charging on its schedule, or when a scheduled one is close.
         </p>
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={busy} onClick={() => start.mutate({ kind: "drive" })} className="rounded-md border border-neutral-600 px-3 py-1.5 text-sm font-medium text-neutral-100 hover:bg-neutral-800 disabled:opacity-50">
-            Start a simulated drive now
-          </button>
-          <button type="button" disabled={busy} onClick={() => start.mutate({ kind: "charge" })} className="rounded-md border border-neutral-600 px-3 py-1.5 text-sm font-medium text-neutral-100 hover:bg-neutral-800 disabled:opacity-50">
-            Start a simulated charge now
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={busy} onClick={() => start.mutate({ kind: "drive", short: true })} className="rounded-md border border-neutral-600 px-3 py-1.5 text-sm font-medium text-neutral-100 hover:bg-neutral-800 disabled:opacity-50">
-            Start a short drive now
-          </button>
-          <button type="button" disabled={busy} onClick={() => start.mutate({ kind: "charge", short: true })} className="rounded-md border border-neutral-600 px-3 py-1.5 text-sm font-medium text-neutral-100 hover:bg-neutral-800 disabled:opacity-50">
-            Start a short charge now
-          </button>
-          <button type="button" disabled={busy} onClick={() => start.mutate({ kind: "drive", short: true, then: "charge" })} className="rounded-md border border-neutral-600 px-3 py-1.5 text-sm font-medium text-neutral-100 hover:bg-neutral-800 disabled:opacity-50">
-            Start a short drive, then a short charge
-          </button>
+          {GOES.map(([label, go]) => (
+            <button key={label} type="button" disabled={busy} onClick={() => start.mutate(go)} className={BTN}>
+              {label}
+            </button>
+          ))}
         </div>
         {run && (
           <p data-sim-active className="text-sm text-emerald-300">
