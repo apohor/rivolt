@@ -78,7 +78,7 @@ struct ShareCardSheet: View {
     /// The map could not be drawn, so the card carries the plain line.
     @State private var mapUnavailable = false
     /// The last map drawn, kept while only the cost toggle changes.
-    @State private var picture: (segments: [String], map: ShareBasemap.Picture?)?
+    @State private var picture: (segments: [String], band: Double?, map: ShareBasemap.Picture?)?
 
     private var card: MoneyShareCard { build(includeCost, mapHint != nil && includeMap) }
 
@@ -149,12 +149,16 @@ struct ShareCardSheet: View {
             png = MoneyShareCardCanvas.png(card)
             return
         }
-        if picture?.segments != segments {
-            png = MoneyShareCardCanvas.png(card)
+        // The bare line first; the layout says how tall a band the map gets, and the map is framed at that size.
+        let probe = BandProbe()
+        png = MoneyShareCardCanvas.png(card, probe: probe)
+        let band = probe.height.map(Double.init)
+        if picture?.segments != segments || picture?.band != band {
             drawingMap = true
-            let map = await ShareBasemap.render(segments: segments, server: state.mapServer, token: state.mapToken)
+            var map: ShareBasemap.Picture?
+            if let band { map = await ShareBasemap.render(segments: segments, height: band, server: state.mapServer, token: state.mapToken) }
             if Task.isCancelled { return }
-            picture = (segments, map)
+            picture = (segments, band, map)
             drawingMap = false
         }
         let map = picture?.map

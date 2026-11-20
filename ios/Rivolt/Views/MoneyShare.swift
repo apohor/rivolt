@@ -71,6 +71,11 @@ struct MoneyShareCard: Equatable {
 
 /// The card painted as the web paints it: a fixed 1080 x 1080 dark image in the system font, the same positions and
 /// sizes as `paintShareCard` (pixels of the exported image, not the app's type scale).
+/// Carries the map band's height out of the canvas (the layout decides it; the render is synchronous).
+final class BandProbe {
+    var height: CGFloat?
+}
+
 struct MoneyShareCardCanvas: View {
     let card: MoneyShareCard
     /// Six longer rows (the year card): painted a little smaller and closer so a value never meets its label. It is how the card
@@ -78,6 +83,8 @@ struct MoneyShareCardCanvas: View {
     var compact = false
     /// The trip card's basemap (design-preview key `share_map`), drawn under the line in its band; nil draws the bare line.
     var basemap: ShareBasemap.Picture?
+    /// Told the height of the band the card leaves for the map (nil when it leaves none), so the picture is framed at that size.
+    var probe: BandProbe?
 
     static let side: CGFloat = 1080
     private static let column: CGFloat = side - 160
@@ -104,6 +111,7 @@ struct MoneyShareCardCanvas: View {
                 let footerTop = w - 70 - CGFloat(MoneyShareCard.footer.count - 1) * 44 - 36
                 let below = CGFloat(rows.count) * step + CGFloat(card.notes.count) * 44 + 24
                 let bandH = min(300, footerTop - below - y - 20)
+                probe?.height = bandH >= 120 ? bandH : nil
                 if bandH >= 120 {
                     Self.drawRoute(ctx, paths, x: 80, y: y, w: w - 160, h: bandH, basemap: basemap)
                     y += bandH + 50
@@ -223,8 +231,8 @@ struct MoneyShareCardCanvas: View {
 
     /// The card as a PNG, made on the phone.
     @MainActor
-    static func png(_ card: MoneyShareCard, compact: Bool = false, basemap: ShareBasemap.Picture? = nil) -> Data? {
-        let r = ImageRenderer(content: MoneyShareCardCanvas(card: card, compact: compact, basemap: basemap))
+    static func png(_ card: MoneyShareCard, compact: Bool = false, basemap: ShareBasemap.Picture? = nil, probe: BandProbe? = nil) -> Data? {
+        let r = ImageRenderer(content: MoneyShareCardCanvas(card: card, compact: compact, basemap: basemap, probe: probe))
         r.scale = 1
         return r.uiImage?.pngData()
     }

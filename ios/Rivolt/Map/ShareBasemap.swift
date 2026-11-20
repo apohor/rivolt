@@ -11,8 +11,9 @@ import UIKit
 /// the result is pixels only: coordinates leave this file only as the line's pixel positions in the picture. Never MKMapSnapshotter
 /// (Apple's maps would be a second place that sees the area).
 enum ShareBasemap {
-    /// The card's map band, in card pixels (the widest the painter ever gives it).
-    static let size = CGSize(width: 920, height: 300)
+    /// The card's map band, in card pixels: always this wide, and as tall as the card's layout leaves (at most `maxHeight`).
+    static let width = 920.0
+    static let maxHeight = 300.0
     static let maxZoom = 12.0
     static let pad = 0.1
     /// MapLibre's world is 512 points wide at zoom 0.
@@ -40,7 +41,7 @@ enum ShareBasemap {
     }
 
     /// The camera that fits every path into `size` with `pad` on each side, never past `maxZoom` (Web Mercator, as the map is).
-    static func frame(_ paths: [[DriveRoute.Point]], size: CGSize = ShareBasemap.size) -> (center: CLLocationCoordinate2D, zoom: Double)? {
+    static func frame(_ paths: [[DriveRoute.Point]], size: CGSize) -> (center: CLLocationCoordinate2D, zoom: Double)? {
         let all = paths.flatMap { $0 }
         guard !all.isEmpty else { return nil }
         func mx(_ lon: Double) -> Double { lon / 360 + 0.5 }
@@ -57,9 +58,10 @@ enum ShareBasemap {
     /// The picture for the postcard `segments`, or nil when it can't be drawn (no bundled style, a tile read that failed, no answer in
     /// time): the card then carries the plain line.
     @MainActor
-    static func render(segments: [String], server: URL, token: String?) async -> Picture? {
+    static func render(segments: [String], height: Double, server: URL, token: String?) async -> Picture? {
+        let size = CGSize(width: width, height: height)
         let paths = segments.map { DriveRoute.decode($0, precision: 6) }.filter { $0.count >= 2 }
-        guard let frame = frame(paths), let style = style(server: server) else { return nil }
+        guard let frame = frame(paths, size: size), let style = style(server: server) else { return nil }
         MapNetwork.prepare(server: server, token: token)
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("share-basemap-\(UUID().uuidString).json")
         guard (try? Data(style.utf8).write(to: file, options: [.atomic, .completeFileProtection])) != nil else { return nil }

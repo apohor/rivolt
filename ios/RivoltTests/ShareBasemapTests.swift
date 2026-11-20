@@ -35,10 +35,22 @@ final class ShareBasemapTests: XCTestCase {
     }
 
     func testTheCameraKeepsTenPercentRoundTheRouteAndNeverGoesPastZoom12() throws {
-        let size = ShareBasemap.size
-        // A long drive: every point sits inside the padded box.
+        // A long drive: every point sits inside the padded box, whatever height of band the card leaves (down to the shortest it draws).
         let long = winding(120, span: 0.6)
-        let f = try XCTUnwrap(ShareBasemap.frame([long]))
+        for height in [300.0, 220.0, 120.0] {
+            try checkPadding(long, size: CGSize(width: ShareBasemap.width, height: height))
+        }
+        let size = CGSize(width: ShareBasemap.width, height: 300)
+        // A short drive (a few hundred metres): capped at 12, so the map stays a street grid.
+        let short = try XCTUnwrap(ShareBasemap.frame([path([(10, 20), (10.002, 20.003)])], size: size))
+        XCTAssertEqual(short.zoom, ShareBasemap.maxZoom)
+        // One point (a degenerate segment) is not a crash.
+        XCTAssertEqual(try XCTUnwrap(ShareBasemap.frame([path([(10, 20), (10, 20)])], size: size)).zoom, ShareBasemap.maxZoom)
+        XCTAssertNil(ShareBasemap.frame([], size: size))
+    }
+
+    private func checkPadding(_ long: [DriveRoute.Point], size: CGSize) throws {
+        let f = try XCTUnwrap(ShareBasemap.frame([long], size: size))
         XCTAssertLessThan(f.zoom, ShareBasemap.maxZoom)
         let world = 512 * pow(2, f.zoom)
         func px(_ p: DriveRoute.Point) -> CGPoint {
@@ -53,12 +65,6 @@ final class ShareBasemapTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(q.y, size.height * 0.1 - 0.5)
             XCTAssertLessThanOrEqual(q.y, size.height * 0.9 + 0.5)
         }
-        // A short drive (a few hundred metres): capped at 12, so the map stays a street grid.
-        let short = try XCTUnwrap(ShareBasemap.frame([path([(10, 20), (10.002, 20.003)])]))
-        XCTAssertEqual(short.zoom, ShareBasemap.maxZoom)
-        // One point (a degenerate segment) is not a crash.
-        XCTAssertEqual(try XCTUnwrap(ShareBasemap.frame([path([(10, 20), (10, 20)])])).zoom, ShareBasemap.maxZoom)
-        XCTAssertNil(ShareBasemap.frame([]))
     }
 
     @MainActor
@@ -70,7 +76,13 @@ final class ShareBasemapTests: XCTestCase {
         cal.locale = Locale(identifier: "en_US")
         let segs = ["_p~iF~ps|U_ulLnnqC_mqNvxq`@"]
         let card = MoneyShareCard.trip(d, includeCost: false, routeSegments: segs, calendar: cal, metric: false)
-        let size = ShareBasemap.size
+        // The band the card's layout leaves is what the map is framed at, so the picture is exactly that tall.
+        let probe = BandProbe()
+        _ = MoneyShareCardCanvas.png(card, probe: probe)
+        let band = try XCTUnwrap(probe.height)
+        XCTAssertGreaterThanOrEqual(band, 120)
+        XCTAssertLessThanOrEqual(band, ShareBasemap.maxHeight)
+        let size = CGSize(width: ShareBasemap.width, height: band)
         let fmt = UIGraphicsImageRendererFormat()
         fmt.scale = 2
         let image = UIGraphicsImageRenderer(size: size, format: fmt).image { c in
@@ -123,15 +135,17 @@ final class ShareBasemapTests: XCTestCase {
         ]
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         for (name, segs) in cases {
-            let pic = await ShareBasemap.render(segments: segs, server: real, token: nil)
+            let card = MoneyShareCard.trip(d, includeCost: false, routeSegments: segs, calendar: cal, metric: false)
+            let probe = BandProbe()
+            _ = MoneyShareCardCanvas.png(card, probe: probe)
+            let pic = await ShareBasemap.render(segments: segs, height: Double(try XCTUnwrap(probe.height)), server: real, token: nil)
             XCTAssertNotNil(pic, name)
             XCTAssertEqual(pic?.lines.count, segs.count, "each segment stays its own line")
-            let card = MoneyShareCard.trip(d, includeCost: false, routeSegments: segs, calendar: cal, metric: false)
             let png = try XCTUnwrap(MoneyShareCardCanvas.png(card, basemap: pic))
             try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("ios-share-basemap-\(name).png"))
         }
         // A server that cannot be reached: no picture, so the card keeps the plain line.
-        let none = await ShareBasemap.render(segments: cases[1].1, server: URL(string: "http://127.0.0.1:9")!, token: nil)
+        let none = await ShareBasemap.render(segments: cases[1].1, height: ShareBasemap.maxHeight, server: URL(string: "http://127.0.0.1:9")!, token: nil)
         XCTAssertNil(none)
     }
 

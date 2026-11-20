@@ -64,7 +64,7 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/app/config"): return "app_config"
         // The preview-only designs: off unless the UI test asks for the theme switch.
         case ("GET", "/api/config"): let args = ProcessInfo.processInfo.arguments
-            return args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
+            return args.contains("-uitest-share-map") ? "config_share_map" : args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
         // The round-trip launch: one merged drive of three real legs (a zero-distance stub between two of them left out), each leg's own route and the samples.
         case ("GET", "/api/activity") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "activity_round_trip"
         case ("GET", "/api/samples") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "samples_round_trip"
@@ -85,6 +85,8 @@ final class FixtureURLProtocol: URLProtocol {
             if method == "POST", path.hasSuffix("/trips/overnight-candidates") { return "trip_overnight_candidates" }
             if method == "POST", path.hasSuffix("/trips/plan-multiday") { return "trip_plan_multiday_apart" }
             if method == "GET", path.hasPrefix("/api/drives/rt-leg-"), ProcessInfo.processInfo.arguments.contains("-uitest-round-trip") { return "drive_" + path.dropFirst("/api/drives/".count) }
+            // The share sheet's map toggle (design-preview key share_map) needs a trimmed route for the drive.
+            if method == "GET", path.hasPrefix("/api/drives/"), path.hasSuffix("/postcard") { return "drive_postcard" }
             // One charge's row (not the lists under the same path).
             if method == "GET", path.hasPrefix("/api/charges/"), !path.hasSuffix("/to-confirm"), !path.hasSuffix("/clusters") { return "charge_one" }
             return nil
