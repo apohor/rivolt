@@ -91,4 +91,26 @@ func handleTripReceipt(tf *trips.Factory, sf *settings.Factory, photon *geocodin
 	}
 }
 
-func designPreviewOn(d Deps, key string) bool { return slices.Contains(d.DesignPreview, key) }
+func designPreviewOn(d Deps, key string) bool { return slices.Contains(d.designKeys(), key) }
+
+// designKeys is the design-key list now: the live store's when wired, else the fixed one.
+func (d Deps) designKeys() []string {
+	if d.DesignKeys != nil {
+		return d.DesignKeys()
+	}
+	return d.DesignPreview
+}
+
+// requireDesignKeyMW answers the router's own 404 unless the design key is on at this moment. It runs first, so a key that is off is the same 404 as an
+// unknown path (no sign-in or ownership answer differs), and a key turned on at runtime opens the route without a restart.
+func requireDesignKeyMW(d Deps, key string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !designPreviewOn(d, key) {
+				http.NotFound(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

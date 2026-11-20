@@ -17,6 +17,7 @@ import (
 	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/iosapp"
+	"github.com/apohor/rivolt/internal/livekeys"
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/radar"
 	"github.com/apohor/rivolt/internal/settings"
@@ -165,8 +166,17 @@ type configExtras struct {
 	HistoryImport bool
 	// TripShare: the shared trip link routes are mounted (RIVOLT_TRIP_SHARE).
 	TripShare bool
-	// DesignPreview: the design keys switched on (RIVOLT_DESIGN_PREVIEW, see ParseDesignPreview).
+	// DesignPreview: the design keys switched on (RIVOLT_DESIGN_PREVIEW, see ParseDesignPreview). A fixed list, for tests and callers without a store.
 	DesignPreview []string
+	// DesignKeys, when set, is read on every request instead of DesignPreview, so a key turned on or off while the process runs shows at once (internal/livekeys).
+	DesignKeys func() []string
+}
+
+func (ex configExtras) designKeys() []string {
+	if ex.DesignKeys != nil {
+		return ex.DesignKeys()
+	}
+	return ex.DesignPreview
 }
 
 func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisabled bool, flagsStore *flags.Store, settingsMgr *settings.Manager, extras ...configExtras) http.HandlerFunc {
@@ -337,9 +347,6 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		base.Tiles.RadarURL = "/api/maps/radar/{z}/{x}/{y}.png"
 		base.Tiles.RadarFrameURL = "/api/maps/radar/frame"
 		base.Tiles.RadarMinZoom, base.Tiles.RadarMaxZoom = radar.ClientMinZoom, radar.ClientMaxZoom
-		if slices.Contains(ex.DesignPreview, radar.SmoothKey) {
-			base.Tiles.RadarMaxZoom = radar.SmoothMaxZoom
-		}
 	}
 	if ex.DemoRadar {
 		base.Tiles.RadarDemoURL = "/api/demo/radar/{z}/{x}/{y}.png"
@@ -352,7 +359,6 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 	base.Features.AdminOnly = adminonly.Enabled(os.Getenv)
 	base.Features.HistoryImport = ex.HistoryImport
 	base.Features.TripShare = ex.TripShare
-	base.Features.DesignPreview = append([]string{}, ex.DesignPreview...)
 	base.Features.DemoEnabled = demo.Enabled()
 	base.Features.SignupEnabled = !signupgate.Disabled()
 	base.Features.IOSAppURL = iosapp.URL()
@@ -369,7 +375,14 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		base.AI.Enabled = false
 	}
 	return func(w http.ResponseWriter, _ *http.Request) {
+		// The list changes while the process runs; a cache must not keep an old one.
+		w.Header().Set("Cache-Control", "no-store")
 		c := base
+		keys := ex.designKeys()
+		c.Features.DesignPreview = append([]string{}, keys...)
+		if ex.Radar && slices.Contains(keys, radar.SmoothKey) {
+			c.Tiles.RadarMaxZoom = radar.SmoothMaxZoom
+		}
 		if flagsStore != nil {
 			c.Features.TripPlannerEnabled = flagsStore.TripPlanner().Enabled
 		}
@@ -391,16 +404,4 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 }
 
 // ParseDesignPreview splits a comma-separated list of design keys (RIVOLT_DESIGN_PREVIEW): spaces are trimmed, empty entries and repeats dropped, order kept. Unknown keys are kept. Empty input gives an empty (non-nil) list.
-func ParseDesignPreview(s string) []string {
-	keys := []string{}
-	seen := map[string]bool{}
-	for _, k := range strings.Split(s, ",") {
-		k = strings.TrimSpace(k)
-		if k == "" || seen[k] {
-			continue
-		}
-		seen[k] = true
-		keys = append(keys, k)
-	}
-	return keys
-}
+func ParseDesignPreview(s string) []string { return livekeys.SplitList(s) }

@@ -360,6 +360,11 @@ indentation of a "template:" key two spaces in (its content at four), starting o
             {{- end }}
             {{- end }}
           env:
+            {{- if kindIs "string" .Values.liveKeys.designPreview }}
+            # The design keys are read from this file while the pod runs (see liveKeys in values.yaml); the file wins over RIVOLT_DESIGN_PREVIEW.
+            - name: RIVOLT_LIVE_KEYS_FILE
+              value: /etc/rivolt/live/keys
+            {{- end }}
             {{- with $role }}
             - name: RIVOLT_ROLE
               value: {{ . | quote }}
@@ -601,6 +606,12 @@ indentation of a "template:" key two spaces in (its content at four), starting o
             - name: podinfo
               mountPath: /etc/podinfo
               readOnly: true
+            {{- if kindIs "string" .Values.liveKeys.designPreview }}
+            # A directory mount (no subPath), so kubelet refreshes the file when the ConfigMap changes; the pod is not restarted.
+            - name: live-keys
+              mountPath: /etc/rivolt/live
+              readOnly: true
+            {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}
@@ -617,6 +628,13 @@ indentation of a "template:" key two spaces in (its content at four), starting o
               - path: image-tag
                 fieldRef:
                   fieldPath: metadata.annotations['rivolt.dev/image-tag']
+        {{- if kindIs "string" .Values.liveKeys.designPreview }}
+        # optional: a missing or pruned ConfigMap never holds a pod in ContainerCreating; the process keeps its last good list.
+        - name: live-keys
+          configMap:
+            name: {{ include "rivolt.fullname" . }}-live-keys
+            optional: true
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

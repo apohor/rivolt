@@ -86,7 +86,9 @@ type Config struct {
 	// MaxUpstream bounds the concurrent requests to NOAA from this pod (default 6).
 	MaxUpstream int
 	// Smooth serves the zooms past SmoothSource (up to SmoothMaxZoom) from the SmoothSource tiles, upscaled here, instead of overzooming blocks in the client.
-	Smooth       bool
+	Smooth bool
+	// SmoothFn, when set, is asked on every request instead of Smooth, so the live design-key list can turn the smoothing on or off without a restart.
+	SmoothFn     func() bool
 	SmoothSource int // the zoom the upscaling starts from; 0 is DefaultSmoothSource
 	SmoothBlur   int // box blur radius in output pixels after the upscale; 0 is none
 	// UserAgent identifies this server to NOAA (default names Rivolt and a contact).
@@ -243,7 +245,7 @@ func (s *Service) Tile(ctx context.Context, z, x, y int, frameUnix int64) ([]byt
 			}
 		}
 	}
-	if s.cfg.Smooth && z > s.smoothSource() {
+	if s.smooth() && z > s.smoothSource() {
 		b, err := s.derived(ctx, frame, z, x, y)
 		if err != nil {
 			return nil, time.Time{}, err

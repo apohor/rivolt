@@ -257,8 +257,6 @@ var webCallsOptionalByConfig = map[string]string{
 	"POST /api/import/commit":               "as above",
 	"GET /api/imports":                      "as above",
 	"POST /api/imports/{x}/undo":            "as above",
-	"GET /api/vehicles/{x}/parked-series":   "mounted only where the design key now_parked_graph is on (Deps.DesignPreview); the Now card draws the graph only when /api/config lists that key",
-	"POST /api/trips/saved/{x}/receipt":     "mounted only where the design key trip_receipt is on (Deps.DesignPreview); the Saved tab's Share opens the receipt only when /api/config lists that key",
 	"POST /api/trips/saved/{x}/share":       "mounted only where shared trip links are on (Deps.TripShare: RIVOLT_TRIP_SHARE=1); Share on a saved trip shows only when /api/config says features.trip_share",
 	"GET /api/trips/saved/{x}/shares":       "as above",
 	"DELETE /api/trips/shares/{x}":          "as above",
@@ -279,6 +277,11 @@ func contractRouter(t *testing.T) chi.Routes { return contractRouterGates(t, tru
 
 // contractRouterGates is contractRouter with the config gates in webCallsOptionalByConfig on or off.
 func contractRouterGates(t *testing.T, gates bool) chi.Routes {
+	return contractRouterWith(t, gates, nil)
+}
+
+// contractRouterWith is contractRouterGates with a last chance to change the Deps.
+func contractRouterWith(t *testing.T, gates bool, mut func(*Deps)) chi.Routes {
 	t.Helper()
 	t.Setenv("RIVOLT_EVENTS", "true")
 	t.Setenv("RIVOLT_DEMO", "true")
@@ -315,12 +318,14 @@ func contractRouterGates(t *testing.T, gates bool) chi.Routes {
 		RivianExpiryEmails: gates,
 		HistoryImport:      gates,
 		TripShare:          gates,
-		DesignPreview:      gatedDesignPreview(gates),
 	}
 	if gates { // the Apple link routes exist only where its identity store is wired
 		d.AppleLinkAccounts = appleLinkStub{}
 		d.ReplaySim = fakeSim{}                   // the simulated drive and charge routes exist only where the preview admin controls are on
 		d.StripeBilling = new(stripebill.Service) // the billing routes exist only where Stripe is configured; mounted here, never called
+	}
+	if mut != nil {
+		mut(&d)
 	}
 	return New(d).(chi.Routes)
 }
@@ -466,12 +471,4 @@ func TestClientCallReaderAndMatcher(t *testing.T) {
 	if body != "/api/a/{x}/b?{x}" {
 		t.Errorf("web interpolation: %q", body)
 	}
-}
-
-// gatedDesignPreview lists the design keys whose routes the web calls, when the config gates are on.
-func gatedDesignPreview(gates bool) []string {
-	if !gates {
-		return nil
-	}
-	return []string{"trip_receipt", "now_parked_graph"}
 }

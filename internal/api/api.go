@@ -105,6 +105,8 @@ type Deps struct {
 	HistoryImport bool
 	// DesignPreview is the parsed RIVOLT_DESIGN_PREVIEW list, served as features.design_preview.
 	DesignPreview []string
+	// DesignKeys, when set, is the live list (internal/livekeys), read on every request; DesignPreview is then only the fallback for tests.
+	DesignKeys func() []string
 	// StateForward and GroupOfVehicle route the one Rivian call of GET /api/state/{id} to the vehicle's group owner (single-owner M3-2b).
 	// Both nil (RIVOLT_FORWARD off): the pod calls Rivian itself, as before.
 	StateForward   StateForwarder
@@ -773,7 +775,7 @@ func New(d Deps) http.Handler {
 		// (which same-origin proxies are mounted, feature flags,
 		// admin-configurable GPS thresholds). Public so the SPA can
 		// fetch it before login; reveals no user-scoped data.
-		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil, DemoRadar: demo.Enabled() && d.DemoRadar != nil, HistoryImport: d.HistoryImport, TripShare: d.TripShare && d.DB != nil && d.Trips != nil && !d.AdminOnly, DesignPreview: d.DesignPreview}))
+		r.Get("/config", handleConfig(d.ValhallaProxy != nil, d.TilesProxy != nil, d.SettingsMgr != nil && d.SettingsMgr.Analyzer() != nil, d.ImpersonationDisabled || d.AdminDisabled, d.Flags, d.SettingsMgr, configExtras{DEM: d.DEMProxy != nil, Radar: d.Radar != nil, DemoRadar: demo.Enabled() && d.DemoRadar != nil, HistoryImport: d.HistoryImport, TripShare: d.TripShare && d.DB != nil && d.Trips != nil && !d.AdminOnly, DesignPreview: d.DesignPreview, DesignKeys: d.designKeys}))
 		// The charging-networks comparison page's data: public reference data (plans as each
 		// network states them, typical observed prices with their label and month).
 		r.With(clLimiter.Middleware).Get("/charging-networks", handleChargingNetworks(time.Now))
@@ -1248,11 +1250,9 @@ func New(d Deps) http.Handler {
 				dr := newDrainAPI(newDrainStore(d.DB))
 				r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/drain", withUser(dr.handle))
 				// The Now card's "Battery while parked" graph (design now_parked_graph): 24 h of stored rows, never Rivian, any pod.
-				// The design key is the one switch: off, the route does not exist.
-				if designPreviewOn(d, parkedGraphKey) {
-					ps := newParkedSeriesAPI(newParkedSeriesStore(d.DB))
-					r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/parked-series", withUser(ps.handle))
-				}
+				// The design key is the one switch: off, the route answers the 404 an unknown path gets. It is mounted always and checked per request, since the list changes while the process runs.
+				ps := newParkedSeriesAPI(newParkedSeriesStore(d.DB))
+				r.With(requireDesignKeyMW(d, parkedGraphKey), vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/parked-series", withUser(ps.handle))
 			}
 			// This week's short sleeps against this truck's own last 30 days (display only).
 			r.With(vehicleScoped, vehicleGate).Get("/vehicles/{vehicleID}/sleep-health", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
@@ -1877,9 +1877,9 @@ func New(d Deps) http.Handler {
 			if d.DB != nil && d.Trips != nil {
 				r.With(requireTripPlannerEnabledMW(d.Flags), proOnlyMiddleware(d.Entitlements)).Get("/trips/saved/{id}/active", withUser(handleSavedTripActive(d.Trips, func(u uuid.UUID) *rivian.StateMonitor { return monitorFor(d, u) }, d.DB)))
 			}
-			if d.Trips != nil && designPreviewOn(d, tripReceiptKey) {
+			if d.Trips != nil {
 				receiptLimit := ls.user("trip-receipt", 20)
-				r.With(requireTripPlannerEnabledMW(d.Flags), receiptLimit.Middleware, maxBodyBytes(1024)).Post("/trips/saved/{id}/receipt", withUser(handleTripReceipt(d.Trips, d.Settings, d.Photon)))
+				r.With(requireDesignKeyMW(d, tripReceiptKey), requireTripPlannerEnabledMW(d.Flags), receiptLimit.Middleware, maxBodyBytes(1024)).Post("/trips/saved/{id}/receipt", withUser(handleTripReceipt(d.Trips, d.Settings, d.Photon)))
 			}
 			if ts := d.tripShare; ts != nil {
 				// 10 a minute per account on top of the 20 an hour and 25 live the store enforces.

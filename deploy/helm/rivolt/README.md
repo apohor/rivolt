@@ -212,3 +212,13 @@ hand if you actually want them gone:
 kubectl -n rivolt delete cluster <cluster-name>
 kubectl -n rivolt delete pvc <release>-rivolt-data
 ```
+
+## Design keys without a restart
+
+`liveKeys.designPreview` (comma-separated keys, `""` for all off, `null` to leave it to the `RIVOLT_DESIGN_PREVIEW` env) renders the
+ConfigMap `<fullname>-live-keys`, mounted at `/etc/rivolt/live` on every pod. The server re-reads it every 10 s and serves it as
+`features.design_preview`, so a key change is a values commit that Argo syncs and rolls nothing: the ConfigMap is outside the pod
+template's checksum annotations. Pods agree within about 100 s (kubelet refresh plus the poll). A bad file (empty, a missing line, a key
+outside `[a-z0-9_]`) is rejected whole and the pod keeps its last good list; `rivolt_live_keys_info{sha,source}` and
+`rivolt_live_keys_errors_total` show what each pod serves. Adding the mount is a pod-template change, so the release that first sets
+`liveKeys` rolls once; after that, key changes do not.
