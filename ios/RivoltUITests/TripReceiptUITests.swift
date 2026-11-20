@@ -33,9 +33,11 @@ final class TripReceiptUITests: XCTestCase {
             try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("ios-receipt-sheet-\(ProcessInfo.processInfo.environment["RECEIPT_MODE"] ?? "x").png"))
         }
         app.buttons["Cancel"].firstMatch.tap()
+        // The sheet is gone before the Share button is tapped again (a tap during the dismissal is lost, and the old switch would be read).
+        XCTAssertTrue(sketch.waitForNonExistence(timeout: 20), "the sheet is dismissed")
         XCTAssertTrue(share.waitForExistence(timeout: 10), "back on the Saved list")
         share.tap()
-        XCTAssertTrue(sketch.waitForExistence(timeout: 20))
+        XCTAssertTrue(sketch.waitForExistence(timeout: 20), "the route sketch switch is offered again on the second open")
         XCTAssertEqual(sketch.value as? String, "0", "off again on every open")
     }
 }
