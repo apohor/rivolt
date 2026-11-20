@@ -31,7 +31,8 @@ for (const [scenario, pictured] of [["driving", false], ["charging", false], ["p
     const img = page.getByTestId("live-vehicle-row").locator("img");
     if (pictured) {
       await expect(img).toHaveCount(1);
-      expect(requests.length).toBeGreaterThan(0);
+      // The picture is loading="lazy": its request comes after layout, not with the element.
+      await expect.poll(() => requests.length).toBeGreaterThan(0);
     } else {
       await page.waitForTimeout(500);
       await expect(img).toHaveCount(0);
