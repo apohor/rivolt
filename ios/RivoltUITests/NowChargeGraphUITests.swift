@@ -8,6 +8,10 @@ final class NowChargeGraphUITests: XCTestCase {
         app.launchEnvironment["RIVOLT_UITEST_CHARGE_CASE"] = chargeCase
         if dark { app.launchArguments += ["-rivolt.appearance", "dark"] }
         if xxxLarge { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"] }
+        // The parity shots place the history at the instant the web shots were taken at (STUB_NOW), so both show the same clock times.
+        if let pinned = try? String(contentsOfFile: "/tmp/rivolt-ui-shots/.parity-now", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), !pinned.isEmpty {
+            app.launchEnvironment["RIVOLT_UITEST_CHARGE_NOW"] = pinned
+        }
         app.launchEnvironment["RIVOLT_UITEST_UNITS"] = metric ? "km" : "mi"
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let ios = here.deletingLastPathComponent()

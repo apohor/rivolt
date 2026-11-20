@@ -179,6 +179,13 @@ final class NowSlotTests: XCTestCase {
         XCTAssertFalse(try labels(soft: false, packC: 30).contains("Pack temperature"))
     }
 
+    func testTheTimeLeftRoundsUpToTheWholeMinuteAsTheWebs() {
+        // 36.46 points of a 135 kWh pack at 100.9 kW is 29.27 minutes: 30, never 29.
+        let mins = ChargeETA.ownMinutes(socPct: 43.54, limitPct: 80, packKwh: 135, powerKw: 100.9)
+        XCTAssertEqual(mins, 30)
+        XCTAssertEqual(NowFormat.duration(mins * 60), "30 min")
+    }
+
     func testRateStaysApproximateWhenTheSessionSendsZero() throws {
         let start = at.addingTimeInterval(-3600)
         let iso = ISO8601DateFormatter().string(from: start)
