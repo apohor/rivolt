@@ -83,6 +83,16 @@ function advance(t: Tracker, s: VehicleState, nowMs: number): Tracker {
   return next;
 }
 
+// The card while its data is on the way, as tall as the card usually is (the redesigned hero and the plain card differ), so what is under it
+// does not jump down when it arrives.
+export function NowCardSkeleton({ tall }: { tall: boolean }) {
+  return (
+    <section aria-label="Now" data-testid="now-skeleton" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
+      <div className={`${tall ? "h-[25rem] lg:h-[16.5rem]" : "h-[17.25rem] md:h-[15.5rem] lg:h-[16.5rem]"} animate-pulse rounded bg-neutral-800/60`} />
+    </section>
+  );
+}
+
 export default function NowCard({
   vehicleID,
   vehicleName,
@@ -259,13 +269,7 @@ export default function NowCard({
   const fromSeries = asleepOn && parkedSeries ? openSleepSince(parkedSeries) : undefined;
   const chipAsleepSince = asleepOn && parkedWaiting ? null : fromSeries === undefined ? tracker.asleepSinceMs : fromSeries;
 
-  if (stateQ.isLoading) {
-    return (
-      <section aria-label="Now" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
-        <div className="h-24 animate-pulse rounded bg-neutral-800/60" />
-      </section>
-    );
-  }
+  if (stateQ.isLoading) return <NowCardSkeleton tall={v2} />;
   if (!state || !view) {
     return (
       <section aria-label="Now" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
