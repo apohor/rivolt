@@ -39,25 +39,24 @@ export const hmin = (s: number) => {
 };
 const pct = (v: number) => `${Math.round(v)}%`;
 
-// The clock in a zone ("11:04 AM"), with the zone's short name only when it is not the viewer's own.
-function clock(iso: string, tz?: string): string {
+// The clock in a zone, always with the zone's short name: the leave time is in the viewer's zone and the arrival in the destination's, so a
+// reader can reconcile the two with the total time.
+function clock(iso: string, zone: string): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return "";
-  const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const zone = tz && tz !== local ? tz : undefined;
   try {
-    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: zone, ...(zone ? { timeZoneName: "short" } : {}) }).format(d);
+    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: zone, timeZoneName: "short" }).format(d);
   } catch {
-    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(d);
+    return new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(d);
   }
 }
 
-function leaveLine(r: TripReceipt): string {
+function leaveLine(r: TripReceipt, zone: string): string {
   const start = `start with ${pct(r.start_soc)}`;
   const d = r.depart_at ? new Date(r.depart_at) : null;
   if (!d || !Number.isFinite(d.getTime())) return start[0].toUpperCase() + start.slice(1);
-  const day = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  return `Leave ${day} · ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · ${start}`;
+  const day = new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: zone }).format(d);
+  return `Leave ${day} · ${clock(r.depart_at!, zone)} · ${start}`;
 }
 
 const money = (n: number, cur: string) => {
@@ -70,7 +69,7 @@ const money = (n: number, cur: string) => {
 
 // buildReceiptModel: the sketch is in the model only when the user asked for it and the server sent segments (it sends none when the cut leaves
 // nothing); the cost line only when the user asked for it and there is an estimate.
-export function buildReceiptModel(r: TripReceipt, o: { model: string; unit: DistanceUnit; includeSketch: boolean; includeCost: boolean; cost?: TripCostEstimate | null }): ReceiptModel {
+export function buildReceiptModel(r: TripReceipt, o: { model: string; unit: DistanceUnit; includeSketch: boolean; includeCost: boolean; cost?: TripCostEstimate | null; viewerTZ?: string }): ReceiptModel {
   const lines: ReceiptLine[] = r.rows.map((row) => {
     const tilde = row.rounded ? "~" : "";
     if (row.kind === "drive") {
@@ -84,14 +83,16 @@ export function buildReceiptModel(r: TripReceipt, o: { model: string; unit: Dist
     if (row.kind === "charge") {
       return { title: "CHARGE", right: hmin(row.dur_s ?? 0), sub: `${row.name ?? ""}${row.max_kw ? ` · ${Math.round(row.max_kw)} kW` : ""}`, subRight: `${pct(row.from_soc)} → ${pct(row.to_soc)}` };
     }
-    return { title: row.name ?? "", right: "", sub: "", subRight: `${pct(row.from_soc)} → ${pct(row.to_soc)}` };
+    // An added stop: how long it lasts when the plan says so, and the battery only when it changes.
+    return { title: row.name ?? "", right: row.dur_s ? hmin(row.dur_s) : "", sub: "", subRight: Math.round(row.from_soc) === Math.round(row.to_soc) ? "" : `${pct(row.from_soc)} → ${pct(row.to_soc)}` };
   });
   const t = r.totals;
+  const viewerTZ = o.viewerTZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const totals = [
     { label: "Driving", value: `~${hmin(t.drive_s)}` },
     { label: `Charging · ${t.stops} ${t.stops === 1 ? "stop" : "stops"}`, value: hmin(t.charge_s) },
   ];
-  if (t.arrive_at) totals.push({ label: "Arrive", value: `~${clock(t.arrive_at, r.tz)} · ${pct(t.arrival_soc)}` });
+  if (t.arrive_at) totals.push({ label: "Arrive", value: `~${clock(t.arrive_at, r.tz || viewerTZ)} · ${pct(t.arrival_soc)}` });
   let cost: ReceiptModel["cost"] = null;
   const c = o.cost;
   if (o.includeCost && c) {
@@ -102,7 +103,7 @@ export function buildReceiptModel(r: TripReceipt, o: { model: string; unit: Dist
   return {
     head: ["RIVOLT · TRIP PLAN", o.model],
     title: `${r.start} → ${r.end}`,
-    sub: leaveLine(r),
+    sub: leaveLine(r, viewerTZ),
     sketch: o.includeSketch && r.sketch && r.sketch.length > 0 ? r.sketch : null,
     lines,
     totals,
