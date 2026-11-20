@@ -172,11 +172,11 @@ export default function NowHeroV2({
       {soft && chip.includes(" · done by ") ? (
         // Under 431 px the chip drops the finish time (the card says it in its own line), so the Live button keeps the row; the iPhone does the same.
         <>
-          <span className="min-w-0 truncate min-[431px]:hidden">{chip.slice(0, chip.indexOf(" · done by "))}</span>
-          <span className="min-w-0 truncate max-[430px]:hidden">{chip}</span>
+          <span className="min-w-0 min-[431px]:hidden">{chip.slice(0, chip.indexOf(" · done by "))}</span>
+          <span className="min-w-0 max-[430px]:hidden">{chip}</span>
         </>
       ) : (
-        <span className={tidy ? "min-w-0 truncate" : undefined}>{chip}</span>
+        <span className={tidy ? (soft ? "min-w-0" : "min-w-0 truncate") : undefined}>{chip}</span>
       )}
     </span>
   );
@@ -235,7 +235,7 @@ export default function NowHeroV2({
           className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
         >
           {telemetryLink && <Link to="/live" aria-label="Full telemetry" className="absolute inset-0 z-0 rounded-2xl" />}
-          <div className="pointer-events-none relative z-10 mb-4 flex items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
+          <div className="pointer-events-none relative z-10 mb-4 flex flex-wrap items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
             {chipEl}
             {telemetryLink && (
               <Link
@@ -267,7 +267,7 @@ export default function NowHeroV2({
                   </span>
                 )}
               </ArcGauge>
-              <div className="min-w-[10rem] flex-1 space-y-1">
+              <div className="min-w-[min(10rem,100%)] flex-1 space-y-1">
                 {view.rangeMi != null && (
                   <p>
                     <span className="whitespace-nowrap text-2xl font-semibold tabular-nums text-neutral-100 min-[360px]:text-3xl">{dist(view.rangeMi)}</span>{" "}
