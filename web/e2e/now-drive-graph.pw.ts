@@ -33,12 +33,19 @@ test("a drive in progress draws the speed and the battery from its start @webkit
   await expect(page.getByTestId("now-slot")).toBeVisible();
 });
 
-test("a drive that just started has no graph and the card is as it was @webkit", async ({ page }) => {
+test("a drive that just started has the frame with a short state, and the card keeps its height @webkit", async ({ page }) => {
   await open(page, CASES.fresh);
   await expect(page.getByTestId("now-slot")).toBeVisible();
-  await page.waitForTimeout(800);
-  await expect(page.getByTestId("now-drive-graph")).toHaveCount(0);
-  await expect(page.locator("[data-now-soft]")).toHaveCount(0);
+  const g = page.getByTestId("now-drive-graph");
+  await expect(g).toBeVisible();
+  await expect(g.getByTestId("now-drive-just-started")).toHaveText("Drive just started");
+  await expect(g.getByTestId("now-drive-change-since")).toHaveText(/^since \d{1,2}:\d{2}/);
+  await expect(g.locator("svg")).toHaveCount(0);
+  const early = (await g.boundingBox())!.height;
+  await open(page, CASES.middle);
+  await expect(page.getByTestId("now-drive-top")).toBeVisible();
+  const later = (await page.getByTestId("now-drive-graph").boundingBox())!.height;
+  expect(Math.abs(later - early), `card ${early} px early, ${later} px with the line`).toBeLessThanOrEqual(2);
 });
 
 test("a stop in the middle of the drive shows as speed falling to zero and coming back @webkit", async ({ page }) => {

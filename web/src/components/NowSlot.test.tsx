@@ -166,3 +166,15 @@ describe("parked slot weather", () => {
     expect(container.firstChild).toBeNull();
   });
 });
+
+describe("the drive graph's frame before a line", () => {
+  const started = Date.UTC(2026, 0, 1, 12);
+  it("says the drive just started in its first minutes, and that there are no readings later", async () => {
+    const { DriveGraph } = await import("./DriveGraph");
+    const early = render(<DriveGraph series={null} startedMs={started} nowMs={started + 60_000} unit="mi" nowPct={70} />);
+    expect(screen.getByTestId("now-drive-just-started").textContent).toBe("Drive just started");
+    early.unmount();
+    render(<DriveGraph series={null} startedMs={started} nowMs={started + 40 * 60_000} unit="mi" nowPct={70} />);
+    expect(screen.getByTestId("now-drive-just-started").textContent).toBe("No speed readings yet");
+  });
+});

@@ -262,7 +262,10 @@ export default function NowCard({
   // the stored samples at the card's own pace. Too short a drive: no graph, and the card is as it was.
   const driveGraphOn = useDesignPreview("now_drive_graph") && slotOn && tidy && view?.kind === "driving";
   const driveDest = useDriveDestination(vehicleID, driveGraphOn);
-  const { series: driveSeries, pending: drivePending } = useDriveSeriesState(vehicleID, driveGraphOn, driveQ.data ? Date.parse(driveQ.data.started_at) : NaN);
+  const driveStartedMs = driveQ.data ? Date.parse(driveQ.data.started_at) : NaN;
+  const { series: driveSeries, pending: drivePending } = useDriveSeriesState(vehicleID, driveGraphOn, driveStartedMs);
+  // The frame is there from the first moment the drive is known, with "Drive just started" until the line has enough to draw, so the card does not change height a minute in.
+  const driveFrame = driveGraphOn && Number.isFinite(driveStartedMs);
   // The card keeps its last height while a graph's series is on its way, for no longer than this after the state arrived (a read that hangs does not hold it).
   const stateIn = !!stateQ.data;
   const [holdOver, setHoldOver] = useState(false);
@@ -394,7 +397,7 @@ export default function NowCard({
       fix={fix}
       tidy={tidy}
       soft={soft}
-      half={driveSeries != null}
+      half={driveFrame}
       asleep={view.kind === "asleep" ? { since: server?.asleep_since ?? null, todayS: server?.asleep_today_s ?? null } : null}
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
@@ -437,9 +440,9 @@ export default function NowCard({
           stateSlot={showSlot ? slotNode : null}
           chip={nowChip(chipView ?? view, chipAsleepSince, nowMs, pill.text, tidy && showSlot && !soft)}
           holdHeight={holdHeight}
-          holdPending={(parkedKindOn && parkedWaiting) || (driveGraphOn && drivePending)}
-          soft={soft || parkedSeries != null || driveSeries != null}
-          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} powerKw={view.powerKw} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveSeries ? <DriveGraph series={driveSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
+          holdPending={(parkedKindOn && parkedWaiting) || (driveGraphOn && (drivePending || driveQ.isPending))}
+          soft={soft || parkedSeries != null || driveFrame}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} powerKw={view.powerKw} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveFrame ? <DriveGraph series={driveSeries} startedMs={driveStartedMs} nowMs={nowMs} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
           parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
           tidy={tidy}
           nowMs={nowMs}

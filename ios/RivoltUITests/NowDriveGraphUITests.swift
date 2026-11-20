@@ -45,11 +45,13 @@ final class NowDriveGraphUITests: XCTestCase {
         shot(app, "now-drive-graph-top")
     }
 
-    func testAFreshDriveHasNoGraph() {
+    func testAFreshDriveHasTheFrameAndAShortState() {
         let app = launch("fresh")
         XCTAssertTrue(element(app, "now-slot-figures").waitForExistence(timeout: 30))
-        Thread.sleep(forTimeInterval: 2)
-        XCTAssertFalse(element(app, "now-drive-graph").exists)
+        XCTAssertTrue(element(app, "now-drive-graph").waitForExistence(timeout: 30), "the frame is there from the first frame")
+        XCTAssertTrue(element(app, "now-drive-just-started").exists, "the short state")
+        XCTAssertTrue(element(app, "now-drive-since").exists, "since alone in the header")
+        XCTAssertFalse(element(app, "now-drive-top").exists, "no line yet")
     }
 
     func testNoTripNoDestinationLine() {

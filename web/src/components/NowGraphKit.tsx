@@ -210,10 +210,18 @@ export function Pill({ x, y, text, w, anchor = "middle" }: { x: number; y: numbe
 export const labelWidth = (text: string) => Math.ceil(text.length * 6.6 + 20);
 
 // "-2.4%" style header of a graph: a small caps title left, the change right.
-export function GraphHead({ title, change, since, testid }: { title: string; change: string | null; since?: string; testid?: string }) {
+export function GraphHead({ title, change, since, testid, sinceAlone = false }: { title: string; change: string | null; since?: string; testid?: string; sinceAlone?: boolean }) {
   return (
     <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3">
       <span className="ui-label">{title}</span>
+      {/* The same line height as the change it makes room for, so the header does not grow when the change arrives. */}
+      {!change && sinceAlone && since && (
+        <span className="ml-auto text-sm">
+          <span data-testid={testid ? `${testid}-since` : undefined} className="text-xs text-neutral-400">
+            {since}
+          </span>
+        </span>
+      )}
       {change && (
         <span data-testid={testid} className="ml-auto text-sm font-semibold tabular-nums text-neutral-100">
           {change}

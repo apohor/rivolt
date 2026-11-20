@@ -8,6 +8,8 @@ struct NowDriveGraph: View {
     /// "12 mi to Work · arrive 12:05 PM", or nil with no trip.
     var destination: String?
 
+    /// The plot's height, also the "just started" frame's, so the card does not change height when the line appears.
+    static let plotHeight: CGFloat = 150
     private let padT: CGFloat = 30
     private let padB: CGFloat = 26
     private let padL: CGFloat = 6
@@ -20,7 +22,7 @@ struct NowDriveGraph: View {
                 Text(destination).themeText(.subline, color: Theme.textBody).lineLimit(1).truncationMode(.tail)
                     .accessibilityIdentifier("now-drive-dest")
             }
-            plot.frame(height: 170)
+            plot.frame(height: Self.plotHeight)
             legend
         }
         .accessibilityElement(children: .ignore)
@@ -37,6 +39,9 @@ struct NowDriveGraph: View {
                     + Text(" \(model.since)").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textSecondary))
                     .monospacedDigit()
                     .accessibilityIdentifier("now-drive-change")
+            } else {
+                // No battery change yet: the start time alone.
+                Text(model.since).themeText(.caption, color: Theme.textSecondary).monospacedDigit().accessibilityIdentifier("now-drive-since")
             }
         }
     }
@@ -121,5 +126,40 @@ struct NowDriveGraph: View {
         layer.addFilter(.blur(radius: 3))
         layer.fill(Path(ellipseIn: CGRect(x: p.x - 10, y: p.y - 10, width: 20, height: 20)), with: .color(Theme.accent.opacity(0.35)))
         ctx.fill(Path(ellipseIn: CGRect(x: p.x - 4.5, y: p.y - 4.5, width: 9, height: 9)), with: .color(Theme.accent))
+    }
+}
+
+/// The first minute or two of a drive, before there is a line to draw: the frame is already there, with its header and legend, so the card keeps its height.
+struct NowDriveStart: View {
+    /// "since 11:38 AM".
+    let since: String
+    let speedUnit: String
+    /// "Drive just started" in the first minutes of a drive; later "No speed readings yet" (the stream is down, a long gap).
+    var justStarted = true
+    var destination: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("This drive").themeText(.label)
+                Spacer(minLength: 0)
+                Text(since).themeText(.caption, color: Theme.textSecondary).monospacedDigit().accessibilityIdentifier("now-drive-since")
+            }
+            if let destination {
+                Text(destination).themeText(.subline, color: Theme.textBody).lineLimit(1).truncationMode(.tail)
+                    .accessibilityIdentifier("now-drive-dest")
+            }
+            Text(justStarted ? "Drive just started" : "No speed readings yet").themeText(.subline, color: Theme.textSecondary)
+                .frame(maxWidth: .infinity, minHeight: NowDriveGraph.plotHeight)
+                .accessibilityIdentifier("now-drive-just-started")
+            HStack(spacing: 6) {
+                Capsule().fill(Theme.accent).frame(width: 14, height: 2)
+                Text("Speed (\(speedUnit))").themeText(.caption, color: Theme.textSecondary)
+            }
+            .padding(.top, 4)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(justStarted ? "Drive just started" : "No speed readings yet"), \(since)" + (destination.map { ". \($0)" } ?? ""))
+        .accessibilityIdentifier("now-drive-graph")
     }
 }

@@ -10,6 +10,9 @@ struct NowDriveGraphModel: Equatable {
     /// Under this much of the drive (90 s) or four points, the card is as it was: no frame, no "collecting".
     static let minSpan: TimeInterval = 90
     static let minPoints = 4
+    /// How long into a drive the card says it just started (the minimum span and a minute and a half); after that, no readings.
+    static let justStartedWindow: TimeInterval = minSpan + 90
+    static func justStarted(startedAt: Date, now: Date) -> Bool { now.timeIntervalSince(startedAt) < justStartedWindow }
     /// At most this many readings per line, evenly spaced in time, so the curve through them has nothing to kink on.
     static let seriesPoints = 36
 
@@ -78,7 +81,8 @@ struct NowDriveGraphModel: Equatable {
             return u > 0 ? u : nil
         }()
         let topShown = realTop.y * k >= 10 && realTop.x >= first.x && realTop.x < last.x - 60_000
-        let sinceText = "since \(time(Date(timeIntervalSince1970: first.x / 1000)))"
+        // The drive's own start (the same one the axis label says), not the first stored reading.
+        let sinceText = "since \(time(startedAt))"
         let nowSpeed = Int((last.y * k).rounded())
         let spoken = "Speed \(sinceText), \(nowSpeed) \(unit) now, top \(Int(peak.rounded())) \(unit)" + (used.map { ", battery down \($0) percent" } ?? "")
         return NowDriveGraphModel(
