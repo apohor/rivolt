@@ -140,7 +140,7 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
                   <clipPath id={`${id}-sl${i}`}>
                     <rect x={a + 1} y={0} width={Math.max(sw - 2, 1)} height={sleepBase} rx={10} />
                   </clipPath>
-                  <path d={`${linePath} L${lx.toFixed(1)} ${sleepBase} L${fx.toFixed(1)} ${sleepBase} Z`} fill={`url(#${id}-sleep)`} fillOpacity={b <= dimTo + 1 ? 0.65 : 1} clipPath={`url(#${id}-sl${i})`} />
+                  <path d={`${linePath} L${lx.toFixed(1)} ${sleepBase} L${fx.toFixed(1)} ${sleepBase} Z`} fill={`url(#${id}-sleep)`} fillOpacity={b <= dimTo + 1 ? 0.87 : 1} clipPath={`url(#${id}-sl${i})`} />
                   <rect x={a + 1} y={base - BAR} width={Math.max(sw - 2, 1)} height={BAR} rx={BAR / 2} fill={bar} fillOpacity=".75" />
                   {sw > LABEL_MIN_W * scale && (
                     <text x={a + sw / 2} y={base - BAR - 10} textAnchor="middle" className="fill-indigo-300 text-xs">
