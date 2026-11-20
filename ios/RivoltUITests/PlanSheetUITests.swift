@@ -129,7 +129,7 @@ final class PlanSheetUITests: XCTestCase {
         let day2 = app.buttons["Day 2"].firstMatch
         XCTAssertTrue(day2.waitForExistence(timeout: 10))
         day2.tap()
-        XCTAssertTrue(day2.isSelected, "the day chip took the tap")
+        XCTAssertTrue(day2.becomesSelected(), "the day chip took the tap")
         expect(grabber, "half", "and the sheet stayed where it was")
         app.buttons["Edit"].firstMatch.tap()
         let gone = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: grabber)], timeout: 5)
