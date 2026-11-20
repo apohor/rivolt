@@ -54,6 +54,7 @@ struct HomeView: View {
     /// The redesigned Now (design_preview key ios_now_v2, apart from the web's now_v2); off on prod, so the screen is the one it always was.
     @State private var showLive = false
     @State private var destinationFailures = 0
+    @State private var driveFailures = 0
     private var v2: Bool { state.designPreview.contains("ios_now_v2") }
     /// The state slot under the gauge (design_preview key now_slot, on the redesign): the map and weather parked, the figures charging or driving.
     /// The calmer Now (design_preview key ios_now_tidy, with the redesign): status inside the card, the destination on Now, asks last.
@@ -179,7 +180,7 @@ struct HomeView: View {
             .task(id: "\(selected?.id ?? "")|\(month.key)|\(lastChargeEnd?.timeIntervalSince1970 ?? 0)") { await loadCharts(force: false) }
             // The Live screen just opened: read the destination now, not at the next poll.
             .onChange(of: showLive) { if showLive, let id = selected?.id { Task { await loadLive(id: id) } } }
-            .onChange(of: selectedID) { destinationOff = false; liveDestination = nil; Task { await loadSelected() } }
+            .onChange(of: selectedID) { destinationOff = false; liveDestination = nil; liveDrive = nil; driveFailures = 0; Task { await loadSelected() } }
             // A closed Now screen doesn't keep re-reading after a drive or charge ends.
             .onDisappear { settleTask?.cancel() }
             // A drive or charge just ended: the server saves it a little later, so the lists are read again a few times.
@@ -372,7 +373,15 @@ struct HomeView: View {
         if state.isDemo { session = nil; liveDrive = nil; liveDestination = nil; return }
         let kind = now?.state ?? NowSummary.inferState(from: vehicleState)
         session = kind == .charging ? (try? await state.client.liveSession(id: id)) ?? nil : nil
-        liveDrive = kind == .driving ? (try? await state.client.liveDrive(id: id)) ?? nil : nil
+        if kind == .driving {
+            // A failed read (503 while the owner pod is busy or rolling) keeps the card for a few polls; "no drive" (204) clears it.
+            do { liveDrive = try await state.client.liveDrive(id: id); driveFailures = 0 } catch {
+                driveFailures += 1
+                if driveFailures >= 3 { liveDrive = nil }
+            }
+        } else {
+            liveDrive = nil; driveFailures = 0
+        }
         // Only while in gear, only when the design is on and not told "off"; this runs on the state's own cadence, which the tab and scene gate.
         // Only while the Live screen is open, or the Now hero shows it (ios_now_tidy): nothing else shows it.
         guard kind == .driving, showLive || tidy, state.designPreview.contains("live_destination"), !destinationOff else { liveDestination = nil; destinationFailures = 0; return }
