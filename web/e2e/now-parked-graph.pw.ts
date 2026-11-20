@@ -42,18 +42,26 @@ async function headerDelta(page: Page, parkedCase: ParkedCase) {
   return { head, delta, sinceParked: cur[cur.length - 1].soc - cur[0].soc, windowWide: fix.points[fix.points.length - 1].soc - fix.points[0].soc };
 }
 
-test("the graph ends at the ring's battery and starts at the first reading @webkit", async ({ page }) => {
-  await open(page, "overnight");
+// The header is the difference of the graph's two labels: the start label sits on the parked marker's reading, the end on the ring's.
+async function labels(page: Page) {
   const g = page.getByTestId("now-parked-graph");
-  const label = (await g.locator("svg").getAttribute("aria-label"))!;
-  const [, from, to] = label.match(/(\d+)% 24 hours ago to (\d+)% now/)!.map(Number);
   const texts = await g.locator("svg text").allTextContents();
   const pcts = texts.filter((t) => /^\d+\.\d%$/.test(t)).map(parseFloat);
-  expect(Math.round(pcts[0])).toBe(from);
-  expect(Math.round(pcts[pcts.length - 1])).toBe(to);
-  // The ring says the same battery as the end label.
-  await expect(page.getByRole("img", { name: new RegExp(`Battery ${to} percent`) })).toBeVisible();
-});
+  const head = (await g.getByTestId("now-parked-change").textContent())!;
+  return { start: pcts[0], end: pcts[pcts.length - 1], delta: parseFloat(head.replace("\u2212", "-")) };
+}
+
+for (const c of ["overnight", "charged"] as const) {
+  test(`${c}: the header is the end label minus the start label, and the end is the ring's battery @webkit`, async ({ page }) => {
+    await open(page, c);
+    const { start, end, delta } = await labels(page);
+    expect(delta).toBeCloseTo(end - start, 1);
+    const fix = parkedSeriesFixture(c);
+    const cur = fix.points.filter((p) => p.seg === 1);
+    expect(start).toBeCloseTo(cur[0].soc, 1);
+    await expect(page.getByRole("img", { name: new RegExp(`Battery ${Math.round(end)} percent`) })).toBeVisible();
+  });
+}
 
 test("the header is the loss since the truck was parked, and says when @webkit", async ({ page }) => {
   await open(page, "overnight");

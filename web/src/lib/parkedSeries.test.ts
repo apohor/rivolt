@@ -29,10 +29,11 @@ describe("parked series text", () => {
     expect(mi.map((f) => [f.value, f.note])).toEqual([
       ["18 h 40 min", ""],
       ["5 wake-ups", "≈ 0.4% each"],
-      ["6% a day", "≈ 18 mi"],
+      ["6% a day", "≈ 18 mi of range"],
     ]);
+    expect(mi[2].tileNote).toBe("≈ 18 mi");
     expect(mi[1].rowValue).toBe("5");
-    expect(parkedText(base, "km").figures[2].note).toBe("≈ 29 km");
+    expect(parkedText(base, "km").figures[2].note).toBe("≈ 29 km of range");
   });
 
   it("leaves out what it cannot say", () => {

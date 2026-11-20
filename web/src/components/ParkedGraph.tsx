@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { backend, type ParkedSeries } from "../lib/api";
+import { clock } from "../lib/nowState";
 import { useIsLight } from "../lib/vehicleImage";
 import { bandDuration, parkedAtLabel, parkedDrawable, parkedChange, parkedText, parkedZone, type ParkedFigure } from "../lib/parkedSeries";
 import { GraphHead, HaloDot, Legend, Pill, SoftDefs, SoftLine, labelWidth, softPath, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
@@ -63,14 +64,15 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
   const lx = sx(ms(last.t));
   const ly = sy(last.soc);
   const fx = sx(ms(first.t));
-  const fy = sy(first.soc);
   const parkedMs = series.parked_since ? ms(series.parked_since) : null;
   const parkedX = parkedMs != null && parkedMs > t0 && parkedMs < t1 ? sx(parkedMs) : null;
   const parkedLabel = parkedMs != null ? parkedAtLabel(parkedMs) : null;
   // Only readings from the parked marker on count toward the change: a drive or a charge earlier in the window is not "while parked".
   const curSeg = pts.filter((p) => p.seg === last.seg);
   const sinceIn = parkedMs != null && parkedMs > t0 ? parkedMs : null;
-  const change = parkedChange(curSeg[0].soc, last.soc, sinceIn);
+  // The start label sits on the reading the header measures from: the parked marker's, else the window's first.
+  const start = sinceIn != null ? curSeg[0] : first;
+  const change = parkedChange(start.soc, last.soc, sinceIn);
   const sleepBase = base - BAR - 3;
   const linePath = softPath(line);
   const valueLeft = lx - PAD.l > 60;
@@ -78,7 +80,7 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
   const pillW = labelWidth(parkedLabel ?? "");
   const pill = scale <= 1.25 && parkedX != null && parkedX - pillW / 2 > fx + 56 && parkedX + pillW / 2 < w - PAD.r ? parkedLabel : null;
   const showMid = w >= 240 * scale;
-  const ariaLabel = `Battery while parked, ${Math.round(first.soc)}% 24 hours ago to ${Math.round(last.soc)}% now, ${change.value.replace("−", "minus ")} ${change.since}, ${series.sleeps.length} ${series.sleeps.length === 1 ? "sleep" : "sleeps"}, ${series.wakes.length} ${series.wakes.length === 1 ? "wake-up" : "wake-ups"}`;
+  const ariaLabel = `Battery while parked, ${Math.round(start.soc)}% ${sinceIn != null ? `at ${clock(sinceIn)}` : "24 hours ago"} to ${Math.round(last.soc)}% now, ${change.value.replace("−", "minus ")} ${change.since}, ${series.sleeps.length} ${series.sleeps.length === 1 ? "sleep" : "sleeps"}, ${series.wakes.length} ${series.wakes.length === 1 ? "wake-up" : "wake-ups"}`;
 
   return (
     <div data-testid="now-parked-graph" className="flex min-w-0 flex-col min-[900px]:h-full">
@@ -123,8 +125,8 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
             ))}
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
             {pill && parkedX != null && <Pill x={parkedX} y={12} text={pill} w={pillW} />}
-            <text x={fx + 2} y={Math.max(fy - 14, 12)} className="fill-neutral-300 text-xs">
-              {`${first.soc.toFixed(1)}%`}
+            <text x={sx(ms(start.t)) + (sinceIn != null && lx - sx(ms(start.t)) < 90 ? -4 : 2)} textAnchor={sinceIn != null && lx - sx(ms(start.t)) < 90 ? "end" : "start"} y={sinceIn != null ? sy(start.soc) + 20 : Math.max(sy(start.soc) - 14, 12)} className="fill-neutral-300 text-xs">
+              {`${start.soc.toFixed(1)}%`}
             </text>
             <text x={valueLeft ? lx - 10 : lx + 10} y={ly + 22} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
               {`${last.soc.toFixed(1)}%`}
@@ -169,7 +171,7 @@ function TilesRow({ figures }: { figures: ParkedFigure[] }) {
       {figures.map((f) => (
         <div key={f.id} data-testid={`now-parked-tile-${f.id}`} className="min-w-0 rounded-2xl bg-neutral-800/50 px-2.5 py-2.5">
           <p className="text-sm font-semibold tabular-nums text-neutral-100">{f.value}</p>
-          <p className="text-xs text-neutral-400">{f.note || f.label}</p>
+          <p className="text-xs text-neutral-400">{f.tileNote || f.label}</p>
         </div>
       ))}
     </div>

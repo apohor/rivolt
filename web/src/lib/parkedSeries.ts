@@ -25,8 +25,8 @@ export function bandDuration(sec: number): string {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
 }
 
-// A tile (phone) says value then label or note; a row (desktop) puts rowLabel left and rowValue with the note right.
-export type ParkedFigure = { id: "asleep" | "wakes" | "idle"; value: string; note: string; label: string; rowLabel: string; rowValue: string };
+// A tile (phone) says value then label or its short note (the third tile has no room for "of range"); a row (desktop) puts rowLabel left and rowValue with the note right.
+export type ParkedFigure = { id: "asleep" | "wakes" | "idle"; value: string; note: string; tileNote: string; label: string; rowLabel: string; rowValue: string };
 
 export type ParkedText = {
   figures: ParkedFigure[];
@@ -38,14 +38,14 @@ export function parkedText(s: ParkedSeries, unit: "mi" | "km"): ParkedText {
   const f = s.figures;
   const figures: ParkedFigure[] = [];
   if (f) {
-    figures.push({ id: "asleep", value: longDuration(f.asleep_today_s), note: "", label: "asleep today", rowLabel: "Asleep today", rowValue: longDuration(f.asleep_today_s) });
+    figures.push({ id: "asleep", value: longDuration(f.asleep_today_s), note: "", tileNote: "", label: "asleep today", rowLabel: "Asleep today", rowValue: longDuration(f.asleep_today_s) });
     if (f.wake_ups > 0) {
-      figures.push({ id: "wakes", value: `${f.wake_ups} ${f.wake_ups === 1 ? "wake-up" : "wake-ups"}`, note: f.wake_cost_pct != null ? `≈ ${f.wake_cost_pct.toFixed(1)}% each` : "", label: "wake-ups", rowLabel: "Wake-ups", rowValue: String(f.wake_ups) });
+      figures.push({ id: "wakes", value: `${f.wake_ups} ${f.wake_ups === 1 ? "wake-up" : "wake-ups"}`, note: f.wake_cost_pct != null ? `≈ ${f.wake_cost_pct.toFixed(1)}% each` : "", tileNote: f.wake_cost_pct != null ? `≈ ${f.wake_cost_pct.toFixed(1)}% each` : "", label: "wake-ups", rowLabel: "Wake-ups", rowValue: String(f.wake_ups) });
     }
     if (f.idle_pct_per_day != null) {
       const mi = f.idle_mi_per_day;
       const dist = mi != null ? Math.round(unit === "km" ? mi * KM_PER_MI : mi) : null;
-      figures.push({ id: "idle", value: `${Math.round(f.idle_pct_per_day)}% a day`, note: dist != null ? `≈ ${dist} ${unit}` : "", label: "idle loss", rowLabel: "Idle loss", rowValue: `${Math.round(f.idle_pct_per_day)}% a day` });
+      figures.push({ id: "idle", value: `${Math.round(f.idle_pct_per_day)}% a day`, note: dist != null ? `≈ ${dist} ${unit} of range` : "", tileNote: dist != null ? `≈ ${dist} ${unit}` : "", label: "idle loss", rowLabel: "Idle loss", rowValue: `${Math.round(f.idle_pct_per_day)}% a day` });
     }
   }
   let projection: string | null = null;
