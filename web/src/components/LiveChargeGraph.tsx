@@ -54,7 +54,9 @@ export function useOpenChargeSeries(vehicleId: string, enabled = true) {
     return { soc, power, startPct, pack: last ? { avg: last.pack_temp_avg_c as number, min: last.pack_temp_min_c, max: last.pack_temp_max_c, at: new Date(last.At).getTime() } : null };
   }, [samples.data, startedMs]);
 
-  return { open, startedMs, ...data };
+  // Still on its way: the open charge, or its samples, not answered yet.
+  const pending = enabled && (charges.isPending || (!!open && samples.isPending));
+  return { open, startedMs, pending, ...data };
 }
 
 export function LiveChargeGraph({ vehicleId }: { vehicleId: string }) {
