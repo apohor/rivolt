@@ -464,9 +464,12 @@ struct SavedTripsList: View {
     let model: TripPlanModel
     let saved: SavedTripsModel
     @State private var message: String?
+    /// The trip being shared as a receipt (design_preview key `trip_receipt`).
+    @State private var sharing: SavedTrip?
 
     var body: some View {
         Group { content }
+            .sheet(item: $sharing) { TripReceiptSheet(trip: $0, vehicleModel: model.vehicleModel ?? "") }
             // A tapped trip-recap notification arrives as a pending route; the list may not have loaded yet.
             .task(id: state.notifications.pendingRoute) { await openNotifiedTrip() }
     }
@@ -482,16 +485,25 @@ struct SavedTripsList: View {
                 } else {
                     ForEach(Array(saved.trips.enumerated()), id: \.element.id) { i, trip in
                         if i > 0 { Divider().overlay(Theme.border) }
-                        Button { open(trip) } label: {
-                            HStack(spacing: 8) {
-                                Text(trip.name).themeText(.value, color: saved.active?.id == trip.id ? Theme.accent : Theme.textPrimary)
-                                    .multilineTextAlignment(.leading)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                if trip.readOnly == true { Text("Pro to edit").themeText(.caption, color: Theme.textTertiary) }
+                        HStack(spacing: 0) {
+                            Button { open(trip) } label: {
+                                HStack(spacing: 8) {
+                                    Text(trip.name).themeText(.value, color: saved.active?.id == trip.id ? Theme.accent : Theme.textPrimary)
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    if trip.readOnly == true { Text("Pro to edit").themeText(.caption, color: Theme.textTertiary) }
+                                }
+                                .frame(minHeight: 44)
                             }
-                            .frame(minHeight: 44)
+                            .buttonStyle(.plain)
+                            if state.designPreview.contains("trip_receipt"), trip.plan != nil {
+                                Button("Share") { sharing = trip }
+                                    .buttonStyle(.plain).themeText(.value, color: Theme.accent)
+                                    .padding(.leading, 12)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .accessibilityLabel("Share \(trip.name)")
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 if let message { Text(message).themeText(.subline, color: Theme.estimate).fixedSize(horizontal: false, vertical: true) }

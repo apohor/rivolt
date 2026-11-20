@@ -88,6 +88,8 @@ final class TripPlanModel {
 
     private(set) var vehicleID: String?
     private(set) var vehicleName: String?
+    /// "R1T": the truck's model, which the trip receipt names (never the nickname).
+    private(set) var vehicleModel: String?
     /// The truck's charge and pack right now, when known.
     private(set) var liveSoc: Double?
     private(set) var packKwh: Double?
@@ -464,6 +466,7 @@ final class TripPlanModel {
         guard let v = vehicles.first else { return }
         vehicleID = v.id
         vehicleName = v.name
+        vehicleModel = v.model
         if let s = try? await source.vehicleState(id: v.id) {
             liveSoc = s.batteryLevelPct
             packKwh = s.batteryCapacityKwh.flatMap { $0 > 0 ? $0 : nil }

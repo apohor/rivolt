@@ -199,6 +199,7 @@ func TestAppWriteAllowlistMatching(t *testing.T) {
 		{"PUT", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b", 204},
 		{"POST", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b/link", 204},
 		{"POST", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b/unlink", 204},
+		{"POST", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b/receipt", 204},
 		{"DELETE", "/api/trips/saved/3f2b8c1e-5d4a-4e6f-9a7b-0c1d2e3f4a5b", 403},
 		{"PUT", "/api/trips/saved", 403},
 		{"POST", "/api/trips/saved/", 403},

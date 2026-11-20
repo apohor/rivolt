@@ -96,7 +96,7 @@ func appSessionRevokePath(p string) bool {
 }
 
 // appSavedTripPath reports whether the request is one of the saved-trip writes the phone may send by id: PUT /api/trips/saved/{id},
-// POST /api/trips/saved/{id}/link and /unlink, with {id} a canonical (lower-case, hyphenated) UUID. DELETE is not here.
+// POST /api/trips/saved/{id}/link, /unlink and /receipt (the share card's rows; it writes nothing), with {id} a canonical (lower-case, hyphenated) UUID. DELETE is not here.
 func appSavedTripPath(method, p string) bool {
 	rest, ok := strings.CutPrefix(p, "/api/trips/saved/")
 	if !ok {
@@ -111,7 +111,7 @@ func appSavedTripPath(method, p string) bool {
 	case !hasAction:
 		return method == http.MethodPut
 	case method == http.MethodPost:
-		return action == "link" || action == "unlink"
+		return action == "link" || action == "unlink" || action == "receipt"
 	}
 	return false
 }
