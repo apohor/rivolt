@@ -28,12 +28,13 @@ echo y >a && git add . && git commit -qm "later"
 other_sha=$(git rev-parse HEAD)
 run() { # sha rc-gate-state preview-tag
   echo "$3" >"$t/infra/apps/platform/rivolt-preview/values.yaml"; echo "$3" >"$t/infra/apps/platform/rivolt-admin-preview/values.yaml"
-  PATH="$t/bin:$PATH" RC_GATE_STATE=$2 VERSION=v1.0.0 SHA=$1 FINAL_BY_WORKFLOW=true NO_RC_REASON="hotfix with a long enough reason" GH_REPO=x/y INFRA_DIR="$t/infra" \
+  PATH="$t/bin:$PATH" RC_TAG_REFS="$(git show-ref --tags -d)" RC_GATE_STATE=$2 VERSION=v1.0.0 SHA=$1 FINAL_BY_WORKFLOW=true NO_RC_REASON="hotfix with a long enough reason" GH_REPO=x/y INFRA_DIR="$t/infra" \
     bash "$here/release-verdict.sh" 2>&1
 }
-check "bypass at an rc commit, gate not success: refused" "WOULD REFUSE" "$(run "$rc_sha" none v1.0.0-rc.1)"
-check "  and says why" "bypass is not consulted" "$(run "$rc_sha" failure v1.0.0-rc.1)"
-check "bypass at an rc commit, gate success, preview on the rc: would tag" "WOULD TAG" "$(run "$rc_sha" success v1.0.0-rc.1)"
-check "bypass at an rc commit, gate success, preview elsewhere: refused" "not v1.0.0-rc.1" "$(run "$rc_sha" success v0.9.0)"
+check "bypass at an rc commit, gate not success: refused" "WOULD REFUSE" "$(run "$rc_sha" none 1.0.0-rc.1)"
+check "  and says why" "bypass is not consulted" "$(run "$rc_sha" failure 1.0.0-rc.1)"
+check "bypass at an rc commit, gate success, preview on the rc: would tag" "WOULD TAG" "$(run "$rc_sha" success 1.0.0-rc.1)"
+check "bypass at an rc commit, gate success, preview elsewhere: refused" "not 1.0.0-rc.1" "$(run "$rc_sha" success v0.9.0)"
+check "  a values tag spelled v1.0.0-rc.1 is refused, as final-gate compares exactly" "not 1.0.0-rc.1" "$(run "$rc_sha" success v1.0.0-rc.1)"
 check "bypass at a commit that is no rc's: would tag, as before" "WOULD TAG" "$(run "$other_sha" none v0.9.0)"
 exit $fail

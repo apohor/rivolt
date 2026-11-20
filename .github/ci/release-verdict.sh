@@ -83,14 +83,17 @@ if [ -z "$RC" ]; then
       note "no gated rc, reason accepted: '$NO_RC_REASON'. The real run runs in the release-bypass environment (main only, no reviewer) and writes the rc-bypass.log line first"
       # final-gate.sh (tag-validate) never reads rc-bypass.log when the commit is a release candidate's: it then needs that rc's qa/rc-gate
       # success and preview on the rc image. Say so here, so this verdict cannot say WOULD TAG for a tag tag-validate refuses.
-      match=$(git for-each-ref --format='%(refname:strip=2) %(objectname) %(*objectname)' "refs/tags/$VERSION-rc.*" |
-        awk -v s="$FULL" '$3 == s || ($3 == "" && $2 == s) { print $1 }' | grep -E "^${VERSION//./\\.}-rc\.[1-9][0-9]*$" | sort -t. -k4 -n | tail -1 || true)
+      # The rc tags are listed the way final-gate.sh lists them (origin's, not this clone's; RC_TAG_REFS stands in for tests): an annotated tag
+      # lists twice, the object and its peeled commit (^{}), which wins.
+      if ! refs=${RC_TAG_REFS-$(git ls-remote --tags origin "refs/tags/$VERSION-rc.*" 2>/dev/null)}; then refuse "could not list the release candidate tags (final-gate.sh would refuse too)"; finish; fi
+      match=$(awk '{ r=$2; sub("^refs/tags/", "", r); peeled = (r ~ /\^\{\}$/); sub(/\^\{\}$/, "", r); if (peeled || !(r in c)) c[r]=$1 } END { for (r in c) print r, c[r] }' <<<"$refs" |
+        awk -v s="$FULL" '$2 == s { print $1 }' | grep -E "^${VERSION//./\\.}-rc\.[1-9][0-9]*$" | sort -t. -k4 -n | tail -1 || true)
       if [ -n "$match" ]; then
         st=$(gh api "repos/$REPO/commits/$FULL/status" --jq '[.statuses[] | select(.context == "qa/rc-gate")][0].state // "none"' 2>/dev/null) || st="unreadable"
         if [ "$st" != success ]; then refuse "${FULL:0:7} is $match's commit, so the bypass is not consulted (final-gate.sh): qa/rc-gate on it is '$st', not success. Gate the rc (gated_rc), or tag a commit that is no rc's"; fi
         for f in rivolt-preview rivolt-admin-preview; do
           got=$(python3 -I "$CTL" get-tag "$INFRA_DIR/apps/platform/$f/values.yaml" 2>/dev/null) || got=""
-          [ "${got#v}" = "${match#v}" ] || refuse "$f runs '${got:-?}', not $match: final-gate.sh needs preview on the rc whose commit this is"
+          [ "$got" = "${match#v}" ] || refuse "$f runs '${got:-?}', not ${match#v}: final-gate.sh needs preview on the rc whose commit this is, spelled exactly"
         done
       fi
     fi
