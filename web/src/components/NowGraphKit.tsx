@@ -5,7 +5,8 @@ import { useIsLight } from "../lib/vehicleImage";
 // start and current values instead of an axis, small haloed dots for events, and soft low-contrast bands. The charging and driving graphs draw
 // with these pieces so the Now card's graphs match; text uses the app's own sizes (text-xs, text-sm) and its neutral ink.
 
-export type Pt = { x: number; y: number };
+// hold: the line leaves and arrives level at this point (zero slope), which is how a step is eased instead of drawn as a corner.
+export type Pt = { x: number; y: number; hold?: boolean };
 
 export type SoftInk = { line: string; quiet: string; warm: string; band: string };
 
@@ -35,6 +36,29 @@ export function useBox(): [(el: HTMLDivElement | null) => void, { w: number; h: 
   return [ref, box];
 }
 
+// Readings that jump (a drive or a charge between two readings, a wake-up) arrive a few pixels apart, which a curve can only draw as a corner.
+// This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
+// first one's height; softPath then draws it with no slope at both ends. A pair that is already gentle is left alone.
+export function easeSteps(pts: Pt[], minDrop = 3, slope = 1.2): Pt[] {
+  const out: Pt[] = [];
+  let i = 0;
+  while (i < pts.length) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const dy = b ? Math.abs(b.y - a.y) : 0;
+    if (b && dy >= minDrop && dy / Math.max(b.x - a.x, 0.5) > slope) {
+      const run = Math.min(Math.max(dy * 2, 12), 28);
+      const from = out.length ? out[out.length - 1].x : a.x;
+      out.push({ x: Math.max(b.x - run, from + 0.4 * (a.x - from)), y: a.y, hold: true }, { x: b.x, y: b.y, hold: true });
+      i += 2;
+    } else {
+      out.push(a);
+      i += 1;
+    }
+  }
+  return out;
+}
+
 // A smooth path through the points that never overshoots them (monotone cubic), so a flat stretch stays flat and a turn stays a turn.
 export function softPath(pts: Pt[]): string {
   const n = pts.length;
@@ -50,6 +74,7 @@ export function softPath(pts: Pt[]): string {
   const t: number[] = [m[0]];
   for (let i = 1; i < n - 1; i++) t.push(m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2);
   t.push(m[n - 2]);
+  for (let i = 0; i < n; i++) if (pts[i].hold) t[i] = 0;
   for (let i = 0; i < n - 1; i++) {
     if (m[i] === 0) {
       t[i] = 0;
