@@ -4,8 +4,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 vi.mock("../lib/config", () => ({ ensureConfig: vi.fn().mockResolvedValue({ features: {} }) }));
 vi.mock("../lib/shareCard", () => ({
   paintShareCard: vi.fn(),
+  shareMapBand: vi.fn(() => ({ w: 920, h: 200 })),
   shareCardBlob: vi.fn().mockResolvedValue(new Blob(["x"], { type: "image/png" })),
 }));
+
+const renderShareBasemap = vi.fn();
+vi.mock("../map/shareBasemap", () => ({ renderShareBasemap: (...a: unknown[]) => renderShareBasemap(...a) }));
 
 import { ShareSheet } from "./ShareSheet";
 
@@ -37,5 +41,25 @@ describe("ShareSheet onShared", () => {
     const build = vi.fn(() => ({}) as never);
     render(<ShareSheet build={build} fileName="t.png" withCostToggle onClose={() => {}} />);
     expect(build).toHaveBeenLastCalledWith(false, false, false);
+  });
+
+  it("says the map is unavailable, only once it was asked for and could not be drawn", async () => {
+    renderShareBasemap.mockResolvedValue(null);
+    const build = vi.fn((_c: boolean, _o: boolean, map: boolean) => (map ? { map: { segments: ["a"] } } : {}) as never);
+    render(<ShareSheet build={build} fileName="t.png" withCostToggle withMapToggle onClose={() => {}} />);
+    expect(screen.queryByText(/Map unavailable/)).toBeNull();
+    fireEvent.click(screen.getByLabelText(/Include map/));
+    expect(await screen.findByText("Map unavailable. The card shows the route as a line.")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/Include map/));
+    await waitFor(() => expect(screen.queryByText(/Map unavailable/)).toBeNull());
+  });
+
+  it("shows no note when the map is drawn", async () => {
+    renderShareBasemap.mockResolvedValue({});
+    const build = vi.fn((_c: boolean, _o: boolean, map: boolean) => (map ? { map: { segments: ["b"] } } : {}) as never);
+    render(<ShareSheet build={build} fileName="t.png" withCostToggle withMapToggle onClose={() => {}} />);
+    fireEvent.click(screen.getByLabelText(/Include map/));
+    await waitFor(() => expect(renderShareBasemap).toHaveBeenCalled());
+    expect(screen.queryByText(/Map unavailable/)).toBeNull();
   });
 });
