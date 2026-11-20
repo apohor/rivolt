@@ -604,6 +604,16 @@ export function usePlanner() {
     }
   };
 
+  // Back to the front door: the shown result goes, the saved trip it may have been is no longer the active one, the From and To stay.
+  const clearResult = () => {
+    planMutation.reset();
+    multidayMutation.reset();
+    adviceMutation.reset();
+    setLoadedSnapshot(null);
+    setMultidaySnapshot(null);
+    setActiveTripId(null);
+  };
+
   // The plan screen in pieces: today's order (form, Plan vs actual, saved trips, result)
   // for everyone; in the look the result follows the form in the DOM
   // (so Tab and screen readers reach it first), then Plan vs actual and saved trips.
@@ -682,6 +692,7 @@ export function usePlanner() {
     saveTripMutation,
     deleteTripMutation,
     loadSavedTrip,
+    clearResult,
     fireAdvice,
     onSubmit,
     hasResult,

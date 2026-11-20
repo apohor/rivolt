@@ -32,6 +32,9 @@ import { ProLimitNotice } from "../components/ProLimitNotice";
 import { TripShareSheet } from "../components/TripShareSheet";
 import { useDesignPreview, useTripShare } from "../lib/config";
 import { WhereToHome } from "../plan/WhereToHome";
+import { useGeocode } from "../plan/useGeocode";
+import { rangeLine } from "../plan/rangeLine";
+import { usePreferences } from "../lib/preferences";
 import { proLimitOf, type ProLimit } from "../lib/proLimit";
 
 
@@ -41,15 +44,21 @@ import { proLimitOf, type ProLimit } from "../lib/proLimit";
 // anywhere else.
 
 export default function TripPlanPage() {
-  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
+  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, clearResult, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab();
-  // The design_preview "plan_where_to" front door: the map and "Where to?" until a trip is picked or opened (leftHome), then the planner as it is.
+  // The design_preview "plan_where_to" front door: "Where to?" and the saved trips until a trip is picked or opened (leftHome), then the planner as it is.
+  // The demo has only its sample trips to plan, so it keeps its own page.
   const whereTo = useDesignPreview("plan_where_to");
   const [leftHome, setLeftHome] = useState(false);
+  // The trip whose share sheet is open, and the note that Share saved it first.
+  const [sharing, setSharing] = useState<SavedTrip | null>(null);
+  const [shareNote, setShareNote] = useState<string | null>(null);
+  const { distanceUnit } = usePreferences();
+  const tripShare = useTripShare();
   const samples = useSamplePresets((t) => {
     loadSavedTrip(t);
     setLeftHome(true);
-  }, inDemo() || whereTo);
+  }, inDemo());
   const aiConsent = useAIConsent();
   // When a plan arrives, bring it into view. Phones: the map (or the multi-day result) up under the top bar so
   // it fills the space above the sheet's peek. Wide screens: only when the result starts well below the fold
@@ -682,12 +691,34 @@ export default function TripPlanPage() {
     </>
   );
 
+  const frontDoor = whereTo && !inDemo();
   const tabs: PlanTabSpec[] = [
-    { id: "planner", label: "Planner" },
+    { id: "planner", label: frontDoor ? "Plan" : "Planner" },
     { id: "saved", label: "Saved", count: savedTripsQuery.data?.length },
     { id: "pva", label: "Plan vs actual" },
   ];
-  const showHome = whereTo && planTab === "planner" && !leftHome && !hasResult && !planning;
+  const showHome = frontDoor && planTab === "planner" && !leftHome && !hasResult && !planning;
+  const showRouteHead = frontDoor && planTab === "planner" && !showHome;
+  // Share on the route screen: a trip that is saved as shown opens its share sheet at once; any other is saved first (the note says so), then shared.
+  const shareRoute = async () => {
+    setShareNote(null);
+    const unchanged = !!activeTripId && (!!loadedSnapshot || (!!multidaySnapshot && !multidayMutation.data));
+    const found = unchanged ? savedTripsQuery.data?.find((t) => t.id === activeTripId) : undefined;
+    if (found) return setSharing(found);
+    const name = activeTripName ?? defaultTripName;
+    try {
+      const t = await saveTripMutation.mutateAsync({ name, id: activeTripName ? activeTripId : null });
+      setShareNote(`Saved as "${t.name}" so it can be shared.`);
+      setSharing(t);
+    } catch {
+      // The save bar under the form shows why it did not save.
+    }
+  };
+  const backToHome = () => {
+    clearResult();
+    setLeftHome(false);
+    setShareNote(null);
+  };
   const pickDestination = (r: GeocodeResult) => {
     setDestination(relabelIfHome({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) }, home));
     setLeftHome(true);
@@ -698,9 +729,10 @@ export default function TripPlanPage() {
   const departureLabel = departureAt ? `Leave ${new Date(departureAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "Leave now";
   return (
     <div data-plan-next>
+      {sharing && <TripShareSheet trip={sharing} onClose={() => setSharing(null)} />}
       <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className={showHome ? "sr-only" : "text-2xl font-semibold tracking-tight text-neutral-50"}>Trip planner</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-neutral-50">{frontDoor ? "Plan" : "Trip planner"}</h1>
         <PlanTabs tabs={tabs} value={planTab} onChange={setPlanTab} />
       </div>
       <PlanTabPanel tab="planner" active={planTab === "planner"}>
@@ -708,34 +740,47 @@ export default function TripPlanPage() {
             anything that follows the selection. A new plan clears it. */}
         {showHome ? (
           <WhereToHome
-            demo={inDemo()}
-            truck={currentPosition}
             fromLabel={fromLabel}
-            search={
-              <LocationSearch
-                placeholder="Where to?"
-                ariaLabel="Where to?"
-                onSelect={pickDestination}
-                inputClassName="w-full rounded-md bg-transparent px-1 py-2 pr-5 text-base text-neutral-100 placeholder-neutral-400 focus:outline-hidden"
-              />
-            }
             departure={departureEl}
             departureLabel={departureLabel}
+            rangeText={rangeLine(stateQuery.data, distanceUnit, Date.now())}
             saved={savedTripsQuery.data ?? []}
             savedLoading={savedTripsQuery.isLoading}
+            canShare={tripShare}
+            onPickPlace={pickDestination}
             onOpenSaved={(t) => {
               loadSavedTrip(t);
               setLeftHome(true);
             }}
+            onShareSaved={setSharing}
             onShowSaved={() => setPlanTab("saved")}
-            samples={samples.presets}
-            samplesLoading={samples.loading}
-            sampleBusy={samples.busy}
-            sampleError={samples.err}
-            onOpenSample={samples.open}
           />
         ) : (
         <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null}>
+        {showRouteHead && (
+          <div data-route-head className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <button type="button" onClick={backToHome} className="inline-flex min-h-11 items-center gap-1 text-sm text-emerald-300 hover:text-emerald-200">
+              <span aria-hidden>‹</span> Where to?
+            </button>
+            {hasResult && tripShare && (
+              <button
+                type="button"
+                onClick={() => void shareRoute()}
+                disabled={saveTripMutation.isPending}
+                data-testid="route-share"
+                className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-neutral-700 px-4 text-sm text-neutral-100 hover:border-neutral-500 disabled:opacity-60"
+              >
+                <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3v12" />
+                  <path d="m7 8 5-5 5 5" />
+                  <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+                </svg>
+                {saveTripMutation.isPending ? "Saving…" : "Share"}
+              </button>
+            )}
+            {shareNote && <p role="status" className="basis-full break-words text-xs text-neutral-400">{shareNote}</p>}
+          </div>
+        )}
         <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
           {formEl}
           {resultEl}
@@ -1002,7 +1047,7 @@ function SavedTripsCard({
             return (
               <li
                 key={t.id}
-                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                className={`flex flex-wrap items-center gap-x-2 rounded-md border px-3 py-2 text-sm ${
                   isActive
                     ? "border-emerald-700/60 bg-emerald-950/30"
                     : "border-neutral-800 bg-neutral-950/40"
@@ -1011,10 +1056,10 @@ function SavedTripsCard({
                 <button
                   type="button"
                   onClick={() => onLoad(t)}
-                  className="flex-1 text-left"
+                  className="min-h-11 min-w-0 flex-[1_1_8rem] text-left"
                 >
-                  <span className="text-neutral-100">{t.name}</span>
-                  <span className="ml-2 text-xs text-neutral-500">
+                  <span className="block break-words text-neutral-100">{t.name}</span>
+                  <span className="block break-words text-xs text-neutral-500">
                     {tripSubtitle(t.inputs)}
                   </span>
                 </button>
@@ -1033,9 +1078,14 @@ function SavedTripsCard({
                     onClick={() => setSharing(t)}
                     data-testid="trip-share-open"
                     aria-label={`Share "${t.name}"`}
-                    className="shrink-0 text-xs text-neutral-400 hover:text-neutral-200"
+                    className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-sm text-neutral-300 hover:text-neutral-100"
                   >
-                    share
+                    <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 3v12" />
+                      <path d="m7 8 5-5 5 5" />
+                      <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+                    </svg>
+                    Share
                   </button>
                 )}
                 {!readOnly && (
@@ -1044,7 +1094,7 @@ function SavedTripsCard({
                     onClick={() => {
                       if (confirm(`Delete saved trip "${t.name}"?`)) onDelete(t.id);
                     }}
-                    className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300"
+                    className="inline-flex min-h-11 shrink-0 items-center px-2 text-xs text-neutral-500 hover:text-neutral-300"
                   >
                     delete
                   </button>
@@ -1458,24 +1508,9 @@ function LocationSearch({
   ariaLabel?: string;
 }) {
   const [query, setQuery] = useState("");
-  const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(query), 150);
-    return () => clearTimeout(t);
-  }, [query]);
-
-  const results = useQuery({
-    queryKey: ["geocode", debounced],
-    queryFn: () => backend.geocode(debounced, 8),
-    enabled: debounced.trim().length >= 2,
-    staleTime: 5 * 60 * 1000,
-  });
-
-  // Pending: either debounce hasn't fired yet or query is in flight.
-  const pending = query !== debounced || results.isFetching;
+  const { items, pending, failed, empty } = useGeocode(query);
 
   useEffect(() => {
     if (!open) return;
@@ -1488,7 +1523,6 @@ function LocationSearch({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [open]);
 
-  const items = results.data ?? [];
   const showDropdown = open && query.trim().length >= 2;
 
   return (
@@ -1536,9 +1570,9 @@ function LocationSearch({
             </li>
           ))}
         </ul>
-      ) : !pending && results.isFetched ? (
+      ) : failed || empty ? (
         <div className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-500 shadow-lg">
-          {results.isError ? "Place search is unavailable right now" : "No results"}
+          {failed ? "Place search is unavailable right now" : "No results"}
         </div>
       ) : null)}
     </div>

@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { DEMO_PLAN, DEMO_PRESETS, stubApi } from "./stub";
+import { DEMO_PLAN, DEMO_PRESETS, stubApi, VEHICLE_ID } from "./stub";
 
-// design_preview "plan_where_to": the planner opens on the map with "Where to?", the saved trips and the samples under it. Without the key the page
-// is what it was. SHOTS=<dir> also writes the screenshots the PR carries (widths 320/393/430/desktop, light and dark, the states).
+// design_preview "plan_where_to": the planner opens on "Where to?" (no map), the truck's range and the saved trips; typing lists places and the plans
+// that match; the map comes with a route. Without the key the page is what it was. SHOTS=<dir> also writes the screenshots the PR carries (widths 320/393/430/desktop, light and dark, the states).
 const SHOTS = process.env.SHOTS || "";
 const pt = (label: string, lat: number, lon: number) => ({ lat, lon, label });
 const INPUTS = { origin: pt("Rose Bowl parking", 34.16, -118.17), destination: pt("Las Vegas, NV", 36.17, -115.14), extra_stops: [], overnight_flags: [] };
@@ -18,11 +18,17 @@ const TWO_DAY = {
   saved_trip_id: "st-demo-2day",
 };
 
-async function open(page: Page, o: { flag?: boolean; saved?: boolean; demo?: boolean }) {
-  await stubApi(page, { designPreview: o.flag === false ? [] : ["plan_where_to"], demo: !!o.demo, signedIn: !o.demo });
+async function open(page: Page, o: { flag?: boolean; saved?: boolean; demo?: boolean; paused?: boolean; truck?: boolean; geocode?: unknown; geocodeStatus?: number }) {
+  await stubApi(page, { designPreview: o.flag === false ? [] : ["plan_where_to"], demo: !!o.demo, signedIn: !o.demo, tripShare: true, ...(o.paused ? { rivian: "paused" as const } : {}) });
   if (!o.demo) await page.route("**/api/trips/saved", (r) => r.fulfill(json(o.saved === false ? [] : SAVED)));
   if (o.demo) await page.route("**/api/demo/trips", (r) => r.fulfill(json({ trips: [...DEMO_PRESETS, TWO_DAY] })));
-  await page.route("**/api/geocode*", (r) => r.fulfill(json([{ name: "Las Vegas", admin1: "Nevada", country: "US", latitude: 36.17, longitude: -115.14 }])));
+  await page.route("**/api/geocode*", (r) =>
+    o.geocodeStatus ? r.fulfill({ status: o.geocodeStatus, contentType: "application/json", body: "{}" }) : r.fulfill(json(o.geocode ?? [{ name: "Las Vegas", admin1: "Nevada", country: "US", latitude: 36.17, longitude: -115.14 }])),
+  );
+  if (o.truck) await page.route("**/api/vehicles/owned", (r) => r.fulfill(json({ vehicles: [{ id: "o1", rivian_vehicle_id: VEHICLE_ID, display_name: "Sample R1S", model: "R1S" }] })));
+  await page.route("**/api/trips/saved/*", (r) => (r.request().method() === "PUT" ? r.fulfill(json({ ...SAVED[0], plan: DEMO_PLAN })) : r.fallback()));
+  await page.route("**/api/trips/saved/*/shares", (r) => r.fulfill(json({ links: [] })));
+  await page.route("**/api/trips/saved", (r) => (r.request().method() === "POST" ? r.fulfill(json({ id: "st-new", name: "Rose Bowl parking to Las Vegas, NV", inputs: INPUTS, plan: DEMO_PLAN, created_at: "2026-11-20T00:00:00Z", updated_at: "2026-11-20T00:00:00Z" })) : r.fallback()));
   await page.route("**/api/trips/plan", (r) => r.fulfill(json(DEMO_PLAN)));
   await page.goto(o.demo ? "/demo/trips/plan" : "/trips/plan");
 }
@@ -32,7 +38,10 @@ const shot = async (page: Page, name: string) => {
   await page.waitForTimeout(700);
   await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
 };
-const noOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+const noOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+// Everything of the page (the app header's own 7 px at 300 % text is not this page's) inside the screen's width.
+const wideOnes = (page: Page) =>
+  page.evaluate(() => [...document.querySelectorAll("body *")].filter((e) => !e.closest("header") && e.getBoundingClientRect().right > window.innerWidth + 1).slice(0, 5).map((e) => `${e.tagName}.${String(e.className).slice(0, 60)}`));
 
 test("without the key the planner is unchanged", async ({ page }) => {
   await open(page, { flag: false });
@@ -41,72 +50,160 @@ test("without the key the planner is unchanged", async ({ page }) => {
   await expect(page.locator("[data-plan-form]")).toBeVisible();
 });
 
-test("with the key: Where to? over the map @webkit, saved trips below, a pick plans the trip", async ({ page }) => {
-  await open(page, {});
-  await expect(page.locator("[data-where-to]")).toBeVisible();
+test("opening state @webkit: the field first, the range, saved trips, no map and no sample trips", async ({ page }) => {
+  await open(page, { truck: true });
+  const home = page.locator("[data-where-to]");
+  await expect(home).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Plan", exact: true })).toBeVisible();
   await expect(page.locator("[data-plan-form]")).toHaveCount(0);
-  // MapLibre's own ".maplibregl-map { position: relative }" must not pull the map out of its absolute fill and collapse it to no height.
-  await expect(page.locator("[data-testid=plan-home-map].maplibregl-map")).toBeVisible();
-  await expect.poll(() => page.locator("[data-testid=plan-home-map]").evaluate((e) => e.clientHeight)).toBeGreaterThan(200);
+  await expect(page.locator(".maplibregl-map")).toHaveCount(0);
+  await expect(page.getByText("Sample trips")).toHaveCount(0);
+  // The field comes before the chips and the range.
+  const field = (await page.getByRole("textbox", { name: "Where to?" }).boundingBox())!;
+  const chip = (await page.getByRole("button", { name: "Leave now" }).boundingBox())!;
+  expect(field.y).toBeLessThan(chip.y);
+  // iOS Safari zooms the page into a field whose text is under 16 px (the page then sits shifted left with the keyboard up).
+  expect(await page.getByRole("textbox", { name: "Where to?" }).evaluate((e) => parseFloat(getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(16);
+  await expect(page.locator("[data-range-line]")).toHaveText(/^\d+ mi of range, from where your truck is parked now$/);
   await expect(page.getByRole("heading", { name: "Recent and saved" })).toBeVisible();
-  // Each saved row leads with its icon tile, as in the mock.
-  await expect(page.locator("[data-trip-icon]")).toHaveCount(3);
+  await expect(page.locator("[data-trip-row]")).toHaveCount(3);
   await expect(page.getByRole("button", { name: /Saved trips \(3\)/ })).toBeVisible();
+});
+
+test("the range line is hidden when the truck's state is old", async ({ page }) => {
+  await open(page, { truck: true });
+  await page.route(`**/api/state/${VEHICLE_ID}`, (r) =>
+    r.fulfill(json({ at: "2026-11-01T00:00:00Z", battery_level_pct: 80, distance_to_empty: 300, power_state: "ready", gear: "P", latitude: 40, longitude: -100 })),
+  );
+  await page.reload();
+  await expect(page.locator("[data-where-to]")).toBeVisible();
+  await expect(page.locator("[data-range-line]")).toHaveCount(0);
+});
+
+test("typing @webkit: places and matching plans under the field, a pick leaves the front door", async ({ page }) => {
+  await open(page, {});
   await page.getByRole("textbox", { name: "Where to?" }).fill("Las Vegas");
-  await page.getByRole("button", { name: /^Las Vegas Nevada/ }).click();
+  await expect(page.locator("[data-where-results]")).toBeVisible();
+  // The opening content is gone while typing.
+  await expect(page.getByRole("heading", { name: "Recent and saved" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Las Vegas Nevada, US/ })).toBeVisible();
+  await page.getByRole("button", { name: /^Las Vegas Nevada, US/ }).click();
   // The stub truck has no position, so there is no start to plan from: the form opens with the destination filled in.
   await expect(page.locator("[data-where-to]")).toHaveCount(0);
   await expect(page.locator("[data-plan-form]")).toContainText("Las Vegas");
 });
 
-test("with the key: a saved trip opens its plan", async ({ page }) => {
+test("typing: a plan already made is listed, and opens", async ({ page }) => {
   await open(page, {});
-  await page.getByRole("button", { name: /Vegas weekend/ }).click();
+  await page.getByRole("textbox", { name: "Where to?" }).fill("vegas");
+  const plans = page.getByRole("region", { name: "Your plans" });
+  await expect(plans.getByRole("button", { name: /Vegas weekend/ }).first()).toBeVisible();
+  await plans.getByRole("button", { name: /Vegas weekend/ }).first().click();
   await expect(page.locator("[data-where-to]")).toHaveCount(0);
   await expect(page.locator("[data-plan-area='map']")).toBeVisible();
 });
 
-test("with the key, no saved trips: a hint, no empty list", async ({ page }) => {
-  await open(page, { saved: false });
-  await expect(page.getByText("Trips you save show up here")).toBeVisible();
+test("typing: searching, no results and an error each say so", async ({ page }) => {
+  await open(page, { geocode: [] });
+  await page.getByRole("textbox", { name: "Where to?" }).fill("big bend");
+  await expect(page.getByText('No places match "big bend"')).toBeVisible();
+  await page.getByRole("button", { name: "Clear" }).click();
+  await expect(page.getByRole("heading", { name: "Recent and saved" })).toBeVisible();
+  const slow = await page.context().newPage();
+  await open(slow, { geocodeStatus: 500 });
+  await slow.getByRole("textbox", { name: "Where to?" }).fill("big bend");
+  await expect(slow.getByRole("alert")).toContainText("Place search is unavailable", { timeout: 20_000 });
+  await slow.close();
 });
 
-test("with the key, signed out: the entry filters the samples and a sample opens", async ({ page }) => {
-  await open(page, { demo: true });
-  await expect(page.locator("[data-where-to]")).toBeVisible();
-  const samples = page.getByTestId("demo-presets").getByRole("button");
-  await expect(samples.first()).toBeVisible();
-  // The multi-day sample comes first and says what it is, as in the mock: "530 mi · hotel night".
-  await expect(samples.first()).toContainText("Las Vegas, 2 days");
-  await expect(samples.first()).toContainText("530 mi · hotel night");
-  await page.getByRole("searchbox", { name: /Where to/ }).fill("zzzz");
-  await expect(page.getByText("No sample trip matches that.")).toBeVisible();
-  await page.getByRole("searchbox", { name: /Where to/ }).fill("");
-  await samples.filter({ hasText: "LA to Las Vegas" }).click();
+test("typing: a search in flight says Searching", async ({ page }) => {
+  await open(page, {});
+  await page.route("**/api/geocode*", async (r) => {
+    await new Promise((res) => setTimeout(res, 800));
+    await r.fulfill(json([]));
+  });
+  await page.getByRole("textbox", { name: "Where to?" }).fill("big bend");
+  await expect(page.getByRole("status")).toContainText("Searching");
+});
+
+test("a saved trip opens its plan, Back returns to the front door", async ({ page }) => {
+  await open(page, {});
+  await page.getByRole("button", { name: /Vegas weekend/ }).first().click();
   await expect(page.locator("[data-where-to]")).toHaveCount(0);
+  await expect(page.locator("[data-plan-area='map']")).toBeVisible();
+  await page.getByRole("button", { name: /Where to\?/ }).click();
+  await expect(page.locator("[data-where-to]")).toBeVisible();
+  await expect(page.locator("[data-plan-area='map']")).toHaveCount(0);
 });
 
-for (const w of [320, 393, 430, 1280]) {
+test("no saved trips: a hint, no empty list", async ({ page }) => {
+  await open(page, { saved: false });
+  await expect(page.getByText("Trips you plan and save show up here")).toBeVisible();
+  await expect(page.locator("[data-trip-row]")).toHaveCount(0);
+});
+
+test("share: a saved row has a 44 px Share button that opens the sheet, away from delete", async ({ page }) => {
+  await open(page, {});
+  const share = page.getByRole("button", { name: /^Share "Vegas weekend"/ });
+  const b = (await share.boundingBox())!;
+  expect(b.width).toBeGreaterThanOrEqual(44);
+  expect(b.height).toBeGreaterThanOrEqual(44);
+  await share.click();
+  await expect(page.getByTestId("trip-share-sheet")).toBeVisible();
+});
+
+test("share on the route screen saves the re-planned trip first and says so", async ({ page }) => {
+  await open(page, {});
+  await page.getByRole("button", { name: /Vegas weekend/ }).first().click();
+  // A re-plan makes it a trip that is not saved as shown.
+  await page.getByRole("button", { name: "Re-plan now" }).click();
+  await expect(page.getByTestId("route-share")).toBeVisible();
+  const b = (await page.getByTestId("route-share").boundingBox())!;
+  expect(b.height).toBeGreaterThanOrEqual(44);
+  await page.getByTestId("route-share").click();
+  await expect(page.getByRole("status").filter({ hasText: "so it can be shared" })).toBeVisible();
+  await expect(page.getByTestId("trip-share-sheet")).toBeVisible();
+});
+
+test("signed out: the demo keeps its sample trips page", async ({ page }) => {
+  await open(page, { demo: true });
+  await expect(page.locator("[data-where-to]")).toHaveCount(0);
+  await expect(page.getByTestId("demo-presets").getByRole("button").first()).toBeVisible();
+});
+
+// Nothing sideways: the page is no wider than the screen at the phone widths (the amber paused-connection banner included), with long unbroken
+// names, typed results, and on a desktop; light and dark.
+for (const w of [320, 393, 430, 1280, 1440]) {
   for (const scheme of ["dark", "light"] as const) {
-    test(`layout ${w} px ${scheme}: nothing clipped, no sideways scroll @webkit`, async ({ browser }) => {
+    test(`layout ${w} px ${scheme}: no sideways scroll, nothing clipped @webkit`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: { width: w, height: w > 1000 ? 860 : 800 }, colorScheme: scheme });
       const page = await ctx.newPage();
-      await open(page, {});
+      await open(page, { paused: true, geocode: [{ name: "Pneumonoultramicroscopicsilicovolcanoconiosis_Station_Number_Seventy_Seven", admin1: "Nevada", country: "US", latitude: 36.1, longitude: -115.1 }] });
       await expect(page.locator("[data-where-to]")).toBeVisible();
       expect(await noOverflow(page)).toBe(true);
-      // The entry, the chips and every row sit inside the screen's width.
-      for (const sel of ["[data-where-card]", "[data-where-lists]"]) {
-        const b = (await page.locator(sel).first().boundingBox())!;
-        expect(b.x).toBeGreaterThanOrEqual(0);
-        expect(b.x + b.width).toBeLessThanOrEqual(w + 0.5);
-      }
-      await shot(page, `saved-${w}-${scheme}`);
+      expect(await wideOnes(page)).toEqual([]);
+      const b = (await page.locator("[data-where-to]").boundingBox())!;
+      expect(b.x).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width).toBeLessThanOrEqual(w + 0.5);
+      // One column of at most 720 px, no framed empty area beside it.
+      expect(b.width).toBeLessThanOrEqual(720.5);
+      await shot(page, `open-${w}-${scheme}`);
+      await page.getByRole("textbox", { name: "Where to?" }).fill("pneumo");
+      await expect(page.getByRole("button", { name: /Pneumono/ })).toBeVisible();
+      expect(await noOverflow(page)).toBe(true);
+      expect(await wideOnes(page)).toEqual([]);
+      await shot(page, `typing-${w}-${scheme}`);
+      await page.getByRole("button", { name: "Clear" }).click();
+      await page.getByRole("button", { name: /Vegas weekend/ }).first().click();
+      await expect(page.locator("[data-plan-area='map']")).toBeVisible();
+      expect(await noOverflow(page)).toBe(true);
+      await shot(page, `route-${w}-${scheme}`);
       await ctx.close();
     });
   }
 }
 
-test("states: no saved trips, signed-out demo, a planned route (393, dark and light)", async ({ browser }) => {
+test("no saved trips and the departure picker (393, dark and light)", async ({ browser }) => {
   for (const scheme of ["dark", "light"] as const) {
     const ctx = await browser.newContext({ viewport: { width: 393, height: 800 }, colorScheme: scheme });
     const page = await ctx.newPage();
@@ -115,28 +212,23 @@ test("states: no saved trips, signed-out demo, a planned route (393, dark and li
     await page.getByRole("button", { name: "Leave now" }).click();
     await shot(page, `departure-393-${scheme}`);
     await ctx.close();
-    const c2 = await browser.newContext({ viewport: { width: 393, height: 800 }, colorScheme: scheme });
-    const p2 = await c2.newPage();
-    await open(p2, { demo: true });
-    await shot(p2, `demo-393-${scheme}`);
-    await p2.getByTestId("demo-presets").getByRole("button", { name: /LA to Las Vegas/ }).click();
-    await expect(p2.locator("[data-where-to]")).toHaveCount(0);
-    await shot(p2, `demo-route-393-${scheme}`);
-    await c2.close();
   }
 });
 
 for (const zoom of [200, 300]) {
-  test(`large text ${zoom}%: the page grows, nothing of the page is cut at the sides (the app header's own 7 px at 300 % is not this page's)`, async ({ browser }) => {
-    // Safari's text size scales the root font; the same box the 200 % and 300 % specs use.
-    const ctx = await browser.newContext({ viewport: { width: zoom === 200 ? 393 : 393, height: 800 }, colorScheme: "dark" });
+  test(`large text ${zoom}%: the page grows, nothing of the page is cut at the sides`, async ({ browser }) => {
+    // Safari's text size scales the root font.
+    const ctx = await browser.newContext({ viewport: { width: 393, height: 800 }, colorScheme: "dark" });
     const page = await ctx.newPage();
-    await open(page, {});
+    await open(page, { paused: true });
     await page.addStyleTag({ content: `html{font-size:${zoom * 0.16}px !important}` });
     await expect(page.locator("[data-where-to]")).toBeVisible();
-    await shot(page, `text${zoom}-393-dark`);
-    const wide = await page.evaluate(() => [...document.querySelectorAll("body *")].filter((e) => !e.closest("header") && e.getBoundingClientRect().right > window.innerWidth + 1).slice(0, 5).map((e) => `${e.tagName}.${String(e.className).slice(0, 60)}`));
-    expect(wide, wide.join("\n")).toEqual([]);
+    await shot(page, `text${zoom}-open-393-dark`);
+    expect(await wideOnes(page)).toEqual([]);
+    await page.getByRole("textbox", { name: "Where to?" }).fill("vegas");
+    await expect(page.getByRole("button", { name: /^Las Vegas Nevada/ })).toBeVisible();
+    await shot(page, `text${zoom}-typing-393-dark`);
+    expect(await wideOnes(page)).toEqual([]);
     await ctx.close();
   });
 }
