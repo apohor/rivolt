@@ -132,7 +132,7 @@ export function PeriodPicker({ value, onChange }: { value: Period; onChange: (p:
 
   const arrow = "px-2 py-1 max-[200px]:px-1 text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100 disabled:opacity-30 disabled:hover:bg-transparent";
   return (
-    <div ref={root} className="ui-period relative flex flex-wrap items-center justify-end gap-2" role="group" aria-label="Time scope">
+    <div ref={root} className="ui-period relative flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2" role="group" aria-label="Time scope">
       <div className="hidden md:block">
         <Segmented value={value} onChange={onChange} />
       </div>
@@ -152,7 +152,7 @@ export function PeriodPicker({ value, onChange }: { value: Period; onChange: (p:
           aria-haspopup="true"
           aria-label={`Time scope: ${label}. Change`}
           onClick={() => setOpen((v) => !v)}
-          className="min-w-16 px-2 py-1 text-center tabular-nums text-neutral-100 max-[200px]:min-w-0 max-[200px]:px-1 md:hidden"
+          className="min-w-0 px-2 py-1 text-center tabular-nums text-neutral-100 max-[200px]:min-w-0 max-[200px]:px-1 md:hidden"
         >
           {label}
         </button>
