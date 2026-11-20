@@ -17,8 +17,29 @@ final class NowChargeSeriesModel {
     private(set) var startPct: Double?
     private(set) var pack: (avgC: Double, at: Date)?
 
-    /// Reads the charge so far: a minute before it started to a minute from now. A failed read keeps what was there.
+    /// Whose charge the rows are: the truck and the moment the charge began.
+    private var owner: String?
+
+    private static func owner(_ vehicleID: String?, _ startedAt: Date?) -> String? {
+        guard let vehicleID, let startedAt else { return nil }
+        return "\(vehicleID)|\(startedAt.timeIntervalSince1970)"
+    }
+
+    /// True when the rows are this truck's, from this charge: the card draws nothing from another truck's or an earlier charge's rows.
+    func matches(vehicleID: String?, startedAt: Date?) -> Bool {
+        guard let key = Self.owner(vehicleID, startedAt) else { return false }
+        return owner == key
+    }
+
+    /// Reads the charge so far: a minute before it started to a minute from now. A failed read keeps what was there, unless it was another
+    /// truck's or another charge's, which goes first.
     func load(source: some ChargeSamplesSource, vehicleID: String, startedAt: Date, now: Date = .now) async {
+        if owner != Self.owner(vehicleID, startedAt) {
+            owner = Self.owner(vehicleID, startedAt)
+            series = ChargeCurve.Series()
+            startPct = nil
+            pack = nil
+        }
         do {
             let rows = try await source.chargeSamples(since: startedAt.addingTimeInterval(-60), until: now.addingTimeInterval(60), vehicleID: vehicleID, limit: 2000)
             apply(rows, startedAt: startedAt, now: now)

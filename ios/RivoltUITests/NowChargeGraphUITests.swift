@@ -39,6 +39,8 @@ final class NowChargeGraphUITests: XCTestCase {
         let card = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'Elapsed'")).firstMatch
         XCTAssertTrue(card.exists, "the session rows")
         XCTAssertFalse(card.label.contains("Plugged in"), "plug-in time is the graph's label, not a row")
+        XCTAssertTrue(card.label.contains("Cost so far"), "the cost so far row")
+        XCTAssertTrue(card.label.contains("≈") && card.label.contains("estimate"), "an estimated cost carries its mark: \(card.label)")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Pack '")).firstMatch.exists, "the pack temperature, from the newest stored sample")
         shot(app, "now-charge-graph-top")
         let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))

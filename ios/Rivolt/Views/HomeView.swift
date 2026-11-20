@@ -108,7 +108,7 @@ struct HomeView: View {
                                         slotOn: slotOn, snapshot: now, truckFix: vehicleState?.coordinate, home: slotHome,
                                         gear: vehicleState?.gear, driveMode: vehicleState?.driveMode,
                                         tidy: tidy, chip: tidy ? chipText : nil, chipTone: chipTone, destination: fresh ? liveDestination : nil,
-                                        chargeSeries: chargeGraphOn ? chargeSeries : nil)
+                                        chargeSeries: chargeGraphOn && chargeSeries.matches(vehicleID: selected?.id, startedAt: chargeSampleStart) ? chargeSeries : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.

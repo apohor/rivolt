@@ -55,6 +55,36 @@ final class NowChargeGraphModelTests: XCTestCase {
         XCTAssertNil(model.packTempC(now: at.addingTimeInterval(16 * 60)))
     }
 
+    private struct Source: ChargeSamplesSource {
+        let rows: [ChargeSample]?
+        func chargeSamples(since: Date, until: Date, vehicleID: String, limit: Int) async throws -> [ChargeSample] {
+            guard let rows else { throw URLError(.timedOut) }
+            return rows
+        }
+    }
+
+    func testAnotherTrucksOrAnEarlierChargesRowsAreNeverDrawn() async throws {
+        let json = #"[{"At":"2026-11-19T10:00:00Z","BatteryLevelPct":40,"ChargerPowerKW":11,"pack_temp_avg_c":25},{"At":"2026-11-19T10:01:00Z","BatteryLevelPct":41,"ChargerPowerKW":11,"pack_temp_avg_c":25}]"#
+        let rows = try JSON.decoder().decode([ChargeSample].self, from: Data(json.utf8))
+        let start = rows[0].at
+        let model = NowChargeSeriesModel()
+        XCTAssertFalse(model.matches(vehicleID: "a", startedAt: start), "nothing read yet")
+        await model.load(source: Source(rows: rows), vehicleID: "a", startedAt: start, now: start.addingTimeInterval(90))
+        XCTAssertTrue(model.matches(vehicleID: "a", startedAt: start))
+        XCTAssertEqual(model.packTempC(now: start.addingTimeInterval(90)), 25)
+        // Another truck, and the read fails: the first truck's rows and pack reading are gone, and the card has nothing to draw.
+        await model.load(source: Source(rows: nil), vehicleID: "b", startedAt: start, now: start.addingTimeInterval(90))
+        XCTAssertFalse(model.matches(vehicleID: "a", startedAt: start))
+        XCTAssertTrue(model.series.soc.isEmpty)
+        XCTAssertNil(model.packTempC(now: start.addingTimeInterval(90)))
+        XCTAssertNil(model.startPct)
+        // The same truck's next charge is its own too.
+        await model.load(source: Source(rows: rows), vehicleID: "b", startedAt: start, now: start.addingTimeInterval(90))
+        await model.load(source: Source(rows: nil), vehicleID: "b", startedAt: start.addingTimeInterval(3600), now: start.addingTimeInterval(3700))
+        XCTAssertFalse(model.matches(vehicleID: "b", startedAt: start))
+        XCTAssertTrue(model.series.soc.isEmpty)
+    }
+
     func testTheSoftChipDropsTheFinishTimeOnANarrowCard() {
         let chip = "Charging · 11 kW · done by 3:24 PM"
         XCTAssertEqual(NowCard.softChip(chip, wide: false), "Charging · 11 kW")
