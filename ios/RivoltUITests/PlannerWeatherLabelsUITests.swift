@@ -173,7 +173,13 @@ final class PlannerWeatherLabelsUITests: XCTestCase {
             XCTAssertTrue(button.waitForExistence(timeout: 10), "\(chip) is there", file: file, line: line)
             button.tap()
             expectDrawnLabel(map, in: app, chip, file: file, line: line)
-            let drawn = settledLabels(app).map(\.label)
+            // The whole trip's labels are still drawn until the camera has moved to the day, and a label drawn there passes the check above: wait
+            // for the other day's label to go (the camera fits the day without animation, and a day whose line is still loading fits once it is in).
+            var drawn = settledLabels(app).map(\.label)
+            for _ in 0..<20 where drawn.contains(other) {
+                Thread.sleep(forTimeInterval: 0.5)
+                drawn = settledLabels(app).map(\.label)
+            }
             XCTAssertFalse(drawn.contains(other), "\(chip) is framed on its own day: it drew \(drawn), with \(other) from the other day", file: file, line: line)
         }
     }
