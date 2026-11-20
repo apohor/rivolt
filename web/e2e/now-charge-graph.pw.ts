@@ -44,6 +44,21 @@ test("an AC charge draws battery, power and the way to the target with its finis
   if (chip && live && (page.viewportSize()?.width ?? 1280) < 431) expect(Math.abs(chip.y - live.y)).toBeLessThan(12);
 });
 
+// One finish time and one power on the card: the chip's clock is the graph pill's, and the legend names the chip's kW.
+for (const name of ["ac", "dc"]) {
+  test(`the ${name} charge says one finish time and one power @webkit`, async ({ page }) => {
+    await open(page, CASES[name]);
+    const chip = (await page.getByTestId("now-pill").textContent()) ?? "";
+    const when = chip.match(/(\d{1,2}:\d{2}\s?[AP]M)/)?.[1];
+    const kw = chip.match(/(\d+(?:\.\d)?) kW/)?.[1];
+    expect(when).toBeTruthy();
+    expect(kw).toBeTruthy();
+    await expect(page.getByTestId("now-charge-graph")).toContainText(`% · ${when}`);
+    await expect(page.getByTestId("now-charge-graph")).toContainText(`Power ${kw} kW now`);
+    await expect(page.getByTestId("now-slot-big")).toContainText(kw!);
+  });
+}
+
 // From 431 px the chip keeps the finish time whole: with "done by" while the row has the room, without those words below that, never cut mid-time.
 for (const [name, width] of [["ac", 431], ["ac", 440], ["dc", 431], ["dc", 440], ["dc", 480], ["dc", 600], ["dc", 1280]] as const) {
   test(`the ${name} charging chip shows the whole finish time at ${width} px @webkit`, async ({ page }) => {

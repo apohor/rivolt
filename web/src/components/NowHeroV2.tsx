@@ -9,7 +9,7 @@ import { pickImageForNow, useIsLight, type PlacedImage } from "../lib/vehicleIma
 import { useAmbientTemp } from "../lib/ambientTemp";
 import { useDesignPreview } from "../lib/config";
 import { formatTemperature, usePreferences } from "../lib/preferences";
-import { clock, type NowView } from "../lib/nowState";
+import { chargeFinishMs, clock, type NowView } from "../lib/nowState";
 import { conditionItems, type CondItem, type SlotWeather } from "./NowSlot";
 
 // The redesigned Now hero (design_preview "now_v2"): a status chip, then one card with the gauge, the range,
@@ -33,7 +33,7 @@ export function nowChip(
       parts.push(`${v.powerKw.toFixed(v.powerKw < 10 ? 1 : 0)} kW`);
     if (v.etaHours != null)
       parts.push(
-        `${v.limitPct != null && v.limitPct < 100 ? "done" : "full"} by ${clock(nowMs + v.etaHours * 3_600_000)}`,
+        `${v.limitPct != null && v.limitPct < 100 ? "done" : "full"} by ${clock(chargeFinishMs(v.etaHours, nowMs))}`,
       );
     return parts.join(" · ");
   }
