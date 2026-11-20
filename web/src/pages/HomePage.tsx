@@ -40,7 +40,7 @@ import { usePreferences } from "../lib/preferences";
 import { WindowPicker } from "../components/WindowPicker";
 import { VehiclePicker } from "../components/VehiclePicker";
 import { useSelectedVehicle } from "../lib/selectedVehicle";
-import NowCard from "../components/NowCard";
+import NowCard, { NowCardSkeleton } from "../components/NowCard";
 import { useDesignPreview } from "../lib/config";
 
 // Shown once, to an account still missing a home or a home rate, on preview: keep it out of the initial bundle.
@@ -355,6 +355,7 @@ export default function HomePage() {
           </>
         }
       />
+      {!activeVehicleID && vehicles.isPending && <NowCardSkeleton tall={v2} />}
       {activeVehicleID && (
         <NowCard
           vehicleID={activeVehicleID}
