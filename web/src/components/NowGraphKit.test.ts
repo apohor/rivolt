@@ -26,6 +26,14 @@ describe("easeSteps", () => {
     expect(out[into].x - out[into - 1].x).toBeGreaterThanOrEqual(12);
   });
 
+  it("never moves a pinned reading: a wake dot followed by a drive stays on the line", () => {
+    const out = easeSteps([{ x: 0, y: 50 }, { x: 60, y: 50 }, { x: 100, y: 50, pin: true }, { x: 103, y: 80 }, { x: 200, y: 81 }]);
+    const dot = out.find((p) => p.x === 100);
+    expect(dot).toEqual({ x: 100, y: 50, hold: true, pin: true });
+    expect(out.find((p) => p.x > 100 && p.y === 80)).toBeTruthy();
+    for (let i = 1; i < out.length; i++) expect(out[i].x).toBeGreaterThanOrEqual(out[i - 1].x);
+  });
+
   it("never reorders the readings", () => {
     const out = easeSteps([{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 7, y: 30 }, { x: 9, y: 31 }, { x: 11, y: 70 }, { x: 40, y: 71 }]);
     for (let i = 1; i < out.length; i++) expect(out[i].x).toBeGreaterThanOrEqual(out[i - 1].x);

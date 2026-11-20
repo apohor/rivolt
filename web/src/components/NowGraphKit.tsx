@@ -6,7 +6,8 @@ import { useIsLight } from "../lib/vehicleImage";
 // with these pieces so the Now card's graphs match; text uses the app's own sizes (text-xs, text-sm) and its neutral ink.
 
 // hold: the line leaves and arrives level at this point (zero slope), which is how a step is eased instead of drawn as a corner.
-export type Pt = { x: number; y: number; hold?: boolean };
+// pin: a dot or a label sits on this reading, so easeSteps never moves it off the line.
+export type Pt = { x: number; y: number; hold?: boolean; pin?: boolean };
 
 export type SoftInk = { line: string; quiet: string; warm: string; band: string };
 
@@ -38,7 +39,8 @@ export function useBox(): [(el: HTMLDivElement | null) => void, { w: number; h: 
 
 // Readings that jump (a drive or a charge between two readings, a wake-up) arrive a few pixels apart, which a curve can only draw as a corner.
 // This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
-// first one's height; softPath then draws it with no slope at both ends. A pair that is already gentle is left alone.
+// first one's height; softPath then draws it with no slope at both ends. A pair that is already gentle is left alone, and a reading that
+// carries a dot or label (pin) is never moved: the ramp starts at it instead.
 export function easeSteps(pts: Pt[], minDrop = 3, slope = 1.2): Pt[] {
   if (pts.length === 0) return [];
   const out: Pt[] = [pts[0]];
@@ -52,6 +54,14 @@ export function easeSteps(pts: Pt[], minDrop = 3, slope = 1.2): Pt[] {
     }
     const run = Math.min(Math.max(dy * 2, 12), 28);
     const last = out[out.length - 1];
+    if (a.pin) {
+      // A dot sits on the first reading: it stays where it is and the ramp runs after it (to the second reading if that is pinned too).
+      out[out.length - 1] = { ...last, hold: true };
+      const c = pts[i + 1];
+      const x = b.pin || !c ? b.x : Math.min(Math.max(b.x, a.x + run), b.x + 0.4 * (c.x - b.x));
+      out.push({ x, y: b.y, hold: true, pin: b.pin });
+      continue;
+    }
     if (last.hold) {
       // The first reading ends the jump before this one: it stays, and the next ramp starts level after it if there is room.
       const x = Math.max(b.x - run, last.x);
@@ -60,7 +70,7 @@ export function easeSteps(pts: Pt[], minDrop = 3, slope = 1.2): Pt[] {
       const from = out.length > 1 ? out[out.length - 2].x : a.x;
       out[out.length - 1] = { x: Math.max(b.x - run, from + 0.4 * (a.x - from)), y: a.y, hold: true };
     }
-    out.push({ x: b.x, y: b.y, hold: true });
+    out.push({ x: b.x, y: b.y, hold: true, pin: b.pin });
   }
   return out;
 }
