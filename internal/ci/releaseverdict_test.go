@@ -70,6 +70,9 @@ func TestReleaseVerdictNeedsNotes(t *testing.T) {
 	if out := verdict(t, map[string]string{"release-notes/v1.0.1.md": ""}); !strings.Contains(out, want) {
 		t.Errorf("empty notes file: %q", out)
 	}
+	if out := verdict(t, map[string]string{"release-notes/v1.0.1.md": " \n\t\n\n"}); !strings.Contains(out, want) {
+		t.Errorf("whitespace-only notes file: %q", out)
+	}
 	if out := verdict(t, map[string]string{"release-notes/v1.0.0.md": "other version\n"}); !strings.Contains(out, want) {
 		t.Errorf("another version's notes: %q", out)
 	}
