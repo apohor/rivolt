@@ -43,7 +43,8 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours }: { nowMs: 
     );
   }
   const target = targetPct != null && targetPct > nowPct ? targetPct : null;
-  const endX = target != null && etaHours != null && etaHours > 0 ? Math.max(last.x, nowMs) + etaHours * 3_600_000 : null;
+  // The time left is read in whole minutes (rounded up, as the slot's text and the iPhone's), so the pill's clock is that many minutes from now.
+  const endX = target != null && etaHours != null && etaHours > 0 ? Math.max(last.x, nowMs) + Math.ceil(etaHours * 60 - 1e-6) * 60_000 : null;
   const peak = power.reduce((m, p) => Math.max(m, p.y), 0);
   const lastPower = power[power.length - 1];
   // The two numbers the graph shows are the first stored reading and the card's own battery figure (the ring), so the change is exactly their difference.

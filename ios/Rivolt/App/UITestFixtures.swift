@@ -171,7 +171,7 @@ final class FixtureURLProtocol: URLProtocol {
         }
         if path == "/api/samples" {
             var rows: [[String: Any]] = []
-            var t = started.addingTimeInterval(-30)
+            var t = started
             while t <= now {
                 let m = max(0, t.timeIntervalSince(started) / 60)
                 rows.append(["At": iso.string(from: t), "BatteryLevelPct": soc(m), "ChargerPowerKW": kw(m),

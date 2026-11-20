@@ -8,7 +8,14 @@ import UIKit
 struct NowCard: View {
     let vehicle: Vehicle
     let summary: NowSummary
-    var clock: Date = .now
+    var clock: Date = Self.defaultClock
+    /// The real time, or RIVOLT_UITEST_CHARGE_NOW in a debug fixture run (the parity shots, so elapsed, rate and clock times equal the web stub's).
+    static var defaultClock: Date {
+        #if DEBUG
+        if let pinned = ProcessInfo.processInfo.environment["RIVOLT_UITEST_CHARGE_NOW"], let at = ISO8601DateFormatter().date(from: pinned) { return at }
+        #endif
+        return .now
+    }
     /// Home, Away or Fast from the latest charge's ledger place, when it is known (no location is used for it).
     var place: String?
     /// The charge in progress and the drive in progress, from their live reads; they add the cost so far and the trip.
