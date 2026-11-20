@@ -98,10 +98,12 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
   const start = sinceIn != null ? curSeg[0] : first;
   const change = parkedChange(start.soc, last.soc, sinceIn);
   // The start value is left out when it would repeat the current one or sit on top of it: the header already gives the change.
-  const showStart = start.soc.toFixed(1) !== last.soc.toFixed(1) && lx - sx(ms(start.t)) >= 60;
+  const startX = sx(ms(start.t));
+  const showStart = start.soc.toFixed(1) !== last.soc.toFixed(1) && lx - startX >= 60;
+  const startRight = sinceIn != null && lx - startX < 90;
   const sleepBase = base - BAR - 3;
   // The picture reads as "while parked": what came before the parked marker (a drive, a charge, an earlier parking) is dimmed.
-  const dimTo = parkedX != null && parkedX > PAD.l ? parkedX : null;
+  const dimTo = parkedX != null && parkedX > PAD.l ? parkedX : 0;
   const linePath = softPath(easeSteps(line));
   const valueLeft = lx - PAD.l > 60;
   // The "Parked 5:20 PM" pill needs room clear of the start value and the edges; the header says the same time when it is left out.
@@ -130,7 +132,7 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
               if (sw < 2) return null;
               const dur = (Math.min(ms(sl.to), t1) - Math.max(ms(sl.from), t0)) / 1000;
               return (
-                <g key={`${sl.from}-${i}`} data-testid="now-parked-sleep" opacity={dimTo != null && b <= dimTo + 1 ? 0.45 : 1}>
+                <g key={`${sl.from}-${i}`} data-testid="now-parked-sleep" opacity={b <= dimTo + 1 ? 0.45 : 1}>
                   <clipPath id={`${id}-sl${i}`}>
                     <rect x={a + 1} y={0} width={Math.max(sw - 2, 1)} height={sleepBase} rx={10} />
                   </clipPath>
@@ -144,29 +146,26 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
                 </g>
               );
             })}
-            {parkedX != null && parkedX > PAD.l && (
-              <line x1={parkedX} x2={parkedX} y1={PAD.t - 4} y2={sleepBase} stroke="currentColor" strokeOpacity=".18" className="text-neutral-400" />
-            )}
-            {dimTo != null && (
+            {dimTo > 0 && (
               <>
-                <clipPath id={`${id}-after`}>
-                  <rect x={dimTo} y={0} width={Math.max(w - dimTo + 12, 1)} height={h} />
-                </clipPath>
+                <line x1={dimTo} x2={dimTo} y1={PAD.t - 4} y2={sleepBase} stroke="currentColor" strokeOpacity=".18" className="text-neutral-400" />
                 <QuietLine d={linePath} color={ink.line} />
-                <g clipPath={`url(#${id}-after)`}>
-                  <SoftLine id={id} d={linePath} color={ink.line} width={3} />
-                </g>
               </>
             )}
-            {dimTo == null && <SoftLine id={id} d={linePath} color={ink.line} width={3} />}
+            <clipPath id={`${id}-after`}>
+              <rect x={dimTo} y={0} width={w} height={h} />
+            </clipPath>
+            <g clipPath={`url(#${id}-after)`}>
+              <SoftLine id={id} d={linePath} color={ink.line} width={3} />
+            </g>
             {series.wakes.map((k) => (
-              <g key={k.t} opacity={dimTo != null && sx(ms(k.t)) < dimTo ? 0.45 : 1}>
+              <g key={k.t} opacity={sx(ms(k.t)) < dimTo ? 0.45 : 1}>
                 <HaloDot id={id} x={sx(ms(k.t))} y={sy(k.soc_after)} color={amber} />
               </g>
             ))}
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
             {pill && parkedX != null && <Pill x={parkedX} y={12} text={pill} w={pillW} />}
-            {showStart && <text x={sx(ms(start.t)) + (sinceIn != null && lx - sx(ms(start.t)) < 90 ? -4 : 2)} textAnchor={sinceIn != null && lx - sx(ms(start.t)) < 90 ? "end" : "start"} y={sinceIn != null ? sy(start.soc) + 20 : Math.max(sy(start.soc) - 14, 12)} className="fill-neutral-300 text-xs">
+            {showStart && <text x={startX + (startRight ? -4 : 2)} textAnchor={startRight ? "end" : "start"} y={sinceIn != null ? sy(start.soc) + 20 : Math.max(sy(start.soc) - 14, 12)} className="fill-neutral-300 text-xs">
               {`${start.soc.toFixed(1)}%`}
             </text>}
             <text x={valueLeft ? lx - 10 : lx + 10} y={ly + 22} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">

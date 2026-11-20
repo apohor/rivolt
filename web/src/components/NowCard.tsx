@@ -249,8 +249,9 @@ export default function NowCard({
         : view;
   // An asleep truck's chip says the same: its time is the start of the sleep the series shows (the card's own run restarts when the page opens
   // on an asleep truck), none while the series is out or when that sleep began before the window.
-  const seriesSleepSince = view?.kind === "asleep" && parkedKindOn && parkedSeries ? openSleepSince(parkedSeries) : undefined;
-  const chipAsleepSince = view?.kind === "asleep" && parkedKindOn && parkedWaiting ? null : seriesSleepSince !== undefined ? seriesSleepSince : tracker.asleepSinceMs;
+  const asleepOn = view?.kind === "asleep" && parkedKindOn;
+  const fromSeries = asleepOn && parkedSeries ? openSleepSince(parkedSeries) : undefined;
+  const chipAsleepSince = asleepOn && parkedWaiting ? null : fromSeries === undefined ? tracker.asleepSinceMs : fromSeries;
 
   if (stateQ.isLoading) {
     return (
