@@ -152,7 +152,10 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   // frunk open shows front, liftgate/tonneau shows rear, etc.
   // An image that fails to load (moved or blocked) is dropped, no broken picture; the image_url fallback gets its turn.
   const [badUrls, setBadUrls] = useState<string[]>([]);
-  const heroUrl = pickLiveImage(vehicle.images, s, light, vehicle.image_url, badUrls);
+  // Driving or charging the panel takes the whole width and there is no picture (it is not even requested); parked, asleep or offline the
+  // picture stays, since it shows the open doors, frunk and tailgate. Until the first state arrives nothing is requested either.
+  const showPicture = !state.isLoading && !(s && (isCharging(s) || isDriving(s)));
+  const heroUrl = showPicture ? pickLiveImage(vehicle.images, s, light, vehicle.image_url, badUrls) : "";
 
   return (
     <Card
@@ -176,8 +179,8 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
           takes 1/3 (it's just a recognizable silhouette — no data
           to scan), session panel takes 2/3 so cost/power/speed/etc.
           get the space they need. Stacks on mobile. */}
-      <div className="mt-3 grid gap-4 md:grid-cols-3">
-        {heroUrl ? (
+      <div className={`mt-3 grid gap-4 ${showPicture ? "md:grid-cols-3" : ""}`} data-testid="live-vehicle-row">
+        {!showPicture ? null : heroUrl ? (
           <div className="flex items-center justify-center md:col-span-1">
             {/* Configurator PNGs have huge horizontal margins baked
                 in; max-h-40 / max-w-sm keeps the car recognizable
@@ -198,7 +201,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
         ) : (
           <div className="md:col-span-1" />
         )}
-        <div className="flex flex-col justify-center md:col-span-2">
+        <div className={`flex flex-col justify-center ${showPicture ? "md:col-span-2" : ""}`}>
           {reconnecting && (
             <p role="status" className="mb-2 text-xs text-neutral-400">
               {s ? "Reconnecting to your vehicle. These are the last known values." : "Reconnecting to your vehicle. This updates on its own in a moment."}
