@@ -33,8 +33,6 @@ struct NowSlotModel: Equatable {
 
     let content: Content
     var chips: [Chip] = []
-    /// Charging on the soft card: the pack's temperature from the newest stored sample while it is recent ("72°F"), beside the power figure.
-    var pack: String?
     /// Asleep only: "Asleep for 2 h 15 min" and "Asleep today 18 h 40 min", each when the server sent it, shown under the map.
     var sleep: [Stat] = []
     /// Where the truck is, in one line, for the card that has the parked graph instead of the map (now_parked_graph): "At Home" (the saved
@@ -94,7 +92,7 @@ struct NowSlotModel: Equatable {
     /// Nil when the state has no slot, so the picture stays: charging without a power reading, driving without a speed, parked without a fix.
     static func make(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, liveDrive: LiveDrive?,
                      fix: (lat: Double, lon: Double)?, home: Home?, gear: String? = nil, mode: String? = nil,
-                     soft: Bool = false, packC: Double? = nil, parkedGraph: Bool = false, metric: Bool = NowFormat.usesMetric, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
+                     soft: Bool = false, parkedGraph: Bool = false, metric: Bool = NowFormat.usesMetric, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
         let atHome = home != nil && fix != nil && ChargerPin.distanceM(home!.lat, home!.lon, fix!.lat, fix!.lon) <= homeRadiusM
         switch summary.kind {
         case .charging:
@@ -102,9 +100,8 @@ struct NowSlotModel: Equatable {
             // As the web: fast at a session peak of 50 kW or more, else the home charger at home, else public only with a saved home, a fix away from it and a known peak.
             let peak = max(snapshot?.charge?.peakKw ?? 0, kw)
             let kind = peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
-            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, packC: packC, clock: clock),
-                                chips: kind.map { [Chip(text: $0, accent: true)] } ?? [],
-                                pack: soft ? packC.map { NowComfort.wholeDegrees(celsius: $0) } : nil)
+            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, clock: clock),
+                                chips: kind.map { [Chip(text: $0, accent: true)] } ?? [])
         case .driving:
             guard let kph = summary.speedKph else { return nil }
             var chips: [Chip] = []
@@ -136,7 +133,7 @@ struct NowSlotModel: Equatable {
     private static let costNotes = ["rivian": "billed by Rivian", "user": "your price", "home_rate": "at your home rate",
                                     "network_estimate": "network rate", "observed_estimate": "from similar sessions"]
 
-    private static func charging(summary: NowSummary, detail: ChargingDetail, kw: Double, snapshot: NowSnapshot?, soft: Bool, packC: Double?, clock: Date) -> Content {
+    private static func charging(summary: NowSummary, detail: ChargingDetail, kw: Double, snapshot: NowSnapshot?, soft: Bool, clock: Date) -> Content {
         var sub: String?
         var small: String?
         if let eta = summary.chargeEta {
@@ -243,7 +240,6 @@ struct NowSlotModel: Equatable {
             return parts.joined(separator: " ")
         case .figures(let big, let unit, let sub, let small, let stats):
             var parts = ["\(SpokenText.words("\(big) \(unit)"))."]
-            if let pack { parts.append("\(SpokenText.words(pack)) pack.") }
             parts.append(contentsOf: chips.map { "\(SpokenText.words($0.text))." })
             if let sub { parts.append("\(SpokenText.words(sub)).") }
             if let small { parts.append("\(SpokenText.words(small)).") }

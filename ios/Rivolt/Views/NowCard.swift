@@ -104,7 +104,7 @@ struct NowCard: View {
         guard slotOn, NowSlotModel.shown(summary: summary) else { return nil }
         let fix = NowSlotModel.fix(snapshot: snapshot, truck: truckFix)
         return NowSlotModel.make(summary: summary, snapshot: snapshot, session: session, charge: charge, liveDrive: liveDrive, fix: fix,
-                                 home: home, gear: gear, mode: driveMode, soft: soft, packC: soft ? chargeSeries?.packTempC(now: clock) : nil, parkedGraph: parkedSoft, clock: clock)
+                                 home: home, gear: gear, mode: driveMode, soft: soft, parkedGraph: parkedSoft, clock: clock)
     }
 
     /// The charging card in its soft look: the key on, the slot and the calm hero showing, a charge in progress.
@@ -131,7 +131,7 @@ struct NowCard: View {
     private var graphModel: NowChargeGraphModel? {
         guard let series = chargeSeries, let soc = summary.socPct else { return nil }
         let eta = summary.chargeEta.map { Double($0.minutes) / 60 }
-        return NowChargeGraphModel.make(series: series.series, startPct: series.startPct, nowPct: soc, target: summary.chargeTargetPct, etaHours: eta, powerKw: summary.chargePowerKw, now: clock)
+        return NowChargeGraphModel.make(series: series.series, startPct: series.startPct, nowPct: soc, target: summary.chargeTargetPct, etaHours: eta, powerKw: summary.chargePowerKw, packC: chargeSeries?.packTempC(now: clock), now: clock)
     }
 
     /// The driving graph's numbers; the ring's value is the change's end.

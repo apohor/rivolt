@@ -51,6 +51,41 @@ final class NowChargeGraphModelTests: XCTestCase {
         XCTAssertEqual(even.last.x, 0.5, accuracy: 0.001)
     }
 
+    private func packSeries(minutes: Int = 40, from c0: Double = 21, to c1: Double = 35) -> ChargeCurve.Series {
+        var s = series(minutes: minutes)
+        s.packAvgC = s.soc.enumerated().map { i, p in .init(at: p.at, value: c0 + (c1 - c0) * Double(i) / Double(max(s.soc.count - 1, 1))) }
+        return s
+    }
+
+    func testThePackIsAThirdLineWithItsOwnScaleAndItsValueNow() throws {
+        let m = try XCTUnwrap(NowChargeGraphModel.make(series: packSeries(), startPct: 41, nowPct: 59, target: 80, etaHours: 2, packC: 35, now: t0.addingTimeInterval(2400)))
+        XCTAssertGreaterThan(m.pack.count, 2)
+        XCTAssertEqual(m.pack.last?.x ?? 0, m.last.x, accuracy: 0.001, "drawn only over the measured part")
+        XCTAssertTrue(m.pack.allSatisfy { $0.y > 0 && $0.y < 1 }, "padded inside the plot")
+        XCTAssertLessThan(m.pack.first?.y ?? 1, m.pack.last?.y ?? 0, "a warming pack rises")
+        XCTAssertNotNil(m.packNow)
+        XCTAssertTrue(m.spoken.contains("pack temperature"), m.spoken)
+        XCTAssertTrue(m.spoken.contains("up "), m.spoken)
+    }
+
+    func testAFlatPackStaysFlat() throws {
+        let m = try XCTUnwrap(NowChargeGraphModel.make(series: packSeries(from: 25, to: 25.5), startPct: 41, nowPct: 59, target: 80, etaHours: 2, packC: 25.5, now: t0.addingTimeInterval(2400)))
+        let ys = m.pack.map(\.y)
+        XCTAssertLessThan((ys.max() ?? 0) - (ys.min() ?? 0), 0.3, "never tighter than three degrees")
+    }
+
+    func testNoPackLineWithoutTwoReadingsOrARecentOne() throws {
+        let stale = try XCTUnwrap(NowChargeGraphModel.make(series: packSeries(), startPct: 41, nowPct: 59, target: 80, etaHours: 2, packC: nil, now: t0.addingTimeInterval(2400)))
+        XCTAssertTrue(stale.pack.isEmpty)
+        XCTAssertNil(stale.packNow)
+        XCTAssertFalse(stale.spoken.contains("pack"))
+        var one = series(minutes: 40)
+        one.packAvgC = [.init(at: t0, value: 25)]
+        let single = try XCTUnwrap(NowChargeGraphModel.make(series: one, startPct: 41, nowPct: 59, target: 80, etaHours: 2, packC: 25, now: t0.addingTimeInterval(2400)))
+        XCTAssertTrue(single.pack.isEmpty)
+        XCTAssertNil(single.packNow)
+    }
+
     func testNoFinishTimeNoEstimate() throws {
         let m = try XCTUnwrap(NowChargeGraphModel.make(series: series(minutes: 40), startPct: 41, nowPct: 59, target: 80, etaHours: nil, now: t0.addingTimeInterval(2400)))
         XCTAssertNil(m.estimate)

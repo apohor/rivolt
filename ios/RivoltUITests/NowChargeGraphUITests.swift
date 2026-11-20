@@ -45,10 +45,10 @@ final class NowChargeGraphUITests: XCTestCase {
         XCTAssertFalse(card.label.contains("Plugged in"), "plug-in time is the graph's label, not a row")
         XCTAssertTrue(card.label.contains("Cost so far"), "the cost so far row")
         XCTAssertTrue(card.label.contains("≈") && card.label.contains("estimate"), "an estimated cost carries its mark: \(card.label)")
-        // The pack's temperature (newest stored sample) sits beside the power figure, said right after it; it is no figure row.
-        let words = card.label
-        XCTAssertTrue(words.contains(" pack."), "the pack temperature beside the power: \(words)")
-        XCTAssertFalse(words.contains("Pack temperature"), "no pack temperature row: \(words)")
+        // The pack's temperature is the graph's third line: the graph's words say it, and no hero figure or row carries it.
+        XCTAssertTrue(graph.label.contains("pack temperature"), "the graph says the pack now: \(graph.label)")
+        XCTAssertFalse(card.label.contains(" pack."), "no hero pack figure: \(card.label)")
+        XCTAssertFalse(card.label.contains("Pack temperature"), "no pack temperature row: \(card.label)")
         shot(app, "now-charge-graph-top")
         let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
         from.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))

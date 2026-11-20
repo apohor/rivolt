@@ -174,20 +174,17 @@ final class NowSlotTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).value.hasPrefix("≈ "))
     }
 
-    func testThePackTemperatureSitsBesideThePowerOnlyOnTheSoftCard() throws {
+    func testThePackTemperatureIsNeitherAHeroFigureNorARow() throws {
+        // It is the charging graph's third line now; the slot has no pack figure and no row for it.
         let start = at.addingTimeInterval(-3600)
         let iso = ISO8601DateFormatter().string(from: start)
         let now = try snapshot("charging", extra: #","charge":{"started_at":"\#(iso)","soc_start":40,"peak_kw":11}"#)
         let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 11), now: now, clock: at)
-        func make(soft: Bool, packC: Double?) throws -> NowSlotModel {
-            try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, soft: soft, packC: packC, clock: at))
+        for soft in [false, true] {
+            let m = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, soft: soft, clock: at))
+            guard case .figures(_, _, _, _, let stats) = m.content else { return XCTFail("figures") }
+            XCTAssertFalse(stats.map(\.label).contains("Pack temperature"))
         }
-        XCTAssertNotNil(try make(soft: true, packC: 30).pack)
-        XCTAssertNil(try make(soft: true, packC: nil).pack)
-        XCTAssertNil(try make(soft: false, packC: 30).pack)
-        // Not a row of the figures list any more.
-        guard case .figures(_, _, _, _, let stats) = try make(soft: true, packC: 30).content else { return XCTFail("figures") }
-        XCTAssertFalse(stats.map(\.label).contains("Pack temperature"))
     }
 
     func testTheTimeLeftRoundsUpToTheWholeMinuteAsTheWebs() {
