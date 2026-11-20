@@ -68,6 +68,10 @@ struct HomeView: View {
     @State private var parkedSeries = NowParkedSeriesModel()
     /// The parked series took longer than NowParkedSeriesModel.chipWait: the chip then shows the state's own parked time.
     @State private var parkedChipLate = false
+    /// The driving graph on the Now card (design_preview key now_drive_graph, with the calm Now and the slot; on the web the same key).
+    private var driveGraphOn: Bool { tidy && slotOn && state.designPreview.contains("now_drive_graph") }
+    @State private var driveSeries = NowDriveSeriesModel()
+    private var drivingNow: Bool { NowSummary(state: vehicleState, now: now, clock: .now).kind == .driving }
     /// A parked, plugged or sleeping truck: the states the graph is for.
     private var parkedKind: Bool {
         let s = NowSummary(state: vehicleState, now: now, clock: .now)
@@ -118,7 +122,8 @@ struct HomeView: View {
                                         slotOn: slotOn, snapshot: now, truckFix: vehicleState?.coordinate, home: slotHome,
                                         gear: vehicleState?.gear, driveMode: vehicleState?.driveMode,
                                         tidy: tidy, chip: tidy ? chipText : nil, chipTone: chipTone, destination: fresh ? liveDestination : nil,
-                                        chargeSeries: chargeGraphOn && chargeSeries.matches(vehicleID: selected?.id, startedAt: chargeSampleStart) ? chargeSeries : nil, parkedSeries: parkedGraphOn && parkedSeries.vehicleID == selected?.id ? parkedSeries : nil)
+                                        chargeSeries: chargeGraphOn && chargeSeries.matches(vehicleID: selected?.id, startedAt: chargeSampleStart) ? chargeSeries : nil, parkedSeries: parkedGraphOn && parkedSeries.vehicleID == selected?.id ? parkedSeries : nil,
+                                        driveSeries: driveGraphOn && driveSeries.vehicleID == selected?.id ? driveSeries : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -199,6 +204,17 @@ struct HomeView: View {
                 while !Task.isCancelled {
                     await chargeSeries.load(source: state.client, vehicleID: id, startedAt: started)
                     try? await Task.sleep(for: .seconds(NowChargeSeriesModel.refresh))
+                }
+            }
+            // The drive's stored samples for the graph, read again every 30 s while this tab and the app are in front and the truck drives. The drive's start
+            // is the elapsed time before now (the same drive's start wanders by seconds between reads, which the series allows for).
+            .task(id: "\(driveGraphOn)|\(drivingNow)|\(liveDrive != nil)|\(selectedID)|\(tabActive)|\(scenePhase == .active)") {
+                guard driveGraphOn, drivingNow, tabActive, scenePhase == .active, let id = selected?.id else { driveSeries.clear(); return }
+                while !Task.isCancelled {
+                    if let elapsed = liveDrive?.elapsedSec, elapsed > 0 {
+                        await driveSeries.load(source: state.client, vehicleID: id, startedAt: Date.now.addingTimeInterval(-elapsed))
+                    }
+                    try? await Task.sleep(for: .seconds(NowDriveSeriesModel.refresh))
                 }
             }
             // The parked graph's series, read again every minute while this tab and the app are in front and the truck is parked.
