@@ -32,8 +32,13 @@ struct TripReceiptModel: Equatable {
 
     /// Every word the card says, for tests and the preview's accessible label.
     var text: String {
-        ([head.0, head.1, title, sub] + lines.flatMap { [$0.title, $0.right, $0.sub, $0.subRight] } + totals.flatMap { [$0.label, $0.value] }
-            + [cost.map { "\($0.label) \($0.value)" } ?? "", big.0, big.1] + footer).joined(separator: "\n")
+        var words: [String] = [head.0, head.1, title, sub]
+        for l in lines { words += [l.title, l.right, l.sub, l.subRight] }
+        for t in totals { words += [t.label, t.value] }
+        if let cost { words.append("\(cost.label) \(cost.value)") }
+        words += [big.0, big.1]
+        words += footer
+        return words.joined(separator: "\n")
     }
 }
 
