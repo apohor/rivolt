@@ -1,8 +1,7 @@
-import { lazy, Suspense, useId, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useId, useState, type ReactNode } from "react";
 import type { DemoTripPreset, SavedTrip } from "../lib/api";
 import { isSavedMultiday } from "../lib/api";
 import { usePreferences } from "../lib/preferences";
-import { radarEnabled } from "../map/radar";
 import { multiDayFirst, tripSubtitle, tripTag } from "./tripSubtitle";
 
 // The planner's front door (design_preview "plan_where_to"): the map with one "Where to?" entry over it, the saved trips and the sample trips under
@@ -67,7 +66,16 @@ export function WhereToHome({
   const [allSamples, setAllSamples] = useState(false);
   const [filter, setFilter] = useState("");
   const timeId = useId();
-  const radarOn = radarEnabled() && radarLabel !== "denied";
+  // Whether the server serves radar is asked of the map code once it loads, so the page's own chunk stays out of the map chunk's budget.
+  const [radarServed, setRadarServed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void import("../map/radar").then((m) => alive && setRadarServed(m.radarEnabled()));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const radarOn = radarServed && radarLabel !== "denied";
   const miles = (m: number) => `${Math.round(distanceUnit === "mi" ? m / 1609.344 : m / 1000)} ${distanceUnit}`;
 
   const q = filter.trim().toLowerCase();
