@@ -32,6 +32,9 @@ final class ShareMapToggleUITests: XCTestCase {
 
         XCTAssertTrue(share.waitForExistence(timeout: 10), "back on the drive")
         share.tap()
+        // On a loaded runner the second tap can land while the page is still settling after the dismissal and present nothing (21:59Z run: the
+        // switch never came in 20 s, while the same test passed 10 of 10 here and on the next main run). One more tap if the sheet is not up.
+        if !map.waitForExistence(timeout: 8) { share.tap() }
         XCTAssertTrue(map.waitForExistence(timeout: 20), "the map switch is offered again on the second open")
         XCTAssertEqual(map.value as? String, "0", "off again on every open")
     }
