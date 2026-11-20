@@ -174,8 +174,8 @@ struct NowChargeGraph: View {
     private func legend(_ m: NowChargeGraphModel) -> some View {
         let items: [(color: Color, dash: Bool, label: String, id: String?)] =
             [(Theme.accent, false, "Battery", nil)]
-            + (m.powerNow.map { [(Theme.estimate, false, "Power \($0) kW now", nil)] } ?? [])
-            + (m.packNow.map { [(packInk, false, "Pack \($0) now", "now-charge-graph-pack")] } ?? [])
+            + (m.powerNow.map { [(Theme.estimate, false, "Power \($0) kW", nil)] } ?? [])
+            + (m.packNow.map { [(packInk, false, "Pack \($0)", "now-charge-graph-pack")] } ?? [])
             + (m.estimate != nil ? [(Theme.accent, true, "Estimate", "now-charge-graph-estimate")] : [])
         return FlowLayout(spacing: 16) {
             ForEach(items.indices, id: \.self) { i in

@@ -26,15 +26,15 @@ struct NowSlotView: View {
             }
             .accessibilityIdentifier("now-slot-parked")
         case .figures(let big, let unit, let sub, let small, let stats):
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: soft ? 2 : 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(big).font(Theme.sans(ThemeTokens.typeHero, .semibold, relativeTo: .largeTitle)).foregroundStyle(Theme.textPrimary)
+                    Text(big).font(Theme.sans(soft ? ThemeTokens.typeTitle * 1.5 : ThemeTokens.typeHero, .semibold, relativeTo: .largeTitle)).foregroundStyle(Theme.textPrimary)
                     Text(unit).themeText(.value, color: Theme.textSecondary)
                     ForEach(model.chips, id: \.text) { chip($0) }
                 }
                 if let sub { Text(sub).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true) }
                 if let small { Text(small).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
-                if !stats.isEmpty { (soft ? AnyView(rows(stats)) : AnyView(grid(stats))).padding(.top, 4) }
+                if !stats.isEmpty { (soft ? AnyView(softGrid(stats)) : AnyView(grid(stats))).padding(.top, soft ? 6 : 4) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("now-slot-figures")
@@ -60,18 +60,27 @@ struct NowSlotView: View {
             .padding(.leading, 4)
     }
 
-    private func rows(_ stats: [NowSlotModel.Stat]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(stats, id: \.label) { s in
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(s.label).themeText(.value, color: Theme.textSecondary)
-                    Spacer(minLength: 8)
-                    (Text(s.value).foregroundColor(Theme.textPrimary) + Text(s.note.map { " \($0)" } ?? "").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textTertiary))
-                        .font(Theme.sans(ThemeTokens.typeValue, .semibold, relativeTo: .body)).monospacedDigit().multilineTextAlignment(.trailing)
+    /// The soft card's figures: a tight two-column grid of label-over-value cells. When every cell but the elapsed time is our own estimate one quiet heading says so, inside the
+    /// grid (it wraps at any width and text size); in a mixed set only the derived cells carry a small "est." (the cost keeps the word "estimate"). The truck's own figures never
+    /// carry a mark. VoiceOver says "estimated" with each estimated value either way.
+    private func softGrid(_ stats: [NowSlotModel.Stat]) -> some View {
+        let all = NowSlotModel.estimatedHeading(stats)
+        return VStack(alignment: .leading, spacing: 8) {
+            if all { Text("Estimated so far").themeText(.label).accessibilityIdentifier("now-slot-estimated") }
+            LazyVGrid(columns: [GridItem(.flexible(), alignment: .topLeading), GridItem(.flexible(), alignment: .topLeading)], alignment: .leading, spacing: 8) {
+                ForEach(stats, id: \.label) { s in
+                    let mark = !all && s.estimated ? (s.label == "Cost so far" ? "estimate" : "est.") : nil
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(s.label).themeText(.label)
+                        (Text(s.value).foregroundColor(Theme.textPrimary)
+                            + Text(mark.map { " \($0)" } ?? "").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textTertiary))
+                            .font(Theme.sans(ThemeTokens.typeValue, .semibold, relativeTo: .body)).monospacedDigit().lineLimit(2)
+                        if let note = s.note { Text(note).themeText(.caption, color: Theme.textTertiary) }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(s.label), \(s.estimated ? "estimated " : "")\(SpokenText.words(s.value))\(s.note.map { ", \($0)" } ?? "")")
+                    .accessibilityIdentifier("now-slot-row-\(s.label)")
                 }
-                .padding(.vertical, 8)
-                .overlay(alignment: .bottom) { Rectangle().fill(Theme.border.opacity(0.6)).frame(height: 1) }
-                .accessibilityIdentifier("now-slot-row-\(s.label)")
             }
         }
     }

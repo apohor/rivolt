@@ -44,7 +44,8 @@ final class NowChargeGraphUITests: XCTestCase {
         XCTAssertTrue(card.exists, "the session rows")
         XCTAssertFalse(card.label.contains("Plugged in"), "plug-in time is the graph's label, not a row")
         XCTAssertTrue(card.label.contains("Cost so far"), "the cost so far row")
-        XCTAssertTrue(card.label.contains("≈") && card.label.contains("estimate"), "an estimated cost carries its mark: \(card.label)")
+        XCTAssertFalse(card.label.contains("≈"), "no approximately sign: \(card.label)")
+        XCTAssertTrue(card.label.contains("estimated"), "an estimated figure is spoken as estimated: \(card.label)")
         // The pack's temperature is the graph's third line: the graph's words say it, and no hero figure or row carries it.
         XCTAssertTrue(graph.label.contains("pack temperature"), "the graph says the pack now: \(graph.label)")
         XCTAssertFalse(card.label.contains(" pack."), "no hero pack figure: \(card.label)")

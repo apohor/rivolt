@@ -23,7 +23,7 @@ struct NowParkedGraphModel: Equatable {
         enum ID: String { case asleep, wakes, idle }
         let id: ID
         let value: String
-        /// Under the value on the desktop row: "≈ 61 mi of range"; empty when there is none.
+        /// Under the value on the desktop row: "61 mi of range"; empty when there is none.
         let note: String
         /// Under the value on a phone tile, which has no room for "of range"; falls back to `label`.
         let tileNote: String
@@ -103,7 +103,7 @@ struct NowParkedGraphModel: Equatable {
                           rowValue: longDuration(f.asleepTodayS))]
         if f.wakeUps > 0 {
             // A cost that rounds to 0.0% says nothing: the count stands alone.
-            let note = f.wakeCostPct.flatMap { $0 >= 0.05 ? "≈ \(NumberText.fixed($0, 1))% each" : nil } ?? ""
+            let note = f.wakeCostPct.flatMap { $0 >= 0.05 ? "\(NumberText.fixed($0, 1))% each" : nil } ?? ""
             out.append(Figure(id: .wakes, value: "\(f.wakeUps) \(f.wakeUps == 1 ? "wake-up" : "wake-ups")", note: note, tileNote: note, label: "wake-ups",
                               rowLabel: "Wake-ups", rowValue: String(f.wakeUps)))
         }
@@ -111,7 +111,7 @@ struct NowParkedGraphModel: Equatable {
             let dist = f.idleMiPerDay.map { Int(($0 * (metric ? 1.609344 : 1)).rounded()) }
             let unit = metric ? "km" : "mi"
             let value = "\(Int(pct.rounded()))% a day"
-            out.append(Figure(id: .idle, value: value, note: dist.map { "≈ \($0) \(unit) of range" } ?? "", tileNote: dist.map { "≈ \($0) \(unit)" } ?? "",
+            out.append(Figure(id: .idle, value: value, note: dist.map { "\($0) \(unit) of range" } ?? "", tileNote: dist.map { "\($0) \(unit)" } ?? "",
                               label: "idle loss", rowLabel: "Idle loss", rowValue: value))
         }
         return out

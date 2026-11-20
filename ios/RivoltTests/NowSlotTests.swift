@@ -174,6 +174,45 @@ final class NowSlotTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).value.hasPrefix("≈ "))
     }
 
+    /// The soft card's marks: one heading when every figure but the elapsed time is ours, small "est." on the derived cells in a mixed set, nothing when the truck gave all of them. No "≈" anywhere.
+    private func softStats(session: LiveSession?, cost: Bool) throws -> [NowSlotModel.Stat] {
+        let start = at.addingTimeInterval(-3600)
+        let iso = ISO8601DateFormatter().string(from: start)
+        let extra = cost ? #","charge":{"started_at":"\#(iso)","soc_start":40,"peak_kw":11,"cost":4.2,"currency":"USD","cost_source":"home_rate","cost_is_estimate":true}"#
+                         : #","charge":{"started_at":"\#(iso)","soc_start":40,"peak_kw":11}"#
+        let now = try snapshot("charging", extra: extra)
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 11), now: now, clock: at)
+        DisplayUnits.demo = true
+        defer { DisplayUnits.demo = false }
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: session, charge: nil, liveDrive: nil, fix: nil, home: nil, soft: true, clock: at))
+        guard case .figures(_, _, _, _, let stats) = model.content else { XCTFail("figures"); return [] }
+        XCTAssertFalse(stats.contains { $0.value.contains("≈") }, "no approximately sign on the soft card")
+        XCTAssertFalse(model.spoken.contains("≈"))
+        return stats
+    }
+
+    func testSoftAllEstimatedGetsOneHeading() throws {
+        let stats = try softStats(session: nil, cost: true)
+        XCTAssertTrue(NowSlotModel.estimatedHeading(stats))
+        XCTAssertTrue(stats.filter { $0.label != "Elapsed" }.allSatisfy(\.estimated), "\(stats)")
+        XCTAssertEqual(try XCTUnwrap(stats.first { $0.label == "Cost so far" }).note, "at your home rate")
+    }
+
+    func testSoftMixedMarksOnlyTheDerivedCells() throws {
+        let session = LiveSession(active: true, timeElapsedSeconds: 3600, powerKw: 11, kilometersChargedPerHour: 30, rangeAddedKm: 60, totalChargedEnergyKwh: 8)
+        let stats = try softStats(session: session, cost: true)
+        XCTAssertFalse(NowSlotModel.estimatedHeading(stats))
+        XCTAssertEqual(stats.filter(\.estimated).map(\.label), ["Cost so far"])
+        XCTAssertEqual(try XCTUnwrap(stats.first { $0.label == "Cost so far" }).note, "at your home rate", "the cost keeps its source")
+    }
+
+    func testSoftAllExactCarriesNoMark() throws {
+        let session = LiveSession(active: true, timeElapsedSeconds: 3600, powerKw: 11, kilometersChargedPerHour: 30, rangeAddedKm: 60, totalChargedEnergyKwh: 8)
+        let stats = try softStats(session: session, cost: false)
+        XCTAssertFalse(NowSlotModel.estimatedHeading(stats))
+        XCTAssertTrue(stats.allSatisfy { !$0.estimated }, "\(stats)")
+    }
+
     func testThePackTemperatureIsNeitherAHeroFigureNorARow() throws {
         // It is the charging graph's third line now; the slot has no pack figure and no row for it.
         let start = at.addingTimeInterval(-3600)

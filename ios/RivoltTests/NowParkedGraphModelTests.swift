@@ -61,7 +61,7 @@ final class NowParkedGraphModelTests: XCTestCase {
         XCTAssertEqual(f.map(\.id.rawValue), ["asleep", "wakes", "idle"])
         XCTAssertEqual(f[0].value, "9 h 06 min")
         XCTAssertEqual(f[1].value, "4 wake-ups")
-        XCTAssertEqual(f[1].tileNote, "≈ 0.4% each")
+        XCTAssertEqual(f[1].tileNote, "0.4% each")
         XCTAssertEqual(f[2].value, "6% a day")
         XCTAssertEqual(f[2].label, "idle loss")
     }
@@ -140,16 +140,16 @@ final class NowParkedGraphModelTests: XCTestCase {
 
     func testTheTwoIdleLossTexts() throws {
         let imperial = try model("overnight", metric: false).figures[2]
-        XCTAssertEqual(imperial.note, "≈ 18 mi of range")
-        XCTAssertEqual(imperial.tileNote, "≈ 18 mi")
+        XCTAssertEqual(imperial.note, "18 mi of range")
+        XCTAssertEqual(imperial.tileNote, "18 mi")
         let metric = try model("overnight", metric: true).figures[2]
-        XCTAssertEqual(metric.note, "≈ 29 km of range")
-        XCTAssertEqual(metric.tileNote, "≈ 29 km")
+        XCTAssertEqual(metric.note, "29 km of range")
+        XCTAssertEqual(metric.tileNote, "29 km")
     }
 
     func testNoWakeUpsMeansNoWakeTile() throws {
         XCTAssertEqual(try model("never_slept").figures.map(\.id.rawValue), ["asleep", "idle"])
-        XCTAssertEqual(try model("never_slept").figures[1].note, "≈ 36 mi of range")
+        XCTAssertEqual(try model("never_slept").figures[1].note, "36 mi of range")
     }
 
     func testDurations() {

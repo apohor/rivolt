@@ -153,7 +153,7 @@ struct NowCard: View {
         // The slot carries the session and the drive; the rows stay for the comfort and install lines (and all of them under the picture).
         let sessionRows = slot == nil || slot?.isParked == true
         let showRows = (driving && sessionRows) || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || (chargingRowsV2 && sessionRows)
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: soft ? 8 : 12) {
             if tidy, let chip = tidyChip.map({ soft ? Self.softChip($0, wide: cardWidth >= Self.wideCard) : $0 }) {
                 // Beside the chip when both fit on one line; on their own rows when the text is large or the chip does not leave room, so the word never wraps or goes.
                 let beside = HStack(alignment: .center, spacing: 8) {
@@ -166,9 +166,9 @@ struct NowCard: View {
                 }
                 if typeSize.isAccessibilitySize { stacked } else { ViewThatFits(in: .horizontal) { beside; stacked } }
             } else if let onLive { HStack { Spacer(minLength: 0); liveButton(onLive) } }
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: soft ? 8 : 12) {
                 heroGaugeV2(pictureShown: slot == nil)
-                if soft || parkedSoft, let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
+                if parkedSoft, let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if tidy, driving, isLive, let destination, destination.hasFix {
                     Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
                     // With the graph the destination is its one line; the block would say it twice.
@@ -255,12 +255,12 @@ struct NowCard: View {
             var text = "Charging to \(Int(limit.rounded()))%"
             if let soc = summary.socPct, soc > 0, let km = summary.rangeKm {
                 let atLimit = km / soc * limit
-                text += " · ≈ \(Int((NowFormat.usesMetric ? atLimit : atLimit / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi") when done"
+                text += " · \(soft ? "" : "≈ ")\(Int((NowFormat.usesMetric ? atLimit : atLimit / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi") when done"
             }
             return text
         }
         guard let full = fullChargeRange else { return nil }
-        return "Full charge today ≈ \(full) \(NowFormat.usesMetric ? "km" : "mi")"
+        return "Full charge today \(parkedSoft ? "" : "≈ ")\(full) \(NowFormat.usesMetric ? "km" : "mi")"
     }
 
     /// The chip already says the state and since when, so the footer shows only when the picture is old or the link is down.
@@ -313,20 +313,22 @@ struct NowCard: View {
         let stacked = VStack(alignment: .leading, spacing: 8) {
             if pictureShown { car(maxHeight: 128) }
             compactGaugeColumn
+            if soft, let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
         }
         if typeSize.isAccessibilitySize {
             stacked
         } else {
             ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 16) {
-                    ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: gaugeWidth) {
+                HStack(alignment: .center, spacing: soft ? 12 : 16) {
+                    // The charging card's ring is three quarters of the usual, the range and the limit line beside it on tighter lines.
+                    ThemeGauge(value: summary.socPct ?? 0, limit: charging || plugged ? summary.chargeTargetPct : nil, live: charging && isLive, tone: tone, width: soft ? gaugeWidth * 0.75 : gaugeWidth) {
                         HStack(alignment: .firstTextBaseline, spacing: 2) {
                             Text(summary.socPct.map { "\(Int($0.rounded()))" } ?? "–")
                                 .themeText(.hero, color: critical ? Theme.critical : (offline || summary.socPct == nil) ? Theme.textTertiary : nil)
                             Text("%").themeText(.value, color: Theme.textSecondary)
                         }
                     }
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: soft ? 2 : 4) {
                         if pictureShown { car(maxHeight: 96) }
                         if let km = summary.rangeKm {
                             let range = NowFormat.usesMetric ? km : km / 1.609344
@@ -334,6 +336,7 @@ struct NowCard: View {
                                 + Text(" \(NowFormat.usesMetric ? "km" : "mi") range").font(Theme.sans(ThemeTokens.typeSubline, .regular, relativeTo: .footnote)).foregroundColor(Theme.textSecondary))
                                 .lineLimit(1)
                         }
+                        if soft, let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                     }
                 }
                 stacked
@@ -511,7 +514,7 @@ struct NowCard: View {
             if !v2, let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
             if !v2, let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", t) }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
-                readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
+                readout("Added", "\(NowFormat.oneDecimal(added / 100 * pack)) kWh est.")
             }
             if let cost = ChargingDetail.make(summary: summary, session: session, charge: charge)?.cost {
                 readout("Cost so far", NowFormat.costText(cost))

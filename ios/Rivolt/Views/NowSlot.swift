@@ -9,6 +9,14 @@ struct NowSlotModel: Equatable {
         let label: String
         let value: String
         let note: String?
+        /// Our own figure, worked out here rather than the truck's: the soft card says so once in words (`estimatedHeading`) or, in a mixed set, with a small "est." on the cell.
+        var estimated = false
+    }
+
+    /// The soft card's grid names its figures once: "Estimated so far" when every cell but the elapsed time is ours, none otherwise (then each derived cell carries "est.").
+    static func estimatedHeading(_ stats: [Stat]) -> Bool {
+        let counted = stats.filter { $0.label != "Elapsed" }
+        return !counted.isEmpty && counted.allSatisfy(\.estimated)
     }
 
     struct Weather: Equatable {
@@ -145,7 +153,7 @@ struct NowSlotModel: Equatable {
         }
         var stats: [Stat] = []
         if let kwh = detail.energyKwh, kwh > 0 {
-            stats.append(Stat(label: "Added", value: "\(detail.energyEstimated ? "≈ " : "")+\(NowFormat.oneDecimal(kwh)) kWh", note: nil))
+            stats.append(Stat(label: "Added", value: "\(detail.energyEstimated && !soft ? "≈ " : "")+\(NowFormat.oneDecimal(kwh)) kWh", note: nil, estimated: detail.energyEstimated))
         }
         // The truck's own figures come from the live session; without one (the demo, a home charge) the battery's gain at today's km per percent, marked ≈.
         let started = summary.chargeStartedAt ?? snapshot?.charge?.startedAt
@@ -155,17 +163,17 @@ struct NowSlotModel: Equatable {
         if estimated, let added = summary.chargeAddedPct, added > 0, let soc = summary.socPct, soc > 0, let range = summary.rangeKm {
             rangeKm = range / soc * added
         }
-        let mark = estimated ? "≈ " : ""
-        if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.slotDistance(mi: km / 1.609344))", note: nil)) }
+        let mark = estimated && !soft ? "≈ " : ""
+        if let km = rangeKm { stats.append(Stat(label: "Range added", value: "\(mark)+\(NowFormat.slotDistance(mi: km / 1.609344))", note: nil, estimated: estimated)) }
         let truckRate = detail.rateKmPerHour.flatMap { $0 > 0 ? $0 : nil }
         let rate = truckRate ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
-        if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil ? "≈ " : "")\(NowFormat.slotDistance(mi: rate / 1.609344))/h", note: nil)) }
+        if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil && !soft ? "≈ " : "")\(NowFormat.slotDistance(mi: rate / 1.609344))/h", note: nil, estimated: truckRate == nil)) }
         if let elapsed { stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil)) }
         // The cost so far is the server's (`/now` charge), as the web: ≈ when it is an estimate, with where it comes from.
         if let c = snapshot?.charge, let cost = c.cost {
             let estimate = c.costIsEstimate != false
-            stats.append(Stat(label: "Cost so far", value: "\(estimate ? "≈ " : "")\(NowFormat.money(cost, currency: c.currency ?? "USD"))",
-                              note: c.costSource.flatMap { costNotes[$0] } ?? (estimate ? "estimate" : nil)))
+            stats.append(Stat(label: "Cost so far", value: "\(estimate && !soft ? "≈ " : "")\(NowFormat.money(cost, currency: c.currency ?? "USD"))",
+                              note: c.costSource.flatMap { costNotes[$0] } ?? (estimate && !soft ? "estimate" : nil), estimated: estimate))
         }
         if !soft, let started { stats.append(Stat(label: "Plugged in", value: started.formatted(date: .omitted, time: .shortened), note: nil)) }
         return .figures(big: NumberText.fixed(kw, kw < 10 ? 1 : 0), unit: "kW", sub: sub, small: small, stats: stats)
@@ -244,7 +252,7 @@ struct NowSlotModel: Equatable {
             if let sub { parts.append("\(SpokenText.words(sub)).") }
             if let small { parts.append("\(SpokenText.words(small)).") }
             for st in stats {
-                parts.append("\(st.label), \(SpokenText.words(st.value))\(st.note.map { ", \($0)" } ?? "").")
+                parts.append("\(st.label), \(st.estimated && !st.value.hasPrefix("≈") ? "estimated " : "")\(SpokenText.words(st.value))\(st.note.map { ", \($0)" } ?? "").")
             }
             return parts.joined(separator: " ")
         }

@@ -53,12 +53,11 @@ struct NowChargeGraphModel: Equatable {
     /// The kW figure in the slot's format: one decimal under 10, whole above.
     static func kw(_ v: Double) -> String { NumberText.fixed(v, v < 10 ? 1 : 0) }
 
-    /// The finish time counts from now, as the chip and the slot do (the minutes shown from now), never from the newest stored sample; the power named is the card's live kW.
-    /// Nil while the charge has too little to draw (the card then says it is collecting).
     /// The pack's line is never tighter than this many degrees Celsius, so a flat pack stays flat.
     static let packMinSpanC = 3.0
 
-    /// `packC` is the newest pack reading while it is recent (`NowChargeSeriesModel.packTempC`); with fewer than two readings in the session or none recent there is no pack line.
+    /// The finish time counts from now, as the chip and the slot do (the minutes shown from now), never from the newest stored sample; the power named is the card's live kW.
+    /// Nil while the charge has too little to draw (the card then says it is collecting). `packC` is the newest pack reading while it is recent (`NowChargeSeriesModel.packTempC`); with fewer than two readings in the session or none recent there is no pack line.
     static func make(series: ChargeCurve.Series, startPct: Double?, nowPct: Double, target: Double?, etaHours: Double?, powerKw: Double? = nil, packC: Double? = nil, now: Date) -> NowChargeGraphModel? {
         guard series.soc.count >= 3, let first = series.soc.first, let last = series.soc.last,
               last.at.timeIntervalSince(first.at) >= minSpan else { return nil }
