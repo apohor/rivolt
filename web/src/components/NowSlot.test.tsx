@@ -79,12 +79,12 @@ describe("NowSlot", () => {
       render(<NowSlot {...base(v, { soft: true, ...extra })} />);
       return screen.getByTestId("now-slot-figures");
     };
-    it("all estimated: one heading, no mark on any cell, no sign anywhere, estimated for screen readers", () => {
+    it("all estimated: one heading, no mark on any cell, no sign anywhere, the cost keeps estimate and its source, estimated for screen readers", () => {
       const el = figures({ charge: { started_at: started, soc_start: 40, cost: 2.91, currency: "USD", cost_source: "home_rate", cost_is_estimate: true } });
       expect(screen.getByTestId("now-slot-estimated").textContent).toBe("Estimated so far");
-      expect(el.textContent).not.toMatch(/≈|est\.|estimate\b(?! so far)/);
+      expect(el.textContent).not.toMatch(/≈|est\./);
       expect(screen.getByTestId("now-slot-added").textContent).toMatch(/estimated \+18\.2 kWh/);
-      expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/estimated .*2\.91/);
+      expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/estimated .*2\.91.*estimate · at your home rate/);
       expect(screen.getByTestId("now-slot-elapsed").textContent).not.toMatch(/estimated/);
     });
     it("mixed: no heading; derived cells carry est., the truck's figures none, the cost keeps the word", () => {

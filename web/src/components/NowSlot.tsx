@@ -346,7 +346,7 @@ export default function NowSlot(i: SlotInput) {
 
 // The keyed card's figures: a tight two-column grid of label-over-value cells. When every worked-out figure (all but the elapsed time) is our own
 // estimate, one quiet heading says so inside the grid; when the set is mixed, only the derived cells carry a small "est." (the cost keeps the word
-// "estimate"). A truck-reported figure never carries a mark. Screen readers get "estimated" with each estimated value in both cases.
+// "estimate" and its source note, heading or not). A truck-reported figure never carries a mark. Screen readers get "estimated" with each estimated value in both cases.
 function SoftStats({ stats }: { stats: Stat[] }) {
   const counted = stats.filter((s) => s.k !== "Elapsed");
   const all = counted.length > 0 && counted.every((s) => s.est);
@@ -354,7 +354,7 @@ function SoftStats({ stats }: { stats: Stat[] }) {
     <div data-testid="now-slot-figures" className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
       {all && <p data-testid="now-slot-estimated" className="col-span-2 ui-label">Estimated so far</p>}
       {stats.map((s) => {
-        const note = s.k === "Cost so far" && s.est && !all ? ["estimate", s.note].filter(Boolean).join(" · ") : s.note;
+        const note = s.k === "Cost so far" && s.est ? ["estimate", s.note].filter(Boolean).join(" · ") : s.note;
         return (
           <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`} className="min-w-0">
             <p className="ui-label">{s.k}</p>

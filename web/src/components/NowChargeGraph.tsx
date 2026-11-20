@@ -186,7 +186,7 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
   const estimatePts: Pt[] = [];
   if (ex != null && ey != null) for (let t = 0; t <= 1; t += 0.125) estimatePts.push({ x: lx + (ex - lx) * t, y: ly + (ey - ly) * t });
   const packLinePts = packOn ? thin(packPts).map((p) => ({ x: sx(p.x), y: sk(p.y) })) : [];
-  const packSpot = packSpots.find(([x, y, a]) => packFree(x, y, a) && !onLine(boxOf(x, y, packW, a, 14), [...socPts, ...packLinePts, ...estimatePts]));
+  const packSpot = packSpots.find(([x, y, a]) => packFree(x, y, a) && ![socPts, packLinePts, estimatePts].some((line) => onLine(boxOf(x, y, packW, a, 14), line)));
 
   return (
     <div data-testid="now-charge-graph" className="flex min-w-0 flex-col">

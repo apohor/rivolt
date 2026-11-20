@@ -256,7 +256,7 @@ if (SHOTS) {
   type Shot = [string, number, "light" | "dark", string, string];
   const shots: Shot[] = [];
   for (const name of Object.keys(CASES)) for (const w of [393, 1280, 1440]) for (const scheme of ["light", "dark"] as const) shots.push([name, w, scheme, "100", "mi"]);
-  for (const name of ["ac", "dc"]) for (const scheme of ["light", "dark"] as const) shots.push([name, 320, scheme, "100", "mi"]);
+  for (const name of ["start", "ac", "dc", "end"]) for (const scheme of ["light", "dark"] as const) shots.push([name, 320, scheme, "100", "mi"]);
   for (const name of ["ac", "dc"]) for (const w of [320, 393, 1280]) shots.push([name, w, "dark", "200", "mi"]);
   for (const w of [393, 1280]) shots.push(["ac", w, "dark", "100", "km"]);
   for (const [name, w, scheme, text, unit] of shots) {
