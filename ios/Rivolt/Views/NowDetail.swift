@@ -21,7 +21,7 @@ struct ChargingDetail: Equatable {
     let rateKmPerHour: Double?
     let rangeAddedKm: Double?
     let energyKwh: Double?
-    /// The energy is our own figure (the open charge row, or the battery's gain times the pack), not the session's total: shown with a "≈".
+    /// The energy is our own figure (the open charge row, or the battery's gain times the pack), not the session's total: shown with "est.".
     let energyEstimated: Bool
     let elapsed: TimeInterval?
     let remaining: TimeInterval?

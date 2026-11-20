@@ -88,7 +88,7 @@ struct NowLiveView: View {
             if streaming, let detail {
                 row("Power", detail.powerKw.map { "\(NumberText.fixed($0, $0 < 10 ? 1 : 0)) kW" })
                 row("Time left", detail.remaining.map { NowFormat.duration($0) })
-                row("Energy added", detail.energyKwh.map { "\(detail.energyEstimated ? "≈ " : "")\(NowFormat.oneDecimal($0)) kWh" })
+                row("Energy added", detail.energyKwh.map { "\(NowFormat.oneDecimal($0)) kWh" }, estimated: detail.energyEstimated)
                 row("Cost so far", detail.cost.map { NowFormat.costText($0) })
             }
         }
@@ -119,14 +119,16 @@ struct NowLiveView: View {
     }
 
     /// A label and its value; a figure the truck has not reported is a dash, never a made-up zero.
-    private func row(_ label: String, _ value: String?) -> some View {
+    private func row(_ label: String, _ value: String?, estimated: Bool = false) -> some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
         return layout {
             Text(label).themeText(.value, color: Theme.textSecondary)
             if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
-            Text(value ?? "–").themeText(.value).fixedSize(horizontal: false, vertical: true)
+            (Text(value ?? "–") + Text(estimated && value != nil ? " est." : "").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textTertiary))
+                .themeText(.value).fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(estimated && value != nil ? "\(label), estimated \(value ?? "")" : "\(label), \(value ?? "none")")
     }
 }
 

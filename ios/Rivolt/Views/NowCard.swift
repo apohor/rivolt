@@ -27,7 +27,7 @@ struct NowCard: View {
     /// the range, one line for the cabin and outside temperatures. Without the key the card is the one it always was.
     var v2 = false
     var images: [VehicleImage]?
-    /// "Full charge today ≈ X", the user's own range at today's temperature (the server's cold-range answer), in the display unit.
+    /// "Full charge today X", the user's own range at today's temperature (the server's cold-range answer), in the display unit.
     var fullChargeRange: Int?
     /// Opens the Live screen (the web's Live button on the hero), with the Now redesign.
     var onLive: (() -> Void)?
@@ -255,12 +255,12 @@ struct NowCard: View {
             var text = "Charging to \(Int(limit.rounded()))%"
             if let soc = summary.socPct, soc > 0, let km = summary.rangeKm {
                 let atLimit = km / soc * limit
-                text += " · \(soft ? "" : "≈ ")\(Int((NowFormat.usesMetric ? atLimit : atLimit / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi") when done"
+                text += " · \(Int((NowFormat.usesMetric ? atLimit : atLimit / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi") when done"
             }
             return text
         }
         guard let full = fullChargeRange else { return nil }
-        return "Full charge today \(parkedSoft ? "" : "≈ ")\(full) \(NowFormat.usesMetric ? "km" : "mi")"
+        return "Full charge today \(full) \(NowFormat.usesMetric ? "km" : "mi")"
     }
 
     /// The chip already says the state and since when, so the footer shows only when the picture is old or the link is down.
@@ -514,7 +514,7 @@ struct NowCard: View {
             if !v2, let kw = summary.chargePowerKw { readout("Power", "\(NumberText.fixed(kw, kw < 10 ? 1 : 0)) kW") }
             if !v2, let t = timeLeft, !typeSize.isAccessibilitySize { readout("Time left", t) }
             if let added = summary.chargeAddedPct, let pack = summary.packKwh, added > 0 {
-                readout("Added", "≈ \(NowFormat.oneDecimal(added / 100 * pack)) kWh")
+                readout("Added", "\(NowFormat.oneDecimal(added / 100 * pack)) kWh", estimated: true)
             }
             if let cost = ChargingDetail.make(summary: summary, session: session, charge: charge)?.cost {
                 readout("Cost so far", NowFormat.costText(cost))
@@ -522,13 +522,16 @@ struct NowCard: View {
         }
     }
 
-    private func readout(_ label: String, _ value: String) -> some View {
+    private func readout(_ label: String, _ value: String, estimated: Bool = false) -> some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
         return layout {
             Text(label).themeText(.value, color: Theme.textSecondary)
             if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
-            Text(value).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
+            (Text(value) + Text(estimated ? " est." : "").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textTertiary))
+                .themeText(.value, color: Theme.textPrimary).multilineTextAlignment(typeSize.isAccessibilitySize ? .leading : .trailing)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(estimated ? "\(label), estimated \(value)" : "\(label), \(value)")
     }
 
     // MARK: Footer

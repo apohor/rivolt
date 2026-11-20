@@ -170,8 +170,8 @@ final class NowSlotTests: XCTestCase {
         let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at))
         guard case .figures(_, _, _, _, let stats) = model.content else { return XCTFail("figures") }
         let range = try XCTUnwrap(stats.first { $0.label == "Range added" })
-        XCTAssertTrue(range.value.hasPrefix("≈ +"), range.value)
-        XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).value.hasPrefix("≈ "))
+        XCTAssertTrue(range.value.hasPrefix("+"), range.value)
+        XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).estimated)
     }
 
     /// The soft card's marks: one heading when every figure but the elapsed time is ours, small "est." on the derived cells in a mixed set, nothing when the truck gave all of them. No "≈" anywhere.
@@ -243,8 +243,8 @@ final class NowSlotTests: XCTestCase {
         defer { DisplayUnits.demo = false }
         let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: session, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at))
         guard case .figures(_, _, _, _, let stats) = model.content else { return XCTFail("figures") }
-        XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).value.hasPrefix("≈ "))
-        XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Range added" }).value.hasPrefix("≈ +"))
+        XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).estimated)
+        XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Range added" }).value.hasPrefix("+"))
     }
 
     func testChargingCostIsTheServersWithItsSourceAndTheChargerChip() throws {
@@ -256,7 +256,7 @@ final class NowSlotTests: XCTestCase {
         let atHome = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (34.1, -118.1), home: home, clock: at))
         guard case .figures(_, _, _, _, let stats) = atHome.content else { return XCTFail("figures") }
         let cost = try XCTUnwrap(stats.first { $0.label == "Cost so far" })
-        XCTAssertTrue(cost.value.hasPrefix("≈ "), cost.value)
+        XCTAssertFalse(cost.value.contains("≈"), cost.value)
         XCTAssertEqual(cost.note, "at your home rate")
         XCTAssertEqual(atHome.chips.map(\.text), ["Home charger"])
         let away = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: (35.0, -118.1), home: home, clock: at))

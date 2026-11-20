@@ -115,10 +115,10 @@ final class NowV2Tests: XCTestCase {
             let input = NowSummary.Input(socPct: 72, rangeKm: 330, chargeTargetPct: 80, gear: "P", powerState: "ready", chargerState: charger, chargerPowerKw: charger == "charging_active" ? 11 : 0, at: at)
             return NowCard(vehicle: vehicle, summary: NowSummary(input: input, now: nil, clock: at.addingTimeInterval(10)), clock: at.addingTimeInterval(10), v2: true, fullChargeRange: range)
         }
-        XCTAssertEqual(card("charger_disconnected", range: 283).subline.map { $0.hasPrefix("Full charge today ≈ 283 ") }, true)
+        XCTAssertEqual(card("charger_disconnected", range: 283).subline.map { $0.hasPrefix("Full charge today 283 ") }, true)
         XCTAssertNil(card("charger_disconnected", range: nil).subline)
         let line = try XCTUnwrap(card("charging_active", range: 283).subline)
-        XCTAssertTrue(line.hasPrefix("Charging to 80% · ≈ "), line)
+        XCTAssertTrue(line.hasPrefix("Charging to 80% · "), line)
         XCTAssertTrue(line.hasSuffix(" when done"), line)
     }
 
