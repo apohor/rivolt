@@ -183,6 +183,23 @@ test("with no loss the header says so, the wake-up tile has no cost and the two 
   await expect(label).toHaveCount(1);
 });
 
+test("parked a few minutes after a drive: the pill ends at the card edge and the value sits clear of the line @webkit", async ({ page }) => {
+  await open(page, "just", "parked");
+  const g = page.getByTestId("now-parked-graph");
+  await expect(g).toBeVisible();
+  const box = await g.locator("svg").boundingBox();
+  const pill = g.locator("text", { hasText: /^Parked \d+:\d+ [AP]M$/ });
+  if ((page.viewportSize()?.width ?? 0) >= 900 || (await pill.count()) > 0) {
+    const pb = await pill.boundingBox();
+    expect(pb!.x + pb!.width).toBeLessThanOrEqual(box!.x + box!.width);
+    expect(pb!.x).toBeGreaterThanOrEqual(box!.x);
+  }
+  // The current value is below the dot, so it never sits on the line that dipped just before it.
+  const labelY = Number(await g.locator("text", { hasText: /^\d+\.\d%$/ }).last().getAttribute("y"));
+  const dotY = Number(await g.locator("circle").last().getAttribute("cy"));
+  expect(labelY).toBeGreaterThan(dotY);
+});
+
 test("a truck that never slept has no sleep spans, no wake-up dots and a faster rate @webkit", async ({ page }) => {
   await open(page, "never_slept");
   const g = page.getByTestId("now-parked-graph");

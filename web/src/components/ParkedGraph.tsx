@@ -106,9 +106,13 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
   const dimTo = parkedX != null && parkedX > PAD.l ? parkedX : 0;
   const linePath = softPath(easeSteps(line));
   const valueLeft = lx - PAD.l > 60;
+  // The current value sits left of and below the dot, and drops below any reading of the line under it (a dip right before "now").
+  const valueY = Math.min(Math.max(ly + 22, ...line.filter((q) => q.x > lx - 56 && q.x < lx).map((q) => q.y + 18)), sleepBase - 14);
   // The "Parked 5:20 PM" pill needs room clear of the start value and the edges; the header says the same time when it is left out.
   const pillW = labelWidth(parkedLabel ?? "");
-  const pill = scale <= 1.25 && parkedX != null && parkedX - pillW / 2 > fx + 56 && parkedX + pillW / 2 < w - PAD.r ? parkedLabel : null;
+  // Near the right edge (a short parked stretch) the pill ends at the card edge instead of being left out; the marker line still points at the time.
+  const pillEnd = parkedX != null && parkedX + pillW / 2 > w - PAD.r;
+  const pill = scale <= 1.25 && parkedX != null && parkedX - pillW / 2 > PAD.l ? parkedLabel : null;
   const showMid = w >= 240 * scale;
   const ariaLabel = `Battery while parked, ${Math.round(start.soc)}% ${sinceIn != null ? `at ${clock(sinceIn)}` : "24 hours ago"} to ${Math.round(last.soc)}% now, ${change.value.replace("−", "minus ")} ${change.since}, ${series.sleeps.length} ${series.sleeps.length === 1 ? "sleep" : "sleeps"}, ${series.wakes.length} ${series.wakes.length === 1 ? "wake-up" : "wake-ups"}`;
 
@@ -132,11 +136,11 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
               if (sw < 2) return null;
               const dur = (Math.min(ms(sl.to), t1) - Math.max(ms(sl.from), t0)) / 1000;
               return (
-                <g key={`${sl.from}-${i}`} data-testid="now-parked-sleep" opacity={b <= dimTo + 1 ? 0.45 : 1}>
+                <g key={`${sl.from}-${i}`} data-testid="now-parked-sleep" opacity={b <= dimTo + 1 ? 0.75 : 1}>
                   <clipPath id={`${id}-sl${i}`}>
                     <rect x={a + 1} y={0} width={Math.max(sw - 2, 1)} height={sleepBase} rx={10} />
                   </clipPath>
-                  <path d={`${linePath} L${lx.toFixed(1)} ${sleepBase} L${fx.toFixed(1)} ${sleepBase} Z`} fill={`url(#${id}-sleep)`} clipPath={`url(#${id}-sl${i})`} />
+                  <path d={`${linePath} L${lx.toFixed(1)} ${sleepBase} L${fx.toFixed(1)} ${sleepBase} Z`} fill={`url(#${id}-sleep)`} fillOpacity={b <= dimTo + 1 ? 0.65 : 1} clipPath={`url(#${id}-sl${i})`} />
                   <rect x={a + 1} y={base - BAR} width={Math.max(sw - 2, 1)} height={BAR} rx={BAR / 2} fill={bar} fillOpacity=".75" />
                   {sw > LABEL_MIN_W * scale && (
                     <text x={a + sw / 2} y={base - BAR - 10} textAnchor="middle" className="fill-indigo-300 text-xs">
@@ -159,16 +163,16 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
               <SoftLine id={id} d={linePath} color={ink.line} width={3} />
             </g>
             {series.wakes.map((k) => (
-              <g key={k.t} opacity={sx(ms(k.t)) < dimTo ? 0.45 : 1}>
+              <g key={k.t} opacity={sx(ms(k.t)) < dimTo ? 0.6 : 1}>
                 <HaloDot id={id} x={sx(ms(k.t))} y={sy(k.soc_after)} color={amber} />
               </g>
             ))}
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
-            {pill && parkedX != null && <Pill x={parkedX} y={12} text={pill} w={pillW} />}
+            {pill && parkedX != null && <Pill x={pillEnd ? w - PAD.r : parkedX} y={12} text={pill} w={pillW} anchor={pillEnd ? "end" : "middle"} />}
             {showStart && <text x={startX + (startRight ? -4 : 2)} textAnchor={startRight ? "end" : "start"} y={sinceIn != null ? sy(start.soc) + 20 : Math.max(sy(start.soc) - 14, 12)} className="fill-neutral-300 text-xs">
               {`${start.soc.toFixed(1)}%`}
             </text>}
-            <text x={valueLeft ? lx - 10 : lx + 10} y={ly + 22} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
+            <text x={valueLeft ? lx - 10 : lx + 10} y={valueY} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
               {`${last.soc.toFixed(1)}%`}
             </text>
             <text x={PAD.l} y={h - 6} className="fill-neutral-500 text-xs">
