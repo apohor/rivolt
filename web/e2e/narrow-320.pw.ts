@@ -38,9 +38,17 @@ for (const [name, opts] of [
       await expect(dest).toBeVisible();
       expect(await dest.evaluate((e) => e.scrollWidth <= e.clientWidth + 1 && getComputedStyle(e).textOverflow !== "ellipsis")).toBe(true);
     }
-    // Each stat in the slot stays inside its own cell, too.
-    const slot = await page.getByTestId("now-slot").locator("p").evaluateAll((els) => els.every((e) => e.getBoundingClientRect().right <= document.documentElement.clientWidth));
-    expect(slot).toBe(true);
+    // No unit is split: a stat's last word is on one line (one client rect).
+    const split = await page.getByTestId("now-slot").locator("p span.inline-block").evaluateAll((els) => els.filter((e) => e.getClientRects().length > 1).map((e) => e.textContent));
+    expect(split).toEqual([]);
+    // Each stat in the slot stays inside its own cell, too: the unit does not run into the next stat.
+    const over = await page.getByTestId("now-slot").locator("[data-testid^='now-slot-']").evaluateAll((cells) =>
+      cells.flatMap((c) => {
+        const cr = c.getBoundingClientRect();
+        return [...c.querySelectorAll("p, span")].filter((e) => e.getBoundingClientRect().right > cr.right + 0.5).map((e) => e.textContent);
+      }),
+    );
+    expect(over).toEqual([]);
     await month.screenshot({ path: `test-results/narrow-320-${name}-month.png` });
     // The month's four figures: each label stays inside its own cell.
     const cells = await month.locator("div.flex-col").evaluateAll((els) =>
