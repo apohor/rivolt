@@ -274,7 +274,7 @@ for (const width of [320, 393, 1440]) {
     const row = page.getByTestId("now-temps");
     await expect(row).toBeVisible();
     await expect(page.locator("[data-now-v2]")).not.toContainText(/next 3 h/i);
-    const items = row.locator("> div");
+    const items = row.locator("> p");
     expect(await items.count()).toBeGreaterThanOrEqual(2);
     // The card settles as the weather and the cabin arrive: wait for the row, then check it.
     await expect
