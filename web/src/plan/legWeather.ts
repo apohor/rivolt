@@ -9,10 +9,10 @@ const WIND_MIN_KPH = 8;
 const KPH_PER_MPH = 1.609344;
 
 export type LegWeatherFacts = {
-  // "41 °F" (tag) and "41°" (badge); absent when the leg has no temperature.
+  // "41°F" (tag) and "41°" (badge); absent when the leg has no temperature.
   temp?: string;
   tempShort?: string;
-  // "14 °F" when the air temperature and the feels-like differ; the leg's details say it, the badge and tags do not.
+  // "14°F" when the air temperature and the feels-like differ; the leg's details say it, the badge and tags do not.
   feels?: string;
   // Along the direction of travel: "head" blows against it, "tail" with it. speed is in the account's unit.
   wind?: { kind: "head" | "tail"; speed: number; unit: "mph" | "km/h" };
@@ -31,11 +31,11 @@ export function legWeatherFacts(leg: TripWeatherAdjLeg | undefined, tempUnit: Te
   const air = leg.air_temp_c ?? leg.temp_c;
   if (air != null && Number.isFinite(air)) {
     const t = roundTemp(air, tempUnit);
-    out.temp = `${signed(t)} °${tempUnit === "f" ? "F" : "C"}`;
+    out.temp = `${signed(t)}°${tempUnit === "f" ? "F" : "C"}`;
     out.tempShort = `${signed(t)}°`;
     if (leg.air_temp_c != null && leg.temp_c != null && Number.isFinite(leg.temp_c)) {
       const f = roundTemp(leg.temp_c, tempUnit);
-      if (f !== t) out.feels = `${signed(f)} °${tempUnit === "f" ? "F" : "C"}`;
+      if (f !== t) out.feels = `${signed(f)}°${tempUnit === "f" ? "F" : "C"}`;
     }
   }
   const hw = leg.headwind_kph;
@@ -49,7 +49,7 @@ export function legWeatherFacts(leg: TripWeatherAdjLeg | undefined, tempUnit: Te
   return out;
 }
 
-// The stop row's tags: "41 °F", "25 mph headwind", "rain" / "snow expected".
+// The stop row's tags: "41°F", "25 mph headwind", "rain" / "snow expected".
 export function legWeatherTags(f: LegWeatherFacts | null): string[] {
   if (!f) return [];
   const tags: string[] = [];

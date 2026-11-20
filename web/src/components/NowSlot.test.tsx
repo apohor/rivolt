@@ -65,9 +65,9 @@ describe("NowSlot", () => {
 
 describe("parked slot weather", () => {
   it("shows only what the server sent", () => {
-    expect(weatherView({ temp_c: 20 }, "c", "mi")).toEqual({ temp: "20 °C", condition: null, icon: null, wind: null, precip: null });
+    expect(weatherView({ temp_c: 20 }, "c", "mi")).toEqual({ temp: "20°C", condition: null, icon: null, wind: null, precip: null });
     const w = weatherView({ temp_c: 20, condition: "partly_cloudy", wind_kph: 16, rain_next3h_mm: 0 }, "f", "mi");
-    expect(w).toEqual({ temp: "68 °F", condition: "Partly cloudy here now", icon: "partly_cloudy", wind: "Wind 10 mph", precip: "No rain next 3 h" });
+    expect(w).toEqual({ temp: "68°F", condition: "Partly cloudy here now", icon: "partly_cloudy", wind: "Wind 10 mph", precip: "No rain next 3 h" });
   });
   it("a clear sky is Sunny by day, Clear by night", () => {
     expect(weatherView({ temp_c: 20, condition: "clear" }, "c", "mi", true)).toMatchObject({ condition: "Sunny here now", icon: "clear" });

@@ -23,7 +23,7 @@ describe("travelBearing", () => {
 });
 
 describe("drawLegBadges placement", () => {
-  const info: LegWeatherInfo = { facts: { temp: "60 °F", tempShort: "60°", feels: null, wind: null, rain: false, snow: false }, title: "A to B", note: [] };
+  const info: LegWeatherInfo = { facts: { temp: "60°F", tempShort: "60°", feels: null, wind: null, rain: false, snow: false }, title: "A to B", note: [] };
   // A map `width` px wide that projects [lng, lat] straight to pixels, and a Marker that records where it was put (only while it is on the map).
   const fake = (x: number, width = 350, legs = 1) => {
     const placed: { anchor: string; offset: [number, number] }[] = [];

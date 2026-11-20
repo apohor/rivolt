@@ -11,7 +11,7 @@ const GRID_F = [-17.8, -6.7, 4.4, 15.6, 26.7];
 const GRID_C = [-20, -10, 0, 10, 20];
 const near = (a: number, b: number) => Math.abs(a - b) < 0.3;
 // A chip's label: whole degrees, never "-0".
-const chip = (c: number, u: TemperatureUnit): string => (u === "f" ? `${Math.round(c * 1.8 + 32)} °F` : `${Math.round(c)} °C`);
+const chip = (c: number, u: TemperatureUnit): string => (u === "f" ? `${Math.round(c * 1.8 + 32)}°F` : `${Math.round(c)}°C`);
 const note = "text-sm text-neutral-400";
 
 // "Range at different temperatures" (Truck tab): the user's own efficiency and range near a temperature, as a band and

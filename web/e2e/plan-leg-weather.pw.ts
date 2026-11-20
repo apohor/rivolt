@@ -40,8 +40,8 @@ for (const v of [
 
     // The stop rows carry the tags; the estimate line is not on the row.
     const tags = page.locator("[data-leg-weather]");
-    await expect(tags.nth(0)).toHaveText("41 °F · 25 mph headwind · rain");
-    await expect(tags.nth(1)).toHaveText("21 °F · 12 mph tailwind · snow expected");
+    await expect(tags.nth(0)).toHaveText("41°F · 25 mph headwind · rain");
+    await expect(tags.nth(1)).toHaveText("21°F · 12 mph tailwind · snow expected");
     await expect(page.locator("[data-plan-timeline]")).not.toContainText("(estimate)");
     // The terrain credit once per plan, not under every stop's climb line.
     await expect(page.locator("[data-plan-timeline]")).not.toContainText("Terrain:");
@@ -60,7 +60,7 @@ for (const v of [
     const pop = page.locator("[data-leg-popup]");
     await expect(pop).toContainText("Los Angeles to Sample Fast Charge");
     await expect(pop).toContainText("Weather and your setup: +14% (estimate)");
-    await expect(pop).toContainText("Feels like 37 °F");
+    await expect(pop).toContainText("Feels like 37°F");
     await expect(pop).toContainText("Climb +1,900 ft · descent −328 ft");
     await expect(pop).toContainText("Terrain: USGS 3DEP");
 

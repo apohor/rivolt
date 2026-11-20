@@ -29,8 +29,8 @@ describe("comfortParts", () => {
 
 describe("cabinValue", () => {
   it("is whole degrees in the chosen unit, and null without a reading", () => {
-    expect(cabinValue({ cabin_temp_c: 28.6 }, "c")).toBe("29 °C");
-    expect(cabinValue({ cabin_temp_c: 20 }, "f")).toBe("68 °F");
+    expect(cabinValue({ cabin_temp_c: 28.6 }, "c")).toBe("29°C");
+    expect(cabinValue({ cabin_temp_c: 20 }, "f")).toBe("68°F");
     expect(cabinValue({ cabin_temp_c: 0 }, "c")).toBeNull();
     expect(cabinValue({ cabin_temp_c: 120 }, "c")).toBeNull();
   });
