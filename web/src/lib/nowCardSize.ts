@@ -22,7 +22,7 @@ function layout(): "narrow" | "mid" | "wide" {
 
 const slot = (vehicleID: string, redesigned: boolean, kind: CardKind) => `${vehicleID}:${redesigned ? "v2" : "v1"}:${layout()}:${kind}`;
 
-function read(): Record<string, number> {
+function read(): Record<string, number | number[]> {
   try {
     const o = JSON.parse(window.localStorage.getItem(KEY) || "{}");
     return o && typeof o === "object" ? o : {};
@@ -47,7 +47,8 @@ const sane = (h: unknown): number | null => (typeof h === "number" && h >= 120 &
 // The height of this kind of card for this vehicle, or null when it has not been drawn in this layout yet. `hero` is the card's own box, without the
 // alerts under it (what a hold keeps); otherwise the whole section (what the placeholder takes).
 export function cardHeight(vehicleID: string, redesigned: boolean, kind: CardKind, hero = false): number | null {
-  return sane(read()[slot(vehicleID, redesigned, kind) + (hero ? ":hero" : "")]);
+  const h = read()[slot(vehicleID, redesigned, kind) + (hero ? ":hero" : "")];
+  return sane(Array.isArray(h) ? null : h);
 }
 
 // The placeholder's height before anything is known: the card as it was last drawn. The vehicle is the one the list names, or, before the list has
@@ -67,8 +68,16 @@ export function rememberCardHeight(vehicleID: string, redesigned: boolean, kind:
   for (const [k, v] of [[s, height], [s + ":hero", heroHeight]] as const) {
     if (v == null) continue;
     const h = Math.round(v);
-    if (h < 120 || h > 1200 || Math.abs((all[k] ?? 0) - h) < 4) continue;
-    all[k] = h;
+    if (h < 120 || h > 1200) continue;
+    // A card's height moves while it is up (a charging card gains its rate and cost rows, a legend wraps): what is kept is the tallest of the
+    // last three drawn, so the next placeholder is not short by the step the card then takes.
+    const prev = Array.isArray(all[k + ":r"]) ? (all[k + ":r"] as number[]) : [];
+    const lastSeen = prev[prev.length - 1];
+    const recent = (lastSeen !== undefined && Math.abs(lastSeen - h) < 4 ? prev : [...prev, h]).slice(-3);
+    const top = Math.max(...recent);
+    if (JSON.stringify(recent) === JSON.stringify(prev) && all[k] === top) continue;
+    all[k + ":r"] = recent;
+    all[k] = top;
     changed = true;
   }
   try {

@@ -53,4 +53,13 @@ describe("the Now card's remembered height", () => {
     claimCardHeights("u1");
     expect(cardHeight("v1", true, "charging")).toBeNull();
   });
+
+  it("keeps the tallest of the last three heights, since a charging card grows and shrinks while it is up", () => {
+    for (const h of [720, 538, 505]) rememberCardHeight("v1", true, "charging", h);
+    expect(cardHeight("v1", true, "charging")).toBe(720);
+    rememberCardHeight("v1", true, "charging", 520);
+    expect(cardHeight("v1", true, "charging")).toBe(538);
+    for (const h of [510, 480]) rememberCardHeight("v1", true, "charging", h);
+    expect(cardHeight("v1", true, "charging")).toBe(520);
+  });
 });
