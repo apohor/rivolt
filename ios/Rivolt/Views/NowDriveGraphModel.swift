@@ -78,7 +78,8 @@ struct NowDriveGraphModel: Equatable {
             return u > 0 ? u : nil
         }()
         let topShown = realTop.y * k >= 10 && realTop.x >= first.x && realTop.x < last.x - 60_000
-        let sinceText = "since \(time(Date(timeIntervalSince1970: first.x / 1000)))"
+        // The drive's own start (the same one the axis label says), not the first stored reading.
+        let sinceText = "since \(time(startedAt))"
         let nowSpeed = Int((last.y * k).rounded())
         let spoken = "Speed \(sinceText), \(nowSpeed) \(unit) now, top \(Int(peak.rounded())) \(unit)" + (used.map { ", battery down \($0) percent" } ?? "")
         return NowDriveGraphModel(

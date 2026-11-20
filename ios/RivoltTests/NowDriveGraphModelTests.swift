@@ -37,6 +37,14 @@ final class NowDriveGraphModelTests: XCTestCase {
         XCTAssertEqual(gaps.max() ?? 0, gaps.min() ?? 0, accuracy: 1e-9, "evenly spaced in time")
     }
 
+    func testSinceIsTheDrivesOwnStartNotTheFirstReading() throws {
+        let rows = drive(minutes: 22)
+        let early = t0.addingTimeInterval(-90)
+        let m = try XCTUnwrap(NowDriveGraphModel.make(samples: rows, startedAt: early, nowPct: 66, metric: false, time: { String(Int($0.timeIntervalSince(self.t0))) }))
+        XCTAssertEqual(m.since, "since -90")
+        XCTAssertEqual(m.startTime, "-90")
+    }
+
     func testTheTopIsARealReadingNotTheSmoothedCurve() throws {
         let m = try XCTUnwrap(make(drive(minutes: 22)))
         XCTAssertEqual(m.top?.label, "80 mph")

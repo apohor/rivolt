@@ -140,9 +140,16 @@ struct NowCard: View {
         return NowDriveGraphModel.make(samples: series.samples, startedAt: start, nowPct: summary.socPct, metric: NowFormat.usesMetric)
     }
 
+    /// The drive's own start while it is on and there is not yet a line to draw: the graph's frame is there with "Drive just started".
+    private var driveStart: Date? {
+        guard tidy, slotOn, driving, isLive, driveModel == nil else { return nil }
+        return driveSeries?.startedAt
+    }
+
     private var heroV2: some View {
         let slot = self.slot
         let drive = driveModel
+        let start = driveStart
         // The slot carries the session and the drive; the rows stay for the comfort and install lines (and all of them under the picture).
         let sessionRows = slot == nil || slot?.isParked == true
         let showRows = (driving && sessionRows) || summary.liveInstall != nil || !(summary.liveComfort?.lineText.isEmpty ?? true) || (chargingRowsV2 && sessionRows)
@@ -165,7 +172,7 @@ struct NowCard: View {
                 if tidy, driving, isLive, let destination, destination.hasFix {
                     Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
                     // With the graph the destination is its one line; the block would say it twice.
-                    if drive == nil || slot == nil { NowDestinationBlock(destination: destination) }
+                    if (drive == nil && start == nil) || slot == nil { NowDestinationBlock(destination: destination) }
                     LiveDestinationMap(destination: destination, height: 180)
                 }
                 if let slot {
@@ -180,6 +187,11 @@ struct NowCard: View {
                     if let drive, !slot.isParked {
                         Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
                         NowDriveGraph(model: drive, destination: isLive ? destination.flatMap { $0.hasFix ? NowDriveGraphModel.destinationLine($0) : nil } : nil)
+                    }
+                    if let start, !slot.isParked {
+                        Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
+                        NowDriveStart(since: "since \(start.formatted(date: .omitted, time: .shortened))", speedUnit: NowFormat.usesMetric ? "km/h" : "mph",
+                                      destination: destination.flatMap { $0.hasFix ? NowDriveGraphModel.destinationLine($0) : nil })
                     }
                 }
                 if let line = subline, !parkedSoft, slot == nil || slot?.isParked == true { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
