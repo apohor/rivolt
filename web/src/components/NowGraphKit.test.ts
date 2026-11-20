@@ -34,6 +34,13 @@ describe("easeSteps", () => {
     for (let i = 1; i < out.length; i++) expect(out[i].x).toBeGreaterThanOrEqual(out[i - 1].x);
   });
 
+  it("eases a small step over the level stretch before it", () => {
+    const flat = Array.from({ length: 10 }, (_, i) => ({ x: i * 3, y: 50 }));
+    const out = easeSteps([...flat, { x: 30, y: 52 }, { x: 33, y: 52 }]);
+    for (let i = 1; i < out.length; i++) expect(Math.abs(out[i].y - out[i - 1].y) / Math.max(out[i].x - out[i - 1].x, 0.01)).toBeLessThan(0.3);
+    expect(out[out.length - 2]).toMatchObject({ x: 30, y: 52 });
+  });
+
   it("never reorders the readings", () => {
     const out = easeSteps([{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 7, y: 30 }, { x: 9, y: 31 }, { x: 11, y: 70 }, { x: 40, y: 71 }]);
     for (let i = 1; i < out.length; i++) expect(out[i].x).toBeGreaterThanOrEqual(out[i - 1].x);

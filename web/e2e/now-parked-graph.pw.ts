@@ -174,7 +174,7 @@ if (SHOTS) {
   for (const w of [393, 1280]) shots.push(["overnight", "parked", w, "dark", "100", "km"]);
   for (const [c, sc, w, scheme, text, unit] of shots) {
     test(`shot ${c} ${w} ${scheme} ${text}% ${unit}`, async ({ browser }) => {
-      const ctx = await browser.newContext({ viewport: { width: w, height: w < 900 ? 1700 : 1000 }, colorScheme: scheme, deviceScaleFactor: 1 });
+      const ctx = await browser.newContext({ viewport: { width: w, height: w < 900 ? 1700 : 1000 }, colorScheme: scheme, deviceScaleFactor: Number(process.env.DSF ?? 1) });
       const page = await ctx.newPage();
       await page.addInitScript((u) => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: u })), unit);
       await open(page, c, sc);
@@ -183,6 +183,7 @@ if (SHOTS) {
       await page.waitForTimeout(500);
       const card = page.locator("[data-now-v2]").first();
       await card.screenshot({ path: `${SHOTS}/${c}-${w}-${scheme}-t${text}-${unit}.png` });
+      if (process.env.DSF) await page.getByTestId("now-parked-graph").locator("svg").first().screenshot({ path: `${SHOTS}/graph-${c}-${w}-${scheme}.png` });
       await ctx.close();
     });
   }

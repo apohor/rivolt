@@ -41,7 +41,7 @@ export function useBox(): [(el: HTMLDivElement | null) => void, { w: number; h: 
 // This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
 // first one's height; softPath then draws it with no slope at both ends. A pair that is already gentle is left alone, and a reading that
 // carries a dot or label (pin) is never moved: the ramp starts at it instead.
-export function easeSteps(pts: Pt[], minDrop = 3, slope = 1.2): Pt[] {
+export function easeSteps(pts: Pt[], minDrop = 0.2, slope = 0.1): Pt[] {
   if (pts.length === 0) return [];
   const out: Pt[] = [pts[0]];
   for (let i = 1; i < pts.length; i++) {
@@ -52,7 +52,13 @@ export function easeSteps(pts: Pt[], minDrop = 3, slope = 1.2): Pt[] {
       out.push(b);
       continue;
     }
-    const run = Math.min(Math.max(dy * 2, 12), 28);
+    // The level stretch this step leaves: readings at the same height, none of them carrying a dot or already eased.
+    let k = out.length - 1;
+    while (k > 0 && Math.abs(out[k - 1].y - a.y) < 0.5 && !out[k - 1].pin && !out[k - 1].hold) k--;
+    const from = k < out.length - 1 ? out[k].x : out.length > 1 ? out[out.length - 2].x : a.x;
+    const level = k < out.length - 1;
+    // A small step after a long level stretch is eased over most of that stretch; a big jump over a short run.
+    const run = Math.min(Math.max(dy * 8, 0.85 * (a.x - from) + (b.x - a.x), 10), 60);
     const last = out[out.length - 1];
     if (a.pin) {
       // A dot sits on the first reading: it stays where it is and the ramp runs after it (to the second reading if that is pinned too).
@@ -67,8 +73,13 @@ export function easeSteps(pts: Pt[], minDrop = 3, slope = 1.2): Pt[] {
       const x = Math.max(b.x - run, last.x);
       if (x > last.x + 0.5) out.push({ x, y: a.y, hold: true });
     } else {
-      const from = out.length > 1 ? out[out.length - 2].x : a.x;
-      out[out.length - 1] = { x: Math.max(b.x - run, from + 0.4 * (a.x - from)), y: a.y, hold: true };
+      const x0 = Math.max(b.x - run, from + (level ? 0.1 : 0.4) * (a.x - from));
+      while (out.length - 1 > k && out[out.length - 1].x > x0) out.pop();
+      if (level) {
+        if (x0 > out[out.length - 1].x + 0.05) out.push({ x: x0, y: a.y, hold: true });
+        else out[out.length - 1] = { ...out[out.length - 1], hold: true };
+      }
+      else out[out.length - 1] = { x: x0, y: a.y, hold: true };
     }
     out.push({ x: b.x, y: b.y, hold: true, pin: b.pin });
   }
