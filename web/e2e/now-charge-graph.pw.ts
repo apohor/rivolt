@@ -33,9 +33,11 @@ test("an AC charge draws battery, power and the way to the target with its finis
   await expect(page.getByTestId("now-car")).toHaveCount(0);
   await expect(page.getByTestId("now-slot")).not.toContainText(/Reaches/);
   await expect(page.getByTestId("now-slot-plugged-in")).toHaveCount(0);
-  // The cost row and the temperatures: pack (from the stored samples), cabin, outside, in that order.
+  // The pack's temperature (from the stored samples) is a figure row right after Rate; the bottom row is cabin and outside only.
   await expect(page.getByTestId("now-slot")).toContainText(/Cost so far/);
-  await expect(page.getByTestId("now-temps")).toHaveText(/Pack.*Cabin.*Outside/);
+  await expect(page.getByTestId("now-slot")).toContainText(/Rate.*Pack temperature.*Elapsed/);
+  await expect(page.getByTestId("now-temps")).toHaveText(/Cabin.*Outside/);
+  await expect(page.getByTestId("now-temps")).not.toContainText(/Pack/);
   // On a phone the Live button keeps the status row with the chip (the chip drops the finish time there).
   const chip = await page.getByTestId("now-pill").boundingBox();
   const live = await page.getByTestId("now-live-link").boundingBox();

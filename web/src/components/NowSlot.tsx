@@ -2,6 +2,7 @@ import { clock, type NowView } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
 import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../lib/preferences";
+import { usePackTemp } from "./NowChargeGraph";
 import { ParkedMap } from "../map/ParkedMap";
 import { inDemo } from "../lib/demo";
 
@@ -34,6 +35,8 @@ export type SlotInput = {
   tidy?: boolean;
   // Design "now_charge_graph": the figures as rows (the graph sits beside them), the target said once, and no plug-in time (the graph's start says it).
   soft?: boolean;
+  // Design "now_charge_graph": the pack's temperature (°C) from the newest stored sample, only while it is recent; its own row after Rate.
+  packC?: number | null;
 };
 export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
@@ -85,6 +88,7 @@ export function slotStats(i: SlotInput): Stat[] {
     const truckRate = s && s.kilometers_charged_per_hour > 0 ? s.kilometers_charged_per_hour : null;
     const rate = truckRate ?? (rangeKm != null && elapsedSec != null && elapsedSec >= 300 ? rangeKm / (elapsedSec / 3600) : null);
     if (rate != null) out.push({ k: "Rate", v: `${truckRate == null ? "≈ " : ""}${dist(rate / KM_PER_MI)}/h` });
+    if (i.soft && i.packC != null) out.push({ k: "Pack temperature", v: formatTemperature(i.packC, i.tempUnit ?? "c") });
     if (elapsedSec != null) out.push({ k: "Elapsed", v: duration(elapsedSec) });
     if (c && c.cost != null) {
       const est = c.cost_is_estimate !== false;
@@ -287,7 +291,8 @@ export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
   if (!slotAvailable(view, i.fix ?? null)) return null;
   if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
-  const stats = slotStats(i);
+  const packC = usePackTemp(nowMs);
+  const stats = slotStats({ ...i, packC });
   let big = "";
   let bigUnit = "";
   let sub: string | null = null;

@@ -163,6 +163,22 @@ final class NowSlotTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).value.hasPrefix("≈ "))
     }
 
+    func testThePackTemperatureIsARowAfterRateOnlyOnTheSoftCard() throws {
+        let start = at.addingTimeInterval(-3600)
+        let iso = ISO8601DateFormatter().string(from: start)
+        let now = try snapshot("charging", extra: #","charge":{"started_at":"\#(iso)","soc_start":40,"peak_kw":11}"#)
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 11), now: now, clock: at)
+        func labels(soft: Bool, packC: Double?) throws -> [String] {
+            let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, soft: soft, packC: packC, clock: at))
+            guard case .figures(_, _, _, _, let stats) = model.content else { XCTFail("figures"); return [] }
+            return stats.map(\.label)
+        }
+        let soft = try labels(soft: true, packC: 30)
+        XCTAssertEqual(soft.firstIndex(of: "Pack temperature"), soft.firstIndex(of: "Rate").map { $0 + 1 })
+        XCTAssertFalse(try labels(soft: true, packC: nil).contains("Pack temperature"))
+        XCTAssertFalse(try labels(soft: false, packC: 30).contains("Pack temperature"))
+    }
+
     func testRateStaysApproximateWhenTheSessionSendsZero() throws {
         let start = at.addingTimeInterval(-3600)
         let iso = ISO8601DateFormatter().string(from: start)

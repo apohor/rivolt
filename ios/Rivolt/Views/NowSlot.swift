@@ -79,7 +79,7 @@ struct NowSlotModel: Equatable {
     /// Nil when the state has no slot, so the picture stays: charging without a power reading, driving without a speed, parked without a fix.
     static func make(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, liveDrive: LiveDrive?,
                      fix: (lat: Double, lon: Double)?, home: Home?, gear: String? = nil, mode: String? = nil,
-                     soft: Bool = false, parkedGraph: Bool = false, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
+                     soft: Bool = false, packC: Double? = nil, parkedGraph: Bool = false, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
         let atHome = home != nil && fix != nil && ChargerPin.distanceM(home!.lat, home!.lon, fix!.lat, fix!.lon) <= homeRadiusM
         switch summary.kind {
         case .charging:
@@ -87,7 +87,7 @@ struct NowSlotModel: Equatable {
             // As the web: fast at a session peak of 50 kW or more, else the home charger at home, else public only with a saved home, a fix away from it and a known peak.
             let peak = max(snapshot?.charge?.peakKw ?? 0, kw)
             let kind = peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
-            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, clock: clock),
+            return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, packC: packC, clock: clock),
                                 chips: kind.map { [Chip(text: $0, accent: true)] } ?? [])
         case .driving:
             guard let kph = summary.speedKph else { return nil }
@@ -117,7 +117,7 @@ struct NowSlotModel: Equatable {
     private static let costNotes = ["rivian": "billed by Rivian", "user": "your price", "home_rate": "at your home rate",
                                     "network_estimate": "network rate", "observed_estimate": "from similar sessions"]
 
-    private static func charging(summary: NowSummary, detail: ChargingDetail, kw: Double, snapshot: NowSnapshot?, soft: Bool, clock: Date) -> Content {
+    private static func charging(summary: NowSummary, detail: ChargingDetail, kw: Double, snapshot: NowSnapshot?, soft: Bool, packC: Double?, clock: Date) -> Content {
         var sub: String?
         var small: String?
         if let eta = summary.chargeEta {
@@ -144,6 +144,8 @@ struct NowSlotModel: Equatable {
         let truckRate = detail.rateKmPerHour.flatMap { $0 > 0 ? $0 : nil }
         let rate = truckRate ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
         if let rate { stats.append(Stat(label: "Rate", value: "\(truckRate == nil ? "≈ " : "")\(NowFormat.slotDistance(mi: rate / 1.609344))/h", note: nil)) }
+        // The pack's temperature from the newest stored sample (the soft card only, while it is recent): its own row after Rate, as the web's.
+        if soft, let packC { stats.append(Stat(label: "Pack temperature", value: NowComfort.wholeDegrees(celsius: packC), note: nil)) }
         if let elapsed { stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil)) }
         // The cost so far is the server's (`/now` charge), as the web: ≈ when it is an estimate, with where it comes from.
         if let c = snapshot?.charge, let cost = c.cost {

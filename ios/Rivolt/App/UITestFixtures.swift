@@ -149,7 +149,8 @@ final class FixtureURLProtocol: URLProtocol {
                 j["location_fix_at"] = iso.string(from: now)
                 j["battery_level_pct"] = soc(elapsedMin)
                 j["charger_power_kw"] = kw(elapsedMin)
-                j["cabin_temp_c"] = 21.0
+                j["cabin_temp_c"] = 28.6
+                j["distance_to_empty"] = 300.0  // the web stub's numbers, so a pair shows only real differences
             }
         }
         if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/now") {
@@ -161,7 +162,7 @@ final class FixtureURLProtocol: URLProtocol {
                 j["vehicle_state_frame_at"] = iso.string(from: now)
                 j["state_since"] = iso.string(from: started)
                 j["soc_at_state_start"] = soc(0).rounded()
-                j["charge"] = ["started_at": iso.string(from: started), "soc_start": soc(0).rounded(), "peak_kw": 11.2, "cost": cost, "currency": "USD", "cost_is_estimate": true]
+                j["charge"] = ["started_at": iso.string(from: started), "soc_start": soc(0).rounded(), "peak_kw": 11, "cost": cost, "currency": "USD", "cost_is_estimate": true]
                 j["ambient"] = ["temp_c": 12.0, "source": "open-meteo", "as_of": iso.string(from: now)]
             }
         }
