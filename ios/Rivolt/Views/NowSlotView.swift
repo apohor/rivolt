@@ -61,7 +61,7 @@ struct NowSlotView: View {
     }
 
     /// The soft card's figures: a tight two-column grid of label-over-value cells. When every cell but the elapsed time is our own estimate one quiet heading says so, inside the
-    /// grid (it wraps at any width and text size); in a mixed set only the derived cells carry a small "est." (the cost keeps the word "estimate"). The truck's own figures never
+    /// grid (it wraps at any width and text size); in a mixed set only the derived cells carry a small "est." (the cost always keeps the word "estimate" and its source in its note). The truck's own figures never
     /// carry a mark. VoiceOver says "estimated" with each estimated value either way.
     private func softGrid(_ stats: [NowSlotModel.Stat]) -> some View {
         let all = NowSlotModel.estimatedHeading(stats)
@@ -69,7 +69,7 @@ struct NowSlotView: View {
             if all { Text("Estimated so far").themeText(.label).accessibilityIdentifier("now-slot-estimated") }
             LazyVGrid(columns: [GridItem(.flexible(), alignment: .topLeading), GridItem(.flexible(), alignment: .topLeading)], alignment: .leading, spacing: 8) {
                 ForEach(stats, id: \.label) { s in
-                    let mark = !all && s.estimated ? (s.label == "Cost so far" ? "estimate" : "est.") : nil
+                    let mark = !all && s.estimated && s.label != "Cost so far" ? "est." : nil
                     VStack(alignment: .leading, spacing: 1) {
                         Text(s.label).themeText(.label)
                         (Text(s.value).foregroundColor(Theme.textPrimary)

@@ -173,7 +173,8 @@ struct NowSlotModel: Equatable {
         if let c = snapshot?.charge, let cost = c.cost {
             let estimate = c.costIsEstimate != false
             stats.append(Stat(label: "Cost so far", value: "\(estimate && !soft ? "≈ " : "")\(NowFormat.money(cost, currency: c.currency ?? "USD"))",
-                              note: c.costSource.flatMap { costNotes[$0] } ?? (estimate && !soft ? "estimate" : nil), estimated: estimate))
+                              note: soft ? ([estimate ? "estimate" : nil, c.costSource.flatMap { costNotes[$0] }].compactMap { $0 }.joined(separator: " · ") as String?).flatMap { $0.isEmpty ? nil : $0 }
+                                            : c.costSource.flatMap { costNotes[$0] } ?? (estimate ? "estimate" : nil), estimated: estimate))
         }
         if !soft, let started { stats.append(Stat(label: "Plugged in", value: started.formatted(date: .omitted, time: .shortened), note: nil)) }
         return .figures(big: NumberText.fixed(kw, kw < 10 ? 1 : 0), unit: "kW", sub: sub, small: small, stats: stats)

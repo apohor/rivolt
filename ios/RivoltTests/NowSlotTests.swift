@@ -195,7 +195,7 @@ final class NowSlotTests: XCTestCase {
         let stats = try softStats(session: nil, cost: true)
         XCTAssertTrue(NowSlotModel.estimatedHeading(stats))
         XCTAssertTrue(stats.filter { $0.label != "Elapsed" }.allSatisfy(\.estimated), "\(stats)")
-        XCTAssertEqual(try XCTUnwrap(stats.first { $0.label == "Cost so far" }).note, "at your home rate")
+        XCTAssertEqual(try XCTUnwrap(stats.first { $0.label == "Cost so far" }).note, "estimate · at your home rate")
     }
 
     func testSoftMixedMarksOnlyTheDerivedCells() throws {
@@ -203,7 +203,7 @@ final class NowSlotTests: XCTestCase {
         let stats = try softStats(session: session, cost: true)
         XCTAssertFalse(NowSlotModel.estimatedHeading(stats))
         XCTAssertEqual(stats.filter(\.estimated).map(\.label), ["Cost so far"])
-        XCTAssertEqual(try XCTUnwrap(stats.first { $0.label == "Cost so far" }).note, "at your home rate", "the cost keeps its source")
+        XCTAssertEqual(try XCTUnwrap(stats.first { $0.label == "Cost so far" }).note, "estimate · at your home rate", "the cost keeps its source")
     }
 
     func testSoftAllExactCarriesNoMark() throws {

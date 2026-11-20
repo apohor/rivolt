@@ -79,10 +79,7 @@ struct NowChargeGraph: View {
             let nowAnchorLeft = !valueLeft || nowBelow
             let nowTextY = nowBelow ? now.y + 24 : max(now.y - 12, 12)
             let nowBox = Self.box(x: nowBelow ? belowX : (valueLeft ? now.x - 10 : now.x + 10), y: nowTextY, tw: nowW, leading: nowAnchorLeft)
-            // The start value goes above its dot, or just below it when the pack line starts up there.
-            let startAbove = max((soc.first?.y ?? 0) - 14, 12)
-            let packNearStart = pack.prefix(4).contains { p in p.x < (soc.first?.x ?? 0) + 40 && abs(p.y - startAbove) < 14 }
-            let startY = packNearStart ? min((soc.first?.y ?? 0) + 15, base + 6) : startAbove
+            let startY = max((soc.first?.y ?? 0) - 14, 12)
             let packSpot = Self.packSpot(m: m, pack: pack, soc: soc, pow: pow, now: now, nowBox: nowBox, end: end, pillLeft: pillLeft, pillMidY: pillMidY,
                                          startBox: labelStartValue ? soc.first.map { Self.box(x: $0.x + 2, y: startY, tw: CGFloat("\(m.startShown)%".count) * 7, leading: true) } : nil,
                                          w: w, h: h, base: base, padL: padL, padR: padR)
@@ -220,14 +217,17 @@ struct NowChargeGraph: View {
             (last.x + 10, last.y + 18, true), (last.x - 56, last.y - 10, false), (last.x - 56, last.y + 18, false), (last.x - 110, last.y - 10, false),
             (last.x - 110, last.y + 18, false), (last.x - 10, powTop, false), (last.x - 70, powTop, false),
         ]
-        let lines = soc + pack
+        // Each line on its own (no joins between battery, pack and the dotted way on), the dotted way as a straight run from "now" to the end dot.
+        let estimateLine: [CGPoint] = end.map { e in stride(from: 0.0, through: 1.0, by: 0.125).map { CGPoint(x: last.x + (e.x - last.x) * $0, y: last.y + (e.y - last.y) * $0) } } ?? []
         func onLine(_ b: Box) -> Bool {
-            for (i, p) in lines.enumerated() {
-                let q = i + 1 < lines.count && (i + 1 != soc.count) ? lines[i + 1] : p
-                for t in stride(from: 0.0, through: 1.0, by: 0.1) {
-                    let x = p.x + (q.x - p.x) * t
-                    let y = p.y + (q.y - p.y) * t
-                    if x > b.x0 - 3, x < b.x1 + 3, y > b.y0 - 2, y < b.y1 + 2 { return true }
+            for line in [soc, pack, estimateLine] {
+                for (i, p) in line.enumerated() {
+                    let q = i + 1 < line.count ? line[i + 1] : p
+                    for t in stride(from: 0.0, through: 1.0, by: 0.1) {
+                        let x = p.x + (q.x - p.x) * t
+                        let y = p.y + (q.y - p.y) * t
+                        if x > b.x0 - 3, x < b.x1 + 3, y > b.y0 - 2, y < b.y1 + 2 { return true }
+                    }
                 }
             }
             return false
