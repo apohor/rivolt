@@ -67,6 +67,7 @@ test("the estimate leaves \"now\" with the slope of the battery line, not at an 
   for (const c of [CASES.slow, CASES.dc]) {
     await open(page, c);
     const g = page.getByTestId("now-charge-graph");
+    await expect(g.getByTestId("now-charge-graph-estimate-line")).toBeAttached();
     const r = await g.evaluate((root) => {
       const est = root.querySelector('[data-testid="now-charge-graph-estimate-line"]') as SVGPathElement;
       const paths = [...root.querySelectorAll("svg path")].filter((p) => p !== est && (p as SVGPathElement).getAttribute("stroke") && (p as SVGPathElement).getAttribute("fill") === "none") as SVGPathElement[];
