@@ -23,8 +23,15 @@ const (
 	smoothMargin        = 2 // source pixels read around the window, so the kernel and the blur see the neighbours across a tile edge
 )
 
+func (s *Service) smooth() bool {
+	if s.cfg.SmoothFn != nil {
+		return s.cfg.SmoothFn()
+	}
+	return s.cfg.Smooth
+}
+
 func (s *Service) maxZoom() int {
-	if s.cfg.Smooth {
+	if s.smooth() {
 		return SmoothMaxZoom
 	}
 	return MaxZoom
@@ -39,7 +46,7 @@ func (s *Service) smoothSource() int {
 
 // ClientMaxZoom is the deepest zoom clients are told to ask for.
 func (s *Service) ClientMaxZoom() int {
-	if s.cfg.Smooth {
+	if s.smooth() {
 		return SmoothMaxZoom
 	}
 	return ClientMaxZoom

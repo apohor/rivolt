@@ -16,7 +16,7 @@ const module = "github.com/apohor/rivolt/"
 var modules = map[string]string{
 	// platform: shared, small and stable. A change here counts for every role (S19 9g).
 	"internal/db": "platform", "internal/config": "platform", "internal/logging": "platform", "internal/metrics": "platform",
-	"internal/tracing": "platform", "internal/crypto": "platform", "internal/flags": "platform", "internal/bg": "platform",
+	"internal/tracing": "platform", "internal/crypto": "platform", "internal/flags": "platform", "internal/livekeys": "platform", "internal/bg": "platform",
 	"internal/singleton": "platform", "internal/clientip": "platform", "internal/histwin": "platform", "internal/histfloor": "platform",
 	"internal/testpg": "platform", "internal/rolltest": "platform", "internal/integration": "platform", "internal/ci": "platform",
 	"internal/arch": "platform",

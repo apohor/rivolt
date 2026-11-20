@@ -231,6 +231,7 @@ export function ensureConfig(): Promise<RuntimeConfig> {
     inflight = loadConfig().then((c) => {
       cached = c;
       configLoaded = true;
+      lastDesignFetch = Date.now();
       return c;
     });
   }
@@ -565,9 +566,45 @@ export function useDesignPreview(key: string): boolean {
     ensureConfig().then((c) => {
       if (!cancelled) setOn(c.designPreview.includes(key));
     });
+    // The server's list changes while it runs (no restart); a tab that comes back to the front picks the new list up (refreshDesignPreview).
+    const listener = () => {
+      if (!cancelled) setOn(cached.designPreview.includes(key));
+    };
+    designListeners.add(listener);
     return () => {
       cancelled = true;
+      designListeners.delete(listener);
     };
   }, [key]);
   return on;
+}
+
+// The design list is the one part of the config that changes without a restart (the server re-reads its file every 10 s), so a tab refreshes
+// just that list when it becomes visible again, at most once a minute. A failed or odd answer keeps the list the tab has.
+const designListeners = new Set<() => void>();
+const DESIGN_REFRESH_MIN_MS = 60_000;
+let lastDesignFetch = Date.now();
+
+export async function refreshDesignPreview(now: number = Date.now()): Promise<void> {
+  if (!configLoaded || now - lastDesignFetch < DESIGN_REFRESH_MIN_MS) return;
+  lastDesignFetch = now;
+  try {
+    const r = await fetch("/api/config", { credentials: "same-origin", cache: "no-store" });
+    if (!r.ok) return;
+    const j = (await r.json()) as { features?: { design_preview?: unknown } };
+    const list = j?.features?.design_preview;
+    if (!Array.isArray(list)) return;
+    const next = list.filter((k): k is string => typeof k === "string");
+    if (next.length === cached.designPreview.length && next.every((k, i) => k === cached.designPreview[i])) return;
+    cached = { ...cached, designPreview: next };
+    designListeners.forEach((l) => l());
+  } catch {
+    // keep the list the tab has
+  }
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void refreshDesignPreview();
+  });
 }

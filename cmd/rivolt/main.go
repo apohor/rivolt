@@ -71,6 +71,7 @@ import (
 	"github.com/apohor/rivolt/internal/launch"
 	"github.com/apohor/rivolt/internal/leases"
 	"github.com/apohor/rivolt/internal/leftopen"
+	"github.com/apohor/rivolt/internal/livekeys"
 	"github.com/apohor/rivolt/internal/logging"
 	"github.com/apohor/rivolt/internal/maps"
 	"github.com/apohor/rivolt/internal/metrics"
@@ -575,6 +576,16 @@ func runServer() {
 	// (the breaker observer) and the lease coordinator (the leases gauge), so each can wire in at construction.
 	appMetrics := metrics.New()
 	api.SetNavRoutePrecisionObserver(func(result string) { appMetrics.NavRoutePrecisionTotal.WithLabelValues(result).Inc() })
+	// The design-key list (features.design_preview): read from RIVOLT_LIVE_KEYS_FILE (the chart's mounted ConfigMap) every 10 s, so a key change needs no restart.
+	// RIVOLT_DESIGN_PREVIEW is the fallback for a pod that starts without a good file (the migration release); a bad value there is fatal, never dropped.
+	liveKeys, err := livekeys.New(os.Getenv("RIVOLT_LIVE_KEYS_FILE"), os.Getenv("RIVOLT_DESIGN_PREVIEW"), logger)
+	if err != nil {
+		logger.Error("design keys", "err", err.Error())
+		os.Exit(1)
+	}
+	appMetrics.Registry().MustRegister(liveKeys.Collectors()...)
+	role.start("live_keys_poll", func() { liveKeys.Run(ctx.Done(), livekeys.PollInterval) })
+	logger.Info("design keys loaded", "keys", strings.Join(liveKeys.Keys(), ","), "sha", liveKeys.SHA(), "source", liveKeys.Source())
 	// The chart's image tag, projected by the chart (the file /api/health reads); empty off-cluster, then the stamp stands in.
 	podTag, _ := os.ReadFile("/etc/podinfo/image-tag")
 	appMetrics.SetBuildInfo(strings.TrimSpace(string(podTag)), version)
@@ -3086,7 +3097,7 @@ func runServer() {
 	var radarHandler, demoRadarHandler http.Handler
 	if os.Getenv("RIVOLT_RADAR") == "1" {
 		rcfg := radar.Config{BaseURL: strings.TrimSpace(os.Getenv("RIVOLT_RADAR_UPSTREAM")), Prefix: redisKeyPrefix,
-			Smooth: slices.Contains(api.ParseDesignPreview(os.Getenv("RIVOLT_DESIGN_PREVIEW")), radar.SmoothKey)}
+			SmoothFn: func() bool { return liveKeys.Has(radar.SmoothKey) }}
 		if sharedRedis != nil {
 			rcfg.Redis = sharedRedis
 		}
@@ -3502,7 +3513,7 @@ func runServer() {
 		DemoVisits:            demoVisits,
 		FirstScreen:           firstScreen,
 		HistoryImport:         os.Getenv("RIVOLT_HISTORY_IMPORT") == "1" && pgPool != nil,
-		DesignPreview:         api.ParseDesignPreview(os.Getenv("RIVOLT_DESIGN_PREVIEW")),
+		DesignKeys:            liveKeys.Keys,
 		StateForward:          stateForward,
 		OwnerDiscovery:        ownerDiscovery,
 		SignInNudge:           signInNudgeFn,

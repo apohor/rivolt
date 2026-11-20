@@ -85,7 +85,7 @@ func TestStartersPerInstall(t *testing.T) {
 	admin := planFor(roleAll)
 	admin.AdminOnly, admin.Demo = true, true
 	adminStarts := []string{"account_sync", "apple_revoke_retrier", "chargers_reload", "chargers_warm", "chargewatch", "demo_plans", "demo_pricing",
-		"demo_weather", "entitlement_stats", "flags_poll", "http_server", "http_shutdown", "idp_delete_retrier", "metrics_server",
+		"demo_weather", "entitlement_stats", "flags_poll", "http_server", "http_shutdown", "idp_delete_retrier", "live_keys_poll", "metrics_server",
 		"push_notifications_sweep", "second_signal", "settings_sync", "stripe_cancel_retrier", "token_release"}
 	if got := strings.Join(startedBy(admin), ","); got != strings.Join(adminStarts, ",") {
 		t.Errorf("the admin deployment starts %s\nwant %s", got, strings.Join(adminStarts, ","))

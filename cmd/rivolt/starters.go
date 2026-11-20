@@ -66,9 +66,10 @@ var starters = map[string]starter{
 	"drain_watch":           {kind: startAlways, single: singleEveryPod, by: "the process"},
 	"drain_watch_leaseless": {kind: startAlways, single: singleEveryPod, by: "the process"},
 	// This pod's copies of the shared state: the flags snapshot, the settings, the Rivian accounts (one batched read per pass).
-	"flags_poll":    {kind: startAlways, single: singleEveryPod, by: "an in-memory snapshot of the flags table", onAdmin: true},
-	"settings_sync": {kind: startAlways, single: singleEveryPod, by: "an in-memory copy of the settings", tracked: true, onAdmin: true},
-	"account_sync":  {kind: startAlways, single: singleEveryPod, by: "this pod's copy of each Rivian account", tracked: true, onAdmin: true},
+	"live_keys_poll": {kind: startAlways, single: singleEveryPod, by: "the pod's own list, read from its own mounted file", onAdmin: true},
+	"flags_poll":     {kind: startAlways, single: singleEveryPod, by: "an in-memory snapshot of the flags table", onAdmin: true},
+	"settings_sync":  {kind: startAlways, single: singleEveryPod, by: "an in-memory copy of the settings", tracked: true, onAdmin: true},
+	"account_sync":   {kind: startAlways, single: singleEveryPod, by: "this pod's copy of each Rivian account", tracked: true, onAdmin: true},
 	// Drop and count the Rivian clients of groups this pod does not hold: a pod with no leases needs it most.
 	"token_release":       {kind: startAlways, single: singleEveryPod, by: "this pod's own clients", onAdmin: true},
 	"tokens_unheld_gauge": {kind: startAlways, single: singleEveryPod, by: "this pod's own clients"},

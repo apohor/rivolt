@@ -44,3 +44,5 @@ roles:
     dbMaxConns: 4
   secrets:
     appSecretKeys: {}
+liveKeys:
+  designPreview: ""

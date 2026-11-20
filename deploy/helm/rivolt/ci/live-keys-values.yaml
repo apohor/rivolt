@@ -1,0 +1,7 @@
+# CI render: the design keys as a mounted ConfigMap the pods re-read (liveKeys); a Rollout and roles so every pod template gets the mount.
+secrets:
+  kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+externalDatabase:
+  host: postgres.example.invalid
+liveKeys:
+  designPreview: "theme_switch,now_v2"

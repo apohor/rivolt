@@ -1,0 +1,18 @@
+{{- /* The design keys the process re-reads while it runs (features.design_preview). Deliberately its own object: it is not part of the
+       checksum/config annotation in rivolt.podTemplate, so changing it never rolls a pod. An empty string is valid and means every key off;
+       leave liveKeys.designPreview null to not render this at all (the process then uses RIVOLT_DESIGN_PREVIEW). */}}
+{{- if kindIs "string" .Values.liveKeys.designPreview }}
+{{- if not (regexMatch "^[a-z0-9_, ]*$" .Values.liveKeys.designPreview) }}
+{{- fail "liveKeys.designPreview: keys are comma-separated and use only a-z, 0-9 and _" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rivolt.fullname" . }}-live-keys
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+data:
+  keys: |
+    design_preview={{ .Values.liveKeys.designPreview }}
+{{- end }}

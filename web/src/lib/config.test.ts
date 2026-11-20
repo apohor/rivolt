@@ -58,3 +58,25 @@ describe("runtime config: demo radar", () => {
     expect(mod.tilesRadar().url).toBe("");
   });
 });
+
+describe("runtime config: the design list follows the server while the tab lives", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("takes a new list on refresh, at most once a minute, and keeps the old one on a bad answer", async () => {
+    vi.resetModules();
+    const lists: unknown[] = [["a"], ["a", "b"], "oops", ["c"]];
+    const fetchMock = vi.fn().mockImplementation(async () => ({ ok: true, json: async () => ({ features: { design_preview: lists.shift() } }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    const mod = await import("./config");
+    expect((await mod.ensureConfig()).designPreview).toEqual(["a"]);
+    const t0 = Date.now();
+    await mod.refreshDesignPreview(t0 + 10_000); // too soon: no request
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await mod.refreshDesignPreview(t0 + 61_000);
+    expect(mod.getConfig().designPreview).toEqual(["a", "b"]);
+    await mod.refreshDesignPreview(t0 + 130_000); // not a list: keep
+    expect(mod.getConfig().designPreview).toEqual(["a", "b"]);
+    await mod.refreshDesignPreview(t0 + 200_000);
+    expect(mod.getConfig().designPreview).toEqual(["c"]); // a key off under the tab: the list just shrinks
+  });
+});

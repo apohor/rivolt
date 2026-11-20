@@ -406,6 +406,14 @@ secrets:
   vapidPublicKey: ""
   vapidPrivateKey: ""
 
+# The design keys (features.design_preview), re-read by every pod about every 10 s, so turning a key on or off restarts nothing: the
+# ConfigMap <fullname>-live-keys is mounted as a directory and is outside the pod template's checksum annotations. Comma-separated keys
+# ([a-z0-9_]); "" means every key off; null renders nothing and the pods use the RIVOLT_DESIGN_PREVIEW env. While both are set the file wins,
+# so keep them equal (rivolt-infra's script-tests check it) and remove the env a release later. Pods of a rollout (canary and stable) and of
+# every role share the one file; they disagree for up to about 100 s after a change (kubelet refresh plus the 10 s poll).
+liveKeys:
+  designPreview: null
+
 # Extra raw env / envFrom entries — final override hatch.
 extraEnv: []
 # - name: RIVOLT_OIDC_GOOGLE_CLIENT_ID
