@@ -25,6 +25,7 @@ for (const [name, size] of [["phone", { width: 393, height: 852 }], ["desktop", 
     const requests: string[] = [];
     page.on("request", (r) => requests.push(r.url()));
     await box.check();
+    await expect(dlg).toContainText("Map unavailable. The card shows the route as a line.");
     const download = page.waitForEvent("download");
     await dlg.getByRole("button", { name: "Save image" }).click();
     expect((await download).suggestedFilename()).toMatch(/^rivolt-trip-\d{4}-\d{2}\.png$/);

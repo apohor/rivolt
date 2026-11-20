@@ -31,6 +31,8 @@ export function ShareSheet({
   const [includeCost, setIncludeCost] = useState(false);
   const [includeOffpeak, setIncludeOffpeak] = useState(false);
   const [includeMap, setIncludeMap] = useState(false);
+  // True once the basemap could not be drawn (no tile archive, no WebGL, a tile read that failed); the card keeps the plain line.
+  const [mapFailed, setMapFailed] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const canvas = useRef<HTMLCanvasElement | null>(null);
@@ -65,10 +67,14 @@ export function ShareSheet({
     const model = build(includeCost, includeOffpeak, withMapToggle && includeMap);
     // The line first, the map as soon as its tiles are in.
     paintShareCard(canvas.current, model);
-    if (!model.map) return;
+    setMapFailed(false);
+    // No band (a card too full to give the map room) is not a failure: the card draws no map and the note would say a line is drawn.
+    if (!model.map || !shareMapBand(model)) return;
     let cancelled = false;
     void basemapFor(model).then((b) => {
-      if (!cancelled && b && canvas.current) paintShareCard(canvas.current, model, b);
+      if (cancelled) return;
+      if (!b) setMapFailed(true);
+      else if (canvas.current) paintShareCard(canvas.current, model, b);
     });
     return () => {
       cancelled = true;
@@ -169,6 +175,11 @@ export function ShareSheet({
               <span className="block text-xs text-neutral-400">Adds a map of the area you drove through, without place names. The start and end are cut off, and so is the area around your saved home.</span>
             </span>
           </label>
+        )}
+        {withMapToggle && (
+          <p aria-live="polite" className="text-xs text-amber-300 empty:mt-0!">
+            {includeMap && mapFailed ? "Map unavailable. The card shows the route as a line." : ""}
+          </p>
         )}
         <p className="text-xs text-neutral-500">Made on your device. Nothing is uploaded or posted.</p>
         <div className="flex flex-wrap gap-2">
