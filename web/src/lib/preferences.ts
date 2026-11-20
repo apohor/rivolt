@@ -234,7 +234,7 @@ export function usePreferences(): Preferences {
 
 
 // formatTemperature renders a Celsius value in the user's chosen
-// unit. Returns a string like "21 °C" or "70 °F". The backend always
+// unit. Returns a string like "21°C" or "70°F". The backend always
 // serves Celsius so this is the only place unit conversion happens
 // in the UI.
 export function formatTemperature(
@@ -247,9 +247,9 @@ export function formatTemperature(
   }
   if (unit === "f") {
     const f = celsius * 1.8 + 32;
-    return `${f.toFixed(digits)} °F`;
+    return `${f.toFixed(digits)}°F`;
   }
-  return `${celsius.toFixed(digits)} °C`;
+  return `${celsius.toFixed(digits)}°C`;
 }
 
 export const MI_PER_KM = 0.6213711922;

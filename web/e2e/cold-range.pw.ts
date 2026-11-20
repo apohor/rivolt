@@ -10,7 +10,7 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const base = { units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", min_drives: 5, min_miles: 50 };
-const AVAILABLE = [4.4, 15.6, 26.7]; // 40, 60, 80 °F
+const AVAILABLE = [4.4, 15.6, 26.7]; // 40, 60, 80°F
 const fig = (t: number, range = true) => ({
   ...base, temp_c: t, efficiency_low: 2.4, efficiency_high: 2.8, range_low: range ? 190 : null, range_high: range ? 215 : null,
   based_on: { drives: 14, miles: 312, temp_lo_c: t - 4, temp_hi_c: t + 4 }, available: AVAILABLE,
@@ -43,19 +43,19 @@ for (const v of [
     const page = await ctx.newPage();
     const asked = await open(page, (t) => ({ body: AVAILABLE.some((a) => Math.abs(a - t) < 0.3) ? fig(t) : sparse(t) }));
     const card = page.locator("[data-cold-range]");
-    // Starts on the coldest chip that has history (40 °F here).
-    await expect(card).toContainText("Around 40 °F, a full charge usually gives about 190–215 mi, from your own drives (estimate).");
+    // Starts on the coldest chip that has history (40°F here).
+    await expect(card).toContainText("Around 40°F, a full charge usually gives about 190–215 mi, from your own drives (estimate).");
     await expect(card).toContainText("The temperature comes from weather data, not from your truck.");
-    await expect(card.getByRole("button", { name: "0 °F", exact: true })).toBeDisabled();
-    await expect(card.getByRole("button", { name: "20 °F", exact: true })).toBeDisabled();
-    await expect(card.getByRole("button", { name: "40 °F", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(card.getByRole("button", { name: "0°F", exact: true })).toBeDisabled();
+    await expect(card.getByRole("button", { name: "20°F", exact: true })).toBeDisabled();
+    await expect(card.getByRole("button", { name: "40°F", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(card).not.toContainText(/%|better|worse|other (drivers|owners)/i);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect((await new AxeBuilder({ page }).analyze()).violations.filter((x) => x.impact === "serious" || x.impact === "critical")).toEqual([]);
     await card.scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(SHOTS, `cold-range-${v.n}-dark.png`), fullPage: true });
-    await card.getByRole("button", { name: "80 °F", exact: true }).click();
-    await expect(card.getByRole("button", { name: "80 °F", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await card.getByRole("button", { name: "80°F", exact: true }).click();
+    await expect(card.getByRole("button", { name: "80°F", exact: true })).toHaveAttribute("aria-pressed", "true");
     expect(asked.some((t) => Math.abs(t - 26.7) < 0.3)).toBe(true);
     await ctx.close();
   });
@@ -68,7 +68,7 @@ test("no range without a pack: the mi/kWh band alone; too little history says wh
   await expect(page.locator("[data-cold-range]")).toContainText("your drives average about 2.4–2.8 mi/kWh (estimate)");
   const p2 = await ctx.newPage();
   await open(p2, (t) => ({ body: { ...sparse(t), available: [] } }));
-  await expect(p2.locator("[data-cold-range]")).toContainText("Not enough drives near 40 °F yet. It needs about 5 drives and 50 mi near that temperature.");
+  await expect(p2.locator("[data-cold-range]")).toContainText("Not enough drives near 40°F yet. It needs about 5 drives and 50 mi near that temperature.");
   await ctx.close();
 });
 
