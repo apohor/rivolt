@@ -132,8 +132,11 @@ final class PlanSheetUITests: XCTestCase {
         XCTAssertTrue(day2.becomesSelected(), "the day chip took the tap")
         expect(grabber, "half", "and the sheet stayed where it was")
         app.buttons["Edit"].firstMatch.tap()
-        let gone = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: grabber)], timeout: 5)
-        XCTAssertEqual(gone, .completed, "Edit took the tap and left the map for the trip's form")
+        // The form is the proof the tap landed: wait for it, then for the sheet to leave. A slow runner took 2 s to show the form and kept the sheet in
+        // the tree past the 5 s this used to allow (the failed run's video shows the form on screen), so both waits are 20 s like the other openers.
+        XCTAssertTrue(app.buttons["Back to the map"].firstMatch.waitForExistence(timeout: 20), "Edit took the tap and opened the trip's form")
+        let gone = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: grabber)], timeout: 20)
+        XCTAssertEqual(gone, .completed, "and the sheet left the map screen")
     }
 
     /// #1886: at AX3 half Edit and the day chips sat under the tab bar: the header's height never reached the screen (it was sent back as 0), so half
