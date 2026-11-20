@@ -45,6 +45,8 @@ async function headerDelta(page: Page, parkedCase: ParkedCase) {
 // The header is the difference of the graph's two labels: the start label sits on the parked marker's reading, the end on the ring's.
 async function labels(page: Page) {
   const g = page.getByTestId("now-parked-graph");
+  // The svg draws after the box is measured: wait for both labels.
+  await expect(g.locator("svg text").filter({ hasText: /^\d+\.\d%$/ })).toHaveCount(2);
   const texts = await g.locator("svg text").allTextContents();
   const pcts = texts.filter((t) => /^\d+\.\d%$/.test(t)).map(parseFloat);
   const head = (await g.getByTestId("now-parked-change").textContent())!;
