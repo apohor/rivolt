@@ -38,8 +38,15 @@ describe("NowSlot", () => {
     expect(screen.getByTestId("now-slot-added").textContent).toContain("+18.2 kWh");
     expect(screen.getByTestId("now-slot-range-added").textContent).toContain("+60.9 mi");
     expect(screen.getByTestId("now-slot-elapsed").textContent).toContain("1 h 05");
-    expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/≈ .*2\.91.*at your home rate/);
+    expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/estimated .*2\.91.*at your home rate/);
+    expect(screen.getByTestId("now-slot-added").textContent).not.toMatch(/≈|est/);
     expect(screen.getByTestId("now-slot-plugged-in")).toBeTruthy();
+  });
+  it("unkeyed card: no sign anywhere, derived cells say est. and are read as estimated, the truck's figures carry none", () => {
+    const v = { ...charging, soc: 60, rangeMi: 150 } as unknown as NowView;
+    const { container } = render(<NowSlot {...base(v, { charge: { started_at: "2026-01-01T11:00:00Z", soc_start: 40, cost: 2.91, currency: "USD", cost_source: "home_rate", cost_is_estimate: true } })} />);
+    expect(container.textContent).not.toMatch(/≈/);
+    expect(screen.getByTestId("now-slot-range-added").textContent).toMatch(/estimated .*est\.$/);
   });
   it("the time left rounds up to the whole minute, as the iPhone's", () => {
     const left = (hours: number, etaSource: string) => {
@@ -56,17 +63,17 @@ describe("NowSlot", () => {
     expect(billed.find((s) => s.k === "Cost so far")).toMatchObject({ v: "$5.00", note: "billed by Rivian" });
     const none = slotStats(base(charging, { charge: { started_at: "x", cost: null } }));
     expect(none.map((s) => s.k)).toEqual(["Added"]);
-    expect(none[0].v).toBe("≈ +18.2 kWh");
+    expect(none[0].v).toBe("+18.2 kWh");
   });
-  it("without a session figure (or a zero) range added and rate are the battery's gain, marked ≈", () => {
+  it("without a session figure (or a zero) range added and rate are the battery's gain, marked est.", () => {
     const v = { ...charging, soc: 60, rangeMi: 150 } as unknown as NowView;
     const charge = { started_at: "2026-01-01T11:00:00Z", soc_start: 40 };
     // 20 points of 60 at 150 mi: 50 mi, over the hour since the start.
     const est = slotStats(base(v, { charge }));
-    expect(est.find((s) => s.k === "Range added")?.v).toBe("≈ +50.0 mi");
-    expect(est.find((s) => s.k === "Rate")?.v).toBe("≈ 50.0 mi/h");
+    expect(est.find((s) => s.k === "Range added")?.v).toBe("+50.0 mi");
+    expect(est.find((s) => s.k === "Rate")?.v).toBe("50.0 mi/h");
     const zero = slotStats(base(v, { charge, session: { ...session, range_added_km: 0, kilometers_charged_per_hour: 0 } }));
-    expect(zero.find((s) => s.k === "Rate")?.v).toMatch(/^≈ /);
+    expect(zero.find((s) => s.k === "Rate")?.v).toMatch(/^\d/);
     // Under 5 min old there is no rate; the truck's own figures carry no mark.
     expect(slotStats(base(v, { charge: { ...charge, started_at: "2026-01-01T11:57:00Z" } })).some((s) => s.k === "Rate")).toBe(false);
     expect(slotStats(base(v, { charge, session })).find((s) => s.k === "Range added")?.v).toBe("+60.9 mi");

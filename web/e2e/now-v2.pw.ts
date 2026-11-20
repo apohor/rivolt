@@ -39,7 +39,7 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
   const hero = page.locator("[data-now-v2]");
   await expect(hero).toBeVisible();
   await expect(page.locator("[data-now-chip]")).toBeVisible();
-  await expect(page.getByTestId("now-subline")).toHaveText(/Full charge today ≈ 266 mi/);
+  await expect(page.getByTestId("now-subline")).toHaveText(/Full charge today 266 mi/);
   await expect(page.getByTestId("now-temps")).toContainText("Outside");
   // State and time in the chip; no metadata line; only the Live button opens Live; "estimate" sits behind the (i).
   await expect(page.locator("[data-now-chip]")).toHaveText(/(Parked|Plugged in|Asleep) · since \d/);

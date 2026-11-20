@@ -140,10 +140,10 @@ export default function NowHeroV2({
   const parkedSlot = stateSlot != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
   const subline = stateSlot && ((!parkedSlot && !soft) || view.kind === "driving") ? null : charging
     ? view.limitPct != null
-      ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ${soft ? "" : "≈\u00a0"}${dist(atLimit)} when done` : ""}`
+      ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ${dist(atLimit)} when done` : ""}`
       : null
     : fullCharge != null
-      ? `Full charge today ${soft ? "" : "≈ "}${fullCharge} ${distanceUnit}`
+      ? `Full charge today ${fullCharge} ${distanceUnit}`
       : null;
   const outside =
     amb.enabled && ambient && !parkedSlot
