@@ -69,7 +69,7 @@ func TestEfficiencyBuckets(t *testing.T) {
 			t.Errorf("temperature %s: %d drives, want %d", k, b.Drives, n)
 		}
 	}
-	if len(e.ByTemperature) != 5 || e.ByTemperature[0].Label != "Below 32 °F" || e.ByTemperature[4].Label != "86 °F and above" {
+	if len(e.ByTemperature) != 5 || e.ByTemperature[0].Label != "Below 32°F" || e.ByTemperature[4].Label != "86°F and above" {
 		t.Errorf("temperature rows = %+v", e.ByTemperature)
 	}
 	sp := map[string]int{"city": 1, "mixed": 2, "highway": 2, "fast_highway": 1}
@@ -138,7 +138,7 @@ func TestEfficiencyMetric(t *testing.T) {
 	if e.Total.Distance != 160.9 {
 		t.Errorf("distance = %v km", e.Total.Distance)
 	}
-	if e.ByTemperature[0].Label != "Below 0 °C" || byKey(e.BySpeed, "highway").Label != "Highway (89–113 km/h)" {
+	if e.ByTemperature[0].Label != "Below 0°C" || byKey(e.BySpeed, "highway").Label != "Highway (89–113 km/h)" {
 		t.Errorf("metric labels: %q, %q", e.ByTemperature[0].Label, byKey(e.BySpeed, "highway").Label)
 	}
 }

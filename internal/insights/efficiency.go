@@ -122,11 +122,11 @@ type band struct {
 
 // Temperature bands in °C, labelled in °F for imperial.
 var tempBands = []band{
-	{"below_0c", math.Inf(-1), 0, "Below 0 °C", "Below 32 °F"},
-	{"0_10c", 0, 10, "0–10 °C", "32–50 °F"},
-	{"10_20c", 10, 20, "10–20 °C", "50–68 °F"},
-	{"20_30c", 20, 30, "20–30 °C", "68–86 °F"},
-	{"30c_up", 30, math.Inf(1), "30 °C and above", "86 °F and above"},
+	{"below_0c", math.Inf(-1), 0, "Below 0°C", "Below 32°F"},
+	{"0_10c", 0, 10, "0–10°C", "32–50°F"},
+	{"10_20c", 10, 20, "10–20°C", "50–68°F"},
+	{"20_30c", 20, 30, "20–30°C", "68–86°F"},
+	{"30c_up", 30, math.Inf(1), "30°C and above", "86°F and above"},
 }
 
 // Average-speed bands in mph, labelled in km/h for metric.
