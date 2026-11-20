@@ -47,4 +47,45 @@ enum VehiclePicture {
     static func forNow(_ images: [VehicleImage]?, kind: NowSnapshot.State, powerKw: Double?, light: Bool, plugPicture: Bool = false) -> URL? {
         pick(images, wants: kind == .driving ? ["side"] : [], light: light)
     }
+
+    /// What the Live picture reads from the truck's state: the gear and the four closures. The web's `pickImageForState` takes the same five.
+    struct LiveInputs: Equatable {
+        var gear: String?
+        var doorsClosed: Bool?
+        var frunkClosed: Bool?
+        var liftgateClosed: Bool?
+        var tonneauClosed: Bool?
+
+        init(gear: String? = nil, doorsClosed: Bool? = nil, frunkClosed: Bool? = nil, liftgateClosed: Bool? = nil, tonneauClosed: Bool? = nil) {
+            self.gear = gear; self.doorsClosed = doorsClosed; self.frunkClosed = frunkClosed; self.liftgateClosed = liftgateClosed; self.tonneauClosed = tonneauClosed
+        }
+
+        init(_ state: VehicleState) {
+            self.init(gear: state.gear, doorsClosed: state.doorsClosed, frunkClosed: state.frunkClosed, liftgateClosed: state.liftgateClosed, tonneauClosed: state.tonneauClosed)
+        }
+    }
+
+    /// Live: the angle that illustrates the truck's state right now, the same rule as the web's `pickImageForState`: driving shows the side view,
+    /// an open frunk the front, an open liftgate or tonneau the rear, an open door the side; the first of those that exists wins. A closure the truck
+    /// has not reported counts as shut, on both platforms.
+    /// Side-charging art is never chosen, as on Now.
+    static func live(_ images: [VehicleImage]?, state: LiveInputs?, light: Bool) -> URL? {
+        var wants: [String] = []
+        if let state {
+            if ["D", "R", "N"].contains((state.gear ?? "").uppercased()) { wants += ["side", "three-quarter"] }
+            if state.frunkClosed == false { wants += ["front", "three-quarter"] }
+            if state.liftgateClosed == false || state.tonneauClosed == false { wants += ["rear", "side-rear"] }
+            if state.doorsClosed == false { wants += ["side"] }
+        }
+        return pick(images, wants: wants, light: light)
+    }
+
+    /// The Live pictures to try in order: the state's pick, then the vehicle's own `image_url`; one that failed to load is skipped
+    /// (the web's `pickLiveImage`).
+    static func liveCandidates(_ images: [VehicleImage]?, imageURL: String?, state: LiveInputs?, light: Bool, failed: Set<URL> = []) -> [URL] {
+        var out: [URL] = []
+        if let u = live(images, state: state, light: light) { out.append(u) }
+        if let raw = imageURL, let u = URL(string: raw), u.scheme == "https" || allowsFile(u) { out.append(u) }
+        return out.filter { !failed.contains($0) }
+    }
 }

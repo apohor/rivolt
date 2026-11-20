@@ -134,6 +134,12 @@ struct VehicleState: Decodable, Equatable {
     /// percent (`ota_install_percent`, only while installing): read from the monitor, no Rivian call. These, not the raw words above.
     var otaStep: String? = nil
     var otaInstallPercent: Int? = nil
+    /// Which closures are shut (`doors_closed`, ...): the Live picture shows the front, rear or side view for an open frunk, liftgate, tonneau
+    /// or door, as the web's Live page does. Absent on an older server.
+    var doorsClosed: Bool? = nil
+    var frunkClosed: Bool? = nil
+    var liftgateClosed: Bool? = nil
+    var tonneauClosed: Bool? = nil
     /// Rivian's own word for each wheel ("Normal", ...), shown only as theirs and only when it is one of the known low words.
     let tirePressureStatusFl: String?
     let tirePressureStatusFr: String?
