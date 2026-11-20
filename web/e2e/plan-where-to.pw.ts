@@ -45,6 +45,9 @@ test("with the key: Where to? over the map @webkit, saved trips below, a pick pl
   await open(page, {});
   await expect(page.locator("[data-where-to]")).toBeVisible();
   await expect(page.locator("[data-plan-form]")).toHaveCount(0);
+  // MapLibre's own ".maplibregl-map { position: relative }" must not pull the map out of its absolute fill and collapse it to no height.
+  await expect(page.locator("[data-testid=plan-home-map].maplibregl-map")).toBeVisible();
+  await expect.poll(() => page.locator("[data-testid=plan-home-map]").evaluate((e) => e.clientHeight)).toBeGreaterThan(200);
   await expect(page.getByRole("heading", { name: "Recent and saved" })).toBeVisible();
   // Each saved row leads with its icon tile, as in the mock.
   await expect(page.locator("[data-trip-icon]")).toHaveCount(3);
