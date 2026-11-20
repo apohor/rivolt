@@ -14,8 +14,9 @@ struct CarSketch: View {
         Image("CarSketch\(isR1T ? "R1T" : "R1S")\(colorScheme == .light ? "Light" : "Dark")")
             .resizable()
             .scaledToFit()
+            // The badge sits on the drawn image (its fitted size), not on the 220-wide frame the image may not fill.
+            .overlay { if charging { bolt } }
             .frame(minWidth: 0, idealWidth: 0, maxWidth: 220)
-            .overlay(alignment: .topTrailing) { if charging { bolt } }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(isR1T ? "Rivian R1T" : "Rivian R1S")
             .accessibilityIdentifier("now-car-sketch")
@@ -26,16 +27,15 @@ struct CarSketch: View {
         GeometryReader { geo in
             let d = geo.size.width * 0.11
             ZStack {
-                Circle().fill(Color(red: 0.063, green: 0.725, blue: 0.506))
+                Circle().fill(Color(red: 0.063, green: 0.725, blue: 0.506)).frame(width: 22, height: 22)
                 Path { p in
-                    p.move(to: CGPoint(x: 1.5, y: -6.5)); p.addLine(to: CGPoint(x: -4, y: 1)); p.addLine(to: CGPoint(x: 0, y: 1))
-                    p.addLine(to: CGPoint(x: -1.5, y: 6.5)); p.addLine(to: CGPoint(x: 4, y: -1)); p.addLine(to: CGPoint(x: 0, y: -1)); p.closeSubpath()
+                    p.move(to: CGPoint(x: 13.5, y: 5.5)); p.addLine(to: CGPoint(x: 8, y: 13)); p.addLine(to: CGPoint(x: 12, y: 13))
+                    p.addLine(to: CGPoint(x: 10.5, y: 18.5)); p.addLine(to: CGPoint(x: 16, y: 11)); p.addLine(to: CGPoint(x: 12, y: 11)); p.closeSubpath()
                 }
                 .fill(Color(red: 0.024, green: 0.031, blue: 0.047))
-                .frame(width: 24, height: 24)
-                .scaleEffect(d / 24)
-                .frame(width: d, height: d)
             }
+            .frame(width: 24, height: 24)
+            .scaleEffect(d / 24)
             .frame(width: d, height: d)
             .position(x: geo.size.width * (1 - 0.22) - d / 2, y: geo.size.height * 0.10 + d / 2)
         }
@@ -64,11 +64,12 @@ struct LoadedPicture<Content: View>: View {
                 phase = .loading
                 do {
                     let (data, response) = try await URLSession.shared.data(from: url)
+                    if Task.isCancelled { return }
                     if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { phase = .failed; return }
                     if let ui = UIImage(data: data) { phase = .loaded(Image(uiImage: ui)) } else { phase = .failed }
-                } catch is CancellationError {
                 } catch {
-                    phase = .failed
+                    // A load cancelled by a new address ends in URLError(.cancelled), not CancellationError: it is no failure.
+                    if !Task.isCancelled { phase = .failed }
                 }
             }
     }
