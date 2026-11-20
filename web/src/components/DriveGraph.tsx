@@ -5,6 +5,7 @@ import { clock } from "../lib/nowState";
 import { smoothGaussianTime } from "../lib/smooth";
 import { destinationShort, type LiveDestination } from "../lib/liveDestination";
 import { forVehicle } from "../lib/vehicleSamples";
+import { LIVE_GRAPH_REFRESH_MS } from "./LiveChargeGraph";
 import { GraphHead, HaloDot, Legend, QuietLine, SoftDefs, SoftFill, SoftLine, softPath, thin, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
 
 // The Now card's graph while driving (design_preview "now_drive_graph"): the speed from the start of the drive to now as one soft line, the
@@ -51,14 +52,14 @@ export function driveSeries(rows: Sample[], startedMs: number): DriveSeries | nu
   return { speed, soc, startPct: mine.find((p) => p.BatteryLevelPct > 0)?.BatteryLevelPct ?? null, startedMs, top: raw.reduce((m, p) => (p.y > m.y ? p : m), raw[0]) };
 }
 
-// The drive so far, read at the card's pace; null while the drive is not known or too short to draw.
-export function useDriveSeries(vehicleId: string, enabled: boolean, startedMs: number, everyMs: number): DriveSeries | null {
+// The drive so far, read at the charge graph's pace (the line is a smoothed summary, a faster poll would only re-read the whole drive); null while the drive is not known or too short to draw.
+export function useDriveSeries(vehicleId: string, enabled: boolean, startedMs: number): DriveSeries | null {
   const on = enabled && Number.isFinite(startedMs);
   const q = useQuery<Sample[]>({
     queryKey: ["samples", "now-drive", vehicleId, startedMs],
     enabled: on,
     queryFn: () => backend.samples(new Date(startedMs - 30_000), DETAIL_SAMPLE_LIMIT, new Date(Date.now() + 60_000), vehicleId).then((r) => forVehicle(r, vehicleId)),
-    refetchInterval: everyMs,
+    refetchInterval: LIVE_GRAPH_REFRESH_MS,
     refetchIntervalInBackground: false,
     staleTime: 1_000,
   });
@@ -133,7 +134,7 @@ export function DriveGraph({ series, unit, nowPct, destination = null }: { serie
             <SoftLine id={id} d={line} color={ink.line} />
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
             {series.top.y * k >= 10 && series.top.x >= first.x && series.top.x < last.x - 60_000 && (
-              <text x={Math.min(Math.max(sx(series.top.x), PAD.l + 24), lx - 40)} y={Math.max(sv(series.top.y * k) - 8, 12)} textAnchor="middle" data-testid="now-drive-top" className="fill-neutral-400 text-xs">
+              <text x={Math.min(Math.max(sx(series.top.x), PAD.l + 24), lx - 40)} y={Math.max(sv(series.top.y * k) - 8, 12)} textAnchor="middle" data-testid="now-drive-top" className="fill-neutral-400 stroke-white text-xs dark:stroke-neutral-900" strokeWidth={4} paintOrder="stroke" strokeLinejoin="round">
                 {Math.round(series.top.y * k)} {speedUnit}
               </text>
             )}

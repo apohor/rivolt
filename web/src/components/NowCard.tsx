@@ -241,7 +241,7 @@ export default function NowCard({
   // the stored samples at the card's own pace. Too short a drive: no graph, and the card is as it was.
   const driveGraphOn = useDesignPreview("now_drive_graph") && slotOn && tidy && view?.kind === "driving";
   const driveDest = useDriveDestination(vehicleID, driveGraphOn);
-  const driveSeries = useDriveSeries(vehicleID, driveGraphOn, driveQ.data ? Date.parse(driveQ.data.started_at) : NaN, stateRefetchMs(stateQ.data));
+  const driveSeries = useDriveSeries(vehicleID, driveGraphOn, driveQ.data ? Date.parse(driveQ.data.started_at) : NaN);
   // The chip, the graph's pill and its header say one parked time. The state run restarts at every wake-up, so a parked truck's chip
   // takes the server's own parked-since from the series when it has one, and shows no time until the series has answered (or failed, or taken
   // about 3 s), so the time never changes by hours a moment after the card draws.
