@@ -51,6 +51,28 @@ final class NowParkedGraphUITests: XCTestCase {
         shot(app, "now-parked-graph-top")
     }
 
+    /// Only the Live button opens Live: a tap on the card's body, its graph, its figures or the place line stays on Now.
+    func testOnlyTheLiveButtonOpensLive() {
+        let app = launch()
+        let graph = element(app, "now-parked-graph")
+        XCTAssertTrue(graph.waitForExistence(timeout: 30))
+        let live = element(app, "now-live-screen")
+        graph.tap()
+        element(app, "now-parked-tile-idle").tap()
+        let place = element(app, "now-parked-place")
+        if place.exists { place.tap() }
+        let chip = element(app, "now-chip")
+        if chip.exists { app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: chip.frame.midX, dy: chip.frame.maxY + 40)).tap() }
+        XCTAssertFalse(live.waitForExistence(timeout: 2), "nothing but the Live button opens Live")
+        XCTAssertTrue(element(app, "now-parked-graph").exists, "still on Now")
+        // The Live button is its own element with its own name; the card's text does not hold it.
+        let button = app.buttons["now-live-link"].firstMatch
+        XCTAssertTrue(button.exists)
+        XCTAssertEqual(button.label, "Live")
+        button.tap()
+        XCTAssertTrue(live.waitForExistence(timeout: 10), "the button opens Live")
+    }
+
     func testTooLittleLeavesTheCardAsItWas() {
         let app = launch("minutes")
         XCTAssertTrue(element(app, "now-slot-parked").waitForExistence(timeout: 30), "the parked slot still shows")
