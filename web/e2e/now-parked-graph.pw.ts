@@ -208,6 +208,25 @@ test("a sleep before the parked marker draws its fill at 0.65, as on iPhone (the
   expect(shown).toBeCloseTo(0.65, 2);
 });
 
+test("the last stored reading is 90 minutes old: the axis, the line's end dot and the open sleep run to now @webkit", async ({ page }) => {
+  await open(page, "stale", "asleep");
+  const g = page.getByTestId("now-parked-graph");
+  await expect(g).toBeVisible();
+  const box = (await g.locator("svg").boundingBox())!;
+  const edge = box.x + box.width - 10; // PAD.r
+  // The end dot (the last circle) is at the right edge, at the ring's value, not 90 minutes short of it.
+  const dot = (await g.locator("circle").last().boundingBox())!;
+  expect(dot.x + dot.width / 2).toBeGreaterThan(edge - 1.5);
+  // The open sleep's bar ends there too.
+  const bar = (await g.getByTestId("now-parked-sleep").last().locator("rect").last().boundingBox())!;
+  expect(bar.x + bar.width).toBeGreaterThan(edge - 3);
+  // The chip, the header and the tiles agree: the chip is the open sleep's start, the header runs from the parked marker, the tiles are the server's.
+  const want = await page.evaluate((t) => new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, " "), e2eNow() - 2.6 * 3_600_000);
+  await expect(page.getByTestId("now-pill")).toContainText(`Asleep · since ${want}`);
+  await expect(g.getByTestId("now-parked-change")).toContainText(/since \d+:\d+ [AP]M/);
+  if ((page.viewportSize()?.width ?? 0) < 900) await expect(page.getByTestId("now-parked-tile-asleep")).toBeVisible();
+});
+
 test("a truck that never slept has no sleep spans, no wake-up dots and a faster rate @webkit", async ({ page }) => {
   await open(page, "never_slept");
   const g = page.getByTestId("now-parked-graph");

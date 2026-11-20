@@ -1,7 +1,7 @@
 import { e2eNow } from "./clock";
 
 // GET /api/vehicles/{id}/parked-series as the server would answer it for the Now card's parked graph. Times are hours before "now".
-export type ParkedCase = "overnight" | "asleep" | "never_slept" | "charged" | "flat" | "just" | "minutes" | "gone";
+export type ParkedCase = "overnight" | "asleep" | "never_slept" | "charged" | "flat" | "just" | "stale" | "minutes" | "gone";
 
 const H = 3_600_000;
 
@@ -15,6 +15,8 @@ const SLEEPS: Record<string, Sleep[]> = {
   charged: [[22, 19], [18, 12], [11.4, 7.1], [6.4, 3.2], [2.6, 1.2]],
   // Asleep through the parked stretch with no loss at all, as a truck that sleeps well reads (the sleeps end at the parked marker's wake).
   flat: [[22, 19], [18, 11.9], [11.4, 7], [6.4, 3.2], [2.6, 0]],
+  // An asleep truck stores nothing for hours: the open sleep is on, the last stored reading is 90 minutes old.
+  stale: [[22, 19], [18, 11.9], [11.4, 7], [6.4, 3.2], [2.6, 0]],
   just: [[22, 19], [18, 11.9], [11.4, 7], [6.4, 3.2], [2.6, 0.6]],
 };
 
@@ -27,6 +29,7 @@ const BREAK: Record<string, [number, number, number]> = {
   flat: [11.9, 11.7, -0.6],
   // Parked a few minutes ago after a short drive: the whole window is "before the parked marker".
   just: [0.5, 0.2, -5],
+  stale: [11.9, 11.7, -0.6],
 };
 
 export function parkedSeriesFixture(kind: ParkedCase) {
@@ -43,7 +46,7 @@ export function parkedSeriesFixture(kind: ParkedCase) {
   const points: { t: string; soc: number; seg: number }[] = [];
   let soc = kind === "never_slept" ? 78 : 80;
   let broke = false;
-  for (let h = 24; h >= 0; h -= 1 / 6) {
+  for (let h = 24; h >= (kind === "stale" ? 1.5 : 0); h -= 1 / 6) {
     if (h < brkFrom && h > brkTo) {
       if (!broke) {
         soc += brkSoc;

@@ -77,6 +77,35 @@ final class NowParkedGraphModelTests: XCTestCase {
         return try JSON.decoder().decode(ParkedSeries.self, from: JSONSerialization.data(withJSONObject: j))
     }
 
+    /// The asleep fixture as a sleeping truck sends it: the last stored reading is 90 minutes before the request ("to"), as an asleep truck stores nothing for hours.
+    private func stale() throws -> ParkedSeries {
+        var j = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("parked_series_asleep")) as? [String: Any])
+        let to = try XCTUnwrap(JSON.decoder().decode(ParkedSeries.self, from: JSONSerialization.data(withJSONObject: j)).to)
+        let cut = to.addingTimeInterval(-90 * 60)
+        let fmt = ISO8601DateFormatter()
+        fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let pts = try XCTUnwrap(j["points"] as? [[String: Any]]).filter { fmt.date(from: $0["t"] as? String ?? "").map { $0 <= cut } ?? false }
+        j["points"] = pts
+        return try JSON.decoder().decode(ParkedSeries.self, from: JSONSerialization.data(withJSONObject: j))
+    }
+
+    func testTheAxisEndsAtNowWhenTheLastStoredReadingIsNinetyMinutesOld() throws {
+        let s = try stale()
+        let lastStored = try XCTUnwrap(s.points.last)
+        XCTAssertEqual(s.to.timeIntervalSince(lastStored.t), 90 * 60, accuracy: 600)
+        let m = try XCTUnwrap(NowParkedGraphModel.make(series: s, nowPct: 71.0, metric: false))
+        // The line runs to the right edge at the ring's value, not to the last reading.
+        XCTAssertEqual(m.last.pct, 71.0)
+        XCTAssertEqual(m.last.pt.x, 1, accuracy: 0.0001)
+        XCTAssertEqual(m.line.last?.x ?? 0, 1, accuracy: 0.0001)
+        XCTAssertLessThan(m.line.dropLast().last?.x ?? 1, 0.99)
+        // The open sleep extends to now, and the header measures from the parked marker to the ring's value.
+        let open = try XCTUnwrap(m.sleeps.last)
+        XCTAssertEqual(open.x1, 1, accuracy: 0.0001)
+        XCTAssertEqual(m.change, NowParkedGraphModel.parkedChange(base: m.start.pct, now: 71.0, since: s.parkedSince).value)
+        XCTAssertEqual(NowParkedGraphModel.openSleepSince(s), s.sleeps.last?.from)
+    }
+
     func testAWakeCostThatRoundsToZeroIsNotPrintedAndTwoTilesRemain() throws {
         let m = try XCTUnwrap(NowParkedGraphModel.make(series: flat(), nowPct: nil, metric: false))
         XCTAssertEqual(m.figures.map(\.id.rawValue), ["asleep", "wakes"])
