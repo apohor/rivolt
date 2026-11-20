@@ -1,7 +1,7 @@
 import { e2eNow } from "./clock";
 
 // GET /api/vehicles/{id}/parked-series as the server would answer it for the Now card's parked graph. Times are hours before "now".
-export type ParkedCase = "overnight" | "asleep" | "never_slept" | "charged" | "minutes" | "gone";
+export type ParkedCase = "overnight" | "asleep" | "never_slept" | "charged" | "flat" | "minutes" | "gone";
 
 const H = 3_600_000;
 
@@ -13,6 +13,8 @@ const SLEEPS: Record<string, Sleep[]> = {
   asleep: [[22, 19], [18, 11.9], [11.4, 7], [6.4, 3.2], [2.6, 0]],
   never_slept: [],
   charged: [[22, 19], [18, 12], [11.4, 7.1], [6.4, 3.2], [2.6, 1.2]],
+  // Asleep through the parked stretch with no loss at all, as a truck that sleeps well reads (the sleeps end at the parked marker's wake).
+  flat: [[22, 19], [18, 11.9], [11.4, 7], [6.4, 3.2], [2.6, 0]],
 };
 
 // What breaks the line: [start, end] in hours ago and the battery change over it (no readings inside). A drive costs a little; a charge adds a lot.
@@ -21,6 +23,7 @@ const BREAK: Record<string, [number, number, number]> = {
   asleep: [11.9, 11.7, -0.6],
   never_slept: [11.9, 11.7, -0.6],
   charged: [7.1, 6.7, 18],
+  flat: [11.9, 11.7, -0.6],
 };
 
 export function parkedSeriesFixture(kind: ParkedCase) {
@@ -33,7 +36,7 @@ export function parkedSeriesFixture(kind: ParkedCase) {
   const sleeps = SLEEPS[kind];
   const [brkFrom, brkTo, brkSoc] = BREAK[kind];
   // The battery: a slow loss while asleep, a little more at each wake-up, and a faster one awake and idle.
-  const rate = (h: number) => (sleeps.some(([a, b]) => h <= a && h >= b) ? 0.012 : 0.07); // percent per 10 minutes
+  const rate = (h: number) => (kind === "flat" && h < brkTo ? 0 : sleeps.some(([a, b]) => h <= a && h >= b) ? 0.012 : 0.07); // percent per 10 minutes
   const points: { t: string; soc: number; seg: number }[] = [];
   let soc = kind === "never_slept" ? 78 : 80;
   let broke = false;
@@ -57,6 +60,7 @@ export function parkedSeriesFixture(kind: ParkedCase) {
   // Local midnight is taken as 12 h ago: the sleeps inside the last 12 h.
   const asleepToday = sleeps.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(a, 12) - Math.min(b, 12)), 0);
   const idle = kind === "never_slept" ? 12 : 6;
+  const flat = kind === "flat";
   return {
     ...base,
     parked_since: points.find((p) => p.seg === 1)!.t,
@@ -65,7 +69,7 @@ export function parkedSeriesFixture(kind: ParkedCase) {
     points,
     sleeps: sleeps.map(([a, b]) => ({ from: at(a), to: at(b), open: b === 0 })),
     wakes,
-    figures: { asleep_today_s: Math.round(asleepToday * 3600), wake_ups: wakes.length, wake_cost_pct: wakes.length ? 0.4 : null, idle_pct_per_day: idle, idle_mi_per_day: idle * 3 },
-    projection: { at: new Date(now + 2 * 24 * H).toISOString(), soc: Math.round((last.soc - idle * 2) * 10) / 10 },
+    figures: { asleep_today_s: Math.round(asleepToday * 3600), wake_ups: wakes.length, wake_cost_pct: wakes.length ? (flat ? 0 : 0.4) : null, idle_pct_per_day: flat ? null : idle, idle_mi_per_day: flat ? null : idle * 3 },
+    projection: flat ? null : { at: new Date(now + 2 * 24 * H).toISOString(), soc: Math.round((last.soc - idle * 2) * 10) / 10 },
   };
 }

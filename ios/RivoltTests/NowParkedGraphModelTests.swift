@@ -51,7 +51,8 @@ final class NowParkedGraphModelTests: XCTestCase {
         let r = NowParkedGraphModel.parkedChange(base: 80, now: 78.6, since: nil)
         XCTAssertEqual(r.value, "−1.4%")
         XCTAssertEqual(r.since, "in 24 h")
-        XCTAssertEqual(NowParkedGraphModel.parkedChange(base: 70, now: 70, since: nil).value, "0.0%")
+        XCTAssertEqual(NowParkedGraphModel.parkedChange(base: 70, now: 70, since: nil).value, "No loss")
+        XCTAssertEqual(NowParkedGraphModel.parkedChange(base: 75.72, now: 75.7, since: nil).value, "No loss")
         XCTAssertEqual(NowParkedGraphModel.parkedChange(base: 70, now: 70.4, since: nil).value, "+0.4%")
     }
 
@@ -63,6 +64,49 @@ final class NowParkedGraphModelTests: XCTestCase {
         XCTAssertEqual(f[1].tileNote, "≈ 0.4% each")
         XCTAssertEqual(f[2].value, "6% a day")
         XCTAssertEqual(f[2].label, "idle loss")
+    }
+
+    /// The asleep fixture with the figures the server gives a truck that lost nothing: wake cost 0, no idle loss.
+    private func flat() throws -> ParkedSeries {
+        var j = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("parked_series_asleep")) as? [String: Any])
+        var f = try XCTUnwrap(j["figures"] as? [String: Any])
+        f["wake_cost_pct"] = 0.02
+        f["idle_pct_per_day"] = NSNull()
+        f["idle_mi_per_day"] = NSNull()
+        j["figures"] = f
+        return try JSON.decoder().decode(ParkedSeries.self, from: JSONSerialization.data(withJSONObject: j))
+    }
+
+    func testAWakeCostThatRoundsToZeroIsNotPrintedAndTwoTilesRemain() throws {
+        let m = try XCTUnwrap(NowParkedGraphModel.make(series: flat(), nowPct: nil, metric: false))
+        XCTAssertEqual(m.figures.map(\.id.rawValue), ["asleep", "wakes"])
+        XCTAssertEqual(m.figures[1].tileNote, "")
+        XCTAssertEqual(m.figures[1].note, "")
+        XCTAssertEqual(m.figures[1].value, "\(try series("asleep").figures!.wakeUps) wake-ups")
+    }
+
+    func testAnAsleepChipTakesTheStartOfTheOpenSleepFromTheSeries() async throws {
+        let s = try series("asleep")
+        let open = try XCTUnwrap(s.sleeps.last)
+        XCTAssertTrue(open.open)
+        XCTAssertEqual(NowParkedGraphModel.openSleepSince(s), .some(open.from))
+        let m = NowParkedSeriesModel()
+        let state = Date(timeIntervalSince1970: 1_000)
+        XCTAssertNil(m.chipAsleepSince(vehicleID: "a", state: state, late: false))
+        await m.load(source: Source(answer: s, fails: false), vehicleID: "a")
+        XCTAssertEqual(m.chipAsleepSince(vehicleID: "a", state: state, late: false), open.from)
+        // Another truck: nothing of this one's.
+        XCTAssertNil(m.chipAsleepSince(vehicleID: "b", state: state, late: false))
+        // No open sleep in the series (the overnight one ended): the state's own time.
+        let o = try series("overnight")
+        XCTAssertNil(NowParkedGraphModel.openSleepSince(o))
+        let m2 = NowParkedSeriesModel()
+        await m2.load(source: Source(answer: o, fails: false), vehicleID: "a")
+        XCTAssertEqual(m2.chipAsleepSince(vehicleID: "a", state: state, late: false), state)
+        // A failed read ends the wait with the state's time.
+        let m3 = NowParkedSeriesModel()
+        await m3.load(source: Source(answer: nil, fails: true), vehicleID: "a")
+        XCTAssertEqual(m3.chipAsleepSince(vehicleID: "a", state: state, late: false), state)
     }
 
     func testTheTwoIdleLossTexts() throws {
