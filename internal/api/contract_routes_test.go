@@ -257,6 +257,7 @@ var webCallsOptionalByConfig = map[string]string{
 	"POST /api/import/commit":               "as above",
 	"GET /api/imports":                      "as above",
 	"POST /api/imports/{x}/undo":            "as above",
+	"GET /api/vehicles/{x}/parked-series":    "mounted only where the design key now_parked_graph is on (Deps.DesignPreview); the Now card draws the graph only when /api/config lists that key",
 	"POST /api/trips/saved/{x}/receipt":     "mounted only where the design key trip_receipt is on (Deps.DesignPreview); the Saved tab's Share opens the receipt only when /api/config lists that key",
 	"POST /api/trips/saved/{x}/share":       "mounted only where shared trip links are on (Deps.TripShare: RIVOLT_TRIP_SHARE=1); Share on a saved trip shows only when /api/config says features.trip_share",
 	"GET /api/trips/saved/{x}/shares":       "as above",
