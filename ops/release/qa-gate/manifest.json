@@ -1,0 +1,27 @@
+{
+  "_doc": "failedIgnore: requests the app expects to fail (no lease set answers 404). The gate's lines. viewports x schemes are captured for every screen. A screen's must / mustNot are regexes (flags after the last slash, e.g. /text/i) tested against the page's visible text. states (Now only) are checked in the contexts where the Now slot reports that data-kind; a state no context saw is NOT SEEN, which is the cue to start a sim run for it (see README.md). Add a line here to make a release check it.",
+  "viewports": [
+    { "name": "393", "width": 393, "height": 852 },
+    { "name": "1440", "width": 1440, "height": 900 }
+  ],
+  "schemes": ["light", "dark"],
+  "mustNotEverywhere": ["/\\bNaN\\b/", "/\\bundefined\\b/", "/\\[object /", "/\\bnull (mi|km|kW|%)/"],
+  "failedIgnore": ["^404 /api/vehicles/[^/]+/lease$"],
+  "consoleIgnore": ["tiles", "pmtiles", "Bad response code", "Failed to load resource.*(404|416)", "due to access control checks"],
+  "screens": [
+    { "id": "now", "path": "/", "ready": "[data-testid=now-pill]", "stateSelector": "[data-testid=now-slot]",
+      "states": {
+        "charging": { "must": ["/kW/"] },
+        "driving": { "must": ["/mph|km\\/h/i"] },
+        "parked": {},
+        "plugged": {},
+        "asleep": {}
+      } },
+    { "id": "live", "path": "/live", "ready": "main[data-app-main]" },
+    { "id": "activity", "path": "/activity", "ready": "main[data-app-main]", "must": ["/Activity/"] },
+    { "id": "money", "path": "/money", "ready": "main[data-app-main]", "must": ["/Money/"] },
+    { "id": "plan", "path": "/trips/plan", "ready": "main[data-app-main]" },
+    { "id": "truck", "path": "/truck", "ready": "main[data-app-main]" }
+  ],
+  "signOut": { "path": "/settings", "button": "Sign out of Rivolt", "afterMustNot": "/settings", "afterMust": "/Continue with Email/" }
+}
