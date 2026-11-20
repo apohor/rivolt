@@ -21,7 +21,8 @@ struct NowSummary: Equatable {
     let rangeKm: Double?
     let chargeTargetPct: Double?
     let stateLabel: String
-    let since: Date?
+    /// Nil unless the state has a start; a parked truck takes the parked graph's own parked-since (one parked time on the card).
+    var since: Date?
     let chargePowerKw: Double?
     /// Percentage points added since the charge started.
     let chargeAddedPct: Double?

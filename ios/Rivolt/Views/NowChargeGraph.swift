@@ -68,7 +68,7 @@ struct NowChargeGraph: View {
                         var layer = ctx
                         layer.addFilter(.blur(radius: 9))
                         let r = CGRect(x: now.x + 12, y: padT + 4, width: max(end.x - now.x - 20, 4), height: base - padT - 4)
-                        layer.fill(Path(roundedRect: r, cornerRadius: 14), with: .linearGradient(Gradient(colors: [band.opacity(0.08), band.opacity(0)]),
+                        layer.fill(Path(roundedRect: r, cornerRadius: 28), with: .linearGradient(Gradient(colors: [band.opacity(0.08), band.opacity(0)]),
                                                                                                     startPoint: CGPoint(x: 0, y: r.minY), endPoint: CGPoint(x: 0, y: r.maxY)))
                     }
                     let line = Self.path(soc)
@@ -86,9 +86,16 @@ struct NowChargeGraph: View {
                     glow.stroke(line, with: .color(Theme.accent.opacity(0.5)), style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
                     ctx.stroke(line, with: .color(Theme.accent.opacity(0.95)), style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
                     if let end {
+                        // Leaves "now" as a curve: the slope of the battery line over its last stretch (never steeper than the way to the target), easing in
+                        // level at the target. Same rule as the web.
+                        let dx = end.x - now.x
+                        let dy = end.y - now.y
+                        let from = soc.first { $0.x >= now.x - max(24, 0.08 * (now.x - (soc.first?.x ?? now.x))) } ?? now
+                        let m = now.x - from.x > 1 ? (now.y - from.y) / (now.x - from.x) : 0
+                        let rise = min(0, max(dy, m * dx * 0.4))
                         var dots = Path()
                         dots.move(to: now)
-                        dots.addLine(to: end)
+                        dots.addCurve(to: end, control1: CGPoint(x: now.x + dx * 0.4, y: now.y + rise), control2: CGPoint(x: end.x - dx * 0.35, y: end.y))
                         ctx.stroke(dots, with: .color(Theme.accent.opacity(0.8)), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, dash: [0.1, 7]))
                         Self.dot(&ctx, end, big: false)
                     }

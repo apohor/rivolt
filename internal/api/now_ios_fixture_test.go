@@ -38,6 +38,11 @@ func iosFixtureTargets() map[string]any {
 		// ota_install_progress, which the Now card and the Truck page read instead of re-polling /api/vehicles.
 		"state_ota_installing.json": &rivian.State{},
 		"vehicles.json":             &[]rivian.Vehicle{},
+		// GET /api/vehicles/{id}/parked-series for the Now card's parked graph (design key now_parked_graph): the web stub's four cases.
+		"parked_series_overnight.json":   &parkedSeriesResponse{},
+		"parked_series_asleep.json":      &parkedSeriesResponse{},
+		"parked_series_charged.json":     &parkedSeriesResponse{},
+		"parked_series_never_slept.json": &parkedSeriesResponse{},
 		// Settings → Charging on the phone (settings_fixtures_test.go regenerates these from the same types).
 		"settings_offpeak.json":          &offpeakResponse{},
 		"settings_offpeak_empty.json":    &offpeakResponse{},

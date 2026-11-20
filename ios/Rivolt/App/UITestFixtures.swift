@@ -65,7 +65,7 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/app/config"): return "app_config"
         // The preview-only designs: off unless the UI test asks for the theme switch.
         case ("GET", "/api/config"): let args = ProcessInfo.processInfo.arguments
-            return args.contains("-uitest-charging") ? "config_now_charge" : args.contains("-uitest-trip-receipt") ? "config_trip_receipt" : args.contains("-uitest-share-map") ? "config_share_map" : args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
+            return args.contains("-uitest-charging") ? "config_now_charge" : args.contains("-uitest-parked") ? "config_now_parked" : args.contains("-uitest-trip-receipt") ? "config_trip_receipt" : args.contains("-uitest-share-map") ? "config_share_map" : args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
         // The round-trip launch: one merged drive of three real legs (a zero-distance stub between two of them left out), each leg's own route and the samples.
         case ("GET", "/api/activity") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "activity_round_trip"
         case ("GET", "/api/samples") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "samples_round_trip"
@@ -179,6 +179,88 @@ final class FixtureURLProtocol: URLProtocol {
         return nil
     }
 
+    /// A parked truck for the Now card's parked graph (`-uitest-parked`), the same cases and numbers as the web's e2e stub (web/e2e/parkedSeriesFixture.ts),
+    /// chosen by RIVOLT_UITEST_PARKED_CASE: "overnight" (five sleeps, a drive 12 h ago), "charged" (a charge between two sleeps), "asleep" (the truck is
+    /// asleep now), "never_slept" (awake and idling all day), "minutes" (parked a few minutes ago: nothing to draw). The fixtures are written at the web
+    /// stub's pinned clock; every time in them moves by the same amount so the series ends at the launch.
+    private func parkedAnswer(path: String) -> Data? {
+        let name = ProcessInfo.processInfo.environment["RIVOLT_UITEST_PARKED_CASE"] ?? "overnight"
+        let pinned = Date(timeIntervalSince1970: 1_794_938_400)  // 2026-11-17T18:00:00Z, the stub clock
+        // RIVOLT_UITEST_PARKED_NOW (RFC 3339, a little before the real time) places every fixture time against that instant, so the web stub can be
+        // run at the same one (STUB_NOW) and the two cards show the same clock times.
+        let plain = ISO8601DateFormatter()
+        let now = ProcessInfo.processInfo.environment["RIVOLT_UITEST_PARKED_NOW"].flatMap { plain.date(from: $0) } ?? Date()
+        let live = Date()  // freshness stamps stay current; only the history is placed against the mark
+        let shift = now.timeIntervalSince(pinned)
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        func shifted(_ any: Any) -> Any {
+            if let s = any as? String, let d = iso.date(from: s) { return iso.string(from: d.addingTimeInterval(shift)) }
+            if let a = any as? [Any] { return a.map(shifted) }
+            if let o = any as? [String: Any] { return o.mapValues(shifted) }
+            return any
+        }
+        func fixture(_ file: String) -> [String: Any]? {
+            guard let raw = data(named: file), let json = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] else { return nil }
+            return shifted(json) as? [String: Any]
+        }
+        func rewrite(_ file: String, _ patch: (inout [String: Any]) -> Void) -> Data? {
+            guard var json = fixture(file) else { return nil }
+            patch(&json)
+            return try? JSONSerialization.data(withJSONObject: json)
+        }
+        let isoPlain = ISO8601DateFormatter()
+        let series: [String: Any]? = name == "minutes" ? nil : fixture("parked_series_\(name)")
+        let points = series?["points"] as? [[String: Any]] ?? []
+        let soc = (points.last?["soc"] as? Double) ?? 78
+        let parkedSince = (series?["parked_since"] as? String) ?? iso.string(from: now.addingTimeInterval(-0.3 * 3600))
+        let asleepNow = name == "asleep"
+        if path == "/api/settings/home-location" {
+            return try? JSONSerialization.data(withJSONObject: ["set": true, "latitude": 30.2672, "longitude": -97.7431, "label": "Home", "source": "coordinates", "previous_set": false, "address_search": false] as [String: Any])
+        }
+        if path == "/api/auth/me", let units = ProcessInfo.processInfo.environment["RIVOLT_UITEST_UNITS"] {
+            return rewrite("me") { j in
+                j["units"] = ["distance_unit": units, "temperature_unit": units == "km" ? "c" : "f", "distance_source": "user", "temperature_source": "follows_distance"]
+            }
+        }
+        if path.contains("/parked-series") {
+            return name == "gone" ? nil : series.flatMap { try? JSONSerialization.data(withJSONObject: $0) } ?? (try? JSONSerialization.data(withJSONObject: [
+                "version": 1, "from": iso.string(from: now.addingTimeInterval(-86_400)), "to": iso.string(from: now), "parked_since": parkedSince, "parked": true,
+                "points": [], "sleeps": [], "wakes": []] as [String: Any]))
+        }
+        if path.contains("/state/") {
+            return rewrite("state") { j in
+                j["at"] = isoPlain.string(from: live)
+                j["location_fix_at"] = isoPlain.string(from: live)
+                j["battery_level_pct"] = soc
+                j["charger_state"] = "charging_complete"
+                j["charger_power_kw"] = 0
+                j["charger_status"] = "chrgr_sts_not_connected"
+                j["power_state"] = asleepNow ? "sleep" : "ready"
+                j["cabin_temp_c"] = 21.0
+                j["distance_to_empty"] = 299.5  // 186 mi, the web stub's figure
+            }
+        }
+        if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/now") {
+            let figures = series?["figures"] as? [String: Any]
+            let sleeps = series?["sleeps"] as? [[String: Any]] ?? []
+            return rewrite("now_v1") { j in
+                j["at"] = isoPlain.string(from: live)
+                j["location_fix_at"] = isoPlain.string(from: live)
+                j["vehicle_state_frame_at"] = isoPlain.string(from: live)
+                j["state"] = asleepNow ? "asleep" : "parked"
+                j["asleep"] = asleepNow
+                j["state_since"] = asleepNow ? (sleeps.last?["from"] ?? parkedSince) : parkedSince
+                j["soc_at_state_start"] = soc
+                j["charge"] = nil
+                if asleepNow, let from = sleeps.last?["from"] { j["asleep_since"] = from }
+                if let today = figures?["asleep_today_s"] { j["asleep_today_s"] = today }
+                j["ambient"] = ["temp_c": 12.0, "source": "open-meteo", "as_of": isoPlain.string(from: live)]
+            }
+        }
+        return nil
+    }
+
     override func startLoading() {
         guard let url = request.url else { return }
         let method = request.httpMethod ?? "GET"
@@ -211,6 +293,8 @@ final class FixtureURLProtocol: URLProtocol {
             failed = 503
             answer = Data(#"{"error":"upstream unavailable","class":"transient"}"#.utf8)
         } else if ProcessInfo.processInfo.arguments.contains("-uitest-charging"), method == "GET", let live = chargingAnswer(path: url.path) {
+            answer = live
+        } else if ProcessInfo.processInfo.arguments.contains("-uitest-parked"), method == "GET", let live = parkedAnswer(path: url.path) {
             answer = live
         } else if let name = Self.file(method: method, path: url.path) {
             answer = data(named: name)

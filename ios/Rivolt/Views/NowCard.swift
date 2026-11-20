@@ -42,6 +42,9 @@ struct NowCard: View {
     /// The charging graph (design_preview key now_charge_graph, with ios_now_tidy and now_slot): the stored samples of the open charge, the card in the
     /// soft look, and the pack temperature from the newest sample. Nil without the key.
     var chargeSeries: NowChargeSeriesModel?
+    /// The parked graph (design_preview key now_parked_graph, with ios_now_tidy and now_slot): the last 24 hours of the battery on a parked, plugged
+    /// or asleep truck. Nil without the key; a series with no line to draw leaves the card as it was.
+    var parkedSeries: NowParkedSeriesModel?
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -91,11 +94,21 @@ struct NowCard: View {
         guard slotOn, NowSlotModel.shown(summary: summary) else { return nil }
         let fix = NowSlotModel.fix(snapshot: snapshot, truck: truckFix)
         return NowSlotModel.make(summary: summary, snapshot: snapshot, session: session, charge: charge, liveDrive: liveDrive, fix: fix,
-                                 home: home, gear: gear, mode: driveMode, soft: soft, clock: clock)
+                                 home: home, gear: gear, mode: driveMode, soft: soft, parkedGraph: parkedSoft, clock: clock)
     }
 
     /// The charging card in its soft look: the key on, the slot and the calm hero showing, a charge in progress.
     private var soft: Bool { chargeSeries != nil && slotOn && tidy && charging }
+
+    /// The parked card in its soft look: the key on, the slot and the calm hero showing, a parked, plugged or sleeping truck with a line to draw.
+    private var parkedSoft: Bool { parkedModel != nil }
+
+    /// The parked graph's numbers; the ring's value is the end label.
+    private var parkedModel: NowParkedGraphModel? {
+        guard tidy, slotOn, !charging, !driving, [.parked, .plugged, .asleep].contains(summary.kind) || summary.sleeping,
+              let series = parkedSeries?.series else { return nil }
+        return NowParkedGraphModel.make(series: series, nowPct: summary.socPct, metric: NowFormat.usesMetric)
+    }
 
     /// The graph's numbers, from the stored samples and the figures the card shows (the ring's value is the end label).
     private var graphModel: NowChargeGraphModel? {
@@ -124,7 +137,7 @@ struct NowCard: View {
             } else if let onLive { HStack { Spacer(minLength: 0); liveButton(onLive) } }
             VStack(alignment: .leading, spacing: 12) {
                 heroGaugeV2(pictureShown: slot == nil)
-                if soft, let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
+                if soft || parkedSoft, let line = subline { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if tidy, driving, isLive, let destination, destination.hasFix {
                     Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
                     NowDestinationBlock(destination: destination)
@@ -133,10 +146,14 @@ struct NowCard: View {
                 if let slot {
                     // The rule between the gauge and the slot, as the web's.
                     Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
+                    if let parked = parkedModel, slot.isParked {
+                        NowParkedGraph(model: parked)
+                        Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
+                    }
                     NowSlotView(model: slot, soft: soft)
                     if soft { Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true); NowChargeGraph(model: graphModel) }
                 }
-                if let line = subline, slot == nil || slot?.isParked == true { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
+                if let line = subline, !parkedSoft, slot == nil || slot?.isParked == true { Text(line).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true) }
                 if showRows { detailRows }
                 if let note = freshnessNote { Text(note).themeText(.subline) }
             }

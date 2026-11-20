@@ -102,8 +102,74 @@ struct NowChargeGraphModel: Equatable {
 
 /// A smooth monotone-cubic line through points (the web's `softPath`): no overshoot between samples.
 enum NowGraphCurve {
-    /// Control points for each segment, in the order the points come.
-    static func segments(_ pts: [CGPoint]) -> [(c1: CGPoint, c2: CGPoint, end: CGPoint)] {
+    /// Readings that jump (a drive or charge between two readings, a wake-up) arrive a few points apart, which a curve can only draw as a corner.
+    /// This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
+    /// first one's height; `segments` then draws it with no slope at the held indices. A gentle pair is left alone, and a reading that carries a dot or
+    /// label (its index in `pinned`) is never moved: the ramp starts at it instead. Same rule as the web's easeSteps.
+    static func easeSteps(_ pts: [CGPoint], pinned: Set<Int> = [], minDrop: CGFloat = 0.2, slope: CGFloat = 0.1) -> (points: [CGPoint], hold: Set<Int>) {
+        guard let first = pts.first else { return ([], []) }
+        var out: [CGPoint] = [first]
+        var outPin: [Bool] = [pinned.contains(0)]
+        var hold = Set<Int>()
+        for i in 1..<max(pts.count, 1) {
+            let a = pts[i - 1]
+            let b = pts[i]
+            let dy = abs(b.y - a.y)
+            if dy < minDrop || dy / max(b.x - a.x, 0.5) <= slope {
+                out.append(b)
+                outPin.append(pinned.contains(i))
+                continue
+            }
+            // The level stretch this step leaves: readings at the same height, none of them carrying a dot or already eased.
+            var k = out.count - 1
+            while k > 0, abs(out[k - 1].y - a.y) < 0.5, !outPin[k - 1], !hold.contains(k - 1) { k -= 1 }
+            let level = k < out.count - 1
+            let from = level ? out[k].x : (out.count > 1 ? out[out.count - 2].x : a.x)
+            // A rounding step (1.5 pt or less) after a long level stretch is eased over most of that stretch; a real jump keeps a short run.
+            let run = dy <= 1.5 ? min(max(dy * 8, 0.85 * (a.x - from) + (b.x - a.x), 10), 60) : min(max(dy * 1.5, 12), 28)
+            let last = out[out.count - 1]
+            if pinned.contains(i - 1) {
+                hold.insert(out.count - 1)
+                var x = b.x
+                if !pinned.contains(i), i + 1 < pts.count { x = min(max(b.x, a.x + run), b.x + 0.4 * (pts[i + 1].x - b.x)) }
+                hold.insert(out.count)
+                out.append(CGPoint(x: x, y: b.y))
+                outPin.append(pinned.contains(i))
+                continue
+            }
+            if hold.contains(out.count - 1) {
+                // The first reading ends the jump before this one: it stays, and the next ramp starts level after it if there is room.
+                let x = max(b.x - run, last.x)
+                if x > last.x + 0.5 {
+                    hold.insert(out.count)
+                    out.append(CGPoint(x: x, y: a.y))
+                    outPin.append(false)
+                }
+            } else {
+                let x0 = max(b.x - run, from + (level ? 0.1 : 0.4) * (a.x - from))
+                while out.count - 1 > k, out[out.count - 1].x > x0 {
+                    out.removeLast()
+                    outPin.removeLast()
+                }
+                if level {
+                    if x0 > out[out.count - 1].x + 0.05 {
+                        out.append(CGPoint(x: x0, y: a.y))
+                        outPin.append(false)
+                    }
+                } else {
+                    out[out.count - 1] = CGPoint(x: x0, y: a.y)
+                }
+                hold.insert(out.count - 1)
+            }
+            hold.insert(out.count)
+            out.append(b)
+            outPin.append(pinned.contains(i))
+        }
+        return (out, hold)
+    }
+
+    /// Control points for each segment, in the order the points come. Points whose index is in `hold` leave and arrive level.
+    static func segments(_ pts: [CGPoint], hold: Set<Int> = []) -> [(c1: CGPoint, c2: CGPoint, end: CGPoint)] {
         let n = pts.count
         guard n >= 2 else { return [] }
         var dx: [CGFloat] = []
@@ -115,6 +181,7 @@ enum NowGraphCurve {
         var t: [CGFloat] = [m[0]]
         for i in 1..<max(n - 1, 1) where i < n - 1 { t.append(m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2) }
         t.append(m[n - 2])
+        for i in hold where i < n { t[i] = 0 }
         for i in 0..<(n - 1) {
             if m[i] == 0 { t[i] = 0; t[i + 1] = 0; continue }
             let a = t[i] / m[i]
