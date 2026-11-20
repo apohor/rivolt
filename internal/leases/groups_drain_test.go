@@ -1,10 +1,13 @@
 package leases
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -238,5 +241,33 @@ func TestDrain_WaitGivesUpAtTheCapWithoutPasses(t *testing.T) {
 	}
 	if r.held() != 3 {
 		t.Errorf("held %d: DrainWait handed groups over by itself", r.held())
+	}
+}
+
+// A pod that exits loses its counter, so Shutdown logs one line with what the
+// drain handed over, by reason, and nothing that names a group or vehicle.
+func TestDrain_ShutdownLogsTheMovesByReason(t *testing.T) {
+	r := newDrainRig(t, 4, 4, 0)
+	var buf bytes.Buffer
+	r.c.log = slog.New(slog.NewTextHandler(&buf, nil))
+	r.act["v02"] = ActivityAwake
+	r.act["v03"], r.kind["v03"] = ActivityBusy, "drive"
+	r.pass() // g00 g01 idle, g02 awake; the drive stays (no cap)
+	r.c.Shutdown(context.Background())
+	line := ""
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(l, "drain: groups handed over") {
+			line = l
+		}
+	}
+	for _, want := range []string{"idle=2", "awake=1", "charging=0", "forced=1", "expired=0"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("log line %q lacks %s", line, want)
+		}
+	}
+	for _, id := range []string{"g00", "g03", "v00", "v03"} {
+		if strings.Contains(line, id) {
+			t.Errorf("log line names %s: %q", id, line)
+		}
 	}
 }

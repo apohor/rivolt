@@ -430,6 +430,8 @@ type Coordinator struct {
 	// with an open drive until it ends or drainCap has passed since the drain began (drainCap 0: never in a pass, shutdown does it).
 	// onMove is told each group handed over, with its reason. Guarded by mu except passMu, which serialises reconcile (Run's and DrainWait's).
 	onMove       func(reason string)
+	moveMu       sync.Mutex
+	moveTally    map[string]int // groups handed over by reason since start, for the line Shutdown logs: a counter on a pod that exits is lost
 	drainPerPass int
 	drainCap     time.Duration
 	drainSince   time.Time
@@ -1255,8 +1257,8 @@ func (c *Coordinator) leadGroups(ctx context.Context) *leadView {
 		}
 		delete(res.Held, g)
 		released = true
-		if r := moveReason[g]; r != "" && c.onMove != nil {
-			c.onMove(r) // counted once, when the release went through
+		if r := moveReason[g]; r != "" {
+			c.noteMove(r) // counted once, when the release went through
 		}
 	}
 	if released {
@@ -1458,7 +1460,7 @@ func (c *Coordinator) chooseDrain(res GroupLead, vg map[string]string) ([]string
 
 // noteExpired counts the groups this pod lost to expiry (a peer took them), not the ones it retired itself.
 func (c *Coordinator) noteExpired(res GroupLead) {
-	if c.onMove == nil || len(res.Lost) == 0 {
+	if len(res.Lost) == 0 {
 		return
 	}
 	retired := map[string]bool{}
@@ -1467,7 +1469,7 @@ func (c *Coordinator) noteExpired(res GroupLead) {
 	}
 	for _, g := range res.Lost {
 		if !retired[g] {
-			c.onMove("expired")
+			c.noteMove("expired")
 		}
 	}
 }
@@ -1698,8 +1700,8 @@ func (c *Coordinator) Shutdown(ctx context.Context) {
 		owned = append(owned, vid)
 	}
 	c.mu.Unlock()
-	for i := 0; i < forced && c.onMove != nil; i++ {
-		c.onMove("forced") // what the drain did not hand over, shutdown moves now
+	for i := 0; i < forced; i++ {
+		c.noteMove("forced") // what the drain did not hand over, shutdown moves now
 	}
 
 	// Stop the subscriptions first, wait (bounded) until they have stopped, and only
@@ -1721,6 +1723,35 @@ func (c *Coordinator) Shutdown(ctx context.Context) {
 	}
 	c.signalReleased(ctx) // the peers acquire now, not at their next tick
 	c.fireCount()
+	c.logMoves()
+}
+
+// noteMove tells onMove a group was handed over and keeps the tally logMoves prints.
+func (c *Coordinator) noteMove(reason string) {
+	c.moveMu.Lock()
+	if c.moveTally == nil {
+		c.moveTally = map[string]int{}
+	}
+	c.moveTally[reason]++
+	c.moveMu.Unlock()
+	if c.onMove != nil {
+		c.onMove(reason)
+	}
+}
+
+// logMoves writes one line with the groups this pod handed over, by reason. rivolt_ingest_moves_total counts the same, but a pod that
+// exits loses the counts since its last scrape, so the totals of a rollout could not be added up from the metric. Counts only: no
+// vehicle, group or user.
+func (c *Coordinator) logMoves() {
+	c.moveMu.Lock()
+	t := c.moveTally
+	c.moveMu.Unlock()
+	if len(t) == 0 {
+		return
+	}
+	c.log.Info("drain: groups handed over",
+		"idle", t["idle"], "awake", t["awake"], "charging", t["charging"], "drive_end", t["drive_end"],
+		"cap", t["cap"], "forced", t["forced"], "expired", t["expired"])
 }
 
 // MarkDraining stops this pod taking leases and tells its peers (lease_pods.draining), so they
