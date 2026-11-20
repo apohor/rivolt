@@ -197,3 +197,22 @@ func TestRunSourceHoldsATripMidDriveAndNothingAfter(t *testing.T) {
 		t.Error("the trip outlived the stream")
 	}
 }
+
+func TestShortSimDriveNavNamesItsOwnErrand(t *testing.T) {
+	start := simStartFor(t, SimDriveShort)
+	p, err := planSim(SimDriveShort, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := SimRun{ID: "r", Kind: SimDriveShort, Start: start, End: p.end}
+	f := testSimFeed(&memSimStore{st: SimState{Runs: []SimRun{run}}})
+	names := map[string]bool{}
+	for at := run.Start; at.Before(run.End); at = at.Add(5 * time.Second) {
+		if fr := f.NavFramesAt(context.Background(), at); len(fr) == 2 {
+			names[fr[0].Info.Name] = true
+		}
+	}
+	if !names["Pasadena City College"] || !names["Rose Bowl Stadium"] || names["Santa Anita Park"] {
+		t.Fatalf("destinations %v, want the short errand then home", names)
+	}
+}

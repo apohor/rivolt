@@ -10,7 +10,7 @@ import (
 
 // SimRunner is the preview's simulated drive and charge, as the admin API uses it (rivian.SimControl).
 type SimRunner interface {
-	Start(ctx context.Context, kind rivian.SimKind) (rivian.SimRun, error)
+	Start(ctx context.Context, kind rivian.SimKind, opts rivian.SimOpts) (rivian.SimRun, error)
 	Active(ctx context.Context) (*rivian.SimRun, error)
 }
 
@@ -26,11 +26,12 @@ func handleAdminSimGet(s SimRunner) http.HandlerFunc {
 	}
 }
 
-// handleAdminSimStart serves POST /api/admin/sim/drive and /charge: books one simulated run of kind that begins in a few seconds. 409 while
+// handleAdminSimStart serves POST /api/admin/sim/drive and /charge: books one simulated run of kind that begins in a few seconds (?short=1: the quick variant; ?queue=1: after the run under way, one at most). 409 while
 // another is under way or when the sample truck cannot take one now (the reason is in the body).
 func handleAdminSimStart(s SimRunner, kind rivian.SimKind) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		run, err := s.Start(r.Context(), kind)
+		q := r.URL.Query()
+		run, err := s.Start(r.Context(), kind, rivian.SimOpts{Short: q.Get("short") == "1", Queue: q.Get("queue") == "1"})
 		var refusal *rivian.SimRefusal
 		switch {
 		case errors.Is(err, rivian.ErrSimBusy):

@@ -199,14 +199,14 @@ func TestSimControlOneRunAtATime(t *testing.T) {
 	// Pretend now is the instant before a plannable start.
 	start := simStartFor(t, SimDrive)
 	ctl.now = func() time.Time { return start.Add(-simLead - time.Second) }
-	run, err := ctl.Start(context.Background(), SimDrive)
+	run, err := ctl.Start(context.Background(), SimDrive, SimOpts{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if run.Start.Before(start.Add(-sampleAwakeStep)) || run.Start.After(start.Add(sampleAwakeStep)) {
 		t.Fatalf("run starts %s, asked about %s", run.Start, start)
 	}
-	if _, err := ctl.Start(context.Background(), SimCharge); !errors.Is(err, ErrSimBusy) {
+	if _, err := ctl.Start(context.Background(), SimCharge, SimOpts{}); !errors.Is(err, ErrSimBusy) {
 		t.Fatalf("second request while one is booked: %v", err)
 	}
 	ctl.now = func() time.Time { return run.End.Add(time.Second) }

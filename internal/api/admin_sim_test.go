@@ -13,12 +13,16 @@ import (
 )
 
 type fakeSim struct {
-	run rivian.SimRun
-	err error
+	run  rivian.SimRun
+	err  error
+	opts *rivian.SimOpts
 }
 
-func (f fakeSim) Start(_ context.Context, k rivian.SimKind) (rivian.SimRun, error) {
+func (f fakeSim) Start(_ context.Context, k rivian.SimKind, o rivian.SimOpts) (rivian.SimRun, error) {
 	f.run.Kind = k
+	if f.opts != nil {
+		*f.opts = o
+	}
 	return f.run, f.err
 }
 func (f fakeSim) Active(context.Context) (*rivian.SimRun, error) { return nil, f.err }
@@ -79,6 +83,22 @@ func TestAdminSimStartAnswers(t *testing.T) {
 		}
 		if name == "broken" && strings.Contains(rec.Body.String(), "deadline") {
 			t.Errorf("internal error leaked: %s", rec.Body.String())
+		}
+	}
+}
+
+func TestAdminSimStartReadsShortAndQueue(t *testing.T) {
+	for url, want := range map[string]rivian.SimOpts{
+		"/":                    {},
+		"/?short=1":            {Short: true},
+		"/?short=1&queue=1":    {Short: true, Queue: true},
+		"/?short=0&queue=true": {},
+	} {
+		var got rivian.SimOpts
+		rec := httptest.NewRecorder()
+		handleAdminSimStart(fakeSim{opts: &got}, rivian.SimDrive)(rec, httptest.NewRequest(http.MethodPost, url, nil))
+		if rec.Code != http.StatusOK || got != want {
+			t.Errorf("%s: %d, opts %+v, want %+v", url, rec.Code, got, want)
 		}
 	}
 }
