@@ -209,9 +209,10 @@ struct HomeView: View {
                     try? await Task.sleep(for: .seconds(NowParkedSeriesModel.refresh))
                 }
             }
-            .task(id: "\(parkedGraphOn)|\(parkedKind)|\(selectedID)") {
+            // The chip's wait starts over with every read the task above starts (truck, tab, background), so a return never shows the state's time first.
+            .task(id: "\(parkedGraphOn)|\(parkedKind)|\(selectedID)|\(tabActive)|\(scenePhase == .active)") {
                 parkedChipLate = false
-                guard parkedGraphOn, parkedKind else { return }
+                guard parkedGraphOn, parkedKind, tabActive, scenePhase == .active else { return }
                 try? await Task.sleep(for: NowParkedSeriesModel.chipWait)
                 if !Task.isCancelled { parkedChipLate = true }
             }
@@ -321,9 +322,7 @@ struct HomeView: View {
     private var chipSummary: NowSummary {
         var s = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
         if parkedGraphOn, s.kind == .parked {
-            let mine = parkedSeries.vehicleID == selected?.id
-            if mine, let since = parkedSeries.series?.parkedSince { s.since = since }
-            else if !(mine && parkedSeries.settled), !parkedChipLate { s.since = nil }
+            s.since = parkedSeries.chipSince(vehicleID: selected?.id, state: s.since, late: parkedChipLate)
         }
         return s
     }

@@ -30,6 +30,13 @@ final class NowParkedSeriesModel {
         }
     }
 
+    /// The parked time the chip shows: the series' once it is this truck's, none while the read is out (until `late`), else the state's own.
+    func chipSince(vehicleID id: String?, state: Date?, late: Bool) -> Date? {
+        let mine = vehicleID == id
+        if mine, let since = series?.parkedSince { return since }
+        return (mine && settled) || late ? state : nil
+    }
+
     func apply(_ s: ParkedSeries?) { series = NowParkedGraphModel.drawable(s) ? s : nil }
 
     func clear() { series = nil; settled = false; vehicleID = nil }

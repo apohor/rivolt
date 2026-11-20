@@ -144,4 +144,22 @@ final class NowParkedGraphModelTests: XCTestCase {
         XCTAssertNil(m.series)
         XCTAssertTrue(m.settled)
     }
+
+    func testTheChipShowsNoTimeUntilTheSeriesAnswersAndAgainAfterAReturn() async throws {
+        let m = NowParkedSeriesModel()
+        let state = Date(timeIntervalSince1970: 1_000)
+        XCTAssertNil(m.chipSince(vehicleID: "a", state: state, late: false))
+        XCTAssertEqual(m.chipSince(vehicleID: "a", state: state, late: true), state)
+        let s = try series("overnight")
+        await m.load(source: Source(answer: s, fails: false), vehicleID: "a")
+        XCTAssertEqual(m.chipSince(vehicleID: "a", state: state, late: false), s.parkedSince)
+        // Another truck selected: nothing of this one's, and the wait starts over.
+        XCTAssertNil(m.chipSince(vehicleID: "b", state: state, late: false))
+        // Back from the background: the view clears the model and resets late, so the chip holds its time again.
+        m.clear()
+        XCTAssertNil(m.chipSince(vehicleID: "a", state: state, late: false))
+        // A failed read ends the wait with the state's time.
+        await m.load(source: Source(answer: nil, fails: true), vehicleID: "a")
+        XCTAssertEqual(m.chipSince(vehicleID: "a", state: state, late: false), state)
+    }
 }
