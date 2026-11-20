@@ -33,6 +33,8 @@ export function ParkedGraph({ series, unit }: { series: ParkedSeries; unit: "mi"
   const ink = useSoftInk();
   const id = useSoftId();
   const text = parkedText(series, unit);
+  // The chart's text is in rem, so at a larger text setting its labels need more room: the optional ones give way, never overlap.
+  const scale = (typeof document !== "undefined" ? parseFloat(getComputedStyle(document.documentElement).fontSize) || 16 : 16) / 16;
   const t0 = ms(series.from);
   const t1 = ms(series.to);
   const pts = series.points;
@@ -66,13 +68,16 @@ export function ParkedGraph({ series, unit }: { series: ParkedSeries; unit: "mi"
   const fy = sy(first.soc);
   const parkedX = series.parked_since ? sx(ms(series.parked_since)) : null;
   const valueLeft = lx - PAD.l > 60;
-  const pill = text.parkedAt;
+  // The "Parked 5:20 PM" pill needs room clear of the start value and the edges; the header says the same time when it is left out.
+  const pillW = labelWidth(text.parkedAt ?? "");
+  const pill = scale <= 1.25 && parkedX != null && parkedX - pillW / 2 > fx + 56 && parkedX + pillW / 2 < w - PAD.r ? text.parkedAt : null;
+  const showMid = w >= 240 * scale;
   const ariaLabel = `Battery while parked, ${Math.round(first.soc)}% 24 hours ago to ${Math.round(last.soc)}% now${text.change ? `, ${text.change.value.replace("−", "minus ")} ${text.change.since}` : ""}, ${series.sleeps.length} ${series.sleeps.length === 1 ? "sleep" : "sleeps"}, ${series.wakes.length} ${series.wakes.length === 1 ? "wake-up" : "wake-ups"}`;
 
   return (
     <div data-testid="now-parked-graph" className="flex min-w-0 flex-col min-[900px]:h-full">
       <GraphHead title="Battery while parked" change={text.change?.value ?? null} since={text.change?.since} testid="now-parked-change" />
-      <div ref={ref} className="h-[190px] min-w-0 min-[900px]:h-auto min-[900px]:min-h-[220px] min-[900px]:flex-1">
+      <div ref={ref} className="h-[12rem] min-w-0 min-[900px]:h-auto min-[900px]:min-h-[14rem] min-[900px]:flex-1">
         {w > 0 && h > 0 && (
           <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={ariaLabel} className="block overflow-visible">
             <SoftDefs id={id} ink={ink} />
@@ -93,7 +98,7 @@ export function ParkedGraph({ series, unit }: { series: ParkedSeries; unit: "mi"
                 <g key={`${s.from}-${i}`} data-testid="now-parked-sleep">
                   <rect x={a + 1} y={topY} width={Math.max(sw - 2, 1)} height={Math.max(base - BAR - 3 - topY, 0)} rx={8} fill={`url(#${id}-sleep)`} />
                   <rect x={a + 1} y={base - BAR} width={Math.max(sw - 2, 1)} height={BAR} rx={BAR / 2} fill={bar} fillOpacity=".75" />
-                  {sw > LABEL_MIN_W && (
+                  {sw > LABEL_MIN_W * scale && (
                     <text x={a + sw / 2} y={base - BAR - 10} textAnchor="middle" className="fill-indigo-300 text-xs">
                       {`☾ ${bandDuration(dur)}`}
                     </text>
@@ -109,8 +114,8 @@ export function ParkedGraph({ series, unit }: { series: ParkedSeries; unit: "mi"
               <HaloDot key={k.t} id={id} x={sx(ms(k.t))} y={sy(k.soc_after)} color={amber} />
             ))}
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
-            {pill && parkedX != null && parkedX > PAD.l + 40 && parkedX < w - PAD.r - 40 && <Pill x={parkedX} y={12} text={pill} w={labelWidth(pill)} />}
-            <text x={fx + 2} y={Math.max(fy - 14, 12) + (pill && parkedX != null && parkedX < 90 ? 14 : 0)} className="fill-neutral-300 text-xs">
+            {pill && parkedX != null && <Pill x={parkedX} y={12} text={pill} w={pillW} />}
+            <text x={fx + 2} y={Math.max(fy - 14, 12)} className="fill-neutral-300 text-xs">
               {`${first.soc.toFixed(1)}%`}
             </text>
             <text x={valueLeft ? lx - 10 : lx + 10} y={ly + 22} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
@@ -119,9 +124,11 @@ export function ParkedGraph({ series, unit }: { series: ParkedSeries; unit: "mi"
             <text x={PAD.l} y={h - 6} className="fill-neutral-500 text-xs">
               24 h ago
             </text>
-            <text x={(PAD.l + w - PAD.r) / 2} y={h - 6} textAnchor="middle" className="fill-neutral-500 text-xs">
-              12 h
-            </text>
+            {showMid && (
+              <text x={(PAD.l + w - PAD.r) / 2} y={h - 6} textAnchor="middle" className="fill-neutral-500 text-xs">
+                12 h
+              </text>
+            )}
             <text x={w - PAD.r} y={h - 6} textAnchor="end" className="fill-neutral-500 text-xs">
               now
             </text>
@@ -130,7 +137,7 @@ export function ParkedGraph({ series, unit }: { series: ParkedSeries; unit: "mi"
       </div>
       <Legend
         items={[
-          { swatch: "dot", color: bar, label: "asleep" },
+          ...(series.sleeps.length > 0 ? [{ swatch: "dot" as const, color: bar, label: "asleep" }] : []),
           ...(series.wakes.length > 0 ? [{ swatch: "dot" as const, color: amber, label: "woke up" }] : []),
         ]}
       />
@@ -164,7 +171,7 @@ function sleepTop(pts: ParkedSeries["points"], from: number, to: number, t0: num
 function TilesRow({ figures }: { figures: ParkedFigure[] }) {
   if (figures.length === 0) return null;
   return (
-    <div data-testid="now-parked-tiles" className="mt-3 grid grid-cols-3 gap-2 min-[900px]:hidden max-[359px]:grid-cols-1">
+    <div data-testid="now-parked-tiles" className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2 min-[900px]:hidden max-[359px]:grid-cols-1">
       {figures.map((f) => (
         <div key={f.id} data-testid={`now-parked-tile-${f.id}`} className="min-w-0 rounded-2xl bg-neutral-800/50 px-3 py-2.5">
           <p className="text-sm font-semibold tabular-nums text-neutral-100">{f.value}</p>

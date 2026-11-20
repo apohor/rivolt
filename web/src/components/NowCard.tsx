@@ -24,6 +24,7 @@ import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
 import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
+import { ParkedGraph, ParkedRows, useParkedSeries } from "./ParkedGraph";
 import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
@@ -231,6 +232,11 @@ export default function NowCard({
     retry: 0,
   });
 
+  // Design "now_parked_graph" (with now_tidy): the last 24 hours of the battery on a parked, plugged or asleep truck, with the sleeps and
+  // wake-ups. Without a line to draw (parked a few minutes, no data, an older server) the card is as it was.
+  const parkedKind = view != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
+  const parkedSeries = useParkedSeries(vehicleID, useDesignPreview("now_parked_graph") && tidy && parkedKind);
+
   if (stateQ.isLoading) {
     return (
       <section aria-label="Now" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
@@ -347,11 +353,13 @@ export default function NowCard({
           model={model}
           stateSlot={showSlot ? slotNode : null}
           chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot && !soft)}
-          soft={soft}
-          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : null}
+          soft={soft || parkedSeries != null}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} /> : null}
+          parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
           tidy={tidy}
           nowMs={nowMs}
-          asleepTodayS={server?.asleep_today_s ?? null}
+          // The graph's figures say the time asleep today.
+          asleepTodayS={parkedSeries ? null : (server?.asleep_today_s ?? null)}
           pillTone={pill.tone}
           ambient={server?.ambient}
           cabin={cabin}
