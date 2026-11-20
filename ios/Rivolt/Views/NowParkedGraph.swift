@@ -84,7 +84,8 @@ struct NowParkedGraph: View {
                         let b = padL + sl.x1 * (w - padL - padR)
                         guard b - a >= 2 else { continue }
                         var layer = ctx
-                        layer.clip(to: Path(CGRect(x: a + 1, y: 0, width: max(b - a - 2, 1), height: sleepBase)))
+                        // Rounded corners: a sleep is a soft shape, never a hard-cornered block.
+                        layer.clip(to: Path(roundedRect: CGRect(x: a + 1, y: 0, width: max(b - a - 2, 1), height: sleepBase), cornerRadius: 10))
                         layer.fill(fill, with: .linearGradient(Gradient(colors: [band.opacity(scheme == .light ? 0.22 : 0.34), band.opacity(scheme == .light ? 0.04 : 0.05)]),
                                                                startPoint: CGPoint(x: 0, y: padT), endPoint: CGPoint(x: 0, y: sleepBase)))
                         ctx.fill(Path(roundedRect: CGRect(x: a + 1, y: base - bar, width: max(b - a - 2, 1), height: bar), cornerRadius: bar / 2),

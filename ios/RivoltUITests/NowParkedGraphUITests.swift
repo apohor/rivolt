@@ -1,0 +1,67 @@
+import XCTest
+
+/// With design_preview now_parked_graph (and ios_now_v2, ios_now_tidy, now_slot): a parked truck answered from generated fixtures (`-uitest-parked`,
+/// Rivolt/App/UITestFixtures.swift, the same numbers as the web's e2e stub) shows the last 24 hours of the battery, the sleeps and the three figures.
+final class NowParkedGraphUITests: XCTestCase {
+    private func launch(_ parkedCase: String = "overnight", dark: Bool = false, xxxLarge: Bool = false, metric: Bool = false) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchEnvironment["RIVOLT_UITEST_PARKED_CASE"] = parkedCase
+        if dark { app.launchArguments += ["-rivolt.appearance", "dark"] }
+        if xxxLarge { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"] }
+        app.launchEnvironment["RIVOLT_UITEST_UNITS"] = metric ? "km" : "mi"
+        let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let ios = here.deletingLastPathComponent()
+        app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = [here.appendingPathComponent("Fixtures").path, ios.appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
+        app.launchArguments += ["-uitest-now-v2", "-uitest-parked"]
+        app.launch()
+        return app
+    }
+
+    private func shot(_ app: XCUIApplication, _ name: String) {
+        let a = XCTAttachment(screenshot: app.screenshot())
+        a.name = name
+        a.lifetime = .keepAlways
+        add(a)
+        try? FileManager.default.createDirectory(atPath: "/tmp/rivolt-ui-shots", withIntermediateDirectories: true)
+        try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/rivolt-ui-shots/\(name).png"))
+    }
+
+    private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
+
+    func testAnOvernightParkDrawsTheGraphAndTheFigures() {
+        let app = launch()
+        let graph = element(app, "now-parked-graph")
+        XCTAssertTrue(graph.waitForExistence(timeout: 30), "the graph appears once the series is read")
+        XCTAssertTrue(graph.label.contains("Battery while parked"), "VoiceOver says what it is")
+        XCTAssertTrue(graph.label.contains("5 sleeps, 4 wake-ups"), "and the counts")
+        XCTAssertTrue(element(app, "now-parked-change").exists, "the header's change")
+        XCTAssertTrue(element(app, "now-parked-tile-idle").exists, "the idle-loss tile")
+        XCTAssertTrue(element(app, "now-parked-projection").exists, "the projection")
+        shot(app, "now-parked-graph-top")
+    }
+
+    func testTooLittleLeavesTheCardAsItWas() {
+        let app = launch("minutes")
+        XCTAssertTrue(element(app, "now-slot-parked").waitForExistence(timeout: 30), "the parked slot still shows")
+        XCTAssertFalse(element(app, "now-parked-graph").exists, "no graph for a truck parked a few minutes")
+    }
+
+    /// The parity shots: the same states as the web's matrix (web/e2e/now-parked-graph.pw.ts), so the two cards can be set side by side.
+    /// Not a gate beyond "the graph appears"; the shots are looked at by hand and filed under _shared/parked-graph/ios.
+    func testParityShots() throws {
+        guard ProcessInfo.processInfo.environment["RIVOLT_PARITY_SHOTS"] != nil || FileManager.default.fileExists(atPath: "/tmp/rivolt-ui-shots/.parity") else { throw XCTSkip("shots on request") }
+        let combos: [(String, Bool, Bool, Bool)] = [
+            ("overnight", true, false, false), ("overnight", false, false, false), ("overnight", true, false, true), ("overnight", true, true, false),
+            ("charged", true, false, false), ("asleep", true, false, false), ("never_slept", true, false, false), ("never_slept", false, true, false),
+        ]
+        for (name, dark, big, metric) in combos {
+            let app = launch(name, dark: dark, xxxLarge: big, metric: metric)
+            XCTAssertTrue(element(app, "now-parked-graph").waitForExistence(timeout: 30), "\(name) graph")
+            let tag = "\(name)-\(dark ? "dark" : "light")-\(big ? "xxxl" : "std")-\(metric ? "km" : "mi")"
+            shot(app, "parity-\(tag)-top")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+            shot(app, "parity-\(tag)-middle")
+            app.terminate()
+        }
+    }
+}
