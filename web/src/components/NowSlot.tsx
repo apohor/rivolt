@@ -35,6 +35,8 @@ export type SlotInput = {
   tidy?: boolean;
   // Design "now_charge_graph": the figures as rows (the graph sits beside them), the target said once, and no plug-in time (the graph's start says it).
   soft?: boolean;
+  // Design "now_drive_graph": the figures sit in the left half beside the graph, two to a row at every width.
+  half?: boolean;
   // Design "now_charge_graph": the pack's temperature (°C) from the newest stored sample, only while it is recent; its own row after Rate.
   packC?: number | null;
 };
@@ -329,7 +331,7 @@ export default function NowSlot(i: SlotInput) {
       {sub && <p className="mt-2 text-sm font-medium text-neutral-200" data-testid="now-slot-sub">{sub}</p>}
       {small && <p className="text-xs text-neutral-400" data-testid="now-slot-small">{small}</p>}
       {stats.length > 0 && !i.soft && (
-        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 min-[900px]:grid-cols-3">
+        <div className={`mt-3 grid grid-cols-2 gap-x-4 gap-y-3 ${i.half ? "" : "min-[900px]:grid-cols-3"}`}>
           {stats.map((s) => (
             <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`}>
               <p className="ui-label">{s.k}</p>

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
+import { e2eNow } from "./clock";
 import { parkedSeriesFixture, type ParkedCase } from "./parkedSeriesFixture";
 
 // Design "now_parked_graph" (with now_tidy): the Now card of a parked, plugged or asleep truck draws the last 24 hours of the battery with its
@@ -151,6 +152,52 @@ test("an asleep truck shows an open sleep that ends at now @webkit", async ({ pa
   expect(chipText).toMatch(/^Asleep · since \d+:\d+ [AP]M/);
   // "Asleep today" is in the figures, not repeated in the conditions row.
   await expect(page.getByTestId("now-cond-asleep")).toHaveCount(0);
+});
+
+test("an asleep truck's chip takes the start of the open sleep from the series @webkit", async ({ page }) => {
+  await open(page, "asleep", "asleep");
+  await expect(page.getByTestId("now-parked-graph")).toBeVisible();
+  // The fixture's open sleep began 2.6 h before the e2e clock; that is the chip's time, not the card's own run.
+  const want = await page.evaluate((t) => new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).replace(/\s/g, " "), e2eNow() - 2.6 * 3_600_000);
+  await expect(page.getByTestId("now-pill")).toContainText(`Asleep · since ${want}`);
+});
+
+test("with no loss the header says so, the wake-up tile has no cost and the two tiles fill the row, and the start value is not repeated @webkit", async ({ page }) => {
+  await open(page, "flat", "asleep");
+  const g = page.getByTestId("now-parked-graph");
+  await expect(g.getByTestId("now-parked-change")).toHaveText(/^No loss\s*since \d+:\d+ [AP]M/);
+  await expect(g).not.toContainText("0.0%");
+  const width = page.viewportSize()?.width ?? 0;
+  if (width < 900) {
+    const tiles = page.getByTestId("now-parked-tiles").locator("> div");
+    await expect(tiles).toHaveCount(2);
+    await expect(page.getByTestId("now-parked-tile-wakes")).not.toContainText("each");
+    if (width >= 360) {
+      const box = await page.getByTestId("now-parked-tiles").boundingBox();
+      const last = await tiles.last().boundingBox();
+      expect(Math.round(last!.x + last!.width)).toBeGreaterThanOrEqual(Math.round(box!.x + box!.width) - 1);
+    }
+  }
+  // One value label at the end of the flat tail, not two.
+  const label = g.locator("text", { hasText: /^\d+\.\d%$/ });
+  await expect(label).toHaveCount(1);
+});
+
+test("parked a few minutes after a drive: the pill ends at the card edge and the value sits clear of the line @webkit", async ({ page }) => {
+  await open(page, "just", "parked");
+  const g = page.getByTestId("now-parked-graph");
+  await expect(g).toBeVisible();
+  const box = await g.locator("svg").boundingBox();
+  const pill = g.locator("text", { hasText: /^Parked \d+:\d+ [AP]M$/ });
+  if ((page.viewportSize()?.width ?? 0) >= 900 || (await pill.count()) > 0) {
+    const pb = await pill.boundingBox();
+    expect(pb!.x + pb!.width).toBeLessThanOrEqual(box!.x + box!.width);
+    expect(pb!.x).toBeGreaterThanOrEqual(box!.x);
+  }
+  // The current value is below the dot, so it never sits on the line that dipped just before it.
+  const labelY = Number(await g.locator("text", { hasText: /^\d+\.\d%$/ }).last().getAttribute("y"));
+  const dotY = Number(await g.locator("circle").last().getAttribute("cy"));
+  expect(labelY).toBeGreaterThan(dotY);
 });
 
 test("a truck that never slept has no sleep spans, no wake-up dots and a faster rate @webkit", async ({ page }) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ParkedSeries } from "./api";
-import { bandDuration, longDuration, parkedDrawable, parkedChange, parkedText } from "./parkedSeries";
+import { bandDuration, longDuration, openSleepSince, parkedDrawable, parkedChange, parkedText } from "./parkedSeries";
 
 const base: ParkedSeries = {
   version: 1,
@@ -43,12 +43,26 @@ describe("parked series text", () => {
     expect(t.projection).toBeNull();
     const none = parkedText({ ...base, figures: { ...base.figures!, wake_ups: 0, wake_cost_pct: null }, change_pct: null, parked_since: null }, "mi");
     expect(none.figures.map((f) => f.id)).toEqual(["asleep", "idle"]);
+    // A cost that rounds to 0.0% is not printed; the count stands alone.
+    const zero = parkedText({ ...base, figures: { ...base.figures!, wake_cost_pct: 0.02 } }, "mi");
+    expect(zero.figures[1].note).toBe("");
+    expect(zero.figures[1].tileNote).toBe("");
+  });
+
+  it("takes the start of the sleep the truck is in from the series", () => {
+    const sl = (from: string, open: boolean) => ({ from, to: "2026-11-20T12:00:00Z", open });
+    expect(openSleepSince({ ...base, sleeps: [sl("2026-11-20T01:34:30Z", true)] })).toBe(Date.parse("2026-11-20T01:34:30Z"));
+    // began before the window: unknown; no open sleep: nothing to say
+    expect(openSleepSince({ ...base, sleeps: [sl(base.from, true)] })).toBeNull();
+    expect(openSleepSince({ ...base, sleeps: [sl("2026-11-20T01:34:30Z", false)] })).toBeUndefined();
+    expect(openSleepSince({ ...base, sleeps: [] })).toBeUndefined();
   });
 
   it("writes the change as the difference of the two labels, with a true minus and one decimal", () => {
     expect(parkedChange(79.9, 77.9, null)).toEqual({ value: "−2.0%", since: "in 24 h" });
     expect(parkedChange(60, 60.5, null).value).toBe("+0.5%");
-    expect(parkedChange(60, 60, null).value).toBe("0.0%");
+    expect(parkedChange(60, 60, null).value).toBe("No loss");
+    expect(parkedChange(75.72, 75.7, null).value).toBe("No loss");
     expect(parkedChange(80, 77.6, Date.UTC(2026, 10, 19, 17, 20)).since).toMatch(/^since \d{1,2}:20/);
   });
 

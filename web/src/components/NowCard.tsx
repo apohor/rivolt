@@ -24,7 +24,9 @@ import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
 import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
+import { DriveGraph, useDriveDestination, useDriveSeries } from "./DriveGraph";
 import { ParkedGraph, ParkedRows, useParkedSeries } from "./ParkedGraph";
+import { openSleepSince } from "../lib/parkedSeries";
 import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
@@ -235,7 +237,13 @@ export default function NowCard({
   // Design "now_parked_graph" (with now_tidy): the last 24 hours of the battery on a parked, plugged or asleep truck, with the sleeps and
   // wake-ups. Without a line to draw (parked a few minutes, no data, an older server) the card is as it was.
   const parkedKind = view != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
-  const { series: parkedSeries, waiting: parkedWaiting } = useParkedSeries(vehicleID, useDesignPreview("now_parked_graph") && tidy && parkedKind);
+  const parkedKindOn = useDesignPreview("now_parked_graph") && tidy && parkedKind;
+  const { series: parkedSeries, waiting: parkedWaiting } = useParkedSeries(vehicleID, parkedKindOn);
+  // Design "now_drive_graph" (with now_slot and now_tidy), driving: the speed from the start of the drive to now, the battery as a second line, read from
+  // the stored samples at the card's own pace. Too short a drive: no graph, and the card is as it was.
+  const driveGraphOn = useDesignPreview("now_drive_graph") && slotOn && tidy && view?.kind === "driving";
+  const driveDest = useDriveDestination(vehicleID, driveGraphOn);
+  const driveSeries = useDriveSeries(vehicleID, driveGraphOn, driveQ.data ? Date.parse(driveQ.data.started_at) : NaN);
   // The chip, the graph's pill and its header say one parked time. The state run restarts at every wake-up, so a parked truck's chip
   // takes the server's own parked-since from the series when it has one, and shows no time until the series has answered (or failed, or taken
   // about 3 s), so the time never changes by hours a moment after the card draws.
@@ -245,6 +253,11 @@ export default function NowCard({
       : view != null && parkedSeries?.parked_since && view.kind === "parked"
         ? { ...view, stateSinceMs: Date.parse(parkedSeries.parked_since) }
         : view;
+  // An asleep truck's chip says the same: its time is the start of the sleep the series shows (the card's own run restarts when the page opens
+  // on an asleep truck), none while the series is out or when that sleep began before the window.
+  const asleepOn = view?.kind === "asleep" && parkedKindOn;
+  const fromSeries = asleepOn && parkedSeries ? openSleepSince(parkedSeries) : undefined;
+  const chipAsleepSince = asleepOn && parkedWaiting ? null : fromSeries === undefined ? tracker.asleepSinceMs : fromSeries;
 
   if (stateQ.isLoading) {
     return (
@@ -323,6 +336,7 @@ export default function NowCard({
       fix={fix}
       tidy={tidy}
       soft={soft}
+      half={driveSeries != null}
       asleep={view.kind === "asleep" ? { since: server?.asleep_since ?? null, todayS: server?.asleep_today_s ?? null } : null}
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
@@ -361,9 +375,9 @@ export default function NowCard({
           images={images}
           model={model}
           stateSlot={showSlot ? slotNode : null}
-          chip={nowChip(chipView ?? view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot && !soft)}
-          soft={soft || parkedSeries != null}
-          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : null}
+          chip={nowChip(chipView ?? view, chipAsleepSince, nowMs, pill.text, tidy && showSlot && !soft)}
+          soft={soft || parkedSeries != null || driveSeries != null}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveSeries ? <DriveGraph series={driveSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
           parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
           tidy={tidy}
           nowMs={nowMs}

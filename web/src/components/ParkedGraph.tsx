@@ -4,7 +4,7 @@ import { backend, type ParkedSeries } from "../lib/api";
 import { clock } from "../lib/nowState";
 import { useIsLight } from "../lib/vehicleImage";
 import { bandDuration, parkedAtLabel, parkedDrawable, parkedChange, parkedText, parkedZone, type ParkedFigure } from "../lib/parkedSeries";
-import { GraphHead, HaloDot, Legend, Pill, SoftDefs, SoftLine, labelWidth, easeSteps, softPath, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
+import { GraphHead, HaloDot, Legend, Pill, QuietLine, SoftDefs, SoftLine, labelWidth, easeSteps, softPath, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
 
 // The Now card's "Battery while parked" graph (design_preview "now_parked_graph"), for the parked, plugged and asleep states: the last 24 hours
 // of the battery as one continuous soft line (a drive or charge between readings is bridged, not split), each sleep as a soft indigo fill under
@@ -97,12 +97,22 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
   // The start label sits on the reading the header measures from: the parked marker's, else the window's first.
   const start = sinceIn != null ? curSeg[0] : first;
   const change = parkedChange(start.soc, last.soc, sinceIn);
+  // The start value is left out when it would repeat the current one or sit on top of it: the header already gives the change.
+  const startX = sx(ms(start.t));
+  const showStart = start.soc.toFixed(1) !== last.soc.toFixed(1) && lx - startX >= 60;
+  const startRight = sinceIn != null && lx - startX < 90;
   const sleepBase = base - BAR - 3;
+  // The picture reads as "while parked": what came before the parked marker (a drive, a charge, an earlier parking) is dimmed.
+  const dimTo = parkedX != null && parkedX > PAD.l ? parkedX : 0;
   const linePath = softPath(easeSteps(line));
   const valueLeft = lx - PAD.l > 60;
+  // The current value sits left of and below the dot, and drops below any reading of the line under it (a dip right before "now").
+  const valueY = Math.min(Math.max(ly + 22, ...line.filter((q) => q.x > lx - 56 && q.x < lx).map((q) => q.y + 18)), sleepBase - 14);
   // The "Parked 5:20 PM" pill needs room clear of the start value and the edges; the header says the same time when it is left out.
   const pillW = labelWidth(parkedLabel ?? "");
-  const pill = scale <= 1.25 && parkedX != null && parkedX - pillW / 2 > fx + 56 && parkedX + pillW / 2 < w - PAD.r ? parkedLabel : null;
+  // Near the right edge (a short parked stretch) the pill ends at the card edge instead of being left out; the marker line still points at the time.
+  const pillEnd = parkedX != null && parkedX + pillW / 2 > w - PAD.r;
+  const pill = scale <= 1.25 && parkedX != null && parkedX - pillW / 2 > PAD.l ? parkedLabel : null;
   const showMid = w >= 240 * scale;
   const ariaLabel = `Battery while parked, ${Math.round(start.soc)}% ${sinceIn != null ? `at ${clock(sinceIn)}` : "24 hours ago"} to ${Math.round(last.soc)}% now, ${change.value.replace("−", "minus ")} ${change.since}, ${series.sleeps.length} ${series.sleeps.length === 1 ? "sleep" : "sleeps"}, ${series.wakes.length} ${series.wakes.length === 1 ? "wake-up" : "wake-ups"}`;
 
@@ -126,11 +136,11 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
               if (sw < 2) return null;
               const dur = (Math.min(ms(sl.to), t1) - Math.max(ms(sl.from), t0)) / 1000;
               return (
-                <g key={`${sl.from}-${i}`} data-testid="now-parked-sleep">
+                <g key={`${sl.from}-${i}`} data-testid="now-parked-sleep" opacity={b <= dimTo + 1 ? 0.75 : 1}>
                   <clipPath id={`${id}-sl${i}`}>
                     <rect x={a + 1} y={0} width={Math.max(sw - 2, 1)} height={sleepBase} rx={10} />
                   </clipPath>
-                  <path d={`${linePath} L${lx.toFixed(1)} ${sleepBase} L${fx.toFixed(1)} ${sleepBase} Z`} fill={`url(#${id}-sleep)`} clipPath={`url(#${id}-sl${i})`} />
+                  <path d={`${linePath} L${lx.toFixed(1)} ${sleepBase} L${fx.toFixed(1)} ${sleepBase} Z`} fill={`url(#${id}-sleep)`} fillOpacity={b <= dimTo + 1 ? 0.65 : 1} clipPath={`url(#${id}-sl${i})`} />
                   <rect x={a + 1} y={base - BAR} width={Math.max(sw - 2, 1)} height={BAR} rx={BAR / 2} fill={bar} fillOpacity=".75" />
                   {sw > LABEL_MIN_W * scale && (
                     <text x={a + sw / 2} y={base - BAR - 10} textAnchor="middle" className="fill-indigo-300 text-xs">
@@ -140,19 +150,29 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
                 </g>
               );
             })}
-            {parkedX != null && parkedX > PAD.l && (
-              <line x1={parkedX} x2={parkedX} y1={PAD.t - 4} y2={sleepBase} stroke="currentColor" strokeOpacity=".18" className="text-neutral-400" />
+            {dimTo > 0 && (
+              <>
+                <line x1={dimTo} x2={dimTo} y1={PAD.t - 4} y2={sleepBase} stroke="currentColor" strokeOpacity=".18" className="text-neutral-400" />
+                <QuietLine d={linePath} color={ink.line} />
+              </>
             )}
-            <SoftLine id={id} d={linePath} color={ink.line} width={3} />
+            <clipPath id={`${id}-after`}>
+              <rect x={dimTo} y={0} width={w} height={h} />
+            </clipPath>
+            <g clipPath={`url(#${id}-after)`}>
+              <SoftLine id={id} d={linePath} color={ink.line} width={3} />
+            </g>
             {series.wakes.map((k) => (
-              <HaloDot key={k.t} id={id} x={sx(ms(k.t))} y={sy(k.soc_after)} color={amber} />
+              <g key={k.t} opacity={sx(ms(k.t)) < dimTo ? 0.6 : 1}>
+                <HaloDot id={id} x={sx(ms(k.t))} y={sy(k.soc_after)} color={amber} />
+              </g>
             ))}
             <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
-            {pill && parkedX != null && <Pill x={parkedX} y={12} text={pill} w={pillW} />}
-            <text x={sx(ms(start.t)) + (sinceIn != null && lx - sx(ms(start.t)) < 90 ? -4 : 2)} textAnchor={sinceIn != null && lx - sx(ms(start.t)) < 90 ? "end" : "start"} y={sinceIn != null ? sy(start.soc) + 20 : Math.max(sy(start.soc) - 14, 12)} className="fill-neutral-300 text-xs">
+            {pill && parkedX != null && <Pill x={pillEnd ? w - PAD.r : parkedX} y={12} text={pill} w={pillW} anchor={pillEnd ? "end" : "middle"} />}
+            {showStart && <text x={startX + (startRight ? -4 : 2)} textAnchor={startRight ? "end" : "start"} y={sinceIn != null ? sy(start.soc) + 20 : Math.max(sy(start.soc) - 14, 12)} className="fill-neutral-300 text-xs">
               {`${start.soc.toFixed(1)}%`}
-            </text>
-            <text x={valueLeft ? lx - 10 : lx + 10} y={ly + 22} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
+            </text>}
+            <text x={valueLeft ? lx - 10 : lx + 10} y={valueY} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
               {`${last.soc.toFixed(1)}%`}
             </text>
             <text x={PAD.l} y={h - 6} className="fill-neutral-500 text-xs">
@@ -186,12 +206,12 @@ export function ParkedGraph({ series, unit, nowPct }: { series: ParkedSeries; un
   );
 }
 
-// The phone's three tiles, under the graph; from 900 px the same figures are rows beside the ring (ParkedRows).
+// The phone's tiles (up to three, filling the row), under the graph; from 900 px the same figures are rows beside the ring (ParkedRows).
 function TilesRow({ figures }: { figures: ParkedFigure[] }) {
   const scale = useTextScale();
   if (figures.length === 0) return null;
   return (
-    <div data-testid="now-parked-tiles" className={`mt-3 grid gap-2 min-[900px]:hidden max-[359px]:grid-cols-1 ${scale > 1.25 ? "grid-cols-1" : "grid-cols-3"}`}>
+    <div data-testid="now-parked-tiles" className={`mt-3 grid gap-2 min-[900px]:hidden max-[359px]:grid-cols-1 ${scale > 1.25 || figures.length === 1 ? "grid-cols-1" : figures.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
       {figures.map((f) => (
         <div key={f.id} data-testid={`now-parked-tile-${f.id}`} className="min-w-0 rounded-2xl bg-neutral-800/50 px-2.5 py-2.5">
           <p className="text-sm font-semibold tabular-nums text-neutral-100">{f.value}</p>

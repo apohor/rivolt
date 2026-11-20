@@ -129,7 +129,7 @@ export default function NowHeroV2({
   // With the charging or driving slot the context is in the slot itself; the parked slot keeps the full-charge line and takes the outside
   // temperature into its weather row.
   const parkedSlot = stateSlot != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
-  const subline = stateSlot && !parkedSlot && !soft ? null : charging
+  const subline = stateSlot && ((!parkedSlot && !soft) || view.kind === "driving") ? null : charging
     ? view.limitPct != null
       ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ≈\u00a0${dist(atLimit)} when done` : ""}`
       : null
@@ -211,6 +211,8 @@ export default function NowHeroV2({
         <CarSketch model={model} charging={charging} className="min-[900px]:mx-auto min-[900px]:max-w-[440px]" />
       );
     if (soft) {
+      // The charging and the driving card share one layout: ring, then the figures under it on the left, the graph on the right.
+      const rail = charging || view.kind === "driving";
       const condBlock = items.length > 0 && (
         <div data-testid="now-temps" className="pointer-events-none relative flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 text-sm">
           {[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin")).map((c) => (
@@ -281,14 +283,14 @@ export default function NowHeroV2({
                 )}
               </div>
             </div>
-            {!charging && (
+            {!rail && (
               <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>
             )}
-            {!charging && parkedRows && <div className="pointer-events-none relative min-w-0 min-[900px]:col-start-1 min-[900px]:row-start-2">{parkedRows}</div>}
-            <div className={`min-w-0 border-t border-neutral-800 pt-4 ${charging ? "min-[900px]:col-start-1" : "min-[900px]:col-span-2 min-[900px]:row-start-4"}`}>{stateSlot}</div>
-            {charging && <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>}
+            {!rail && parkedRows && <div className="pointer-events-none relative min-w-0 min-[900px]:col-start-1 min-[900px]:row-start-2">{parkedRows}</div>}
+            <div className={`min-w-0 border-t border-neutral-800 pt-4 ${rail ? "min-[900px]:col-start-1" : "min-[900px]:col-span-2 min-[900px]:row-start-4"}`}>{stateSlot}</div>
+            {rail && <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>}
             {(condBlock || info) && (
-              <div className={`min-w-0 space-y-2 border-t border-neutral-800 pt-4 min-[900px]:col-start-1 ${charging ? "" : "min-[900px]:row-start-3"}`}>
+              <div className={`min-w-0 space-y-2 border-t border-neutral-800 pt-4 min-[900px]:col-start-1 ${rail ? "" : "min-[900px]:row-start-3"}`}>
                 {condBlock}
                 {info && (
                   <p className="pointer-events-none relative text-xs text-neutral-400">
