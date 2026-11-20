@@ -4,6 +4,7 @@ import { formatDriveMode } from "../lib/driveMode";
 import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../lib/preferences";
 import { ParkedMap } from "../map/ParkedMap";
 import { inDemo } from "../lib/demo";
+import { NowChargeGraph } from "./NowChargeGraph";
 
 // The state slot of the Now hero (design_preview "now_slot"): under the gauge, in place of the vehicle picture and the rows,
 // the figures of what the truck is doing. Charging: power and the charger, when it reaches the limit, then the session. Driving:
@@ -32,6 +33,8 @@ export type SlotInput = {
   asleep?: SlotAsleep | null;
   // Design "now_tidy": see TIDY_ROOT.
   tidy?: boolean;
+  // Design "now_charge_graph": the vehicle whose open charge the card graphs while charging; none keeps the card as it was.
+  chargeGraphVehicle?: string | null;
 };
 export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
@@ -330,6 +333,9 @@ export default function NowSlot(i: SlotInput) {
             </div>
           ))}
         </div>
+      )}
+      {view.kind === "charging" && i.chargeGraphVehicle && (
+        <NowChargeGraph vehicleId={i.chargeGraphVehicle} nowMs={nowMs} targetPct={view.limitPct} etaHours={view.etaHours} />
       )}
     </div>
   );

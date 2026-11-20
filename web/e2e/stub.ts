@@ -212,12 +212,15 @@ export type StubOptions = {
   // Live v2: an open charge row (charging_active) and samples that look like a charge in progress (battery climbing, pack temperature)
   // or a drive in progress (the position moving), so the Live page's graph and map have something to draw.
   liveSamples?: boolean;
+  // A charge in progress for the Now card's graph (charging scenario): minutes since plug-in, the battery and the charger's power over those
+  // minutes, and what the state says now. Overrides the state, the open charge row, /now's charge and the samples.
+  chargeCase?: { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number; targetPct?: number };
 };
 
 export async function stubApi(page: Page, opts: StubOptions = {}) {
   // A live run (E2E_LIVE_URL, the rc smoke against preview) uses the real backend: stub nothing.
   if (process.env.E2E_LIVE_URL) return;
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination } = opts;
+  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase } = opts;
   const month = currentMonth(new Date(e2eNow()));
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -312,7 +315,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       return json(route, {
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: st,
         state_since: iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0,
-        charge: scenario === "charging" ? { started_at: iso(3_600_000), soc_start: 40, peak_kw: 11 } : null,
+        charge: scenario === "charging" ? { started_at: iso(chargeCase ? chargeCase.elapsedMin * 60_000 : 3_600_000), soc_start: chargeCase ? Math.round(chargeCase.soc(0)) : 40, peak_kw: 11 } : null,
       });
     }
     // This week's short sleeps against the truck's own last 30 days: 9 against a usual 5.
@@ -340,7 +343,14 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       });
       return json(route, { version: 1, generated_at: iso(0), tz: "UTC", pack_kwh: 135, windows: { "7d": w(7, 0.9), "30d": w(30, 1.1) }, daily });
     }
-    if (p === `/api/state/${VEHICLE_ID}`) return json(route, vehicleState(scenario));
+    if (p === `/api/state/${VEHICLE_ID}`) {
+      const st = vehicleState(scenario);
+      if (chargeCase && scenario === "charging") {
+        const m = chargeCase.elapsedMin;
+        Object.assign(st, { battery_level_pct: chargeCase.soc(m), charger_power_kw: chargeCase.kw(m), charge_target_pct: chargeCase.targetPct ?? 80 });
+      }
+      return json(route, st);
+    }
     if (p === `/api/live-session/${VEHICLE_ID}`) {
       // The open charge in progress, at the state's own figures (52 % and 11 kW). Only with liveSamples: the other specs keep today's 404.
       if (!liveSamples || scenario !== "charging") return json(route, { error: "not stubbed" }, 404);
@@ -400,7 +410,8 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
     }
     if (p === "/api/charges") {
       return json(route, [
-        ...(liveSamples && scenario === "charging" ? [charge(9, 0, { StartedAt: iso(3_600_000), EndedAt: iso(0), FinalState: "charging_active", StartSoCPct: 40, EndSoCPct: 52, MaxPowerKW: 11 })] : []),
+        ...(chargeCase && scenario === "charging" ? [charge(9, 0, { StartedAt: iso(chargeCase.elapsedMin * 60_000), EndedAt: iso(0), FinalState: "charging_active", StartSoCPct: Math.round(chargeCase.soc(0)), EndSoCPct: Math.round(chargeCase.soc(chargeCase.elapsedMin)), MaxPowerKW: 11 })] : []),
+        ...(!chargeCase && liveSamples && scenario === "charging" ? [charge(9, 0, { StartedAt: iso(3_600_000), EndedAt: iso(0), FinalState: "charging_active", StartSoCPct: 40, EndSoCPct: 52, MaxPowerKW: 11 })] : []),
         charge(1, 0.5),
         charge(2, 2, { MaxPowerKW: 150, Cost: 18.2, CostSource: "network_estimate", PricePerKWh: 0.4, Lat: 40.9, Lon: -100.9 }),
         charge(3, 4, { Cost: 0, CostSource: "", PricePerKWh: 0, Lat: 41.2, Lon: -100.5 }),
@@ -413,6 +424,15 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       const since = Date.parse(url.searchParams.get("since") || "") || e2eNow() - 3_600_000;
       const until = Date.parse(url.searchParams.get("until") || "") || since + 3_600_000;
       const out: Record<string, unknown>[] = [];
+      if (chargeCase && scenario === "charging") {
+        const now = e2eNow();
+        const start = now - chargeCase.elapsedMin * 60_000;
+        for (let t = Math.max(since, start), i = 0; t <= Math.min(until, now) && i < 2000; t += 30_000, i++) {
+          const m = (t - start) / 60_000;
+          out.push({ VehicleID: VEHICLE_ID, At: new Date(t).toISOString(), BatteryLevelPct: chargeCase.soc(m), RangeMi: 200, OdometerMi: 1000, ChargeLimitPct: chargeCase.targetPct ?? 80, InsideTempC: 20, OutsideTempC: 12, Source: "live", Lat: 40, Lon: -100, SpeedMph: 0, ShiftState: "P", ChargingState: "charging_active", ChargerPowerKW: chargeCase.kw(m), pack_temp_avg_c: 30 });
+        }
+        return json(route, out);
+      }
       if (liveSamples) {
         const now = e2eNow();
         for (let t = since, i = 0; t <= Math.min(until, now) && i < 400; t += 30_000, i++) {

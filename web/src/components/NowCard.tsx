@@ -101,6 +101,8 @@ export default function NowCard({
   const v2 = useDesignPreview("now_v2");
   // Design "now_slot": charging and driving figures take the picture's place in the hero.
   const slotOn = useDesignPreview("now_slot");
+  // Design "now_charge_graph" (with now_slot): the open charge's battery and power in the charging slot.
+  const chargeGraphOn = useDesignPreview("now_charge_graph") && slotOn;
   // Design "now_tidy" (with now_v2): the calmer layout of the hero. Off, the hero is as it was.
   const tidy = useDesignPreview("now_tidy") && v2;
   const { distanceUnit, temperatureUnit } = usePreferences();
@@ -301,6 +303,7 @@ export default function NowCard({
       mode={state.drive_mode}
       fix={fix}
       tidy={tidy}
+      chargeGraphVehicle={chargeGraphOn ? vehicleID : null}
       asleep={view.kind === "asleep" ? { since: server?.asleep_since ?? null, todayS: server?.asleep_today_s ?? null } : null}
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
