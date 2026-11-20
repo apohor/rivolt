@@ -88,12 +88,13 @@ export function useDriveDestination(vehicleId: string, enabled: boolean): LiveDe
   return enabled && q.data && q.data !== "off" ? q.data : null;
 }
 
-export function DriveGraph({ series, unit, nowPct, destination = null }: { series: DriveSeries; unit: "mi" | "km"; nowPct: number | null; destination?: LiveDestination | null }) {
+export function DriveGraph({ series, startedMs, unit, nowPct, destination = null }: { series: DriveSeries | null; startedMs: number; unit: "mi" | "km"; nowPct: number | null; destination?: LiveDestination | null }) {
   const [ref, { w, h }] = useBox();
   const ink = useSoftInk();
   const id = useSoftId();
   const k = unit === "km" ? MPH_TO_KMH : 1;
   const speedUnit = unit === "km" ? "km/h" : "mph";
+  if (!series) return <DriveStart startedMs={startedMs} unit={unit} destination={destination} />;
   const { speed, soc, startPct } = series;
   const first = speed[0];
   const last = speed[speed.length - 1];
@@ -118,7 +119,7 @@ export function DriveGraph({ series, unit, nowPct, destination = null }: { serie
 
   return (
     <div data-testid="now-drive-graph" className="flex min-w-0 flex-col min-[900px]:h-full">
-      <GraphHead title="This drive" change={used != null && used > 0 ? `−${used}%` : null} since={`since ${clock(first.x)}`} testid="now-drive-change" />
+      <GraphHead title="This drive" change={used != null && used > 0 ? `−${used}%` : null} since={`since ${clock(series.startedMs)}`} sinceAlone testid="now-drive-change" />
       {destination && (
         <p data-testid="now-drive-dest" className="mb-1 truncate text-sm text-neutral-300">
           {destinationShort(destination, unit)}
@@ -161,6 +162,27 @@ export function DriveGraph({ series, unit, nowPct, destination = null }: { serie
           ...(socPts.length > 1 ? [{ swatch: "line" as const, color: ink.quiet, label: "Battery" }] : []),
         ]}
       />
+    </div>
+  );
+}
+
+// The first minute or two of a drive, before there is a line to draw: the frame is already there, with its header and legend, so the card keeps its height.
+function DriveStart({ startedMs, unit, destination }: { startedMs: number; unit: "mi" | "km"; destination: LiveDestination | null }) {
+  const speedUnit = unit === "km" ? "km/h" : "mph";
+  return (
+    <div data-testid="now-drive-graph" className="flex min-w-0 flex-col min-[900px]:h-full">
+      <GraphHead title="This drive" change={null} since={`since ${clock(startedMs)}`} sinceAlone testid="now-drive-change" />
+      {destination && (
+        <p data-testid="now-drive-dest" className="mb-1 truncate text-sm text-neutral-300">
+          {destinationShort(destination, unit)}
+        </p>
+      )}
+      <div className="flex h-[12rem] min-w-0 items-center justify-center min-[900px]:h-auto min-[900px]:min-h-[14rem] min-[900px]:flex-1">
+        <p data-testid="now-drive-just-started" className="text-sm text-neutral-400">
+          Drive just started
+        </p>
+      </div>
+      <Legend items={[{ swatch: "line", color: "currentColor", label: `Speed (${speedUnit})` }]} />
     </div>
   );
 }
