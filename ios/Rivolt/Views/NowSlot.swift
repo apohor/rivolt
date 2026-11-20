@@ -36,6 +36,9 @@ struct NowSlotModel: Equatable {
     var chips: [Chip] = []
     /// Asleep only: "Asleep for 2 h 15 min" and "Asleep today 18 h 40 min", each when the server sent it, shown under the map.
     var sleep: [Stat] = []
+    /// Where the truck is, in one line, for the card that has the parked graph instead of the map (now_parked_graph): "At Home" (the saved
+    /// place's name) at home, "Away · 12 mi from home" away, nil when there is no saved home. As the web's, and nothing more precise than the map's label.
+    var place: String?
 
     /// The saved home, for the "Home" label on the map and the home charger.
     struct Home: Equatable {
@@ -52,6 +55,17 @@ struct NowSlotModel: Equatable {
     var isParked: Bool {
         if case .parked = content { return true }
         return false
+    }
+
+    /// The web's `formatDistance` with `fine`: whole numbers, tenths under 10, steps of 5 mi (10 km) from 60 mi (100 km).
+    static func distanceWords(km: Double, metric: Bool) -> String {
+        let v = metric ? km : km / 1.609344
+        let step = metric ? 10.0 : 5.0, big = metric ? 100.0 : 60.0
+        let n: String
+        if v >= big { n = String(Int((v / step).rounded()) * Int(step)) }
+        else if v < 10 { n = String(format: "%.1f", v) }
+        else { n = String(Int(v.rounded())) }
+        return "\(n) \(metric ? "km" : "mi")"
     }
 
     /// The server's drive, or the live drive's figures when the server has none.
@@ -79,7 +93,7 @@ struct NowSlotModel: Equatable {
     /// Nil when the state has no slot, so the picture stays: charging without a power reading, driving without a speed, parked without a fix.
     static func make(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, liveDrive: LiveDrive?,
                      fix: (lat: Double, lon: Double)?, home: Home?, gear: String? = nil, mode: String? = nil,
-                     soft: Bool = false, packC: Double? = nil, parkedGraph: Bool = false, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
+                     soft: Bool = false, packC: Double? = nil, parkedGraph: Bool = false, metric: Bool = NowFormat.usesMetric, clock: Date, calendar: Calendar = .current) -> NowSlotModel? {
         let atHome = home != nil && fix != nil && ChargerPin.distanceM(home!.lat, home!.lon, fix!.lat, fix!.lon) <= homeRadiusM
         switch summary.kind {
         case .charging:
@@ -106,7 +120,10 @@ struct NowSlotModel: Equatable {
                 // With the parked graph the figure is one of its tiles, so the slot does not say it twice.
                 if !parkedGraph, let today = snapshot?.asleepTodayS, today >= 0 { sleep.append(Stat(label: "Asleep today", value: NowFormat.duration(today), note: nil)) }
             }
-            return NowSlotModel(content: .parked(lat: fix.lat, lon: fix.lon, label: atHome ? (home?.label ?? "Home") : nil, weather: weather), sleep: sleep)
+            var place: String?
+            if atHome { place = "At \(home?.label ?? "Home")" }
+            else if let home { place = "Away · \(distanceWords(km: ChargerPin.distanceM(home.lat, home.lon, fix.lat, fix.lon) / 1000, metric: metric)) from home" }
+            return NowSlotModel(content: .parked(lat: fix.lat, lon: fix.lon, label: atHome ? (home?.label ?? "Home") : nil, weather: weather), sleep: sleep, place: place)
         default:
             return nil
         }

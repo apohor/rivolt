@@ -168,7 +168,7 @@ struct NowCard: View {
                         NowParkedGraph(model: parked)
                         Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
                     }
-                    NowSlotView(model: slot, soft: soft)
+                    NowSlotView(model: slot, soft: soft, noMap: parkedSoft)
                     if soft { Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true); NowChargeGraph(model: graphModel) }
                     if let drive, !slot.isParked {
                         Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)

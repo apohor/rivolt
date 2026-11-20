@@ -45,6 +45,7 @@ final class NowParkedGraphUITests: XCTestCase {
         XCTAssertTrue(element(app, "now-parked-change").exists, "the header's change")
         XCTAssertTrue(element(app, "now-parked-tile-idle").exists, "the idle-loss tile")
         XCTAssertTrue(element(app, "now-parked-projection").exists, "the projection")
+        XCTAssertFalse(element(app, "now-slot-map").exists, "the graph is the card's content: no map") // the map is hidden from VoiceOver, so its absence here is the model's test
         shot(app, "now-parked-graph-top")
     }
 
@@ -52,6 +53,7 @@ final class NowParkedGraphUITests: XCTestCase {
         let app = launch("minutes")
         XCTAssertTrue(element(app, "now-slot-parked").waitForExistence(timeout: 30), "the parked slot still shows")
         XCTAssertFalse(element(app, "now-parked-graph").exists, "no graph for a truck parked a few minutes")
+        XCTAssertFalse(element(app, "now-parked-place").exists, "with no place line")
     }
 
     /// The parity shots: the same states as the web's matrix (web/e2e/now-parked-graph.pw.ts), so the two cards can be set side by side.

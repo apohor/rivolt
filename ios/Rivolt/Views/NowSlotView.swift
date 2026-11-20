@@ -7,6 +7,8 @@ struct NowSlotView: View {
     let model: NowSlotModel
     /// The charging graph's card (now_charge_graph): the session figures are quiet label and value rows, as the web's.
     var soft = false
+    /// The parked graph is the card's content (now_parked_graph): the map gives way to one line saying where the truck is, none when it is not known.
+    var noMap = false
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -14,7 +16,11 @@ struct NowSlotView: View {
         switch model.content {
         case .parked(let lat, let lon, let label, let weather):
             VStack(alignment: .leading, spacing: 12) {
-                ParkedMap(lat: lat, lon: lon, label: label)
+                if noMap {
+                    if let place = model.place { placeLine(place) }
+                } else {
+                    ParkedMap(lat: lat, lon: lon, label: label)
+                }
                 if !model.sleep.isEmpty { grid(model.sleep).accessibilityIdentifier("now-slot-asleep") }
                 if let weather { weatherRow(weather) }
             }
@@ -33,6 +39,17 @@ struct NowSlotView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("now-slot-figures")
         }
+    }
+
+    private func placeLine(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "mappin.and.ellipse").font(.caption).foregroundStyle(Theme.accent).accessibilityHidden(true)
+            Text(text).themeText(.value, color: Theme.textPrimary).lineLimit(1).truncationMode(.tail)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
+        .accessibilityIdentifier("now-parked-place")
     }
 
     private func chip(_ c: NowSlotModel.Chip) -> some View {
