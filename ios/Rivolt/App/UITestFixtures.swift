@@ -65,7 +65,7 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/app/config"): return "app_config"
         // The preview-only designs: off unless the UI test asks for the theme switch.
         case ("GET", "/api/config"): let args = ProcessInfo.processInfo.arguments
-            return args.contains("-uitest-trip-receipt") ? "config_trip_receipt" : args.contains("-uitest-share-map") ? "config_share_map" : args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
+            return args.contains("-uitest-charging") ? "config_now_charge" : args.contains("-uitest-trip-receipt") ? "config_trip_receipt" : args.contains("-uitest-share-map") ? "config_share_map" : args.contains("-uitest-now-v2") ? "config_now_v2" : args.contains("-uitest-theme-switch") ? "config_theme_switch" : nil
         // The round-trip launch: one merged drive of three real legs (a zero-distance stub between two of them left out), each leg's own route and the samples.
         case ("GET", "/api/activity") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "activity_round_trip"
         case ("GET", "/api/samples") where ProcessInfo.processInfo.arguments.contains("-uitest-round-trip"): return "samples_round_trip"
@@ -116,6 +116,50 @@ final class FixtureURLProtocol: URLProtocol {
         return try? JSONSerialization.data(withJSONObject: ["pois": kept, "total": kept.count, "asof": json["asof"] ?? "2026-10-20"])
     }
 
+    /// A charge in progress that began 40 minutes ago, for the Now card's charging graph (`-uitest-charging`): the truck read, `/now` and the stored
+    /// samples every 30 s, their times counted back from the launch so the card is live whenever the test runs. 11 kW AC, 41% to 59%, limit 80%.
+    private func chargingAnswer(path: String) -> Data? {
+        let now = Date()
+        let iso = ISO8601DateFormatter()
+        let started = now.addingTimeInterval(-40 * 60)
+        func rewrite(_ name: String, _ patch: (inout [String: Any]) -> Void) -> Data? {
+            guard let raw = data(named: name), var json = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] else { return nil }
+            patch(&json)
+            return try? JSONSerialization.data(withJSONObject: json)
+        }
+        if path.contains("/state/") {
+            return rewrite("state") { j in
+                j["at"] = iso.string(from: now)
+                j["location_fix_at"] = iso.string(from: now)
+                j["battery_level_pct"] = 59.0
+                j["cabin_temp_c"] = 21.0
+            }
+        }
+        if path.hasPrefix("/api/vehicles/"), path.hasSuffix("/now") {
+            return rewrite("now_v1") { j in
+                j["at"] = iso.string(from: now)
+                j["location_fix_at"] = iso.string(from: now)
+                j["vehicle_state_frame_at"] = iso.string(from: now)
+                j["state_since"] = iso.string(from: started)
+                j["soc_at_state_start"] = 41.0
+                j["charge"] = ["started_at": iso.string(from: started), "soc_start": 41.0, "peak_kw": 11.2]
+                j["ambient"] = ["temp_c": 12.5, "source": "open-meteo", "as_of": iso.string(from: now)]
+            }
+        }
+        if path == "/api/samples" {
+            var rows: [[String: Any]] = []
+            var t = started.addingTimeInterval(-30)
+            while t <= now {
+                let f = max(0, t.timeIntervalSince(started)) / (40 * 60)
+                rows.append(["At": iso.string(from: t), "BatteryLevelPct": ((41 + 18 * f) * 10).rounded() / 10, "ChargerPowerKW": 11.1,
+                             "pack_temp_avg_c": 24.0 + 3 * f, "pack_temp_min_c": 23.0, "pack_temp_max_c": 26.0, "ChargeLimitPct": 80.0])
+                t = t.addingTimeInterval(30)
+            }
+            return try? JSONSerialization.data(withJSONObject: rows)
+        }
+        return nil
+    }
+
     override func startLoading() {
         guard let url = request.url else { return }
         let method = request.httpMethod ?? "GET"
@@ -147,6 +191,8 @@ final class FixtureURLProtocol: URLProtocol {
         } else if ProcessInfo.processInfo.environment[UITestLaunch.stateFailsVariable] != nil, method == "GET", url.path.hasPrefix("/api/vehicles/"), url.path.hasSuffix("/state") {
             failed = 503
             answer = Data(#"{"error":"upstream unavailable","class":"transient"}"#.utf8)
+        } else if ProcessInfo.processInfo.arguments.contains("-uitest-charging"), method == "GET", let live = chargingAnswer(path: url.path) {
+            answer = live
         } else if let name = Self.file(method: method, path: url.path) {
             answer = data(named: name)
         }

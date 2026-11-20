@@ -124,7 +124,7 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours }: { nowMs: 
       <Legend
         items={[
           { swatch: "line", color: ink.line, label: "Battery" },
-          ...(lastPower ? [{ swatch: "line" as const, color: ink.quiet, label: `Power ${Math.round(lastPower.y)} kW now` }] : []),
+          ...(lastPower ? [{ swatch: "line" as const, color: ink.quiet, label: `Power ${lastPower.y.toFixed(lastPower.y < 10 ? 1 : 0)} kW now` }] : []),
           ...(endX != null ? [{ swatch: "dash" as const, color: ink.line, label: "Estimate", testid: "now-charge-graph-estimate" }] : []),
         ]}
       />
