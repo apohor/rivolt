@@ -9,14 +9,14 @@ import { useIsLight } from "../lib/vehicleImage";
 // pin: a dot or a label sits on this reading, so easeSteps never moves it off the line.
 export type Pt = { x: number; y: number; hold?: boolean; pin?: boolean };
 
-export type SoftInk = { line: string; quiet: string; warm: string; band: string };
+export type SoftInk = { line: string; quiet: string; warm: string; band: string; pack: string };
 
 // Dark: the mock's mint line on a near-black card. Light: the same hues one step deeper, so the line holds on a white card.
 export function useSoftInk(): SoftInk {
   const light = useIsLight();
   return light
-    ? { line: "#059669", quiet: "#d97706", warm: "#b45309", band: "#6366f1" }
-    : { line: "#6ee7b7", quiet: "#fbbf24", warm: "#fcd34d", band: "#818cf8" };
+    ? { line: "#059669", quiet: "#d97706", warm: "#b45309", band: "#6366f1", pack: "#7c3aed" }
+    : { line: "#6ee7b7", quiet: "#fbbf24", warm: "#fcd34d", band: "#818cf8", pack: "#c4b5fd" };
 }
 
 // The width and height of an element, as it is laid out: the chart draws in real pixels, so its text is the app's text size at any width.

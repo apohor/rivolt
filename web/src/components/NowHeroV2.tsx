@@ -140,10 +140,10 @@ export default function NowHeroV2({
   const parkedSlot = stateSlot != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
   const subline = stateSlot && ((!parkedSlot && !soft) || view.kind === "driving") ? null : charging
     ? view.limitPct != null
-      ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ≈\u00a0${dist(atLimit)} when done` : ""}`
+      ? `Charging to ${Math.round(view.limitPct)}%${atLimit != null ? ` · ${soft ? "" : "≈\u00a0"}${dist(atLimit)} when done` : ""}`
       : null
     : fullCharge != null
-      ? `Full charge today ≈ ${fullCharge} ${distanceUnit}`
+      ? `Full charge today ${soft ? "" : "≈ "}${fullCharge} ${distanceUnit}`
       : null;
   const outside =
     amb.enabled && ambient && !parkedSlot
@@ -230,20 +230,32 @@ export default function NowHeroV2({
       const rail = charging || view.kind === "driving";
       const condBlock = items.length > 0 && (
         // Cabin, Outside and Wind: three equal columns under their labels (the sky word wraps inside Outside), so nothing hangs alone on a second row.
+        // The charging card keeps them on one line (each label before its value), to spare the left column its height.
         <div
           data-testid="now-temps"
-          className={`pointer-events-none relative grid gap-x-3 gap-y-2 text-sm ${items.length === 3 ? "grid-cols-3" : "grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))]"}`}
+          className={charging ? "pointer-events-none relative flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm" : `pointer-events-none relative grid gap-x-3 gap-y-2 text-sm ${items.length === 3 ? "grid-cols-3" : "grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))]"}`}
         >
-          {[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin")).map((c) => (
-            <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
-              <p className="flex items-center text-neutral-400">
-                {c.k}
-                {infoBtn(c)}
+          {[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin")).map((c) =>
+            charging ? (
+              <p key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="flex min-w-0 max-w-full flex-wrap items-baseline gap-x-1.5">
+                <span className="flex items-center text-neutral-400">
+                  {c.k}
+                  {infoBtn(c)}
+                </span>
+                <span className="font-semibold tabular-nums text-neutral-100">{c.v}</span>
+                {c.note && <span className="text-xs text-neutral-400">{c.note}</span>}
               </p>
-              <p className="font-semibold tabular-nums text-neutral-100">{c.v}</p>
-              {c.note && <p className="break-words text-xs text-neutral-400">{c.note}</p>}
-            </div>
-          ))}
+            ) : (
+              <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
+                <p className="flex items-center text-neutral-400">
+                  {c.k}
+                  {infoBtn(c)}
+                </p>
+                <p className="font-semibold tabular-nums text-neutral-100">{c.v}</p>
+                {c.note && <p className="break-words text-xs text-neutral-400">{c.note}</p>}
+              </div>
+            ),
+          )}
         </div>
       );
       return (
@@ -274,9 +286,10 @@ export default function NowHeroV2({
             )}
           </div>
           </div>
-          <div className="grid grid-cols-[minmax(0,1fr)] gap-y-4 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] min-[900px]:gap-x-10">
-            <div className="pointer-events-none relative flex min-w-0 flex-wrap items-center gap-x-5 gap-y-3 min-[900px]:col-start-1">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-y-3 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] min-[900px]:gap-x-10">
+            <div className="pointer-events-none relative flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 min-[900px]:col-start-1">
               <ArcGauge
+                size={charging ? 100 : undefined}
                 value={view.soc}
                 label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
                 live={charging}
@@ -285,12 +298,12 @@ export default function NowHeroV2({
               >
                 {(shown) => (
                   <span className={`font-semibold leading-none tabular-nums ${tone}`}>
-                    <span className="text-5xl">{view.soc > 0 ? Math.round(shown) : "—"}</span>
+                    <span className={charging ? "text-4xl" : "text-5xl"}>{view.soc > 0 ? Math.round(shown) : "—"}</span>
                     <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
                   </span>
                 )}
               </ArcGauge>
-              <div className="min-w-[min(10rem,100%)] flex-1 space-y-1">
+              <div className="min-w-[min(10rem,100%)] flex-1 space-y-0.5">
                 {view.rangeMi != null && (
                   <p>
                     <span className="text-2xl font-semibold tabular-nums text-neutral-100 min-[360px]:text-3xl">{dist(view.rangeMi)}</span>{" "}
@@ -308,10 +321,10 @@ export default function NowHeroV2({
               <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>
             )}
             {!rail && parkedRows && <div className="pointer-events-none relative min-w-0 min-[900px]:col-start-1 min-[900px]:row-start-2">{parkedRows}</div>}
-            <div className={`min-w-0 border-t border-neutral-800 pt-4 empty:hidden ${rail ? "min-[900px]:col-start-1" : "min-[900px]:col-span-2 min-[900px]:row-start-4"}`}>{stateSlot}</div>
-            {rail && <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>}
+            <div className={`min-w-0 border-t border-neutral-800 pt-3 empty:hidden ${rail ? "min-[900px]:col-start-1" : "min-[900px]:col-span-2 min-[900px]:row-start-4"}`}>{stateSlot}</div>
+            {rail && <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:flex min-[900px]:flex-col min-[900px]:justify-center min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>}
             {(condBlock || info) && (
-              <div className={`min-w-0 space-y-2 border-t border-neutral-800 pt-4 min-[900px]:col-start-1 ${rail ? "" : "min-[900px]:row-start-3"}`}>
+              <div className={`min-w-0 space-y-2 border-t border-neutral-800 pt-3 min-[900px]:col-start-1 ${rail ? "" : "min-[900px]:row-start-3"}`}>
                 {condBlock}
                 {info && (
                   <p className="pointer-events-none relative text-xs text-neutral-400">

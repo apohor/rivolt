@@ -304,7 +304,12 @@ export default function NowCard({
       };
       const hero = () => el.querySelector(":scope > [data-now-v2]")?.getBoundingClientRect().height;
       // While the hold applies the box is at least the remembered height: that is the memory read back, not a measurement, so it is not saved.
-      const held = () => !!(el.querySelector(":scope > [data-now-v2]") as HTMLElement | null)?.style.minHeight;
+      // A card taller than the hold (its graph has arrived beside a shorter left side) is a measurement, and is saved.
+      const held = () => {
+        const box = el.querySelector(":scope > [data-now-v2]") as HTMLElement | null;
+        const min = parseFloat(box?.style.minHeight ?? "");
+        return Number.isFinite(min) && box!.getBoundingClientRect().height <= min + 1;
+      };
       const save = () => { if (!held()) rememberCardHeight(vehicleID, v2, kind, height(), hero()); };
       const ro = new ResizeObserver(save);
       const watch = () => {
@@ -442,7 +447,7 @@ export default function NowCard({
           holdHeight={holdHeight}
           holdPending={(parkedKindOn && parkedWaiting) || (driveGraphOn && (drivePending || driveQ.isPending))}
           soft={soft || parkedSeries != null || driveFrame}
-          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} powerKw={view.powerKw} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveFrame ? <DriveGraph series={driveSeries} startedMs={driveStartedMs} nowMs={nowMs} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} powerKw={view.powerKw} tempUnit={temperatureUnit} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveFrame ? <DriveGraph series={driveSeries} startedMs={driveStartedMs} nowMs={nowMs} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
           parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
           tidy={tidy}
           nowMs={nowMs}

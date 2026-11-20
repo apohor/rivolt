@@ -3,13 +3,18 @@ import { stubApi } from "./stub";
 
 // Design "now_charge_graph" (with now_slot): the Now card's charging slot draws the open charge so far (battery, power, the target, a dashed
 // estimate to it). Too few samples: a "collecting" line and no frame. Off, the card is as it was. SHOTS_DIR makes the image-gate shots.
-type Curve = { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number };
+type Curve = { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number; targetPct?: number; pack?: (m: number) => number | null };
+// A pack that warms from about 70 F (21 C) toward 95 F (35 C), quickly at first, as a pack does when charging starts.
+const warm = (m: number) => 21 + 14 * (1 - Math.exp(-m / 45));
 const CASES: Record<string, Curve> = {
-  ac: { elapsedMin: 90, soc: (m) => 40 + m * 0.136, kw: () => 11 },
-  dc: { elapsedMin: 25, soc: (m) => 15 + 40 * (1 - Math.exp(-m / 20)), kw: (m) => 190 * Math.exp(-m / 22) + 40 },
-  slow: { elapsedMin: 30, soc: (m) => 40 + m * 0.09, kw: () => 4.8 },
-  fresh: { elapsedMin: 1, soc: (m) => 40 + m * 0.136, kw: () => 11 },
-  paused: { elapsedMin: 60, soc: (m) => 40 + Math.min(m, 30) * 0.136, kw: (m) => (m < 30 ? 11 : 0) },
+  ac: { elapsedMin: 90, soc: (m) => 40 + m * 0.136, kw: () => 11, pack: warm },
+  dc: { elapsedMin: 25, soc: (m) => 15 + 40 * (1 - Math.exp(-m / 20)), kw: (m) => 190 * Math.exp(-m / 22) + 40, pack: warm },
+  slow: { elapsedMin: 30, soc: (m) => 40 + m * 0.09, kw: () => 4.8, pack: warm },
+  fresh: { elapsedMin: 1, soc: (m) => 40 + m * 0.136, kw: () => 11, pack: warm },
+  // Three minutes in on a home charger with hours still to go (limit 60%), and a charge about to finish.
+  start: { elapsedMin: 3, soc: (m) => 33 + m * 0.136, kw: () => 11, targetPct: 60, pack: warm },
+  end: { elapsedMin: 80, soc: (m) => 40 + m * 0.45, kw: () => 11, pack: warm },
+  paused: { elapsedMin: 60, soc: (m) => 40 + Math.min(m, 30) * 0.136, kw: (m) => (m < 30 ? 11 : 0), pack: warm },
 };
 const SHOTS = process.env.SHOTS_DIR;
 
@@ -33,9 +38,12 @@ test("an AC charge draws battery, power and the way to the target with its finis
   await expect(page.getByTestId("now-car")).toHaveCount(0);
   await expect(page.getByTestId("now-slot")).not.toContainText(/Reaches/);
   await expect(page.getByTestId("now-slot-plugged-in")).toHaveCount(0);
-  // The pack's temperature (from the stored samples) is a figure row right after Rate; the bottom row is cabin and outside only.
+  // The pack's temperature is a line on the chart (not in the power line, not a figure row), with its value as the legend says.
   await expect(page.getByTestId("now-slot")).toContainText(/Cost so far/);
-  await expect(page.getByTestId("now-slot")).toContainText(/Rate.*Pack temperature.*Elapsed/);
+  await expect(page.getByTestId("now-slot-big")).toHaveText(/^\d+(\.\d)?\s?kW/);
+  await expect(page.getByTestId("now-slot-big")).not.toContainText(/°|pack/i);
+  await expect(page.getByTestId("now-slot-pack")).toHaveCount(0);
+  await expect(page.getByTestId("now-slot")).not.toContainText(/Pack temperature/);
   await expect(page.getByTestId("now-temps")).toHaveText(/Cabin.*Outside/);
   await expect(page.getByTestId("now-temps")).not.toContainText(/Pack/);
   // On a phone the Live button keeps the status row with the chip (the chip drops the finish time there).
@@ -54,7 +62,7 @@ for (const name of ["ac", "dc"]) {
     expect(when).toBeTruthy();
     expect(kw).toBeTruthy();
     await expect(page.getByTestId("now-charge-graph")).toContainText(`% · ${when}`);
-    await expect(page.getByTestId("now-charge-graph")).toContainText(`Power ${kw} kW now`);
+    await expect(page.getByTestId("now-charge-graph")).toContainText(`Power ${kw} kW`);
     await expect(page.getByTestId("now-slot-big")).toContainText(kw!);
   });
 }
@@ -92,14 +100,26 @@ test("the graph's start and now labels are the real readings and the change is t
   expect(change).toBe(to - from);
 });
 
-test("a slow home charge with hours left still gives the session so far most of the width @webkit", async ({ page }) => {
-  await open(page, CASES.slow);
-  const g = page.getByTestId("now-charge-graph");
-  await expect(g).toBeVisible();
-  const svg = await g.locator("svg").boundingBox();
-  const dot = await g.locator('[data-testid="now-charge-graph-estimate-line"]').evaluate((el) => (el as SVGPathElement).getBBox().x);
-  // The dotted way on starts past half the width: the data so far is not squeezed into a stub.
-  expect(dot / (svg?.width ?? 1)).toBeGreaterThan(0.5);
+test("the time axis gives the session its true share of the charge, never under a quarter of the width @webkit", async ({ page }) => {
+  for (const c of [CASES.slow, CASES.ac, CASES.dc]) {
+    await open(page, c);
+    const g = page.getByTestId("now-charge-graph");
+    await expect(g).toBeVisible();
+    const svg = await g.locator("svg").boundingBox();
+    const dot = await g.locator('[data-testid="now-charge-graph-estimate-line"]').evaluate((el) => (el as SVGPathElement).getBBox().x);
+    // The dotted way on starts where the session so far ends: at least about a quarter of the width, and no cliff (not most of the width) for a short session.
+    expect(dot / (svg?.width ?? 1)).toBeGreaterThan(0.2);
+  }
+});
+
+test("the graph is compact: a fixed height on a phone and on desktop, not the column's @webkit", async ({ page }) => {
+  for (const [w, max] of [[393, 160], [1280, 210]] as const) {
+    await page.setViewportSize({ width: w, height: 1000 });
+    await open(page, CASES.slow);
+    const box = await page.getByTestId("now-charge-graph").locator("svg").boundingBox();
+    expect(box!.height).toBeLessThanOrEqual(max);
+    expect(box!.height).toBeGreaterThanOrEqual(max - 10);
+  }
 });
 
 test("the estimate leaves \"now\" with the slope of the battery line, not at an angle @webkit", async ({ page }) => {
@@ -150,12 +170,93 @@ test("it reads the stored samples at the card's pace, never /api/vehicles @webki
   expect(seen.filter((p) => p === "/api/samples").length).toBeLessThanOrEqual(2);
 });
 
+// The pack's temperature is a third, thin line over the measured part, with its value at the "now" end and in the legend.
+test("the pack temperature is a line with its value at the end and in the legend @webkit", async ({ page }) => {
+  await open(page, CASES.ac);
+  const g = page.getByTestId("now-charge-graph");
+  await expect(g.getByTestId("now-charge-graph-pack-line")).toBeVisible();
+  await expect(g.getByTestId("now-charge-graph-pack")).toHaveText(/^Pack \d+°F$/);
+  await expect(g.getByTestId("now-charge-graph-pack-now")).toHaveText(/^\d+°F$/);
+  const legend = (await g.getByTestId("now-charge-graph-pack").textContent())!.match(/(\d+)°F/)![1];
+  expect(await g.getByTestId("now-charge-graph-pack-now").textContent()).toBe(`${legend}°F`);
+  // 90 minutes of a pack warming about 70 to 88 F: the line really climbs (it ends higher on screen than it starts).
+  const d = (await g.getByTestId("now-charge-graph-pack-line").getAttribute("d"))!;
+  const ys = [...d.matchAll(/[ML]?\s*(-?[\d.]+)[ ,](-?[\d.]+)/g)].map((m) => Number(m[2]));
+  expect(ys[ys.length - 1]).toBeLessThan(ys[0] - 20);
+  expect(await g.locator("svg").getAttribute("aria-label")).toMatch(/pack temperature \d+°F now, up \d+ degrees over the charge/);
+  // It is drawn only over the measured part: the line ends at the battery's "now" dot, not in the estimate.
+  const lineBox = await g.getByTestId("now-charge-graph-pack-line").boundingBox();
+  const est = await g.getByTestId("now-charge-graph-estimate-line").boundingBox();
+  expect(lineBox!.x + lineBox!.width).toBeLessThanOrEqual(est!.x + 8);
+});
+
+test("the pack's unit follows the account @webkit", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ temperatureUnit: "c" })));
+  await open(page, CASES.ac);
+  const g = page.getByTestId("now-charge-graph");
+  await expect(g.getByTestId("now-charge-graph-pack")).toHaveText(/^Pack \d+°C$/);
+  await expect(g.getByTestId("now-charge-graph-pack-now")).toHaveText(/^\d+°C$/);
+});
+
+for (const [name, pack] of [
+  ["no pack samples", () => null],
+  ["a single pack sample", (m: number) => (m > 89.9 ? 30 : null)],
+  ["a newest pack sample older than 15 minutes", (m: number) => (m < 70 ? warm(m) : null)],
+] as const) {
+  test(`${name}: no pack line, no legend entry, no label, nothing in the description @webkit`, async ({ page }) => {
+    await open(page, { ...CASES.ac, pack });
+    const g = page.getByTestId("now-charge-graph");
+    await expect(g).toBeVisible();
+    await expect(g.getByTestId("now-charge-graph-pack-line")).toHaveCount(0);
+    await expect(g.getByTestId("now-charge-graph-pack")).toHaveCount(0);
+    await expect(g.getByTestId("now-charge-graph-pack-now")).toHaveCount(0);
+    await expect(g).not.toContainText(/Pack/);
+    expect(await g.locator("svg").getAttribute("aria-label")).not.toMatch(/pack/i);
+    await expect(g.getByTestId("now-charge-graph-estimate")).toBeVisible();
+  });
+}
+
+// The pack's value never sits on the battery's value, the pill, the start label or a time label, at any width or stage of the charge.
+for (const name of ["start", "ac", "dc", "end"]) {
+  for (const width of [320, 393, 1440]) {
+    test(`the pack value overlaps no other label: ${name} at ${width} px @webkit`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await open(page, CASES[name]);
+      const g = page.getByTestId("now-charge-graph");
+      if (name === "start") await expect(g.getByTestId("now-charge-graph-collecting")).toHaveCount(0);
+      await expect(g.getByTestId("now-charge-graph-pack")).toBeVisible();
+      const label = g.getByTestId("now-charge-graph-pack-now");
+      if (width > 320) await expect(label).toBeVisible();
+      if ((await label.count()) === 0) return;
+      const svg = (await g.locator("svg").first().boundingBox())!;
+      const me = (await label.boundingBox())!;
+      expect(me.x).toBeGreaterThanOrEqual(svg.x);
+      expect(me.x + me.width).toBeLessThanOrEqual(svg.x + svg.width);
+      const others = await g.locator("svg text:not([data-testid='now-charge-graph-pack-now']), svg rect.fill-neutral-500\\/15").evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, t: e.textContent }; }));
+      for (const o of others) {
+        const hit = me.x < o.x + o.w && me.x + me.width > o.x && me.y < o.y + o.h && me.y + me.height > o.y;
+        expect(hit, `pack value over "${o.t}"`).toBe(false);
+      }
+      // Every label (the battery's value under its dot at the end of a charge included) stays inside the graph, and the pack's keeps clear of the battery's value.
+      for (const o of others) {
+        expect(o.x, `"${o.t}" left of the graph`).toBeGreaterThanOrEqual(svg.x - 1);
+        expect(o.x + o.w, `"${o.t}" right of the graph`).toBeLessThanOrEqual(svg.x + svg.width + 1);
+        if (/^\d+%$/.test(o.t ?? "") && o.y > svg.y) {
+          const gapX = Math.max(o.x - (me.x + me.width), me.x - (o.x + o.w));
+          const gapY = Math.max(o.y - (me.y + me.height), me.y - (o.y + o.h));
+          expect(Math.max(gapX, gapY), `pack value beside "${o.t}"`).toBeGreaterThanOrEqual(8);
+        }
+      }
+    });
+  }
+}
+
 if (SHOTS) {
   // The image-gate matrix: every case on a phone and on desktop in both themes; the narrowest phone; large text; km.
   type Shot = [string, number, "light" | "dark", string, string];
   const shots: Shot[] = [];
-  for (const name of Object.keys(CASES)) for (const w of [393, 1280]) for (const scheme of ["light", "dark"] as const) shots.push([name, w, scheme, "100", "mi"]);
-  for (const name of ["ac", "dc"]) for (const scheme of ["light", "dark"] as const) shots.push([name, 320, scheme, "100", "mi"]);
+  for (const name of Object.keys(CASES)) for (const w of [393, 1280, 1440]) for (const scheme of ["light", "dark"] as const) shots.push([name, w, scheme, "100", "mi"]);
+  for (const name of ["start", "ac", "dc", "end"]) for (const scheme of ["light", "dark"] as const) shots.push([name, 320, scheme, "100", "mi"]);
   for (const name of ["ac", "dc"]) for (const w of [320, 393, 1280]) shots.push([name, w, "dark", "200", "mi"]);
   for (const w of [393, 1280]) shots.push(["ac", w, "dark", "100", "km"]);
   for (const [name, w, scheme, text, unit] of shots) {
@@ -183,7 +284,7 @@ for (const width of [320, 393, 1440]) {
     const row = page.getByTestId("now-temps");
     await expect(row).toBeVisible();
     await expect(page.locator("[data-now-v2]")).not.toContainText(/next 3 h/i);
-    const items = row.locator("> div");
+    const items = row.locator("> p");
     expect(await items.count()).toBeGreaterThanOrEqual(2);
     // The card settles as the weather and the cabin arrive: wait for the row, then check it.
     await expect

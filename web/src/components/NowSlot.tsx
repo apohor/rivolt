@@ -2,7 +2,6 @@ import { chargeFinishMs, clock, type NowView } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
 import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../lib/preferences";
-import { usePackTemp } from "./NowChargeGraph";
 import { ParkedMap } from "../map/ParkedMap";
 import { inDemo } from "../lib/demo";
 
@@ -40,15 +39,14 @@ export type SlotInput = {
   soft?: boolean;
   // Design "now_drive_graph": the figures sit in the left half beside the graph, two to a row at every width.
   half?: boolean;
-  // Design "now_charge_graph": the pack's temperature (°C) from the newest stored sample, only while it is recent; its own row after Rate.
-  packC?: number | null;
 };
 export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
 export type SlotWeather = { temp_c: number; condition?: string; wind_kph?: number };
 
 const KM_PER_MI = 1.609344;
-type Stat = { k: string; v: string; note?: string };
+// `est`: a figure we worked out ourselves (not the truck's own). The keyed card says so in words once instead of marking each with a sign; the unkeyed card keeps its sign.
+type Stat = { k: string; v: string; note?: string; est?: boolean };
 
 const COST_NOTE: Record<string, string> = {
   rivian: "billed by Rivian",
@@ -75,11 +73,12 @@ export function slotStats(i: SlotInput): Stat[] {
   const { view: v, unit } = i;
   const dist = (mi: number) => `${(unit === "km" ? mi * KM_PER_MI : mi).toFixed(unit === "km" || mi < 100 ? 1 : 0)} ${unit}`;
   const out: Stat[] = [];
+  const sign = i.soft ? "" : "≈ ";
   if (v.kind === "charging") {
     const s = i.session;
     // The truck's own session figure when it reports one; the SoC-based estimate (≈) otherwise.
     if (s && s.total_charged_energy_kwh > 0) out.push({ k: "Added", v: `+${s.total_charged_energy_kwh.toFixed(1)} kWh` });
-    else if (v.energyKwh != null && v.energyKwh > 0) out.push({ k: "Added", v: `≈ +${v.energyKwh.toFixed(1)} kWh` });
+    else if (v.energyKwh != null && v.energyKwh > 0) out.push({ k: "Added", v: `${sign}+${v.energyKwh.toFixed(1)} kWh`, est: true });
     const c = i.charge;
     const startedMs = c ? Date.parse(c.started_at) : NaN;
     // The truck's own elapsed time; the recorded session's start otherwise.
@@ -90,15 +89,14 @@ export function slotStats(i: SlotInput): Stat[] {
     const addedPct = c?.soc_start != null && v.soc > c.soc_start ? v.soc - c.soc_start : null;
     const estRangeKm = truckRangeKm == null && addedPct != null && v.soc > 0 && v.rangeMi != null ? ((v.rangeMi * KM_PER_MI) / v.soc) * addedPct : null;
     const rangeKm = truckRangeKm ?? estRangeKm;
-    if (rangeKm != null) out.push({ k: "Range added", v: `${truckRangeKm == null ? "≈ " : ""}+${dist(rangeKm / KM_PER_MI)}` });
+    if (rangeKm != null) out.push({ k: "Range added", v: `${truckRangeKm == null ? sign : ""}+${dist(rangeKm / KM_PER_MI)}`, est: truckRangeKm == null });
     const truckRate = s && s.kilometers_charged_per_hour > 0 ? s.kilometers_charged_per_hour : null;
     const rate = truckRate ?? (rangeKm != null && elapsedSec != null && elapsedSec >= 300 ? rangeKm / (elapsedSec / 3600) : null);
-    if (rate != null) out.push({ k: "Rate", v: `${truckRate == null ? "≈ " : ""}${dist(rate / KM_PER_MI)}/h` });
-    if (i.soft && i.packC != null) out.push({ k: "Pack temperature", v: formatTemperature(i.packC, i.tempUnit ?? "c") });
+    if (rate != null) out.push({ k: "Rate", v: `${truckRate == null ? sign : ""}${dist(rate / KM_PER_MI)}/h`, est: truckRate == null });
     if (elapsedSec != null) out.push({ k: "Elapsed", v: duration(elapsedSec) });
     if (c && c.cost != null) {
       const est = c.cost_is_estimate !== false;
-      out.push({ k: "Cost so far", v: `${est ? "≈ " : ""}${formatMoney(c.cost, c.currency || i.currency)}`, note: (c.cost_source && COST_NOTE[c.cost_source]) || (est ? "estimate" : undefined) });
+      out.push({ k: "Cost so far", v: `${est ? sign : ""}${formatMoney(c.cost, c.currency || i.currency)}`, note: (c.cost_source && COST_NOTE[c.cost_source]) || (est && !i.soft ? "estimate" : undefined), est });
     }
     if (Number.isFinite(startedMs) && !i.soft) out.push({ k: "Plugged in", v: clock(startedMs) });
   } else if (v.kind === "driving" && i.drive) {
@@ -293,10 +291,9 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, pla
 // Null when the state has no slot, so the picture stays.
 export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
-  const packC = usePackTemp(nowMs);
   if (!slotAvailable(view, i.fix ?? null)) return null;
   if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} placeText={i.placeText ?? null} noMap={i.noMap ?? false} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
-  const stats = slotStats({ ...i, packC });
+  const stats = slotStats(i);
   let big = "";
   let bigUnit = "";
   let sub: string | null = null;
@@ -342,19 +339,34 @@ export default function NowSlot(i: SlotInput) {
           ))}
         </div>
       )}
-      {stats.length > 0 && i.soft && (
-        <dl className="mt-3 divide-y divide-neutral-800/60">
-          {stats.map((s) => (
-            <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`} className="flex items-baseline justify-between gap-3 py-2">
-              <dt className="text-sm text-neutral-400">{s.k}</dt>
-              <dd className="text-right text-sm font-semibold tabular-nums text-neutral-100">
-                {s.v}
-                {s.note && <span className="ml-1.5 text-xs font-normal text-neutral-500">{s.note}</span>}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      {stats.length > 0 && i.soft && <SoftStats stats={stats} />}
+    </div>
+  );
+}
+
+// The keyed card's figures: a tight two-column grid of label-over-value cells. When every worked-out figure (all but the elapsed time) is our own
+// estimate, one quiet heading says so inside the grid; when the set is mixed, only the derived cells carry a small "est." (the cost keeps the word
+// "estimate" and its source note, heading or not). A truck-reported figure never carries a mark. Screen readers get "estimated" with each estimated value in both cases.
+function SoftStats({ stats }: { stats: Stat[] }) {
+  const counted = stats.filter((s) => s.k !== "Elapsed");
+  const all = counted.length > 0 && counted.every((s) => s.est);
+  return (
+    <div data-testid="now-slot-figures" className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+      {all && <p data-testid="now-slot-estimated" className="col-span-2 ui-label">Estimated so far</p>}
+      {stats.map((s) => {
+        const note = s.k === "Cost so far" && s.est ? ["estimate", s.note].filter(Boolean).join(" · ") : s.note;
+        return (
+          <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`} className="min-w-0">
+            <p className="ui-label">{s.k}</p>
+            <p className="text-base font-semibold tabular-nums text-neutral-100">
+              {s.est && <span className="sr-only">estimated </span>}
+              {s.v}
+              {s.est && !all && s.k !== "Cost so far" && <span aria-hidden="true" className="ml-1 text-xs font-normal text-neutral-500">est.</span>}
+              {note && <span className="ml-1.5 text-xs font-normal text-neutral-500">{note}</span>}
+            </p>
+          </div>
+        );
+      })}
     </div>
   );
 }

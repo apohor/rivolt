@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach } from "vitest";
 import NowSlot, { asleepFigures, pickFix, slotAvailable, slotShown, slotView, slotStats, weatherView, type SlotInput } from "./NowSlot";
 import type { NowView } from "../lib/nowState";
 import { nowChip } from "./NowHeroV2";
@@ -10,6 +11,8 @@ const driving = { kind: "driving", speedMph: 62, powerKw: null } as unknown as N
 const session = { range_added_km: 98, total_charged_energy_kwh: 18.24, time_elapsed_seconds: 3900, kilometers_charged_per_hour: 61 };
 const drive = { tripMi: 12.34, elapsed_sec: 1500, energy_used_kwh: 4.2, effMiPerKwh: 12.34 / 4.2 };
 const base = (v: NowView, extra: Partial<SlotInput> = {}): SlotInput => ({ view: v, nowMs: Date.UTC(2026, 0, 1, 12), unit: "mi", currency: "USD", ...extra });
+
+afterEach(cleanup);
 
 describe("one finish time", () => {
   // 30.006 minutes left: the slot says "31 min left", so the chip and "Reaches" both say 31 minutes from now, to the minute.
@@ -60,12 +63,6 @@ describe("NowSlot", () => {
     const charge = { started_at: "2026-01-01T11:00:00Z", soc_start: 40 };
     // 20 points of 60 at 150 mi: 50 mi, over the hour since the start.
     const est = slotStats(base(v, { charge }));
-    const withPack = slotStats(base(v, { soft: true, packC: 30, tempUnit: "f", charge })).map((r) => r.k);
-    expect(withPack).toContain("Pack temperature");
-    expect(withPack.indexOf("Pack temperature")).toBe(withPack.indexOf("Rate") + 1);
-    expect(slotStats(base(v, { soft: true, packC: null })).some((r) => r.k === "Pack temperature")).toBe(false);
-    expect(slotStats(base(v, { packC: 30 })).some((r) => r.k === "Pack temperature")).toBe(false);
-
     expect(est.find((s) => s.k === "Range added")?.v).toBe("≈ +50.0 mi");
     expect(est.find((s) => s.k === "Rate")?.v).toBe("≈ 50.0 mi/h");
     const zero = slotStats(base(v, { charge, session: { ...session, range_added_km: 0, kilometers_charged_per_hour: 0 } }));
@@ -74,6 +71,35 @@ describe("NowSlot", () => {
     expect(slotStats(base(v, { charge: { ...charge, started_at: "2026-01-01T11:57:00Z" } })).some((s) => s.k === "Rate")).toBe(false);
     expect(slotStats(base(v, { charge, session })).find((s) => s.k === "Range added")?.v).toBe("+60.9 mi");
     expect(slotStats(base(charging, { charge: { started_at: "2026-01-01T11:00:00Z" } })).some((s) => s.k === "Range added")).toBe(false);
+  });
+  describe("the keyed card's figures (no sign, one heading or small marks)", () => {
+    const v = { ...charging, soc: 60, rangeMi: 150 } as unknown as NowView;
+    const started = "2026-01-01T11:00:00Z";
+    const figures = (extra: Partial<SlotInput>) => {
+      render(<NowSlot {...base(v, { soft: true, ...extra })} />);
+      return screen.getByTestId("now-slot-figures");
+    };
+    it("all estimated: one heading, no mark on any cell, no sign anywhere, the cost keeps estimate and its source, estimated for screen readers", () => {
+      const el = figures({ charge: { started_at: started, soc_start: 40, cost: 2.91, currency: "USD", cost_source: "home_rate", cost_is_estimate: true } });
+      expect(screen.getByTestId("now-slot-estimated").textContent).toBe("Estimated so far");
+      expect(el.textContent).not.toMatch(/≈|est\./);
+      expect(screen.getByTestId("now-slot-added").textContent).toMatch(/estimated \+18\.2 kWh/);
+      expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/estimated .*2\.91.*estimate · at your home rate/);
+      expect(screen.getByTestId("now-slot-elapsed").textContent).not.toMatch(/estimated/);
+    });
+    it("mixed: no heading; derived cells carry est., the truck's figures none, the cost keeps the word", () => {
+      figures({ session: { ...session, range_added_km: 98, kilometers_charged_per_hour: 0 }, charge: { started_at: started, soc_start: 40, cost: 2.91, currency: "USD", cost_source: "home_rate", cost_is_estimate: true } });
+      expect(screen.queryByTestId("now-slot-estimated")).toBeNull();
+      expect(screen.getByTestId("now-slot-range-added").textContent).not.toMatch(/est/);
+      expect(screen.getByTestId("now-slot-rate").textContent).toMatch(/estimated .*est\.$/);
+      expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/estimated .*2\.91.*estimate · at your home rate/);
+      expect(screen.getByTestId("now-slot-figures").textContent).not.toMatch(/≈/);
+    });
+    it("all exact: no heading and no mark", () => {
+      const el = figures({ session, charge: { started_at: started, cost: 5, cost_source: "rivian", cost_is_estimate: false } });
+      expect(screen.queryByTestId("now-slot-estimated")).toBeNull();
+      expect(el.textContent).not.toMatch(/≈|est|estimated/);
+    });
   });
   it("driving shows gear, mode and the drive so far in the user's unit", () => {
     render(<NowSlot {...base(driving, { gear: "d", mode: "sport", drive })} />);

@@ -215,7 +215,8 @@ export type StubOptions = {
   liveSamples?: boolean;
   // A charge in progress for the Now card's graph (charging scenario): minutes since plug-in, the battery and the charger's power over those
   // minutes, and what the state says now. Overrides the state, the open charge row, /now's charge and the samples.
-  chargeCase?: { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number; targetPct?: number };
+  // pack: the stored pack temperature (C) m minutes in; null leaves it out of the row (a car that slept); unset is a flat 30.
+  chargeCase?: { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number; targetPct?: number; pack?: (m: number) => number | null };
   // A drive in progress for the Now card's graph (driving scenario): minutes since it began, the speed (mph) and the battery over those minutes.
   // Overrides the live-drive start and the samples; the state says the last values.
   driveCase?: { elapsedMin: number; mph: (m: number) => number; soc: (m: number) => number };
@@ -460,7 +461,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
         const start = now - chargeCase.elapsedMin * 60_000;
         for (let t = Math.max(since, start), i = 0; t <= Math.min(until, now) && i < 2000; t += 30_000, i++) {
           const m = (t - start) / 60_000;
-          out.push({ VehicleID: VEHICLE_ID, At: new Date(t).toISOString(), BatteryLevelPct: chargeCase.soc(m), RangeMi: 200, OdometerMi: 1000, ChargeLimitPct: chargeCase.targetPct ?? 80, InsideTempC: 20, OutsideTempC: 12, Source: "live", Lat: 40, Lon: -100, SpeedMph: 0, ShiftState: "P", ChargingState: "charging_active", ChargerPowerKW: chargeCase.kw(m), pack_temp_avg_c: 30 });
+          out.push({ VehicleID: VEHICLE_ID, At: new Date(t).toISOString(), BatteryLevelPct: chargeCase.soc(m), RangeMi: 200, OdometerMi: 1000, ChargeLimitPct: chargeCase.targetPct ?? 80, InsideTempC: 20, OutsideTempC: 12, Source: "live", Lat: 40, Lon: -100, SpeedMph: 0, ShiftState: "P", ChargingState: "charging_active", ChargerPowerKW: chargeCase.kw(m), ...((chargeCase.pack ? chargeCase.pack(m) : 30) != null ? { pack_temp_avg_c: chargeCase.pack ? chargeCase.pack(m) : 30 } : {}) });
         }
         return json(route, out);
       }
