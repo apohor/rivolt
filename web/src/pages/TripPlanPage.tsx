@@ -50,11 +50,7 @@ export default function TripPlanPage() {
   // The demo has only its sample trips to plan, so it keeps its own page.
   const whereTo = useDesignPreview("plan_where_to");
   const [leftHome, setLeftHome] = useState(false);
-  // The trip whose share sheet is open, and the note that Share saved it first.
-  const [sharing, setSharing] = useState<SavedTrip | null>(null);
-  const [shareNote, setShareNote] = useState<string | null>(null);
   const { distanceUnit } = usePreferences();
-  const tripShare = useTripShare();
   const samples = useSamplePresets((t) => {
     loadSavedTrip(t);
     setLeftHome(true);
@@ -699,25 +695,9 @@ export default function TripPlanPage() {
   ];
   const showHome = frontDoor && planTab === "planner" && !leftHome && !hasResult && !planning;
   const showRouteHead = frontDoor && planTab === "planner" && !showHome;
-  // Share on the route screen: a trip that is saved as shown opens its share sheet at once; any other is saved first (the note says so), then shared.
-  const shareRoute = async () => {
-    setShareNote(null);
-    const unchanged = !!activeTripId && (!!loadedSnapshot || (!!multidaySnapshot && !multidayMutation.data));
-    const found = unchanged ? savedTripsQuery.data?.find((t) => t.id === activeTripId) : undefined;
-    if (found) return setSharing(found);
-    const name = activeTripName ?? defaultTripName;
-    try {
-      const t = await saveTripMutation.mutateAsync({ name, id: activeTripName ? activeTripId : null });
-      setShareNote(`Saved as "${t.name}" so it can be shared.`);
-      setSharing(t);
-    } catch {
-      // The save bar under the form shows why it did not save.
-    }
-  };
   const backToHome = () => {
     clearResult();
     setLeftHome(false);
-    setShareNote(null);
   };
   const pickDestination = (r: GeocodeResult) => {
     setDestination(relabelIfHome({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) }, home));
@@ -729,7 +709,6 @@ export default function TripPlanPage() {
   const departureLabel = departureAt ? `Leave ${new Date(departureAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "Leave now";
   return (
     <div data-plan-next>
-      {sharing && <TripShareSheet trip={sharing} onClose={() => setSharing(null)} />}
       <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold tracking-tight text-neutral-50">{frontDoor ? "Plan" : "Trip planner"}</h1>
@@ -746,13 +725,14 @@ export default function TripPlanPage() {
             rangeText={rangeLine(stateQuery.data, distanceUnit, Date.now())}
             saved={savedTripsQuery.data ?? []}
             savedLoading={savedTripsQuery.isLoading}
-            canShare={tripShare}
+            // Share on a row comes with the receipt-style share sheet (the link sheet is not surfaced from here).
+            canShare={false}
             onPickPlace={pickDestination}
             onOpenSaved={(t) => {
               loadSavedTrip(t);
               setLeftHome(true);
             }}
-            onShareSaved={setSharing}
+            onShareSaved={() => {}}
             onShowSaved={() => setPlanTab("saved")}
           />
         ) : (
@@ -762,23 +742,6 @@ export default function TripPlanPage() {
             <button type="button" onClick={backToHome} className="inline-flex min-h-11 items-center gap-1 text-sm text-emerald-300 hover:text-emerald-200">
               <span aria-hidden>‹</span> Where to?
             </button>
-            {hasResult && tripShare && (
-              <button
-                type="button"
-                onClick={() => void shareRoute()}
-                disabled={saveTripMutation.isPending}
-                data-testid="route-share"
-                className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-neutral-700 px-4 text-sm text-neutral-100 hover:border-neutral-500 disabled:opacity-60"
-              >
-                <svg aria-hidden width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 3v12" />
-                  <path d="m7 8 5-5 5 5" />
-                  <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
-                </svg>
-                {saveTripMutation.isPending ? "Saving…" : "Share"}
-              </button>
-            )}
-            {shareNote && <p role="status" className="basis-full break-words text-xs text-neutral-400">{shareNote}</p>}
           </div>
         )}
         <div data-plan-split data-has-result={hasResult ? "true" : undefined}>

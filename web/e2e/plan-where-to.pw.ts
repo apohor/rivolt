@@ -142,27 +142,13 @@ test("no saved trips: a hint, no empty list", async ({ page }) => {
   await expect(page.locator("[data-trip-row]")).toHaveCount(0);
 });
 
-test("share: a saved row has a 44 px Share button that opens the sheet, away from delete", async ({ page }) => {
+test("no Share on the front door or the route screen until the receipt sheet exists (the link sheet is not surfaced)", async ({ page }) => {
   await open(page, {});
-  const share = page.getByRole("button", { name: /^Share "Vegas weekend"/ });
-  const b = (await share.boundingBox())!;
-  expect(b.width).toBeGreaterThanOrEqual(44);
-  expect(b.height).toBeGreaterThanOrEqual(44);
-  await share.click();
-  await expect(page.getByTestId("trip-share-sheet")).toBeVisible();
-});
-
-test("share on the route screen saves the re-planned trip first and says so", async ({ page }) => {
-  await open(page, {});
+  await expect(page.getByTestId("trip-share-open")).toHaveCount(0);
   await page.getByRole("button", { name: /Vegas weekend/ }).first().click();
-  // A re-plan makes it a trip that is not saved as shown.
   await page.getByRole("button", { name: "Re-plan now" }).click();
-  await expect(page.getByTestId("route-share")).toBeVisible();
-  const b = (await page.getByTestId("route-share").boundingBox())!;
-  expect(b.height).toBeGreaterThanOrEqual(44);
-  await page.getByTestId("route-share").click();
-  await expect(page.getByRole("status").filter({ hasText: "so it can be shared" })).toBeVisible();
-  await expect(page.getByTestId("trip-share-sheet")).toBeVisible();
+  await expect(page.locator("[data-route-head]")).toBeVisible();
+  await expect(page.getByTestId("route-share")).toHaveCount(0);
 });
 
 test("signed out: the demo keeps its sample trips page", async ({ page }) => {
