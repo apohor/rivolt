@@ -35,6 +35,15 @@ final class NowGraphCurveEaseTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(eased.points[into].x - eased.points[into - 1].x, 12)
     }
 
+    func testAPinnedReadingStaysOnTheLine() {
+        let pts = [(0.0, 50.0), (60, 50), (100, 50), (103, 80), (200, 81)].map { CGPoint(x: $0.0, y: $0.1) }
+        let eased = NowGraphCurve.easeSteps(pts, pinned: [2])
+        XCTAssertTrue(eased.points.contains(CGPoint(x: 100, y: 50)), "the wake dot's reading is still a point of the path")
+        XCTAssertTrue(eased.hold.contains(eased.points.firstIndex(of: CGPoint(x: 100, y: 50))!))
+        let xs = eased.points.map(\.x)
+        XCTAssertEqual(xs, xs.sorted())
+    }
+
     func testNeverReordersTheReadings() {
         let pts = [(0.0, 0.0), (5, 0), (7, 30), (9, 31), (11, 70), (40, 71)].map { CGPoint(x: $0.0, y: $0.1) }
         let xs = NowGraphCurve.easeSteps(pts).points.map(\.x)

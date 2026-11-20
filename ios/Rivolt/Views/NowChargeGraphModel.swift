@@ -104,8 +104,9 @@ struct NowChargeGraphModel: Equatable {
 enum NowGraphCurve {
     /// Readings that jump (a drive or charge between two readings, a wake-up) arrive a few points apart, which a curve can only draw as a corner.
     /// This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
-    /// first one's height; `segments` then draws it with no slope at the held indices. A gentle pair is left alone. Same rule as the web's easeSteps.
-    static func easeSteps(_ pts: [CGPoint], minDrop: CGFloat = 3, slope: CGFloat = 1.2) -> (points: [CGPoint], hold: Set<Int>) {
+    /// first one's height; `segments` then draws it with no slope at the held indices. A gentle pair is left alone, and a reading that carries a dot or
+    /// label (its index in `pinned`) is never moved: the ramp starts at it instead. Same rule as the web's easeSteps.
+    static func easeSteps(_ pts: [CGPoint], pinned: Set<Int> = [], minDrop: CGFloat = 3, slope: CGFloat = 1.2) -> (points: [CGPoint], hold: Set<Int>) {
         guard let first = pts.first else { return ([], []) }
         var out: [CGPoint] = [first]
         var hold = Set<Int>()
@@ -119,6 +120,14 @@ enum NowGraphCurve {
             }
             let run = min(max(dy * 2, 12), 28)
             let last = out[out.count - 1]
+            if pinned.contains(i - 1) {
+                hold.insert(out.count - 1)
+                var x = b.x
+                if !pinned.contains(i), i + 1 < pts.count { x = min(max(b.x, a.x + run), b.x + 0.4 * (pts[i + 1].x - b.x)) }
+                hold.insert(out.count)
+                out.append(CGPoint(x: x, y: b.y))
+                continue
+            }
             if hold.contains(out.count - 1) {
                 // The first reading ends the jump before this one: it stays, and the next ramp starts level after it if there is room.
                 let x = max(b.x - run, last.x)

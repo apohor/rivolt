@@ -74,7 +74,9 @@ struct NowParkedGraph: View {
             }()
             ZStack(alignment: .topLeading) {
                 Canvas { ctx, _ in
-                    let path = Self.path(line)
+                    // The readings that carry a dot or a label stay on the line when it is eased: the first and last, the wake-ups and the parked marker's.
+                    let pinned = Set(line.indices.filter { i in i == 0 || i == line.count - 1 || line[i] == start || model.wakes.contains { at($0) == line[i] } })
+                    let path = Self.path(line, pinned: pinned)
                     var fill = path
                     fill.addLine(to: CGPoint(x: now.x, y: sleepBase))
                     fill.addLine(to: CGPoint(x: line.first?.x ?? 0, y: sleepBase))
@@ -178,12 +180,12 @@ struct NowParkedGraph: View {
             .frame(width: w, height: h, alignment: .topLeading)
     }
 
-    private static func path(_ pts: [CGPoint]) -> Path {
+    private static func path(_ pts: [CGPoint], pinned: Set<Int> = []) -> Path {
         var p = Path()
         guard let first = pts.first else { return p }
         p.move(to: first)
         if pts.count == 1 { return p }
-        let eased = NowGraphCurve.easeSteps(pts)
+        let eased = NowGraphCurve.easeSteps(pts, pinned: pinned)
         p = Path()
         p.move(to: eased.points[0])
         for s in NowGraphCurve.segments(eased.points, hold: eased.hold) { p.addCurve(to: s.end, control1: s.c1, control2: s.c2) }
