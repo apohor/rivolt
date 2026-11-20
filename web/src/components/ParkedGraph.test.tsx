@@ -10,7 +10,7 @@ const pts = Array.from({ length: 5 }, (_, i) => ({ t: new Date(Date.UTC(2026, 10
 const series = (since: string) => ({ version: 1, from: pts[0].t, to: pts[4].t, parked_since: since, parked: true, change_pct: -4, points: pts, sleeps: [], wakes: [], figures: null, projection: null }) as unknown as ParkedSeries;
 
 function setup() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
   return renderHook(({ id, on }: { id: string; on: boolean }) => useParkedSeries(id, on), { wrapper, initialProps: { id: "a", on: true } });
 }
@@ -33,6 +33,19 @@ describe("useParkedSeries: the chip waits for an answer asked for after it was e
     expect(h.result.current).toEqual({ series: null, waiting: true });
     await act(async () => release(series("2026-11-20T09:00:00Z")));
     await waitFor(() => expect(h.result.current.series?.parked_since).toBe("2026-11-20T09:00:00Z"));
+    expect(h.result.current.waiting).toBe(false);
+  });
+
+  it("asks again when a truck is switched back to within the app's 30 s fresh window", async () => {
+    let n = 0;
+    const spy = vi.spyOn(backend, "vehicleParkedSeries").mockImplementation(async () => series(`2026-11-20T0${++n}:00:00Z`));
+    const h = setup();
+    await waitFor(() => expect(h.result.current.series?.parked_since).toBe("2026-11-20T01:00:00Z"));
+    h.rerender({ id: "b", on: true });
+    await waitFor(() => expect(h.result.current.series?.parked_since).toBe("2026-11-20T02:00:00Z"));
+    h.rerender({ id: "a", on: true });
+    await waitFor(() => expect(h.result.current.series?.parked_since).toBe("2026-11-20T03:00:00Z"));
+    expect(spy).toHaveBeenCalledTimes(3);
     expect(h.result.current.waiting).toBe(false);
   });
 

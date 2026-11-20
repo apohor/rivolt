@@ -30,6 +30,8 @@ export function useParkedSeries(vehicleID: string, enabled: boolean): { series: 
     enabled,
     refetchInterval: 60_000,
     retry: 0,
+    // Every enable asks again (the app default keeps an answer fresh for 30 s, which would hide the graph and hold the chip to its timeout).
+    staleTime: 0,
   });
   // The moment this truck's series was last switched on; a new truck or a later re-enable starts a new wait.
   const key = `${enabled}|${vehicleID}`;
