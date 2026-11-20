@@ -300,7 +300,9 @@ export default function NowCard({
         return r.length ? Math.max(...r.map((x) => x.bottom)) - Math.min(...r.map((x) => x.top)) : 0;
       };
       const hero = () => el.querySelector(":scope > [data-now-v2]")?.getBoundingClientRect().height;
-      const save = () => rememberCardHeight(vehicleID, v2, kind, height(), hero());
+      // While the hold applies the box is at least the remembered height: that is the memory read back, not a measurement, so it is not saved.
+      const held = () => !!(el.querySelector(":scope > [data-now-v2]") as HTMLElement | null)?.style.minHeight;
+      const save = () => { if (!held()) rememberCardHeight(vehicleID, v2, kind, height(), hero()); };
       const ro = new ResizeObserver(save);
       const watch = () => {
         ro.disconnect();

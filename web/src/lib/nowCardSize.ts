@@ -61,6 +61,14 @@ export function placeholderHeight(vehicleID: string | undefined): number | null 
   return cardHeight(id, last.v2, last.id === id ? last.kind : "parked");
 }
 
+// The slots already counted in this page load.
+const counted = new Set<string>();
+
+/** A new page load (tests only: a real load starts with an empty module). */
+export function startCardHeightLoad() {
+  counted.clear();
+}
+
 export function rememberCardHeight(vehicleID: string, redesigned: boolean, kind: CardKind, height: number, heroHeight?: number) {
   const all = read();
   const s = slot(vehicleID, redesigned, kind);
@@ -70,10 +78,10 @@ export function rememberCardHeight(vehicleID: string, redesigned: boolean, kind:
     const h = Math.round(v);
     if (h < 120 || h > 1200) continue;
     // A card's height moves while it is up (a charging card gains its rate and cost rows, a legend wraps): what is kept is the tallest of the
-    // last three drawn, so the next placeholder is not short by the step the card then takes.
+    // last three page loads. A load adds one entry and its later measurements replace it, so a height that was once taller ages out.
     const prev = Array.isArray(all[k + ":r"]) ? (all[k + ":r"] as number[]) : [];
-    const lastSeen = prev[prev.length - 1];
-    const recent = (lastSeen !== undefined && Math.abs(lastSeen - h) < 4 ? prev : [...prev, h]).slice(-3);
+    const recent = (counted.has(k) ? [...prev.slice(0, -1), h] : [...prev, h]).slice(-3);
+    counted.add(k);
     const top = Math.max(...recent);
     if (JSON.stringify(recent) === JSON.stringify(prev) && all[k] === top) continue;
     all[k + ":r"] = recent;
