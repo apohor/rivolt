@@ -143,8 +143,15 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
   const packX = packOn ? sx(packLast.x) : 0;
   const packY = packOn ? sk(packLast.y) : 0;
   const packW = packNow ? Math.ceil(packNow.length * 8.4) : 0;
+  // First choice: above its own line, left of the dot, ending where the line has risen to that spot's height, so it reads as the pack's and never as the battery's value beside it.
+  const packYAt = (x: number) => {
+    const pts = thin(packPts).map((p) => ({ x: sx(p.x), y: sk(p.y) }));
+    for (let i = 1; i < pts.length; i++) if (pts[i].x >= x) return pts[i - 1].y + ((pts[i].y - pts[i - 1].y) * (x - pts[i - 1].x)) / Math.max(1, pts[i].x - pts[i - 1].x);
+    return packY;
+  };
   const packSpots = packOn
     ? ([
+        ...[28, 48, 72, 100].map((dx) => [packX - dx, packYAt(packX - dx) - 9, "end"] as const),
         [packX - 10, packY - 10, "end"],
         [packX - 10, packY + 18, "end"],
         [packX + 10, packY + 4, "start"],
@@ -171,10 +178,15 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
     });
   const packFree = (x: number, y: number, a: "start" | "end") => {
     const b = boxOf(x, y, packW, a, 14);
-    return b.x0 >= PAD.l && b.x1 <= w - PAD.r && b.y0 >= 0 && b.y1 <= base + 2 && !taken.some((t) => b.x0 < t.x1 + 3 && b.x1 > t.x0 - 3 && b.y0 < t.y1 + 2 && b.y1 > t.y0 - 2);
+    const nb = boxOf(nowX, nowY, nowW, nowAnchor, 14);
+    const apart = b.x0 > nb.x1 + 24 || b.x1 < nb.x0 - 24 || b.y0 > nb.y1 + 14 || b.y1 < nb.y0 - 14;
+    return apart && b.x0 >= PAD.l && b.x1 <= w - PAD.r && b.y0 >= 0 && b.y1 <= base + 2 && !taken.some((t) => b.x0 < t.x1 + 3 && b.x1 > t.x0 - 3 && b.y0 < t.y1 + 2 && b.y1 > t.y0 - 2);
   };
+  // The dotted estimate, sampled, so a label never lands on it either.
+  const estimatePts: Pt[] = [];
+  if (ex != null && ey != null) for (let t = 0; t <= 1; t += 0.125) estimatePts.push({ x: lx + (ex - lx) * t, y: ly + (ey - ly) * t });
   const packLinePts = packOn ? thin(packPts).map((p) => ({ x: sx(p.x), y: sk(p.y) })) : [];
-  const packSpot = packSpots.find(([x, y, a]) => packFree(x, y, a) && !onLine(boxOf(x, y, packW, a, 14), [...socPts, ...packLinePts]));
+  const packSpot = packSpots.find(([x, y, a]) => packFree(x, y, a) && !onLine(boxOf(x, y, packW, a, 14), [...socPts, ...packLinePts, ...estimatePts]));
 
   return (
     <div data-testid="now-charge-graph" className="flex min-w-0 flex-col">

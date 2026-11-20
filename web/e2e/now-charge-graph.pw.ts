@@ -237,6 +237,16 @@ for (const name of ["start", "ac", "dc", "end"]) {
         const hit = me.x < o.x + o.w && me.x + me.width > o.x && me.y < o.y + o.h && me.y + me.height > o.y;
         expect(hit, `pack value over "${o.t}"`).toBe(false);
       }
+      // Every label (the battery's value under its dot at the end of a charge included) stays inside the graph, and the pack's keeps clear of the battery's value.
+      for (const o of others) {
+        expect(o.x, `"${o.t}" left of the graph`).toBeGreaterThanOrEqual(svg.x - 1);
+        expect(o.x + o.w, `"${o.t}" right of the graph`).toBeLessThanOrEqual(svg.x + svg.width + 1);
+        if (/^\d+%$/.test(o.t ?? "") && o.y > svg.y) {
+          const gapX = Math.max(o.x - (me.x + me.width), me.x - (o.x + o.w));
+          const gapY = Math.max(o.y - (me.y + me.height), me.y - (o.y + o.h));
+          expect(Math.max(gapX, gapY), `pack value beside "${o.t}"`).toBeGreaterThanOrEqual(8);
+        }
+      }
     });
   }
 }
