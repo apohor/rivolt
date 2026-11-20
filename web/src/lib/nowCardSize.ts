@@ -22,7 +22,7 @@ function layout(): "narrow" | "mid" | "wide" {
 
 const slot = (vehicleID: string, redesigned: boolean, kind: CardKind) => `${vehicleID}:${redesigned ? "v2" : "v1"}:${layout()}:${kind}`;
 
-function read(): Record<string, number> {
+function read(): Record<string, number | number[]> {
   try {
     const o = JSON.parse(window.localStorage.getItem(KEY) || "{}");
     return o && typeof o === "object" ? o : {};
@@ -47,7 +47,8 @@ const sane = (h: unknown): number | null => (typeof h === "number" && h >= 120 &
 // The height of this kind of card for this vehicle, or null when it has not been drawn in this layout yet. `hero` is the card's own box, without the
 // alerts under it (what a hold keeps); otherwise the whole section (what the placeholder takes).
 export function cardHeight(vehicleID: string, redesigned: boolean, kind: CardKind, hero = false): number | null {
-  return sane(read()[slot(vehicleID, redesigned, kind) + (hero ? ":hero" : "")]);
+  const h = read()[slot(vehicleID, redesigned, kind) + (hero ? ":hero" : "")];
+  return sane(Array.isArray(h) ? null : h);
 }
 
 // The placeholder's height before anything is known: the card as it was last drawn. The vehicle is the one the list names, or, before the list has
@@ -60,6 +61,14 @@ export function placeholderHeight(vehicleID: string | undefined): number | null 
   return cardHeight(id, last.v2, last.id === id ? last.kind : "parked");
 }
 
+// The slots already counted in this page load.
+const counted = new Set<string>();
+
+/** A new page load (tests only: a real load starts with an empty module). */
+export function startCardHeightLoad() {
+  counted.clear();
+}
+
 export function rememberCardHeight(vehicleID: string, redesigned: boolean, kind: CardKind, height: number, heroHeight?: number) {
   const all = read();
   const s = slot(vehicleID, redesigned, kind);
@@ -67,8 +76,16 @@ export function rememberCardHeight(vehicleID: string, redesigned: boolean, kind:
   for (const [k, v] of [[s, height], [s + ":hero", heroHeight]] as const) {
     if (v == null) continue;
     const h = Math.round(v);
-    if (h < 120 || h > 1200 || Math.abs((all[k] ?? 0) - h) < 4) continue;
-    all[k] = h;
+    if (h < 120 || h > 1200) continue;
+    // A card's height moves while it is up (a charging card gains its rate and cost rows, a legend wraps): what is kept is the tallest of the
+    // last three page loads. A load adds one entry and its later measurements replace it, so a height that was once taller ages out.
+    const prev = Array.isArray(all[k + ":r"]) ? (all[k + ":r"] as number[]) : [];
+    const recent = (counted.has(k) ? [...prev.slice(0, -1), h] : [...prev, h]).slice(-3);
+    counted.add(k);
+    const top = Math.max(...recent);
+    if (JSON.stringify(recent) === JSON.stringify(prev) && all[k] === top) continue;
+    all[k + ":r"] = recent;
+    all[k] = top;
     changed = true;
   }
   try {

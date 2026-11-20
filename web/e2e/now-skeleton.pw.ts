@@ -95,6 +95,40 @@ for (const kind of kinds) {
   }
 }
 
+// The hold keeps the card at its remembered height while the series is on its way: that height read back is not a new measurement, so a once
+// taller card ages out of the memory instead of holding itself up.
+test("a remembered height that is too tall comes down over three loads", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await stubApi(page, { ...kinds[0].opts, nowEndpoint: true, designPreview: GRAPH_KEYS });
+  await page.goto("/");
+  await expect(page.getByTestId("now-charge-graph")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("rivolt.nowCardHeights"))).not.toBeNull();
+  await page.waitForTimeout(800);
+  const seed = await page.evaluate(() => {
+    const all = JSON.parse(window.localStorage.getItem("rivolt.nowCardHeights")!) as Record<string, number | number[]>;
+    for (const k of Object.keys(all).filter((x) => !x.endsWith(":r"))) {
+      all[k] = 1100;
+      all[k + ":r"] = [1100];
+    }
+    window.localStorage.setItem("rivolt.nowCardHeights", JSON.stringify(all));
+    return Object.keys(all).filter((x) => !x.endsWith(":r"));
+  });
+  await page.route(/\/api\/(charges$|samples)/, async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.fallback();
+  });
+  for (let i = 0; i < 3; i++) {
+    await page.reload();
+    await expect(page.getByTestId("now-charge-graph")).toBeVisible({ timeout: 10_000 });
+    await page.waitForTimeout(800);
+  }
+  const top = await page.evaluate((keys) => {
+    const all = JSON.parse(window.localStorage.getItem("rivolt.nowCardHeights")!) as Record<string, number>;
+    return keys.map((k) => all[k]);
+  }, seed);
+  expect(Math.max(...top), `remembered heights ${top}`).toBeLessThan(1100);
+});
+
 test("sign-out forgets the remembered heights", async ({ page }) => {
   await stubApi(page, { scenario: "charging", nowEndpoint: true, designPreview: ["now_v2"] });
   await page.goto("/");
