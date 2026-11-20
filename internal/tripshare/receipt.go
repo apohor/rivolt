@@ -156,6 +156,33 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 	}
 	stops = append(stops, place{w: *dest, name: r.End})
 
+	// The home area at either end is left out: a run of points inside the saved home (at the effective cut radius) from the start, or back to the
+	// destination, is no trip. The first row starts at the last point of the leading run, the last row ends where the trailing run begins.
+	first, last := 0, len(stops)-1
+	if in.Home != nil {
+		home := Circle{in.Home.Lat, in.Home.Lon, EffectiveCut(in.CutM, in.Home)}
+		inHome := func(i int) bool { return inAny([]Circle{home}, stops[i].w.Latitude, stops[i].w.Longitude) }
+		lead, trail := 0, last
+		for lead < last && inHome(0) && inHome(lead+1) {
+			lead++
+		}
+		for trail > 0 && inHome(last) && inHome(trail-1) {
+			trail--
+		}
+		if inHome(0) && lead < trail {
+			first = lead
+		}
+		if inHome(last) && first < trail {
+			last = trail
+		}
+	}
+	if first > 0 {
+		r.StartSoC = stops[first].w.DepartureSoC
+	}
+	if last < len(stops)-1 {
+		stops[last].name = r.End
+	}
+
 	if origin.DistanceFromOriginMeters == 0 && dest.DistanceFromOriginMeters == 0 {
 		return nil, ErrNoLegs
 	}
@@ -165,6 +192,9 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 	}
 	for i := 1; i < len(stops); i++ {
 		a, b := stops[i-1], stops[i]
+		if i-1 == first && first > 0 {
+			a.name = r.Start
+		}
 		dist := b.w.DistanceFromOriginMeters - a.w.DistanceFromOriginMeters
 		dur := secsBetween(prevDepart, b.w.ArrivalTimeUTC)
 		exact := a.exact && b.exact
@@ -174,11 +204,19 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 		} else {
 			row.DistM, row.DurS = roundDist(dist, in.Metric), roundSecs(dur)
 		}
-		r.Legs = append(r.Legs, row)
+		shown := i > first && i <= last
+		if shown {
+			r.Legs = append(r.Legs, row)
+		}
 		r.Totals.DriveS += int(dur)
 		prevDepart = b.w.DepartureTimeUTC
 		switch {
 		case i == len(stops)-1:
+		case !shown || i == last:
+			// Hidden with the home area, but its charging time still counts.
+			if b.isCharg {
+				r.Totals.ChargeS += b.w.ChargeDurationSec
+			}
 		case b.isCharg:
 			row := ReceiptRow{Kind: "charge", Name: chargeName(b.name, b.label), DurS: b.w.ChargeDurationSec, FromSoC: b.w.ArrivalSoC, ToSoC: b.w.DepartureSoC, MaxKW: b.w.MaxPowerKW}
 			if b.label != "" {

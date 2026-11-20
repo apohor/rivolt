@@ -176,26 +176,78 @@ func TestReceiptRefusesWhatBuildRefuses(t *testing.T) {
 	}
 }
 
-// A planner charger inside home is not named, but it is still a charge: "Charging · <area>", and it counts in the stops and the charge time.
-func TestReceiptChargerInsideHomeStaysACharge(t *testing.T) {
+// A trip that starts at home: the planner's charge inside home and the drive to it are no trip. The first row starts at the start area, "start
+// with" is the battery leaving the last in-home point, the stops count only what is shown, and the totals keep all driving and charging time.
+func TestReceiptFoldsTheHomeStart(t *testing.T) {
 	line := eastLine(36.9, -104.5, 1000, 121)
-	rec, js := receiptFor(t, false, false, &Circle{Lat: line[72][0], Lon: line[72][1], RadiusM: 250})
-	if strings.Contains(js, "Barstow") || strings.Contains(js, "Adventure") {
-		t.Errorf("a charger inside home is named: %s", js)
+	t0 := func(min int) string { return time.Date(2026, 11, 21, 15, min, 0, 0, time.UTC).Format(time.RFC3339) }
+	cl, co := line[72][0], line[72][1]
+	last := line[len(line)-1]
+	wps := []rivian.PlannedWaypoint{
+		{WaypointType: "origin", Source: "origin", Latitude: line[0][0], Longitude: line[0][1], DepartureSoC: 90, DepartureTimeUTC: t0(0)},
+		{WaypointType: "charger", Source: "planner", Latitude: line[3][0], Longitude: line[3][1], ArrivalSoC: 85, DepartureSoC: 95, ChargeDurationSec: 600, MaxPowerKW: 11, ArrivalTimeUTC: t0(5), DepartureTimeUTC: t0(15), DistanceFromOriginMeters: 3000, Name: "Home Wallbox"},
+		{WaypointType: "charger", Source: "planner", Latitude: cl, Longitude: co, ArrivalSoC: 40, DepartureSoC: 80, ChargeDurationSec: 1080, MaxPowerKW: 150, ArrivalTimeUTC: t0(66), DepartureTimeUTC: t0(84), DistanceFromOriginMeters: 71234, Name: "Barstow, CA · Rivian Adventure Network"},
+		{WaypointType: "destination", Source: "destination", Latitude: last[0], Longitude: last[1], ArrivalSoC: 30, ArrivalTimeUTC: t0(127), DistanceFromOriginMeters: 118400},
 	}
-	var charge *ReceiptRow
-	for i := range rec.Legs {
-		if rec.Legs[i].Kind == "charge" {
-			charge = &rec.Legs[i]
-		}
+	namer := func(_ context.Context, lat, lon float64) string { return fmt.Sprintf("Area %.2f,%.2f", lat, lon) }
+	rec, err := BuildReceipt(context.Background(), ReceiptInput{
+		Input: Input{Title: "Trip", Plan: planJSON(t, line, wps, nil), DepartAt: "2026-11-21T15:00:00Z", PlannedAt: time.Unix(1, 0),
+			Home: &Circle{Lat: line[0][0], Lon: line[0][1], RadiusM: 9000}, CutM: 4000},
+		Name: namer,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if charge == nil || !strings.HasPrefix(charge.Name, "Charging · Area ") {
-		t.Fatalf("no Charging · area row: %s", js)
+	b, _ := json.Marshal(rec)
+	js := string(b)
+	if strings.Contains(js, "Home Wallbox") || strings.Contains(js, "Charging ·") {
+		t.Errorf("a charge inside home is shown: %s", js)
 	}
-	if charge.MaxKW != 0 {
-		t.Errorf("a hidden charger carries its power: %v", charge.MaxKW)
+	if rec.StartSoC != 95 {
+		t.Errorf("start with %v%%, want 95 (leaving the last in-home point)", rec.StartSoC)
 	}
-	if rec.Totals.Stops != 1 || rec.Totals.ChargeS != 1080 {
-		t.Errorf("not counted: stops=%d charge=%d", rec.Totals.Stops, rec.Totals.ChargeS)
+	if len(rec.Legs) != 3 || rec.Legs[0].Kind != "drive" || rec.Legs[0].From != rec.Start || rec.Legs[0].FromSoC != 95 {
+		t.Fatalf("rows %+v: want drive from the start area, then the public charger, then the last drive", rec.Legs)
+	}
+	if rec.Totals.Stops != 1 {
+		t.Errorf("stops %d, want 1 (only the shown charge)", rec.Totals.Stops)
+	}
+	if rec.Totals.ChargeS != 1080+600 {
+		t.Errorf("charge time %d, want all of it (1680)", rec.Totals.ChargeS)
+	}
+	if rec.DepartAt != "2026-11-21T15:00:00Z" {
+		t.Errorf("leave moved to %q", rec.DepartAt)
+	}
+}
+
+// The same at the other end: arriving home, the drive between home-area points and a charge inside home are left out.
+func TestReceiptFoldsTheHomeEnd(t *testing.T) {
+	line := eastLine(36.9, -104.5, 1000, 121)
+	t0 := func(min int) string { return time.Date(2026, 11, 21, 15, min, 0, 0, time.UTC).Format(time.RFC3339) }
+	n := len(line) - 1
+	last := line[n]
+	wps := []rivian.PlannedWaypoint{
+		{WaypointType: "origin", Source: "origin", Latitude: line[0][0], Longitude: line[0][1], DepartureSoC: 90, DepartureTimeUTC: t0(0)},
+		{WaypointType: "charger", Source: "planner", Latitude: line[60][0], Longitude: line[60][1], ArrivalSoC: 40, DepartureSoC: 80, ChargeDurationSec: 1080, MaxPowerKW: 150, ArrivalTimeUTC: t0(66), DepartureTimeUTC: t0(84), DistanceFromOriginMeters: 60000, Name: "Barstow, CA · Rivian Adventure Network"},
+		{WaypointType: "charger", Source: "planner", Latitude: line[n-3][0], Longitude: line[n-3][1], ArrivalSoC: 20, DepartureSoC: 30, ChargeDurationSec: 600, ArrivalTimeUTC: t0(120), DepartureTimeUTC: t0(130), DistanceFromOriginMeters: 117000, Name: "Home Wallbox"},
+		{WaypointType: "destination", Source: "destination", Latitude: last[0], Longitude: last[1], ArrivalSoC: 28, ArrivalTimeUTC: t0(135), DistanceFromOriginMeters: 120000},
+	}
+	rec, err := BuildReceipt(context.Background(), ReceiptInput{
+		Input: Input{Title: "Trip", Plan: planJSON(t, line, wps, nil), DepartAt: "2026-11-21T15:00:00Z", PlannedAt: time.Unix(1, 0),
+			Home: &Circle{Lat: last[0], Lon: last[1], RadiusM: 9000}, CutM: 4000},
+		Name: func(_ context.Context, lat, lon float64) string { return fmt.Sprintf("Area %.2f,%.2f", lat, lon) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(rec)
+	if strings.Contains(string(b), "Home Wallbox") || strings.Contains(string(b), "Charging ·") {
+		t.Errorf("a charge inside home is shown: %s", b)
+	}
+	if len(rec.Legs) != 3 || rec.Legs[2].Kind != "drive" || rec.Legs[2].To != rec.End {
+		t.Fatalf("rows %+v: want drive, the public charge, a drive that ends at the end area", rec.Legs)
+	}
+	if rec.Totals.Stops != 1 || rec.Totals.ChargeS != 1080+600 {
+		t.Errorf("stops %d charge %d", rec.Totals.Stops, rec.Totals.ChargeS)
 	}
 }
