@@ -174,6 +174,15 @@ final class NowSlotTests: XCTestCase {
         XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == "Rate" }).estimated)
     }
 
+    /// Plugged in and Elapsed are clock facts: out of the count, so an unkeyed set of our own figures still gets the one heading.
+    func testUnkeyedHeadingIgnoresPluggedIn() {
+        let ours = NowSlotModel.Stat(label: "Added", value: "+1 kWh", note: nil, estimated: true)
+        let clock = NowSlotModel.Stat(label: "Plugged in", value: "10:00", note: nil)
+        let truck = NowSlotModel.Stat(label: "Rate", value: "5 mi/h", note: nil)
+        XCTAssertTrue(NowSlotModel.estimatedHeading([ours, clock]))
+        XCTAssertFalse(NowSlotModel.estimatedHeading([ours, truck, clock]))
+    }
+
     /// The soft card's marks: one heading when every figure but the elapsed time is ours, small "est." on the derived cells in a mixed set, nothing when the truck gave all of them. No "≈" anywhere.
     private func softStats(session: LiveSession?, cost: Bool) throws -> [NowSlotModel.Stat] {
         let start = at.addingTimeInterval(-3600)

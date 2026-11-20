@@ -85,13 +85,23 @@ struct NowSlotView: View {
         }
     }
 
+    /// The unkeyed card's figures: the same marks as the soft grid (one heading when all our own, else a small "est." on the derived cells; the cost keeps "estimate" in its note).
     private func grid(_ stats: [NowSlotModel.Stat]) -> some View {
-        LazyVGrid(columns: [GridItem(.flexible(), alignment: .topLeading), GridItem(.flexible(), alignment: .topLeading)], alignment: .leading, spacing: 12) {
-            ForEach(stats, id: \.label) { s in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(s.label).themeText(.label)
-                    Text(s.value).themeText(.title).lineLimit(2).minimumScaleFactor(0.7)
-                    if let note = s.note { Text(note).themeText(.caption, color: Theme.textTertiary) }
+        let all = NowSlotModel.estimatedHeading(stats)
+        return VStack(alignment: .leading, spacing: 8) {
+            if all { Text("Estimated so far").themeText(.label).accessibilityIdentifier("now-slot-estimated") }
+            LazyVGrid(columns: [GridItem(.flexible(), alignment: .topLeading), GridItem(.flexible(), alignment: .topLeading)], alignment: .leading, spacing: 12) {
+                ForEach(stats, id: \.label) { s in
+                    let mark = !all && s.estimated && s.label != "Cost so far" ? "est." : nil
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.label).themeText(.label)
+                        (Text(s.value).foregroundColor(Theme.textPrimary)
+                            + Text(mark.map { " \($0)" } ?? "").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textTertiary))
+                            .themeText(.title).lineLimit(2).minimumScaleFactor(0.7)
+                        if let note = s.note { Text(note).themeText(.caption, color: Theme.textTertiary) }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(s.label), \(s.estimated ? "estimated " : "")\(SpokenText.words(s.value))\(s.note.map { ", \($0)" } ?? "")")
                 }
             }
         }

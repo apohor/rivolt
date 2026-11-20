@@ -193,7 +193,7 @@ enum NowFormat {
     static func costText(_ c: ChargingDetail.Cost) -> String {
         switch c {
         case .billed(let a, let cur): return money(a, currency: cur)
-        case .estimate(let a, let cur): return "~\(money(a, currency: cur)) (estimate)"
+        case .estimate(let a, let cur): return "\(money(a, currency: cur)) (estimate)"
         case .free: return "Free"
         }
     }

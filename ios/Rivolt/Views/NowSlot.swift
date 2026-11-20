@@ -13,9 +13,9 @@ struct NowSlotModel: Equatable {
         var estimated = false
     }
 
-    /// The soft card's grid names its figures once: "Estimated so far" when every cell but the elapsed time is ours, none otherwise (then each derived cell carries "est.").
+    /// Both grids name their figures once: "Estimated so far" when every cell but the clock facts (elapsed, plugged in) is ours, none otherwise (then each derived cell carries "est.").
     static func estimatedHeading(_ stats: [Stat]) -> Bool {
-        let counted = stats.filter { $0.label != "Elapsed" }
+        let counted = stats.filter { $0.label != "Elapsed" && $0.label != "Plugged in" }
         return !counted.isEmpty && counted.allSatisfy(\.estimated)
     }
 
