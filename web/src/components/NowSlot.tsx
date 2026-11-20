@@ -40,7 +40,7 @@ export type SlotInput = {
   soft?: boolean;
   // Design "now_drive_graph": the figures sit in the left half beside the graph, two to a row at every width.
   half?: boolean;
-  // Design "now_charge_graph": the pack's temperature (°C) from the newest stored sample, only while it is recent; its own row after Rate.
+  // Design "now_charge_graph": the pack's temperature (°C) from the newest stored sample, only while it is recent; shown beside the power figure.
   packC?: number | null;
 };
 export type SlotAsleep = { since: string | null; todayS: number | null };
@@ -94,7 +94,6 @@ export function slotStats(i: SlotInput): Stat[] {
     const truckRate = s && s.kilometers_charged_per_hour > 0 ? s.kilometers_charged_per_hour : null;
     const rate = truckRate ?? (rangeKm != null && elapsedSec != null && elapsedSec >= 300 ? rangeKm / (elapsedSec / 3600) : null);
     if (rate != null) out.push({ k: "Rate", v: `${truckRate == null ? "≈ " : ""}${dist(rate / KM_PER_MI)}/h` });
-    if (i.soft && i.packC != null) out.push({ k: "Pack temperature", v: formatTemperature(i.packC, i.tempUnit ?? "c") });
     if (elapsedSec != null) out.push({ k: "Elapsed", v: duration(elapsedSec) });
     if (c && c.cost != null) {
       const est = c.cost_is_estimate !== false;
@@ -302,9 +301,11 @@ export default function NowSlot(i: SlotInput) {
   let sub: string | null = null;
   let small: string | null = null;
   const chips: React.ReactNode[] = [];
+  let pack: string | null = null;
   if (view.kind === "charging" && view.powerKw != null) {
     big = view.powerKw.toFixed(view.powerKw < 10 ? 1 : 0);
     bigUnit = "kW";
+    if (i.soft && packC != null) pack = formatTemperature(packC, i.tempUnit ?? "c");
     const label = view.chargeFlavor ? CHARGER[view.chargeFlavor] : null;
     if (label) chips.push(<Chip key="c" tone="green" testid="now-slot-charger">{label}</Chip>);
     if (view.etaHours != null) {
@@ -327,6 +328,12 @@ export default function NowSlot(i: SlotInput) {
       <p className="text-4xl font-semibold leading-none tabular-nums text-neutral-100" data-testid="now-slot-big">
         {big}
         <span className="ml-1 text-base font-normal text-neutral-400">{bigUnit}</span>
+        {pack && (
+          <span data-testid="now-slot-pack" className="ml-3 whitespace-nowrap align-baseline text-2xl font-semibold text-neutral-100">
+            {pack}
+            <span className="ml-1 text-base font-normal text-neutral-400">pack</span>
+          </span>
+        )}
         {chips}
       </p>
       {sub && <p className="mt-2 text-sm font-medium text-neutral-200" data-testid="now-slot-sub">{sub}</p>}

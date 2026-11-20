@@ -9,6 +9,9 @@ const CASES: Record<string, Curve> = {
   dc: { elapsedMin: 25, soc: (m) => 15 + 40 * (1 - Math.exp(-m / 20)), kw: (m) => 190 * Math.exp(-m / 22) + 40 },
   slow: { elapsedMin: 30, soc: (m) => 40 + m * 0.09, kw: () => 4.8 },
   fresh: { elapsedMin: 1, soc: (m) => 40 + m * 0.136, kw: () => 11 },
+  // Three minutes in with 1 h 34 min left (a fast charger just plugged in), and a charge about to finish.
+  start: { elapsedMin: 3, soc: (m) => 33 + m * 0.2, kw: () => 40 },
+  end: { elapsedMin: 80, soc: (m) => 40 + m * 0.45, kw: () => 11 },
   paused: { elapsedMin: 60, soc: (m) => 40 + Math.min(m, 30) * 0.136, kw: (m) => (m < 30 ? 11 : 0) },
 };
 const SHOTS = process.env.SHOTS_DIR;
@@ -33,9 +36,12 @@ test("an AC charge draws battery, power and the way to the target with its finis
   await expect(page.getByTestId("now-car")).toHaveCount(0);
   await expect(page.getByTestId("now-slot")).not.toContainText(/Reaches/);
   await expect(page.getByTestId("now-slot-plugged-in")).toHaveCount(0);
-  // The pack's temperature (from the stored samples) is a figure row right after Rate; the bottom row is cabin and outside only.
+  // The pack's temperature (from the stored samples) sits beside the power figure, written without a space, and is not a figure row.
   await expect(page.getByTestId("now-slot")).toContainText(/Cost so far/);
-  await expect(page.getByTestId("now-slot")).toContainText(/Rate.*Pack temperature.*Elapsed/);
+  await expect(page.getByTestId("now-slot-big")).toHaveText(/^\d+(\.\d)?\s?kW\s?\d+°[CF]\s?pack/);
+  await expect(page.getByTestId("now-slot-pack")).toHaveText(/^\d+°[CF]\s?pack$/);
+  await expect(page.getByTestId("now-slot-pack-temperature")).toHaveCount(0);
+  await expect(page.getByTestId("now-slot")).not.toContainText(/Pack temperature/);
   await expect(page.getByTestId("now-temps")).toHaveText(/Cabin.*Outside/);
   await expect(page.getByTestId("now-temps")).not.toContainText(/Pack/);
   // On a phone the Live button keeps the status row with the chip (the chip drops the finish time there).
@@ -92,14 +98,26 @@ test("the graph's start and now labels are the real readings and the change is t
   expect(change).toBe(to - from);
 });
 
-test("a slow home charge with hours left still gives the session so far most of the width @webkit", async ({ page }) => {
-  await open(page, CASES.slow);
-  const g = page.getByTestId("now-charge-graph");
-  await expect(g).toBeVisible();
-  const svg = await g.locator("svg").boundingBox();
-  const dot = await g.locator('[data-testid="now-charge-graph-estimate-line"]').evaluate((el) => (el as SVGPathElement).getBBox().x);
-  // The dotted way on starts past half the width: the data so far is not squeezed into a stub.
-  expect(dot / (svg?.width ?? 1)).toBeGreaterThan(0.5);
+test("the time axis gives the session its true share of the charge, never under a quarter of the width @webkit", async ({ page }) => {
+  for (const c of [CASES.slow, CASES.ac, CASES.dc]) {
+    await open(page, c);
+    const g = page.getByTestId("now-charge-graph");
+    await expect(g).toBeVisible();
+    const svg = await g.locator("svg").boundingBox();
+    const dot = await g.locator('[data-testid="now-charge-graph-estimate-line"]').evaluate((el) => (el as SVGPathElement).getBBox().x);
+    // The dotted way on starts where the session so far ends: at least about a quarter of the width, and no cliff (not most of the width) for a short session.
+    expect(dot / (svg?.width ?? 1)).toBeGreaterThan(0.2);
+  }
+});
+
+test("the graph is compact: a fixed height on a phone and on desktop, not the column's @webkit", async ({ page }) => {
+  for (const [w, max] of [[393, 160], [1280, 210]] as const) {
+    await page.setViewportSize({ width: w, height: 1000 });
+    await open(page, CASES.slow);
+    const box = await page.getByTestId("now-charge-graph").locator("svg").boundingBox();
+    expect(box!.height).toBeLessThanOrEqual(max);
+    expect(box!.height).toBeGreaterThanOrEqual(max - 10);
+  }
 });
 
 test("the estimate leaves \"now\" with the slope of the battery line, not at an angle @webkit", async ({ page }) => {
@@ -154,7 +172,7 @@ if (SHOTS) {
   // The image-gate matrix: every case on a phone and on desktop in both themes; the narrowest phone; large text; km.
   type Shot = [string, number, "light" | "dark", string, string];
   const shots: Shot[] = [];
-  for (const name of Object.keys(CASES)) for (const w of [393, 1280]) for (const scheme of ["light", "dark"] as const) shots.push([name, w, scheme, "100", "mi"]);
+  for (const name of Object.keys(CASES)) for (const w of [393, 1280, 1440]) for (const scheme of ["light", "dark"] as const) shots.push([name, w, scheme, "100", "mi"]);
   for (const name of ["ac", "dc"]) for (const scheme of ["light", "dark"] as const) shots.push([name, 320, scheme, "100", "mi"]);
   for (const name of ["ac", "dc"]) for (const w of [320, 393, 1280]) shots.push([name, w, "dark", "200", "mi"]);
   for (const w of [393, 1280]) shots.push(["ac", w, "dark", "100", "km"]);

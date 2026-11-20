@@ -60,11 +60,8 @@ describe("NowSlot", () => {
     const charge = { started_at: "2026-01-01T11:00:00Z", soc_start: 40 };
     // 20 points of 60 at 150 mi: 50 mi, over the hour since the start.
     const est = slotStats(base(v, { charge }));
-    const withPack = slotStats(base(v, { soft: true, packC: 30, tempUnit: "f", charge })).map((r) => r.k);
-    expect(withPack).toContain("Pack temperature");
-    expect(withPack.indexOf("Pack temperature")).toBe(withPack.indexOf("Rate") + 1);
-    expect(slotStats(base(v, { soft: true, packC: null })).some((r) => r.k === "Pack temperature")).toBe(false);
-    expect(slotStats(base(v, { packC: 30 })).some((r) => r.k === "Pack temperature")).toBe(false);
+    // The pack's temperature sits beside the power figure, never as a row.
+    expect(slotStats(base(v, { soft: true, packC: 30, tempUnit: "f", charge })).some((r) => r.k === "Pack temperature")).toBe(false);
 
     expect(est.find((s) => s.k === "Range added")?.v).toBe("≈ +50.0 mi");
     expect(est.find((s) => s.k === "Rate")?.v).toBe("≈ 50.0 mi/h");

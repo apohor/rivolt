@@ -8,8 +8,9 @@ import { GraphHead, HaloDot, Legend, Pill, QuietLine, SoftDefs, SoftFill, SoftLi
 // soft dotted continuation with the finish time in a small pill. The series are the Live page's (stored samples, no Rivian call), read at
 // its 30 s pace. Under two minutes of samples it says so instead of drawing a stub.
 const MIN_SPAN_MS = 120_000;
-// The estimate's width, relative to the session so far.
-const EST_SHARE = 0.8;
+// The session so far takes its true share of the whole charge (so far plus what is left), but never less than this share of the width, so a
+// charge that has just started still shows its start readably.
+const MIN_HISTORY_SHARE = 0.25;
 const PAD = { t: 30, b: 26, l: 6, r: 10 };
 
 // The open charge's series, read once for the card: the graph draws it and the temperatures row takes the pack's reading from it.
@@ -59,16 +60,20 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
   const nowShown = Math.round(nowPct);
   const gained = nowShown - startShown;
 
-  // The estimate takes at most this share of the width again as the session so far, so a slow charge with hours left still shows its start readably
-  // (the dotted way on is then not to scale; the pill carries the finish time).
-  const x1 = endX != null ? last.x + Math.min(endX - last.x, (last.x - first.x) * EST_SHARE) : last.x;
+  // The time axis is to scale (the session so far against the time left) down to the floor; past it the dotted way on is shortened and the
+  // pill carries the finish time.
+  const elapsed = last.x - first.x;
+  const share = endX != null ? Math.max(elapsed / (elapsed + Math.max(endX - last.x, 1)), MIN_HISTORY_SHARE) : 1;
+  const x1 = endX != null ? last.x + (elapsed * (1 - share)) / share : last.x;
   const hi = Math.max(last.y, target ?? 0, ...soc.map((p) => p.y));
   const lo = Math.min(...soc.map((p) => p.y));
+  // The y range is the data's own: a little under the start and a little over the target, so the lines use the height.
   const span = Math.max(hi - lo, 4);
-  const yLo = lo - span * 0.12;
+  const yLo = lo - span * 0.1;
+  const yHi = hi + span * 0.06;
   const base = h - PAD.b;
   const sx = (x: number) => PAD.l + ((x - first.x) / (x1 - first.x)) * (w - PAD.l - PAD.r);
-  const sy = (v: number) => PAD.t + (1 - (v - yLo) / (hi - yLo)) * (base - PAD.t);
+  const sy = (v: number) => PAD.t + (1 - (v - yLo) / (yHi - yLo)) * (base - PAD.t);
   const sp = (v: number) => base - (v / powerMax(peak)) * (base - PAD.t);
   const socPts: Pt[] = thin(soc).map((p) => ({ x: sx(p.x), y: sy(p.y) }));
   const powPts: Pt[] = thin(power).map((p) => ({ x: sx(p.x), y: sp(p.y) }));
@@ -94,11 +99,15 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
   const labelNow = lx - PAD.l > 170;
   const labelStartValue = lx - PAD.l > 90;
   const valueLeft = lx - PAD.l > 60;
+  // The finish pill sits at the top right; when "now" is close to it (a charge about to finish) the current value goes under the dot, beside the estimate, so the two never overlap.
+  const pillY = Math.max((ey ?? 0) - 18, 12);
+  const pillLeft = w - PAD.r - labelWidth(pill ?? "");
+  const nowBelow = pill != null && ey != null && Math.abs(ly - 12 - pillY) < 20 && (valueLeft ? lx - 10 : lx + 40) > pillLeft - 6;
 
   return (
-    <div data-testid="now-charge-graph" className="flex min-w-0 flex-col min-[900px]:h-full">
+    <div data-testid="now-charge-graph" className="flex min-w-0 flex-col">
       <GraphHead title="Battery while charging" change={gained > 0 ? `+${gained}%` : null} since={`since ${clock(first.x)}`} />
-      <div ref={ref} className="h-[170px] min-w-0 min-[900px]:h-auto min-[900px]:min-h-[200px] min-[900px]:flex-1">
+      <div ref={ref} className="h-[150px] min-w-0 min-[900px]:h-[200px]">
         {w > 0 && h > 0 && (
           <svg
             width={w}
@@ -127,7 +136,7 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
                 {startShown}%
               </text>
             )}
-            <text x={valueLeft ? lx - 10 : lx + 10} y={Math.max(ly - 12, 12)} textAnchor={valueLeft ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
+            <text x={nowBelow ? lx + 8 : valueLeft ? lx - 10 : lx + 10} y={nowBelow ? ly + 24 : Math.max(ly - 12, 12)} textAnchor={valueLeft && !nowBelow ? "end" : "start"} className="fill-neutral-100 text-sm font-semibold">
               {nowShown}%
             </text>
             <text x={PAD.l} y={h - 6} className="fill-neutral-500 text-xs">
