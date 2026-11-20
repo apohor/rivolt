@@ -23,6 +23,7 @@ import {
 import { formatMoney } from "../lib/ledger";
 import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
+import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
 import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
@@ -101,6 +102,8 @@ export default function NowCard({
   const v2 = useDesignPreview("now_v2");
   // Design "now_slot": charging and driving figures take the picture's place in the hero.
   const slotOn = useDesignPreview("now_slot");
+  // Design "now_charge_graph" (with now_slot): the open charge's battery and power in the charging slot.
+  const chargeGraphKey = useDesignPreview("now_charge_graph") && slotOn;
   // Design "now_tidy" (with now_v2): the calmer layout of the hero. Off, the hero is as it was.
   const tidy = useDesignPreview("now_tidy") && v2;
   const { distanceUnit, temperatureUnit } = usePreferences();
@@ -275,6 +278,9 @@ export default function NowCard({
   // The server's sample point (the demo), then the live state's fix; a sleeping truck may have none (a restart while asleep), so the server's last recorded position comes last.
   const fix = pickFix(server?.location, state.latitude, state.longitude, server?.last_fix);
   const showSlot = slotOn && slotShown(view, fix);
+  // Design "now_charge_graph" (with now_slot and now_tidy), charging: the figures as rows beside the graph, the truck picture and the chip that
+  // says power and finish time, as on the iPhone.
+  const soft = chargeGraphKey && tidy && showSlot && view.kind === "charging";
   const dq = driveQ.data ?? null;
   // The drive so far comes from /now (the recorder's open drive row, the same for a real and a simulated drive); the Live read stands in for
   // a server that does not send it yet. Efficiency is the distance shown over the energy shown.
@@ -301,6 +307,7 @@ export default function NowCard({
       mode={state.drive_mode}
       fix={fix}
       tidy={tidy}
+      soft={soft}
       asleep={view.kind === "asleep" ? { since: server?.asleep_since ?? null, todayS: server?.asleep_today_s ?? null } : null}
       weather={server?.ambient ?? null}
       tempUnit={temperatureUnit}
@@ -332,13 +339,16 @@ export default function NowCard({
   if (v2) {
     return (
       <section aria-label="Now" data-ui-area="hero" className="space-y-2">
+        <ChargeSeriesProvider vehicleId={vehicleID} enabled={soft}>
         <NowHeroV2
           view={view}
           vehicleID={vehicleID}
           images={images}
           model={model}
           stateSlot={showSlot ? slotNode : null}
-          chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot)}
+          chip={nowChip(view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot && !soft)}
+          soft={soft}
+          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : null}
           tidy={tidy}
           nowMs={nowMs}
           asleepTodayS={server?.asleep_today_s ?? null}
@@ -378,6 +388,7 @@ export default function NowCard({
           }
           telemetryLink={!impersonating && showTelemetryLink}
         />
+        </ChargeSeriesProvider>
         {alertList}
       </section>
     );

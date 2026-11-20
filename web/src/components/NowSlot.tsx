@@ -32,6 +32,8 @@ export type SlotInput = {
   asleep?: SlotAsleep | null;
   // Design "now_tidy": see TIDY_ROOT.
   tidy?: boolean;
+  // Design "now_charge_graph": the figures as rows (the graph sits beside them), the target said once, and no plug-in time (the graph's start says it).
+  soft?: boolean;
 };
 export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
@@ -88,7 +90,7 @@ export function slotStats(i: SlotInput): Stat[] {
       const est = c.cost_is_estimate !== false;
       out.push({ k: "Cost so far", v: `${est ? "≈ " : ""}${formatMoney(c.cost, c.currency || i.currency)}`, note: (c.cost_source && COST_NOTE[c.cost_source]) || (est ? "estimate" : undefined) });
     }
-    if (Number.isFinite(startedMs)) out.push({ k: "Plugged in", v: clock(startedMs) });
+    if (Number.isFinite(startedMs) && !i.soft) out.push({ k: "Plugged in", v: clock(startedMs) });
   } else if (v.kind === "driving" && i.drive) {
     const d = i.drive;
     if (d.tripMi > 0) out.push({ k: "Distance", v: dist(d.tripMi) });
@@ -298,8 +300,8 @@ export default function NowSlot(i: SlotInput) {
     if (label) chips.push(<Chip key="c" tone="green" testid="now-slot-charger">{label}</Chip>);
     if (view.etaHours != null) {
       const when = clock(nowMs + view.etaHours * 3_600_000);
-      sub = view.limitPct != null && view.limitPct < 100 ? `Reaches ${Math.round(view.limitPct)}% at ${when}` : `Full at ${when}`;
-      small = `${timeLeft(view.etaHours)} left${view.etaSource === "truck" ? "" : " (est.)"}${view.limitPct != null ? ` · target ${Math.round(view.limitPct)}%` : ""}`;
+      sub = i.soft ? null : view.limitPct != null && view.limitPct < 100 ? `Reaches ${Math.round(view.limitPct)}% at ${when}` : `Full at ${when}`;
+      small = `${timeLeft(view.etaHours)} left${view.etaSource === "truck" ? "" : " (est.)"}${view.limitPct != null && !i.soft ? ` · target ${Math.round(view.limitPct)}%` : ""}`;
     }
   } else if (view.kind === "driving" && view.speedMph != null) {
     const sp = unit === "km" ? view.speedMph * KM_PER_MI : view.speedMph;
@@ -320,7 +322,7 @@ export default function NowSlot(i: SlotInput) {
       </p>
       {sub && <p className="mt-2 text-sm font-medium text-neutral-200" data-testid="now-slot-sub">{sub}</p>}
       {small && <p className="text-xs text-neutral-400" data-testid="now-slot-small">{small}</p>}
-      {stats.length > 0 && (
+      {stats.length > 0 && !i.soft && (
         <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 min-[900px]:grid-cols-3">
           {stats.map((s) => (
             <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`}>
@@ -330,6 +332,19 @@ export default function NowSlot(i: SlotInput) {
             </div>
           ))}
         </div>
+      )}
+      {stats.length > 0 && i.soft && (
+        <dl className="mt-3 divide-y divide-neutral-800/60">
+          {stats.map((s) => (
+            <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`} className="flex items-baseline justify-between gap-3 py-2">
+              <dt className="text-sm text-neutral-400">{s.k}</dt>
+              <dd className="text-right text-sm font-semibold tabular-nums text-neutral-100">
+                {s.v}
+                {s.note && <span className="ml-1.5 text-xs font-normal text-neutral-500">{s.note}</span>}
+              </dd>
+            </div>
+          ))}
+        </dl>
       )}
     </div>
   );

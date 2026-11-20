@@ -12,29 +12,30 @@ import { forVehicle } from "../lib/vehicleSamples";
 // catches up when it is shown again. Only for a session that is genuinely open (isActiveCharge: an open state and a recent sample).
 export const LIVE_GRAPH_REFRESH_MS = 30_000;
 
-const xTimeFmt = (x: number) => new Date(x).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", timeZone: displayTimeZone() });
+export const xTimeFmt = (x: number) => new Date(x).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", timeZone: displayTimeZone() });
 
 // A power axis that snaps to a common tier, as the charge page does.
-function powerMax(peak: number): number {
+export function powerMax(peak: number): number {
   if (peak <= 0) return 12;
   for (const t of [12, 25, 60, 120, 200, 300, 400]) if (peak <= t * 0.92) return t;
   return Math.ceil((peak * 1.2) / 50) * 50;
 }
 
-export function LiveChargeGraph({ vehicleId }: { vehicleId: string }) {
-  const { temperatureUnit } = usePreferences();
+// The open charge and its smoothed series, shared by the Live page's graph and the Now card's.
+export function useOpenChargeSeries(vehicleId: string, enabled = true) {
   const charges = useQuery<Charge[]>({
     queryKey: ["charges", "open", vehicleId],
     queryFn: () => backend.charges(5),
     refetchInterval: 60_000,
     staleTime: 30_000,
+    enabled,
   });
   const open = charges.data?.find((c) => c.VehicleID === vehicleId && isActiveCharge(c));
   const startedMs = open ? new Date(open.StartedAt).getTime() : NaN;
 
   const samples = useQuery<Sample[]>({
     queryKey: ["samples", "live-charge", vehicleId, open?.ID],
-    enabled: !!open && Number.isFinite(startedMs),
+    enabled: enabled && !!open && Number.isFinite(startedMs),
     queryFn: () => backend.samples(new Date(startedMs - 60_000), DETAIL_SAMPLE_LIMIT, new Date(Date.now() + 60_000), vehicleId).then((r) => forVehicle(r, vehicleId)),
     refetchInterval: LIVE_GRAPH_REFRESH_MS,
     refetchIntervalInBackground: false,
@@ -45,13 +46,20 @@ export function LiveChargeGraph({ vehicleId }: { vehicleId: string }) {
     const rows = (samples.data ?? []).filter((p) => new Date(p.At).getTime() >= startedMs - 60_000);
     const at = (p: Sample) => new Date(p.At).getTime();
     const soc = smoothGaussianTime(rows.filter((p) => p.BatteryLevelPct > 0).map((p) => ({ x: at(p), y: p.BatteryLevelPct })), 30_000);
+    const startPct = rows.find((p) => p.BatteryLevelPct > 0)?.BatteryLevelPct ?? null;
     const power = smoothGaussianTime(rows.filter((p) => p.ChargerPowerKW > 0).map((p) => ({ x: at(p), y: p.ChargerPowerKW })), 45_000);
     // The pack's cell temperature: absent or 0 on a row recorded while the car slept (the charge page drops the same sentinel).
     const withPack = rows.filter((p) => Number.isFinite(p.pack_temp_avg_c) && (p.pack_temp_avg_c ?? 0) !== 0);
     const last = withPack[withPack.length - 1];
-    return { soc, power, pack: last ? { avg: last.pack_temp_avg_c as number, min: last.pack_temp_min_c, max: last.pack_temp_max_c } : null };
+    return { soc, power, startPct, pack: last ? { avg: last.pack_temp_avg_c as number, min: last.pack_temp_min_c, max: last.pack_temp_max_c, at: new Date(last.At).getTime() } : null };
   }, [samples.data, startedMs]);
 
+  return { open, startedMs, ...data };
+}
+
+export function LiveChargeGraph({ vehicleId }: { vehicleId: string }) {
+  const { temperatureUnit } = usePreferences();
+  const { open, ...data } = useOpenChargeSeries(vehicleId);
   if (!open || data.soc.length < 2) return null;
   const peak = data.power.reduce((m, p) => Math.max(m, p.y), 0);
   const socLo = Math.min(...data.soc.map((p) => p.y));
