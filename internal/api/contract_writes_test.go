@@ -75,7 +75,7 @@ func TestAppWritesAreAllowedByTheServer(t *testing.T) {
 	for k := range appWrites {
 		entries = append(entries, k)
 	}
-	entries = append(entries, "DELETE /api/auth/sessions/{x}", "PUT /api/vehicles/{id}/profile", "PUT /api/trips/saved/{id}", "POST /api/trips/saved/{id}/link", "POST /api/trips/saved/{id}/unlink")
+	entries = append(entries, "DELETE /api/auth/sessions/{x}", "PUT /api/vehicles/{id}/profile", "PUT /api/trips/saved/{id}", "POST /api/trips/saved/{id}/link", "POST /api/trips/saved/{id}/unlink", "POST /api/trips/saved/{id}/receipt")
 	sort.Strings(entries)
 	for _, e := range entries {
 		called := seen[e] || seen[strings.ReplaceAll(e, "{id}", "{x}")]
