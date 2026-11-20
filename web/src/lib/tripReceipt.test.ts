@@ -35,6 +35,11 @@ describe("buildReceiptModel", () => {
     expect(m.big[0]).toBe("~250 mi");
     expect(RECEIPT_FILE).toBe("rivolt-trip-plan.png");
   });
+  it("keeps the Charging line to the shown charges and the big total to the whole trip", () => {
+    const m = buildReceiptModel({ ...R, totals: { ...R.totals, drive_s: 6300, charge_s: 1080, trip_s: 7500 } }, o);
+    expect(m.totals.find((x) => x.label.startsWith("Charging"))?.value).toBe("18 min");
+    expect(m.big[1]).toBe("~2 h 05 min");
+  });
   it("draws the sketch only when asked for and sent", () => {
     expect(buildReceiptModel(R, o).sketch).toBeNull();
     expect(buildReceiptModel(R, { ...o, includeSketch: true }).sketch).toEqual(R.sketch);

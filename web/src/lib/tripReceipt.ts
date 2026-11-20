@@ -109,7 +109,7 @@ export function buildReceiptModel(r: TripReceipt, o: { model: string; unit: Dist
     lines,
     totals,
     cost,
-    big: [`~${dist(t.dist_m, o.unit)}`, `~${hmin(t.drive_s + t.charge_s)}`],
+    big: [`~${dist(t.dist_m, o.unit)}`, `~${hmin(t.trip_s ?? t.drive_s + t.charge_s)}`],
     footer: RECEIPT_FOOTER,
   };
 }

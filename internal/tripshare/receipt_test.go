@@ -212,8 +212,16 @@ func TestReceiptFoldsTheHomeStart(t *testing.T) {
 	if rec.Totals.Stops != 1 {
 		t.Errorf("stops %d, want 1 (only the shown charge)", rec.Totals.Stops)
 	}
-	if rec.Totals.ChargeS != 1080+600 {
-		t.Errorf("charge time %d, want all of it (1680)", rec.Totals.ChargeS)
+	if rec.Totals.ChargeS != 1080 {
+		t.Errorf("charge time %d, want only the shown charge (1080): the folded home charge is not in the Charging line", rec.Totals.ChargeS)
+	}
+	if rec.Totals.TripS != 127*60-120 || rec.Totals.TripS%300 != 0 {
+		t.Errorf("trip time %d, want all 127 min rounded to 5 min (7500)", rec.Totals.TripS)
+	}
+	dep, _ := time.Parse(time.RFC3339, rec.DepartAt)
+	arr, _ := time.Parse(time.RFC3339, rec.Totals.ArriveAt)
+	if !dep.Add(time.Duration(rec.Totals.TripS) * time.Second).Equal(arr) {
+		t.Errorf("Leave %s + total %d s != Arrive %s", rec.DepartAt, rec.Totals.TripS, rec.Totals.ArriveAt)
 	}
 	if rec.DepartAt != "2026-11-21T15:00:00Z" {
 		t.Errorf("leave moved to %q", rec.DepartAt)
@@ -247,7 +255,40 @@ func TestReceiptFoldsTheHomeEnd(t *testing.T) {
 	if len(rec.Legs) != 3 || rec.Legs[2].Kind != "drive" || rec.Legs[2].To != rec.End {
 		t.Fatalf("rows %+v: want drive, the public charge, a drive that ends at the end area", rec.Legs)
 	}
-	if rec.Totals.Stops != 1 || rec.Totals.ChargeS != 1080+600 {
+	if rec.Totals.Stops != 1 || rec.Totals.ChargeS != 1080 || rec.Totals.TripS%300 != 0 {
 		t.Errorf("stops %d charge %d", rec.Totals.Stops, rec.Totals.ChargeS)
+	}
+}
+
+// Leave + total = Arrive on a trip whose added stop dwells 35 min with no charge: the total is not driving + charging alone.
+func TestReceiptTotalReachesArriveWithAnAddedStop(t *testing.T) {
+	line := eastLine(36.9, -104.5, 1000, 121)
+	wps := receiptWps(line)
+	shift := func(iso string, min int) string {
+		tm, _ := time.Parse(time.RFC3339, iso)
+		return tm.Add(time.Duration(min) * time.Minute).Format(time.RFC3339)
+	}
+	wps[1].DepartureTimeUTC = shift(wps[1].DepartureTimeUTC, 30) // the stop now dwells 35 min
+	for i := 2; i < len(wps); i++ {
+		wps[i].ArrivalTimeUTC = shift(wps[i].ArrivalTimeUTC, 30)
+		if wps[i].DepartureTimeUTC != "" {
+			wps[i].DepartureTimeUTC = shift(wps[i].DepartureTimeUTC, 30)
+		}
+	}
+	namer := func(_ context.Context, lat, lon float64) string { return fmt.Sprintf("Area %.2f,%.2f", lat, lon) }
+	rec, err := BuildReceipt(context.Background(), ReceiptInput{
+		Input: Input{Title: "Trip", Plan: planJSON(t, line, wps, nil), DepartAt: "2026-11-21T15:00:00Z", PlannedAt: time.Unix(1, 0), CutM: 4000},
+		Name:  namer,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dep, _ := time.Parse(time.RFC3339, rec.DepartAt)
+	arr, _ := time.Parse(time.RFC3339, rec.Totals.ArriveAt)
+	if got := dep.Add(time.Duration(rec.Totals.TripS) * time.Second); !got.Equal(arr) {
+		t.Errorf("Leave %s + total %d s = %s, want Arrive %s", rec.DepartAt, rec.Totals.TripS, got.Format(time.RFC3339), rec.Totals.ArriveAt)
+	}
+	if rec.Totals.TripS != 155*60 {
+		t.Errorf("total %d s, want 155 min: the 35 min added stop is in it", rec.Totals.TripS)
 	}
 }

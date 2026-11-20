@@ -3607,7 +3607,7 @@ export type TripReceipt = {
   start: string;
   end: string;
   rows: TripReceiptRow[];
-  totals: { dist_m: number; drive_s: number; charge_s: number; stops: number; arrive_at?: string; arrival_soc: number };
+  totals: { dist_m: number; drive_s: number; charge_s: number; trip_s?: number; stops: number; arrive_at?: string; arrival_soc: number };
   sketch?: string[];
 };
 

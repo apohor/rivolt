@@ -7,7 +7,7 @@ final class TripReceiptTests: XCTestCase {
     private let la = TimeZone(identifier: "America/Los_Angeles")!
     private let us = Locale(identifier: "en_US")
 
-    private func receipt(_ extra: String = "", rows: String? = nil, sketch: String? = nil) throws -> TripReceipt {
+    private func receipt(_ extra: String = "", rows: String? = nil, sketch: String? = nil, tripS: Int? = nil) throws -> TripReceipt {
         let rows = rows ?? """
         [{"kind":"drive","from":"Trinidad area","to":"Pueblo area","dist_m":32187,"dur_s":1800,"from_soc":90,"to_soc":70,"rounded":true},
          {"kind":"stop","name":"Stop · Pueblo area","dur_s":300,"from_soc":70,"to_soc":70},
@@ -16,7 +16,7 @@ final class TripReceiptTests: XCTestCase {
         """
         let json = """
         {"depart_at":"2026-11-21T15:00:00Z","tz":"America/Los_Angeles","start_soc":90,"start":"Trinidad area","end":"Walsenburg area","rows":\(rows),
-         "totals":{"dist_m":120701,"drive_s":6300,"charge_s":1080,"stops":1,"arrive_at":"2026-11-21T17:05:00Z","arrival_soc":31.5}\(sketch.map { ",\"sketch\":[\"\($0)\"]" } ?? "")\(extra)}
+         "totals":{"dist_m":120701,"drive_s":6300,"charge_s":1080,\(tripS.map { "\"trip_s\":\($0)," } ?? "")"stops":1,"arrive_at":"2026-11-21T17:05:00Z","arrival_soc":31.5}\(sketch.map { ",\"sketch\":[\"\($0)\"]" } ?? "")\(extra)}
         """
         return try JSON.decoder().decode(TripReceipt.self, from: Data(json.utf8))
     }
@@ -51,6 +51,13 @@ final class TripReceiptTests: XCTestCase {
         XCTAssertEqual(m.big.0, "~75 mi")
         XCTAssertEqual(m.big.1, "~2 h 03 min")
         XCTAssertEqual(m.footer, TripReceiptLogic.footer)
+    }
+
+    func testTheChargingLineIsTheShownChargesAndTheBigTotalIsTheWholeTrip() throws {
+        let r = try receipt(tripS: 7500)
+        let m = model(r)
+        XCTAssertEqual(m.totals[1].value, "18 min", "the folded home charge is not in the Charging line")
+        XCTAssertEqual(m.big.1, "~2 h 05 min")
     }
 
     func testTheArrivalClockIsInTheDestinationsZone() throws {
