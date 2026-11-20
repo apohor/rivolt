@@ -44,6 +44,28 @@ test("an AC charge draws battery, power and the way to the target with its finis
   if (chip && live && (page.viewportSize()?.width ?? 1280) < 431) expect(Math.abs(chip.y - live.y)).toBeLessThan(12);
 });
 
+// From 431 px the chip keeps the finish time whole: with "done by" while the row has the room, without those words below that, never cut mid-time.
+for (const [name, width] of [["ac", 431], ["ac", 440], ["dc", 431], ["dc", 440], ["dc", 480], ["dc", 600], ["dc", 1280]] as const) {
+  test(`the ${name} charging chip shows the whole finish time at ${width} px @webkit`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await open(page, CASES[name]);
+    const chip = page.getByTestId("now-pill");
+    await expect(chip).toContainText(/Charging · \d+ kW · (done by )?\d{1,2}:\d{2}/);
+    const shown = await chip.evaluate((el) => {
+      const spans = [...el.querySelectorAll("span")].filter((s) => s.children.length === 0 && s.getAttribute("aria-hidden") == null && s.offsetParent !== null);
+      return spans.map((s) => ({ text: s.textContent, cut: s.scrollWidth > s.clientWidth + 1 }));
+    });
+    expect(shown).toHaveLength(1);
+    expect(shown[0].cut).toBe(false);
+    expect(shown[0].text).toMatch(/\d{1,2}:\d{2}\s?(AM|PM)?$/i);
+    if (SHOTS) await page.locator("[data-now-soft]").screenshot({ path: `${SHOTS}/chip-${name}-${width}.png` });
+    const live = await page.getByTestId("now-live-link").boundingBox();
+    const box = await chip.boundingBox();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(live!.x);
+    expect(Math.abs(box!.y - live!.y)).toBeLessThan(12);
+  });
+}
+
 test("the graph's start and now labels are the real readings and the change is their difference @webkit", async ({ page }) => {
   await open(page, CASES.ac);
   const g = page.getByTestId("now-charge-graph");

@@ -169,9 +169,11 @@ export default function NowHeroV2({
       />
       {soft && chip.includes(" · done by ") ? (
         // Under 431 px the chip drops the finish time (the card says it in its own line), so the Live button keeps the row; the iPhone does the same.
+        // From 431 px it keeps the time whole: with "done by" while the row has the room (24 rem), without those words (still the whole time) below.
         <>
           <span className="min-w-0 @[22rem]:truncate min-[431px]:hidden">{chip.slice(0, chip.indexOf(" · done by "))}</span>
-          <span className="min-w-0 @[22rem]:truncate max-[430px]:hidden">{chip}</span>
+          <span className="min-w-0 @[22rem]:truncate max-[430px]:hidden @[24rem]:hidden">{chip.replace(" · done by ", " · ")}</span>
+          <span className="hidden min-w-0 @[22rem]:truncate @[24rem]:inline max-[430px]:hidden!">{chip}</span>
         </>
       ) : (
         <span className={tidy ? (soft ? "min-w-0 @[22rem]:truncate" : "min-w-0 truncate") : undefined}>{chip}</span>
