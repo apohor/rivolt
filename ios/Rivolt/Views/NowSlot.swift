@@ -121,7 +121,7 @@ struct NowSlotModel: Equatable {
                 if !parkedGraph, let today = snapshot?.asleepTodayS, today >= 0 { sleep.append(Stat(label: "Asleep today", value: NowFormat.duration(today), note: nil)) }
             }
             var place: String?
-            if atHome { place = "At \(home?.label ?? "Home")" }
+            if atHome { place = "At \(home?.label.flatMap { $0.isEmpty ? nil : $0 } ?? "Home")" }
             else if let home { place = "Away · \(distanceWords(km: ChargerPin.distanceM(home.lat, home.lon, fix.lat, fix.lon) / 1000, metric: metric)) from home" }
             return NowSlotModel(content: .parked(lat: fix.lat, lon: fix.lon, label: atHome ? (home?.label ?? "Home") : nil, weather: weather), sleep: sleep, place: place)
         default:

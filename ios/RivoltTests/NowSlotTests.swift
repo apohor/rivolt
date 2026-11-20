@@ -67,6 +67,7 @@ final class NowSlotTests: XCTestCase {
             try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: fix, home: home, metric: metric, clock: at)).place
         }
         XCTAssertEqual(try place((34.1, -118.1), home: .init(lat: 34.1, lon: -118.1, label: nil)), "At Home")
+        XCTAssertEqual(try place((34.1, -118.1), home: .init(lat: 34.1, lon: -118.1, label: "")), "At Home", "an empty saved name is Home")
         XCTAssertEqual(try place((34.1, -118.1), home: .init(lat: 34.1, lon: -118.1, label: "Cabin")), "At Cabin")
         XCTAssertEqual(try place((34.15, -118.1), home: .init(lat: 34.1, lon: -118.1, label: nil)), "Away · 3.5 mi from home")
         XCTAssertEqual(try place((34.15, -118.1), home: .init(lat: 34.1, lon: -118.1, label: nil), metric: true), "Away · 5.6 km from home")

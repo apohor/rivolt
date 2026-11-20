@@ -49,6 +49,7 @@ struct NowSlotView: View {
         .padding(.horizontal, 12).padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("now-parked-place")
     }
 

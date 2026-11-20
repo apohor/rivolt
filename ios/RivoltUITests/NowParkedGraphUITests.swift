@@ -45,7 +45,9 @@ final class NowParkedGraphUITests: XCTestCase {
         XCTAssertTrue(element(app, "now-parked-change").exists, "the header's change")
         XCTAssertTrue(element(app, "now-parked-tile-idle").exists, "the idle-loss tile")
         XCTAssertTrue(element(app, "now-parked-projection").exists, "the projection")
-        XCTAssertFalse(element(app, "now-slot-map").exists, "the graph is the card's content: no map") // the map is hidden from VoiceOver, so its absence here is the model's test
+        // The card is one VoiceOver element, so the line is found in what it says.
+        let card = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'At Home'")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "the place line stands where the map was, and the card says it")
         shot(app, "now-parked-graph-top")
     }
 

@@ -113,6 +113,13 @@ struct NowCard: View {
     /// The parked card in its soft look: the key on, the slot and the calm hero showing, a parked, plugged or sleeping truck with a line to draw.
     private var parkedSoft: Bool { parkedModel != nil }
 
+    /// The map is gone with the graph, and also while the graph's answer is awaited, so the card does not open on a map and then collapse to one line.
+    private var parkedNoMap: Bool {
+        if parkedSoft { return true }
+        guard tidy, slotOn, !charging, !driving, [.parked, .plugged, .asleep].contains(summary.kind) || summary.sleeping, let m = parkedSeries else { return false }
+        return !m.settled || (m.vehicleID != nil && m.vehicleID != vehicle.id)
+    }
+
     /// The parked graph's numbers; the ring's value is the end label.
     private var parkedModel: NowParkedGraphModel? {
         guard tidy, slotOn, !charging, !driving, [.parked, .plugged, .asleep].contains(summary.kind) || summary.sleeping,
@@ -168,7 +175,7 @@ struct NowCard: View {
                         NowParkedGraph(model: parked)
                         Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
                     }
-                    NowSlotView(model: slot, soft: soft, noMap: parkedSoft)
+                    NowSlotView(model: slot, soft: soft, noMap: parkedNoMap)
                     if soft { Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true); NowChargeGraph(model: graphModel) }
                     if let drive, !slot.isParked {
                         Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
@@ -527,7 +534,7 @@ struct NowCard: View {
             if d.distanceMi >= 1, d.energyUsedKwh > 0, d.miPerKwh > 0 { parts.append("\(NowFormat.efficiency(miPerKwh: d.miPerKwh, spoken: true)).") }
         }
         // The slot's own words, from the figures it shows; the parked slot's weather replaces the outside temperature.
-        if let slot { parts.append(slot.spoken) }
+        if let slot { parts.append(slot.spoken); if parkedNoMap, let place = slot.place { parts.append("\(SpokenText.words(place)).") } }
         if soft { parts.append(graphModel?.spoken ?? "Collecting this charge's first minutes.") }
         if let temp = summary.outsideTempC, !(slot?.isParked ?? false) {
             parts.append("\(NowComfort.wholeDegrees(celsius: temp, spoken: true)) outside.")
