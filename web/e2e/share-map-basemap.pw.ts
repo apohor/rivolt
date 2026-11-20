@@ -29,11 +29,11 @@ for (const [name, size] of [["phone", { width: 393, height: 852 }], ["desktop", 
     await dlg.getByRole("button", { name: "Save image" }).click();
     expect((await download).suggestedFilename()).toMatch(/^rivolt-trip-\d{4}-\d{2}\.png$/);
     await expect(dlg.getByRole("status")).toContainText("Saved rivolt-trip-");
-    // Every request is on the page's own origin; nothing asks for a font, a sprite, terrain or radar.
+    // Every request is on the page's own origin (the drive page's own map may still read terrain and fonts; that the card's style has none is
+    // audited in src/map/shareBasemap.test.ts).
     const origin = new URL(page.url()).origin;
     for (const u of requests) {
       expect(u.startsWith(origin + "/"), u).toBe(true);
-      expect(u).not.toMatch(/glyphs|sprite|\/dem\/|radar/);
     }
     await dlg.getByRole("button", { name: "Cancel" }).click();
     dlg = await open();
