@@ -30,8 +30,10 @@ on:
 permissions:
   contents: read
 
+# A label event (the team adds flow:needs-review, flow:verified, ... to every PR) must not cancel the run that is testing the PR's head and start
+# the same macOS jobs again: it gets its own group and its jobs are skipped, except the ios-screens ones below.
 concurrency:
-  group: ios-${{ github.ref }}
+  group: ios-${{ github.ref }}${{ github.event.action == 'labeled' && format('-label-{0}', github.event.label.name) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -44,6 +46,7 @@ jobs:
   # The Python tooling under ios/ (stdlib only): the certificate revoke and
   # cleanup selection, whose mistakes would revoke the wrong certificate.
   tools:
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -59,6 +62,7 @@ jobs:
   # and the Now card renders (uploaded as soon as the tests finish). The slow
   # simulator screenshots and the Release device build run beside it.
   build-test:
+    if: github.event.action != 'labeled'
     runs-on: macos-26
     timeout-minutes: 45
     steps:
@@ -164,6 +168,7 @@ jobs:
   # other class (-skip-testing of the same list), so a class added later lands in "rest" and no test is left out of both.
   ui-tests:
     name: ui-tests (${{ matrix.shard }})
+    if: github.event.action != 'labeled'
     runs-on: macos-26
     timeout-minutes: 30
     strategy:
@@ -262,7 +267,7 @@ jobs:
     # Rule (DA): a PR touching ios/project.yml, any *.entitlements, the
     # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
     # label before merge, so the App Store basics check runs on it.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens'))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens') && (github.event.action != 'labeled' || github.event.label.name == 'ios-screens'))
     runs-on: macos-26
     timeout-minutes: 45
     steps:
@@ -412,7 +417,7 @@ jobs:
     # Rule (DA): a PR touching ios/project.yml, any *.entitlements, the
     # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
     # label before merge, so the App Store basics check runs on it.
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens'))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens') && (github.event.action != 'labeled' || github.event.label.name == 'ios-screens'))
     runs-on: macos-26
     timeout-minutes: 30
     steps:
