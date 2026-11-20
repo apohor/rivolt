@@ -223,6 +223,8 @@ export type StubOptions = {
   parkedCase?: ParkedCase;
   // Hold the parked-series answer this long (ms), for the chip that waits for it.
   parkedDelayMs?: number;
+  // /now's failed sleeps in the last 6 h; 3 or more shows the wake-up alert under the Now card.
+  failedSleeps6h?: number;
   // Where the parked truck is for the Now card's place line: at home (default), away from it, or with no home saved.
   parkedPlace?: "home" | "away" | "unknown";
 };
@@ -230,7 +232,7 @@ export type StubOptions = {
 export async function stubApi(page: Page, opts: StubOptions = {}) {
   // A live run (E2E_LIVE_URL, the rc smoke against preview) uses the real backend: stub nothing.
   if (process.env.E2E_LIVE_URL) return;
-  const { scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase, driveCase, parkedCase, parkedDelayMs = 0, parkedPlace = "home" } = opts;
+  const { failedSleeps6h = 0, scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase, driveCase, parkedCase, parkedDelayMs = 0, parkedPlace = "home" } = opts;
   // The parked-series answer; the state and the /now snapshot take their battery and parked time from it, so the card never contradicts itself.
   const parkedFix = parkedCase && parkedCase !== "gone" ? parkedSeriesFixture(parkedCase) : null;
   const month = currentMonth(new Date(e2eNow()));
@@ -327,7 +329,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       const st = scenario === "charging" ? "charging" : scenario === "driving" ? "driving" : scenario === "asleep" ? "asleep" : "parked";
       return json(route, {
         version: 1, at: iso(8_000), location_fix_at: iso(3 * 3_600_000), connection: "replay", state: st,
-        state_since: parkedFix ? (scenario === "parked" && parkedFix.wakes.length ? parkedFix.wakes[parkedFix.wakes.length - 1].t : parkedFix.parked_since) : iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: 0,
+        state_since: parkedFix ? (scenario === "parked" && parkedFix.wakes.length ? parkedFix.wakes[parkedFix.wakes.length - 1].t : parkedFix.parked_since) : iso(2 * 3_600_000), soc_at_state_start: 68, tire_pressure_min_bar: 2.8, failed_sleeps_6h: failedSleeps6h,
         charge: scenario === "charging" ? { started_at: iso(chargeCase ? chargeCase.elapsedMin * 60_000 : 3_600_000), soc_start: chargeCase ? Math.round(chargeCase.soc(0)) : 40, peak_kw: 11, ...(chargeCase ? { cost: Math.round((chargeCase.soc(chargeCase.elapsedMin) - chargeCase.soc(0)) * 1.35 * (chargeCase.kw(0) >= 50 ? 0.48 : 0.15) * 100) / 100, currency: "USD", cost_is_estimate: true } : {}) } : null,
         ...((chargeCase && scenario === "charging") || (driveCase && scenario === "driving") || parkedFix ? { ambient: { temp_c: 12 } } : {}),
       });

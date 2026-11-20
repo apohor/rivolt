@@ -41,14 +41,16 @@ const kinds = [
   { name: "parked", graph: "now-parked-graph", opts: { scenario: "parked", parkedCase: "overnight" } },
 ] as const;
 for (const kind of kinds) {
-  for (const width of [393, 1280]) {
-    test(`the page does not jump while a ${kind.name} card's data arrives (${width})`, async ({ page }) => {
+  for (const [width, alert] of [[393, false], [1280, false], [393, true], [1280, true]] as const) {
+    // With an alert under the card (the wake-up one) the card's own box is shorter than the section that is remembered for the placeholder.
+    test(`the page does not jump while a ${kind.name} card's data arrives (${width}${alert ? ", with an alert" : ""})`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await stubApi(page, { ...kind.opts, nowEndpoint: true, designPreview: GRAPH_KEYS });
+      await stubApi(page, { ...kind.opts, nowEndpoint: true, designPreview: GRAPH_KEYS, ...(alert ? { failedSleeps6h: 4 } : {}) });
       await page.goto("/");
       await expect(page.getByTestId(kind.graph)).toBeVisible();
       // The height is stored once the card stops growing.
       await expect.poll(() => page.evaluate(() => window.localStorage.getItem("rivolt.nowCardHeights"))).not.toBeNull();
+      if (alert) await expect(page.getByText(/woke up 4 times/)).toBeVisible();
       await page.waitForTimeout(800);
       const drawn = await page.getByRole("region", { name: "Now" }).evaluate((el) => {
         if (getComputedStyle(el).display !== "contents") return el.getBoundingClientRect().height;

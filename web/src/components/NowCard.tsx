@@ -299,7 +299,8 @@ export default function NowCard({
         const r = [...el.children].map((c) => c.getBoundingClientRect());
         return r.length ? Math.max(...r.map((x) => x.bottom)) - Math.min(...r.map((x) => x.top)) : 0;
       };
-      const save = () => rememberCardHeight(vehicleID, v2, kind, height());
+      const hero = () => el.querySelector(":scope > [data-now-v2]")?.getBoundingClientRect().height;
+      const save = () => rememberCardHeight(vehicleID, v2, kind, height(), hero());
       const ro = new ResizeObserver(save);
       const watch = () => {
         ro.disconnect();
@@ -359,7 +360,7 @@ export default function NowCard({
   const fix = pickFix(server?.location, state.latitude, state.longitude, server?.last_fix);
   const showSlot = slotOn && slotShown(view, fix);
   // With the parked graph (or while its answer is awaited) the graph is the card's content: the map gives way to one line.
-  const holdHeight = !holdOver ? cardHeight(vehicleID, v2, kind) : null;
+  const holdHeight = !holdOver ? cardHeight(vehicleID, v2, kind, true) : null;
   const parkedMapGone = parkedKindOn && (parkedSeries != null || parkedWaiting);
   // Design "now_charge_graph" (with now_slot and now_tidy), charging: the figures as rows beside the graph, the truck picture and the chip that
   // says power and finish time, as on the iPhone.

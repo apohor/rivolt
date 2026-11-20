@@ -43,9 +43,10 @@ function readLast(): Last | null {
 
 const sane = (h: unknown): number | null => (typeof h === "number" && h >= 120 && h <= 1200 ? h : null);
 
-// The height of this kind of card for this vehicle, or null when it has not been drawn in this layout yet.
-export function cardHeight(vehicleID: string, redesigned: boolean, kind: CardKind): number | null {
-  return sane(read()[slot(vehicleID, redesigned, kind)]);
+// The height of this kind of card for this vehicle, or null when it has not been drawn in this layout yet. `hero` is the card's own box, without the
+// alerts under it (what a hold keeps); otherwise the whole section (what the placeholder takes).
+export function cardHeight(vehicleID: string, redesigned: boolean, kind: CardKind, hero = false): number | null {
+  return sane(read()[slot(vehicleID, redesigned, kind) + (hero ? ":hero" : "")]);
 }
 
 // The placeholder's height before anything is known: the card as it was last drawn. The vehicle is the one the list names, or, before the list has
@@ -58,16 +59,21 @@ export function placeholderHeight(vehicleID: string | undefined): number | null 
   return cardHeight(id, last.v2, last.id === id ? last.kind : "parked");
 }
 
-export function rememberCardHeight(vehicleID: string, redesigned: boolean, kind: CardKind, height: number) {
-  const h = Math.round(height);
-  if (h < 120 || h > 1200) return;
+export function rememberCardHeight(vehicleID: string, redesigned: boolean, kind: CardKind, height: number, heroHeight?: number) {
   const all = read();
   const s = slot(vehicleID, redesigned, kind);
+  let changed = false;
+  for (const [k, v] of [[s, height], [s + ":hero", heroHeight]] as const) {
+    if (v == null) continue;
+    const h = Math.round(v);
+    if (h < 120 || h > 1200 || Math.abs((all[k] ?? 0) - h) < 4) continue;
+    all[k] = h;
+    changed = true;
+  }
   try {
-    window.localStorage.setItem(LAST, JSON.stringify({ id: vehicleID, v2: redesigned, kind }));
-    if (Math.abs((all[s] ?? 0) - h) < 4) return;
-    all[s] = h;
-    window.localStorage.setItem(KEY, JSON.stringify(all));
+    const last = JSON.stringify({ id: vehicleID, v2: redesigned, kind });
+    if (window.localStorage.getItem(LAST) !== last) window.localStorage.setItem(LAST, last);
+    if (changed) window.localStorage.setItem(KEY, JSON.stringify(all));
   } catch {
     /* private mode: the placeholder falls back to the parked height */
   }
