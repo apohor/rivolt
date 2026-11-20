@@ -49,8 +49,9 @@ note "target $TAG at ${FULL:0:7}"
 # A final needs its hand-written notes in the commit to be tagged (build.yml's tag-validate refuses it too, but by then the tag exists and cannot be
 # deleted: the v* tags are immutable). A release candidate has no notes file.
 if [ -z "$RC" ]; then
-  notes_size=$(git cat-file -s "$FULL:release-notes/$TAG.md" 2>/dev/null) || notes_size=0
-  [ "${notes_size:-0}" -gt 0 ] || refuse "release-notes/$TAG.md missing or empty in ${FULL:0:7}: merge the hand-written notes first and tag that commit"
+  # Blank lines and spaces do not count as notes.
+  notes_text=$(git cat-file blob "$FULL:release-notes/$TAG.md" 2>/dev/null | tr -d '[:space:]') || notes_text=""
+  [ -n "$notes_text" ] || refuse "release-notes/$TAG.md missing or empty in ${FULL:0:7}: merge the hand-written notes first and tag that commit"
 fi
 
 # Same rule as build.yml's tag-validate: a successful main (push or manual) or release/** push build at this exact SHA.

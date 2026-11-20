@@ -1705,7 +1705,7 @@ jobs:
         run: |
           set -e
           f="release-notes/${TAG}.md"
-          [ -s "$f" ] || { echo "::error::${TAG} is a final tag but ${f} is missing or empty in the tagged commit. Add the hand-written notes, merge, and tag that commit."; exit 1; }
+          [ -f "$f" ] && grep -q '[^[:space:]]' "$f" || { echo "::error::${TAG} is a final tag but ${f} is missing or empty in the tagged commit. Add the hand-written notes, merge, and tag that commit."; exit 1; }
           echo "OK: ${f} exists ($(wc -l < "$f") lines)."
 
       # A final must be the commit qa gated as a release candidate, however the tag got pushed (ship-release.sh, release.yml or by hand): the rc at
