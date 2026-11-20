@@ -134,4 +134,14 @@ final class NowParkedGraphModelTests: XCTestCase {
         XCTAssertTrue(m.settled)
         XCTAssertNil(m.series)
     }
+
+    func testAnotherTruckStartsTheWaitOver() async throws {
+        let m = NowParkedSeriesModel()
+        await m.load(source: Source(answer: try series("overnight"), fails: false), vehicleID: "a")
+        XCTAssertEqual(m.vehicleID, "a")
+        await m.load(source: Source(answer: nil, fails: true), vehicleID: "b")
+        XCTAssertEqual(m.vehicleID, "b")
+        XCTAssertNil(m.series)
+        XCTAssertTrue(m.settled)
+    }
 }

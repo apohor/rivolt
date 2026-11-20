@@ -118,7 +118,7 @@ struct HomeView: View {
                                         slotOn: slotOn, snapshot: now, truckFix: vehicleState?.coordinate, home: slotHome,
                                         gear: vehicleState?.gear, driveMode: vehicleState?.driveMode,
                                         tidy: tidy, chip: tidy ? chipText : nil, chipTone: chipTone, destination: fresh ? liveDestination : nil,
-                                        chargeSeries: chargeGraphOn && chargeSeries.matches(vehicleID: selected?.id, startedAt: chargeSampleStart) ? chargeSeries : nil, parkedSeries: parkedGraphOn ? parkedSeries : nil)
+                                        chargeSeries: chargeGraphOn && chargeSeries.matches(vehicleID: selected?.id, startedAt: chargeSampleStart) ? chargeSeries : nil, parkedSeries: parkedGraphOn && parkedSeries.vehicleID == selected?.id ? parkedSeries : nil)
                                 ForEach(NowCard.alerts(for: summary, vehicleName: vehicle.name)) { NowAlertBanner(alert: $0) }
                             } else {
                                 // Nothing from the truck yet: say so, and still show the month's figures below, as the web does.
@@ -321,8 +321,9 @@ struct HomeView: View {
     private var chipSummary: NowSummary {
         var s = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
         if parkedGraphOn, s.kind == .parked {
-            if let since = parkedSeries.series?.parkedSince { s.since = since }
-            else if !parkedSeries.settled, !parkedChipLate { s.since = nil }
+            let mine = parkedSeries.vehicleID == selected?.id
+            if mine, let since = parkedSeries.series?.parkedSince { s.since = since }
+            else if !(mine && parkedSeries.settled), !parkedChipLate { s.since = nil }
         }
         return s
     }

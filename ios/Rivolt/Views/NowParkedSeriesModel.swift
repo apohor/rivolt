@@ -15,8 +15,12 @@ final class NowParkedSeriesModel {
     private(set) var series: ParkedSeries?
     /// True once a read has answered or failed: until then the chip shows no parked time, so it never changes by hours as the series arrives.
     private(set) var settled = false
+    /// The truck the series (and the wait) belongs to: another truck starts over.
+    private(set) var vehicleID: String?
 
     func load(source: some ParkedSeriesSource, vehicleID: String, zone: String = TimeZone.current.identifier) async {
+        if self.vehicleID != vehicleID { clear() }
+        self.vehicleID = vehicleID
         do {
             apply(try await source.parkedSeries(vehicleID: vehicleID, tz: zone))
             settled = true
@@ -28,5 +32,5 @@ final class NowParkedSeriesModel {
 
     func apply(_ s: ParkedSeries?) { series = NowParkedGraphModel.drawable(s) ? s : nil }
 
-    func clear() { series = nil; settled = false }
+    func clear() { series = nil; settled = false; vehicleID = nil }
 }
