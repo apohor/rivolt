@@ -26,10 +26,13 @@ final class ShareMapToggleUITests: XCTestCase {
         map.tap()
         XCTAssertEqual(map.value as? String, "1", "turned on")
         app.buttons["Cancel"].firstMatch.tap()
+        // The sheet is gone before the Share button is tapped again: during the dismissal the button is in the tree but the tap is lost,
+        // and the old sheet's switch (still on) would be read as the reopened one's.
+        XCTAssertTrue(map.waitForNonExistence(timeout: 20), "the sheet is dismissed")
 
         XCTAssertTrue(share.waitForExistence(timeout: 10), "back on the drive")
         share.tap()
-        XCTAssertTrue(map.waitForExistence(timeout: 20))
+        XCTAssertTrue(map.waitForExistence(timeout: 20), "the map switch is offered again on the second open")
         XCTAssertEqual(map.value as? String, "0", "off again on every open")
     }
 }
