@@ -41,6 +41,9 @@ export function useBox(): [(el: HTMLDivElement | null) => void, { w: number; h: 
 // This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
 // first one's height; softPath then draws it with no slope at both ends. A pair that is already gentle is left alone, and a reading that
 // carries a dot or label (pin) is never moved: the ramp starts at it instead.
+// The biggest step, in pixels, that still counts as the readings' rounding.
+const STEP_PX = 1.5;
+
 export function easeSteps(pts: Pt[], minDrop = 0.2, slope = 0.1): Pt[] {
   if (pts.length === 0) return [];
   const out: Pt[] = [pts[0]];
@@ -57,8 +60,9 @@ export function easeSteps(pts: Pt[], minDrop = 0.2, slope = 0.1): Pt[] {
     while (k > 0 && Math.abs(out[k - 1].y - a.y) < 0.5 && !out[k - 1].pin && !out[k - 1].hold) k--;
     const from = k < out.length - 1 ? out[k].x : out.length > 1 ? out[out.length - 2].x : a.x;
     const level = k < out.length - 1;
-    // A small step after a long level stretch is eased over most of that stretch; a big jump over a short run.
-    const run = Math.min(Math.max(dy * 8, 0.85 * (a.x - from) + (b.x - a.x), 10), 60);
+    // A quantisation step (about one reading's rounding) after a long level stretch is eased over most of that stretch. A real jump (a drive,
+    // a charge) keeps a short run, so the line never shows the battery moving well before the reading that says so.
+    const run = dy <= STEP_PX ? Math.min(Math.max(dy * 8, 0.85 * (a.x - from) + (b.x - a.x), 10), 60) : Math.min(Math.max(dy * 1.5, 12), 28);
     const last = out[out.length - 1];
     if (a.pin) {
       // A dot sits on the first reading: it stays where it is and the ramp runs after it (to the second reading if that is pinned too).

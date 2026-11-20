@@ -41,6 +41,13 @@ describe("easeSteps", () => {
     expect(out[out.length - 2]).toMatchObject({ x: 30, y: 52 });
   });
 
+  it("keeps a real jump on a short run, even after a long plateau", () => {
+    const flat = Array.from({ length: 10 }, (_, i) => ({ x: i * 10, y: 50 }));
+    const out = easeSteps([...flat, { x: 100, y: 62 }, { x: 110, y: 62 }]);
+    const start = out.find((p) => p.y === 50 && p.hold);
+    expect(100 - (start?.x ?? 0)).toBeLessThanOrEqual(28);
+  });
+
   it("never reorders the readings", () => {
     const out = easeSteps([{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 7, y: 30 }, { x: 9, y: 31 }, { x: 11, y: 70 }, { x: 40, y: 71 }]);
     for (let i = 1; i < out.length; i++) expect(out[i].x).toBeGreaterThanOrEqual(out[i - 1].x);
