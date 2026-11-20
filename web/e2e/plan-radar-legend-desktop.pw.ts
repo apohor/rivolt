@@ -61,3 +61,40 @@ test(`desktop ${w}: the radar legend sits at the bottom of the map, clear of the
   await ctx.close();
 });
 }
+
+// A multi-day plan stacks the map in the flow (the strip sits above it, not on it): the trip card stays at the ordinary bottom-left margin, not lifted.
+test("desktop 1280: a multi-day plan's flow map keeps the trip card at the ordinary margin with radar on @webkit", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  const leg = (index: number, a: string, b: string) => ({
+    index, plan: DEMO_PLAN, depart_at: `2027-01-2${index}T13:00:00Z`, arrive_at: `2027-01-2${index}T21:00:00Z`,
+    start: { latitude: 41.88, longitude: -87.63, label: a }, end: { latitude: 41.59, longitude: -93.62, label: b },
+    departure_soc: 90, arrival_soc: 24, destination_reached: true, soc_below_limit: false, costs: DEMO_PLAN.costs,
+  });
+  await page.route("**/api/config", (r) =>
+    r.fulfill(j({
+      features: { trip_planner_enabled: true, landing_enabled: false, demo_enabled: false, signup_enabled: true },
+      tiles: { url: "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles", glyphs_url: "/api/maps/glyphs/{fontstack}/{range}.pbf", dem_url: "/api/maps/dem/{z}/{x}/{y}.png", dem_minzoom: 3, dem_maxzoom: 10, radar_url: "/api/maps/radar/{t}/{z}/{x}/{y}.png", radar_frame_url: "/api/maps/radar/frame", radar_minzoom: 3, radar_maxzoom: 9 },
+      valhalla: { path: "/api/maps/valhalla" },
+      impersonation: { disabled: true },
+    })),
+  );
+  await page.route("**/api/maps/radar/frame", (r) => r.fulfill(j({ frame_unix: Math.floor(Date.now() / 1000) - 300 })));
+  const md = { kind: "multiday", days: [leg(1, "Chicago", "Des Moines"), leg(2, "Des Moines", "Denver")], total: { distance_meters: 1_900_000, drive_duration_sec: 90_000, charging_duration_sec: 6_000 } };
+  await page.route("**/api/trips/saved", (r) =>
+    r.fulfill(j([{ id: "st-md", name: "Two day", inputs: { ...INPUTS, extra_stops: [pt("Des Moines", 41.59, -93.62)], overnight_flags: [true] }, plan: md, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])),
+  );
+  await page.goto("/trips/plan");
+  await page.getByRole("tab", { name: "Saved" }).click();
+  await page.getByRole("button", { name: /Two day/ }).click();
+  await page.getByRole("tab", { name: "Planner" }).click();
+  await expect(page.locator("[data-day-card]").first()).toBeVisible();
+  const strip = page.locator("[data-radar-label]").first();
+  await expect(strip).toBeVisible();
+  const lifted = await page.locator("[data-trip-map]").first().evaluate((el) => getComputedStyle(el.querySelector(".maplibregl-ctrl-bottom-left")!).bottom);
+  await page.locator("[data-trip-map]").first().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: process.env.MD_SHOT || "/tmp/md.png" });
+  expect(lifted).toBe("0px");
+  await ctx.close();
+});

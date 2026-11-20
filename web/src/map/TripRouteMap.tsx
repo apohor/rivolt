@@ -612,7 +612,7 @@ export function TripRouteMap({
         const tripCardEl = el.querySelector<HTMLElement>(".rivolt-trip-card");
         const card = tripCardEl?.getClientRects().length ? tripCardEl : null;
         // The card rides above the radar strip at the map's bottom (on a phone, on the sheet's edge): room reserved whether or not the radar is on, as at the top.
-        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() : 0) + (radarOnRef.current ? 28 : 0) : 0;
+        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() : 0) + (fill && radarOnRef.current ? 28 : 0) : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
@@ -1276,7 +1276,7 @@ export function TripRouteMap({
         </div>
   );
   return (
-    <div data-trip-map className={fill ? "relative isolate h-full" : "isolate"}>
+    <div data-trip-map data-trip-map-fill={fill ? "" : undefined} className={fill ? "relative isolate h-full" : "isolate"}>
       {/* The chips and, under them, the radar strip: one column at the map's top left, so the strip never lands on the route. */}
       <div className={fill ? "pointer-events-none absolute left-14 right-2 top-3 z-[500] flex flex-col items-start gap-1 max-[200px]:left-12 max-[200px]:right-1" : "contents"}>
       {!noChargerSource && chargerChips(false)}
