@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # release-verdict.sh: what release.yml would do for one dispatch, without tagging anything (report-only, release-gitops PR 2). It repeats the
 # checks ship-release.sh / ship-rc.sh make before they push a tag, from the runner: tag shape, tag not yet taken, a green main build at the
-# SHA, no contract (destructive) migration in a final, and for a final the gated rc (same commit, qa/rc-gate success, preview values on the
+# SHA, no contract (destructive) migration in a final, release-notes/<tag>.md present in the commit (a final), and for a final the gated rc (same commit, qa/rc-gate success, preview values on the
 # rc image) or a real no_rc_reason. Not checked here: the running preview images and the open-charge/Rivian after-checks (they need the
 # cluster; the scripts and, later, the Rollouts analysis do them). Always exits 0 unless it cannot run; the verdict is in the output and
 # in the step summary and in the step outputs tag, sha, refused (release.yml's tag job reads them).
@@ -45,6 +45,13 @@ if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then refuse "tag $TAG 
 
 FULL=$(git rev-parse -q --verify "${SHA:-origin/main}^{commit}") || { refuse "sha '${SHA:-origin/main}' is not a commit"; finish; }
 note "target $TAG at ${FULL:0:7}"
+
+# A final needs its hand-written notes in the commit to be tagged (build.yml's tag-validate refuses it too, but by then the tag exists and cannot be
+# deleted: the v* tags are immutable). A release candidate has no notes file.
+if [ -z "$RC" ]; then
+  notes_size=$(git cat-file -s "$FULL:release-notes/$TAG.md" 2>/dev/null) || notes_size=0
+  [ "${notes_size:-0}" -gt 0 ] || refuse "release-notes/$TAG.md missing or empty in ${FULL:0:7}: merge the hand-written notes first and tag that commit"
+fi
 
 # Same rule as build.yml's tag-validate: a successful main (push or manual) or release/** push build at this exact SHA.
 count=$(gh run list --repo "$REPO" --workflow build.yml --commit "$FULL" --status success --limit 20 --json headBranch,event \
