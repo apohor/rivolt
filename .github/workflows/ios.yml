@@ -159,9 +159,29 @@ jobs:
 
   # The app driven like a person would (RivoltUITests: the signed-in planner, its layer chips and day chips, the (i)), every call answered from fixtures
   # (ios/Rivolt/App/UITestFixtures.swift, Debug only), so no server is involved. A job of its own so the unit tests above stay as quick as they were.
+  # Two jobs by test class, run in parallel: the suite is about 22 minutes of tests plus the build, which left no room under one 30-minute cap (a failed
+  # run at 29m54s was a real test failure after 27 minutes, not a hang). The "plan" shard names the planner and the two slowest classes; "rest" is every
+  # other class (-skip-testing of the same list), so a class added later lands in "rest" and no test is left out of both.
   ui-tests:
+    name: ui-tests (${{ matrix.shard }})
     runs-on: macos-26
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: plan
+            select: >-
+              -only-testing:RivoltUITests/PlanSheetUITests
+              -only-testing:RivoltUITests/PlannerLayerPinsUITests
+              -only-testing:RivoltUITests/ActivityRefreshUITests
+              -only-testing:RivoltUITests/MyVehiclesUITests
+          - shard: rest
+            select: >-
+              -skip-testing:RivoltUITests/PlanSheetUITests
+              -skip-testing:RivoltUITests/PlannerLayerPinsUITests
+              -skip-testing:RivoltUITests/ActivityRefreshUITests
+              -skip-testing:RivoltUITests/MyVehiclesUITests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -206,6 +226,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath "$RUNNER_TEMP/ui.xcresult" \
             -derivedDataPath "$RUNNER_TEMP/dd" \
+            ${{ matrix.select }} \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY=- \
             DEVELOPMENT_TEAM= \
@@ -221,7 +242,7 @@ jobs:
           total=$(jq -r '.totalTestCount' "$RUNNER_TEMP/summary.json")
           if [ "${total:-0}" -lt 1 ]; then echo "no UI tests ran"; exit 1; fi
           {
-            echo "### iOS UI tests"
+            echo "### iOS UI tests (${{ matrix.shard }})"
             jq -r '"\(.passedTests) passed, \(.failedTests) failed, \(.skippedTests) skipped (\(.totalTestCount) total)"' "$RUNNER_TEMP/summary.json"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -229,7 +250,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: ios-ui-xcresult
+          name: ios-ui-xcresult-${{ matrix.shard }}
           path: ${{ runner.temp }}/ui.xcresult
           retention-days: 7
 
