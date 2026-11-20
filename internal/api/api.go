@@ -1871,6 +1871,10 @@ func New(d Deps) http.Handler {
 			if d.DB != nil && d.Trips != nil {
 				r.With(requireTripPlannerEnabledMW(d.Flags), proOnlyMiddleware(d.Entitlements)).Get("/trips/saved/{id}/active", withUser(handleSavedTripActive(d.Trips, func(u uuid.UUID) *rivian.StateMonitor { return monitorFor(d, u) }, d.DB)))
 			}
+			if d.Trips != nil && designPreviewOn(d, tripReceiptKey) {
+				receiptLimit := ls.user("trip-receipt", 20)
+				r.With(receiptLimit.Middleware, maxBodyBytes(1024)).Post("/trips/saved/{id}/receipt", withUser(handleTripReceipt(d.Trips, d.Settings, d.Photon)))
+			}
 			if ts := d.tripShare; ts != nil {
 				// 10 a minute per account on top of the 20 an hour and 25 live the store enforces.
 				shareWrite := ls.user("trip-share-write", 10)

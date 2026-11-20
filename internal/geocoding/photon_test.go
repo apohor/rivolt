@@ -100,3 +100,47 @@ func TestPhotonLodgingIsBestEffort(t *testing.T) {
 		t.Errorf("disabled: %v %v", got, err)
 	}
 }
+
+// The area of a point is a city or a town; a village falls to the county, nothing near falls to the state; never a street or a POI.
+func TestPhotonReverseAreaIsCityOrCountyOnly(t *testing.T) {
+	var layers []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		layer := r.URL.Query().Get("layer")
+		layers = append(layers, layer)
+		switch layer {
+		case "city":
+			switch r.URL.Query().Get("lat") {
+			case "34.15000": // a city is near
+				_, _ = w.Write([]byte(`{"features":[{"properties":{"name":"Hamlet","osm_value":"hamlet"}},{"properties":{"name":"Pasadena","osm_value":"city","street":"Rose Bowl Drive"}}]}`))
+			case "36.90000": // only a village is near
+				_, _ = w.Write([]byte(`{"features":[{"properties":{"name":"Tiny Village","osm_value":"village"}}]}`))
+			default:
+				_, _ = w.Write([]byte(`{"features":[]}`))
+			}
+		case "county":
+			if r.URL.Query().Get("lat") == "0.00000" {
+				_, _ = w.Write([]byte(`{"features":[]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"features":[{"properties":{"name":"Example County","osm_value":"administrative"}}]}`))
+		default:
+			_, _ = w.Write([]byte(`{"features":[{"properties":{"name":"Example State"}}]}`))
+		}
+	}))
+	defer srv.Close()
+	c := NewPhotonClient(srv.URL)
+	for _, tc := range []struct {
+		lat  float64
+		want string
+	}{{34.15, "Pasadena area"}, {36.9, "Example County area"}, {0, "Example State area"}} {
+		got, err := c.ReverseArea(context.Background(), tc.lat, -118.15)
+		if err != nil || got != tc.want {
+			t.Errorf("ReverseArea(%v) = %q, %v; want %q", tc.lat, got, err, tc.want)
+		}
+	}
+	for _, l := range layers {
+		if l != "city" && l != "county" && l != "state" {
+			t.Errorf("asked layer %q: only city, county and state may be asked", l)
+		}
+	}
+}
