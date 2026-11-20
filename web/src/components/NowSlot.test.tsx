@@ -42,11 +42,20 @@ describe("NowSlot", () => {
     expect(screen.getByTestId("now-slot-added").textContent).not.toMatch(/≈|est/);
     expect(screen.getByTestId("now-slot-plugged-in")).toBeTruthy();
   });
-  it("unkeyed card: no sign anywhere, derived cells say est. and are read as estimated, the truck's figures carry none", () => {
+  it("unkeyed card: no sign; one heading when every figure but the clock facts is ours, else a small est. on the derived cells", () => {
     const v = { ...charging, soc: 60, rangeMi: 150 } as unknown as NowView;
-    const { container } = render(<NowSlot {...base(v, { charge: { started_at: "2026-01-01T11:00:00Z", soc_start: 40, cost: 2.91, currency: "USD", cost_source: "home_rate", cost_is_estimate: true } })} />);
-    expect(container.textContent).not.toMatch(/≈/);
+    const charge = { started_at: "2026-01-01T11:00:00Z", soc_start: 40, cost: 2.91, currency: "USD", cost_source: "home_rate", cost_is_estimate: true };
+    const all = render(<NowSlot {...base(v, { charge })} />);
+    expect(all.container.textContent).not.toMatch(/≈/);
+    expect(screen.getByTestId("now-slot-estimated").textContent).toBe("Estimated so far");
+    expect(screen.getByTestId("now-slot-range-added").textContent).toMatch(/estimated .*mi$/);
+    expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/estimate · at your home rate/);
+    all.unmount();
+    const mixed = render(<NowSlot {...base(v, { session: { total_charged_energy_kwh: 18.2, time_elapsed_seconds: 3900 }, charge })} />);
+    expect(screen.queryByTestId("now-slot-estimated")).toBeNull();
     expect(screen.getByTestId("now-slot-range-added").textContent).toMatch(/estimated .*est\.$/);
+    expect(screen.getByTestId("now-slot-added").textContent).not.toMatch(/est/);
+    mixed.unmount();
   });
   it("the time left rounds up to the whole minute, as the iPhone's", () => {
     const left = (hours: number, etaSource: string) => {

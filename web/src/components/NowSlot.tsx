@@ -329,13 +329,14 @@ export default function NowSlot(i: SlotInput) {
       {small && <p className="text-xs text-neutral-400" data-testid="now-slot-small">{small}</p>}
       {stats.length > 0 && !i.soft && (
         <div className={`mt-3 grid grid-cols-[repeat(2,minmax(min-content,1fr))] gap-x-2 gap-y-3 min-[360px]:gap-x-4 ${i.half ? "" : "min-[900px]:grid-cols-3"}`}>
+          {allEstimated(stats) && <p data-testid="now-slot-estimated" className="col-span-full ui-label">Estimated so far</p>}
           {stats.map((s) => (
             <div key={s.k} data-testid={`now-slot-${s.k.toLowerCase().replace(/ /g, "-")}`} className="min-w-0">
               <p className="ui-label">{s.k}</p>
               <p className="text-lg font-semibold tabular-nums text-neutral-100 max-[359px]:text-base">
                 {s.est && <span className="sr-only">estimated </span>}
                 <StatValue v={s.v} />
-                {s.est && s.k !== "Cost so far" && <span aria-hidden="true" className="ml-1 text-xs font-normal text-neutral-500">est.</span>}
+                {s.est && !allEstimated(stats) && s.k !== "Cost so far" && <span aria-hidden="true" className="ml-1 text-xs font-normal text-neutral-500">est.</span>}
               </p>
               {s.note && <p className="text-xs text-neutral-500">{s.note}</p>}
             </div>
@@ -347,12 +348,17 @@ export default function NowSlot(i: SlotInput) {
   );
 }
 
+// Elapsed and Plugged in are clock facts, out of the count: one heading says so when every other figure is our own estimate (both grids use this rule).
+function allEstimated(stats: Stat[]) {
+  const counted = stats.filter((s) => s.k !== "Elapsed" && s.k !== "Plugged in");
+  return counted.length > 0 && counted.every((s) => s.est);
+}
+
 // The keyed card's figures: a tight two-column grid of label-over-value cells. When every worked-out figure (all but the elapsed time) is our own
 // estimate, one quiet heading says so inside the grid; when the set is mixed, only the derived cells carry a small "est." (the cost keeps the word
 // "estimate" and its source note, heading or not). A truck-reported figure never carries a mark. Screen readers get "estimated" with each estimated value in both cases.
 function SoftStats({ stats }: { stats: Stat[] }) {
-  const counted = stats.filter((s) => s.k !== "Elapsed");
-  const all = counted.length > 0 && counted.every((s) => s.est);
+  const all = allEstimated(stats);
   return (
     <div data-testid="now-slot-figures" className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
       {all && <p data-testid="now-slot-estimated" className="col-span-2 ui-label">Estimated so far</p>}
