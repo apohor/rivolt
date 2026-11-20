@@ -50,6 +50,16 @@ var ErrNotPending = errors.New("signuprequests: not pending")
 // leaking which row state caused the rejection.
 var ErrTokenInvalid = errors.New("signuprequests: token invalid or expired")
 
+// The reasons behind ErrTokenInvalid, for counters and logs only: each one
+// satisfies errors.Is(err, ErrTokenInvalid), and the API still answers
+// them all alike.
+var (
+	ErrTokenNotFound    = fmt.Errorf("%w: not found", ErrTokenInvalid)
+	ErrTokenNotApproved = fmt.Errorf("%w: not approved", ErrTokenInvalid)
+	ErrTokenUsed        = fmt.Errorf("%w: already used", ErrTokenInvalid)
+	ErrTokenExpired     = fmt.Errorf("%w: expired", ErrTokenInvalid)
+)
+
 // Request is the read view of a signup_requests row.
 type Request struct {
 	ID             uuid.UUID
@@ -256,7 +266,7 @@ func (s *Store) CountSince(ctx context.Context, email string, t time.Time) (int,
 func (s *Store) LookupToken(ctx context.Context, token string) (Request, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return Request{}, ErrTokenInvalid
+		return Request{}, ErrTokenNotFound
 	}
 	var r Request
 	err := s.db.QueryRowContext(ctx, `
@@ -273,19 +283,19 @@ func (s *Store) LookupToken(ctx context.Context, token string) (Request, error) 
 		&r.RequestedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Request{}, ErrTokenInvalid
+		return Request{}, ErrTokenNotFound
 	}
 	if err != nil {
 		return Request{}, fmt.Errorf("signuprequests: lookup token: %w", err)
 	}
 	if r.Status != StatusApproved {
-		return Request{}, ErrTokenInvalid
+		return Request{}, ErrTokenNotApproved
 	}
 	if r.TokenUsedAt != nil {
-		return Request{}, ErrTokenInvalid
+		return Request{}, ErrTokenUsed
 	}
 	if r.TokenExpiresAt != nil && time.Now().After(*r.TokenExpiresAt) {
-		return Request{}, ErrTokenInvalid
+		return Request{}, ErrTokenExpired
 	}
 	return r, nil
 }

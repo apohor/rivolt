@@ -347,6 +347,10 @@ type Metrics struct {
 	// Navigation frames (trip_info, trip_progress) seen and their decoded payload bytes, by topic. Count only: no content, no vehicle label.
 	NavFramesTotal     *prometheus.CounterVec
 	NavFrameBytesTotal *prometheus.CounterVec
+	// SignupTokenLookupsTotal counts signup link lookups by result (ok, not_found, used, expired, not_approved, error); SignupMailTotal counts
+	// approval mails by path (admin, auto) and result (sent, failed). No address, token or user label.
+	SignupTokenLookupsTotal *prometheus.CounterVec
+	SignupMailTotal         *prometheus.CounterVec
 	// NavRejectedTotal counts times the server refused a subscription that carried the navigation topics, which were then dropped. Created at 0.
 	NavRejectedTotal prometheus.Counter
 	// Live destination decode results by topic and result, and held trips dropped by reason. Fixed label sets, no vehicle, user or place.
@@ -1072,6 +1076,14 @@ func New() *Metrics {
 			Name: "rivolt_nav_frames_total",
 			Help: "Navigation Parallax frames received, by topic (trip_info, trip_progress). Counted only, never decoded.",
 		}, []string{"topic"}),
+		SignupTokenLookupsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_signup_token_lookups_total",
+			Help: "Signup link lookups (GET /api/signup/token/{token}) by result: ok, not_found, used, expired, not_approved, error. The client sees 410 for all but ok and error.",
+		}, []string{"result"}),
+		SignupMailTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_signup_mail_total",
+			Help: "Signup approval mails by path (admin, auto) and result (sent, failed).",
+		}, []string{"path", "result"}),
 		NavRejectedTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "rivolt_nav_rejected_total",
 			Help: "Times the server refused a Parallax subscription that carried the navigation topics, which were then dropped for that vehicle.",
@@ -1328,6 +1340,8 @@ func New() *Metrics {
 		m.NavFramesTotal,
 		m.NavFrameBytesTotal,
 		m.NavRejectedTotal,
+		m.SignupTokenLookupsTotal,
+		m.SignupMailTotal,
 		m.NavDecodeTotal,
 		m.NavRangeTotal,
 		m.NavRoutePrecisionTotal,
@@ -1449,6 +1463,14 @@ func New() *Metrics {
 		m.RolloutHandoffsTotal.WithLabelValues(reason).Add(0)
 	}
 	m.NavRejectedTotal.Add(0)
+	for _, res := range []string{"ok", "not_found", "used", "expired", "not_approved", "error"} {
+		m.SignupTokenLookupsTotal.WithLabelValues(res).Add(0)
+	}
+	for _, path := range []string{"admin", "auto"} {
+		for _, res := range []string{"sent", "failed"} {
+			m.SignupMailTotal.WithLabelValues(path, res).Add(0)
+		}
+	}
 	for _, topic := range []string{"trip_info", "trip_progress"} {
 		for _, res := range []string{"ok", "dropped_size", "dropped_malformed", "dropped_range"} {
 			m.NavDecodeTotal.WithLabelValues(topic, res).Add(0)
