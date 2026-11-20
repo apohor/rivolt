@@ -63,6 +63,16 @@ for (const [name, opts] of [
       }),
     );
     expect(cells.every(Boolean), `month cells ${cells}`).toBe(true);
+    // The charts' day labels (the bottom row of each chart) do not run into each other.
+    const touching = await month.locator("svg").evaluateAll((svgs) =>
+      svgs.flatMap((svg) => {
+        const sb = svg.getBoundingClientRect();
+        const row = [...svg.querySelectorAll("text")].map((t) => ({ t: t.textContent, r: t.getBoundingClientRect() })).filter((x) => x.r.width > 0 && sb.bottom - x.r.bottom < 12);
+        row.sort((a, b) => a.r.left - b.r.left);
+        return row.flatMap((x, i) => (i > 0 && x.r.left < row[i - 1].r.right + 2 ? [`${row[i - 1].t} / ${x.t}`] : []));
+      }),
+    );
+    expect(touching, "axis labels touch").toEqual([]);
   });
  }
 }

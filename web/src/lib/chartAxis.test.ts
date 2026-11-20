@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayName, niceAxis, niceMinutesAxis } from "./chartAxis";
+import { dayName, fitAxisLabels, niceAxis, niceMinutesAxis } from "./chartAxis";
 
 describe("niceAxis", () => {
   it("rounds the top and the ticks, whole numbers, two or three intervals", () => {
@@ -46,5 +46,16 @@ describe("niceMinutesAxis", () => {
       expect(a.ticks[a.ticks.length - 1]).toBe(a.top);
       expect(a.ticks.length).toBeLessThanOrEqual(5);
     }
+  });
+});
+
+describe("fitAxisLabels", () => {
+  const at = (x: number, anchor: "start" | "middle" | "end" = "middle") => ({ x, w: 36, anchor });
+  it("keeps everything when there is room", () => {
+    expect(fitAxisLabels([at(0, "start"), at(100), at(200), at(300, "end")])).toEqual([0, 1, 2, 3]);
+  });
+  it("drops the labels that touch, and the last one wins over its neighbour", () => {
+    // Nov 1 / Nov 11 / Nov 21 / Nov 30 across 140 px
+    expect(fitAxisLabels([at(0, "start"), at(46), at(93), at(140, "end")])).toEqual([0, 3]);
   });
 });
