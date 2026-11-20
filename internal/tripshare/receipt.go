@@ -180,7 +180,11 @@ func BuildReceipt(ctx context.Context, in ReceiptInput) (*Receipt, error) {
 		switch {
 		case i == len(stops)-1:
 		case b.isCharg:
-			r.Legs = append(r.Legs, ReceiptRow{Kind: "charge", Name: chargeName(b.name, b.label), DurS: b.w.ChargeDurationSec, FromSoC: b.w.ArrivalSoC, ToSoC: b.w.DepartureSoC, MaxKW: b.w.MaxPowerKW})
+			row := ReceiptRow{Kind: "charge", Name: chargeName(b.name, b.label), DurS: b.w.ChargeDurationSec, FromSoC: b.w.ArrivalSoC, ToSoC: b.w.DepartureSoC, MaxKW: b.w.MaxPowerKW}
+			if b.label != "" {
+				row.MaxKW = 0 // a hidden charger shows its area only: a kW figure could single the charger out
+			}
+			r.Legs = append(r.Legs, row)
 			r.Totals.ChargeS += b.w.ChargeDurationSec
 			r.Totals.Stops++
 		default:

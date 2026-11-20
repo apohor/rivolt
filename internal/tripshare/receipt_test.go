@@ -189,6 +189,9 @@ func TestReceiptChargerInsideHomeStaysACharge(t *testing.T) {
 	if charge == nil || !strings.HasPrefix(charge.Name, "Charging · Area ") {
 		t.Fatalf("no Charging · area row: %s", js)
 	}
+	if charge.MaxKW != 0 {
+		t.Errorf("a hidden charger carries its power: %v", charge.MaxKW)
+	}
 	if rec.Totals.Stops != 1 || rec.Totals.ChargeS != 1080 {
 		t.Errorf("not counted: stops=%d charge=%d", rec.Totals.Stops, rec.Totals.ChargeS)
 	}
