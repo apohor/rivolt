@@ -289,7 +289,7 @@ export default function NowHeroV2({
               <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>
             )}
             {!rail && parkedRows && <div className="pointer-events-none relative min-w-0 min-[900px]:col-start-1 min-[900px]:row-start-2">{parkedRows}</div>}
-            <div className={`min-w-0 border-t border-neutral-800 pt-4 ${rail ? "min-[900px]:col-start-1" : "min-[900px]:col-span-2 min-[900px]:row-start-4"}`}>{stateSlot}</div>
+            <div className={`min-w-0 border-t border-neutral-800 pt-4 empty:hidden ${rail ? "min-[900px]:col-start-1" : "min-[900px]:col-span-2 min-[900px]:row-start-4"}`}>{stateSlot}</div>
             {rail && <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>}
             {(condBlock || info) && (
               <div className={`min-w-0 space-y-2 border-t border-neutral-800 pt-4 min-[900px]:col-start-1 ${rail ? "" : "min-[900px]:row-start-3"}`}>

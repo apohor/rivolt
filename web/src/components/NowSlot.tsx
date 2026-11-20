@@ -29,6 +29,9 @@ export type SlotInput = {
   tempUnit?: TemperatureUnit;
   // A saved place the truck is at ("Home"), shown on the map; none otherwise.
   placeLabel?: string | null;
+  // Design "now_parked_graph": the graph is the card's content, so the map gives way to one line saying where the truck is (null: no line, no row).
+  placeText?: string | null;
+  noMap?: boolean;
   // While asleep: when this sleep began and the seconds asleep today, shown under the map.
   asleep?: SlotAsleep | null;
   // Design "now_tidy": see TIDY_ROOT.
@@ -247,10 +250,22 @@ export function conditionItems(i: { weather: SlotWeather | null; tempUnit: Tempe
 }
 
 // Parked or plugged in: where the truck is on the map, then the weather there as one row (temperature and sky left, wind and rain right).
-function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, asleep, tidy }: { tidy: boolean; fix: SlotFix; asleep: SlotAsleep | null; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string; nowMs: number; placeLabel: string | null }) {
+function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, placeText, noMap, asleep, tidy }: { tidy: boolean; placeText: string | null; noMap: boolean; fix: SlotFix; asleep: SlotAsleep | null; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string; nowMs: number; placeLabel: string | null }) {
   const hour = new Date(nowMs).getHours();
   const w = weather ? weatherView(weather, tempUnit, unit, hour >= 6 && hour < 20) : null;
   const sleepFigures = kind === "asleep" && !tidy ? asleepFigures(asleep, nowMs) : [];
+  if (tidy && noMap)
+    return placeText ? (
+      <div data-testid="now-slot" data-kind={kind} className={TIDY_ROOT}>
+        <p data-testid="now-parked-place" className="flex items-center gap-2 rounded-xl bg-neutral-800/50 px-3 py-2.5 text-sm text-neutral-200">
+          <svg aria-hidden width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-emerald-400">
+            <path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z" />
+            <circle cx="12" cy="9.5" r="2.5" />
+          </svg>
+          <span className="min-w-0 truncate">{placeText}</span>
+        </p>
+      </div>
+    ) : null;
   if (tidy)
     return (
       <div data-testid="now-slot" data-kind={kind} className={TIDY_ROOT}>
@@ -294,7 +309,7 @@ export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
   const packC = usePackTemp(nowMs);
   if (!slotAvailable(view, i.fix ?? null)) return null;
-  if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
+  if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} placeText={i.placeText ?? null} noMap={i.noMap ?? false} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
   const stats = slotStats({ ...i, packC });
   let big = "";
   let bigUnit = "";
