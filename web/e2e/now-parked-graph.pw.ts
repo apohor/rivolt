@@ -312,8 +312,11 @@ for (const [place, want] of [["home", /^At Home$/], ["away", /^Away · [\d.]+ (m
     await expect(page.getByTestId("now-slot-map")).toHaveCount(0);
     const line = page.getByTestId("now-parked-place");
     await expect(line).toHaveText(want);
-    // The card around it opens Live: the line is not a control of its own.
-    await expect(page.getByRole("link", { name: "Full telemetry" })).toBeVisible();
+    // The line is not a control, and neither is the card: only the Live button opens Live.
+    const url = page.url();
+    await line.click({ force: true });
+    expect(page.url()).toBe(url);
+    await expect(page.getByTestId("now-live-link")).toBeVisible();
   });
 }
 

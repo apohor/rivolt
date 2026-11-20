@@ -255,7 +255,6 @@ export default function NowHeroV2({
           data-live={charging ? "charging" : undefined}
           className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
         >
-          {telemetryLink && <Link to="/live" aria-label="Full telemetry" className="absolute inset-0 z-0 rounded-2xl" />}
           <div className="@container pointer-events-none relative z-10 mb-4">
             <div className="flex flex-wrap @[22rem]:flex-nowrap items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
             {chipEl}
@@ -335,7 +334,6 @@ export default function NowHeroV2({
         data-live={charging ? "charging" : view.kind === "driving" ? "driving" : undefined}
         className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
       >
-        {telemetryLink && <Link to="/live" aria-label="Full telemetry" className="absolute inset-0 z-0 rounded-2xl" />}
         {/* The one status line: the state and since when, with the Live button on the same row. */}
         <div className="pointer-events-none relative z-10 mb-4 flex items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs">
           {chipEl}
@@ -471,12 +469,6 @@ export default function NowHeroV2({
       >
         {telemetryLink && (
           <>
-            {/* The whole card opens Full telemetry; controls inside sit above this link. */}
-            <Link
-              to="/live"
-              aria-label="Full telemetry"
-              className="absolute inset-0 z-0 rounded-2xl"
-            />
             {/* The pill has its own row above the gauge and the truck, so nothing overlaps it. */}
             <div className="pointer-events-none relative z-10 mb-2 flex justify-end">
             <Link
