@@ -257,6 +257,7 @@ var webCallsOptionalByConfig = map[string]string{
 	"POST /api/import/commit":               "as above",
 	"GET /api/imports":                      "as above",
 	"POST /api/imports/{x}/undo":            "as above",
+	"POST /api/trips/saved/{x}/receipt":     "mounted only where the design key trip_receipt is on (Deps.DesignPreview); the Saved tab's Share opens the receipt only when /api/config lists that key",
 	"POST /api/trips/saved/{x}/share":       "mounted only where shared trip links are on (Deps.TripShare: RIVOLT_TRIP_SHARE=1); Share on a saved trip shows only when /api/config says features.trip_share",
 	"GET /api/trips/saved/{x}/shares":       "as above",
 	"DELETE /api/trips/shares/{x}":          "as above",
@@ -313,6 +314,7 @@ func contractRouterGates(t *testing.T, gates bool) chi.Routes {
 		RivianExpiryEmails: gates,
 		HistoryImport:      gates,
 		TripShare:          gates,
+		DesignPreview:      gatedDesignPreview(gates),
 	}
 	if gates { // the Apple link routes exist only where its identity store is wired
 		d.AppleLinkAccounts = appleLinkStub{}
@@ -463,4 +465,12 @@ func TestClientCallReaderAndMatcher(t *testing.T) {
 	if body != "/api/a/{x}/b?{x}" {
 		t.Errorf("web interpolation: %q", body)
 	}
+}
+
+// gatedDesignPreview lists the design keys whose routes the web calls, when the config gates are on.
+func gatedDesignPreview(gates bool) []string {
+	if !gates {
+		return nil
+	}
+	return []string{"trip_receipt"}
 }

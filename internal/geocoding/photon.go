@@ -115,6 +115,7 @@ type photonProps struct {
 	CountryCode string `json:"countrycode"`
 	Postcode    string `json:"postcode"`
 	Type        string `json:"type"`
+	OSMValue    string `json:"osm_value"`
 }
 
 // resultFromProps maps one Photon feature onto a Result. The label reads naturally whatever the result type: "123 Main St" for a
@@ -186,6 +187,71 @@ func (c *PhotonClient) Reverse(ctx context.Context, lat, lon float64) (*Result, 
 	f := body.Features[0]
 	r := resultFromProps(f.Properties, f.Geometry.Coordinates[1], f.Geometry.Coordinates[0])
 	return &r, nil
+}
+
+// ReverseArea names the area around a point at city or town level, for a place the caller must not show more exactly: the city or town when
+// the nearest one is a city or a town (a village or hamlet is too small to hide anyone), else the county, else the state. The result is
+// the name plus " area" ("Pasadena area"); nothing finer than that is ever returned (no street, house, POI or postcode). "" with no error
+// means no place was found; a disabled client or an upstream failure is an error.
+func (c *PhotonClient) ReverseArea(ctx context.Context, lat, lon float64) (string, error) {
+	if !c.Enabled() {
+		return "", nil
+	}
+	for _, l := range []struct {
+		layer  string
+		radius string
+		ok     func(photonProps) bool
+	}{
+		{"city", "25", func(p photonProps) bool { v := strings.ToLower(p.OSMValue); return v == "city" || v == "town" }},
+		{"county", "100", func(photonProps) bool { return true }},
+		{"state", "300", func(photonProps) bool { return true }},
+	} {
+		q := url.Values{}
+		q.Set("lat", strconv.FormatFloat(lat, 'f', 5, 64))
+		q.Set("lon", strconv.FormatFloat(lon, 'f', 5, 64))
+		q.Set("limit", "5")
+		q.Set("lang", "en")
+		q.Set("layer", l.layer)
+		q.Set("radius", l.radius)
+		props, err := c.reverseProps(ctx, q)
+		if err != nil {
+			return "", err
+		}
+		for _, p := range props {
+			if p.Name != "" && l.ok(p) {
+				return p.Name + " area", nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func (c *PhotonClient) reverseProps(ctx context.Context, q url.Values) ([]photonProps, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/reverse?"+q.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("photon: build request: %w", err)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("photon: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("photon: upstream HTTP %d", resp.StatusCode)
+	}
+	var body struct {
+		Features []struct {
+			Properties photonProps `json:"properties"`
+		} `json:"features"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 1<<20)).Decode(&body); err != nil {
+		return nil, fmt.Errorf("photon: decode: %w", err)
+	}
+	out := make([]photonProps, 0, len(body.Features))
+	for _, f := range body.Features {
+		out = append(out, f.Properties)
+	}
+	return out, nil
 }
 
 // sameResultM is how close two results with the same label must be to count as one place.

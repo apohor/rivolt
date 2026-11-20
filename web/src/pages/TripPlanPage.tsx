@@ -30,8 +30,8 @@ import { TripPlanResult } from "../plan/TripPlanResult";
 import { withNight } from "../plan/stays";
 import { ProLimitNotice } from "../components/ProLimitNotice";
 import { TripShareSheet } from "../components/TripShareSheet";
+import { TripReceiptSheet } from "../components/TripReceiptSheet";
 import { useDesignPreview, useTripShare } from "../lib/config";
-import { WhereToHome } from "../plan/WhereToHome";
 import { proLimitOf, type ProLimit } from "../lib/proLimit";
 
 
@@ -43,13 +43,6 @@ import { proLimitOf, type ProLimit } from "../lib/proLimit";
 export default function TripPlanPage() {
   const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab();
-  // The design_preview "plan_where_to" front door: the map and "Where to?" until a trip is picked or opened (leftHome), then the planner as it is.
-  const whereTo = useDesignPreview("plan_where_to");
-  const [leftHome, setLeftHome] = useState(false);
-  const samples = useSamplePresets((t) => {
-    loadSavedTrip(t);
-    setLeftHome(true);
-  }, inDemo() || whereTo);
   const aiConsent = useAIConsent();
   // When a plan arrives, bring it into view. Phones: the map (or the multi-day result) up under the top bar so
   // it fills the space above the sheet's peek. Wide screens: only when the result starts well below the fold
@@ -333,7 +326,7 @@ export default function TripPlanPage() {
   const formEl = (
     <>
       {inDemo() ? (
-        <DemoPresetPicker activeId={activeTripId} samples={samples} />
+        <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
       <FormShell hasResult={hasResult} resultKey={resultKey} summary={routeSummary}>
         {firstVehicle && (
@@ -411,6 +404,7 @@ export default function TripPlanPage() {
           setPlanTab("planner");
         }}
         readOnly={inDemo()}
+        vehicleModel={firstVehicle?.model ?? ""}
         onDelete={(id) => deleteTripMutation.mutate(id)}
         onSave={(name, id) => saveTripMutation.mutate({ name, id })}
         saveError={proLimitOf(saveTripMutation.error) ? undefined : (saveTripMutation.error as Error | null)?.message}
@@ -687,54 +681,16 @@ export default function TripPlanPage() {
     { id: "saved", label: "Saved", count: savedTripsQuery.data?.length },
     { id: "pva", label: "Plan vs actual" },
   ];
-  const showHome = whereTo && planTab === "planner" && !leftHome && !hasResult && !planning;
-  const pickDestination = (r: GeocodeResult) => {
-    setDestination(relabelIfHome({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) }, home));
-    setLeftHome(true);
-    // Plans as the Plan button would, once the destination is in; with no start yet the form opens with it filled in.
-    if (origin) replanAfterEdit();
-  };
-  const fromLabel = !origin || origin.label === "Current vehicle position" ? (currentPosition ? "From your truck" : "No truck position yet") : `From ${shortPlace(origin.label)}`;
-  const departureLabel = departureAt ? `Leave ${new Date(departureAt).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "Leave now";
   return (
     <div data-plan-next>
       <ConnectRivianPrompt context="The planner uses your truck's pack, current SoC, and adapter config — connect first for accurate routes." />
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 className={showHome ? "sr-only" : "text-2xl font-semibold tracking-tight text-neutral-50"}>Trip planner</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-neutral-50">Trip planner</h1>
         <PlanTabs tabs={tabs} value={planTab} onChange={setPlanTab} />
       </div>
       <PlanTabPanel tab="planner" active={planTab === "planner"}>
         {/* One selected stop for the whole result: the itinerary, the map and
             anything that follows the selection. A new plan clears it. */}
-        {showHome ? (
-          <WhereToHome
-            demo={inDemo()}
-            truck={currentPosition}
-            fromLabel={fromLabel}
-            search={
-              <LocationSearch
-                placeholder="Where to?"
-                ariaLabel="Where to?"
-                onSelect={pickDestination}
-                inputClassName="w-full rounded-md bg-transparent px-1 py-2 pr-5 text-base text-neutral-100 placeholder-neutral-400 focus:outline-hidden"
-              />
-            }
-            departure={departureEl}
-            departureLabel={departureLabel}
-            saved={savedTripsQuery.data ?? []}
-            savedLoading={savedTripsQuery.isLoading}
-            onOpenSaved={(t) => {
-              loadSavedTrip(t);
-              setLeftHome(true);
-            }}
-            onShowSaved={() => setPlanTab("saved")}
-            samples={samples.presets}
-            samplesLoading={samples.loading}
-            sampleBusy={samples.busy}
-            sampleError={samples.err}
-            onOpenSample={samples.open}
-          />
-        ) : (
         <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null}>
         <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
           {formEl}
@@ -749,7 +705,6 @@ export default function TripPlanPage() {
           {planning && usingNight && <p role="status" className="sr-only">Re-planning with {usingNight} as the night</p>}
         </div>
         </PlanSelectionProvider>
-        )}
       </PlanTabPanel>
       <PlanTabPanel tab="saved" active={planTab === "saved"} className="space-y-6">
         {savedEl}
@@ -849,12 +804,8 @@ function FormShell({ hasResult, resultKey, summary, children }: { hasResult: boo
   );
 }
 
-// useSamplePresets: the sample trips (GET /api/demo/trips) and the way to open one, as a saved trip, without a planner call. A preset's geometry
-// rides on the route unless the plan carries its own; a multi-day preset is the planner's multi-day answer ({days, total}), which opens like a saved
-// multi-day plan. /demo/trips/plan?preset=<id> (the sample-trip pages link here) opens that trip once the list is there. Where the server has no
-// samples (only the demo deployment serves them) the list is empty and says nothing.
-function useSamplePresets(onOpen: (t: SavedTrip) => void, enabled: boolean) {
-  const list = useQuery({ queryKey: ["demo", "trips"], queryFn: () => backend.demoTrips(), retry: 0, staleTime: 60 * 60_000, enabled });
+function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpen: (t: SavedTrip) => void }) {
+  const list = useQuery({ queryKey: ["demo", "trips"], queryFn: () => backend.demoTrips(), retry: 0, staleTime: 60 * 60_000 });
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const open = async (p: DemoTripPreset) => {
@@ -862,6 +813,8 @@ function useSamplePresets(onOpen: (t: SavedTrip) => void, enabled: boolean) {
     setErr(null);
     try {
       const fetched = await backend.demoTripPlan(p.id);
+      // The preset's geometry rides on the route unless the plan carries its own. A multi-day preset is
+      // the planner's multi-day answer ({days, total}), which opens like a saved multi-day plan.
       const geometry = p.route_polyline;
       const days = (fetched as Partial<SavedMultidayPlan>).days;
       const plan: TripPlan | SavedMultidayPlan = Array.isArray(days)
@@ -877,6 +830,8 @@ function useSamplePresets(onOpen: (t: SavedTrip) => void, enabled: boolean) {
       setBusy(null);
     }
   };
+  const trips = multiDayFirst(list.data?.trips ?? []);
+  // /demo/trips/plan?preset=<id> (the sample-trip pages link here) opens that trip once the list is there.
   const presetParam = new URLSearchParams(useLocation().search).get("preset");
   const autoOpened = useRef(false);
   useEffect(() => {
@@ -886,15 +841,6 @@ function useSamplePresets(onOpen: (t: SavedTrip) => void, enabled: boolean) {
     if (p) void open(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetParam, list.data]);
-  return { presets: list.data?.trips ?? [], loading: list.isLoading && enabled, busy, err, open };
-}
-
-type SamplePresets = ReturnType<typeof useSamplePresets>;
-
-function DemoPresetPicker({ activeId, samples }: { activeId: string | null; samples: SamplePresets }) {
-  const { loading, busy, err, open } = samples;
-  const trips = multiDayFirst(samples.presets);
-  const list = { isLoading: loading };
   return (
     <div data-plan-bar>
       <p className="ui-label mb-1">Sample trips</p>
@@ -951,8 +897,10 @@ function SavedTripsCard({
   saveError,
   saveLimit,
   readOnly = false,
+  vehicleModel = "",
 }: {
   readOnly?: boolean;
+  vehicleModel?: string;
   trips: SavedTrip[];
   loading: boolean;
   activeId: string | null;
@@ -969,6 +917,8 @@ function SavedTripsCard({
 }) {
   const [name, setName] = useState("");
   const tripShare = useTripShare();
+  // The receipt (an image made on the device) replaces the link: with the key on, Share opens it and the link sheet is not reachable from here.
+  const receipt = useDesignPreview("trip_receipt");
   const [sharing, setSharing] = useState<SavedTrip | null>(null);
   const active = trips.find((t) => t.id === activeId) ?? null;
   useEffect(() => {
@@ -986,7 +936,8 @@ function SavedTripsCard({
   };
   return (
     <Card title="Saved trips" area="p-saved">
-      {sharing && <TripShareSheet trip={sharing} onClose={() => setSharing(null)} />}
+      {sharing && !receipt && <TripShareSheet trip={sharing} onClose={() => setSharing(null)} />}
+      {sharing && receipt && <TripReceiptSheet trip={sharing} vehicleModel={vehicleModel} onClose={() => setSharing(null)} />}
       {loading ? (
         <Spinner />
       ) : trips.length === 0 ? (
@@ -1027,15 +978,15 @@ function SavedTripsCard({
                     Pro to edit
                   </span>
                 )}
-                {!readOnly && tripShare && t.plan && (
+                {!readOnly && (receipt || tripShare) && t.plan && (
                   <button
                     type="button"
                     onClick={() => setSharing(t)}
                     data-testid="trip-share-open"
                     aria-label={`Share "${t.name}"`}
-                    className="shrink-0 text-xs text-neutral-400 hover:text-neutral-200"
+                    className={receipt ? "inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md px-2 text-sm text-neutral-300 hover:text-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300" : "shrink-0 text-xs text-neutral-400 hover:text-neutral-200"}
                   >
-                    share
+                    {receipt ? "Share" : "share"}
                   </button>
                 )}
                 {!readOnly && (
@@ -1449,13 +1400,9 @@ function LocationField({
 function LocationSearch({
   placeholder,
   onSelect,
-  inputClassName = "w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 pr-8 text-neutral-100 focus:border-neutral-500 focus:outline-hidden",
-  ariaLabel,
 }: {
   placeholder: string;
   onSelect: (r: GeocodeResult) => void;
-  inputClassName?: string;
-  ariaLabel?: string;
 }) {
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -1503,8 +1450,7 @@ function LocationSearch({
           }}
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
-          aria-label={ariaLabel}
-          className={inputClassName}
+          className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 pr-8 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
         />
         {pending && query.trim().length >= 2 && (
           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
