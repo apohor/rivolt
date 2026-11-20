@@ -124,7 +124,7 @@ struct NowCard: View {
     private var graphModel: NowChargeGraphModel? {
         guard let series = chargeSeries, let soc = summary.socPct else { return nil }
         let eta = summary.chargeEta.map { Double($0.minutes) / 60 }
-        return NowChargeGraphModel.make(series: series.series, startPct: series.startPct, nowPct: soc, target: summary.chargeTargetPct, etaHours: eta, now: clock)
+        return NowChargeGraphModel.make(series: series.series, startPct: series.startPct, nowPct: soc, target: summary.chargeTargetPct, etaHours: eta, powerKw: summary.chargePowerKw, now: clock)
     }
 
     /// The driving graph's numbers; the ring's value is the change's end.

@@ -46,13 +46,14 @@ struct NowChargeGraphModel: Equatable {
     /// The kW figure in the slot's format: one decimal under 10, whole above.
     static func kw(_ v: Double) -> String { NumberText.fixed(v, v < 10 ? 1 : 0) }
 
+    /// The finish time counts from now, as the chip and the slot do (the minutes shown from now), never from the newest stored sample; the power named is the card's live kW.
     /// Nil while the charge has too little to draw (the card then says it is collecting).
-    static func make(series: ChargeCurve.Series, startPct: Double?, nowPct: Double, target: Double?, etaHours: Double?, now: Date) -> NowChargeGraphModel? {
+    static func make(series: ChargeCurve.Series, startPct: Double?, nowPct: Double, target: Double?, etaHours: Double?, powerKw: Double? = nil, now: Date) -> NowChargeGraphModel? {
         guard series.soc.count >= 3, let first = series.soc.first, let last = series.soc.last,
               last.at.timeIntervalSince(first.at) >= minSpan else { return nil }
         let goal = target.flatMap { $0 > nowPct ? $0 : nil }
         let tLast = last.at.timeIntervalSince(first.at)
-        let endAt: Date? = goal != nil && (etaHours ?? 0) > 0 ? max(last.at, now).addingTimeInterval((etaHours ?? 0) * 3600) : nil
+        let endAt: Date? = goal != nil && (etaHours ?? 0) > 0 ? now.addingTimeInterval((etaHours ?? 0) * 3600) : nil
         let tEnd = endAt.map { $0.timeIntervalSince(first.at) }
         let t1 = tEnd.map { tLast + min($0 - tLast, tLast * estShare) } ?? tLast
         let hi = max(last.value, goal ?? 0, series.soc.map(\.value).max() ?? 0)
@@ -75,7 +76,7 @@ struct NowChargeGraphModel: Equatable {
             soc: socPts, power: powPts,
             last: Pt(x: sx(tLast), y: sy(last.value)),
             estimate: tEnd == nil ? nil : est,
-            powerNow: series.power.last.map { kw($0.value) })
+            powerNow: (powerKw ?? series.power.last?.value).map { kw($0) })
     }
 
     /// At most `maxPoints`, evenly picked and always keeping the last.
