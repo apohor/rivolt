@@ -135,6 +135,7 @@ jobs:
           # (iOS and fixture changes already count as Go: they are not under web/).
           if echo "$files" | grep -E '^web/src/.*\.tsx?$' | grep -v -E '\.test\.tsx?$' | grep -q .; then go=true; fi
           if echo "$files" | grep -q '^ios/RivoltTests/Fixtures/'; then web=true; fi
+          if echo "$files" | grep -q '^ops/release/qa-gate/'; then web=true; fi
           if echo "$files" | grep -q '^\.github/'; then web=true; go=true; fi
           # chart: the Helm chart, which the filter above drops with the rest of
           # deploy/ (no Go or web suite needs it), so it is matched on the full
@@ -229,6 +230,9 @@ jobs:
       - name: Test web
         working-directory: web
         run: npm run test:run
+
+      - name: Test the release QA gate's logic
+        run: node --test ops/release/qa-gate/
 
       - name: Build web
         working-directory: web
