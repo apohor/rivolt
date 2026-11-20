@@ -1,5 +1,5 @@
 // ParkedMap: the truck's parked position on the self-hosted basemap, for the Now hero's parked slot (design_preview "now_slot"). One pin, no
-// panning: the card around it is a link to Full telemetry, so the zoom buttons are hidden. A new fix moves the pin; the map stays.
+// panning: the card around it is no longer a link, but the map is a still picture, so the zoom buttons stay hidden. A new fix moves the pin; the map stays.
 // Without WebGL it says so in the box's own size. The label (a saved place such as "Home") and the caption sit on the map's corners.
 import { useEffect, useMemo, useRef } from "react";
 import type { Map as MLMap, Marker } from "maplibre-gl";

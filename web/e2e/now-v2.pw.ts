@@ -41,10 +41,11 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
   await expect(page.locator("[data-now-chip]")).toBeVisible();
   await expect(page.getByTestId("now-subline")).toHaveText(/Full charge today ≈ 266 mi/);
   await expect(page.getByTestId("now-temps")).toContainText("Outside");
-  // State and time in the chip; no metadata line; the card opens Full telemetry; "estimate" sits behind the (i).
+  // State and time in the chip; no metadata line; only the Live button opens Live; "estimate" sits behind the (i).
   await expect(page.locator("[data-now-chip]")).toHaveText(/(Parked|Plugged in|Asleep) · since \d/);
   await expect(page.getByTestId("now-freshness")).toHaveCount(0);
-  await expect(hero.getByRole("link", { name: "Full telemetry" })).toHaveAttribute("href", "/live");
+  await expect(hero.getByTestId("now-live-link")).toHaveAttribute("href", "/live");
+  await expect(hero.getByRole("link", { name: "Full telemetry" })).toHaveCount(0);
   await expect(hero.getByTestId("now-live-link")).toHaveText(/^Live/);
   // The only "Live" on the card is the button; the chip names the state.
   await expect(page.locator("[data-now-chip]")).not.toHaveText(/\bLive\b/);
@@ -113,7 +114,7 @@ test("flag on: the (i) has a 44 px target and a tap beside it stays on the page"
   const box = (await btn.boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(44);
   expect(box.height).toBeGreaterThanOrEqual(44);
-  // 18 px icon, so 18 px off its centre is a near miss that must still hit the button, not the card link.
+  // 18 px icon, so 18 px off its centre is a near miss that must still hit the button, not Live.
   const url = page.url();
   await page.mouse.click(box.x + box.width / 2 + 18, box.y + box.height / 2);
   await expect(page.getByTestId("now-temps")).toContainText("estimate");
@@ -355,3 +356,38 @@ test.describe("design now_tidy, phone and desktop", () => {
     await expect(page.locator("[data-now-tidy]")).toHaveCount(0);
   });
 });
+
+// Only the Live button opens Live: a tap on the ring, the figures, the graph, the weather row or the location row does nothing.
+for (const [scenario, keys] of [
+  ["parked", ["now_slot", "now_tidy"]],
+  ["asleep", ["now_slot", "now_tidy"]],
+  ["charging", ["now_slot", "now_tidy"]],
+  ["driving", ["now_slot", "now_tidy"]],
+  ["parked", []],
+  ["charging", []],
+] as const) {
+  test(`the card is not a link, only Live is: ${scenario}${keys.length ? " tidy" : " plain"}`, async ({ page }) => {
+    await open(page, true, scenario, true, [...keys]);
+    const hero = page.locator("[data-now-v2]").first();
+    await expect(hero).toBeVisible();
+    await expect(hero.getByRole("link")).toHaveCount(1);
+    await expect(hero.getByRole("link", { name: /telemetry/i })).toHaveCount(0);
+    const url = page.url();
+    const box = (await hero.boundingBox())!;
+    for (const [fx, fy] of [[0.5, 0.35], [0.3, 0.55], [0.7, 0.8], [0.5, 0.95]]) {
+      await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy);
+      expect(page.url()).toBe(url);
+    }
+    for (const id of ["now-parked-graph", "now-charge-graph", "now-parked-place", "now-temps", "now-slot"]) {
+      const el = hero.getByTestId(id).first();
+      if (await el.count()) {
+        await el.click({ position: { x: 4, y: 4 }, force: true });
+        expect(page.url()).toBe(url);
+        expect(await el.evaluate((e) => getComputedStyle(e).cursor)).not.toBe("pointer");
+      }
+    }
+    expect(await hero.evaluate((e) => getComputedStyle(e).cursor)).not.toBe("pointer");
+    await hero.getByTestId("now-live-link").click();
+    await expect(page).toHaveURL(/\/live$/);
+  });
+}
