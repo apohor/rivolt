@@ -40,21 +40,27 @@ export function useBox(): [(el: HTMLDivElement | null) => void, { w: number; h: 
 // This spreads each such jump into a short eased S that ends on the second reading (so a dot there stays on the line) and starts level at the
 // first one's height; softPath then draws it with no slope at both ends. A pair that is already gentle is left alone.
 export function easeSteps(pts: Pt[], minDrop = 3, slope = 1.2): Pt[] {
-  const out: Pt[] = [];
-  let i = 0;
-  while (i < pts.length) {
-    const a = pts[i];
-    const b = pts[i + 1];
-    const dy = b ? Math.abs(b.y - a.y) : 0;
-    if (b && dy >= minDrop && dy / Math.max(b.x - a.x, 0.5) > slope) {
-      const run = Math.min(Math.max(dy * 2, 12), 28);
-      const from = out.length ? out[out.length - 1].x : a.x;
-      out.push({ x: Math.max(b.x - run, from + 0.4 * (a.x - from)), y: a.y, hold: true }, { x: b.x, y: b.y, hold: true });
-      i += 2;
-    } else {
-      out.push(a);
-      i += 1;
+  if (pts.length === 0) return [];
+  const out: Pt[] = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    const dy = Math.abs(b.y - a.y);
+    if (dy < minDrop || dy / Math.max(b.x - a.x, 0.5) <= slope) {
+      out.push(b);
+      continue;
     }
+    const run = Math.min(Math.max(dy * 2, 12), 28);
+    const last = out[out.length - 1];
+    if (last.hold) {
+      // The first reading ends the jump before this one: it stays, and the next ramp starts level after it if there is room.
+      const x = Math.max(b.x - run, last.x);
+      if (x > last.x + 0.5) out.push({ x, y: a.y, hold: true });
+    } else {
+      const from = out.length > 1 ? out[out.length - 2].x : a.x;
+      out[out.length - 1] = { x: Math.max(b.x - run, from + 0.4 * (a.x - from)), y: a.y, hold: true };
+    }
+    out.push({ x: b.x, y: b.y, hold: true });
   }
   return out;
 }

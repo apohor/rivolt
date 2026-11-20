@@ -17,6 +17,15 @@ describe("easeSteps", () => {
     expect(out[1].x).toBeGreaterThan(out[0].x);
   });
 
+  it("eases two jumps in a row", () => {
+    const out = easeSteps([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 103, y: 30 }, { x: 160, y: 30 }, { x: 163, y: 60 }, { x: 220, y: 60 }]);
+    expect(out.filter((p) => p.hold).length).toBeGreaterThanOrEqual(4);
+    expect(out.find((p) => p.x === 163)?.hold).toBe(true);
+    const into = out.findIndex((p) => p.x === 163);
+    expect(out[into - 1].hold).toBe(true);
+    expect(out[into].x - out[into - 1].x).toBeGreaterThanOrEqual(12);
+  });
+
   it("never reorders the readings", () => {
     const out = easeSteps([{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 7, y: 30 }, { x: 9, y: 31 }, { x: 11, y: 70 }, { x: 40, y: 71 }]);
     for (let i = 1; i < out.length; i++) expect(out[i].x).toBeGreaterThanOrEqual(out[i - 1].x);
