@@ -2069,7 +2069,6 @@ export const backend = {
   undoImport: (id: string) => api.post<{ drives: number; charges: number }>(`/api/imports/${encodeURIComponent(id)}/undo`, {}),
   deleteHistoryBefore: (before: string) => api.post<{ drives: number; charges: number; samples: number }>("/api/data/delete-range", { before, confirm: true }),
   // The vehicle a free account shows (the others are Pro). Free on every plan: it is a setting.
-  primaryVehicle: () => api.get<{ vehicle_id: string }>("/api/settings/primary-vehicle"),
   setPrimaryVehicle: (vehicleID: string) => api.put<{ vehicle_id: string }>("/api/settings/primary-vehicle", { vehicle_id: vehicleID }),
   deleteCharge: (id: string) =>
     api.del<void>(`/api/charges/${encodeURIComponent(id)}`),
