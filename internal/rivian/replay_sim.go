@@ -30,7 +30,33 @@ type SimKind string
 const (
 	SimDrive  SimKind = "drive"
 	SimCharge SimKind = "charge"
+	// The short variants are kinds of their own, not a flag on the run: a pod that predates them does not know the kind, so it logs and skips the
+	// run (the schedule's own frames show) instead of replanning the full-length run inside the short window.
+	SimDriveShort  SimKind = "drive_short"
+	SimChargeShort SimKind = "charge_short"
 )
+
+// base is the kind a short variant is a variant of, and whether it is one.
+func (k SimKind) base() (SimKind, bool) {
+	switch k {
+	case SimDriveShort:
+		return SimDrive, true
+	case SimChargeShort:
+		return SimCharge, true
+	}
+	return k, false
+}
+
+// short is the quick variant of k: the kind itself when it has none.
+func (k SimKind) short() SimKind {
+	switch k {
+	case SimDrive:
+		return SimDriveShort
+	case SimCharge:
+		return SimChargeShort
+	}
+	return k
+}
 
 const (
 	// simLead is how far ahead of the request a run starts, so the recorder's feed has read the request before its first frame is due.
@@ -45,8 +71,11 @@ const (
 	simChargeMin = 22
 	// simDriveMin is the length of the drive itself.
 	simDriveMin = 24
-	// simShortChargeMin is the charging slice of the short variant.
-	simShortChargeMin = 5
+	// simFastKW is the short charge's peak power; with the DC fast model's taper it averages about 99 kW, so simFastGain points of SoC take
+	// about four minutes.
+	simFastKW = 160.0
+	// simFastGain is the SoC points the short charge adds.
+	simFastGain = 5.1
 )
 
 // SimRun is one requested run, in wall-clock time.
@@ -57,9 +86,6 @@ type SimRun struct {
 	End   time.Time `json:"end"`
 	// AddedMi is the odometer the run adds: every frame at or after End carries it.
 	AddedMi float64 `json:"added_mi"`
-	// Short is the quick variant (shortSpec). It is stored with the run, because every pod rebuilds the run from (Kind, Start, Short): a pod that
-	// does not know the field would rebuild the full-length run inside the short window, so none is booked until every pod runs this code.
-	Short bool `json:"short,omitempty"`
 }
 
 // SimState is the stored document.
@@ -96,23 +122,32 @@ type SimRefusal struct{ Reason string }
 
 func (e *SimRefusal) Error() string { return e.Reason }
 
-// simSpec is what differs between a run's full and short variants. Both are the same physics at the same speeds and power: the short drive
-// is a nearer errand at the full drive's cruise speed, the short charge is the same kW for fewer minutes, so speed, distance, time and
-// energy agree in either, and only the length changes. The clock is never sped up.
+// simShortErrand is the short drive's errand: Pasadena City College, 3.6 road miles there and back, about 4.5 minutes at the cruise speed.
+var simShortErrand = samplePoint{34.1466, -118.1488}
+
+// simSpec is what differs between a run's full and short variants. The short drive is a nearer errand at the full drive's cruise speed, so
+// speed, distance, time and energy agree in either. The short charge is a DC fast slice at a power a real stall gives, not the home
+// charger's 7.6 kW for a few minutes (that moves the battery half a percent and draws a flat line); the energy, the power curve and the pack
+// temperature follow the same DC fast model as the corpus's own fast stops. The clock is never sped up.
 type simSpec struct {
 	errand     samplePoint
 	errandName string
-	chargeMin  float64
+	wake       time.Duration // awake and parked before the run starts moving or charging
+	chargeKW   float64       // the charger's peak
+	chargeGain float64       // SoC points a charge adds
+	fast       bool          // the charge is a DC fast one
 	driveTail  time.Duration // parked after the drive
-	doneTail   time.Duration // plugged in at 0 kW after the charge
+	doneTail   time.Duration // plugged in at 0 kW after an AC charge
 	cableTail  time.Duration // cable out
 }
 
 func specFor(short bool) simSpec {
 	if short {
-		return simSpec{errand: sampleErrand[2], errandName: "Pasadena City Hall", chargeMin: simShortChargeMin, driveTail: time.Minute, doneTail: time.Minute, cableTail: 30 * time.Second}
+		return simSpec{errand: simShortErrand, errandName: "Pasadena City College", wake: 30 * time.Second, chargeKW: simFastKW, chargeGain: simFastGain, fast: true,
+			driveTail: 30 * time.Second, cableTail: 30 * time.Second}
 	}
-	return simSpec{errand: sampleErrand[0], errandName: "Santa Anita Park", chargeMin: simChargeMin, driveTail: 3 * time.Minute, doneTail: 4 * time.Minute, cableTail: time.Minute}
+	return simSpec{errand: sampleErrand[0], errandName: "Santa Anita Park", wake: time.Minute, chargeKW: sampleL2KW, chargeGain: sampleL2KW * simChargeMin / 60 / samplePackKWh * 100,
+		driveTail: 3 * time.Minute, doneTail: 4 * time.Minute, cableTail: time.Minute}
 }
 
 // simPlan is a run's frames-to-be, in corpus time.
@@ -125,7 +160,8 @@ type simPlan struct {
 }
 
 // planSim builds the run that starts at wall time start, or says why it cannot.
-func planSim(kind SimKind, start time.Time, short bool) (simPlan, error) {
+func planSim(kind SimKind, start time.Time) (simPlan, error) {
+	kind, short := kind.base()
 	sp := specFor(short)
 	c, tl := sampleShared()
 	k := tl.loopAt(start)
@@ -150,7 +186,7 @@ func planSim(kind SimKind, start time.Time, short bool) (simPlan, error) {
 		}
 	}
 	b := &sampleBuilder{rng: nil, t: cs, soc: park.socA, odo: park.odoA, at: park.path[0], limit: park.limit, plugged: false, userPriced: -1}
-	wake := sampleSeg{kind: segParked, start: cs, end: cs.Add(time.Minute), step: sampleAwakeStep, socA: b.soc, socB: b.soc,
+	wake := sampleSeg{kind: segParked, start: cs, end: cs.Add(sp.wake), step: sampleAwakeStep, socA: b.soc, socB: b.soc,
 		odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, power: "ready"}
 	b.add(wake)
 	switch kind {
@@ -164,13 +200,14 @@ func planSim(kind SimKind, start time.Time, short bool) (simPlan, error) {
 		b.drive(cruise, sp.errand, SampleHome)
 		b.parkSim(sp.driveTail, "ready")
 	case SimCharge:
-		gain := sampleL2KW * sp.chargeMin / 60 / samplePackKWh * 100
-		if b.soc+gain > 100 {
+		if b.soc+sp.chargeGain > 100 {
 			return simPlan{}, &SimRefusal{"the sample truck's battery is full"}
 		}
-		b.charge(b.soc+gain, sampleL2KW, false)
-		b.parkSim(sp.doneTail, "ready") // plugged in at 0 kW (charging complete)
-		b.plugged = false
+		b.charge(b.soc+sp.chargeGain, sp.chargeKW, sp.fast)
+		if !sp.fast {
+			b.parkSim(sp.doneTail, "ready") // plugged in at 0 kW (charging complete)
+			b.plugged = false
+		}
 		b.parkSim(sp.cableTail, "ready") // cable out
 	default:
 		return simPlan{}, &SimRefusal{"unknown run: " + string(kind)}
@@ -214,6 +251,9 @@ type SimOpts struct {
 func (c *SimControl) Start(ctx context.Context, kind SimKind, opts SimOpts) (SimRun, error) {
 	var run SimRun
 	err := c.store.Update(ctx, func(st SimState) (SimState, error) {
+		if opts.Short {
+			kind = kind.short()
+		}
 		now := c.now()
 		start := now.Add(simLead).Truncate(sampleAwakeStep).Add(sampleAwakeStep)
 		unfinished := 0
@@ -228,11 +268,11 @@ func (c *SimControl) Start(ctx context.Context, kind SimKind, opts SimOpts) (Sim
 		if unfinished > 0 && (!opts.Queue || unfinished > 1) {
 			return st, ErrSimBusy
 		}
-		p, err := planSim(kind, start, opts.Short)
+		p, err := planSim(kind, start)
 		if err != nil {
 			return st, err
 		}
-		run = SimRun{ID: uuid.NewString(), Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi), Short: opts.Short}
+		run = SimRun{ID: uuid.NewString(), Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi)}
 		st.Runs = append(st.Runs, run)
 		kept := st.Runs[:0]
 		for _, r := range st.Runs {
@@ -319,7 +359,7 @@ func (f *ReplayFeed) withSim(ctx context.Context, from, to time.Time, in []State
 		if !r.Start.Before(to) || !r.End.After(from) {
 			continue
 		}
-		p, err := planSim(r.Kind, r.Start, r.Short)
+		p, err := planSim(r.Kind, r.Start)
 		if err != nil {
 			f.logger.Warn("replay sim: run cannot be rebuilt", "run", r.ID, "err", err.Error())
 			continue

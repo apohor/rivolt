@@ -4,24 +4,11 @@ import (
 	"context"
 	"errors"
 	"math"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
-
-// simStartForShort finds a wall time at which a short run of kind can be planned.
-func simStartForShort(t *testing.T, kind SimKind) time.Time {
-	t.Helper()
-	_, tl := sampleShared()
-	base := tl.loopStart(100)
-	for d := time.Duration(0); d < tl.span(); d += 7 * time.Minute {
-		at := base.Add(d)
-		if _, err := planSim(kind, at, true); err == nil {
-			return at
-		}
-	}
-	t.Fatalf("no start found for a short %s", kind)
-	return time.Time{}
-}
 
 func segOf(p simPlan, k sampleSegKind) sampleSeg {
 	for _, s := range p.segs {
@@ -34,12 +21,12 @@ func segOf(p simPlan, k sampleSegKind) sampleSeg {
 
 // The short drive is a nearer errand at the full drive's cruise speed: distance, time and energy keep the full drive's ratios.
 func TestShortDriveKeepsTheFullDrivesPhysics(t *testing.T) {
-	start := simStartForShort(t, SimDrive)
-	short, err := planSim(SimDrive, start, true)
+	start := simStartFor(t, SimDriveShort)
+	short, err := planSim(SimDriveShort, start)
 	if err != nil {
 		t.Fatal(err)
 	}
-	full, err := planSim(SimDrive, simStartFor(t, SimDrive), false)
+	full, err := planSim(SimDrive, simStartFor(t, SimDrive))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,81 +44,72 @@ func TestShortDriveKeepsTheFullDrivesPhysics(t *testing.T) {
 	if a, b := perMi(ds), perMi(df); math.Abs(a-b)/b > 0.01 {
 		t.Errorf("energy per mile %.4f vs the full drive's %.4f", a, b)
 	}
-	if d := short.end.Sub(start); d < 6*time.Minute || d > 10*time.Minute {
-		t.Errorf("short drive run lasts %s, want 6-10 min", d)
+	if m := ds.end.Sub(ds.start); m < 4*time.Minute || m > 5*time.Minute+30*time.Second {
+		t.Errorf("short drive is %s of driving, want about 5 minutes", m)
 	}
-	if ds.odoB-ds.odoA < 3 {
-		t.Errorf("short drive is %.1f mi, too short to show start, middle and end", ds.odoB-ds.odoA)
+	if mi := ds.odoB - ds.odoA; mi < 3 {
+		t.Errorf("short drive is %.1f mi, too short to show start, middle and end", mi)
 	}
-	if first, last := short.segs[0], short.segs[len(short.segs)-1]; first.kind != segParked || last.kind != segParked || segOf(short, segDrive).kind != segDrive {
-		t.Errorf("shape: want parked, drive, parked")
+	if first, last := short.segs[0], short.segs[len(short.segs)-1]; first.kind != segParked || last.kind != segParked || first.end.Sub(first.start) != 30*time.Second || last.end.Sub(last.start) != 30*time.Second {
+		t.Errorf("shape: want 30 s parked, the drive, 30 s parked")
 	}
 }
 
-// The short charge is the same power for fewer minutes: energy added is kW times time.
-func TestShortChargeIsTheSamePowerForFewerMinutes(t *testing.T) {
-	start := simStartForShort(t, SimCharge)
-	p, err := planSim(SimCharge, start, true)
+// The short charge is a DC fast slice: SoC rises 5 points or more in about four minutes, the energy is the power curve's integral, and the
+// recorder sees the same fast-charge frames (pack temperature up) as at the corpus's own fast stops.
+func TestShortChargeIsADCFastSlice(t *testing.T) {
+	start := simStartFor(t, SimChargeShort)
+	p, err := planSim(SimChargeShort, start)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := segOf(p, segCharge)
-	if c.peakKW != sampleL2KW {
-		t.Fatalf("power %.1f kW, want %.1f", c.peakKW, sampleL2KW)
+	if !c.dcfc || c.peakKW != simFastKW {
+		t.Fatalf("charge dcfc=%v peak=%.0f kW, want a DC fast slice at %.0f", c.dcfc, c.peakKW, simFastKW)
 	}
-	hours := c.end.Sub(c.start).Hours()
-	if math.Abs(hours*60-simShortChargeMin) > 0.1 {
-		t.Errorf("charging slice %.2f min, want %d", hours*60, simShortChargeMin)
+	if gain := c.socB - c.socA; gain < 5 {
+		t.Errorf("SoC rises %.2f points, want 5 or more", gain)
 	}
-	if kwh := (c.socB - c.socA) / 100 * samplePackKWh; math.Abs(kwh-c.peakKW*hours) > 0.01 {
-		t.Errorf("energy %.3f kWh, power x time is %.3f", kwh, c.peakKW*hours)
+	if m := c.end.Sub(c.start).Minutes(); m < 3 || m > 4.5 {
+		t.Errorf("charging slice %.2f min, want 3 to 4.5", m)
 	}
-	if d := p.end.Sub(start); d < 6*time.Minute || d > 9*time.Minute {
-		t.Errorf("short charge run lasts %s, want 6-9 min", d)
+	// Integrate the frames' power: it must equal the energy the SoC rise stands for, within 6 % (the 30 kW floor trims the last seconds).
+	var kwh, peak, tempMax float64
+	for i := 0; i < c.frames(); i++ {
+		fr := c.frameAt(i)
+		kwh += fr.ChargerKW * c.step.Hours()
+		peak = math.Max(peak, fr.ChargerKW)
+		tempMax = math.Max(tempMax, fr.PackTempMaxC)
 	}
-}
-
-// A run is rebuilt from (kind, start, short) by whichever pod reads the stored document, so the stored flag must select the short frames.
-func TestStoredShortFlagSelectsTheShortFrames(t *testing.T) {
-	ctx := context.Background()
-	start := simStartForShort(t, SimDrive)
-	p, err := planSim(SimDrive, start, true)
-	if err != nil {
-		t.Fatal(err)
+	if want := (c.socB - c.socA) / 100 * samplePackKWh; math.Abs(kwh-want)/want > 0.06 {
+		t.Errorf("power integrates to %.2f kWh, the SoC rise is %.2f kWh", kwh, want)
 	}
-	run := SimRun{ID: "r", Kind: SimDrive, Start: start, End: p.end, AddedMi: round2(p.addedMi), Short: true}
-	got, err := testSimFeed(&memSimStore{st: SimState{Runs: []SimRun{run}}}).frames(ctx, start.Add(-time.Minute), p.end.Add(time.Minute))
-	if err != nil {
-		t.Fatal(err)
+	if peak < 140 || peak > 175 {
+		t.Errorf("peak power %.0f kW, want about 150", peak)
 	}
-	moving := 0
-	for _, st := range got {
-		if !st.At.Before(start) && st.At.Before(p.end) && st.SpeedKph > 1 {
-			moving++
-		}
+	if tempMax <= 30 {
+		t.Errorf("pack temperature %.0f, want the fast-charge reading", tempMax)
 	}
-	if moving == 0 {
-		t.Fatal("no moving frame inside the short run's window")
+	if last := p.segs[len(p.segs)-1]; last.kind != segParked || last.plugged {
+		t.Errorf("the run should end parked and unplugged, got %+v", last.kind)
 	}
-	// Without the flag the same window would hold the full-length run: a different end, which is why the flag is stored.
-	full, _ := planSim(SimDrive, start, false)
-	if full.end.Equal(p.end) {
-		t.Error("short and full runs end together: the flag would not matter")
+	if d := p.end.Sub(start); d > 6*time.Minute {
+		t.Errorf("short charge run lasts %s, want about 5 minutes", d)
 	}
 }
 
-func TestSimQueueBooksTheNextRunAfterTheOneUnderWay(t *testing.T) {
+// The pair, back to back with queue, fits the gate's window.
+func TestShortPairFitsElevenMinutes(t *testing.T) {
 	ctx := context.Background()
-	// A start where a short drive can be planned and a short charge right after it.
 	_, tl := sampleShared()
 	var start time.Time
 	for d := time.Duration(0); d < tl.span(); d += 7 * time.Minute {
 		at := tl.loopStart(100).Add(d)
-		p, err := planSim(SimDrive, at, true)
+		p, err := planSim(SimDriveShort, at)
 		if err != nil {
 			continue
 		}
-		if _, err := planSim(SimCharge, p.end, true); err == nil {
+		if _, err := planSim(SimChargeShort, p.end); err == nil {
 			start = at
 			break
 		}
@@ -140,10 +118,14 @@ func TestSimQueueBooksTheNextRunAfterTheOneUnderWay(t *testing.T) {
 		t.Skip("the sample day has no parked stretch long enough for a drive then a charge")
 	}
 	ctl := NewSimControl(&memSimStore{})
-	ctl.now = func() time.Time { return start.Add(-simLead - time.Second) }
+	now := start.Add(-simLead - time.Second)
+	ctl.now = func() time.Time { return now }
 	d, err := ctl.Start(ctx, SimDrive, SimOpts{Short: true})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if d.Kind != SimDriveShort {
+		t.Fatalf("kind %s", d.Kind)
 	}
 	if _, err := ctl.Start(ctx, SimCharge, SimOpts{Short: true}); !errors.Is(err, ErrSimBusy) {
 		t.Fatalf("without queue while one runs: %v", err)
@@ -152,7 +134,7 @@ func TestSimQueueBooksTheNextRunAfterTheOneUnderWay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.Start.Equal(d.End) || !c.Short || c.Kind != SimCharge {
+	if !c.Start.Equal(d.End) || c.Kind != SimChargeShort {
 		t.Errorf("queued run %+v does not begin at the drive's end %s", c, d.End)
 	}
 	if _, err := ctl.Start(ctx, SimDrive, SimOpts{Short: true, Queue: true}); !errors.Is(err, ErrSimBusy) {
@@ -160,5 +142,56 @@ func TestSimQueueBooksTheNextRunAfterTheOneUnderWay(t *testing.T) {
 	}
 	if a, _ := ctl.Active(ctx); a == nil || a.ID != d.ID {
 		t.Errorf("active is %+v, want the drive", a)
+	}
+	if total := c.End.Sub(now); total > 11*time.Minute {
+		t.Errorf("the pair takes %s from the request, want 11 minutes or less", total)
+	}
+}
+
+// A short run is its own kind: a pod without this code knows neither kind, so it logs and skips the run rather than replanning the full run
+// inside the short window. Here a "pod" that does not know the short kinds is a feed whose planner refuses them.
+func TestShortKindsAreUnknownToOldCode(t *testing.T) {
+	for _, k := range []SimKind{SimDriveShort, SimChargeShort} {
+		if base, short := k.base(); !short || base == k || strings.HasSuffix(string(base), "_short") {
+			t.Errorf("%s: base %s short %v", k, base, short)
+		}
+	}
+	// What old code does with a kind it does not know (the default branch of its planSim) is a refusal, which withSim logs and skips.
+	if _, err := planSim("drive_unknown", simStartFor(t, SimDrive)); err == nil || !strings.Contains(err.Error(), "unknown run") {
+		t.Errorf("an unknown kind should be refused as unknown, got %v", err)
+	}
+}
+
+// Frames inside a short run's window are the short run's, rebuilt from the stored (kind, start) alone by any pod.
+func TestStoredShortRunRebuildsOnAnyPod(t *testing.T) {
+	ctx := context.Background()
+	start := simStartFor(t, SimDriveShort)
+	p, err := planSim(SimDriveShort, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := SimRun{ID: "r", Kind: SimDriveShort, Start: start, End: p.end, AddedMi: round2(p.addedMi)}
+	var first []State
+	for pod := 0; pod < 2; pod++ {
+		got, err := testSimFeed(&memSimStore{st: SimState{Runs: []SimRun{run}}}).frames(ctx, start.Add(-time.Minute), p.end.Add(time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pod == 0 {
+			first = got
+			continue
+		}
+		if len(got) != len(first) || !reflect.DeepEqual(got[len(got)/2], first[len(first)/2]) {
+			t.Fatal("two pods rebuilt different frames from the same stored run")
+		}
+	}
+	moving := 0
+	for _, st := range first {
+		if !st.At.Before(start) && st.At.Before(p.end) && st.SpeedKph > 1 {
+			moving++
+		}
+	}
+	if moving == 0 {
+		t.Fatal("no moving frame inside the short run's window")
 	}
 }

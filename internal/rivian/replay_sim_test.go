@@ -37,7 +37,7 @@ func simStartFor(t *testing.T, kind SimKind) time.Time {
 	base := tl.loopStart(100)
 	for d := time.Duration(0); d < tl.span(); d += 7 * time.Minute {
 		at := base.Add(d)
-		if _, err := planSim(kind, at, false); err == nil {
+		if _, err := planSim(kind, at); err == nil {
 			return at
 		}
 	}
@@ -56,7 +56,7 @@ func testSimFeed(store SimStore) *ReplayFeed {
 func TestSimDriveReplacesTheScheduleAndTheOdometerRejoins(t *testing.T) {
 	ctx := context.Background()
 	start := simStartFor(t, SimDrive)
-	p, err := planSim(SimDrive, start, false)
+	p, err := planSim(SimDrive, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestSimDriveReplacesTheScheduleAndTheOdometerRejoins(t *testing.T) {
 func TestSimChargePlugsChargesCompletesAndUnplugs(t *testing.T) {
 	ctx := context.Background()
 	start := simStartFor(t, SimCharge)
-	p, err := planSim(SimCharge, start, false)
+	p, err := planSim(SimCharge, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestSimIsRefusedNextToAScheduledDriveOrCharge(t *testing.T) {
 	at := tl.loopStart(100).Add(driveStart.Add(-10 * time.Minute).Sub(tl.start))
 	for _, k := range []SimKind{SimDrive, SimCharge} {
 		var ref *SimRefusal
-		if _, err := planSim(k, at, false); !errors.As(err, &ref) {
+		if _, err := planSim(k, at); !errors.As(err, &ref) {
 			t.Fatalf("%s next to a scheduled drive: got %v, want a refusal", k, err)
 		}
 	}
@@ -184,7 +184,7 @@ func TestSimIsRefusedNextToAScheduledDriveOrCharge(t *testing.T) {
 		if s.kind == segDrive {
 			mid := tl.loopStart(100).Add(s.start.Add(s.end.Sub(s.start) / 2).Sub(tl.start))
 			var ref *SimRefusal
-			if _, err := planSim(SimDrive, mid, false); !errors.As(err, &ref) {
+			if _, err := planSim(SimDrive, mid); !errors.As(err, &ref) {
 				t.Fatalf("during a scheduled drive: got %v", err)
 			}
 			break
@@ -218,7 +218,7 @@ func TestSimControlOneRunAtATime(t *testing.T) {
 
 func TestSimFrameHookSeesEverySimulatedFrameOnly(t *testing.T) {
 	start := simStartFor(t, SimDrive)
-	p, _ := planSim(SimDrive, start, false)
+	p, _ := planSim(SimDrive, start)
 	store := &memSimStore{st: SimState{Runs: []SimRun{{ID: "r", Kind: SimDrive, Start: start, End: p.end, AddedMi: round2(p.addedMi)}}}}
 	f := testSimFeed(store)
 	n := 0

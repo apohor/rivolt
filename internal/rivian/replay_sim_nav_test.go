@@ -10,7 +10,7 @@ import (
 func simRun(t *testing.T, kind SimKind) (*ReplayFeed, SimRun) {
 	t.Helper()
 	start := simStartFor(t, kind)
-	p, err := planSim(kind, start, false)
+	p, err := planSim(kind, start)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,12 +199,12 @@ func TestRunSourceHoldsATripMidDriveAndNothingAfter(t *testing.T) {
 }
 
 func TestShortSimDriveNavNamesItsOwnErrand(t *testing.T) {
-	start := simStartForShort(t, SimDrive)
-	p, err := planSim(SimDrive, start, true)
+	start := simStartFor(t, SimDriveShort)
+	p, err := planSim(SimDriveShort, start)
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := SimRun{ID: "r", Kind: SimDrive, Start: start, End: p.end, Short: true}
+	run := SimRun{ID: "r", Kind: SimDriveShort, Start: start, End: p.end}
 	f := testSimFeed(&memSimStore{st: SimState{Runs: []SimRun{run}}})
 	names := map[string]bool{}
 	for at := run.Start; at.Before(run.End); at = at.Add(5 * time.Second) {
@@ -212,7 +212,7 @@ func TestShortSimDriveNavNamesItsOwnErrand(t *testing.T) {
 			names[fr[0].Info.Name] = true
 		}
 	}
-	if !names["Pasadena City Hall"] || !names["Rose Bowl Stadium"] || names["Santa Anita Park"] {
+	if !names["Pasadena City College"] || !names["Rose Bowl Stadium"] || names["Santa Anita Park"] {
 		t.Fatalf("destinations %v, want the short errand then home", names)
 	}
 }

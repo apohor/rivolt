@@ -37,16 +37,17 @@ func (f *ReplayFeed) NavFramesAt(ctx context.Context, at time.Time) []*NavFrame 
 		return nil
 	}
 	for _, r := range f.sim.get(ctx).Runs {
-		if r.Kind != SimDrive || at.Before(r.Start) || !at.Before(r.End) {
+		if base, _ := r.Kind.base(); base != SimDrive || at.Before(r.Start) || !at.Before(r.End) {
 			continue
 		}
-		p, err := planSim(r.Kind, r.Start, r.Short)
+		p, err := planSim(r.Kind, r.Start)
 		if err != nil {
 			return nil
 		}
+		_, short := r.Kind.base()
 		for _, seg := range p.segs {
 			if seg.kind == segDrive {
-				return simNavFrames(seg, p.shift, at, specFor(r.Short))
+				return simNavFrames(seg, p.shift, at, specFor(short))
 			}
 		}
 	}
