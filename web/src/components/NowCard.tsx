@@ -25,6 +25,7 @@ import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
 import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
 import { ParkedGraph, ParkedRows, useParkedSeries } from "./ParkedGraph";
+import { openSleepSince } from "../lib/parkedSeries";
 import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
@@ -235,7 +236,8 @@ export default function NowCard({
   // Design "now_parked_graph" (with now_tidy): the last 24 hours of the battery on a parked, plugged or asleep truck, with the sleeps and
   // wake-ups. Without a line to draw (parked a few minutes, no data, an older server) the card is as it was.
   const parkedKind = view != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
-  const { series: parkedSeries, waiting: parkedWaiting } = useParkedSeries(vehicleID, useDesignPreview("now_parked_graph") && tidy && parkedKind);
+  const parkedKindOn = useDesignPreview("now_parked_graph") && tidy && parkedKind;
+  const { series: parkedSeries, waiting: parkedWaiting } = useParkedSeries(vehicleID, parkedKindOn);
   // The chip, the graph's pill and its header say one parked time. The state run restarts at every wake-up, so a parked truck's chip
   // takes the server's own parked-since from the series when it has one, and shows no time until the series has answered (or failed, or taken
   // about 3 s), so the time never changes by hours a moment after the card draws.
@@ -245,6 +247,10 @@ export default function NowCard({
       : view != null && parkedSeries?.parked_since && view.kind === "parked"
         ? { ...view, stateSinceMs: Date.parse(parkedSeries.parked_since) }
         : view;
+  // An asleep truck's chip says the same: its time is the start of the sleep the series shows (the card's own run restarts when the page opens
+  // on an asleep truck), none while the series is out or when that sleep began before the window.
+  const seriesSleepSince = view?.kind === "asleep" && parkedKindOn && parkedSeries ? openSleepSince(parkedSeries) : undefined;
+  const chipAsleepSince = view?.kind === "asleep" && parkedKindOn && parkedWaiting ? null : seriesSleepSince !== undefined ? seriesSleepSince : tracker.asleepSinceMs;
 
   if (stateQ.isLoading) {
     return (
@@ -361,7 +367,7 @@ export default function NowCard({
           images={images}
           model={model}
           stateSlot={showSlot ? slotNode : null}
-          chip={nowChip(chipView ?? view, tracker.asleepSinceMs, nowMs, pill.text, tidy && showSlot && !soft)}
+          chip={nowChip(chipView ?? view, chipAsleepSince, nowMs, pill.text, tidy && showSlot && !soft)}
           soft={soft || parkedSeries != null}
           graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : null}
           parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
