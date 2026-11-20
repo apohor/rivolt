@@ -238,8 +238,8 @@ export default function NowHeroV2({
               </Link>
             )}
           </div>
-          <div className="grid gap-y-4 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] min-[900px]:gap-x-10">
-            <div className="pointer-events-none relative flex items-center gap-5 min-[900px]:col-start-1">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-y-4 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] min-[900px]:gap-x-10">
+            <div className="pointer-events-none relative flex min-w-0 flex-wrap items-center gap-x-5 gap-y-3 min-[900px]:col-start-1">
               <ArcGauge
                 value={view.soc}
                 label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
@@ -254,7 +254,7 @@ export default function NowHeroV2({
                   </span>
                 )}
               </ArcGauge>
-              <div className="min-w-0 flex-1 space-y-1 [&_img]:max-h-24 min-[900px]:[&_img]:max-h-28">
+              <div className="min-w-[10rem] flex-1 space-y-1 [&_img]:max-h-24 min-[900px]:[&_img]:max-h-28">
                 {picture}
                 {view.rangeMi != null && (
                   <p>
