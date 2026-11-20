@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { pickImageForNow, pickImageForState, pickVehicleImage } from "./vehicleImage";
+import { pickImageForNow, pickImageForState, pickLiveImage, pickVehicleImage } from "./vehicleImage";
+import parity from "../../../ios/RivoltTests/Parity/vehicle_picture_parity.json";
 import type { VehicleState } from "./api";
 
 // Placement and design names as Rivian sends them; the URLs are made up.
@@ -48,4 +49,14 @@ describe("pickImageForState (Live)", () => {
     expect(pickImageForState(images, closed, false)).toBe("https://img.example/three-quarter-dark.png");
     expect(pickImageForState(images, undefined, true)).toBe("https://img.example/three-quarter-light.png");
   });
+});
+
+// The same table runs on the iPhone (ios/RivoltTests/VehiclePictureParityTests.swift): the two Live screens pick one view.
+describe("Live picture parity table", () => {
+  for (const c of parity.cases as { name: string; state: Record<string, unknown> | null; light: boolean; images?: typeof images; image_url?: string; failed?: string[]; expect: string }[]) {
+    it(c.name, () => {
+      const got = pickLiveImage(c.images ?? parity.images, c.state ? (c.state as unknown as VehicleState) : undefined, c.light, c.image_url, c.failed ?? []);
+      expect(got).toBe(c.expect);
+    });
+  }
 });

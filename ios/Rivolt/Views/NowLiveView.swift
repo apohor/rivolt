@@ -13,6 +13,8 @@ struct NowLiveView: View {
     /// The calmer layout (design_preview key ios_now_tidy): the destination is its own block with the map under it, above the drive figures.
     var tidy = false
     var images: [VehicleImage]?
+    /// The gear and closures the picture's view is picked from (the web's door, frunk and gear pick); nil before the state is read.
+    var pictureState: VehiclePicture.LiveInputs?
     let onBack: () -> Void
 
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -67,13 +69,12 @@ struct NowLiveView: View {
 
     @ViewBuilder
     private var truck: some View {
-        if let url = VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light, plugPicture: plugAnim) {
-            AsyncImage(url: url) { phase in
-                if let image = phase.image { image.resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: 180) }
-            }
-            .frame(maxWidth: .infinity)
-            .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
+        let urls = VehiclePicture.liveCandidates(images, imageURL: vehicle.imageUrl, state: pictureState, light: colorScheme == .light)
+        return Group {
+            if !urls.isEmpty { LiveTruckPicture(urls: urls) }
         }
+        .frame(maxWidth: .infinity)
+        .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
     }
 
     private var plugAnim: Bool { appState?.designPreview.contains("plug_anim") == true }
@@ -126,5 +127,25 @@ struct NowLiveView: View {
             Text(value ?? "–").themeText(.value).fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The Live picture: the first address that loads; one that fails hands over to the next (the vehicle's own `image_url` after the state's pick,
+/// as on the web), and with none left nothing is drawn. 160 pt tall at most and 384 wide, the web's `max-h-40 max-w-sm`.
+private struct LiveTruckPicture: View {
+    let urls: [URL]
+    @State private var failed: Set<URL> = []
+
+    var body: some View {
+        if let url = urls.first(where: { !failed.contains($0) }) {
+            LoadedPicture(url: url) { phase in
+                switch phase {
+                case .loaded(let image): image.resizable().scaledToFit().frame(maxWidth: 384, maxHeight: 160)
+                case .failed: Color.clear.frame(height: 1).onAppear { _ = failed.insert(url) }
+                case .loading: Color.clear.frame(height: 1)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
     }
 }

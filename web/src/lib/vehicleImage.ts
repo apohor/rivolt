@@ -31,18 +31,24 @@ export function pickVehicleImage(images: readonly PlacedImage[] | undefined, wan
   return "";
 }
 
-// Live: the angle that illustrates the vehicle's state right now.
+// Live: the angle that illustrates the vehicle's state right now (the iPhone's VehiclePicture.live is the same rule: the parity table in
+// ios/RivoltTests/Parity/vehicle_picture_parity.json holds both). A closure the truck has not reported counts as shut.
 // Rivian's side-charging art is a cropped close-up of the front half, so it is never chosen: the whole truck shows while plugged in.
 export function pickImageForState(images: readonly PlacedImage[] | undefined, state: VehicleState | undefined, light: boolean): string {
   const wants: string[] = [];
   if (state) {
     const driving = ["D", "R", "N"].includes((state.gear || "").toUpperCase());
     if (driving) wants.push("side", "three-quarter");
-    if (!state.frunk_closed) wants.push("front", "three-quarter");
-    if (!state.liftgate_closed || !state.tonneau_closed) wants.push("rear", "side-rear");
-    if (!state.doors_closed) wants.push("side");
+    if (state.frunk_closed === false) wants.push("front", "three-quarter");
+    if (state.liftgate_closed === false || state.tonneau_closed === false) wants.push("rear", "side-rear");
+    if (state.doors_closed === false) wants.push("side");
   }
   return pickVehicleImage(images, wants, light);
+}
+
+// Live: the pictures to try in order, the state's pick and then the vehicle's own image_url; one that failed to load is skipped.
+export function pickLiveImage(images: readonly PlacedImage[] | undefined, state: VehicleState | undefined, light: boolean, imageUrl: string | undefined, failed: readonly string[] = []): string {
+  return [pickImageForState(images, state, light), imageUrl || ""].find((u) => u && !failed.includes(u)) || "";
 }
 
 // Now: driving shows the side view, every other state the three-quarter view (the whole truck, as the iPhone; the cropped side-charging art is never used).

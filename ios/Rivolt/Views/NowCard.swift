@@ -255,16 +255,29 @@ struct NowCard: View {
 
     private var carURL: URL? { VehiclePicture.forNow(images, kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, light: colorScheme == .light, plugPicture: plugAnim) }
 
-    /// Rivian's picture; one that fails to load leaves nothing (no broken image), and the range stays beside the gauge.
+    /// Rivian's picture; with none, or one that fails to load, the drawn truck of the web's Now card (`CarSketch`) takes its place.
     private func car(maxHeight: CGFloat) -> some View {
-        AsyncImage(url: carURL) { phase in
-            if let image = phase.image {
-                Self.carImage(image, maxHeight: maxHeight)
+        Group {
+            if let url = carURL {
+                LoadedPicture(url: url) { phase in
+                    switch phase {
+                    case .loaded(let image): Self.carImage(image, maxHeight: maxHeight)
+                    case .failed: sketch(maxHeight: maxHeight)
+                    case .loading: Color.clear.frame(height: 1)
+                    }
+                }
+            } else {
+                sketch(maxHeight: maxHeight)
             }
         }
         // Ideal width 0: the picture takes the room it is given and never decides the ring-beside-range fit by its natural width.
         .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
         .plugPicture(PlugPicture.state(kind: offline ? .unknown : summary.kind, powerKw: summary.chargePowerKw, enabled: plugAnim))
+    }
+
+    private func sketch(maxHeight: CGFloat) -> some View {
+        CarSketch(model: vehicle.model, charging: charging)
+            .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .leading)
     }
 
     /// Zero ideal width keeps a loaded picture out of ViewThatFits' measurement, so the ring-beside-range form is chosen by the text alone.
@@ -278,7 +291,7 @@ struct NowCard: View {
     private func heroGaugeV2(pictureShown: Bool) -> some View {
         // The ring beside the range when both fit whole; the ring above the range otherwise (large text, a narrow phone): the figure is never cut.
         let stacked = VStack(alignment: .leading, spacing: 8) {
-            if pictureShown, carURL != nil { car(maxHeight: 72) }
+            if pictureShown { car(maxHeight: 128) }
             compactGaugeColumn
         }
         if typeSize.isAccessibilitySize {
@@ -294,7 +307,7 @@ struct NowCard: View {
                         }
                     }
                     VStack(alignment: .leading, spacing: 4) {
-                        if pictureShown, carURL != nil { car(maxHeight: 96) }
+                        if pictureShown { car(maxHeight: 96) }
                         if let km = summary.rangeKm {
                             let range = NowFormat.usesMetric ? km : km / 1.609344
                             (Text(NumberText.fixed(range, 0)).font(Theme.sans(ThemeTokens.typeTitle, .semibold, relativeTo: .title2)).foregroundColor(Theme.textPrimary)
