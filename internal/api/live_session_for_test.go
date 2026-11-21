@@ -83,3 +83,16 @@ func TestLiveSessionEstimateIsForHomeAndACChargesOnly(t *testing.T) {
 		t.Errorf("billed fast charge: %+v", r)
 	}
 }
+
+// The fallback path (no monitor, self-hosted) has only the session: a "0" price at a fast charger's power gets no home-rate estimate.
+func TestDecorateLiveSessionFallbackHonoursPower(t *testing.T) {
+	cfg := settings.ChargingConfig{HomePricePerKWh: 0.11, HomeCurrency: "USD"}
+	ac := decorateLiveSession(&rivian.LiveSession{PowerKW: 7.6, TotalChargedEnergyKWh: 5, CurrentPrice: "0"}, cfg)
+	if math.Abs(ac.EstimatedCost-0.55) > 1e-9 {
+		t.Fatalf("AC charge: want the home-rate estimate 0.55, got %v", ac.EstimatedCost)
+	}
+	fast := decorateLiveSession(&rivian.LiveSession{PowerKW: 150, TotalChargedEnergyKWh: 5, CurrentPrice: "0"}, cfg)
+	if fast.EstimatedCost != 0 || fast.EstimatedCurrency != "" {
+		t.Fatalf("fast charge: want no estimate, got %v %q", fast.EstimatedCost, fast.EstimatedCurrency)
+	}
+}
