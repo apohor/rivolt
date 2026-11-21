@@ -67,8 +67,10 @@ struct ChargingDetail: Equatable {
     /// while the energy it was made from agrees with the battery's own gain so far: it was once the previous session's total ($9.39 "so far"
     /// a minute into a charge that had added 0.2 kWh). Otherwise nothing: the row stays out until there is a real figure.
     static func cost(of s: LiveSession?, summary: NowSummary, charge: ChargeBrief?) -> Cost? {
-        // Any price Rivian sent counts as billed, "0.00" included (the web does the same).
-        if let s, let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed >= 0 {
+        // A session Rivian marks free says so first. A price counts as billed only above zero: the feed sends "0" before it has priced a session,
+        // and a zero must not read as a charge that costs nothing (the web does the same). Not verified against a real session's mid-charge feed.
+        if s?.isFreeSession == true { return .free }
+        if let s, let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed > 0 {
             return .billed(amount: billed, currency: s.currentCurrency)
         }
         if let open = openCharge(charge, summary: summary) {
@@ -80,7 +82,7 @@ struct ChargingDetail: Equatable {
         if let est = s.estimatedCost, est > 0, let cur = usableCurrency(s.estimatedCurrency), sessionEnergyAgrees(s, summary: summary) {
             return .estimate(amount: est, currency: cur)
         }
-        return s.isFreeSession ? .free : nil
+        return nil
     }
 
     /// What the Now card's readout says was added: the battery's own gain so far over the pack size.

@@ -163,9 +163,14 @@ final class NowDetailTests: XCTestCase {
         XCTAssertEqual(charges.first?.energyAddedKwh, 58.1)
     }
 
-    func testAZeroPriceFromRivianIsStillBilled() throws {
+    func testAZeroPriceIsNotAPriceAndFreeComesFirst() throws {
         let sum = try charging()
-        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0.00", currentCurrency: "USD"), charge: nil)?.cost, .billed(amount: 0, currency: "USD"))
+        // Not priced yet: no figure (the row stays out), never a $0.00 charge.
+        XCTAssertNil(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0.00", currentCurrency: "USD"), charge: nil)?.cost)
+        XCTAssertNil(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0", currentCurrency: "USD"), charge: nil)?.cost)
+        // Marked free: Free, whatever the price field or an estimate says.
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0", currentCurrency: "USD", isFreeSession: true), charge: nil)?.cost, .free)
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, isFreeSession: true, estimatedCost: 3.4, estimatedCurrency: "USD"), charge: nil)?.cost, .free)
     }
 
     func testASpokenCardSaysWordsNotSymbols() throws {
