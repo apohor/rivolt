@@ -146,6 +146,34 @@ func TestShortPairFitsElevenMinutes(t *testing.T) {
 	if total := c.End.Sub(now); total > 11*time.Minute {
 		t.Errorf("the pair takes %s from the request, want 11 minutes or less", total)
 	}
+	// The queued charge begins where the drive left the battery, not at the schedule's value: the drive used some, so the charge starts lower.
+	if d.AddedSoC >= 0 || c.FromSoC != d.AddedSoC {
+		t.Errorf("drive moved the battery by %.2f, the queued charge starts %.2f away from the schedule; want the same, below zero", d.AddedSoC, c.FromSoC)
+	}
+	if d.FromSoC != 0 {
+		t.Errorf("the first run of a chain starts at the schedule's battery, got %.2f", d.FromSoC)
+	}
+	pd, _ := planSimFrom(d.Kind, d.Start, d.FromSoC)
+	pc, err := planSimFrom(c.Kind, c.Start, c.FromSoC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := pd.segs[len(pd.segs)-1]
+	if first := pc.segs[0]; math.Abs(first.socA-last.socB) > 0.001 {
+		t.Errorf("the charge begins at %.2f%%, the drive ended at %.2f%%", first.socA, last.socB)
+	}
+}
+
+// A run that does not follow another straight away starts from the schedule's battery, so a day of runs does not drift.
+func TestSimRunsApartDoNotCarryTheBattery(t *testing.T) {
+	var s SimState
+	s.Runs = []SimRun{{ID: "a", End: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC), FromSoC: 1, AddedSoC: -2}}
+	if got := s.chainSoC(s.Runs[0].End); got != -1 {
+		t.Errorf("a run starting as the last ends carries %.2f, want -1", got)
+	}
+	if got := s.chainSoC(s.Runs[0].End.Add(time.Second)); got != 0 {
+		t.Errorf("a run starting later carries %.2f, want 0", got)
+	}
 }
 
 // A short run is its own kind: a pod without this code knows neither kind, so it logs and skips the run rather than replanning the full run

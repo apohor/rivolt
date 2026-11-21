@@ -9,7 +9,7 @@ package rivian
 //
 // The loop epoch is untouched: scheduled drives and charges stay where they are, and a request is refused when its window would run into
 // one. The odometer is the one thing that cannot rejoin by itself (the sim adds miles the schedule does not know about), so every frame
-// after a run carries that run's miles. The battery steps back to the schedule's value when a run ends.
+// after a run carries that run's miles. The battery steps back to the schedule's value when a run ends, except that a run queued behind another begins where that one stopped.
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -86,6 +87,11 @@ type SimRun struct {
 	End   time.Time `json:"end"`
 	// AddedMi is the odometer the run adds: every frame at or after End carries it.
 	AddedMi float64 `json:"added_mi"`
+	// FromSoC is the SoC points the run starts above (or below) the schedule's battery: what the runs chained before it left. AddedSoC is
+	// what this run moves it by. A run booked to begin when the one before it ends (a queued pair) picks up where that one stopped; when the
+	// chain ends the battery steps back to the schedule's value, so nothing drifts over days.
+	FromSoC  float64 `json:"from_soc,omitempty"`
+	AddedSoC float64 `json:"added_soc,omitempty"`
 }
 
 // SimState is the stored document.
@@ -93,6 +99,17 @@ type SimState struct {
 	Runs []SimRun `json:"runs"`
 	// BaseMi is the miles of runs that aged out of Runs.
 	BaseMi float64 `json:"base_mi,omitempty"`
+}
+
+// chainSoC is the SoC offset a run starting at start inherits: the end state of the run that ends exactly then (a queued run begins at the
+// end of the one under way), zero otherwise.
+func (s SimState) chainSoC(start time.Time) float64 {
+	for _, r := range s.Runs {
+		if r.End.Equal(start) {
+			return r.FromSoC + r.AddedSoC
+		}
+	}
+	return 0
 }
 
 // offsetMi is the odometer a frame at t carries, not counting run skip (the run t belongs to; its own frames add the earlier ones).
@@ -157,10 +174,14 @@ type simPlan struct {
 	loop    int64
 	end     time.Time // wall
 	addedMi float64
+	addSoC  float64 // SoC points the run moves the battery by
 }
 
 // planSim builds the run that starts at wall time start, or says why it cannot.
-func planSim(kind SimKind, start time.Time) (simPlan, error) {
+func planSim(kind SimKind, start time.Time) (simPlan, error) { return planSimFrom(kind, start, 0) }
+
+// planSimFrom is planSim for a run that begins fromSoC points away from the schedule's battery (the run chained before it).
+func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error) {
 	kind, short := kind.base()
 	sp := specFor(short)
 	c, tl := sampleShared()
@@ -185,7 +206,7 @@ func planSim(kind SimKind, start time.Time) (simPlan, error) {
 			break
 		}
 	}
-	b := &sampleBuilder{rng: nil, t: cs, soc: park.socA, odo: park.odoA, at: park.path[0], limit: park.limit, plugged: false, userPriced: -1}
+	b := &sampleBuilder{rng: nil, t: cs, soc: math.Min(100, math.Max(0, park.socA+fromSoC)), odo: park.odoA, at: park.path[0], limit: park.limit, plugged: false, userPriced: -1}
 	wake := sampleSeg{kind: segParked, start: cs, end: cs.Add(sp.wake), step: sampleAwakeStep, socA: b.soc, socB: b.soc,
 		odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, power: "ready"}
 	b.add(wake)
@@ -215,7 +236,7 @@ func planSim(kind SimKind, start time.Time) (simPlan, error) {
 	if b.t.Add(simGuard).After(next) {
 		return simPlan{}, &SimRefusal{"a scheduled drive or charge starts too soon after a run would end; try again later"}
 	}
-	return simPlan{segs: b.segs, shift: shift, loop: k, end: b.t.Add(shift), addedMi: b.odo - park.odoA}, nil
+	return simPlan{segs: b.segs, shift: shift, loop: k, end: b.t.Add(shift), addedMi: b.odo - park.odoA, addSoC: b.soc - wake.socA}, nil
 }
 
 // parkSim adds a parked stretch of d at the builder's place.
@@ -268,11 +289,12 @@ func (c *SimControl) Start(ctx context.Context, kind SimKind, opts SimOpts) (Sim
 		if unfinished > 0 && (!opts.Queue || unfinished > 1) {
 			return st, ErrSimBusy
 		}
-		p, err := planSim(kind, start)
+		from := st.chainSoC(start)
+		p, err := planSimFrom(kind, start, from)
 		if err != nil {
 			return st, err
 		}
-		run = SimRun{ID: uuid.NewString(), Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi)}
+		run = SimRun{ID: uuid.NewString(), Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi), FromSoC: from, AddedSoC: p.addSoC}
 		st.Runs = append(st.Runs, run)
 		kept := st.Runs[:0]
 		for _, r := range st.Runs {
@@ -359,7 +381,7 @@ func (f *ReplayFeed) withSim(ctx context.Context, from, to time.Time, in []State
 		if !r.Start.Before(to) || !r.End.After(from) {
 			continue
 		}
-		p, err := planSim(r.Kind, r.Start)
+		p, err := planSimFrom(r.Kind, r.Start, r.FromSoC)
 		if err != nil {
 			f.logger.Warn("replay sim: run cannot be rebuilt", "run", r.ID, "err", err.Error())
 			continue
