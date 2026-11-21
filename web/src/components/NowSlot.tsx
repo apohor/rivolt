@@ -2,6 +2,7 @@ import { chargeFinishMs, chargerLabel, clock, type NowView } from "../lib/nowSta
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
 import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../lib/preferences";
+import type { LiveSession } from "../lib/api";
 import { ParkedMap } from "../map/ParkedMap";
 import { inDemo } from "../lib/demo";
 
@@ -46,7 +47,7 @@ export type SlotWeather = { temp_c: number; condition?: string; wind_kph?: numbe
 
 const KM_PER_MI = 1.609344;
 // `est`: a figure we worked out ourselves (not the truck's own). The keyed card says so in words once instead of marking each with a sign; the unkeyed card marks each derived cell "est." and has no heading.
-type Stat = { k: string; v: string; note?: string; est?: boolean };
+export type Stat = { k: string; v: string; note?: string; est?: boolean };
 
 const COST_NOTE: Record<string, string> = {
   rivian: "billed by Rivian",
@@ -104,6 +105,23 @@ export function slotStats(i: SlotInput): Stat[] {
     if (d.effMiPerKwh != null && d.effMiPerKwh > 0) out.push({ k: "Efficiency", v: unit === "km" ? `${(d.effMiPerKwh * KM_PER_MI).toFixed(1)} km/kWh` : `${d.effMiPerKwh.toFixed(1)} mi/kWh` });
     if (d.energy_used_kwh != null && d.energy_used_kwh > 0) out.push({ k: "Energy used", v: `${d.energy_used_kwh.toFixed(1)} kWh` });
   }
+  return out;
+}
+
+// Rivian's own price for the open session, when its latest read has one above zero (a zero is the feed before it has priced the session; a free
+// session has no price): newer than the charge row's snapshot of it, so the Now card and the Live page, reading the same session, say the same cost.
+export function freshCharge(charge: SlotCharge | null, ls: LiveSession | null): SlotCharge | null {
+  const price = ls && !ls.is_free_session ? Number(ls.current_price) : 0;
+  if (!(price > 0)) return charge;
+  return { started_at: "", ...charge, cost: price, currency: ls?.current_currency || charge?.currency, cost_source: "rivian", cost_is_estimate: false };
+}
+
+// The Live page's figures for a charge: the Now card's own (slotStats: the truck's session when it reports one, else worked out from the battery),
+// plus the time left (the truck's, else the card's estimate). No "Plugged in" (the Live page has the graph's start for it).
+export function liveStats(i: SlotInput, remainingSec: number): Stat[] {
+  const out = slotStats({ ...i, soft: true });
+  if (remainingSec > 0) out.push({ k: "Remaining", v: timeLeft(remainingSec / 3600, true) });
+  else if (i.view.etaHours != null) out.push({ k: "Remaining", v: timeLeft(i.view.etaHours, true), est: i.view.etaSource !== "truck" });
   return out;
 }
 
@@ -348,7 +366,7 @@ export default function NowSlot(i: SlotInput) {
 }
 
 // Elapsed and Plugged in are clock facts, out of the count: one heading says so when every other figure is our own estimate (both grids use this rule).
-function allEstimated(stats: Stat[]) {
+export function allEstimated(stats: Stat[]) {
   const counted = stats.filter((s) => s.k !== "Elapsed" && s.k !== "Plugged in");
   return counted.length > 0 && counted.every((s) => s.est);
 }
