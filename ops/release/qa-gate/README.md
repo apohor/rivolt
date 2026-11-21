@@ -45,6 +45,10 @@ The sim exists on the preview admin site only (`RIVOLT_SIM_CONTROLS` with `RIVOL
 
 Cards each run shows: the short drive shows the drive card (speed, distance, drive graph, navigation to the errand) then Activity as one drive of about 3.6 mi; the short charge shows the **fast** charging card (kW curve falling with the taper, pack temperature line moving). The long 7.6 kW run shows the **home** AC card (flat kW, plugged, "charging complete" tail), so the home card is only seen on the long run on main.
 
+**The short charge is a test fixture.** At a high starting SoC its power is more than a real truck would take there (the sample truck usually sits above 70%, so there is no cap). The gate checks that power, energy, rate, range and cost agree with each other and that the card and graph move, not that the numbers are what a real truck would show.
+
+**The runner books the pair.** `--sim` signs in to the admin site (Cloudflare Access service token from the Keychain item `rivolt.qa-access-preview`, the same preview login), books `drive?short=1` then `charge?short=1&queue=1`, and adds PASS/FAIL lines: both kinds end in `_short`, the charge starts when the drive ends, the pair fits 11 minutes. It books only when `/api/health` shows one version on every read before the screens; otherwise a FAIL line says why. `STAGE` lines mark the bookings, and the sim start and end times are in the lines' details.
+
 **Rollout trap.** The short variants are separate run kinds (`drive_short`, `charge_short`). A preview pod without that code does not know the kind, logs "run cannot be rebuilt" and shows the schedule instead of the run, so a half-rolled preview shows two different trucks. Before the gate books a short run, check that every preview pod reports the rc (`/api/health` three times in a row, as the runner's version gate does).
 
 **Later: a second sample truck** would let a drive and a charge play at the same time, so the pair would take about 6 minutes instead of 11. It needs a second sample vehicle in the replay feed with its own place and schedule, its own sim document key, and the admin routes taking a truck id.

@@ -13,6 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { bookPair, pairLines } from "./sim.mjs";
 import { evaluateCapture, stateLines, tally, buildDiff, diffText, renderSheet, ignorable, toRegExp, FAIL, PASS } from "./lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,6 +32,9 @@ const { values: a } = parseArgs({
     keychain: { type: "string", default: "rivolt-preview-login" },
     "no-signout": { type: "boolean", default: false },
     reads: { type: "string", default: "8" },
+    sim: { type: "boolean", default: false },
+    "admin-base": { type: "string" },
+    "access-keychain": { type: "string", default: "rivolt.qa-access-preview" },
   },
 });
 if (!a.out) { console.error("usage: run.mjs --base URL --out DIR [options]; see the header of this file"); process.exit(2); }
@@ -78,11 +82,10 @@ async function versionGate() {
   return { version: got, want };
 }
 
-async function signIn(browser) {
+// The sign-in form on root (the app or the admin site), in an open page.
+async function signInForm(pg, root) {
   const { user, pass } = credentials();
-  const ctx = await browser.newContext();
-  const pg = await ctx.newPage();
-  await pg.goto(`${base}/login`, { waitUntil: "domcontentloaded" });
+  await pg.goto(`${root}/login`, { waitUntil: "domcontentloaded" });
   const email = pg.locator("input[autocomplete=username]");
   const choose = pg.getByRole("button", { name: /Continue with Email/ });
   await email.or(choose).first().waitFor({ timeout: 30000 });
@@ -91,9 +94,26 @@ async function signIn(browser) {
   await pg.locator("input[autocomplete=current-password]").fill(pass);
   await pg.locator("button[type=submit]").click();
   await pg.waitForURL((u) => !/login|auth/.test(u.pathname), { timeout: 30000 });
+}
+
+async function signIn(browser) {
+  const ctx = await browser.newContext();
+  await signInForm(await ctx.newPage(), base);
   const state = await ctx.storageState();
   await ctx.close();
   return state;
+}
+
+// Books the short sim pair on the preview admin site (behind Cloudflare Access: a service token from the Keychain, never printed) and returns
+// the check lines. The drive plays about 6 min, the charge queues behind it; the screens run while they play.
+async function bookSim(browser, stage) {
+  const adminBase = (a["admin-base"] ?? base.replace("//preview.", "//admin-preview.")).replace(/\/$/, "");
+  const sec = (args) => execFileSync("security", args, { encoding: "utf8" });
+  const id = /"acct"<blob>="([^"]*)"/.exec(sec(["find-generic-password", "-s", a["access-keychain"]]))?.[1];
+  const token = { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": sec(["find-generic-password", "-s", a["access-keychain"], "-w"]).trim() };
+  const { first, second } = await bookPair({ browser, adminBase, token, login: (pg, root) => signInForm(pg, root) });
+  stage("sim pair booked");
+  return pairLines(first, second);
 }
 
 function watch(pg, bag) {
@@ -181,6 +201,10 @@ const stage = (name) => { const at = new Date().toISOString(); stages.push({ nam
 stage("start");
 const vg = await versionGate();
 const before = await healthSample();
+let simLines = [];
+const steady = new Set(before).size === 1 && before[0] && (!vg.want || String(before[0]).replace(/^v/, "") === vg.want || String(before[0]).endsWith(vg.want));
+if (a.sim && !steady) simLines = [{ id: "sim:book", screen: "sim", vp: "-", scheme: "-", check: "book", status: FAIL, detail: `not booked: preview is not steady on one version (${[...new Set(before)].join(", ")})` }];
+else if (a.sim) { try { const b0 = await pw[a.browser].launch(); simLines = await bookSim(b0, stage); await b0.close(); } catch (e) { simLines = [{ id: "sim:book", screen: "sim", vp: "-", scheme: "-", check: "book", status: FAIL, detail: String(e.message).split("\n")[0] }]; } }
 stage("version");
 const browser = await pw[a.browser].launch();
 let state;
@@ -196,7 +220,7 @@ const invalid = seen.length > 1 || seen.includes(null) ? `versions seen during t
 const lines = [];
 lines.push({ id: "version", screen: "version", vp: "-", scheme: "-", check: "version", status: !vg.version ? FAIL : vg.want && vg.version !== vg.want ? FAIL : PASS, detail: `${vg.version ?? "unreachable"}${vg.want ? ` (expected ${vg.want})` : " (no --expect-version)"}` });
 for (const c of caps) lines.push(...evaluateCapture(manifest, manifest.screens.find((s) => s.id === c.screen), c));
-lines.push(...stateLines(manifest, caps));
+lines.push(...stateLines(manifest, caps), ...simLines);
 if (!a["no-signout"] && manifest.signOut) lines.push(...(await signOut(browser, state)));
 await browser.close();
 stage("sign-out");
