@@ -155,10 +155,11 @@ func decorateLiveSession(sess *rivian.LiveSession, cfg settings.ChargingConfig) 
 		return resp
 	}
 	// Only compute when we have both a configured rate and observed
-	// energy. Don't overwrite a Rivian-reported price — those come
+	// energy, and the session's power is an AC charge's (a fast charge on
+	// another network has a price of its own; this path has no place). Don't overwrite a Rivian-reported price — those come
 	// from RAN / Wall Charger sessions where the real billing rate
 	// is authoritative.
-	if cfg.HomePricePerKWh > 0 && sess.TotalChargedEnergyKWh > 0 && liveUnpriced(sess) {
+	if cfg.HomePricePerKWh > 0 && sess.TotalChargedEnergyKWh > 0 && liveUnpriced(sess) && rivian.HomeRateFitsPower(sess.PowerKW) {
 		resp.EstimatedCost = cfg.HomePricePerKWh * sess.TotalChargedEnergyKWh
 		resp.EstimatedCurrency = cfg.HomeCurrency
 	}

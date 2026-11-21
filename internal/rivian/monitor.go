@@ -4203,8 +4203,11 @@ type ChargeNow struct {
 // threshold) that is not known to be away from home. A fast charge on another network, or an AC charge at a place that is not
 // home, has a price of its own that we do not know, so no estimate is better than a home-rate one.
 func (c ChargeNow) HomeRateApplies() bool {
-	return c.PeakKW < l2PowerThresholdKW && c.Place != PlaceAway
+	return HomeRateFitsPower(c.PeakKW) && c.Place != PlaceAway
 }
+
+// HomeRateFitsPower is the power half of HomeRateApplies, for a path that has only a session's reading: below the L2 threshold.
+func HomeRateFitsPower(kw float64) bool { return kw < l2PowerThresholdKW }
 
 // LiveDrive is the wire-friendly snapshot of an in-flight drive
 // session — the recorder's internal `liveDrive` accumulator
