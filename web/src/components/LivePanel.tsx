@@ -543,7 +543,8 @@ function ChargingDetail({
   const energyKwh = ls ? ls.total_charged_energy_kwh : 0;
   const elapsed = ls ? ls.time_elapsed_seconds : 0;
   const remaining = ls ? ls.time_remaining_seconds : 0;
-  const price = ls && ls.current_price ? ls.current_price : "";
+  // A zero price is not a price: the feed sends "0" before it has priced a session (and on free ones, which is_free_session says), so it must not print as "0 USD".
+  const price = ls && Number(ls.current_price) > 0 ? ls.current_price : "";
   const currency = ls ? ls.current_currency : "";
   const targetPct = state.charge_target_pct;
   const soc = ls && ls.soc_pct > 0 ? ls.soc_pct : state.battery_level_pct;
