@@ -14,7 +14,7 @@ const OLD_PLANS = /free tier and (a )?(paid )?(Rivolt )?Pro\b(?! tier)|paid plan
 // Files that keep the old wording on purpose (class E: historical or frozen).
 const ALLOW = new Set([
   "web/src/content/terms-2026-10-23.md", // the previous Terms stay reachable, unchanged
-  "web/src/content/terms.md", // section 5 changes in its own PR, which needs the owner's approval; that PR removes this line
+  "web/src/content/terms-2026-11-17.md", // the Terms as published on launch day, frozen
   "docs/PRO_LAUNCH_COPY.md", // the approved launch notice, byte-identical to internal/launchnotice/copy.go
 ]);
 
