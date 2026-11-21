@@ -53,6 +53,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Certificate revoke selection tests
         run: python3 -I ios/test_revoke_runner_dev_certs.py -v
+      - name: Team check tests
+        run: python3 -I ios/test_apple_team_check.py -v
       - name: App Store listing text (limits, no credentials in the review notes)
         run: |
           python3 -I ios/store/test_check_listing.py -v
