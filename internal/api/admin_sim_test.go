@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -70,13 +71,16 @@ func TestAdminSimStartAnswers(t *testing.T) {
 	}{
 		"booked":  {nil, http.StatusOK},
 		"busy":    {rivian.ErrSimBusy, http.StatusConflict},
-		"refused": {&rivian.SimRefusal{Reason: "the sample truck is away from home"}, http.StatusConflict},
+		"refused": {&rivian.SimRefusal{Reason: "the sample truck is away from home", FreeAt: time.Date(2026, 1, 1, 2, 35, 0, 0, time.UTC)}, http.StatusConflict},
 		"broken":  {context.DeadlineExceeded, http.StatusInternalServerError},
 	} {
 		rec := httptest.NewRecorder()
 		handleAdminSimStart(fakeSim{err: tc.err}, rivian.SimCharge)(rec, httptest.NewRequest(http.MethodPost, "/", nil))
 		if rec.Code != tc.code {
 			t.Errorf("%s: %d, want %d (%s)", name, rec.Code, tc.code, rec.Body.String())
+		}
+		if name == "refused" && !strings.Contains(rec.Body.String(), "free_at") {
+			t.Errorf("free_at missing: %s", rec.Body.String())
 		}
 		if name == "refused" && !strings.Contains(rec.Body.String(), "away from home") {
 			t.Errorf("refusal reason missing: %s", rec.Body.String())

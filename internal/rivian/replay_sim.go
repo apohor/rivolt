@@ -96,6 +96,8 @@ type SimRun struct {
 	// chain ends the battery eases back to the schedule's value over simEase, so there is no step and nothing drifts over days.
 	FromSoC  float64 `json:"from_soc,omitempty"`
 	AddedSoC float64 `json:"added_soc,omitempty"`
+	// EndSoC is the battery the run itself ends at (the fast slice may end above the car's limit, which the ease hands back smoothly).
+	EndSoC float64 `json:"end_soc,omitempty"`
 }
 
 // SimState is the stored document.
@@ -109,12 +111,7 @@ type SimState struct {
 // easing linearly to zero over simEase so the battery rejoins the schedule without a step and without drifting over days. A run that begins
 // as the last one ends (the queued pair) starts from the full offset.
 func (s SimState) easedSoC(t time.Time) float64 {
-	var last *SimRun
-	for i := range s.Runs {
-		if r := &s.Runs[i]; !r.End.After(t) && (last == nil || r.End.After(last.End)) {
-			last = r
-		}
-	}
+	last := s.lastRunBefore(t)
 	if last == nil {
 		return 0
 	}
@@ -123,6 +120,33 @@ func (s SimState) easedSoC(t time.Time) float64 {
 		return 0
 	}
 	return (last.FromSoC + last.AddedSoC) * (1 - float64(age)/float64(simEase))
+}
+
+// lastRunBefore is the run that ended last at or before t, nil when none did.
+func (s SimState) lastRunBefore(t time.Time) *SimRun {
+	var last *SimRun
+	for i := range s.Runs {
+		if r := &s.Runs[i]; !r.End.After(t) && (last == nil || r.End.After(last.End)) {
+			last = r
+		}
+	}
+	return last
+}
+
+// easedBattery is a schedule frame's battery with the ease applied, held at the car's charge limit while the ease lasts. A run that itself
+// ended above the limit (a fast slice on a truck already near it) gives that overshoot back along the same line as the offset, so the cap
+// does not step either.
+func (s SimState) easedBattery(t time.Time, sched, limit float64) float64 {
+	d := s.easedSoC(t)
+	if d == 0 || sched <= 0 {
+		return sched
+	}
+	pct := math.Min(100, math.Max(0, sched+d))
+	ceil := math.Max(limit, sched)
+	if last := s.lastRunBefore(t); last != nil && last.EndSoC > limit {
+		ceil += (last.EndSoC - limit) * (1 - float64(t.Sub(last.End))/float64(simEase))
+	}
+	return math.Min(pct, ceil)
 }
 
 // offsetMi is the odometer a frame at t carries, not counting run skip (the run t belongs to; its own frames add the earlier ones).
@@ -148,7 +172,11 @@ type SimStore interface {
 var ErrSimBusy = errors.New("a simulated run is already under way")
 
 // SimRefusal is a request the sample truck cannot take right now; Reason is for the operator.
-type SimRefusal struct{ Reason string }
+type SimRefusal struct {
+	Reason string
+	// FreeAt is when the truck is free for the request (the end of the scheduled drive in the way), zero when it is not a matter of time.
+	FreeAt time.Time
+}
 
 func (e *SimRefusal) Error() string { return e.Reason }
 
@@ -187,6 +215,7 @@ type simPlan struct {
 	loop    int64
 	end     time.Time // wall
 	addedMi float64
+	endSoC  float64
 	addSoC  float64 // SoC points the run's end sits from the schedule's battery at that moment, beyond fromSoC
 	// The drive's places: where it starts and ends, and where it turns.
 	origin, errand         samplePoint
@@ -205,11 +234,11 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 	shift := tl.loopStart(k).Sub(tl.start)
 	cs := start.Add(-shift) // corpus time
 	if cs.Before(tl.start) || !cs.Before(tl.end) {
-		return simPlan{}, &SimRefusal{"the sample truck's day is wrapping around; try again in a few minutes"}
+		return simPlan{}, &SimRefusal{Reason: "the sample truck's day is wrapping around; try again in a few minutes"}
 	}
 	i := sort.Search(len(c.segs), func(i int) bool { return c.segs[i].end.After(cs) })
 	if i >= len(c.segs) {
-		return simPlan{}, &SimRefusal{"the sample truck's day is wrapping around; try again in a few minutes"}
+		return simPlan{}, &SimRefusal{Reason: "the sample truck's day is wrapping around; try again in a few minutes"}
 	}
 	cur := c.segs[i]
 	origin := cur.path[0]
@@ -217,24 +246,24 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 	if short {
 		// A short run is taken wherever the routine has the truck, except on the road: a moving truck cannot be handed to a run without a jump.
 		if cur.kind == segDrive {
-			return simPlan{}, &SimRefusal{fmt.Sprintf("the sample truck is on a scheduled drive until %s; try again after", cur.end.Add(shift).UTC().Format("15:04Z"))}
+			return simPlan{}, &SimRefusal{Reason: fmt.Sprintf("the sample truck is on a scheduled drive until %s; try again after", cur.end.Add(shift).UTC().Format("15:04Z")), FreeAt: cur.end.Add(shift)}
 		}
 	} else {
 		if cur.kind != segParked {
-			return simPlan{}, &SimRefusal{"the sample truck is driving or charging on its schedule; try again when it is parked"}
+			return simPlan{}, &SimRefusal{Reason: "the sample truck is driving or charging on its schedule; try again when it is parked"}
 		}
 		if !atHome {
-			return simPlan{}, &SimRefusal{"the sample truck is away from home; try again when it is back"}
+			return simPlan{}, &SimRefusal{Reason: "the sample truck is away from home; try again when it is back"}
 		}
 	}
-	// The routine's next drive or charge after this stretch (a charge the run pre-empts does not count).
-	next := tl.end
+	// The routine's next drive after this stretch. A scheduled charge inside the window does not refuse the run: the run pre-empts it, as it
+	// does one under way, and the battery rejoins the schedule's.
+	next, nextEnd := tl.end, tl.end
 	for _, s := range c.segs[i+1:] {
-		if s.kind == segParked || (cur.kind == segCharge && s.kind == segCharge) {
-			continue
+		if s.kind == segDrive {
+			next, nextEnd = s.start, s.end
+			break
 		}
-		next = s.start
-		break
 	}
 	soc := scheduleSoC(c, cs)
 	errand, errandName, originName, back := sp.errand, sp.errandName, "Rose Bowl Stadium", origin
@@ -250,7 +279,7 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 	switch kind {
 	case SimDrive:
 		if b.soc < 25 {
-			return simPlan{}, &SimRefusal{"the sample truck's battery is too low for a drive"}
+			return simPlan{}, &SimRefusal{Reason: "the sample truck's battery is too low for a drive"}
 		}
 		// The cruise speed is the full drive's whatever the variant: the full route's miles over its 24 minutes.
 		_, fullMiles := sampleRoad([]samplePoint{SampleHome, specFor(false).errand, SampleHome})
@@ -259,7 +288,7 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 		b.parkSim(sp.driveTail, "ready")
 	case SimCharge:
 		if b.soc+sp.chargeGain > 100 {
-			return simPlan{}, &SimRefusal{"the sample truck's battery is full"}
+			return simPlan{}, &SimRefusal{Reason: "the sample truck's battery is full"}
 		}
 		b.charge(b.soc+sp.chargeGain, sp.chargeKW, sp.fast)
 		if sp.fast {
@@ -281,12 +310,12 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 		}
 		b.parkSim(sp.cableTail, "ready") // cable out
 	default:
-		return simPlan{}, &SimRefusal{"unknown run: " + string(kind)}
+		return simPlan{}, &SimRefusal{Reason: "unknown run: " + string(kind)}
 	}
 	if b.t.Add(simGuard).After(next) {
-		return simPlan{}, &SimRefusal{fmt.Sprintf("a scheduled drive or charge starts at %s, too soon after a run would end; try again after", next.Add(shift).UTC().Format("15:04Z"))}
+		return simPlan{}, &SimRefusal{Reason: fmt.Sprintf("a scheduled drive starts at %s, too soon after a run would end; try again after it ends at %s", next.Add(shift).UTC().Format("15:04Z"), nextEnd.Add(shift).UTC().Format("15:04Z")), FreeAt: nextEnd.Add(shift)}
 	}
-	return simPlan{segs: b.segs, shift: shift, loop: k, end: b.t.Add(shift), addedMi: b.odo - cur.odoA, addSoC: b.soc - scheduleSoC(c, b.t) - fromSoC, origin: origin, errand: errand, originName: originName, errandName: errandName}, nil
+	return simPlan{segs: b.segs, shift: shift, loop: k, end: b.t.Add(shift), addedMi: b.odo - cur.odoA, endSoC: b.soc, addSoC: b.soc - scheduleSoC(c, b.t) - fromSoC, origin: origin, errand: errand, originName: originName, errandName: errandName}, nil
 }
 
 // parkSim adds a parked stretch of d at the builder's place.
@@ -344,7 +373,7 @@ func (c *SimControl) Start(ctx context.Context, kind SimKind, opts SimOpts) (Sim
 		if err != nil {
 			return st, err
 		}
-		run = SimRun{ID: uuid.NewString(), Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi), FromSoC: from, AddedSoC: p.addSoC}
+		run = SimRun{ID: uuid.NewString(), Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi), FromSoC: from, AddedSoC: p.addSoC, EndSoC: round2(p.endSoC)}
 		st.Runs = append(st.Runs, run)
 		kept := st.Runs[:0]
 		for _, r := range st.Runs {
@@ -425,8 +454,7 @@ func (f *ReplayFeed) withSim(ctx context.Context, from, to time.Time, in []State
 		if st.OdometerKm > 0 {
 			st.OdometerKm += doc.offsetMi(st.At, "") / kmToMi
 		}
-		if d := doc.easedSoC(st.At); d != 0 && st.BatteryLevelPct > 0 {
-			pct := math.Min(100, math.Max(0, st.BatteryLevelPct+d))
+		if pct := doc.easedBattery(st.At, st.BatteryLevelPct, st.ChargeTargetPct); pct != st.BatteryLevelPct {
 			st.DistanceToEmpty *= pct / st.BatteryLevelPct
 			st.BatteryLevelPct = pct
 		}
