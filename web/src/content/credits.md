@@ -6,7 +6,7 @@
 
 Open-Meteo's forecasts are built from national weather services' models, including NOAA's GFS and RRFS (US government works) and Environment and Climate Change Canada's GEM (contains information licensed under the [Open Government Licence – Canada](https://open.canada.ca/en/open-government-licence-canada)). Data processed by Open-Meteo.com. Rivolt is not endorsed by Open-Meteo, NOAA or Environment and Climate Change Canada.
 
-**Rain forecast.** The rain and snow tags on a planned route come from the Open-Meteo forecast above, read for each leg at the hour you are expected to drive it.
+**Rain forecast.** The rain and snow tags on a planned route come from the Open-Meteo forecast above, read for each leg at the hour you are expected to drive it. Where a stop says rain or snow is likely at arrival, that comes from NOAA's RRFS forecast radar (US government work, public domain), read in our own servers for the places and hours of your route, over the contiguous United States only. It says how likely wet weather is, never how much, and is not an official NWS product. Rivolt is not endorsed by or affiliated with NOAA or the National Weather Service.
 
 **Maps and places.** Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, available under the Open Database Licence.
 
