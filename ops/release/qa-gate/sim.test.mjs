@@ -97,6 +97,6 @@ test("a refusal with free_at prints when to book again", () => {
   assert.equal(nextBookable({ free_at: "2026-11-21T11:34:00Z" }), "; next bookable at 11:34Z");
   assert.equal(nextBookable({ error: "busy" }), "");
   assert.equal(nextBookable({ free_at: "nonsense" }), "");
-  const ls = pairLines({ first: { status: 409, body: { error: "on a scheduled drive", free_at: "2026-11-21T11:34:00Z" } }, second: { status: 0, body: {} } });
+  const ls = pairLines({ status: 409, body: { error: "on a scheduled drive", free_at: "2026-11-21T11:34:00Z" } }, { status: 0, body: {} });
   assert.match(ls.find((l) => l.id === "sim:drive booked").detail, /next bookable at 11:34Z/);
 });
