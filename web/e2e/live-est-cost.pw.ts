@@ -31,3 +31,19 @@ for (const [name, extra, expected] of [
     }
   });
 }
+
+for (const [name, extra, expected] of [
+  ["a zero price before it is priced", { is_free_session: false }, "—"],
+  ["a free session", { is_free_session: true }, "free"],
+  ["a real price", { current_price: "4.20" }, "4.20 USD"],
+] as const) {
+  test(`@webkit live card, fast charge with ${name}: the Price cell never reads 0 USD`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await stubApi(page);
+    await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FULL_STATE) }));
+    await page.route(`**/api/live-session/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...SESSION, active: true, power_kw: 150, total_charged_energy_kwh: 20, current_price: "0", current_currency: "USD", ...extra }) }));
+    await page.goto("/live");
+    const cell = page.getByText("Price", { exact: true }).locator("xpath=following-sibling::div[1]");
+    await expect(cell).toHaveText(expected);
+  });
+}
