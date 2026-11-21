@@ -8,7 +8,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 )
 
 func TestParseFile(t *testing.T) {
@@ -100,8 +102,11 @@ func TestBootAndReload(t *testing.T) {
 
 func TestBootNoFileNoEnvAndBadEnv(t *testing.T) {
 	s, err := New(filepath.Join(t.TempDir(), "nope"), "", nil)
-	if err != nil || len(s.Keys()) != 0 || s.Source() != SourceNone {
-		t.Fatalf("no file, no env: %v %v %s", s.Keys(), err, s.Source())
+	if err != nil || len(s.Keys()) != 0 || s.Source() != SourceInvalid || s.Ready() {
+		t.Fatalf("file absent and no env: nothing to serve, so not ready: %v %v %s", s.Keys(), err, s.Source())
+	}
+	if s, err := New("", "", nil); err != nil || s.Source() != SourceNone || !s.Ready() {
+		t.Fatalf("no file configured, no env: empty list, ready: %v %v", s.Source(), err)
 	}
 	if _, err := New("", "good,Bad-Key", nil); err == nil || !strings.Contains(err.Error(), "RIVOLT_DESIGN_PREVIEW") {
 		t.Fatalf("a bad env list must be an error, got %v", err)
@@ -172,4 +177,110 @@ func TestConcurrentReaders(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
+}
+
+func info(t *testing.T, s *Store) (sha, source string) {
+	t.Helper()
+	ch := make(chan prometheus.Metric, 4)
+	s.info.Collect(ch)
+	close(ch)
+	var m dto.Metric
+	n := 0
+	for x := range ch {
+		n++
+		_ = x.Write(&m)
+		for _, l := range m.Label {
+			switch l.GetName() {
+			case "sha":
+				sha = l.GetValue()
+			case "source":
+				source = l.GetValue()
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("info series = %d", n)
+	}
+	return
+}
+
+// A pod that starts with a present but invalid file serves nothing as if intended: source invalid, not ready, even with a valid env.
+// The env is for an ABSENT file only. The next poll with a good file recovers it.
+func TestBootPresentInvalidFileIsNotReady(t *testing.T) {
+	for _, env := range []string{"", "x,y"} {
+		p := filepath.Join(t.TempDir(), "keys")
+		write(t, p, "design_preview=now v2\n")
+		s, err := New(p, env, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Ready() || s.Source() != SourceInvalid || len(s.Keys()) != 0 {
+			t.Fatalf("env %q: present invalid file at boot: ready=%v source=%s keys=%v", env, s.Ready(), s.Source(), s.Keys())
+		}
+		if _, src := info(t, s); src != SourceInvalid {
+			t.Fatalf("info source = %s", src)
+		}
+		if testutil.ToFloat64(s.rejected) != 1 {
+			t.Fatal("rejected gauge should be 1")
+		}
+		// Fixed: ready again within one poll.
+		write(t, p, "design_preview=a,b\n")
+		s.Reload()
+		if !s.Ready() || s.Source() != SourceFile || !reflect.DeepEqual(s.Keys(), []string{"a", "b"}) {
+			t.Fatalf("after the fix: ready=%v source=%s keys=%v", s.Ready(), s.Source(), s.Keys())
+		}
+		if testutil.ToFloat64(s.rejected) != 0 {
+			t.Fatal("rejected gauge should clear")
+		}
+		// And broken again while running: the last good list stays, still ready.
+		write(t, p, "")
+		s.Reload()
+		if !s.Ready() || s.Source() != SourceFile || !reflect.DeepEqual(s.Keys(), []string{"a", "b"}) {
+			t.Fatalf("bad while running: ready=%v source=%s keys=%v", s.Ready(), s.Source(), s.Keys())
+		}
+	}
+}
+
+// Absent file with a valid env: the env list, ready. A bad file arriving later does not take a running pod out of service.
+func TestAbsentFileUsesEnvAndLaterBadFileKeepsIt(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "keys")
+	s, _ := New(p, "x,y", nil)
+	if !s.Ready() || s.Source() != SourceEnv || !reflect.DeepEqual(s.Keys(), []string{"x", "y"}) {
+		t.Fatalf("absent + env: %v %s %v", s.Ready(), s.Source(), s.Keys())
+	}
+	write(t, p, "design_preview=Bad\n")
+	s.Reload()
+	if !s.Ready() || s.Source() != SourceEnv || !reflect.DeepEqual(s.Keys(), []string{"x", "y"}) {
+		t.Fatalf("bad file after an env boot: %v %s %v", s.Ready(), s.Source(), s.Keys())
+	}
+}
+
+// A bad content is counted and logged once, however many polls see it; a different bad content counts again; a good read resets.
+func TestBadContentCountedOnce(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "keys")
+	write(t, p, "design_preview=a\n")
+	s, _ := New(p, "", nil)
+	write(t, p, "design_preview=A\n")
+	for i := 0; i < 20; i++ {
+		s.Reload()
+	}
+	if n := testutil.ToFloat64(s.errs); n != 1 {
+		t.Fatalf("20 polls of one bad content counted %v, want 1", n)
+	}
+	if testutil.ToFloat64(s.rejected) != 1 || !reflect.DeepEqual(s.Keys(), []string{"a"}) {
+		t.Fatal("gauge 1 and the last good list stays")
+	}
+	write(t, p, "design_preview=B\n")
+	s.Reload()
+	s.Reload()
+	if n := testutil.ToFloat64(s.errs); n != 2 {
+		t.Fatalf("a different bad content counts again: %v", n)
+	}
+	write(t, p, "design_preview=a\n")
+	s.Reload()
+	write(t, p, "design_preview=B\n")
+	s.Reload()
+	if n := testutil.ToFloat64(s.errs); n != 3 {
+		t.Fatalf("the same bad content after a good read counts again: %v", n)
+	}
 }

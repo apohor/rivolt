@@ -585,6 +585,7 @@ func runServer() {
 	}
 	appMetrics.Registry().MustRegister(liveKeys.Collectors()...)
 	role.start("live_keys_poll", func() { liveKeys.Run(ctx.Done(), livekeys.PollInterval) })
+	api.SetDesignKeysReady(liveKeys.Ready) // a pod with no good design-key list is not ready (see internal/livekeys)
 	logger.Info("design keys loaded", "keys", strings.Join(liveKeys.Keys(), ","), "sha", liveKeys.SHA(), "source", liveKeys.Source())
 	// The chart's image tag, projected by the chart (the file /api/health reads); empty off-cluster, then the stamp stands in.
 	podTag, _ := os.ReadFile("/etc/podinfo/image-tag")

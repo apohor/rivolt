@@ -2,8 +2,10 @@
        checksum/config annotation in rivolt.podTemplate, so changing it never rolls a pod. An empty string is valid and means every key off;
        leave liveKeys.designPreview null to not render this at all (the process then uses RIVOLT_DESIGN_PREVIEW). */}}
 {{- if kindIs "string" .Values.liveKeys.designPreview }}
-{{- if not (regexMatch "^[a-z0-9_, ]*$" .Values.liveKeys.designPreview) }}
-{{- fail "liveKeys.designPreview: keys are comma-separated and use only a-z, 0-9 and _" }}
+{{- /* The app's rule (internal/livekeys ValidKeys): every key is [a-z0-9_]+; spaces only around the commas. A space inside a key is refused here,
+       not left for every pod to reject the whole file. */}}
+{{- if not (regexMatch "^ *([a-z0-9_]+ *(, *[a-z0-9_]+ *)*)?$" .Values.liveKeys.designPreview) }}
+{{- fail "liveKeys.designPreview: keys are comma-separated and use only a-z, 0-9 and _ (no space inside a key)" }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap

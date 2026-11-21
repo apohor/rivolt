@@ -57,6 +57,19 @@ var draining atomic.Bool
 // StartDrain makes /readyz answer 503 from now on. Idempotent.
 func StartDrain() { draining.Store(true) }
 
+// designKeysReady, when set, is asked on every /readyz: a pod with no good design-key list (internal/livekeys, source "invalid") is not ready,
+// so a roll stalls with the old pods serving instead of new pods serving every key off. It recovers on the poll after the file is fixed.
+var designKeysReady atomic.Pointer[func() bool]
+
+// SetDesignKeysReady wires the live design-key store into /readyz. A nil fn removes the check.
+func SetDesignKeysReady(fn func() bool) {
+	if fn == nil {
+		designKeysReady.Store(nil)
+		return
+	}
+	designKeysReady.Store(&fn)
+}
+
 // handleReadyz is the kubelet readiness endpoint. Pings Postgres
 // with a 500ms timeout — every request touches it, so a pod with no
 // DB cannot meaningfully serve. Failing here pulls the pod from the
@@ -73,6 +86,12 @@ func handleReadyz(pool *sql.DB) http.HandlerFunc {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte("draining\n"))
+			return
+		}
+		if f := designKeysReady.Load(); f != nil && !(*f)() {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte("design keys: no good list (the live-keys file is invalid or missing)\n"))
 			return
 		}
 		if pool == nil {
