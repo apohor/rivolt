@@ -7,29 +7,61 @@ import (
 )
 
 func TestFreeWindow(t *testing.T) {
-	now := time.Date(2026, 11, 20, 15, 4, 5, 0, time.UTC)
-	w := Free(now)
-	// One cutoff for rows and statements: the first of the month twelve back, so the window is November 2026 and the twelve months before.
-	want := time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC)
-	if !w.Since.Equal(want) || !w.MoneyFrom.Equal(want) {
-		t.Errorf("since %v money from %v, want both %v", w.Since, w.MoneyFrom, want)
+	// After the notice has run, every free account has Months, whenever it was created.
+	now := time.Date(2027, 1, 20, 15, 4, 5, 0, time.UTC)
+	w := Free(now, time.Time{})
+	// One cutoff for rows and statements: the first of the month Months back, so the window is January 2027 and the six months before.
+	want := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	if !w.Since.Equal(want) || !w.MoneyFrom.Equal(want) || w.Months != 6 {
+		t.Errorf("since %v money from %v months %d, want both %v and 6", w.Since, w.MoneyFrom, w.Months, want)
 	}
-	if w.Days != 384 {
-		t.Errorf("days %d, want 384 (2025-11-01 to 2026-11-20)", w.Days)
+	if w.Days != 203 {
+		t.Errorf("days %d, want 203 (2026-07-01 to 2027-01-20)", w.Days)
 	}
 	// Across a year boundary.
-	if w := Free(time.Date(2027, 1, 15, 0, 0, 0, 0, time.UTC)); !w.Since.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("january: since %v, want 2026-01-01", w.Since)
+	if w := Free(time.Date(2027, 3, 15, 0, 0, 0, 0, time.UTC), time.Time{}); !w.Since.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("march: since %v, want 2026-09-01", w.Since)
 	}
 	// A non-UTC "now" is read in UTC.
-	if w := Free(time.Date(2026, 12, 1, 0, 30, 0, 0, time.FixedZone("x", 2*3600))); !w.Since.Equal(want) {
-		t.Errorf("zone: since %v, want %v (it is still 30 November 22:30 UTC)", w.Since, want)
+	if w := Free(time.Date(2027, 2, 1, 0, 30, 0, 0, time.FixedZone("x", 2*3600)), time.Time{}); !w.Since.Equal(want) {
+		t.Errorf("zone: since %v, want %v (it is still 31 January 22:30 UTC)", w.Since, want)
 	}
-	// The window never reaches below a year or above a year and a month, so a client can rely on that range for free_days.
+	// The window never reaches below half a year or above half a year and a month, so a client can rely on that range for free_days.
 	for d := 0; d < 800; d++ {
-		if w := Free(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d)); w.Days < 365 || w.Days > 396 {
+		if w := Free(EffectiveAt.AddDate(0, 0, d), time.Time{}); w.Days < 181 || w.Days > 214 {
 			t.Fatalf("day %d: window of %d days", d, w.Days)
 		}
+	}
+}
+
+// The 30 days' notice (Terms section 11): an account that existed before the notice keeps LegacyMonths until EffectiveAt; one created
+// at or after the notice gets Months at once; nothing unknown shows less history.
+func TestMonthsForNotice(t *testing.T) {
+	before := NoticeAt.Add(-time.Hour)
+	for _, c := range []struct {
+		name         string
+		created, now time.Time
+		want         int
+	}{
+		{"existing, during the notice", before, NoticeAt.Add(24 * time.Hour), LegacyMonths},
+		{"existing, last second of the notice", before, EffectiveAt.Add(-time.Second), LegacyMonths},
+		{"existing, on the effective date", before, EffectiveAt, Months},
+		{"new at the notice", NoticeAt, NoticeAt, Months},
+		{"new during the notice", NoticeAt.Add(time.Hour), NoticeAt.Add(2 * time.Hour), Months},
+		{"unknown creation time during the notice", time.Time{}, NoticeAt.Add(time.Hour), LegacyMonths},
+		{"unknown creation time after it", time.Time{}, EffectiveAt, Months},
+		{"existing before the notice went out", before, before, LegacyMonths},
+	} {
+		if got := MonthsFor(c.created, c.now); got != c.want {
+			t.Errorf("%s: %d months, want %d", c.name, got, c.want)
+		}
+	}
+	if !EffectiveAt.Equal(NoticeAt.AddDate(0, 0, 30)) {
+		t.Errorf("effective %v is not 30 days after the notice %v", EffectiveAt, NoticeAt)
+	}
+	w := Free(NoticeAt.Add(time.Hour), before)
+	if w.Months != LegacyMonths || !w.Since.Equal(time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("an existing account during the notice: %+v, want 12 months back from November", w)
 	}
 }
 

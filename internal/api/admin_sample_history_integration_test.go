@@ -134,7 +134,7 @@ func TestSampleHistoryFreeWindowAndPro(t *testing.T) {
 		}
 		return rows
 	}
-	since := histwin.Free(now).Since
+	since := histwin.Free(now, time.Time{}).Since
 	proRows, freeRows := list(pro), list(free)
 	if len(proRows) < first.Drives {
 		t.Fatalf("pro sees %d drives, want at least the %d written", len(proRows), first.Drives)

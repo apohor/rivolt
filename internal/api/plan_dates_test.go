@@ -24,7 +24,7 @@ func strOf(p *string) string {
 func TestPlanFieldsCarryTheUTCDatesPerSource(t *testing.T) {
 	instant := tp(2027, 11, 6, 2, 52)
 	for _, source := range []string{"stripe", "founding", "trial", "grant", "billing_off"} {
-		pf := planFromState(entitlements.State{Pro: true, Source: source, PeriodEnd: instant, TrialEnds: instant, CancelsAt: instant, GraceEnds: instant}, true)
+		pf := planFromState(entitlements.State{Pro: true, Source: source, PeriodEnd: instant, TrialEnds: instant, CancelsAt: instant, GraceEnds: instant}, true, time.Time{}, time.Time{})
 		if strOf(pf.PlanDateBasis) != "utc_date" {
 			t.Errorf("%s: basis %s, want utc_date", source, strOf(pf.PlanDateBasis))
 		}
@@ -38,14 +38,14 @@ func TestPlanFieldsCarryTheUTCDatesPerSource(t *testing.T) {
 		}
 	}
 	// the instants stay as they were
-	pf := planFromState(entitlements.State{Pro: true, Source: "stripe", PeriodEnd: instant}, true)
+	pf := planFromState(entitlements.State{Pro: true, Source: "stripe", PeriodEnd: instant}, true, time.Time{}, time.Time{})
 	if pf.PlanPeriodEnd == nil || !pf.PlanPeriodEnd.Equal(*instant) {
 		t.Errorf("the period end instant changed: %v", pf.PlanPeriodEnd)
 	}
 }
 
 func TestPlanFieldsAppleStaysAnInstant(t *testing.T) {
-	pf := planFromState(entitlements.State{Pro: true, Source: "apple", PeriodEnd: tp(2027, 11, 6, 2, 52), CancelsAt: tp(2027, 11, 6, 2, 52)}, true)
+	pf := planFromState(entitlements.State{Pro: true, Source: "apple", PeriodEnd: tp(2027, 11, 6, 2, 52), CancelsAt: tp(2027, 11, 6, 2, 52)}, true, time.Time{}, time.Time{})
 	if strOf(pf.PlanDateBasis) != "instant" {
 		t.Errorf("basis %s, want instant", strOf(pf.PlanDateBasis))
 	}
@@ -60,15 +60,15 @@ func TestPlanFieldsAppleStaysAnInstant(t *testing.T) {
 // A lapsed account takes the basis from the source that lapsed: "Pro ended on ..." for Stripe is the UTC date (the refund of rehearsal 2 was Nov 6
 // UTC and read Nov 5 in Pacific), for Apple an instant; an account that never had Pro has no basis.
 func TestPlanFieldsLapsedAndNeverHadPro(t *testing.T) {
-	pf := planFromState(entitlements.State{Pro: false, EndedAt: tp(2026, 11, 6, 2, 55), EndedSource: "stripe"}, true)
+	pf := planFromState(entitlements.State{Pro: false, EndedAt: tp(2026, 11, 6, 2, 55), EndedSource: "stripe"}, true, time.Time{}, time.Time{})
 	if strOf(pf.PlanDateBasis) != "utc_date" || strOf(pf.PlanEndedDate) != "2026-11-06" {
 		t.Errorf("lapsed stripe: basis %s ended %s", strOf(pf.PlanDateBasis), strOf(pf.PlanEndedDate))
 	}
-	pf = planFromState(entitlements.State{Pro: false, EndedAt: tp(2026, 11, 6, 2, 55), EndedSource: "apple"}, true)
+	pf = planFromState(entitlements.State{Pro: false, EndedAt: tp(2026, 11, 6, 2, 55), EndedSource: "apple"}, true, time.Time{}, time.Time{})
 	if strOf(pf.PlanDateBasis) != "instant" || pf.PlanEndedDate != nil {
 		t.Errorf("lapsed apple: basis %s ended %s", strOf(pf.PlanDateBasis), strOf(pf.PlanEndedDate))
 	}
-	pf = planFromState(entitlements.State{Pro: false}, true)
+	pf = planFromState(entitlements.State{Pro: false}, true, time.Time{}, time.Time{})
 	if pf.PlanDateBasis != nil || pf.PlanEndedDate != nil || pf.PlanPeriodEndDate != nil {
 		t.Errorf("never had Pro: %+v", pf)
 	}

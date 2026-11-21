@@ -29,8 +29,8 @@ import (
 	"github.com/apohor/rivolt/internal/statement"
 )
 
-// The free plan's history window against real rows. A free and a Pro account hold the same data: a drive and a charge 400 days old and
-// a drive and a charge from the last days. Through the real handlers behind the real middleware, the free account sees only the recent
+// The free plan's history window against real rows. A free and a Pro account hold the same data: a drive and a charge 240 days old (past the longest
+// six-month window), one 150 days old (inside the shortest) and a drive and a charge from the last days. Through the real handlers behind the real middleware, the free account sees only the recent
 // rows, a single old row answers 402 outside_free_window, a client range is clamped, and every number derived from the whole history is
 // the number the Pro account sees; the full export and the backup of the free account still contain the old rows.
 func TestHistoryWindowAgainstPostgres(t *testing.T) {
@@ -49,8 +49,8 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 	resolvers := db.NewVehicleResolverFactory(pool)
 	cf, df, sf := charges.NewFactory(pool, resolvers), drives.NewFactory(pool, resolvers), settings.NewFactory(pool)
 	now := time.Now().UTC().Truncate(time.Second)
-	// old is outside the window in every month (the window reaches back at most 396 days); mid is 300 days back and a free account must see it.
-	old, mid, recent := now.AddDate(0, 0, -400), now.AddDate(0, 0, -300), now.AddDate(0, 0, -5)
+	// old is outside the window in every month (the window reaches back at most 214 days); mid is 150 days back and a free account must see it.
+	old, mid, recent := now.AddDate(0, 0, -240), now.AddDate(0, 0, -150), now.AddDate(0, 0, -5)
 	for _, u := range []uuid.UUID{free, pro} {
 		// The only charge before the recent drive is the old one, priced: the recent drive's cost estimate is derived from it.
 		if err := cf.For(u).Upsert(ctx, charges.Charge{ID: "win-old-charge", VehicleID: "rv-win", StartedAt: old, EndedAt: old.Add(time.Hour),
@@ -139,7 +139,7 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 	} {
 		code, body := get(free, c.path)
 		if got := ids(body, c.key); code != 200 || has(got, c.oldID) || !has(got, c.midID) || !has(got, c.newID) {
-			t.Errorf("free %s: %d %v, want the 300-day and recent rows but not the 400-day one", c.path, code, got)
+			t.Errorf("free %s: %d %v, want the 150-day and recent rows but not the 240-day one", c.path, code, got)
 		}
 		code, body = get(pro, c.path)
 		if got := ids(body, c.key); code != 200 || !has(got, c.oldID) || !has(got, c.newID) {
@@ -152,9 +152,9 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 		code, body := get(free, p)
 		var pb paywallBody
 		_ = json.Unmarshal(body, &pb)
-		want := histwin.Free(time.Now())
-		if code != http.StatusPaymentRequired || pb.Error != "outside_free_window" || pb.FreeFrom != want.Since.Format("2006-01-02") || pb.FreeDays < 365 || pb.FreeDays > 397 {
-			t.Errorf("free %s: %d %s, want 402 outside_free_window with free_from %s and free_days 365-397", p, code, body, want.Since.Format("2006-01-02"))
+		want := histwin.Free(time.Now(), time.Time{})
+		if code != http.StatusPaymentRequired || pb.Error != "outside_free_window" || pb.FreeFrom != want.Since.Format("2006-01-02") || pb.FreeDays < 181 || pb.FreeDays > 215 {
+			t.Errorf("free %s: %d %s, want 402 outside_free_window with free_from %s and free_days 181-215", p, code, body, want.Since.Format("2006-01-02"))
 		}
 	}
 	if code, _ := get(pro, "/drives/win-old-drive"); code != 200 {
@@ -170,6 +170,29 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 	}
 	if code, _ := get(free, "/drives/does-not-exist"); code != http.StatusNotFound {
 		t.Errorf("a missing drive: %d, want the handler's own 404", code)
+	}
+
+	// Free to Pro and back: the older rows appear with Pro and are hidden again when it ends; nothing is lost in between.
+	for _, step := range []struct {
+		pro      bool
+		wantCode int
+	}{{true, 200}, {false, http.StatusPaymentRequired}} {
+		if step.pro {
+			if _, err := pool.ExecContext(ctx, `INSERT INTO entitlements (user_id, source, status, current_period_end) VALUES ($1, 'grant', 'active', NULL)`, free); err != nil {
+				t.Fatal(err)
+			}
+		} else if _, err := pool.ExecContext(ctx, `DELETE FROM entitlements WHERE user_id = $1`, free); err != nil {
+			t.Fatal(err)
+		}
+		ent.Invalidate(free)
+		for _, p := range []string{"/drives/win-old-drive", "/charges/win-old-charge"} {
+			if code, body := get(free, p); code != step.wantCode {
+				t.Errorf("switching plan (pro=%v) %s: %d %s, want %d", step.pro, p, code, body, step.wantCode)
+			}
+		}
+		if code, body := get(free, "/drives"); code != 200 || has(ids(body, "ID"), "win-old-drive") != step.pro {
+			t.Errorf("switching plan (pro=%v) /drives: %d, old drive listed = %v", step.pro, code, has(ids(body, "ID"), "win-old-drive"))
+		}
 	}
 
 	// Derived values are computed over everything: the recent drive's cost estimate comes from the OLD priced charge, and is the same for a
@@ -202,7 +225,7 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 		_ = json.Unmarshal(body, &cp)
 		for _, d := range cp.Drives {
 			if s, _ := d["started_at"].(string); s != "" {
-				if ts, err := time.Parse(time.RFC3339, s); err == nil && ts.Before(histwin.Free(now).Since) {
+				if ts, err := time.Parse(time.RFC3339, s); err == nil && ts.Before(histwin.Free(now, time.Time{}).Since) {
 					t.Errorf("chart-points returned a drive from %v to a free account", ts)
 				}
 			}
@@ -259,7 +282,7 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 
 func url_(t time.Time) string { return strings.ReplaceAll(t.UTC().Format(time.RFC3339), "+", "%2B") }
 
-// Money under the free window: a free account's statements are the current month and the twelve before; an older month is 402
+// Money under the free window: a free account's statements are the current month and the window's months before it; an older month is 402
 // outside_free_window; the statement CSV is the current month only (any other month is a Pro convenience: 402 pro_required); the summary
 // list and the savings months stop at the window; the open-items count matches the windowed to-confirm list. A Pro account sees it all.
 func TestMoneyWindowAgainstPostgres(t *testing.T) {
@@ -281,9 +304,9 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 	month := func(offset int) time.Time {
 		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, offset, 0)
 	}
-	// One priced charge in the current month, the previous month, twelve months ago (the oldest the window shows), 13 and 14 months ago; the current and the old one are open for verification.
+	// One priced charge in the current month, the previous month, Months months ago (the oldest the window shows), one and two months before that; the current and the old one are open for verification.
 	for _, u := range []uuid.UUID{free, pro} {
-		for i, off := range []int{0, -1, -12, -13, -14} {
+		for i, off := range []int{0, -1, -histwin.Months, -(histwin.Months + 1), -(histwin.Months + 2)} {
 			c := charges.Charge{ID: "money-charge-" + month(off).Format("2006-01"), VehicleID: "rv-money", StartedAt: month(off).Add(time.Minute), EndedAt: month(off).Add(41 * time.Minute),
 				EnergyAddedKWh: 20, Cost: 5, Currency: "USD", PricePerKWh: 0.25, MaxPowerKW: 11, FinalState: "charging_complete", Source: "live"}
 			if i == 0 || i == 4 {
@@ -331,7 +354,7 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 		_ = json.Unmarshal(body, &pb)
 		return pb.Error
 	}
-	cur, prev, oldest, prev3, old := month(0).Format("2006-01"), month(-1).Format("2006-01"), month(-12).Format("2006-01"), month(-13).Format("2006-01"), month(-14).Format("2006-01")
+	cur, prev, oldest, prev3, old := month(0).Format("2006-01"), month(-1).Format("2006-01"), month(-histwin.Months).Format("2006-01"), month(-histwin.Months-1).Format("2006-01"), month(-histwin.Months-2).Format("2006-01")
 
 	// Statements.
 	for _, m := range []string{cur, prev, oldest} {
@@ -364,7 +387,7 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 		t.Errorf("a month inside the window differs between free and Pro:\nfree %s\npro  %s", f, p)
 	}
 
-	// The statement CSV: any month the free statement shows (the current month and the twelve before) is downloadable; older months are Pro.
+	// The statement CSV: any month the free statement shows (the current month and the Months before it) is downloadable; older months are Pro.
 	for _, m := range []string{cur, prev, oldest} {
 		if code, body := get(free, "/ledger/monthly.csv?month="+m); code != 200 {
 			t.Errorf("free CSV for %s: %d %s, want 200 (the statement shows it)", m, code, body)
@@ -392,7 +415,7 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 		return len(s.Months), s.ToConfirmCount
 	}
 	if m, open := summary(free); m != histwin.Months+1 || open != 1 {
-		t.Errorf("free summary: %d months and %d open, want 13 and 1", m, open)
+		t.Errorf("free summary: %d months and %d open, want Months+1 and 1", m, open)
 	}
 	if m, open := summary(pro); m != 24 || open != 2 {
 		t.Errorf("pro summary: %d months and %d open, want 24 and 2", m, open)
@@ -407,8 +430,8 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 		_ = json.Unmarshal(body, &s)
 		return code, body, len(s.Months)
 	}
-	if code, body, n := savingsMonths(free, "month="+month(-2).Format("2006-01")+"&months=12"); code != 200 || n != 11 {
-		t.Errorf("free savings over 12 months ending two months ago: %d, %d months (%s), want 200 and 11 (the 12th is before the window)", code, n, body)
+	if code, body, n := savingsMonths(free, "month="+month(-2).Format("2006-01")+"&months=12"); code != 200 || n != histwin.Months-1 {
+		t.Errorf("free savings over 12 months ending two months ago: %d, %d months (%s), want 200 and %d (the rest are before the window)", code, n, body, histwin.Months-1)
 	}
 	if code, _, n := savingsMonths(pro, "month="+month(-2).Format("2006-01")+"&months=12"); code != 200 || n != 12 {
 		t.Errorf("pro savings over 12 months ending two months ago: %d, %d months, want 200 and 12", code, n)
@@ -434,7 +457,7 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 	if code, body := get(pro, "/statement-email/preview?month="+old); code != 200 {
 		t.Errorf("pro preview %s: %d %s", old, code, body)
 	}
-	// The comparison with the month before: for the OLDEST month a free account may preview (twelve months back) the month before it is outside
+	// The comparison with the month before: for the OLDEST month a free account may preview (Months back) the month before it is outside
 	// the window, so the "than <month>" line is left out; a Pro account sees it. (Positive control: the Pro text names that month.)
 	previewText := func(u uuid.UUID) string {
 		code, body := get(u, "/statement-email/preview?month="+oldest)
@@ -446,7 +469,7 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 		}
 		return pv.Text
 	}
-	compared := month(-13).Format("January") // the month before oldest, as the delta line names it
+	compared := month(-histwin.Months-1).Format("January") // the month before oldest, as the delta line names it
 	if pt := previewText(pro); !strings.Contains(pt, compared) {
 		t.Errorf("the Pro preview of %s does not compare with %s (no positive control): %s", oldest, compared, pt)
 	}
@@ -485,7 +508,7 @@ func TestAnalyticsWindowAgainstPostgres(t *testing.T) {
 		d := now.AddDate(0, 0, -daysAgo)
 		return time.Date(d.Year(), d.Month(), d.Day(), 10, 0, 0, 0, time.UTC)
 	}
-	old, recent := day(398), day(5) // old: past the longest window (396 days), inside the 400-day range a chart may ask for
+	old, recent := day(398), day(5) // old: past the longest window (214 days), inside the 400-day range a chart may ask for
 	for _, u := range []uuid.UUID{free, pro} {
 		for _, at := range []time.Time{old, recent} {
 			if err := df.For(u).Upsert(ctx, drives.Drive{ID: "ana-drive-" + at.Format("0102"), VehicleID: "rv-ana", StartedAt: at, EndedAt: at.Add(30 * time.Minute),
@@ -587,7 +610,7 @@ func TestAnalyticsWindowAgainstPostgres(t *testing.T) {
 		return string(b)
 	}
 	freeYear := body(free, "/insights/efficiency?since="+since+"&until="+until)
-	freeWindow := body(free, "/insights/efficiency?since="+ts(histwin.Free(now).Since)+"&until="+until)
+	freeWindow := body(free, "/insights/efficiency?since="+ts(histwin.Free(now, time.Time{}).Since)+"&until="+until)
 	proYear := body(pro, "/insights/efficiency?since="+since+"&until="+until)
 	if freeYear != freeWindow {
 		t.Errorf("a free account's year of insights differs from its window:\nyear   %s\nwindow %s", freeYear, freeWindow)
