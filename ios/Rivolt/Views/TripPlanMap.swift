@@ -110,6 +110,10 @@ enum PlanRouteLogic {
         var celsius: Bool
         var metric: Bool
         var withSetup: Bool
+        /// Say the forecast radar's tags (design_preview key radar_forecast).
+        var forecast = false
+
+        func forecasting(_ on: Bool) -> Weather { var w = self; w.forecast = on; return w }
 
         init?(_ plan: TripPlan?, celsius: Bool = DisplayUnits.celsius, metric: Bool = DisplayUnits.distanceMetric) {
             self.init(plan?.weatherAdjustment, celsius: celsius, metric: metric)
@@ -158,7 +162,7 @@ enum PlanRouteLogic {
         guard places.count == route.waypoints.count else { return [] }
         var out: [RouteSnap.Drawing.LegTag] = []
         for (i, leg) in weather.legs.enumerated() where i + 1 < places.count {
-            let facts = LegWeather.facts(leg, celsius: weather.celsius, metric: weather.metric)
+            let facts = LegWeather.facts(leg, celsius: weather.celsius, metric: weather.metric, forecast: weather.forecast)
             guard let text = LegWeather.mapLabel(facts) else { continue }
             out.append(.init(coord: legMiddle(line: line, from: places[i], to: places[i + 1]), text: text,
                              title: legTitle(route, leg: i), lines: legLines(leg, facts: facts, weather: weather)))

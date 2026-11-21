@@ -162,7 +162,7 @@ struct PlanMapScreen: View {
                     onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } },
                     radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom, reframe: reframe, showsCredit: false)
         } else if let route = model.plan?.best {
-            PlanMap(content: .route(.init(route: route, weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan) : nil, vias: model.vias,
+            PlanMap(content: .route(.init(route: route, weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan)?.forecasting(state.designPreview.contains("radar_forecast")) : nil, vias: model.vias,
                                           pendingVias: model.pendingVias, previewLine: model.previewLine)),
                     focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) },
                     cursorShare: model.elevationCursor, onCursorShare: PlanElevation.shown(model.plan?.elevationProfile, designPreview: state.designPreview) == nil ? nil : { model.elevationCursor = $0 }, along: model.markers,
