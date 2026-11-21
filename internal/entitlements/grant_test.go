@@ -93,7 +93,7 @@ func TestCheckGrant(t *testing.T) {
 	}
 	ok("a free account")
 	ok("an ended paid plan", Row{Source: SourceStripe, Status: StatusEnded, PeriodEnd: at(-day)})
-	ok("a founding year that ends sooner", Row{Source: SourceFounding, Status: StatusActive, PeriodEnd: at(50 * day)})
+	no("a founding year that ends sooner", "founding Pro", Row{Source: SourceFounding, Status: StatusActive, PeriodEnd: at(50 * day)})
 	ok("a lapsed founding year", Row{Source: SourceFounding, Status: StatusActive, PeriodEnd: at(-day)})
 	ok("an earlier grant (it is extended)", Row{Source: SourceGrant, Status: StatusActive, PeriodEnd: at(10 * day)})
 	ok("an ended grant", Row{Source: SourceGrant, Status: StatusEnded, PeriodEnd: at(300 * day)})

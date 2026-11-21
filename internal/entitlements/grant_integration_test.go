@@ -197,6 +197,16 @@ func TestGrantProAgainstPostgres(t *testing.T) {
 		t.Errorf("grant over a paid plan: exit %d, %q, grant rows %d", code, errOut, grantRows(paid))
 	}
 
+	// A running founding year is refused too: its end-of-year notice would be false beside a grant.
+	fnd := mk("grant-founding-"+suffix, "founding."+suffix+"@grant.example.test")
+	if _, err := pool.ExecContext(ctx, `INSERT INTO entitlements (user_id, source, status, current_period_end) VALUES ($1, 'founding', 'active', $2)`, fnd, now.AddDate(0, 0, 30)); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errOut = run(GrantParams{Email: "founding." + suffix + "@grant.example.test", Until: until, Reason: "x"})
+	if code != 1 || !strings.Contains(errOut, "founding Pro") || grantRows(fnd) != 0 {
+		t.Errorf("grant over a founding year: exit %d, %q, grant rows %d", code, errOut, grantRows(fnd))
+	}
+
 	// Revoke: ends only the grant row, writes its own audit row, and the account's other rows are untouched. A dry run writes nothing.
 	rev := GrantParams{Email: creator, Reason: "creator program ended", Revoke: true, DryRun: true}
 	if code, out, _ := run(rev); code != 0 || !strings.Contains(out, "plan: end the grant") {

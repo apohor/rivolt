@@ -95,7 +95,7 @@ func MaskEmail(addr string) string {
 }
 
 // CheckGrant is why a grant ending at end must not be written for an account with these rows, or nil. A paid plan that is running (Stripe or
-// Apple, in its grace too) is never shadowed, whatever its end; founding, trial and an earlier grant are only refused when they end at or
+// Apple, in its grace too) is never shadowed, whatever its end; a running founding year is refused too (its end-of-year notice would be wrong beside a grant); trial and an earlier grant are only refused when they end at or
 // after the new end, so a grant never shortens what the account already has. The error says what it found.
 func CheckGrant(rows []Row, end, now time.Time) error {
 	for _, r := range rows {
@@ -106,6 +106,10 @@ func CheckGrant(rows []Row, end, now time.Time) error {
 		switch r.Source {
 		case SourceStripe, SourceApple:
 			return fmt.Errorf("%w: it has a paid %s plan (%s%s)", ErrGrantCovered, r.Source, r.Status, endText(pe))
+		case SourceFounding:
+			// The founding-end notice and the plan card promise the account's Pro ends with the founding year; a grant beside a running
+			// founding row would make both untrue. Grant after it ends.
+			return fmt.Errorf("%w: it has founding Pro (%s%s); grant after it ends", ErrGrantCovered, r.Status, endText(pe))
 		default:
 			if pe == nil || !pe.Before(end) {
 				return fmt.Errorf("%w: it has %s Pro (%s%s)", ErrGrantCovered, r.Source, r.Status, endText(pe))

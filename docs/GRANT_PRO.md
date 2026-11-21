@@ -19,8 +19,8 @@ kubectl -n rivolt exec deploy/rivolt -- /app/rivolt grant-pro --email creator@ex
 3. The account reads as Pro within about 15 seconds (the plan cache).
 
 Rules the command enforces, each with a message and exit code 1 (nothing written): exactly one account has that sign-in email; it is not the demo
-account and not disabled; the end date is after today and at most 400 days ahead; the account has no running Stripe or Apple plan, and no founding,
-trial or earlier grant that already ends at or after the new end date. A flag mistake exits 2 before the database is opened.
+account and not disabled; the end date is after today and at most 400 days ahead; the account has no running Stripe or Apple plan, and no running founding year (grant after it ends: its end-of-year notice would
+be wrong), and no trial or earlier grant that already ends at or after the new end date. A flag mistake exits 2 before the database is opened.
 
 The end date is inclusive: Pro lasts until the last second of that UTC day. After it the account is free again and nothing is deleted; history
 older than the free window is hidden, not removed. If the account subscribes during a grant, Stripe takes precedence and billing starts when the grant
@@ -34,6 +34,9 @@ grant is refused.
 ```
 kubectl -n rivolt exec deploy/rivolt -- /app/rivolt grant-pro --revoke --email creator@example.com --reason "program ended" --dry-run
 ```
+
+A revoke does not move the first charge of a subscription bought during the grant: its Stripe `trial_end` stays at the old grant end, so the account keeps
+Pro and is first charged on that date.
 
 ## The record
 
