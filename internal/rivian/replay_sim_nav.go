@@ -40,14 +40,13 @@ func (f *ReplayFeed) NavFramesAt(ctx context.Context, at time.Time) []*NavFrame 
 		if base, _ := r.Kind.base(); base != SimDrive || at.Before(r.Start) || !at.Before(r.End) {
 			continue
 		}
-		p, err := planSim(r.Kind, r.Start)
+		p, err := planSimFrom(r.Kind, r.Start, r.FromSoC)
 		if err != nil {
 			return nil
 		}
-		_, short := r.Kind.base()
 		for _, seg := range p.segs {
 			if seg.kind == segDrive {
-				return simNavFrames(seg, p.shift, at, specFor(short))
+				return simNavFrames(seg, p, at)
 			}
 		}
 	}
@@ -55,8 +54,8 @@ func (f *ReplayFeed) NavFramesAt(ctx context.Context, at time.Time) []*NavFrame 
 }
 
 // simNavFrames is the navigation of one simulated drive segment at wall time at. The turn at the errand is the frame nearest it.
-func simNavFrames(seg sampleSeg, shift time.Duration, at time.Time, sp simSpec) []*NavFrame {
-	errand := sp.errand
+func simNavFrames(seg sampleSeg, p simPlan, at time.Time) []*NavFrame {
+	shift, errand := p.shift, p.errand
 	n := seg.frames()
 	turn, best := 0, math.MaxFloat64
 	for i := 0; i < n; i++ {
@@ -75,11 +74,11 @@ func simNavFrames(seg sampleSeg, shift time.Duration, at time.Time, sp simSpec) 
 	turnAt := seg.frameAt(turn).At.Add(shift)
 	endAt := seg.frameAt(n - 1).At.Add(shift)
 
-	name, to, arrive := sp.errandName, errand, turnAt
-	way := []samplePoint{SampleHome, errand}
+	name, to, arrive := p.errandName, errand, turnAt
+	way := []samplePoint{p.origin, errand}
 	if i > turn {
-		name, to, arrive = "Rose Bowl Stadium", SampleHome, endAt
-		way = []samplePoint{errand, SampleHome}
+		name, to, arrive = p.originName, p.origin, endAt
+		way = []samplePoint{errand, p.origin}
 	}
 	path, mi := sampleRoad(way)
 	metres := mi * metresPerMile

@@ -164,15 +164,22 @@ func TestShortPairFitsElevenMinutes(t *testing.T) {
 	}
 }
 
-// A run that does not follow another straight away starts from the schedule's battery, so a day of runs does not drift.
-func TestSimRunsApartDoNotCarryTheBattery(t *testing.T) {
-	var s SimState
-	s.Runs = []SimRun{{ID: "a", End: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC), FromSoC: 1, AddedSoC: -2}}
-	if got := s.chainSoC(s.Runs[0].End); got != -1 {
+// A run that follows another straight away starts from where it left the battery; after the last run the offset eases to zero, without a
+// step at the run's end and with nothing left after the ease.
+func TestSimBatteryEasesBackToTheSchedule(t *testing.T) {
+	end := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	s := SimState{Runs: []SimRun{{ID: "a", End: end, FromSoC: 1, AddedSoC: -2}}}
+	if got := s.easedSoC(end.Add(-time.Second)); got != 0 {
+		t.Errorf("before the run ends the offset is the run's own business, got %.2f", got)
+	}
+	if got := s.easedSoC(end); got != -1 {
 		t.Errorf("a run starting as the last ends carries %.2f, want -1", got)
 	}
-	if got := s.chainSoC(s.Runs[0].End.Add(time.Second)); got != 0 {
-		t.Errorf("a run starting later carries %.2f, want 0", got)
+	if got := s.easedSoC(end.Add(simEase / 2)); math.Abs(got+0.5) > 1e-9 {
+		t.Errorf("halfway through the ease: %.3f, want -0.5", got)
+	}
+	if got := s.easedSoC(end.Add(simEase)); got != 0 {
+		t.Errorf("after the ease: %.2f, want 0", got)
 	}
 }
 
