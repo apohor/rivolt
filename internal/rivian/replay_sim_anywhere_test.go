@@ -187,3 +187,20 @@ func TestAnywherePlanNeverNamesSampleHomeAway(t *testing.T) {
 		t.Errorf("away nav names %q -> %q", p.originName, p.errandName)
 	}
 }
+
+// The Live card waits for a Rivian session to report; the short fast charge carries one wherever it happens.
+func TestShortChargeReportsALiveSessionAnywhere(t *testing.T) {
+	for name, starts := range map[string][]time.Time{
+		"home": {simStartFor(t, SimChargeShort)},
+		"away": startsIn(func(s sampleSeg) bool { return s.kind == segParked && awayFromHome(s) }),
+	} {
+		_, p := bookable(t, SimChargeShort, starts)
+		ch := segOf(p, segCharge)
+		if ch.billedRate <= 0 || ch.billedBy == "" {
+			t.Fatalf("%s: the fast charge has no billed rate, so no live session", name)
+		}
+		if fr := ch.frameAt(ch.frames() - 1); fr.SessionPrice <= 0 {
+			t.Errorf("%s: last frame has no session price", name)
+		}
+	}
+}

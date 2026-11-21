@@ -262,6 +262,19 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 			return simPlan{}, &SimRefusal{"the sample truck's battery is full"}
 		}
 		b.charge(b.soc+sp.chargeGain, sp.chargeKW, sp.fast)
+		if sp.fast {
+			// Wherever the slice happens it is a Rivian-billed fast charge, so the live feed reports a session with it (the Live card waits
+			// for that session; a charge at a place that is no sample station would otherwise stay on "waiting for first frame").
+			ch := &b.segs[len(b.segs)-1]
+			if ch.kind == segCharge && ch.billedRate == 0 {
+				for _, st := range sampleDCFCStations {
+					if st.billed > 0 {
+						ch.billedRate, ch.billedBy = st.billed, st.billedBy
+						break
+					}
+				}
+			}
+		}
 		if !sp.fast {
 			b.parkSim(sp.doneTail, "ready") // plugged in at 0 kW (charging complete)
 			b.plugged = false
