@@ -111,7 +111,7 @@ final class NowDetailTests: XCTestCase {
     func testRivianBilledFreeAndNoPrice() throws {
         let sum = try charging()
         XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "12.34", currentCurrency: "USD"), charge: nil)?.cost, .billed(amount: 12.34, currency: "USD"))
-        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, isFreeSession: true), charge: nil)?.cost, .free)
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, isFreeSession: true, isRivianCharger: true), charge: nil)?.cost, .free)
         XCTAssertNil(ChargingDetail.make(summary: sum, session: LiveSession(active: true), charge: nil)?.cost)
         // Nothing from Rivian's feed yet (a home charge): the basics only.
         let bare = try XCTUnwrap(ChargingDetail.make(summary: sum, session: LiveSession(), charge: nil))
@@ -169,8 +169,15 @@ final class NowDetailTests: XCTestCase {
         XCTAssertNil(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0.00", currentCurrency: "USD"), charge: nil)?.cost)
         XCTAssertNil(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0", currentCurrency: "USD"), charge: nil)?.cost)
         // Marked free: Free, whatever the price field or an estimate says.
-        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0", currentCurrency: "USD", isFreeSession: true), charge: nil)?.cost, .free)
-        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, isFreeSession: true, estimatedCost: 3.4, estimatedCurrency: "USD"), charge: nil)?.cost, .free)
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, currentPrice: "0", currentCurrency: "USD", isFreeSession: true, isRivianCharger: true), charge: nil)?.cost, .free)
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, isFreeSession: true, isRivianCharger: true, estimatedCost: 3.4, estimatedCurrency: "USD"), charge: nil)?.cost, .free)
+        // A home charge (or any with no place and no Rivian charger) that Rivian marks free is not free: the estimate the server sent stands.
+        XCTAssertEqual(ChargingDetail.make(summary: sum, session: LiveSession(active: true, totalChargedEnergyKwh: try gainKwh(sum), currentPrice: "0", currentCurrency: "USD", isFreeSession: true, estimatedCost: 1.02, estimatedCurrency: "USD"), charge: nil)?.cost, .estimate(amount: 1.02, currency: "USD"))
+        XCTAssertNil(ChargingDetail.make(summary: sum, session: LiveSession(active: true, isFreeSession: true), charge: nil)?.cost)
+        // A fast charge or one away that Rivian marks free is free, without the charger flag.
+        XCTAssertEqual(ChargingDetail.cost(of: LiveSession(active: true, isFreeSession: true), summary: sum, charge: nil, place: "Fast"), .free)
+        XCTAssertEqual(ChargingDetail.cost(of: LiveSession(active: true, isFreeSession: true), summary: sum, charge: nil, place: "Away"), .free)
+        XCTAssertNotEqual(ChargingDetail.cost(of: LiveSession(active: true, isFreeSession: true), summary: sum, charge: nil, place: "Home"), .free)
     }
 
     func testASpokenCardSaysWordsNotSymbols() throws {

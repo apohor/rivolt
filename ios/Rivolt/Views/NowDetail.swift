@@ -56,7 +56,7 @@ struct ChargingDetail: Equatable {
             energyEstimated: sessionEnergy == nil && fallbackEnergy != nil,
             elapsed: s.flatMap { $0.timeElapsedSeconds > 0 ? $0.timeElapsedSeconds : nil },
             remaining: s.flatMap { $0.timeRemainingSeconds > 0 ? $0.timeRemainingSeconds : nil } ?? summary.chargeEta.map { TimeInterval($0.minutes) * 60 },
-            cost: cost(of: s, summary: summary, charge: charge),
+            cost: cost(of: s, summary: summary, charge: charge, place: ChargingPlace.label(summary: summary, charge: charge)),
             place: ChargingPlace.label(summary: summary, charge: charge),
             haveLiveData: live
         )
@@ -66,13 +66,15 @@ struct ChargingDetail: Equatable {
     /// priced from the energy that charge has recorded: the figure the web's Now card is built on. (3) The live session's estimate, only
     /// while the energy it was made from agrees with the battery's own gain so far: it was once the previous session's total ($9.39 "so far"
     /// a minute into a charge that had added 0.2 kWh). Otherwise nothing: the row stays out until there is a real figure.
-    static func cost(of s: LiveSession?, summary: NowSummary, charge: ChargeBrief?) -> Cost? {
+    static func cost(of s: LiveSession?, summary: NowSummary, charge: ChargeBrief?, place: String? = nil) -> Cost? {
         // A session Rivian marks free says so first. A price counts as billed only above zero: the feed sends "0" before it has priced a session,
         // and a zero must not read as a charge that costs nothing (the web does the same). Not verified against a real session's mid-charge feed.
         // Only the session of the charge on screen: an ended session is the previous plug-in's (the self-hosted feed can still return it), and its
         // price must not read as "billed by Rivian" on this charge.
         let own = s?.active == true ? s : nil
-        if own?.isFreeSession == true { return .free }
+        // Rivian marks a home or third-party charge it does not bill as free too, and that is not a free charge (the home rate prices it): free
+        // counts only for a Rivian charger, a fast charge or one away from home (the web's sessionIsFree and the server's liveSessionIsFree).
+        if let own, own.isFreeSession, own.isRivianCharger || place == "Fast" || place == "Away" { return .free }
         if let s = own, let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed > 0 {
             return .billed(amount: billed, currency: s.currentCurrency)
         }
