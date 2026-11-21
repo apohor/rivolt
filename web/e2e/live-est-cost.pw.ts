@@ -51,3 +51,14 @@ for (const [name, extra, expected] of [
     await expect(cell).toHaveText(expected);
   });
 }
+
+test("@webkit live card, AC session with no price and no estimate: no Price cell, the Now card shows none either", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubApi(page);
+  await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FULL_STATE) }));
+  await page.route(`**/api/live-session/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...SESSION, active: true, power_kw: 7.6, total_charged_energy_kwh: 3, current_price: "0", current_currency: "USD" }) }));
+  await page.goto("/live");
+  await expect(page.getByText("Remaining", { exact: true })).toBeVisible();
+  await expect(page.getByText("Price", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Estimated when it ends")).toHaveCount(0);
+});

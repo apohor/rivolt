@@ -57,7 +57,7 @@ struct ChargingDetail: Equatable {
             elapsed: s.flatMap { $0.timeElapsedSeconds > 0 ? $0.timeElapsedSeconds : nil },
             remaining: s.flatMap { $0.timeRemainingSeconds > 0 ? $0.timeRemainingSeconds : nil } ?? summary.chargeEta.map { TimeInterval($0.minutes) * 60 },
             cost: cost(of: s, summary: summary, charge: charge),
-            place: charge?.placeLabel,
+            place: ChargingPlace.label(summary: summary, charge: charge),
             haveLiveData: live
         )
     }
@@ -192,10 +192,16 @@ enum NowFormat {
         NumberText.money(amount, currency)
     }
 
-    /// The Live screen's Cost so far row: with no price and no estimate it says when the figure comes, as the web's Live cell does.
-    static let costPending = "Estimated when it ends"
-
-    static func liveCostText(_ c: ChargingDetail.Cost?) -> String { c.map(costText) ?? costPending }
+    /// The Live screen's Cost so far row, as the web's Live cell: the figure when there is one, else what the Now card says for that kind of
+    /// charge (a fast charge: when it ends; away on AC: unknown), else no row at all (a home charge with no home rate will not get a price).
+    static func liveCostText(_ c: ChargingDetail.Cost?, place: String?) -> String? {
+        if let c { return costText(c) }
+        switch place {
+        case "Fast": return "Estimated when it ends"
+        case "Away": return "Unknown, add it after"
+        default: return nil
+        }
+    }
 
     static func costText(_ c: ChargingDetail.Cost) -> String {
         switch c {
