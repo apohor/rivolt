@@ -170,7 +170,7 @@ jobs:
     name: ui-tests (${{ matrix.shard }})
     if: github.event.action != 'labeled'
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -223,9 +223,9 @@ jobs:
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
       - name: UI tests
-        # A test that hangs fails by name after 4 minutes (the longest here takes about 40 s), and the step as a whole after 25, so the summary step
+        # A test that hangs fails by name after 4 minutes (the longest here takes about 40 s), and the step as a whole after 35 (the step takes 15 to 19 minutes on green runs), so the summary step
         # below still runs and a stuck shard no longer holds a PR for an hour (#2410: ui-tests (plan) ran 50 minutes).
-        timeout-minutes: 25
+        timeout-minutes: 35
         run: |
           set -euo pipefail
           xcodebuild test \
