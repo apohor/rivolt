@@ -184,9 +184,13 @@ test("on a phone, a Use tap whose re-plan fails says why", async ({ browser }) =
   await open(page, []);
   await expect(page.locator("[data-plan-bar]")).toHaveAttribute("data-collapsed", "true");
   await page.route("**/api/trips/plan-multiday", (r) => r.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "planner unavailable" }) }));
+  // The tap must reach the planner before the failure can be shown: wait for that request, so a tap that did nothing fails here and says so,
+  // and a slow render of the answer (a loaded CI runner) gets its time below instead of the 5 s of an ordinary expect.
+  const replanned = page.waitForResponse((r) => r.url().includes("/api/trips/plan-multiday") && r.status() === 500, { timeout: 20_000 });
   await page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" }).click();
+  await replanned;
   const why = page.locator("[data-plan-bar] [role=alert]");
-  await expect(why).toBeVisible();
+  await expect(why).toBeVisible({ timeout: 15_000 });
   await expect(why).toBeInViewport();
   // The night stays in the form, so pressing Plan tries again with it.
   await expect(page.locator("[data-overnight-stop]").filter({ hasText: "Convict Lake Campground (campground)" })).toBeVisible();
