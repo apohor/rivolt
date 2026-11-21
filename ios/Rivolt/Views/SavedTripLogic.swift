@@ -4,6 +4,11 @@ import Foundation
 /// side opens the other's: `inputs` has the origin and destination as `{lat, lon, label}`, the stops (a night is a stop flagged in
 /// `overnight_flags`), and the settings; `plan` is the planner's answer as it came, or `{"kind":"multiday","days":[…]}`.
 enum SavedTripLogic {
+    /// Whether a saved trip offers Share (design key `trip_receipt`): needs its plan, and never in the demo (the receipt is a POST the demo refuses, and the web hides it there too).
+    static func offersShare(designPreview: Set<String>, isDemo: Bool, hasPlan: Bool) -> Bool {
+        designPreview.contains("trip_receipt") && hasPlan && !isDemo
+    }
+
     /// "Seattle to Spokane": the first part of each place's name, short enough for a name field.
     static func suggestedName(origin: String?, destination: String) -> String {
         func head(_ s: String) -> String { s.split(separator: ",").first.map { $0.trimmingCharacters(in: .whitespaces) } ?? s }

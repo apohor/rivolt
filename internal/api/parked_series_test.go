@@ -188,3 +188,45 @@ func TestParkedSeriesHandler(t *testing.T) {
 		t.Fatalf("bad tz %d", code)
 	}
 }
+
+// The public demo serves the Now card's graph for the sample truck only: through the demo gate and the demo user, the real handler answers
+// the prod shape (200) on the demo vehicle and the router's 404 on any other id, and a write is refused.
+func TestParkedSeriesOnTheDemo(t *testing.T) {
+	now := time.Now()
+	api := newParkedSeriesAPI(func(_ context.Context, uid uuid.UUID, id string, at time.Time) ([]parkedRow, error) {
+		if id != demoVeh {
+			t.Errorf("store asked for %q, want only the demo vehicle", id)
+		}
+		return parkedNight(at), nil
+	})
+	api.now = func() time.Time { return now }
+	r := chi.NewRouter()
+	r.Use(demoOnlyGateMW(demoVeh))
+	r.Use(demoAccessMW(nil, uuid.New(), demoVeh, newIPLimiter(1000, time.Minute, time.Hour), newIPLimiter(1000, time.Minute, time.Hour)))
+	r.Get("/api/vehicles/{vehicleID}/parked-series", withUser(api.handle))
+
+	rec := demoReq(r, "GET", "/api/vehicles/"+demoVeh+"/parked-series?tz=America/Chicago&junk=1")
+	if rec.Code != 200 {
+		t.Fatalf("demo vehicle = %d: %s", rec.Code, rec.Body.String())
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"version", "from", "to", "parked_since", "parked", "change_pct", "points", "sleeps", "wakes", "figures", "projection"} {
+		if _, ok := got[k]; !ok {
+			t.Errorf("answer lacks %q: the shape is prod's", k)
+		}
+	}
+	if rec.Header().Get(demoHeader) != "1" {
+		t.Errorf("not served as the demo user: header %q", rec.Header().Get(demoHeader))
+	}
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/vehicles/other/parked-series"},
+		{"POST", "/api/vehicles/" + demoVeh + "/parked-series"},
+	} {
+		if rec := demoReq(r, c.method, c.path); rec.Code != 404 {
+			t.Errorf("%s %s = %d, want 404", c.method, c.path, rec.Code)
+		}
+	}
+}

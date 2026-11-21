@@ -127,6 +127,15 @@ final class TripReceiptTests: XCTestCase {
         XCTAssertGreaterThan(tall.size.height, plain.size.height + 700, "every row is on the paper")
     }
 
+    /// Share is off in the demo: its receipt is a POST the demo refuses (the web hides it there too).
+    func testShareIsNotOfferedInTheDemo() {
+        let on: Set<String> = ["trip_receipt"]
+        XCTAssertTrue(SavedTripLogic.offersShare(designPreview: on, isDemo: false, hasPlan: true))
+        XCTAssertFalse(SavedTripLogic.offersShare(designPreview: on, isDemo: true, hasPlan: true))
+        XCTAssertFalse(SavedTripLogic.offersShare(designPreview: [], isDemo: false, hasPlan: true))
+        XCTAssertFalse(SavedTripLogic.offersShare(designPreview: on, isDemo: false, hasPlan: false))
+    }
+
     /// Writes the receipt PNGs when RECEIPT_DUMP names a directory and RECEIPT_JSON the server's receipt (not part of the suite otherwise).
     @MainActor
     func testDumpReceiptPNGs() throws {
