@@ -85,3 +85,10 @@ test("a navigation to another origin is followed by hand, so the redirect back t
   assert.equal(r.seen.fetched.maxRedirects, 0);
   assert.match(r.seen.fulfilled.body, /admin\.example\/api\/auth\/callback/);
 });
+
+test("an error from route.fetch is swallowed: its message carries the request headers", async () => {
+  const r = fakeRoute(`${ADMIN}/a`); r.route.fetch = async () => { throw new Error(`fetch failed ${JSON.stringify(TOKEN)}`); };
+  r.route.abort = async () => { r.seen.aborted = true; };
+  await accessRoute(ADMIN, TOKEN)(r.route);
+  assert.ok(r.seen.aborted);
+});

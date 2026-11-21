@@ -39,7 +39,11 @@ export function cookieFrom(line, url) {
 // leg, off-origin ones too). A redirect answer to a page navigation becomes a page that moves on, so the next navigation is routed again; a
 // redirect answer to a sub-request is aborted.
 export function accessRoute(adminOrigin, token, addCookies = async () => {}) {
+  // An error from route.fetch carries the request headers, token included, in its message: it is never passed on.
   return async (route) => {
+    try { await handle(route); } catch { await route.abort().catch(() => {}); }
+  };
+  async function handle(route) {
     const req = route.request();
     const ours = new URL(req.url()).origin === adminOrigin;
     const nav = req.isNavigationRequest();
@@ -55,7 +59,7 @@ export function accessRoute(adminOrigin, token, addCookies = async () => {}) {
     const h = { ...res.headers(), "content-type": "text/html" };
     delete h.location; delete h["content-length"]; delete h["content-encoding"]; delete h["set-cookie"];
     return route.fulfill({ status: 200, headers: h, body: `<meta http-equiv="refresh" content="0;url=${to}">` });
-  };
+  }
 }
 
 // Signs in to the admin site in a new context (the token only through accessRoute), books the pair with per-call headers on the admin origin
@@ -70,6 +74,7 @@ export async function bookPair({ browser, adminBase, token, login }) {
     const second = first.status === 200 ? await post("/api/admin/sim/charge?short=1&queue=1") : { status: 0, body: {} };
     return { first, second };
   } finally {
+    await ctx.unrouteAll({ behavior: "ignoreErrors" }).catch(() => {});
     await ctx.request.post(`${adminBase}/api/auth/logout`, { data: {}, headers: token, maxRedirects: 0 }).catch(() => {});
     await ctx.close();
   }
