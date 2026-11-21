@@ -215,4 +215,10 @@ final class NowDetailTests: XCTestCase {
         XCTAssertEqual(said.contains("kilometres per kilowatt hour"), NowFormat.usesMetric, said)
         XCTAssertFalse(said.contains("mi/kWh"))
     }
+
+    func testLiveCostRowSaysWhenTheFigureComesWhenThereIsNone() {
+        XCTAssertEqual(NowFormat.liveCostText(nil), "Estimated when it ends")
+        XCTAssertEqual(NowFormat.liveCostText(.free), "Free")
+        XCTAssertTrue(NowFormat.liveCostText(.estimate(amount: 3.42, currency: "USD")).contains("estimate"))
+    }
 }
