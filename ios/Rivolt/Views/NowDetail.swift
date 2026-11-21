@@ -57,7 +57,7 @@ struct ChargingDetail: Equatable {
             elapsed: s.flatMap { $0.timeElapsedSeconds > 0 ? $0.timeElapsedSeconds : nil },
             remaining: s.flatMap { $0.timeRemainingSeconds > 0 ? $0.timeRemainingSeconds : nil } ?? summary.chargeEta.map { TimeInterval($0.minutes) * 60 },
             cost: cost(of: s, summary: summary, charge: charge),
-            place: charge?.placeLabel,
+            place: ChargingPlace.label(summary: summary, charge: charge),
             haveLiveData: live
         )
     }

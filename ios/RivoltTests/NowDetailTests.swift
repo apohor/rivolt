@@ -216,6 +216,21 @@ final class NowDetailTests: XCTestCase {
         XCTAssertFalse(said.contains("mi/kWh"))
     }
 
+    /// The newest ledger row can be the previous, finished session: its kind must not pick this charge's Live row.
+    func testThePreviousSessionsRowDoesNotPickTheLiveCostRow() throws {
+        let sum = try charging()
+        func row(startedAgo: TimeInterval, kind: String, place: String?) throws -> ChargeBrief {
+            let iso = ISO8601DateFormatter().string(from: try XCTUnwrap(sum.chargeStartedAt).addingTimeInterval(-startedAgo))
+            let p = place.map { ",\"place\":\"\($0)\"" } ?? ""
+            return try decode(ChargeBrief.self, "{\"ID\":\"r\",\"StartedAt\":\"\(iso)\",\"EnergyAddedKWh\":30,\"Cost\":0,\"kind\":\"\(kind)\"\(p)}")
+        }
+        let previousFast = try XCTUnwrap(ChargingDetail.make(summary: sum, session: nil, charge: try row(startedAgo: 86_400, kind: "dcfc", place: nil)))
+        XCTAssertNil(previousFast.place)
+        XCTAssertNil(NowFormat.liveCostText(previousFast.cost, place: previousFast.place), "no row for a charge we cannot place")
+        let own = try XCTUnwrap(ChargingDetail.make(summary: sum, session: nil, charge: try row(startedAgo: 0, kind: "dcfc", place: nil)))
+        XCTAssertEqual(own.place, "Fast")
+    }
+
     func testLiveCostRowFollowsTheNowCardWhenThereIsNoFigure() {
         XCTAssertEqual(NowFormat.liveCostText(nil, place: "Fast"), "Estimated when it ends")
         XCTAssertEqual(NowFormat.liveCostText(nil, place: "Away"), "Unknown, add it after")
