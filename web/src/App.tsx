@@ -35,6 +35,7 @@ const ChangelogPage = lazy(() => import("./pages/ChangelogPage"));
 const ChargingNetworksPage = lazy(() => import("./pages/ChargingNetworksPage"));
 const R2GuidePage = lazy(() => import("./pages/R2GuidePage"));
 const TermsArchivePage = lazy(() => import("./pages/TermsArchivePage"));
+const TermsArchive20261117Page = lazy(() => import("./pages/TermsArchive20261117Page"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const MovingFromElectraFiPage = lazy(() => import("./pages/MovingFromElectraFiPage"));
 const SafeToConnectPage = lazy(() => import("./pages/SafeToConnectPage"));
@@ -125,6 +126,7 @@ export default function App() {
       <Route path="changelog" element={<ChangelogPage />} />
       <Route path="terms" element={<TermsPage />} />
       <Route path="terms/2026-10-23" element={<TermsArchivePage />} />
+      <Route path="terms/2026-11-17" element={<TermsArchive20261117Page />} />
       <Route path="moving-from-electrafi" element={<MovingFromElectraFiPage />} />
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
       <Route path="support" element={<SupportPage />} />
