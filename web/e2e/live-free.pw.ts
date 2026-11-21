@@ -49,6 +49,13 @@ for (const k of CASES) {
   test(`@webkit live card and Now card read the same cost: ${k.name}`, async ({ page }) => {
     await open(page, "/live", k.c, k.session, k.homeRate ?? true);
     await expect(page.getByTestId("live-session-card")).toBeVisible();
+    // The cost row comes with the session and the Now inputs, a beat after the card: wait for it (or, with no rate, for the queries to settle).
+    // The first attempt on main read before it rendered (run 44936940239); the page showed no "Free" at any point.
+    if (k.want) await expect(page.getByTestId("live-cost-so-far")).toBeVisible();
+    else {
+      await expect(page.getByTestId("live-session-card")).not.toContainText("…");
+      await page.waitForLoadState("networkidle");
+    }
     await expect(page.getByText("Free", { exact: true })).toHaveCount(0);
     const live = await costText(page, "/live");
     if (k.want) expect(live).toMatch(k.want);
@@ -59,6 +66,7 @@ for (const k of CASES) {
     await open(page, "/", k.c, k.session, k.homeRate ?? true);
     await expect(page.getByTestId("now-slot")).toBeVisible();
     if (k.want) await expect(page.getByTestId("now-slot-cost-so-far")).toBeVisible();
+    else await page.waitForLoadState("networkidle");
     expect(await costText(page, "/")).toEqual(live);
   });
 }
