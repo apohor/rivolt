@@ -1,3 +1,4 @@
+import "../styles/next-plan.css";
 import { useEffect, useRef } from "react";
 import { chargerKindOfKw, chargerLabel } from "../lib/chargerLabels";
 import type { TripCostStop, TripRoute } from "../lib/api";

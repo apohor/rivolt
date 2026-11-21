@@ -17,6 +17,8 @@ struct NowLiveView: View {
     var images: [VehicleImage]?
     /// The gear and closures the picture's view is picked from (the web's door, frunk and gear pick); nil before the state is read.
     var pictureState: VehiclePicture.LiveInputs?
+    /// The charger's tag while charging ("Rivian charger", "Fast charger", ...): the same rule as the Now card's chip (`NowSlotModel.chargerTag`).
+    var chargerTag: String?
     let onBack: () -> Void
 
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -89,6 +91,12 @@ struct NowLiveView: View {
         // Worked out once per render: the rows, the heading and the spoken sentences all read these.
         let stats = streaming && detail != nil ? NowSlotModel.liveStats(summary: summary, snapshot: snapshot, session: session, charge: charge, clock: .now) : []
         return ThemeSection(title: "\(vehicle.name): \(streaming ? summary.stateLabel : NowCard.pill(for: summary, clock: .now).text)") {
+            if streaming, detail != nil, let chargerTag {
+                Text(chargerTag).themeText(.caption, color: Theme.accent)
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .background(Capsule().fill(Theme.accent.opacity(0.18)))
+                    .accessibilityIdentifier("live-charger-tag")
+            }
             row("Battery", summary.socPct.map { "\(Int($0.rounded()))%" })
             row("Range", summary.rangeKm.map { km in "\(Int((NowFormat.usesMetric ? km : km / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi")" })
             row("Charge limit", summary.chargeTargetPct.map { "\(Int($0.rounded()))%" })

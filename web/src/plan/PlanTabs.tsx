@@ -1,3 +1,4 @@
+import "../styles/next-plan.css";
 import { useCallback, type KeyboardEvent, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 

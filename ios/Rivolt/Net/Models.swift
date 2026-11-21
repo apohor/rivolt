@@ -87,6 +87,9 @@ struct Vehicle: Decodable, Identifiable, Equatable {
     var proLocked: Bool? = nil
     /// Rivian's pictures of the vehicle, by placement and design (see VehiclePicture). Absent on a server that doesn't send them.
     var images: [VehicleImage]? = nil
+    /// The pack's usable size in kWh as recorded for the vehicle (`pack_kwh`; absent until known): the time left in a charge is worked out from it
+    /// when the live state carries none, as the web does.
+    var packKwh: Double? = nil
 
     struct OTA: Decodable, Equatable {
         struct Version: Decodable, Equatable {
@@ -119,7 +122,7 @@ struct VehicleState: Decodable, Equatable {
     /// Vehicle speed in km/h; the Now card shows it while driving.
     let speedKph: Double?
     /// The pack size, to work out the time to the charge limit.
-    let batteryCapacityKwh: Double?
+    var batteryCapacityKwh: Double?
     /// Tire pressures in bar (0 when a wheel doesn't report) and the software versions: the Truck tab's Vehicle card.
     let tirePressureFlBar: Double?
     let tirePressureFrBar: Double?

@@ -1,3 +1,4 @@
+import "../styles/next-plan.css";
 import { movableVia, moveVia, viaMoveLabel, viaPosition, viaRemoveLabel } from "../plan/reorderVias";
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";

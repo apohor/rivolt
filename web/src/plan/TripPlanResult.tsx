@@ -1,3 +1,4 @@
+import "../styles/next-plan.css";
 import { useEffect, useState } from "react";
 import { inDemo } from "../lib/demo";
 import { type TripAdvice, type TripPlan } from "../lib/api";

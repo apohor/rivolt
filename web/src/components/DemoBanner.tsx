@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { useAppUrl, useSignupEnabled } from "../lib/config";
+import { useAppUrl, useDesignPreview, useSignupEnabled } from "../lib/config";
 
 // ConnectLink sends a demo visitor to the real app's sign-up (or sign-in
 // when sign-ups are closed). On the standalone demo deployment
@@ -31,15 +31,16 @@ export function ConnectLink({ children, className, kind }: { children: ReactNode
 
 // The sample-truck banner shown across the whole /demo shell.
 export function DemoBanner() {
+  // Design key signup_v2 (preview): the button says where it goes. Off, unchanged.
+  const v2 = useDesignPreview("signup_v2");
   return (
     <div role="region" aria-label="Sample truck notice" className="border-b border-sky-800/60 bg-sky-950/40 px-4 py-2 text-sm text-sky-100">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
         <span>
-          <span className="font-medium">Sample truck.</span> Generated data, read-only. Connect your Rivian to see
-          yours.
+          <span className="font-medium">Sample truck.</span> {v2 ? "Simulated data, read-only." : "Generated data, read-only. Connect your Rivian to see yours."}
         </span>
         <ConnectLink className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">
-          Connect with a driver account
+          {v2 ? "Add my truck" : "Connect with a driver account"}
         </ConnectLink>
       </div>
     </div>

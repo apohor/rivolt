@@ -1,3 +1,4 @@
+import "../styles/next-plan.css";
 import { useId, useMemo, useRef, type KeyboardEvent, type PointerEvent } from "react";
 import type { ElevationProfile } from "../lib/api";
 import type { DistanceUnit } from "../lib/preferences";

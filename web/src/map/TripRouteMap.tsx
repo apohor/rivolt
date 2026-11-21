@@ -1,3 +1,4 @@
+import "../styles/next-plan.css";
 // TripRouteMap draws a planned trip on the self-hosted MapLibre basemap: a road-snapped line through every waypoint (a stored geometry first,
 // then Valhalla, else straight legs), markers for the origin (green), each charging stop (amber) and the destination (rose), and a
 // charger overlay along the route with add / preview popups. MapLibre loads as its own chunk when this mounts (loader.ts); without WebGL it
