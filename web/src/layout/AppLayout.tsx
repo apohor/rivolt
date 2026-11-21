@@ -14,12 +14,12 @@ import { ImpersonationBanner } from "../components/ImpersonationBanner";
 import { AdminOnlyShell } from "./AdminOnlyShell";
 import { Spinner } from "../components/ui";
 import Logo from "../components/Logo";
-import IOSInstallBanner from "../components/IOSInstallBanner";
+// Only shown in iOS Safari outside the installed app; renders nothing elsewhere.
+const IOSInstallBanner = lazy(() => import("../components/IOSInstallBanner"));
 import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
 import DegradedBanner from "./DegradedBanner";
-// The lapse/grace banner is for the few accounts whose plan lapsed, and its Pro copy is large: it loads after first paint, like its data does.
-const PlanNotice = lazy(() => import("../components/PlanNotice").then((m) => ({ default: m.PlanNotice })));
+import { PlanNotice } from "../components/PlanNotice";
 import { ThemeSwitch } from "../components/ThemeSwitch";
 
 // Warm a route's lazy chunk before the user clicks. The dynamic
@@ -75,7 +75,9 @@ function UserLayout() {
   return (
     <div className="min-h-full flex flex-col">
       <ImpersonationBanner />
-      <IOSInstallBanner />
+      <Suspense fallback={null}>
+        <IOSInstallBanner />
+      </Suspense>
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
         {/* Narrower than 200 CSS px (a phone at Safari's aA 300 %) the name goes (it stays the link's accessible name) so the settings button fits. */}
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 max-[200px]:gap-2 max-[200px]:px-3">
@@ -116,9 +118,7 @@ function UserLayout() {
         {/* pb-24 on mobile keeps the last row clear of the fixed tab bar. */}
         <main data-app-main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">
           <DegradedBanner />
-          <Suspense fallback={null}>
-            <PlanNotice />
-          </Suspense>
+          <PlanNotice />
           <SubNav tab={current} onPrefetch={prefetchRoute} />
           <Outlet />
         </main>
