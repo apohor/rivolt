@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import Logo from "./Logo";
 import { useSystemTheme } from "../lib/theme";
 import { headingId } from "../lib/headingId";
+import { useLegalText } from "../lib/useLegalText";
 
 // A public legal page (Privacy, Terms): rendered from one markdown source, styled with the theme
 // tokens, public (no layout, no API). A "##" heading that starts with a number ("## 2. ...") gets id="2", so /terms#2 lands on the
@@ -39,16 +40,20 @@ const mdComponents: Components = {
 
 // `between` (with `splitAt`, the heading it goes in front of) puts a small interactive block inside the document, after the section
 // before that heading; the markdown on either side is rendered the same way.
-export function LegalDoc({ source, other, between, splitAt, top }: { source: string; other: { to: string; label: string }; between?: React.ReactNode; splitAt?: string; top?: React.ReactNode }) {
+// The text is `source` (a string, for tests and callers that hold it) or `src` (the URL of a src/content/*.md asset, fetched on open: the page
+// shows its header and a loading line meanwhile, and a retry button if the fetch fails).
+export function LegalDoc({ source: given, src, other, between, splitAt, top }: { source?: string; src?: string; other: { to: string; label: string }; between?: React.ReactNode; splitAt?: string; top?: React.ReactNode }) {
+  const fetched = useLegalText(given === undefined ? src : undefined);
+  const source = given ?? fetched.text;
   // Follow the device theme (light, dark or system) like the demo does.
   useSystemTheme(true);
   const { hash } = useLocation();
-  const at = between && splitAt ? source.indexOf(splitAt) : -1;
-  const parts: [string, string?] = at > 0 ? [source.slice(0, at), source.slice(at)] : [source];
+  const at = source !== null && between && splitAt ? source.indexOf(splitAt) : -1;
+  const parts: [string, string?] = source === null ? [""] : at > 0 ? [source.slice(0, at), source.slice(at)] : [source];
   useEffect(() => {
     if (!hash) return;
     document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView({ block: "start" });
-  }, [hash]);
+  }, [hash, source]);
   return (
     <div className="min-h-full bg-neutral-950 text-neutral-200">
       <header className="border-b border-neutral-900">
@@ -65,7 +70,14 @@ export function LegalDoc({ source, other, between, splitAt, top }: { source: str
       <main className="mx-auto max-w-3xl px-4 py-8 sm:py-12" data-legal>
         <article className="space-y-4 text-base leading-relaxed">
           {top}
-          <Markdown components={mdComponents}>{parts[0]}</Markdown>
+          {source === null && !fetched.failed && <p role="status" className="text-neutral-400">Loading…</p>}
+          {source === null && fetched.failed && (
+            <p role="alert" className="text-neutral-300">
+              This page could not be loaded.{" "}
+              <button type="button" onClick={fetched.retry} className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200">Try again</button>
+            </p>
+          )}
+          {source !== null && <Markdown components={mdComponents}>{parts[0]}</Markdown>}
           {parts[1] !== undefined && between}
           {parts[1] !== undefined && <Markdown components={mdComponents}>{parts[1]}</Markdown>}
         </article>
