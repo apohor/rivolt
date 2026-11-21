@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { evaluateCapture, stateLines, tally, summariseDiff, diffText, renderSheet, ignorable, toRegExp, FAIL, PASS } from "./lib.mjs";
+import { evaluateCapture, stateLines, tally, buildDiff, diffText, renderSheet, ignorable, toRegExp, FAIL, PASS } from "./lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../../..");
@@ -168,10 +168,10 @@ async function signOut(browser, state) {
 
 function diffSummary() {
   if (!a.validated || !a.rc) return null;
-  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" });
-  try { git("cat-file", "-e", `${a.validated}^{commit}`); git("cat-file", "-e", `${a.rc}^{commit}`); } catch { git("fetch", "--quiet", "origin", a.validated, a.rc); }
-  const range = `${a.validated}..${a.rc}`;
-  return summariseDiff(a.validated, a.rc, git("log", "--format=%H%x09%s", range), git("diff", "--name-only", `${a.validated}...${a.rc}`));
+  // No prompt (credentials, ssh passphrase) can wait for a person here, and no call runs longer than 30 s.
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: "ssh -o BatchMode=yes", GCM_INTERACTIVE: "never" };
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", env, timeout: 30000, stdio: ["ignore", "pipe", "pipe"] });
+  return buildDiff({ git, say: (l) => console.log(l), validated: a.validated, rc: a.rc });
 }
 
 // One line per stage, `STAGE <iso time> <name>`, also kept in results.json: the gate's own duration is measured, and a delivery-metrics
