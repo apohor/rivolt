@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { pairLines } from "./sim.mjs";
+import { bookPair, pairLines } from "./sim.mjs";
 import { evaluateCapture, stateLines, tally, summariseDiff, diffText, renderSheet, ignorable, toRegExp, FAIL, PASS } from "./lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -82,10 +82,9 @@ async function versionGate() {
   return { version: got, want };
 }
 
-async function signIn(browser, root = base, headers = {}) {
+// The sign-in form on root (the app or the admin site), in an open page.
+async function signInForm(pg, root) {
   const { user, pass } = credentials();
-  const ctx = await browser.newContext({ extraHTTPHeaders: headers });
-  const pg = await ctx.newPage();
   await pg.goto(`${root}/login`, { waitUntil: "domcontentloaded" });
   const email = pg.locator("input[autocomplete=username]");
   const choose = pg.getByRole("button", { name: /Continue with Email/ });
@@ -95,6 +94,11 @@ async function signIn(browser, root = base, headers = {}) {
   await pg.locator("input[autocomplete=current-password]").fill(pass);
   await pg.locator("button[type=submit]").click();
   await pg.waitForURL((u) => !/login|auth/.test(u.pathname), { timeout: 30000 });
+}
+
+async function signIn(browser) {
+  const ctx = await browser.newContext();
+  await signInForm(await ctx.newPage(), base);
   const state = await ctx.storageState();
   await ctx.close();
   return state;
@@ -106,13 +110,9 @@ async function bookSim(browser, stage) {
   const adminBase = (a["admin-base"] ?? base.replace("//preview.", "//admin-preview.")).replace(/\/$/, "");
   const sec = (args) => execFileSync("security", args, { encoding: "utf8" });
   const id = /"acct"<blob>="([^"]*)"/.exec(sec(["find-generic-password", "-s", a["access-keychain"]]))?.[1];
-  const headers = { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": sec(["find-generic-password", "-s", a["access-keychain"], "-w"]).trim() };
-  const state = await signIn(browser, adminBase, headers);
-  const ctx = await browser.newContext({ storageState: state, extraHTTPHeaders: headers });
-  const post = async (path) => { const r = await ctx.request.post(`${adminBase}/api/admin/sim/${path}`, { data: {} }); return { status: r.status(), body: await r.json().catch(() => ({})) }; };
-  const first = await post("drive?short=1"); stage("sim drive booked");
-  const second = first.status === 200 ? await post("charge?short=1&queue=1") : { status: 0, body: {} }; stage("sim charge booked");
-  await ctx.close();
+  const token = { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": sec(["find-generic-password", "-s", a["access-keychain"], "-w"]).trim() };
+  const { first, second } = await bookPair({ browser, adminBase, token, login: (pg, root) => signInForm(pg, root) });
+  stage("sim pair booked");
   return pairLines(first, second);
 }
 
