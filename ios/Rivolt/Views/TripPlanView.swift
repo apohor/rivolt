@@ -496,7 +496,7 @@ struct SavedTripsList: View {
                                 .frame(minHeight: 44)
                             }
                             .buttonStyle(.plain)
-                            if state.designPreview.contains("trip_receipt"), trip.plan != nil {
+                            if SavedTripLogic.offersShare(designPreview: state.designPreview, isDemo: state.isDemo, hasPlan: trip.plan != nil) {
                                 Button("Share") { sharing = trip }
                                     .buttonStyle(.plain).themeText(.value, color: Theme.accent)
                                     .padding(.leading, 12)

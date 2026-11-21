@@ -91,6 +91,12 @@ func TestDemoAllowed(t *testing.T) {
 		{"GET", "/api/vehicles/other/sleep-health", false},
 		{"POST", "/api/vehicles/" + demoVeh + "/sleep-health", false},
 		{"POST", "/api/vehicles/" + demoVeh + "/drain", false},
+		// the Now card's parked graph: the demo vehicle only, read-only
+		{"GET", "/api/vehicles/" + demoVeh + "/parked-series", true},
+		{"HEAD", "/api/vehicles/" + demoVeh + "/parked-series", true},
+		{"GET", "/api/vehicles/other/parked-series", false},
+		{"POST", "/api/vehicles/" + demoVeh + "/parked-series", false},
+		{"GET", "/api/vehicles/" + demoVeh + "/parked-series/extra", false},
 		{"GET", "/api/trips/saved/" + demoTripID + "/actual", true},
 		{"GET", "/api/trips/saved/not-a-uuid/actual", false},
 		{"GET", "/api/trips/saved/../actual", false},
@@ -1094,6 +1100,7 @@ func TestDemoHeavyCacheNeverSeesASignedInRequest(t *testing.T) {
 	for _, path := range []string{
 		"/api/vehicles/" + demoVeh + "/drain",
 		"/api/vehicles/" + demoVeh + "/sleep-health",
+		"/api/vehicles/" + demoVeh + "/parked-series",
 		"/api/ledger/savings",
 	} {
 		calls = 0
