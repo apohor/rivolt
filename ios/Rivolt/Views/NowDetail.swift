@@ -192,6 +192,11 @@ enum NowFormat {
         NumberText.money(amount, currency)
     }
 
+    /// The Live screen's Cost so far row: with no price and no estimate it says when the figure comes, as the web's Live cell does.
+    static let costPending = "Estimated when it ends"
+
+    static func liveCostText(_ c: ChargingDetail.Cost?) -> String { c.map(costText) ?? costPending }
+
     static func costText(_ c: ChargingDetail.Cost) -> String {
         switch c {
         case .billed(let a, let cur): return money(a, currency: cur)
