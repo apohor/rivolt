@@ -151,6 +151,13 @@ struct NowSlotModel: Equatable {
             small = "\(NowFormat.duration(TimeInterval(eta.minutes) * 60)) left\(eta.source == .truck ? "" : " (est.)")"
                 + (soft ? "" : limit.map { " · target \(Int($0.rounded()))%" } ?? "")
         }
+        let stats = chargingStats(summary: summary, detail: detail, snapshot: snapshot, soft: soft, clock: clock)
+        return .figures(big: NumberText.fixed(kw, kw < 10 ? 1 : 0), unit: "kW", sub: sub, small: small, stats: stats)
+    }
+
+    /// The charge's figures: the truck's own when its session reports them, else worked out from the battery (est.), the Now card's rule. The Live screen
+    /// shows the same figures (`liveStats`).
+    static func chargingStats(summary: NowSummary, detail: ChargingDetail, snapshot: NowSnapshot?, soft: Bool, clock: Date) -> [Stat] {
         var stats: [Stat] = []
         if let kwh = detail.energyKwh, kwh > 0 {
             stats.append(Stat(label: "Added", value: "+\(NowFormat.oneDecimal(kwh)) kWh", note: nil, estimated: detail.energyEstimated))
@@ -168,14 +175,30 @@ struct NowSlotModel: Equatable {
         let rate = truckRate ?? rangeKm.flatMap { km in elapsed.flatMap { $0 >= 300 ? km / ($0 / 3600) : nil } }
         if let rate { stats.append(Stat(label: "Rate", value: "\(NowFormat.slotDistance(mi: rate / 1.609344))/h", note: nil, estimated: truckRate == nil)) }
         if let elapsed { stats.append(Stat(label: "Elapsed", value: NowFormat.duration(elapsed), note: nil)) }
-        // The cost so far is the server's (`/now` charge), as the web: est. when it is an estimate, with where it comes from.
-        if let c = snapshot?.charge, let cost = c.cost {
+        // The cost so far: Rivian's latest session price when it has one (newer than the charge row's snapshot of it, so Now and Live say the same
+        // figure), else the server's (`/now` charge), as the web: est. when it is an estimate, with where it comes from.
+        if case .billed(let amount, let currency)? = detail.cost {
+            stats.append(Stat(label: "Cost so far", value: NowFormat.money(amount, currency: currency.isEmpty ? "USD" : currency), note: "billed by Rivian", estimated: false))
+        } else if let c = snapshot?.charge, let cost = c.cost {
             let estimate = c.costIsEstimate != false
             stats.append(Stat(label: "Cost so far", value: "\(NowFormat.money(cost, currency: c.currency ?? "USD"))",
                               note: ([estimate ? "estimate" : nil, c.costSource.flatMap { costNotes[$0] }].compactMap { $0 }.joined(separator: " · ") as String?).flatMap { $0.isEmpty ? nil : $0 }, estimated: estimate))
         }
         if !soft, let started { stats.append(Stat(label: "Plugged in", value: started.formatted(date: .omitted, time: .shortened), note: nil)) }
-        return .figures(big: NumberText.fixed(kw, kw < 10 ? 1 : 0), unit: "kW", sub: sub, small: small, stats: stats)
+        return stats
+    }
+
+    /// The Live screen's figures for a charge: the Now card's (`chargingStats`, no "Plugged in") plus the time left (the truck's, else the estimate).
+    /// Empty when the truck is not charging. Whatever has no figure is left out, never a dash.
+    static func liveStats(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, clock: Date) -> [Stat] {
+        guard let detail = ChargingDetail.make(summary: summary, session: session, charge: charge) else { return [] }
+        var stats = chargingStats(summary: summary, detail: detail, snapshot: snapshot, soft: true, clock: clock)
+        if let session, session.timeRemainingSeconds > 0 {
+            stats.append(Stat(label: "Time left", value: NowFormat.duration(session.timeRemainingSeconds), note: nil))
+        } else if let eta = summary.chargeEta {
+            stats.append(Stat(label: "Time left", value: NowFormat.duration(TimeInterval(eta.minutes) * 60), note: nil, estimated: eta.source != .truck))
+        }
+        return stats
     }
 
     // MARK: Driving
