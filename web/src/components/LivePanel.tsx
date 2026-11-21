@@ -543,9 +543,6 @@ function ChargingDetail({
   const energyKwh = ls ? ls.total_charged_energy_kwh : 0;
   const elapsed = ls ? ls.time_elapsed_seconds : 0;
   const remaining = ls ? ls.time_remaining_seconds : 0;
-  // A zero price is not a price: the feed sends "0" before it has priced a session (and on free ones, which is_free_session says), so it must not print as "0 USD".
-  const price = ls && Number(ls.current_price) > 0 ? ls.current_price : "";
-  const currency = ls ? ls.current_currency : "";
   const targetPct = state.charge_target_pct;
   const soc = ls && ls.soc_pct > 0 ? ls.soc_pct : state.battery_level_pct;
   const toTarget = Math.max(0, targetPct - soc);
@@ -650,15 +647,7 @@ function ChargingDetail({
           <Field label="State" value={formatChargerState(state.charger_state)} />
           <Field
             label="Price"
-            value={
-              price
-                ? formatPrice(price, currency)
-                : ls && ls.estimated_cost && ls.estimated_cost > 0
-                  ? `~${formatPrice(ls.estimated_cost.toFixed(2), ls.estimated_currency || "")}`
-                  : ls?.is_free_session
-                    ? "free"
-                    : "—"
-            }
+            value={livePriceText(ls)}
           />
         </div>
       ) : (
@@ -677,9 +666,9 @@ function ChargingDetail({
             <div data-testid="live-est-cost" className="mt-1">
               Cost so far{" "}
               <span className="font-medium text-neutral-300">
-                ~{formatMoney(ls.estimated_cost, ls.estimated_currency || "USD")}
+                {formatMoney(ls.estimated_cost, ls.estimated_currency || "USD")}
               </span>{" "}
-              at your home rate
+              estimate, at your home rate
             </div>
           ) : null}
         </div>
@@ -946,6 +935,16 @@ function formatDuration(totalSeconds: number): string {
   if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
   if (m > 0) return `${m}m ${String(s).padStart(2, "0")}s`;
   return `${s}s`;
+}
+
+// The Price cell. A free session says so first; a price counts only when it is above zero (the feed sends "0" before it has priced a session, and a
+// zero must not read as a charge that costs nothing); else our own estimate, named as one, with its source; else what the Now card says. Not verified
+// against a real session's mid-charge feed, so this is defensive.
+export function livePriceText(ls: LiveSession | null | undefined): string {
+  if (ls?.is_free_session) return "Free";
+  if (ls && Number(ls.current_price) > 0) return formatPrice(ls.current_price, ls.current_currency);
+  if (ls && ls.estimated_cost && ls.estimated_cost > 0) return `${formatPrice(ls.estimated_cost.toFixed(2), ls.estimated_currency || "")} estimate · home rate`;
+  return "Estimated when it ends";
 }
 
 function formatPrice(price: string, currency: string): string {

@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { stubApi, VEHICLE_ID, vehicleState } from "./stub";
 
 // A home charge has no Rivian frames or price: the server sends estimated_cost from the energy recorded so far, and the
-// Live card shows it as "Cost so far ~$X at your home rate" instead of only "waiting for first frame".
+// Live card shows it as "Cost so far $X estimate, at your home rate" instead of only "waiting for first frame".
 const FULL_STATE = {
   ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "..", "ios", "RivoltTests", "Fixtures", "state_full.json"), "utf8")),
   ...vehicleState("charging"),
@@ -12,7 +12,7 @@ const FULL_STATE = {
 const SESSION = { active: false, power_kw: 0, total_charged_energy_kwh: 0, soc_pct: 0, current_price: "", current_currency: "", range_added_km: 0, kilometers_charged_per_hour: 0, time_elapsed_seconds: 0, time_remaining_seconds: 0 };
 
 for (const [name, extra, expected] of [
-  ["with an estimate", { estimated_cost: 3.42, estimated_currency: "USD" }, "~$3.42"],
+  ["with an estimate", { estimated_cost: 3.42, estimated_currency: "USD" }, "$3.42"],
   ["without one", {}, null],
 ] as const) {
   test(`@webkit live card, home charge ${name}: the cost estimate shows only when the server sends one`, async ({ page }) => {
@@ -33,8 +33,10 @@ for (const [name, extra, expected] of [
 }
 
 for (const [name, extra, expected] of [
-  ["a zero price before it is priced", { is_free_session: false }, "—"],
-  ["a free session", { is_free_session: true }, "free"],
+  ["a zero price before it is priced", { is_free_session: false }, "Estimated when it ends"],
+  ["a zero price and an estimate", { estimated_cost: 3.42, estimated_currency: "USD" }, "3.42 USD estimate · home rate"],
+  ["a free session", { is_free_session: true }, "Free"],
+  ["a free session with an empty price and an estimate sent", { current_price: "", is_free_session: true, estimated_cost: 3.42, estimated_currency: "USD" }, "Free"],
   ["a real price", { current_price: "4.20" }, "4.20 USD"],
 ] as const) {
   test(`@webkit live card, fast charge with ${name}: the Price cell never reads 0 USD`, async ({ page }) => {

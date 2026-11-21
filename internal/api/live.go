@@ -123,6 +123,16 @@ type liveSessionResponse struct {
 	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
 }
 
+// liveUnpriced is true when the session has no price of its own to show: not marked free (a free session has its answer, and no estimate
+// is made for it), and a price that is empty or not above zero (the feed sends "0" before it has priced a session).
+func liveUnpriced(sess *rivian.LiveSession) bool {
+	if sess.IsFreeSession {
+		return false
+	}
+	p, err := strconv.ParseFloat(strings.TrimSpace(sess.CurrentPrice), 64)
+	return err != nil || p <= 0
+}
+
 // decorateLiveSessionFor is the response for the open charge: the session when it is the charge's, else the zeroed
 // payload Rivian itself returns for a home charge (so a client falls back to the truck's own power and shows no session
 // totals), and an estimated cost from the charge's recorded energy when Rivian reported no price and the home rate is a
@@ -132,7 +142,7 @@ func decorateLiveSessionFor(vehicleID string, sess *rivian.LiveSession, now rivi
 		sess = &rivian.LiveSession{VehicleID: vehicleID}
 	}
 	resp := liveSessionResponse{LiveSession: sess}
-	if cfg.HomePricePerKWh > 0 && now.EnergyKWh > 0 && sess.CurrentPrice == "" && now.HomeRateApplies() {
+	if cfg.HomePricePerKWh > 0 && now.EnergyKWh > 0 && liveUnpriced(sess) && now.HomeRateApplies() {
 		resp.EstimatedCost = cfg.HomePricePerKWh * now.EnergyKWh
 		resp.EstimatedCurrency = cfg.HomeCurrency
 	}
@@ -148,7 +158,7 @@ func decorateLiveSession(sess *rivian.LiveSession, cfg settings.ChargingConfig) 
 	// energy. Don't overwrite a Rivian-reported price — those come
 	// from RAN / Wall Charger sessions where the real billing rate
 	// is authoritative.
-	if cfg.HomePricePerKWh > 0 && sess.TotalChargedEnergyKWh > 0 && sess.CurrentPrice == "" {
+	if cfg.HomePricePerKWh > 0 && sess.TotalChargedEnergyKWh > 0 && liveUnpriced(sess) {
 		resp.EstimatedCost = cfg.HomePricePerKWh * sess.TotalChargedEnergyKWh
 		resp.EstimatedCurrency = cfg.HomeCurrency
 	}
