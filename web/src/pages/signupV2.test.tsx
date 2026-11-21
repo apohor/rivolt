@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { stubFetchRoutes } from "../test/fetchRoutes";
@@ -64,5 +64,36 @@ describe("signup_v2 copy", () => {
     cleanup();
     await mount("OnboardingPage", [], { connected: true });
     expect(await screen.findByRole("button", { name: "Go to Overview" })).toBeTruthy();
+  });
+
+  it("onboarding, not connected: key on opens on the choice, key off on the connect form", async () => {
+    await mount("OnboardingPage", ["signup_v2"], { demo: true });
+    expect(await screen.findByRole("heading", { name: "Your account is ready" })).toBeTruthy();
+    const sample = screen.getByRole("link", { name: /Try it with a sample truck/ });
+    expect(sample.getAttribute("href")).toBe("/demo?from=app");
+    expect(screen.queryByRole("heading", { name: "Connect your Rivian" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Add my truck/ }));
+    expect(await screen.findByRole("heading", { name: "Connect your Rivian" })).toBeTruthy();
+    cleanup();
+    await mount("OnboardingPage", [], { demo: true });
+    expect(await screen.findByRole("heading", { name: "Connect your Rivian" })).toBeTruthy();
+    expect(screen.queryByText("Your account is ready")).toBeNull();
+  });
+
+  it("demo banner: the way back shows only with the key on and ?from=app, and survives navigation", async () => {
+    window.history.pushState({}, "", "/demo?from=app");
+    await mount("DemoBanner", ["signup_v2"], { demo: true });
+    expect(await screen.findByRole("link", { name: "Back to my account" })).toBeTruthy();
+    cleanup();
+    window.history.pushState({}, "", "/demo/drives");
+    await mount("DemoBanner", ["signup_v2"], { demo: true });
+    expect(await screen.findByRole("link", { name: "Back to my account" })).toBeTruthy();
+    cleanup();
+    sessionStorage.clear();
+    window.history.pushState({}, "", "/demo?from=app");
+    await mount("DemoBanner", [], { demo: true });
+    await screen.findByText(/Generated data/);
+    expect(screen.queryByRole("link", { name: "Back to my account" })).toBeNull();
+    sessionStorage.clear();
   });
 });
