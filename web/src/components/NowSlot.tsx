@@ -1,4 +1,4 @@
-import { chargeFinishMs, chargerLabel, clock, type NowView } from "../lib/nowState";
+import { chargeFinishMs, chargerLabel, clock, type ChargeFlavor, type NowView } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
 import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../lib/preferences";
@@ -119,6 +119,13 @@ export function freshCharge(charge: SlotCharge | null, ls: LiveSession | null): 
   const price = ls?.active && !ls.is_free_session ? Number(ls.current_price) : 0;
   if (!(price > 0)) return charge;
   return { started_at: "", ...charge, cost: price, currency: ls?.current_currency || charge?.currency, cost_source: "rivian", cost_is_estimate: false };
+}
+
+// Whether the charge's own active Rivian session says it is free, and a reader can believe it: the charger is a Rivian one, or the charge is one
+// the home rate does not fit (a fast charge, or AC away from home). Rivian marks a home or third-party charge it does not bill as "free" too;
+// that is not a free charge, and the Now card prices it. (The server's liveSessionIsFree is the same rule.)
+export function sessionIsFree(ls: LiveSession | null | undefined, flavor: ChargeFlavor | null): boolean {
+  return !!ls?.active && ls.is_free_session && (ls.is_rivian_charger || flavor === "dcfc" || flavor === "away_ac");
 }
 
 // The Live page's figures for a charge: the Now card's own (slotStats: the truck's session when it reports one, else worked out from the battery),
