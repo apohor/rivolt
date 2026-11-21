@@ -657,10 +657,10 @@ function ChargingDetail({
         // Parallax is connected the first frame lands in a few
         // seconds, so verbose copy adds noise more often than help.
         <div className="text-[11px] text-neutral-400">
-          <span className="font-medium text-neutral-300">
-            {formatChargerState(state.charger_state)}
+          {/* No Rivian session (a home AC charge, another network, or before its first frame): say what the truck's own state shows, and wait only when it shows nothing yet. */}
+          <span className="font-medium text-neutral-300" data-testid="live-status-line">
+            {liveStatusLine(state.charger_state, powerKw)}
           </span>
-          {" · "}waiting for first frame…
           {/* A home charge has no Rivian frames or price, but the server still estimates its cost from the energy recorded so far. */}
           {ls && ls.estimated_cost && ls.estimated_cost > 0 ? (
             <div data-testid="live-est-cost" className="mt-1">
@@ -985,6 +985,13 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 // ---------- formatters ----------
+
+// liveStatusLine is the one-line status when the live session has nothing: with power flowing it reads what we know ("Charging · 7.6 kW",
+// the truck's own figure, as the Now card's), and "waiting for first frame…" only when there is nothing yet.
+export function liveStatusLine(chargerState: string, powerKw: number): string {
+  if (powerKw > 0) return `Charging · ${powerKw.toFixed(1)} kW`;
+  return `${formatChargerState(chargerState)} · waiting for first frame…`;
+}
 
 function formatChargerState(s: string): string {
   switch (s) {
