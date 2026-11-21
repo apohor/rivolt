@@ -226,6 +226,8 @@ type sampleBuilder struct {
 	at      samplePoint
 	plugged bool
 	limit   float64
+	// effMi overrides sampleMiPerKWh for drives planned while it is set (the older history's seasons); 0 is the corpus default.
+	effMi float64
 
 	// errandDrives counts the drives that end at an errand place so far; the sampleTrailerDrive-th one tows a trailer.
 	errandDrives int
@@ -338,7 +340,11 @@ func (b *sampleBuilder) driveRoad(cruise float64, road []samplePoint, end sample
 // driveOn is a drive along path of miles, ending at end.
 func (b *sampleBuilder) driveOn(cruise float64, path []samplePoint, miles float64, towing bool, end samplePoint) {
 	dur := time.Duration(miles / cruise * float64(time.Hour))
-	drop := miles / (sampleMiPerKWh * samplePackKWh) * 100
+	eff := sampleMiPerKWh
+	if b.effMi > 0 {
+		eff = b.effMi
+	}
+	drop := miles / (eff * samplePackKWh) * 100
 	b.plugged = false
 	b.add(sampleSeg{kind: segDrive, start: b.t, end: b.t.Add(dur), step: 5 * time.Second,
 		socA: b.soc, socB: b.soc - drop, odoA: b.odo, odoB: b.odo + miles, path: path, cruise: cruise, power: "go",

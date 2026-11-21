@@ -690,7 +690,6 @@ struct TripWeatherAdjustment: Decodable, Equatable {
     var legs: [TripWeatherLeg]
     /// The trip-wide driver-profile multiplier; 1 or absent means the profile had no effect.
     var profileMultiplier: Double?
-
 }
 
 struct TripWeatherLeg: Decodable, Equatable {
@@ -706,7 +705,13 @@ struct TripWeatherLeg: Decodable, Equatable {
     var snow: Bool?
     var climbM: Double?
     var descentM: Double?
+    /// The forecast radar's word for the leg at arrival (the Pro tier only; design_preview key radar_forecast): absent when it has none.
+    var radar: Radar?
 
+    struct Radar: Decodable, Equatable {
+        /// "dry", "rain" or "snow"; anything else decodes to nothing.
+        var level: String
+    }
 }
 
 

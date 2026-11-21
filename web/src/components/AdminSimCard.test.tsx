@@ -45,4 +45,19 @@ describe("the preview's simulated drive and charge card", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start a simulated drive now" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("away from home");
   });
+
+  it("writes the older history for the typed account and says how much", async () => {
+    const f = stubFetchRoutes({
+      "/api/admin/sample-history": { body: { from: "2025-05-05T00:00:00Z", before: "2026-08-20T00:00:00Z", drives: 1038, charges: 210 } },
+      "/api/admin/sim": { body: { active: null } },
+    });
+    wrap();
+    const go = await screen.findByRole("button", { name: "Write older history" });
+    expect(go).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Sample truck username"), { target: { value: " sample-truck " } });
+    fireEvent.click(go);
+    expect(await screen.findByText(/Wrote 1038 drives and 210 charges/)).toBeInTheDocument();
+    const call = f.mock.calls.find((c) => String(c[0]).endsWith("/api/admin/sample-history"))!;
+    expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({ username: "sample-truck" });
+  });
 });

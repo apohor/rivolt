@@ -23,10 +23,10 @@ describe("Settings → Get the iPhone app", () => {
     expect(a).toHaveAttribute("rel", expect.stringContaining("noopener"));
     expect(screen.getByText(/never sees your Rivian password/)).toBeInTheDocument();
   });
-  it("says Join the TestFlight beta for a TestFlight link, and refuses a look-alike", () => {
+  it("says Join on TestFlight for a TestFlight link, and refuses a look-alike", () => {
     vi.spyOn(config, "useIosAppUrl").mockReturnValue("https://testflight.apple.com/join/abc123");
     render(<IosAppCard />);
-    expect(screen.getByRole("link", { name: "Join the TestFlight beta" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Join on TestFlight" })).toBeInTheDocument();
     cleanup();
     vi.spyOn(config, "useIosAppUrl").mockReturnValue("https://evil.example/apps.apple.com");
     const { container } = render(<IosAppCard />);

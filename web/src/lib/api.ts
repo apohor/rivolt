@@ -1784,6 +1784,8 @@ export const backend = {
   adminFlagsGet: () => api.get<AdminFlagsState>("/api/admin/kill-switch"),
   // Preview's simulated drive and charge (the routes exist on the preview admin site only; elsewhere both answer 404).
   adminSimGet: () => api.get<{ active: AdminSimRun | null }>("/api/admin/sim"),
+  adminSampleHistory: (username: string) =>
+    api.post<{ from: string; before: string; drives: number; charges: number }>("/api/admin/sample-history", { username }),
   adminSimStart: (kind: "drive" | "charge") => api.post<{ active: AdminSimRun | null }>(`/api/admin/sim/${kind}`),
   adminFlagsKillPut: (paused: boolean, reason: string) =>
     api.put<AdminFlagsState>("/api/admin/kill-switch", { paused, reason }),
@@ -3035,6 +3037,8 @@ export type TripWeatherAdjustment = {
   // chip uses to explain what's contributing.
   profile_multiplier?: number;
   profile_reasons?: string[];
+  // Free accounts only (forecast radar is Pro): how many legs have rain or snow likely, of the legs the forecast could read. Names no leg.
+  radar_teaser?: { wet_legs: number; legs: number };
 };
 
 export type TripWeatherAdjLeg = {
@@ -3049,6 +3053,8 @@ export type TripWeatherAdjLeg = {
   // The leg's total climb and descent from the elevation model, in metres.
   climb_m?: number;
   descent_m?: number;
+  // Pro only: the forecast radar along the leg at the times the truck is there. Absent when the forecast could not say; "dry" is never shown.
+  radar?: { level: "dry" | "rain" | "snow" };
 };
 
 export type TripRoute = {

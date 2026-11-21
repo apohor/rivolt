@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { backend, ApiError, type OIDCProvider } from "../lib/api";
 import { ProviderButton } from "../components/ProviderButton";
 import Logo from "../components/Logo";
-import { useSignupEnabled } from "../lib/config";
+import { getConfig, useDesignPreview, useSignupEnabled } from "../lib/config";
 import { track } from "../lib/track";
 
 // Providers we surface on the signup page. Hydra is rivolt's own
@@ -49,6 +49,8 @@ export default function SignupPage() {
   // null while /api/config loads; false when the operator closed
   // sign-ups (RIVOLT_SIGNUP_DISABLED).
   const signupEnabled = useSignupEnabled();
+  // Design key signup_v2 (preview): providers first, then email; no bullets, no GitHub walkthrough; a sample-truck link. Off, unchanged.
+  const v2 = useDesignPreview("signup_v2");
   // signup_start: the form is open (not when sign-ups are closed).
   const startedRef = useRef(false);
   useEffect(() => {
@@ -133,6 +135,7 @@ export default function SignupPage() {
   // link from an admin approval. Without a valid token the page
   // shows the "request access" form instead of a signup form.
   const tokenMode = tokenStatus === "valid";
+  const v2Default = v2 && !fullMode && !tokenMode;
   const canSubmit =
     tokenMode &&
     email.trim().length > 0 &&
@@ -271,13 +274,15 @@ export default function SignupPage() {
               ? "Finish your signup"
               : fullMode
               ? "We're at capacity"
+              : v2
+              ? "Create your Rivolt account"
               : "Create your account"}
           </h1>
         </div>
 
         {fullMode && !tokenMode && (
           <div className="mb-4 rounded-md border border-amber-900 bg-amber-950/40 px-3 py-2 text-xs leading-relaxed text-amber-200">
-            All beta seats are currently taken. We've pre-filled your
+            All seats are currently taken. We've pre-filled your
             email{fullProvider ? ` from ${fullProvider}` : ""} — leave
             the request below and we'll let you know when a seat opens up.
           </div>
@@ -304,12 +309,18 @@ export default function SignupPage() {
         {!tokenMode && tokenStatus !== "checking" && (
           <>
             <p className="mb-3 text-sm text-neutral-300">
+              {v2Default ? (
+                "This is a Rivolt account, not your Rivian one: any email works. You choose how to start on the next screen."
+              ) : (
+                <>
               Rivolt is an open-source Rivian companion.
               {fullMode
                 ? " "
                 : oauthProviders && oauthProviders.length > 0
                 ? " Sign up instantly with a provider below, or enter your email and we'll send you a signup link."
                 : " Enter your email and we'll send you a signup link."}
+                </>
+              )}
             </p>
 
             {!fullMode && oauthProviders && oauthProviders.length > 0 && (
@@ -318,10 +329,11 @@ export default function SignupPage() {
                   <ProviderButton key={p.name} provider={p} onClick={() => startOIDC(p)} />
                 ))}
                 <p className="text-center text-[11px] text-neutral-500">
-                  or sign up by email
+                  {v2Default ? "or with your email" : "or sign up by email"}
                 </p>
               </div>
             )}
+            {!v2Default && (<>
             <ul className="mb-3 space-y-1 text-xs text-neutral-500">
               <li>• Live telemetry from your truck</li>
               <li>• Every drive and charge against your own $/kWh</li>
@@ -332,6 +344,7 @@ export default function SignupPage() {
               connect the truck after signing in, no need to sign up with your
               Rivian email.
             </p>
+            </>)}
 
             {!reqSent ? (
               <form onSubmit={handleRequestSubmit} className="flex flex-col gap-4">
@@ -362,7 +375,7 @@ export default function SignupPage() {
                   disabled={reqSubmitting || !reqEmail.trim()}
                   className="mt-1 w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  {reqSubmitting ? "Sending…" : "Send signup link"}
+                  {reqSubmitting ? "Sending…" : v2Default ? "Email me a sign-up link" : "Send signup link"}
                 </button>
                 <p className="text-center text-xs text-neutral-500">
                   Already have a signup link?{" "}
@@ -397,7 +410,7 @@ export default function SignupPage() {
           </>
         )}
 
-        {tokenStatus !== "checking" && (
+        {tokenStatus !== "checking" && !v2Default && (
           <div className="mt-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
             <strong className="text-neutral-200">What's next:</strong> you'll
             connect your Rivian account - the same login you use in the Rivian
@@ -541,7 +554,22 @@ export default function SignupPage() {
             </a>
           </p>
         )}
+        {v2Default && sampleTruckHref() && (
+          <p className="mt-4 text-center text-sm text-neutral-400">
+            Just looking?{" "}
+            <a href={sampleTruckHref()} className="text-emerald-500 underline underline-offset-2 hover:text-emerald-400">
+              Try a sample truck
+            </a>{" "}
+            without an account.
+          </p>
+        )}
       </div>
     </div>
   );
+}
+
+// The sample truck: the in-app /demo where the install has it on, the public demo host on rivolt.dev, else none.
+function sampleTruckHref(): string {
+  if (getConfig().features.demoEnabled) return "/demo";
+  return /(^|\.)rivolt\.dev$/.test(window.location.hostname) ? "https://demo.rivolt.dev/demo" : "";
 }

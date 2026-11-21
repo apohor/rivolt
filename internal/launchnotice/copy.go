@@ -65,7 +65,7 @@ type InApp struct {
 // RenderInApp is the banner on Now and the row in Settings (copy section 2).
 func RenderInApp(p Params) InApp {
 	return InApp{
-		Title: "Rivolt now has a free tier and Pro",
+		Title: "Rivolt now has a free tier and a Pro tier",
 		Body: "Your account has Pro at no charge until " + long(p.FoundingEnd) + ", with no card and nothing charged. The updated Terms take effect for you on " +
 			long(p.TermsEffective) + ". Nothing is deleted when a plan ends, and the full export is always free; on the free plan one vehicle is shown at a time, all are recorded.",
 		Links: []Link{

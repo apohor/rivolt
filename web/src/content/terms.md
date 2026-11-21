@@ -1,6 +1,6 @@
 # Rivolt Terms of Service
 
-Last updated: November 17, 2026
+Last updated: November 21, 2026
 
 ## 1. What Rivolt is, and who runs it
 Rivolt is an independent, open-source companion app that records and analyses data from your Rivian vehicle. It is not affiliated with, endorsed by, or partnered with Rivian Automotive, Inc. "Rivian" is a trademark of its owner, used descriptively.
@@ -27,8 +27,8 @@ Rivolt reads your vehicle data through Rivian's unofficial, undocumented interfa
 ## 4. Authorized Driver account (recommended)
 We recommend connecting a second, free Rivian account that you add as an Authorized Driver on your vehicle, instead of your primary Rivian login. You can still connect your main account; the Authorized Driver account is the safer default. Benefits: Rivolt uses that account's credentials, not yours; you can remove Rivolt with one click in the Rivian app, without changing your main password; and Rivolt's requests count against that account's limits rather than your main account's, so they are less likely to affect the official Rivian app on your phone. Trade-off: an Authorized Driver account may not see all of the history your primary account holds (for example, charges started by the owner). Step-by-step setup: [docs/SIGNUP.md](https://github.com/apohor/rivolt/blob/main/docs/SIGNUP.md).
 
-## 5. Free tier, Rivolt Pro and the beta
-Rivolt was free during its public beta. From November 17, 2026 the hosted service has a **free tier** and a paid plan, **Rivolt Pro**. The current limits of each are listed on the [support page](/support); in short, the free tier records everything, shows the last 12 months, plans single-day trips and keeps every alert, the full data export and deletion free, always. Pro adds unlimited history, multi-day planning and the other features listed there. We may change what each tier includes; a change that takes something away from the tier you are on is a material change under section 11. The total number of accounts is capped: signing up with Google, GitHub or a verified email works straight away while there is room, and when the cap is reached new signups wait for our approval. The service remains in beta: features may change or be removed.
+## 5. Free tier and Pro tier
+From November 17, 2026 the hosted service has a **free tier** and a paid **Pro tier** (Rivolt Pro). The current limits of each are listed on the [support page](/support); in short, the free tier records everything, shows the last 12 months, plans single-day trips and keeps every alert, the full data export and deletion free, always. Pro adds unlimited history, multi-day planning and the other features listed there. We may change what each tier includes; a change that takes something away from the tier you are on is a material change under section 11. The total number of accounts is capped: signing up with Google, GitHub or a verified email works straight away while there is room, and when the cap is reached new signups wait for our approval. Features may change or be removed.
 
 **Accounts created before November 17, 2026** have Pro at no charge until November 17, 2027, with no card and nothing charged. We will email you and show a notice in the app at least 30 days before that date. After it, the account is on the free tier unless you subscribe; nothing is deleted.
 

@@ -220,6 +220,9 @@ type Deps struct {
 	// ReplaySim is the preview's simulated drive and charge (/api/admin/sim). Nil leaves the routes unmounted, so they answer 404; main
 	// builds it only on the admin site when RIVOLT_SIM_CONTROLS and RIVOLT_RIVIAN_LIVE_FORBIDDEN are both true.
 	ReplaySim SimRunner
+	// SampleHistory writes the preview sample truck's older history (/api/admin/sample-history). Nil (set only with ReplaySim's conditions)
+	// leaves the route unmounted.
+	SampleHistory SampleHistoryRunner
 	// PlanLegs caches live planner calls and caps them per user (nil: neither).
 	PlanLegs *planleg.Cache
 	Access   *cfaccess.Verifier
@@ -1547,6 +1550,10 @@ func New(d Deps) http.Handler {
 						Post("/sim/drive", handleAdminSimStart(d.ReplaySim, rivian.SimDrive))
 					r.With(audit(auditSpec{action: "sim.charge", targetType: "replay_sim"})).
 						Post("/sim/charge", handleAdminSimStart(d.ReplaySim, rivian.SimCharge))
+				}
+				if d.SampleHistory != nil {
+					r.With(audit(auditSpec{action: "sample_history.write", targetType: "replay_sim", bodyUser: "user_id", userTarget: true, keys: []string{"username"}})).
+						Post("/sample-history", handleAdminSampleHistory(d.SampleHistory))
 				}
 				r.Get("/health-summary", handleAdminHealthSummary(d.AdminHealth))
 				r.With(audit(auditSpec{action: "impersonation.stop", targetType: "user", bodyUser: "target_id"})).

@@ -408,3 +408,48 @@ func TestPaymentFailedEmailCarriesTheGraceDateOfTheFailedRenewal(t *testing.T) {
 		t.Errorf("/me would say Pro=%v plan_grace_ends_date=%v, want %s (the same date as the email)", st.Pro, d, wantDate)
 	}
 }
+
+// An operator grant is not a subscription: no confirmation, no "payment failed" notice, no renewal reminder, however the row looks (running,
+// ended, or past its end), and nothing is recorded as sent.
+func TestGrantRowsSendNoBillingEmail(t *testing.T) {
+	ctx := context.Background()
+	// Control: the same job sends the confirmation for a real subscription, so "no email" below is the grant, not a job that sends nothing.
+	control := newRig(t, "bm-grant-control", true)
+	control.deliver("subscription_created_active.json", nil)
+	if _, err := control.job.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(control.mail.to(control.addr)) == 0 {
+		t.Fatal("control: a subscription sent no email, so this test proves nothing")
+	}
+	for _, c := range []struct{ name, status string }{{"running", "active"}, {"revoked", "ended"}} {
+		r := newRig(t, "bm-grant-"+c.name, true)
+		now := r.job.Now()
+		if _, err := r.pool.ExecContext(ctx, `INSERT INTO entitlements (user_id, source, status, current_period_end) VALUES ($1, 'grant', $2, $3)`,
+			r.uid, c.status, now.Add(30*24*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		for _, at := range []time.Time{now, now.Add(20 * 24 * time.Hour), now.Add(31 * 24 * time.Hour), now.Add(45 * 24 * time.Hour)} {
+			r.job.Now = func() time.Time { return at }
+			if _, err := r.job.RunOnce(ctx); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := r.mail.to(r.addr); len(got) != 0 {
+			t.Errorf("%s grant: %d emails sent, first %q", c.name, len(got), got[0].Subject)
+		}
+		var notices int
+		if err := r.pool.QueryRowContext(ctx, `SELECT count(*) FROM account_notices WHERE user_id = $1 AND kind LIKE 'billing\_%'`, r.uid).Scan(&notices); err != nil || notices != 0 {
+			t.Errorf("%s grant: %d billing notices, %v", c.name, notices, err)
+		}
+		rs, err := RenewalSource{DB: r.pool}.AnnualRenewals(ctx, now.Add(-400*24*time.Hour), now.Add(400*24*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, x := range rs {
+			if x.UserID == r.uid {
+				t.Errorf("%s grant: listed for a renewal reminder", c.name)
+			}
+		}
+	}
+}

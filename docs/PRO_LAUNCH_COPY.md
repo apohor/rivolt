@@ -41,7 +41,7 @@ Rivolt is unofficial and not affiliated with Rivian.
 
 ## 2. In-app notice (banner on Now and a row in Settings, dismissable; shown until December 17, 2026)
 
-Title: Rivolt now has a free tier and Pro
+Title: Rivolt now has a free tier and a Pro tier
 
 Body: Your account has Pro at no charge until November 17, 2027, with no card and
 nothing charged. The updated Terms take effect for you on
@@ -111,7 +111,7 @@ In-app (subscribed): title as the subject's first clause; body "Your free foundi
 
 ## 5. Demo clip end cards (re-encode on launch day)
 
-Last frame of every clip: "rivolt.dev · open source · free tier and Pro.
+Last frame of every clip: "rivolt.dev · open source · free tier and Pro tier.
 Unofficial, not affiliated with Rivian. Sample truck, generated data."
 
 Trip clip only, under the first caption: "Shown with Rivolt Pro (multi-day
@@ -122,22 +122,20 @@ posted.
 
 ## 6. Forum signature and profile line (the owner's call; the owner posts)
 
-"Tracking my R1S with Rivolt, open source, free tier and Pro: rivolt.dev"
+"Tracking my R1S with Rivolt, open source, free tier and Pro tier: rivolt.dev"
 
 ## 7. GitHub About (repository description; the owner sets it)
 
 "Unofficial, open-source companion app for Rivian owners: drives, charging
-costs, trips, efficiency and lease mileage. Free tier and Pro; self-hostable."
+costs, trips, efficiency and lease mileage. Free tier and Pro tier; self-hostable."
 
 ## 8. Social bios and directory tagline (replace "free during beta" on launch day)
 
-- TikTok (≤80): "Open-source Rivian companion, free tier and Pro. Unofficial.
-  Sample truck shown." (79)
+- TikTok (≤80): "Open-source Rivian app, free tier and Pro tier. Unofficial. Sample truck shown." (79)
 - Instagram (≤150): "Open-source Rivian companion: charging cost, trips, lease
-  miles. Free tier and Pro. Unofficial, not affiliated with Rivian. Sample truck
-  shown." (143)
-- Directory tagline (≤80): "Open-source Rivian tracker, free tier and Pro:
-  charging cost, trips, lease miles." (78)
+  miles. Free tier and Pro tier. Unofficial, not affiliated with Rivian. Sample truck
+  shown." (148)
+- Directory tagline (≤80): "Rivian tracker, free tier and Pro tier: charging cost, trips, lease miles." (74)
 
 ## 9. Statement email, last month of the free year (one line, existing send)
 

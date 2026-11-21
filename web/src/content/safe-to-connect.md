@@ -1,6 +1,6 @@
 # Is it safe to connect my Rivian account to Rivolt?
 
-Rivolt asks for a Rivian sign-in so it can read your truck's drives and charging. That is a real decision, so here is what Rivolt does with it, in plain terms, and what the risks are. Rivolt is an open-source companion for Rivian owners, with a free tier and a paid Pro plan. It is unofficial and not affiliated with, endorsed by or sponsored by Rivian.
+Rivolt asks for a Rivian sign-in so it can read your truck's drives and charging. That is a real decision, so here is what Rivolt does with it, in plain terms, and what the risks are. Rivolt is an open-source companion for Rivian owners, with a free tier and a Pro tier. It is unofficial and not affiliated with, endorsed by or sponsored by Rivian.
 
 ## Look first, decide later
 
@@ -33,7 +33,7 @@ Trade-offs: you need a second email address and a few minutes in the Rivian app,
 
 - Rivolt is unofficial. It uses Rivian's unofficial API, so it can break, and Rivian can change or block access at any time, with either kind of account.
 - Any service that holds a session token carries some risk. That is why we suggest a dedicated driver account and why the code is open source, so you can read it or run your own copy.
-- Rivolt is in beta and run by ZeroDowntime LLC, a small operator. The [Terms](/terms) cover the details.
+- Rivolt is run by ZeroDowntime LLC, a small operator, and uses Rivian's unofficial API, so it can break. The [Terms](/terms) cover the details.
 
 Ready? [Sign up](/signup) and connect on the first screen; it takes about two minutes. Questions: [support@rivolt.dev](mailto:support@rivolt.dev).
 

@@ -71,6 +71,14 @@ enum NowReads {
         fresh ?? (lastID == id ? last : nil)
     }
 
+    /// The state's own pack size is often not in the live push (zero); the vehicle's recorded one (`pack_kwh`) stands in, as the web's Now card and Live
+    /// page use it, so the time left in a charge (and the graph's estimate line) can be worked out.
+    static func withPack(_ s: VehicleState?, pack: Double?) -> VehicleState? {
+        guard var s, (s.batteryCapacityKwh ?? 0) <= 0, let pack, pack > 0 else { return s }
+        s.batteryCapacityKwh = pack
+        return s
+    }
+
     private static let log = Logger(subsystem: "dev.rivolt.app", category: "now")
 
     /// `record` gets the read's outcome as a fixed class (see `ConnectionDiagnostics.Outcome`) for the Connection details

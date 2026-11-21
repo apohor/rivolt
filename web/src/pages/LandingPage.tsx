@@ -77,7 +77,10 @@ function Claim({ title, body, children }: { title: React.ReactNode; body: string
 }
 
 export default function LandingPage() {
-  const { demoEnabled, signupEnabled } = getConfig().features;
+  const { features, designPreview } = getConfig();
+  const { demoEnabled, signupEnabled } = features;
+  // Design key signup_v2 (preview): the two doors "Add my truck" / "Try a sample truck", "free tier and Pro tier". Off, the page is unchanged.
+  const v2 = !!designPreview?.includes("signup_v2");
   const hosted = /(^|\.)rivolt\.dev$/.test(window.location.hostname);
   const demo = demoEnabled || hosted;
   const connect = signupEnabled ? { to: "/signup", label: "Connect your Rivian" } : { to: "/login", label: "Sign in" };
@@ -92,7 +95,20 @@ export default function LandingPage() {
     return () => removeEventListener("scroll", onScroll);
   }, []);
 
-  const ctas = (where: "hero" | "footer") => (
+  const ctas = (where: "hero" | "footer") =>
+    v2 ? (
+      <div className="cta">
+        <Link to={connect.to} className="btn go">
+          {signupEnabled ? "Add my truck" : connect.label}
+          <Arrow />
+        </Link>
+        {demo && (
+          <DemoLink path="/demo" where={where} className="btn">
+            Try a sample truck
+          </DemoLink>
+        )}
+      </div>
+    ) : (
     <div className="cta">
       {demo && (
         <DemoLink path={SAMPLE_TRIP} where={where} className="btn go">
@@ -104,7 +120,7 @@ export default function LandingPage() {
         {connect.label}
       </Link>
     </div>
-  );
+    );
 
   return (
     <div className="lp">
@@ -123,7 +139,7 @@ export default function LandingPage() {
           </Link>
           {demo && (
             <DemoLink path="/demo" where="hero" className="btn go sm">
-              Try the demo
+              {v2 ? "Try a sample truck" : "Try the demo"}
             </DemoLink>
           )}
         </div>
@@ -150,14 +166,33 @@ export default function LandingPage() {
               </h1>
               <p className="lede">
                 Where to stop, how long to charge, what you arrive with and what it costs. And how weather and elevation will affect your trip.
+                {v2 && " Every drive and charge of your own truck, recorded for you."}
               </p>
               {ctas("hero")}
-              {demo && <p className="fine">The demo uses a sample truck and needs no account.</p>}
+              {v2 ? (
+                <>
+                  <p className="fine">
+                    Add my truck: create a free account, then sign in to Rivian. About two minutes; your truck shows up right away.
+                    {demo && " Try a sample truck: generated data, no account, no Rivian sign-in."}
+                  </p>
+                  <p className="fine">
+                    Rivolt is unofficial and not affiliated with Rivian. <Link to="/safe-to-connect">Is it safe to connect?</Link>
+                  </p>
+                </>
+              ) : (
+                demo && <p className="fine">The demo uses a sample truck and needs no account.</p>
+              )}
             </div>
             <HeroTrip />
             <p className="fine">
-              {demo ? "The demo uses a generated sample truck: no sign-in, no Rivian account. " : ""}
-              Free to start; Rivolt Pro is $3.99 a month or $34.99 a year. Sign up with Google or GitHub; no invite needed while there is room.
+              {v2 ? (
+                <>Free tier to start; Pro tier is $3.99 a month or $34.99 a year. Sign up with Google, GitHub or your email.</>
+              ) : (
+                <>
+                  {demo ? "The demo uses a generated sample truck: no sign-in, no Rivian account. " : ""}
+                  Free to start; Rivolt Pro is $3.99 a month or $34.99 a year. Sign up with Google or GitHub; no invite needed while there is room.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -223,16 +258,24 @@ export default function LandingPage() {
               <b>Pricing</b>
             </p>
             <h2 id="pricing-heading">
-              Free and <em>Pro</em>
+              {v2 ? (
+                <>
+                  Free tier and <em>Pro tier</em>
+                </>
+              ) : (
+                <>
+                  Free and <em>Pro</em>
+                </>
+              )}
             </h2>
           </div>
           <div className="grid gap-6 md:grid-cols-2">
             <Claim
-              title="Free"
+              title={v2 ? "Free tier" : "Free"}
               body="Every drive and charge recorded and kept until you delete it. Now, Activity, Money and Truck for the last 12 months, the monthly statement with a CSV for each month it shows, a single-day trip planner, three saved trips, trip share links, all share cards, the small Now widget and the charging Live Activity, imports, every alert, and the full export of everything, always. One vehicle shown at a time."
             />
             <Claim
-              title="Rivolt Pro: $3.99 a month or $34.99 a year"
+              title={v2 ? "Pro tier: $3.99 a month or $34.99 a year" : "Rivolt Pro: $3.99 a month or $34.99 a year"}
               body="Unlimited history and trends, range near a temperature, multi-day plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle, and every iPhone widget except the small Now widget. Stop paying and nothing is deleted."
             >
               <Link to="/support" className="mt-3 inline-block text-sm text-emerald-300 hover:underline">
@@ -309,7 +352,7 @@ export default function LandingPage() {
             <Link to="/lease-calculator">Lease calculator</Link>
             {demo && (
               <DemoLink path="/demo" where="footer">
-                Demo
+                {v2 ? "Sample truck" : "Demo"}
               </DemoLink>
             )}
           </nav>

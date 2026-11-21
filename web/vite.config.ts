@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import legacy from "@vitejs/plugin-legacy";
@@ -21,6 +22,11 @@ export default defineConfig({
       renderLegacyChunks: false,
     }),
   ],
+  resolve: {
+    // pmtiles imports fflate only as the gzip fallback for a browser without DecompressionStream (Safari < 16.4, Chrome < 80, Firefox < 113):
+    // the floor above has it everywhere, so the fallback is dead weight (7.3 KB gzip). The stub fails loudly if it is ever reached.
+    alias: { fflate: fileURLToPath(new URL("./src/lib/fflateStub.ts", import.meta.url)) },
+  },
   server: {
     port: 5173,
     proxy: {

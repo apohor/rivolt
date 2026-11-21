@@ -124,7 +124,8 @@ export default function App() {
       <Route path="privacy" element={<PrivacyPage />} />
       <Route path="changelog" element={<ChangelogPage />} />
       <Route path="terms" element={<TermsPage />} />
-      <Route path="terms/2026-10-23" element={<TermsArchivePage />} />
+      <Route path="terms/2026-10-23" element={<TermsArchivePage version="2026-10-23" />} />
+      <Route path="terms/2026-11-17" element={<TermsArchivePage version="2026-11-17" />} />
       <Route path="moving-from-electrafi" element={<MovingFromElectraFiPage />} />
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
       <Route path="support" element={<SupportPage />} />

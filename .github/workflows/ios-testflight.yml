@@ -21,6 +21,10 @@ on:
         description: "Sign and export only, no upload"
         type: boolean
         default: true
+      check_only:
+        description: "Only check that the API key and APPLE_TEAM_ID agree about the team (no archive)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -90,9 +94,25 @@ jobs:
           mkdir -p "$RUNNER_TEMP/asc"
           printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
 
+      # Does the API key's team match APPLE_TEAM_ID? A definite "no" (key refused,
+      # bundle id owned by another team) stops here with the reason instead of
+      # Xcode's "Unable to find a team"; anything unclear is a warning and the
+      # archive goes on exactly as before. check_only stops after this step.
+      - name: Check the team (App Store Connect API)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          python3 -I ios/apple-team-check.py preflight "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8" \
+            "$ASC_KEY_ID" "$ASC_ISSUER_ID" "$APPLE_TEAM_ID" \
+            dev.rivolt.app dev.rivolt.app.widgets dev.rivolt.app.notifications
+
       # The development certificates already in the keychain, so the revoke
       # step at the end only touches one this run created.
       - name: Snapshot development certificates
+        if: ${{ !inputs.check_only }}
         run: python3 -I ios/revoke-runner-dev-certs.py snapshot "$RUNNER_TEMP/dev-certs-before.json"
 
       # Automatic signing archives with a development profile (the export then
@@ -100,6 +120,7 @@ jobs:
       # has at least one registered device: keep one registered in the
       # developer portal. Xcode refuses "Apple Distribution" with Automatic.
       - name: Archive (Release, cloud signing)
+        if: ${{ !inputs.check_only }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -125,14 +146,23 @@ jobs:
       # A dry run never reaches App Store validation, so check here what
       # rejected ios-v0.1.0: icon name, iPhone-only family, a compiled icon.
       - name: The archived app has no QA sign-in hook
+        if: ${{ !inputs.check_only }}
         run: ios/check-no-qa-hook.sh "$RUNNER_TEMP/Rivolt.xcarchive/Products/Applications/Rivolt.app"
 
       - name: Check the archived app for App Store basics
+        if: ${{ !inputs.check_only }}
         env:
           REQUIRE_SIGNED_ENTITLEMENTS: "1"
         run: ios/check-app-store-basics.sh "$RUNNER_TEMP/Rivolt.xcarchive/Products/Applications/Rivolt.app"
 
+      - name: Teams and bundle ids the archive carries
+        if: ${{ !inputs.check_only }}
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: python3 -I ios/apple-team-check.py inspect "$RUNNER_TEMP/Rivolt.xcarchive" "$APPLE_TEAM_ID"
+
       - name: Export and upload
+        if: ${{ !inputs.check_only }}
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -178,7 +208,7 @@ jobs:
       # unaffected. Runs after the upload; a failure shows as this step's error
       # and doesn't fail the release.
       - name: Revoke the development certificate this run minted
-        if: always()
+        if: ${{ always() && !inputs.check_only }}
         continue-on-error: true
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}

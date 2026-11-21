@@ -155,6 +155,8 @@ func main() {
 			os.Exit(runAnnounce(os.Args[2:]))
 		case "entitlements-founding":
 			os.Exit(runEntitlementsFounding(os.Args[2:]))
+		case "grant-pro":
+			os.Exit(runGrantPro(os.Args[2:]))
 		case "launch-notice":
 			os.Exit(runLaunchNotice(os.Args[2:]))
 		case "launch-preflight":
@@ -246,6 +248,12 @@ Usage:
                   needs that count and hash, grants in one transaction,
                   checks founding rows = accounts - demo, and is
                   idempotent. Never migrates; never prints emails.
+  rivolt grant-pro --email ADDR --until YYYY-MM-DD --reason TEXT [--dry-run] | --revoke --email ADDR --reason TEXT [--dry-run]
+                  Pro at no charge for ONE account, found by its sign-in
+                  email, until a date (after today, at most 400 days).
+                  Refused when the account already has Pro that ends later.
+                  One transaction with its admin audit row; --dry-run writes
+                  nothing; --revoke ends a grant early. Prints the email masked.
   rivolt launch-preflight [--launch T] [--offline] [--no-db]
                   Read-only report before the Rivolt Pro flip: the launch
                   list, the founding dry-run counts, the Terms and notice
@@ -798,8 +806,10 @@ func runServer() {
 	// The preview's simulated drive and charge buttons exist on the admin site only, and only when asked for and when a live Rivian client is
 	// forbidden outright (admin-preview sets both); prod's admin site sets neither, so the routes are not there.
 	var replaySim api.SimRunner
+	var sampleHistory api.SampleHistoryRunner
 	if adminOnlyMode && pgPool != nil && rivian.SimControlsEnabled(os.Getenv) {
 		replaySim = rivian.NewSimControl(rivian.NewFlagsSimStore(pgPool))
+		sampleHistory = &demo.SampleHistoryWriter{DB: pgPool, Drives: drivesFactory, Charges: chargesFactory, Getenv: os.Getenv}
 	}
 	flagsStore, err := flags.OpenStore(ctx, pgPool, logger)
 	if err != nil {
@@ -3550,6 +3560,7 @@ func runServer() {
 		AdminDisabled:         adminDisabled,
 		AdminOnly:             adminOnlyMode,
 		ReplaySim:             replaySim,
+		SampleHistory:         sampleHistory,
 		ProbesOnly:            !role.PublicRoutes,
 		PlanLegs:              newPlanLegs(sharedRedis, redisKeyPrefix, logger, appMetrics, replicaDivisor),
 		Redis:                 sharedRedis,

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import guide from "../content/r2.md?raw";
 import { R2CheckedContent } from "../components/R2Checked";
+import { stubLegalFetch } from "../test/legalFetch";
 import R2GuidePage from "./R2GuidePage";
 
 // The public guide and the Truck card say the same thing about the R2, item for item (DA's condition on publishing it).
@@ -48,12 +49,16 @@ describe("the R2 guide matches the Truck card's checked list", () => {
 });
 
 describe("the R2 guide's checklist", () => {
-  it("shows its numbers: an ordered list styled as decimal, five steps", () => {
+  beforeEach(() => stubLegalFetch());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows its numbers: an ordered list styled as decimal, five steps", async () => {
     const { container } = render(
       <MemoryRouter>
         <R2GuidePage />
       </MemoryRouter>,
     );
+    await waitFor(() => expect(container.querySelector("ol")).not.toBeNull());
     const ol = container.querySelector("ol");
     expect(ol).not.toBeNull();
     expect(ol!.className).toContain("list-decimal");

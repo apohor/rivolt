@@ -51,3 +51,16 @@ describe("climbLine", () => {
     expect(climbLine(undefined, 670, "mi")).toBeNull();
   });
 });
+
+describe("forecast radar tags (radar_forecast)", () => {
+  const leg = (radar?: { level: "dry" | "rain" | "snow" }) => ({ multiplier: 1, air_temp_c: 5, precip_mm: 2, radar });
+  it("replaces the plain rain tag with the forecast tag when on", () => {
+    expect(legWeatherTags(legWeatherFacts(leg({ level: "rain" }), "f", "mi", true))).toEqual(["41°F", "Rain likely at arrival"]);
+    expect(legWeatherTags(legWeatherFacts({ ...leg({ level: "snow" }), snow: true }, "f", "mi", true))).toEqual(["41°F", "Snow likely at arrival"]);
+  });
+  it("shows nothing for dry or an absent field, and nothing at all with the key off", () => {
+    expect(legWeatherTags(legWeatherFacts(leg({ level: "dry" }), "f", "mi", true))).toEqual(["41°F", "rain"]);
+    expect(legWeatherTags(legWeatherFacts(leg(), "f", "mi", true))).toEqual(["41°F", "rain"]);
+    expect(legWeatherTags(legWeatherFacts(leg({ level: "rain" }), "f", "mi", false))).toEqual(["41°F", "rain"]);
+  });
+});
