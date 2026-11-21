@@ -12,7 +12,7 @@ final class NowParkedGraphUITests: XCTestCase {
         app.launchEnvironment["RIVOLT_UITEST_PARKED_NOW"] = stamp
         try? FileManager.default.createDirectory(atPath: "/tmp/rivolt-ui-shots", withIntermediateDirectories: true)
         try? stamp.write(toFile: "/tmp/rivolt-ui-shots/parked-now-\(parkedCase)", atomically: true, encoding: .utf8)
-        if dark { app.launchArguments += ["-rivolt.appearance", "dark"] }
+        app.launchArguments += ["-rivolt.appearance", dark ? "dark" : "light"]
         if xxxLarge { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"] }
         app.launchEnvironment["RIVOLT_UITEST_UNITS"] = metric ? "km" : "mi"
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
@@ -20,16 +20,18 @@ final class NowParkedGraphUITests: XCTestCase {
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = [here.appendingPathComponent("Fixtures").path, ios.appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
         app.launchArguments += ["-uitest-now-v2", "-uitest-parked"]
         app.launch()
+        assertRendered(app, dark: dark)
         return app
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
-        let a = XCTAttachment(screenshot: app.screenshot())
+        let screenshot = app.screenshot()  // one capture: a second request is a second chance to time out on a loaded runner
+        let a = XCTAttachment(screenshot: screenshot)
         a.name = name
         a.lifetime = .keepAlways
         add(a)
         try? FileManager.default.createDirectory(atPath: "/tmp/rivolt-ui-shots", withIntermediateDirectories: true)
-        try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/rivolt-ui-shots/\(name).png"))
+        try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/rivolt-ui-shots/\(name).png"))
     }
 
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }
