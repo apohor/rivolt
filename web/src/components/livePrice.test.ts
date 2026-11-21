@@ -9,20 +9,22 @@ describe("livePriceText", () => {
     expect(livePriceText(ls({ current_price: "0" }), "dcfc")).toBe("Estimated when it ends");
     expect(livePriceText(ls({ current_price: "0.00" }), "dcfc")).not.toMatch(/0/);
   });
-  it("an active Rivian-network session that is free says Free, whatever the price or estimate", () => {
+  it("an active Rivian fast or away session that is free says Free, whatever the price or estimate", () => {
     const free = { active: true, is_free_session: true, is_rivian_charger: true };
     expect(livePriceText(ls({ ...free, current_price: "0" }), "dcfc")).toBe("Free");
-    expect(livePriceText(ls({ ...free, estimated_cost: 3.4, estimated_currency: "USD" }), "home_l2")).toBe("Free");
+    expect(livePriceText(ls({ ...free, estimated_cost: 3.4, estimated_currency: "USD" }), "away_ac")).toBe("Free");
   });
-  it("a fast charge or AC away that Rivian calls free is free even when the charger flag is absent", () => {
-    expect(livePriceText(ls({ active: true, is_free_session: true }), "dcfc")).toBe("Free");
-    expect(livePriceText(ls({ active: true, is_free_session: true }), "away_ac")).toBe("Free");
+  it("a charge Rivian marks free that is not a Rivian charger is not free (another network's)", () => {
+    expect(livePriceText(ls({ active: true, is_free_session: true }), "dcfc")).toBe("Estimated when it ends");
+    expect(livePriceText(ls({ active: true, is_free_session: true }), "away_ac")).toBe("Unknown, add it after");
   });
-  it("a home charge Rivian marks free is not free: no Free, the estimate shows as the cost", () => {
-    const home = { active: true, is_free_session: true, current_price: "0" };
-    expect(livePriceText(ls(home), "home_l2")).toBeNull();
-    expect(livePriceText(ls({ ...home, estimated_cost: 1.02, estimated_currency: "USD" }), "home_l2")).toBe("1.02 USD estimate · home rate");
-    expect(livePriceText(ls({ ...home, estimated_cost: 1.02, estimated_currency: "USD" }), null)).not.toBe("Free");
+  it("a home charge Rivian marks free is not free, Wall Charger included: no Free, the estimate shows as the cost", () => {
+    for (const charger of [false, true]) {
+      const home = { active: true, is_free_session: true, is_rivian_charger: charger, current_price: "0" };
+      expect(livePriceText(ls(home), "home_l2")).toBeNull();
+      expect(livePriceText(ls({ ...home, estimated_cost: 1.02, estimated_currency: "USD" }), "home_l2")).toBe("1.02 USD estimate · home rate");
+      expect(livePriceText(ls({ ...home, estimated_cost: 1.02, estimated_currency: "USD" }), null)).not.toBe("Free");
+    }
   });
   it("an ended session is not this charge's, so it is never free", () => {
     expect(livePriceText(ls({ active: false, is_free_session: true, is_rivian_charger: true }), "dcfc")).toBe("Estimated when it ends");

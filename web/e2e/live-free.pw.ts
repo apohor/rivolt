@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi, VEHICLE_ID, vehicleState } from "./stub";
 
-// "Free" on the Live page is Rivian's word for a charge it does not bill, believed only when it is a Rivian charger, a fast charge or AC away.
+// "Free" on the Live page is Rivian's word for a charge it does not bill, believed only for a Rivian charger on a fast charge or AC away.
 // A home AC charge whose live session is active and marked free (Rivian does not bill it) is the home rate's charge: Live and the Now card read the
 // same "Cost so far".
 const FULL_STATE = {
@@ -40,6 +40,7 @@ async function costText(page: Page, route: "/live" | "/"): Promise<string | null
 const CASES: { name: string; c: typeof HOME; session: object; homeRate?: boolean; want: RegExp | null }[] = [
   { name: "home AC, session active, marked free, zero price (the owner's case)", c: HOME, session: { ...ZERO, active: true, power_kw: 7.5, total_charged_energy_kwh: 10.3, time_elapsed_seconds: 5160, is_free_session: true, current_price: "0", current_currency: "USD", estimated_cost: 1.02, estimated_currency: "USD" }, want: /^\$\d+\.\d\destimate·atyourhomerate$/ },
   { name: "home AC, session active, marked free, price absent", c: HOME, session: { ...ZERO, active: true, power_kw: 7.5, is_free_session: true }, want: /^\$\d+\.\d\destimate·atyourhomerate$/ },
+  { name: "home AC on a Rivian Wall Charger, marked free", c: HOME, session: { ...ZERO, active: true, power_kw: 7.5, total_charged_energy_kwh: 10.3, is_free_session: true, is_rivian_charger: true, current_price: "0", current_currency: "USD", estimated_cost: 1.02, estimated_currency: "USD" }, want: /^\$\d+\.\d\destimate·atyourhomerate$/ },
   { name: "home AC with no home rate", c: HOME, session: { ...ZERO, active: true, power_kw: 7.5, is_free_session: true, current_price: "0" }, homeRate: false, want: null },
   { name: "billed Rivian session", c: DC, session: { ...ZERO, active: true, power_kw: 150, total_charged_energy_kwh: 20, current_price: "9.50", current_currency: "USD", is_rivian_charger: true }, want: /^\$9\.50billedbyRivian$/ },
 ];

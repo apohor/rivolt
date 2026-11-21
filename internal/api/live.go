@@ -124,11 +124,12 @@ type liveSessionResponse struct {
 	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
 }
 
-// liveSessionIsFree is true when Rivian's own active session says the charge costs nothing and we can believe it: the truck's charger is a Rivian one,
-// or the charge is one the home rate does not fit (a fast charge, or AC away from home). Rivian marks a home or third-party charge it does not bill as
-// "free" too, and that is not a free charge: the home rate prices it.
+// liveSessionIsFree is true when Rivian's own active session says the charge costs nothing and we can believe it: a Rivian charger (the Adventure
+// Network, a Waypoints charger) on a charge the home rate does not fit (a fast charge, or AC away from home). Rivian marks any charge it does not
+// bill as "free", a home charge on a Wall Charger and another network's charger included, and none of those is a free charge. (The home-rate clause
+// does not change the estimate itself, which needs the home rate to fit anyway; it keeps the web, the iPhone and this on one rule.)
 func liveSessionIsFree(sess *rivian.LiveSession, now rivian.ChargeNow) bool {
-	return sess.Active && sess.IsFreeSession && (sess.IsRivianCharger || !now.HomeRateApplies())
+	return sess.Active && sess.IsFreeSession && sess.IsRivianCharger && !now.HomeRateApplies()
 }
 
 // liveUnpriced is true when the session has no price of its own to show: not a free session (that has its answer, and no estimate is made for

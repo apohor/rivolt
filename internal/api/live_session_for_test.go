@@ -40,27 +40,30 @@ func TestDecorateLiveSessionFor(t *testing.T) {
 	if r := decorateLiveSessionFor("v", &rivian.LiveSession{CurrentPrice: "0"}, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6}, cfg); math.Abs(r.EstimatedCost-0.55) > 1e-9 {
 		t.Errorf("no estimate beside a zero price: %+v", r)
 	}
-	// A free session gets no estimate when Rivian's own charger says so, or when the home rate does not fit the charge, whatever its price field says.
+	// A free session gets no estimate, whatever its price field says, when it is a Rivian charger on a charge the home rate does not fit; on any
+	// charge the home rate fits it is the home rate's charge: Rivian marks every charge it does not bill as free, a Wall Charger at home included.
 	for _, price := range []string{"", "0", "0.00"} {
 		for name, c := range map[string]struct {
-			sess rivian.LiveSession
-			now  rivian.ChargeNow
+			rivian bool
+			now    rivian.ChargeNow
+			want   float64
 		}{
-			"Rivian charger":    {rivian.LiveSession{IsRivianCharger: true}, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6}},
-			"fast charge":       {rivian.LiveSession{}, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 150}},
-			"AC away from home": {rivian.LiveSession{}, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6, Place: "away"}},
+			"Rivian fast charge":       {true, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 150}, 0},
+			"Rivian AC away from home": {true, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6, Place: "away"}, 0},
+			"Wall Charger at home":     {true, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6, Place: "home"}, 0.55},
+			"home charge, other":       {false, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6, Place: "home"}, 0.55},
+			"third-party fast charge":  {false, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 150}, 0},
 		} {
-			sess := c.sess
-			sess.Active, sess.IsFreeSession, sess.CurrentPrice = true, true, price
-			if r := decorateLiveSessionFor("v", &sess, c.now, cfg); r.EstimatedCost != 0 {
-				t.Errorf("an estimate for a free session, %s (price %q): %+v", name, price, r)
+			sess := &rivian.LiveSession{Active: true, IsFreeSession: true, IsRivianCharger: c.rivian, CurrentPrice: price}
+			if r := decorateLiveSessionFor("v", sess, c.now, cfg); math.Abs(r.EstimatedCost-c.want) > 1e-9 {
+				t.Errorf("%s flagged free (price %q): estimate %v, want %v", name, price, r.EstimatedCost, c.want)
 			}
 		}
-		// Rivian marks a home charge it does not bill as free too: that is the home rate's charge, not a free one.
-		home := &rivian.LiveSession{Active: true, CurrentPrice: price, IsFreeSession: true}
-		if r := decorateLiveSessionFor("v", home, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6, Place: "home"}, cfg); math.Abs(r.EstimatedCost-0.55) > 1e-9 {
-			t.Errorf("no estimate for a home charge Rivian calls free (price %q): %+v", price, r)
-		}
+	}
+	// Free needs the session to be the open charge's: an ended one is the previous plug-in's.
+	if !liveSessionIsFree(&rivian.LiveSession{Active: true, IsFreeSession: true, IsRivianCharger: true}, rivian.ChargeNow{PeakKW: 150}) ||
+		liveSessionIsFree(&rivian.LiveSession{IsFreeSession: true, IsRivianCharger: true}, rivian.ChargeNow{PeakKW: 150}) {
+		t.Error("liveSessionIsFree: an active Rivian fast charge is free, an ended session never")
 	}
 	// No home rate configured: no estimate.
 	if r := decorateLiveSessionFor("v", nil, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6}, settings.ChargingConfig{}); r.EstimatedCost != 0 {

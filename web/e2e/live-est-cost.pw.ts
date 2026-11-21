@@ -38,7 +38,7 @@ for (const [name, extra, expected] of [
   ["a zero price before it is priced", { is_free_session: false }, "Estimated when it ends"],
   ["a zero price and an estimate", { estimated_cost: 3.42, estimated_currency: "USD" }, "$3.42estimate · at your home rate"],
   ["a free Rivian session", { is_free_session: true, is_rivian_charger: true }, "Free"],
-  ["a free fast charge with no charger flag", { is_free_session: true }, "Free"],
+  ["a fast charge marked free that is not a Rivian charger", { is_free_session: true }, "Estimated when it ends"],
   ["a free Rivian session with an empty price and an estimate sent", { current_price: "", is_free_session: true, is_rivian_charger: true, estimated_cost: 3.42, estimated_currency: "USD" }, "Free"],
   ["a real price", { current_price: "4.20" }, "$4.20billed by Rivian"],
 ] as const) {
