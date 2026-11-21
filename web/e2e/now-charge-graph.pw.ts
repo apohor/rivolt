@@ -292,3 +292,22 @@ for (const width of [320, 393, 1440]) {
       .toBe(1);
   });
 }
+
+// A 320 px phone with the text at 200%: the labels are laid out for the bigger text, so none is cut off by the graph's edge and the pack's
+// value, when it has no clear spot, is left to the legend instead of sitting on the lines.
+for (const name of ["ac", "dc", "end", "start"]) {
+  test(`at 320 px and 200% text no graph label is cut off by the edge (${name})`, async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 });
+    await open(page, CASES[name]);
+    await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+    const g = page.getByTestId("now-charge-graph");
+    await expect(g).toBeVisible();
+    await page.waitForTimeout(600);
+    const cut = await g.evaluate((root) => {
+      const svg = root.querySelector("svg")!;
+      const w = svg.getBoundingClientRect().width;
+      return [...svg.querySelectorAll("text")].map((t) => ({ s: (t.textContent || "").trim(), b: t.getBBox() })).filter(({ b }) => b.x < -0.5 || b.x + b.width > w + 0.5).map(({ s }) => s);
+    });
+    expect(cut).toEqual([]);
+  });
+}

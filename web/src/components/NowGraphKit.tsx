@@ -200,10 +200,11 @@ export function HaloDot({ id, x, y, color, big = false }: { id: string; x: numbe
 // A small rounded label on a faint plate, centred (or ended) at x.
 export function Pill({ x, y, text, w, anchor = "middle" }: { x: number; y: number; text: string; w: number; anchor?: "middle" | "end" }) {
   const x0 = anchor === "end" ? x - w : x - w / 2;
+  const k = textScale();
   return (
     <g>
-      <rect x={x0} y={y - 10} width={w} height={20} rx={10} className="fill-neutral-500/15" />
-      <text x={x0 + w / 2} y={y + 4} textAnchor="middle" className="fill-neutral-300 text-xs">
+      <rect x={x0} y={y - 10 * k} width={w} height={20 * k} rx={10 * k} className="fill-neutral-500/15" />
+      <text x={x0 + w / 2} y={y + 4 * k} textAnchor="middle" className="fill-neutral-300 text-xs">
         {text}
       </text>
     </g>
@@ -212,6 +213,9 @@ export function Pill({ x, y, text, w, anchor = "middle" }: { x: number; y: numbe
 
 // The width a short label needs at the app's small text, so a plate can wrap it.
 export const labelWidth = (text: string) => Math.ceil(text.length * 6.6 + 20);
+// Graph text is sized in rem, so it grows with the reader's text size while the label boxes below are laid out in px: this is how many times
+// bigger than the 16 px default the text is now (read at render; the box resize that follows a text-size change re-renders the graph).
+export const textScale = () => (typeof document === "undefined" ? 1 : Math.max(1, (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) / 16));
 
 // "-2.4%" style header of a graph: a small caps title left, the change right.
 export function GraphHead({ title, change, since, testid, sinceAlone = false }: { title: string; change: string | null; since?: string; testid?: string; sinceAlone?: boolean }) {
