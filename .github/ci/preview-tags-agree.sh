@@ -14,7 +14,7 @@ tag_of() {
 }
 want=$(tag_of "$pre")
 got=$(tag_of "$adm")
-hint="repair: set image.tag in $adm to the one in $pre (the next preview bump does it too)"
+hint="repair: set rivolt-admin-preview's tag to rivolt-preview's in one PR to rivolt-infra (a bump to a newer build also does it); while main is skewed, merge-infra.sh refuses every other infra PR"
 if [ "${3:-}" = check ]; then
   # Quotes are not part of the tag: "1.3.1-rc.1" and 1.3.1-rc.1 are the same image.
   [ "${got//\"/}" = "${want//\"/}" ] || { echo "::error::admin preview tag is '$got', preview's is '$want'; $hint" >&2; exit 1; }
