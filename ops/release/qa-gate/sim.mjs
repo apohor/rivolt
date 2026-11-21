@@ -16,20 +16,44 @@ export function pairLines(first, second) {
   ];
 }
 
-// The Cloudflare Access service token goes only to the admin origin. Not as the context's extraHTTPHeaders (those go to every host the page
-// touches: the identity server, fonts, CDNs). Requests to any other origin are continued as the browser made them. A redirect leg is not routed
-// again, so a navigation that answers 3xx is followed by hand: the answer becomes a page that moves on, and that next navigation is routed.
-export function accessRoute(adminOrigin, token) {
+// A Set-Cookie header line as a cookie for ctx.addCookies (a fulfilled response does not set cookies in WebKit, so the route does it).
+export function cookieFrom(line, url) {
+  const [pair, ...attrs] = line.split(";").map((x) => x.trim());
+  const i = pair.indexOf("=");
+  const c = { name: pair.slice(0, i), value: pair.slice(i + 1), url };
+  for (const at of attrs) {
+    const [k, v = ""] = at.split("="); const key = k.toLowerCase();
+    if (key === "path") { c.path = v; delete c.url; c.domain = new URL(url).hostname; }
+    else if (key === "httponly") c.httpOnly = true;
+    else if (key === "secure") c.secure = true;
+    else if (key === "samesite") c.sameSite = { strict: "Strict", lax: "Lax", none: "None" }[v.toLowerCase()];
+    else if (key === "max-age") c.expires = Math.floor(Date.now() / 1000) + Number(v);
+  }
+  if (c.path && !c.domain) c.domain = new URL(url).hostname;
+  if (!c.path) { c.path = "/"; c.domain = new URL(url).hostname; delete c.url; }
+  return c;
+}
+
+// The Cloudflare Access service token goes only to requests to the admin origin, and never as the context's extraHTTPHeaders (those go to every
+// host the page touches). A request to the admin origin is fetched here with redirects off (continue() would apply the headers to every redirect
+// leg, off-origin ones too). A redirect answer to a page navigation becomes a page that moves on, so the next navigation is routed again; a
+// redirect answer to a sub-request is aborted.
+export function accessRoute(adminOrigin, token, addCookies = async () => {}) {
   return async (route) => {
     const req = route.request();
     const ours = new URL(req.url()).origin === adminOrigin;
-    const headers = ours ? { ...req.headers(), ...token } : req.headers();
-    if (!req.isNavigationRequest()) return route.continue({ headers });
-    const res = await route.fetch({ headers, maxRedirects: 0 });
+    const nav = req.isNavigationRequest();
+    // Another origin's sub-requests go as the browser made them. Its navigations are followed by hand too, so that the redirect that comes back to
+    // the admin origin is routed (and gets the token) instead of being followed by the browser without it.
+    if (!ours && !nav) return route.continue({ headers: req.headers() });
+    const res = await route.fetch({ headers: ours ? { ...req.headers(), ...token } : req.headers(), maxRedirects: 0 });
+    const jar = (res.headersArray?.() ?? []).filter((h) => h.name.toLowerCase() === "set-cookie").map((h) => cookieFrom(h.value, req.url()));
+    if (jar.length) await addCookies(jar);
     if (res.status() < 300 || res.status() > 399) return route.fulfill({ response: res });
+    if (!nav) return route.abort();
     const to = new URL(res.headers().location, req.url()).href;
     const h = { ...res.headers(), "content-type": "text/html" };
-    delete h.location; delete h["content-length"];
+    delete h.location; delete h["content-length"]; delete h["content-encoding"]; delete h["set-cookie"];
     return route.fulfill({ status: 200, headers: h, body: `<meta http-equiv="refresh" content="0;url=${to}">` });
   };
 }
@@ -39,14 +63,14 @@ export function accessRoute(adminOrigin, token) {
 export async function bookPair({ browser, adminBase, token, login }) {
   const ctx = await browser.newContext();
   try {
-    await ctx.route("**/*", accessRoute(new URL(adminBase).origin, token));
+    await ctx.route("**/*", accessRoute(new URL(adminBase).origin, token, (c) => ctx.addCookies(c)));
     await login(await ctx.newPage(), adminBase);
-    const post = async (path) => { const r = await ctx.request.post(`${adminBase}${path}`, { data: {}, headers: token }); return { status: r.status(), body: await r.json().catch(() => ({})) }; };
+    const post = async (path) => { const r = await ctx.request.post(`${adminBase}${path}`, { data: {}, headers: token, maxRedirects: 0 }); return { status: r.status(), body: await r.json().catch(() => ({})) }; };
     const first = await post("/api/admin/sim/drive?short=1");
     const second = first.status === 200 ? await post("/api/admin/sim/charge?short=1&queue=1") : { status: 0, body: {} };
-    await ctx.request.post(`${adminBase}/api/auth/logout`, { data: {}, headers: token }).catch(() => {});
     return { first, second };
   } finally {
+    await ctx.request.post(`${adminBase}/api/auth/logout`, { data: {}, headers: token, maxRedirects: 0 }).catch(() => {});
     await ctx.close();
   }
 }

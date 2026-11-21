@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { accessRoute, pairLines } from "./sim.mjs";
+import { accessRoute, cookieFrom, pairLines } from "./sim.mjs";
 import { FAIL, PASS } from "./lib.mjs";
 
 const ok = (kind, start, end) => ({ status: 200, body: { active: { id: kind, kind, start, end } } });
@@ -40,10 +40,11 @@ const hasToken = (h) => !!h && Object.keys(h).some((k) => /^cf-access/i.test(k))
 test("the Access token goes to the admin origin and to no other origin", async () => {
   const h = accessRoute(ADMIN, TOKEN);
   const own = fakeRoute(`${ADMIN}/api/admin/sim`); await h(own.route);
-  assert.ok(hasToken(own.seen.continued.headers));
+  assert.ok(hasToken(own.seen.fetched.headers));
+  assert.equal(own.seen.fetched.maxRedirects, 0);
   for (const url of ["https://identity.example/login", "https://fonts.example/a.woff2", "https://rivian.example/pic.webp"]) {
-    const other = fakeRoute(url); await h(other.route);
-    assert.ok(!hasToken(other.seen.continued.headers), `${url} must not carry the token`);
+    const sub = fakeRoute(url); await h(sub.route);
+    assert.ok(!hasToken(sub.seen.continued.headers), `${url} must not carry the token`);
     const nav = fakeRoute(url, { nav: true }); await h(nav.route);
     assert.ok(!hasToken(nav.seen.fetched.headers), `${url} (navigation) must not carry the token`);
   }
@@ -51,7 +52,7 @@ test("the Access token goes to the admin origin and to no other origin", async (
 
 test("a redirect leg is followed by hand and the next navigation is routed", async () => {
   const h = accessRoute(ADMIN, TOKEN);
-  const r = fakeRoute("https://identity.example/cb", { nav: true, status: 302, location: `${ADMIN}/api/auth/oidc/callback?code=1` });
+  const r = fakeRoute(`${ADMIN}/cb`, { nav: true, status: 302, location: `${ADMIN}/api/auth/oidc/callback?code=1` });
   await h(r.route);
   assert.equal(r.seen.fulfilled.status, 200);
   assert.match(r.seen.fulfilled.body, /refresh" content="0;url=https:\/\/admin\.example\/api\/auth\/oidc\/callback\?code=1"/);
@@ -60,4 +61,27 @@ test("a redirect leg is followed by hand and the next navigation is routed", asy
 
 test("no browser context in the runner carries the token as a context-wide header", () => {
   for (const f of ["run.mjs", "sim.mjs"]) assert.doesNotMatch(readFileSync(new URL(f, import.meta.url), "utf8"), /extraHTTPHeaders\s*:/, f);
+});
+
+test("an admin-origin sub-request is fetched with the token and without redirects; a redirect answer is aborted", async () => {
+  const ok = fakeRoute(`${ADMIN}/api/x`); await accessRoute(ADMIN, TOKEN)(ok.route);
+  assert.ok(hasToken(ok.seen.fetched.headers));
+  assert.equal(ok.seen.fetched.maxRedirects, 0);
+  const r = fakeRoute(`${ADMIN}/api/x`, { status: 302, location: "https://identity.example/" });
+  r.route.abort = async () => { r.seen.aborted = true; };
+  await accessRoute(ADMIN, TOKEN)(r.route);
+  assert.ok(r.seen.aborted);
+  assert.equal(r.seen.fulfilled, null);
+});
+
+test("cookieFrom reads a Set-Cookie line", () => {
+  const c = cookieFrom("sid=abc; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=60", "https://admin.example/x");
+  assert.deepEqual([c.name, c.value, c.path, c.domain, c.httpOnly, c.secure, c.sameSite], ["sid", "abc", "/", "admin.example", true, true, "Lax"]);
+});
+
+test("a navigation to another origin is followed by hand, so the redirect back to the admin origin is routed", async () => {
+  const r = fakeRoute("https://identity.example/cb", { nav: true, status: 303, location: `${ADMIN}/api/auth/callback?code=1` });
+  await accessRoute(ADMIN, TOKEN)(r.route);
+  assert.equal(r.seen.fetched.maxRedirects, 0);
+  assert.match(r.seen.fulfilled.body, /admin\.example\/api\/auth\/callback/);
 });
