@@ -124,10 +124,18 @@ type liveSessionResponse struct {
 	EstimatedCurrency string  `json:"estimated_currency,omitempty"`
 }
 
-// liveUnpriced is true when the session has no price of its own to show: not marked free (a free session has its answer, and no estimate
-// is made for it), and a price that is empty or not above zero (the feed sends "0" before it has priced a session).
-func liveUnpriced(sess *rivian.LiveSession) bool {
-	if sess.IsFreeSession {
+// liveSessionIsFree is true when Rivian's own active session says the charge costs nothing and we can believe it: a Rivian charger (the Adventure
+// Network, a Waypoints charger) on a charge the home rate does not fit (a fast charge, or AC away from home). Rivian marks any charge it does not
+// bill as "free", a home charge on a Wall Charger and another network's charger included, and none of those is a free charge. (The home-rate clause
+// does not change the estimate itself, which needs the home rate to fit anyway; it keeps the web, the iPhone and this on one rule.)
+func liveSessionIsFree(sess *rivian.LiveSession, now rivian.ChargeNow) bool {
+	return sess.Active && sess.IsFreeSession && sess.IsRivianCharger && !now.HomeRateApplies()
+}
+
+// liveUnpriced is true when the session has no price of its own to show: not a free session (that has its answer, and no estimate is made for
+// it), and a price that is empty or not above zero (the feed sends "0" before it has priced a session).
+func liveUnpriced(sess *rivian.LiveSession, now rivian.ChargeNow) bool {
+	if liveSessionIsFree(sess, now) {
 		return false
 	}
 	p, err := strconv.ParseFloat(strings.TrimSpace(sess.CurrentPrice), 64)
@@ -143,7 +151,7 @@ func decorateLiveSessionFor(vehicleID string, sess *rivian.LiveSession, now rivi
 		sess = &rivian.LiveSession{VehicleID: vehicleID}
 	}
 	resp := liveSessionResponse{LiveSession: sess}
-	if cfg.HomePricePerKWh > 0 && now.EnergyKWh > 0 && liveUnpriced(sess) && now.HomeRateApplies() {
+	if cfg.HomePricePerKWh > 0 && now.EnergyKWh > 0 && liveUnpriced(sess, now) && now.HomeRateApplies() {
 		resp.EstimatedCost = cfg.HomePricePerKWh * now.EnergyKWh
 		resp.EstimatedCurrency = cfg.HomeCurrency
 	}
@@ -203,7 +211,7 @@ func decorateLiveSession(sess *rivian.LiveSession, peakKW float64, cfg settings.
 	// another network has a price of its own; this path has no place). Don't overwrite a Rivian-reported price — those come
 	// from RAN / Wall Charger sessions where the real billing rate
 	// is authoritative.
-	if cfg.HomePricePerKWh > 0 && sess.TotalChargedEnergyKWh > 0 && liveUnpriced(sess) && rivian.HomeRateFitsPower(max(peakKW, sess.PowerKW)) {
+	if cfg.HomePricePerKWh > 0 && sess.TotalChargedEnergyKWh > 0 && liveUnpriced(sess, rivian.ChargeNow{PeakKW: max(peakKW, sess.PowerKW)}) && rivian.HomeRateFitsPower(max(peakKW, sess.PowerKW)) {
 		resp.EstimatedCost = cfg.HomePricePerKWh * sess.TotalChargedEnergyKWh
 		resp.EstimatedCurrency = cfg.HomeCurrency
 	}

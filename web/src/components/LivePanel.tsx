@@ -18,7 +18,7 @@ import { LiveDriveTrail } from "./LiveDriveTrail";
 import { formatDriveMode } from "../lib/driveMode";
 import { useChargingSettings, useHomeLocation, useVehicleNow } from "../lib/useNowInputs";
 import { chargeFlavorOf, chargerLabel, computeNow, placeOfFix, type ChargeFlavor } from "../lib/nowState";
-import { allEstimated, freshCharge, liveStats, slotView, type Stat } from "./NowSlot";
+import { allEstimated, freshCharge, liveStats, sessionIsFree, slotView, type Stat } from "./NowSlot";
 
 // Unit conversions. Backend speaks SI at the wire.
 const kmToMi = (km: number) => km * 0.6213711922;
@@ -597,7 +597,7 @@ function ChargingDetail({
       }),
     [state, nowMs, server, vehicle.pack_kwh, chargingQ.data, home],
   );
-  const free = !!ls?.is_free_session;
+  const free = sessionIsFree(ls, flavor);
   const haveLiveData = !!ls && (ls.active || ls.power_kw > 0 || ls.total_charged_energy_kwh > 0);
   const stats = liveStats(
     { view: slotView(view), nowMs, unit: distanceUnit, currency: chargingQ.data?.home_currency || "USD", session: haveLiveData ? ls : null, charge: freshCharge(server?.charge ?? null, ls ?? null) },
@@ -681,7 +681,7 @@ function ChargingDetail({
           {stats.map((x) => (
             <Figure key={x.k} stat={x} all={allEst} />
           ))}
-          {priceText && !haveCost ? <Field label="Price" value={priceText} /> : null}
+          {priceText && !haveCost ? <Field label="Cost so far" value={priceText} /> : null}
         </div>
         </>
       ) : (
@@ -971,12 +971,12 @@ function formatDuration(totalSeconds: number): string {
   return `${s}s`;
 }
 
-// The Price cell. A free session says so first; a price counts only when it is above zero (the feed sends "0" before it has priced a session, and a
+// The cost cell ("Cost so far", as on the Now card). A session Rivian says is free says so first (sessionIsFree: not a home charge Rivian does not bill); a price counts only when it is above zero (the feed sends "0" before it has priced a session, and a
 // zero must not read as a charge that costs nothing); else our own estimate, named as one, with its source; else what the Now card says for that
 // kind of charge (a fast charge: when it ends; away on AC: unknown; otherwise nothing, so no cell). Not verified against a real session's
 // mid-charge feed, so this is defensive.
 export function livePriceText(ls: LiveSession | null | undefined, flavor: ChargeFlavor | null): string | null {
-  if (ls?.is_free_session) return "Free";
+  if (sessionIsFree(ls, flavor)) return "Free";
   if (ls && Number(ls.current_price) > 0) return formatPrice(ls.current_price, ls.current_currency);
   if (ls && ls.estimated_cost && ls.estimated_cost > 0) return `${formatPrice(ls.estimated_cost.toFixed(2), ls.estimated_currency || "")} estimate · home rate`;
   if (flavor === "dcfc") return "Estimated when it ends";

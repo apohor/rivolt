@@ -37,32 +37,33 @@ for (const [name, extra, expected] of [
 for (const [name, extra, expected] of [
   ["a zero price before it is priced", { is_free_session: false }, "Estimated when it ends"],
   ["a zero price and an estimate", { estimated_cost: 3.42, estimated_currency: "USD" }, "$3.42estimate · at your home rate"],
-  ["a free session", { is_free_session: true }, "Free"],
-  ["a free session with an empty price and an estimate sent", { current_price: "", is_free_session: true, estimated_cost: 3.42, estimated_currency: "USD" }, "Free"],
+  ["a free Rivian session", { is_free_session: true, is_rivian_charger: true }, "Free"],
+  ["a fast charge marked free that is not a Rivian charger", { is_free_session: true }, "Estimated when it ends"],
+  ["a free Rivian session with an empty price and an estimate sent", { current_price: "", is_free_session: true, is_rivian_charger: true, estimated_cost: 3.42, estimated_currency: "USD" }, "Free"],
   ["a real price", { current_price: "4.20" }, "$4.20billed by Rivian"],
 ] as const) {
-  test(`@webkit live card, fast charge with ${name}: the Price cell never reads 0 USD`, async ({ page }) => {
+  test(`@webkit live card, fast charge with ${name}: the cost cell never reads 0 USD`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await stubApi(page);
     await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FULL_STATE) }));
     await page.route(`**/api/live-session/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...SESSION, active: true, power_kw: 150, total_charged_energy_kwh: 20, current_price: "0", current_currency: "USD", ...extra }) }));
     await page.goto("/live");
-    // A price, or the cost with its source, sits under its own label; the rest read as the Price cell.
+    // A price, or the cost with its source, or what the Now card says for that charge, sits under one label: "Cost so far".
     const priced = expected.startsWith("$");
-    const cell = page.getByText(priced ? "Cost so far" : "Price", { exact: true }).locator("xpath=following-sibling::div[1]");
+    const cell = page.getByText("Cost so far", { exact: true }).locator("xpath=following-sibling::div[1]");
     // The sr-only "estimated" prefix is part of the cell text for a worked-out figure.
     if (priced) await expect(cell).toHaveText(new RegExp(`^(estimated )?${expected.replace(/[$.]/g, "\\$&")}$`));
     else await expect(cell).toHaveText(expected);
   });
 }
 
-test("@webkit live card, AC session with no price and no estimate: no Price cell, the Now card shows none either", async ({ page }) => {
+test("@webkit live card, AC session with no price and no estimate: no cost cell, the Now card shows none either", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await stubApi(page);
   await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FULL_STATE) }));
   await page.route(`**/api/live-session/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...SESSION, active: true, power_kw: 7.6, total_charged_energy_kwh: 3, current_price: "0", current_currency: "USD" }) }));
   await page.goto("/live");
   await expect(page.getByText("Remaining", { exact: true })).toBeVisible();
-  await expect(page.getByText("Price", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Cost so far", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Estimated when it ends")).toHaveCount(0);
 });
