@@ -30,7 +30,7 @@ HOW IT WORKS
 Sign in with your Rivolt account through a browser sheet on rivolt.dev. The app never sees your Rivian password. It keeps only a Rivolt sign-in token, which you can revoke from Signed-in devices. We recommend connecting a second Rivian account added as an Authorized Driver, so you can remove Rivolt from the Rivian app at any time. Rivolt sends no commands to your truck (no locks, climate or charging controls). Reading its data can occasionally wake it.
 
 FREE AND PRO
-Rivolt has a free tier and a Pro tier. The free tier records every drive and charge, shows the last 12 months, sends every alert, and always includes the full export of your data. Rivolt Pro adds unlimited history and trends, multi-day trip plans with overnights, plan-vs-actual, every vehicle, and every widget except the small Now widget. Pro belongs to your Rivolt account and is managed there, on rivolt.dev; sign in to the app with an account that has Pro and it applies. The app itself sells nothing. If a Pro subscription ends, nothing is deleted and your export stays free.
+Rivolt has a free tier and a Pro tier. The free tier records every drive and charge, shows the last 12 months, sends every alert, and always includes the full export of your data. Rivolt Pro adds unlimited history and trends, multi-day trip plans with overnights, plan-vs-actual, every vehicle, and the other widgets (the small Now widget is free). Pro belongs to your Rivolt account and is managed there, on rivolt.dev; sign in to the app with an account that has Pro and it applies. The app itself sells nothing. If a Pro subscription ends, nothing is deleted and your export stays free.
 
 Estimates are labelled as estimates. Nothing compares your truck with other owners'. There are no ads and no third-party analytics; you can export or delete your data from Settings on rivolt.dev. The code is open source (MIT) and you can run your own server.
 
@@ -51,12 +51,12 @@ https://rivolt.dev
 https://rivolt.dev/privacy
 
 ## What's New
-First App Store release: Now, notifications, Activity, Money and Truck, signed in with your Rivolt account. Accounts on the Pro tier get every iPhone widget except the small Now widget; the free tier keeps the small Now widget.
+First App Store release: Now, notifications, Activity, Money and Truck, signed in with your Rivolt account. The small Now widget is free; the other widgets are Pro.
 
 ## Review notes
 Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo truck" on the sign-in screen; no account needed (a sample truck with generated data), and every feature, including the Pro ones, is browsable there. The app sends no commands to vehicles. Sign-in for real owners opens a browser sheet to rivolt.dev.
 
-Pricing: the app has no in-app purchase and no purchase button, and links to no payment page. Rivolt has a free tier and a Pro tier; Pro is a subscription bought on rivolt.dev (the web), and the app applies it to the signed-in Rivolt account (guideline 3.1.3(b), multiplatform service). Without Pro, the Pro-only screens in the app say what Pro adds and show it on the demo truck. Account deletion is in Settings. We are available in the United States storefront only, matching our Terms (adults in the United States).
+Pricing: the app has no in-app purchase and no purchase button, and links to no payment page. Rivolt has a free tier and a Pro tier; Pro is a subscription bought on rivolt.dev (the web), and the app applies it to the signed-in Rivolt account. Account deletion starts in Settings and finishes on rivolt.dev, where the person confirms. We are available in the United States storefront only, matching our Terms (adults in the United States).
 
 A plain test account is also supplied in App Store Connect's private field; it has no truck connected, because a Rivian is needed for your own data.
 
