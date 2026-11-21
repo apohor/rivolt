@@ -175,7 +175,8 @@ struct HomeView: View {
                     let summary = freshness.shown(NowSummary(state: vehicleState, now: now, clock: .now), clock: .now)
                     NowLiveView(vehicle: vehicle, summary: summary, session: summary.freshness != .stale ? session : nil,
                                 liveDrive: summary.freshness != .stale ? liveDrive : nil, destination: summary.freshness != .stale ? liveDestination : nil, charge: summary.freshness != .stale ? latestCharge : nil, snapshot: now,
-                                tidy: tidy, images: vehicle.images, pictureState: vehicleState.map(VehiclePicture.LiveInputs.init)) { showLive = false }
+                                tidy: tidy, images: vehicle.images, pictureState: vehicleState.map(VehiclePicture.LiveInputs.init),
+                                chargerTag: summary.chargePowerKw.flatMap { kw in NowSlotModel.chargerTag(kw: kw, snapshot: now, session: session, fix: NowSlotModel.fix(snapshot: now, truck: vehicleState?.coordinate), home: slotHome) }) { showLive = false }
                         .toolbar(.hidden, for: .navigationBar)
                 }
             }
@@ -396,6 +397,8 @@ struct HomeView: View {
         }
     }
 
+    private func withPack(_ s: VehicleState?) -> VehicleState? { NowReads.withPack(s, pack: selected?.packKwh) }
+
     private func loadSelected() async {
         guard let id = selected?.id, selected?.proLocked != true else {
             vehicleState = nil
@@ -416,7 +419,7 @@ struct HomeView: View {
         async let ch = try? client.recentCharges(vehicleID: id)
         async let dr = try? client.latestDrive(vehicleID: id)
         let (s, n, c, d) = await (st, nw, ch, dr)
-        vehicleState = NowReads.stateToShow(fresh: s, last: vehicleState, lastID: stateVehicleID, id: id)
+        vehicleState = withPack(NowReads.stateToShow(fresh: s, last: vehicleState, lastID: stateVehicleID, id: id))
         stateVehicleID = vehicleState == nil ? nil : id
         now = n ?? nil
         if v2, let t = now?.ambient?.tempC { coldRange = try? await client.coldRange(vehicleID: id, tempC: t.rounded(), grid: [], metric: NowFormat.usesMetric) } else { coldRange = nil }
@@ -481,7 +484,7 @@ struct HomeView: View {
         async let st = NowReads.logged("/state", record: { conn.record(.state, $0) }) { try await client.vehicleState(id: id) }
         async let nw = NowReads.logged("/now", record: { conn.record(.now, $0) }) { try await client.vehicleNow(id: id) }
         let (s, n) = await (st, nw)
-        if let s { vehicleState = s }
+        if let s { vehicleState = withPack(s) }
         if let n { now = n }
         let answered = s != nil || n != nil
         if answered { freshness.fetched(at: .now) }
@@ -524,7 +527,7 @@ struct HomeView: View {
         let conn = state.connection
         let client = state.client
         guard let s = await NowReads.logged("/state", record: { conn.record(.state, $0) }, { try await client.vehicleState(id: id) }) else { return }
-        vehicleState = s
+        vehicleState = withPack(s)
         freshness.fetched(at: .now)
         publishConnection()
         clockTick = .now
