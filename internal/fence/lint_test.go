@@ -198,6 +198,7 @@ var notOwnerSide = map[string]string{
 	"stripebill.PurgeEvents":                  "retention job (stripe webhook event ids older than 30 days), not an owner-side write",
 	"entitlements.ApplyFounding":              "operator CLI (rivolt entitlements-founding), not owner-side",
 	"entitlements.ApplyRedate":                "operator CLI (rivolt entitlements-founding --redate-from), not owner-side",
+	"entitlements.RunGrantPro":                "operator CLI (rivolt grant-pro), not owner-side: one account's plan row plus its audit row in one transaction",
 	"entitlements.RedatePlan.UndoSQL":         "builds the undo script text for the operator CLI; it runs nothing",
 	"db.RecordServerEvent":                    "analytics event of a user action (sign-up, connect)",
 	"db.deleteUserAccountTx":                  "user action / inactive purge (account deletion)",
