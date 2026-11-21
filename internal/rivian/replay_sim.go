@@ -8,8 +8,10 @@ package rivian
 // they are needed, so a pod restart or a lease handover mid-run replays the same run, and a new user's backfill includes it.
 //
 // The loop epoch is untouched: scheduled drives and charges stay where they are, and a request is refused when its window would run into
-// one. The odometer is the one thing that cannot rejoin by itself (the sim adds miles the schedule does not know about), so every frame
-// after a run carries that run's miles. The battery steps back to the schedule's value when a run ends, except that a run queued behind another begins where that one stopped.
+// one. The full runs start at home; the short ones start wherever the routine has the truck (away, asleep, mid scheduled charge) and
+// are refused only on a scheduled drive, with the time it ends. The odometer is the one thing that cannot rejoin by itself (the sim adds miles the schedule does not know about), so every frame
+// after a run carries that run's miles. The battery eases back to the schedule's value over two hours after the last run, and a run
+// queued behind another begins where that one stopped.
 
 import (
 	"context"
@@ -66,6 +68,8 @@ const (
 	simGuard = 10 * time.Minute
 	// simKeep is how long a finished run stays in the document: a user whose backfill reaches that far still gets it.
 	simKeep = 40 * 24 * time.Hour
+	// simEase is how long the battery takes to rejoin the schedule's value after the last run.
+	simEase = 2 * time.Hour
 	// simRefresh is how often the feed re-reads the document.
 	simRefresh = 3 * time.Second
 	// simChargeMin is the length of the charging slice.
@@ -89,7 +93,7 @@ type SimRun struct {
 	AddedMi float64 `json:"added_mi"`
 	// FromSoC is the SoC points the run starts above (or below) the schedule's battery: what the runs chained before it left. AddedSoC is
 	// what this run moves it by. A run booked to begin when the one before it ends (a queued pair) picks up where that one stopped; when the
-	// chain ends the battery steps back to the schedule's value, so nothing drifts over days.
+	// chain ends the battery eases back to the schedule's value over simEase, so there is no step and nothing drifts over days.
 	FromSoC  float64 `json:"from_soc,omitempty"`
 	AddedSoC float64 `json:"added_soc,omitempty"`
 }
@@ -101,15 +105,24 @@ type SimState struct {
 	BaseMi float64 `json:"base_mi,omitempty"`
 }
 
-// chainSoC is the SoC offset a run starting at start inherits: the end state of the run that ends exactly then (a queued run begins at the
-// end of the one under way), zero otherwise.
-func (s SimState) chainSoC(start time.Time) float64 {
-	for _, r := range s.Runs {
-		if r.End.Equal(start) {
-			return r.FromSoC + r.AddedSoC
+// easedSoC is the SoC offset a frame at t carries from the runs before it: where the last run left the battery (relative to the schedule's),
+// easing linearly to zero over simEase so the battery rejoins the schedule without a step and without drifting over days. A run that begins
+// as the last one ends (the queued pair) starts from the full offset.
+func (s SimState) easedSoC(t time.Time) float64 {
+	var last *SimRun
+	for i := range s.Runs {
+		if r := &s.Runs[i]; !r.End.After(t) && (last == nil || r.End.After(last.End)) {
+			last = r
 		}
 	}
-	return 0
+	if last == nil {
+		return 0
+	}
+	age := t.Sub(last.End)
+	if age >= simEase {
+		return 0
+	}
+	return (last.FromSoC + last.AddedSoC) * (1 - float64(age)/float64(simEase))
 }
 
 // offsetMi is the odometer a frame at t carries, not counting run skip (the run t belongs to; its own frames add the earlier ones).
@@ -174,7 +187,10 @@ type simPlan struct {
 	loop    int64
 	end     time.Time // wall
 	addedMi float64
-	addSoC  float64 // SoC points the run moves the battery by
+	addSoC  float64 // SoC points the run's end sits from the schedule's battery at that moment, beyond fromSoC
+	// The drive's places: where it starts and ends, and where it turns.
+	origin, errand         samplePoint
+	originName, errandName string
 }
 
 // planSim builds the run that starts at wall time start, or says why it cannot.
@@ -192,21 +208,42 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 		return simPlan{}, &SimRefusal{"the sample truck's day is wrapping around; try again in a few minutes"}
 	}
 	i := sort.Search(len(c.segs), func(i int) bool { return c.segs[i].end.After(cs) })
-	if i >= len(c.segs) || c.segs[i].kind != segParked {
-		return simPlan{}, &SimRefusal{"the sample truck is driving or charging on its schedule; try again when it is parked"}
+	if i >= len(c.segs) {
+		return simPlan{}, &SimRefusal{"the sample truck's day is wrapping around; try again in a few minutes"}
 	}
-	park := c.segs[i]
-	if haversineMeters(park.path[0].Lat, park.path[0].Lon, SampleHome.Lat, SampleHome.Lon) > 300 {
-		return simPlan{}, &SimRefusal{"the sample truck is away from home; try again when it is back"}
-	}
-	next := tl.end
-	for _, s := range c.segs[i:] {
-		if s.kind != segParked {
-			next = s.start
-			break
+	cur := c.segs[i]
+	origin := cur.path[0]
+	atHome := haversineMeters(origin.Lat, origin.Lon, SampleHome.Lat, SampleHome.Lon) <= 300
+	if short {
+		// A short run is taken wherever the routine has the truck, except on the road: a moving truck cannot be handed to a run without a jump.
+		if cur.kind == segDrive {
+			return simPlan{}, &SimRefusal{fmt.Sprintf("the sample truck is on a scheduled drive until %s; try again after", cur.end.Add(shift).UTC().Format("15:04Z"))}
+		}
+	} else {
+		if cur.kind != segParked {
+			return simPlan{}, &SimRefusal{"the sample truck is driving or charging on its schedule; try again when it is parked"}
+		}
+		if !atHome {
+			return simPlan{}, &SimRefusal{"the sample truck is away from home; try again when it is back"}
 		}
 	}
-	b := &sampleBuilder{rng: nil, t: cs, soc: math.Min(100, math.Max(0, park.socA+fromSoC)), odo: park.odoA, at: park.path[0], limit: park.limit, plugged: false, userPriced: -1}
+	// The routine's next drive or charge after this stretch (a charge the run pre-empts does not count).
+	next := tl.end
+	for _, s := range c.segs[i+1:] {
+		if s.kind == segParked || (cur.kind == segCharge && s.kind == segCharge) {
+			continue
+		}
+		next = s.start
+		break
+	}
+	soc := scheduleSoC(c, cs)
+	errand, errandName, originName, back := sp.errand, sp.errandName, "Rose Bowl Stadium", origin
+	if atHome {
+		back = SampleHome
+	} else {
+		errand, errandName, originName = awayErrand(origin), "Sample stop", "Sample start"
+	}
+	b := &sampleBuilder{rng: nil, t: cs, soc: math.Min(100, math.Max(0, soc+fromSoC)), odo: cur.odoA, at: origin, limit: cur.limit, plugged: false, userPriced: -1}
 	wake := sampleSeg{kind: segParked, start: cs, end: cs.Add(sp.wake), step: sampleAwakeStep, socA: b.soc, socB: b.soc,
 		odoA: b.odo, odoB: b.odo, path: []samplePoint{b.at}, power: "ready"}
 	b.add(wake)
@@ -216,9 +253,9 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 			return simPlan{}, &SimRefusal{"the sample truck's battery is too low for a drive"}
 		}
 		// The cruise speed is the full drive's whatever the variant: the full route's miles over its 24 minutes.
-		_, fullMiles := sampleRoad([]samplePoint{b.at, specFor(false).errand, b.at})
+		_, fullMiles := sampleRoad([]samplePoint{SampleHome, specFor(false).errand, SampleHome})
 		cruise := fullMiles / (float64(simDriveMin) / 60)
-		b.drive(cruise, sp.errand, SampleHome)
+		b.drive(cruise, errand, back)
 		b.parkSim(sp.driveTail, "ready")
 	case SimCharge:
 		if b.soc+sp.chargeGain > 100 {
@@ -234,9 +271,9 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 		return simPlan{}, &SimRefusal{"unknown run: " + string(kind)}
 	}
 	if b.t.Add(simGuard).After(next) {
-		return simPlan{}, &SimRefusal{"a scheduled drive or charge starts too soon after a run would end; try again later"}
+		return simPlan{}, &SimRefusal{fmt.Sprintf("a scheduled drive or charge starts at %s, too soon after a run would end; try again after", next.Add(shift).UTC().Format("15:04Z"))}
 	}
-	return simPlan{segs: b.segs, shift: shift, loop: k, end: b.t.Add(shift), addedMi: b.odo - park.odoA, addSoC: b.soc - wake.socA}, nil
+	return simPlan{segs: b.segs, shift: shift, loop: k, end: b.t.Add(shift), addedMi: b.odo - cur.odoA, addSoC: b.soc - scheduleSoC(c, b.t) - fromSoC, origin: origin, errand: errand, originName: originName, errandName: errandName}, nil
 }
 
 // parkSim adds a parked stretch of d at the builder's place.
@@ -289,7 +326,7 @@ func (c *SimControl) Start(ctx context.Context, kind SimKind, opts SimOpts) (Sim
 		if unfinished > 0 && (!opts.Queue || unfinished > 1) {
 			return st, ErrSimBusy
 		}
-		from := st.chainSoC(start)
+		from := st.easedSoC(start)
 		p, err := planSimFrom(kind, start, from)
 		if err != nil {
 			return st, err
@@ -374,6 +411,11 @@ func (f *ReplayFeed) withSim(ctx context.Context, from, to time.Time, in []State
 		}
 		if st.OdometerKm > 0 {
 			st.OdometerKm += doc.offsetMi(st.At, "") / kmToMi
+		}
+		if d := doc.easedSoC(st.At); d != 0 && st.BatteryLevelPct > 0 {
+			pct := math.Min(100, math.Max(0, st.BatteryLevelPct+d))
+			st.DistanceToEmpty *= pct / st.BatteryLevelPct
+			st.BatteryLevelPct = pct
 		}
 		out = append(out, st)
 	}
@@ -463,4 +505,29 @@ func (s flagsSimStore) Update(ctx context.Context, fn func(SimState) (SimState, 
 		return fmt.Errorf("replay sim: store: %w", err)
 	}
 	return tx.Commit()
+}
+
+// awayErrand is the turn of a short drive that starts away from home, where there is no real road to follow: a point due north that makes
+// the out-and-back about as long as the short errand's 3.6 road miles (straight legs, at the road ratio).
+func awayErrand(from samplePoint) samplePoint {
+	const legMiles = 1.8
+	return samplePoint{Lat: from.Lat + legMiles/sampleRoadRatio/69.0, Lon: from.Lon}
+}
+
+// scheduleSoC is the routine's battery at corpus time t, so the offset a run leaves is measured against what the schedule says at the
+// run's end (a scheduled charge goes on under a run that pre-empts it) and the routine rejoins without a step.
+func scheduleSoC(c *SampleCorpus, t time.Time) float64 {
+	i := sort.Search(len(c.segs), func(i int) bool { return c.segs[i].end.After(t) })
+	if i >= len(c.segs) {
+		i = len(c.segs) - 1
+	}
+	s := c.segs[i]
+	if n := s.frames(); s.kind == segDrive && n > 0 {
+		return s.frameAt(max(0, min(n-1, int(t.Sub(s.start)/s.step)))).BatteryPct
+	}
+	f := math.Min(1, math.Max(0, float64(t.Sub(s.start))/float64(s.end.Sub(s.start))))
+	if s.kind == segCharge && s.dcfc {
+		f = 1 - math.Pow(1-f, 1.6)
+	}
+	return s.socA + (s.socB-s.socA)*f
 }

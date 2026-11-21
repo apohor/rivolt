@@ -31,13 +31,14 @@ func (m *memSimStore) Update(_ context.Context, fn func(SimState) (SimState, err
 }
 
 // simStartFor finds a wall time, a few days into a loop, at which kind can be planned.
+// simStartFor is a start at home (the full runs need it, and the short ones' road is the real one there).
 func simStartFor(t *testing.T, kind SimKind) time.Time {
 	t.Helper()
 	_, tl := sampleShared()
 	base := tl.loopStart(100)
 	for d := time.Duration(0); d < tl.span(); d += 7 * time.Minute {
 		at := base.Add(d)
-		if _, err := planSim(kind, at); err == nil {
+		if p, err := planSim(kind, at); err == nil && haversineMeters(p.origin.Lat, p.origin.Lon, SampleHome.Lat, SampleHome.Lon) <= 300 {
 			return at
 		}
 	}
