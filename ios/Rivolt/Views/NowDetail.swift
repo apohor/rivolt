@@ -72,9 +72,10 @@ struct ChargingDetail: Equatable {
         // Only the session of the charge on screen: an ended session is the previous plug-in's (the self-hosted feed can still return it), and its
         // price must not read as "billed by Rivian" on this charge.
         let own = s?.active == true ? s : nil
-        // Rivian marks a home or third-party charge it does not bill as free too, and that is not a free charge (the home rate prices it): free
-        // counts only for a Rivian charger, a fast charge or one away from home (the web's sessionIsFree and the server's liveSessionIsFree).
-        if let own, own.isFreeSession, own.isRivianCharger || place == "Fast" || place == "Away" { return .free }
+        // Rivian marks any charge it does not bill as free (a Wall Charger at home and another network's charger included), and none of those is a
+        // free charge: free counts only for a Rivian charger on a charge the home rate does not fit, a fast one or one away from home (the web's
+        // sessionIsFree and the server's liveSessionIsFree).
+        if let own, own.isFreeSession, own.isRivianCharger, place == "Fast" || place == "Away" { return .free }
         if let s = own, let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed > 0 {
             return .billed(amount: billed, currency: s.currentCurrency)
         }
