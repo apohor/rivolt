@@ -27,7 +27,7 @@ function tabStops(box: HTMLElement): HTMLElement[] {
 // terms and an unticked consent directly above the button, links to Terms and Privacy, and "Manage subscription" for someone already
 // subscribed. It opens Stripe Checkout (hosted) and never takes a card here. Mocked until billing exists: a failure says so and nothing
 // is charged.
-export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => void }) {
+export function ProSheet({ state, onClose, opener: given }: { state: PlanState; onClose: () => void; opener?: HTMLElement | null }) {
   const [interval, setInterval] = useState<Interval | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -37,11 +37,16 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
   // Focus goes into the sheet when it opens, stays inside while it is open, and goes back to what opened it. Two ways keep it in: the Tab key is
   // wrapped at the first and last stop, and a sentinel at each end catches a browser that tabs past them anyway (Safari does not treat links as
   // Tab stops by default, so "the last stop" is not always the last link: whatever lands on a sentinel is sent to the other end).
+  // The caller's onClose is a new function on every render of its parent: kept in a ref, so the effect (and with it the focus) runs once per
+  // opening, not once per parent render (each re-run took focus back to Close from whatever the person had reached).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // What opened the sheet: given by ProSheetLazy, which saw it before the chunk was here; else what has focus now.
+    const opener = given ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return onClose();
+      if (e.key === "Escape") return onCloseRef.current();
       if (e.key !== "Tab") return;
       const box = dialogRef.current;
       if (!box) return;
@@ -63,7 +68,7 @@ export function ProSheet({ state, onClose }: { state: PlanState; onClose: () => 
       window.removeEventListener("keydown", onKey);
       if (opener?.isConnected) opener.focus();
     };
-  }, [onClose]);
+  }, [given]);
   const wrapTo = (end: "first" | "last") => {
     const items = dialogRef.current ? tabStops(dialogRef.current) : [];
     (end === "first" ? items[0] : items[items.length - 1])?.focus();

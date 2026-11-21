@@ -72,12 +72,23 @@ for (const scheme of ["dark", "light"] as const) {
       });
     }
 
-    test(`Pro: a choice of plan shows where the keyboard is · ${v.n} ${scheme}`, async ({ browser }) => {
+    // The sheet is its own chunk: the second run has it arrive 2 s after the click, as on a slow line.
+    for (const late of [0, 2000]) test(`Pro: a choice of plan shows where the keyboard is${late ? `, sheet ${late / 1000} s late` : ""} · ${v.n} ${scheme}`, async ({ browser }) => {
+      test.setTimeout(60_000);
       const ctx = await browser.newContext({ viewport: v.vp, colorScheme: scheme });
       const page = await ctx.newPage();
       await as(page, FREE);
+      if (late) await page.route("**/assets/ProSheet-*.js", async (r) => { await new Promise((ok) => setTimeout(ok, late)); await r.continue(); });
       await page.goto("/settings#plan");
-      await page.getByRole("button", { name: "See Pro" }).first().click();
+      const opener = page.getByRole("button", { name: "See Pro" }).first();
+      await opener.click();
+      if (late) {
+        // Until the chunk is here the button says it is working, and the sheet then takes focus in itself.
+        await expect(opener).toHaveAttribute("aria-busy", "true");
+        await expect(page.locator("[data-pro-sheet]")).toBeVisible({ timeout: 15_000 });
+        await expect(opener).not.toHaveAttribute("aria-busy", "true");
+        await expect(page.locator("[data-pro-sheet]").getByRole("button", { name: "Close" })).toBeFocused();
+      }
       const sheet = page.locator("[data-pro-sheet]");
       const yearly = sheet.getByRole("radio", { name: /Yearly/ });
       await yearly.focus();
@@ -92,6 +103,8 @@ for (const scheme of ["dark", "light"] as const) {
       await expect(yearly).toBeChecked();
       await expect(sheet.getByRole("checkbox")).not.toBeChecked();
       await axeClean(page, "[data-pro-sheet]");
+      await page.keyboard.press("Escape");
+      await expect(opener, "focus goes back to the button").toBeFocused();
       await ctx.close();
     });
 
