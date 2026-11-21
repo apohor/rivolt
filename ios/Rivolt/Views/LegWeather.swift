@@ -110,7 +110,6 @@ enum LegWeather {
         (legs ?? []).contains { climbLine(climbM: $0.climbM, descentM: $0.descentM, metric: true) != nil }
     }
 
-    /// The terrain data asks to be credited wherever the climb shows (the web's line).
     /// The forecast radar's credit, once wherever its tags show (the web's line).
     static let radarCredit = "Rain and snow likely at arrival: NOAA RRFS"
 
@@ -119,5 +118,6 @@ enum LegWeather {
         (legs ?? []).contains { $0.radar?.level == "rain" || $0.radar?.level == "snow" }
     }
 
+    /// The terrain data asks to be credited wherever the climb shows (the web's line).
     static let terrainCredit = "Terrain: USGS 3DEP, GMTED2010 and SRTM; Natural Resources Canada (Open Government Licence – Canada); INEGI; ArcticDEM; NOAA ETOPO1"
 }
