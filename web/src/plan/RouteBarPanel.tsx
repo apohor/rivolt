@@ -1,3 +1,4 @@
+import "../styles/next-plan.css";
 import { useId, useState, type ReactNode } from "react";
 
 // The map-first planner's route bar. Always visible: From and
