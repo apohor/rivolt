@@ -3,7 +3,7 @@ import { useAccountUnits } from "../lib/accountUnits";
 import { claimCardHeights } from "../lib/nowCardSize";
 import { rememberAppSeen, useSystemTheme } from "../lib/theme";
 import { Footer } from "../components/Footer";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
@@ -18,7 +18,8 @@ import IOSInstallBanner from "../components/IOSInstallBanner";
 import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
 import DegradedBanner from "./DegradedBanner";
-import { PlanNotice } from "../components/PlanNotice";
+// The lapse/grace banner is for the few accounts whose plan lapsed, and its Pro copy is large: it loads after first paint, like its data does.
+const PlanNotice = lazy(() => import("../components/PlanNotice").then((m) => ({ default: m.PlanNotice })));
 import { ThemeSwitch } from "../components/ThemeSwitch";
 
 // Warm a route's lazy chunk before the user clicks. The dynamic
@@ -115,7 +116,9 @@ function UserLayout() {
         {/* pb-24 on mobile keeps the last row clear of the fixed tab bar. */}
         <main data-app-main className="min-w-0 flex-1 py-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:py-6 md:pb-6">
           <DegradedBanner />
-          <PlanNotice />
+          <Suspense fallback={null}>
+            <PlanNotice />
+          </Suspense>
           <SubNav tab={current} onPrefetch={prefetchRoute} />
           <Outlet />
         </main>

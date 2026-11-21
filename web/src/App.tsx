@@ -6,7 +6,7 @@ import { inDemo } from "./lib/demo";
 import { trackDemoVisit } from "./lib/demoVisit";
 import { termsGateActive } from "./lib/terms";
 import { useImpersonationTarget } from "./lib/impersonation";
-import { TermsGate } from "./components/TermsGate";
+
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import { ErrorBoundary, Spinner } from "./components/ui";
@@ -17,6 +17,8 @@ import { pageLoaders } from "./lib/pageLoaders";
 // doesn't carry every page's deps (maps, uPlot, markdown) up front;
 // each loads on first navigation behind the Suspense fallback below.
 // The loaders are shared with AppLayout so the nav can prefetch them.
+// The accept-the-Terms screen is for new accounts only.
+const TermsGate = lazy(() => import("./components/TermsGate").then((m) => ({ default: m.TermsGate })));
 const HomePage = lazy(pageLoaders.home);
 const DrivesPage = lazy(pageLoaders.drives);
 const DriveDetailPage = lazy(pageLoaders.driveDetail);
@@ -96,7 +98,13 @@ export default function App() {
   // admin is viewing as a user the user pages render as on rivolt.dev.
   if (adminOnly.only && !impersonating && !adminSitePath(location.pathname)) return <Navigate to="/admin" replace />;
   if (demoOnly.only && !location.pathname.startsWith("/demo") && location.pathname !== "/privacy" && location.pathname !== "/terms") return <Navigate to="/demo" replace />;
-  if (gate && me.data?.terms) return <TermsGate terms={me.data.terms} />;
+  if (gate && me.data?.terms) {
+    return (
+      <Suspense fallback={<div className="p-4"><Spinner /></div>}>
+        <TermsGate terms={me.data.terms} />
+      </Suspense>
+    );
+  }
   if (landing === "landing") {
     return (
       <Suspense fallback={<div className="p-4"><Spinner /></div>}>

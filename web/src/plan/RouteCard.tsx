@@ -1,3 +1,4 @@
+import "../styles/next-plan.css";
 import { lazy, Suspense, useLayoutEffect, useState } from "react";
 import { StopCard } from "./StopCard";
 import { SummaryStrip } from "./SummaryStrip";
