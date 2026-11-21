@@ -258,10 +258,10 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 	}
 	// The routine's next drive after this stretch. A scheduled charge inside the window does not refuse the run: the run pre-empts it, as it
 	// does one under way, and the battery rejoins the schedule's.
-	next, nextEnd := tl.end, tl.end
+	next, nextEnd, driveLeft := tl.end, tl.end, false
 	for _, s := range c.segs[i+1:] {
 		if s.kind == segDrive {
-			next, nextEnd = s.start, s.end
+			next, nextEnd, driveLeft = s.start, s.end, true
 			break
 		}
 	}
@@ -313,6 +313,10 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 		return simPlan{}, &SimRefusal{Reason: "unknown run: " + string(kind)}
 	}
 	if b.t.Add(simGuard).After(next) {
+		if !driveLeft {
+			// No scheduled drive is left: what is near is the end of the replayed day, where the routine starts over.
+			return simPlan{}, &SimRefusal{Reason: fmt.Sprintf("the sample truck's day wraps around at %s, too soon after a run would end; try again after it", next.Add(shift).UTC().Format("15:04Z")), FreeAt: next.Add(shift)}
+		}
 		return simPlan{}, &SimRefusal{Reason: fmt.Sprintf("a scheduled drive starts at %s, too soon after a run would end; try again after it ends at %s", next.Add(shift).UTC().Format("15:04Z"), nextEnd.Add(shift).UTC().Format("15:04Z")), FreeAt: nextEnd.Add(shift)}
 	}
 	return simPlan{segs: b.segs, shift: shift, loop: k, end: b.t.Add(shift), addedMi: b.odo - cur.odoA, endSoC: b.soc, addSoC: b.soc - scheduleSoC(c, b.t) - fromSoC, origin: origin, errand: errand, originName: originName, errandName: errandName}, nil
@@ -368,7 +372,11 @@ func (c *SimControl) Start(ctx context.Context, kind SimKind, opts SimOpts) (Sim
 		if unfinished > 0 && (!opts.Queue || unfinished > 1) {
 			return st, ErrSimBusy
 		}
+		// The offset is taken from the battery the frames show, which the charge limit holds, not from the uncapped offset.
 		from := st.easedSoC(start)
+		if soc, limit, ok := scheduleBatteryAt(start); ok {
+			from = st.easedBattery(start, soc, limit) - soc
+		}
 		p, err := planSimFrom(kind, start, from)
 		if err != nil {
 			return st, err
@@ -553,6 +561,17 @@ func (s flagsSimStore) Update(ctx context.Context, fn func(SimState) (SimState, 
 func awayErrand(from samplePoint) samplePoint {
 	const legMiles = 1.8
 	return samplePoint{Lat: from.Lat + legMiles/sampleRoadRatio/69.0, Lon: from.Lon}
+}
+
+// scheduleBatteryAt is the routine's battery and charge limit at wall time t (ok false at the wrap).
+func scheduleBatteryAt(t time.Time) (soc, limit float64, ok bool) {
+	c, tl := sampleShared()
+	cs := t.Add(-(tl.loopStart(tl.loopAt(t)).Sub(tl.start)))
+	i := sort.Search(len(c.segs), func(i int) bool { return c.segs[i].end.After(cs) })
+	if cs.Before(tl.start) || i >= len(c.segs) {
+		return 0, 0, false
+	}
+	return scheduleSoC(c, cs), c.segs[i].limit, true
 }
 
 // scheduleSoC is the routine's battery at corpus time t, so the offset a run leaves is measured against what the schedule says at the

@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -230,28 +231,86 @@ func TestScheduledChargeInsideTheWindowDoesNotRefuse(t *testing.T) {
 	}
 }
 
-// A run booked while an earlier one is still easing starts from the eased battery, and the ease it leaves is measured from that.
+// A run booked while an earlier one is still easing starts from the eased battery, and the ease it leaves is measured from that. The start is
+// the first in the day at which the routine is free half an ease after the first run; the test fails if there is none.
 func TestRunBookedDuringAnEaseStartsFromTheEasedBattery(t *testing.T) {
 	ctx := context.Background()
-	start := simStartFor(t, SimDriveShort)
-	p, err := planSim(SimDriveShort, start)
-	if err != nil {
-		t.Fatal(err)
+	_, tl := sampleShared()
+	base := tl.loopStart(100)
+	for d := time.Duration(0); d < tl.span(); d += 7 * time.Minute {
+		start := base.Add(d)
+		p, err := planSim(SimDriveShort, start)
+		if err != nil {
+			continue
+		}
+		first := SimRun{ID: "a", Kind: SimDriveShort, Start: start, End: p.end, AddedMi: round2(p.addedMi), AddedSoC: p.addSoC, EndSoC: p.endSoC}
+		ctl := NewSimControl(&memSimStore{st: SimState{Runs: []SimRun{first}}})
+		now := p.end.Add(simEase / 2)
+		ctl.now = func() time.Time { return now }
+		run, err := ctl.Start(ctx, SimChargeShort, SimOpts{Short: true})
+		if err != nil {
+			continue
+		}
+		// The second run starts a little after now, so the ease has run a little more than half.
+		age := run.Start.Sub(first.End)
+		if want := first.AddedSoC * (1 - float64(age)/float64(simEase)); math.Abs(run.FromSoC-want) > 0.5 {
+			t.Errorf("second run starts %.2f points from the schedule, want about %.2f", run.FromSoC, want)
+		}
+		if first.AddedSoC >= 0 {
+			t.Errorf("the drive should have used battery, got %.2f", first.AddedSoC)
+		}
+		return
 	}
-	first := SimRun{ID: "a", Kind: SimDriveShort, Start: start, End: p.end, AddedMi: round2(p.addedMi), AddedSoC: p.addSoC, EndSoC: p.endSoC}
-	ctl := NewSimControl(&memSimStore{st: SimState{Runs: []SimRun{first}}})
-	now := p.end.Add(simEase / 2)
-	ctl.now = func() time.Time { return now }
-	run, err := ctl.Start(ctx, SimChargeShort, SimOpts{Short: true})
-	if err != nil {
-		t.Skipf("the routine is not free half an ease after this run: %v", err)
+	t.Fatal("the routine is free half an ease after a short drive at no start in the day")
+}
+
+// A run booked while the charge limit holds the battery starts from the capped battery, not from the uncapped offset.
+func TestRunBookedUnderTheChargeLimitStartsFromTheCappedBattery(t *testing.T) {
+	ctx := context.Background()
+	for _, start := range startsIn(func(s sampleSeg) bool { return s.kind == segParked }) {
+		soc, limit, ok := scheduleBatteryAt(start)
+		if !ok || soc < limit-5 || soc > limit {
+			continue
+		}
+		last := SimRun{ID: "a", Kind: SimChargeShort, End: start.Add(-time.Minute), AddedSoC: 30, EndSoC: soc}
+		ctl := NewSimControl(&memSimStore{st: SimState{Runs: []SimRun{last}}})
+		now := start
+		ctl.now = func() time.Time { return now }
+		run, err := ctl.Start(ctx, SimDriveShort, SimOpts{Short: true})
+		if err != nil {
+			continue
+		}
+		sched, lim, _ := scheduleBatteryAt(run.Start)
+		if got, ceil := sched+run.FromSoC, math.Max(lim, sched); got > ceil+1e-9 {
+			t.Errorf("run starts at %.2f%% with the limit %.0f and the schedule at %.2f", got, lim, sched)
+		}
+		return
 	}
-	if want := first.AddedSoC / 2; math.Abs(run.FromSoC-want) > 0.3 {
-		t.Errorf("second run starts %.2f points from the schedule, want about %.2f (half of the first run's %.2f)", run.FromSoC, want, first.AddedSoC)
+	t.Fatal("no start near the charge limit could be booked")
+}
+
+// With no scheduled drive left before the day wraps, the refusal says it is the wrap, with the time to book again.
+func TestRefusalAtTheWrapNamesTheWrap(t *testing.T) {
+	c, tl := sampleShared()
+	base := tl.loopStart(100)
+	lastDrive := tl.start
+	for _, s := range c.segs {
+		if s.kind == segDrive {
+			lastDrive = s.end
+		}
 	}
-	if first.AddedSoC >= 0 {
-		t.Errorf("the drive should have used battery, got %.2f", first.AddedSoC)
+	for at := base.Add(lastDrive.Sub(tl.start)); at.Before(base.Add(tl.span())); at = at.Add(time.Minute) {
+		_, err := planSim(SimChargeShort, at)
+		var ref *SimRefusal
+		if !errors.As(err, &ref) || ref.FreeAt.IsZero() {
+			continue
+		}
+		if strings.Contains(ref.Reason, "scheduled drive") || !strings.Contains(ref.Reason, "wraps around") {
+			t.Errorf("at %s the refusal is %q", at.UTC().Format("15:04Z"), ref.Reason)
+		}
+		return
 	}
+	t.Skip("the routine can book a run up to the wrap: nothing to refuse")
 }
 
 // While easing the battery stays at the car's charge limit, and a run that itself ended above the limit gives the overshoot back smoothly.
