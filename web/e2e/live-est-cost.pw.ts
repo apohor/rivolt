@@ -21,7 +21,9 @@ for (const [name, extra, expected] of [
     await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FULL_STATE) }));
     await page.route(`**/api/live-session/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...SESSION, ...extra }) }));
     await page.goto("/live");
-    await expect(page.getByText("waiting for first frame")).toBeVisible();
+    // The truck's own power is flowing, so the line says what it shows rather than that it is waiting.
+    await expect(page.getByTestId("live-status-line")).toHaveText(/^Charging · \d+(\.\d)? kW$/);
+    await expect(page.getByText("waiting for first frame")).toHaveCount(0);
     const cost = page.getByTestId("live-est-cost");
     if (expected) {
       await expect(cost).toContainText("Cost so far");
