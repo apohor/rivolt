@@ -2,5 +2,6 @@
   "commit": "731be13e",
   "totalGzipKB": 558.1,
   "note": "Total gzip of every shipped js/mjs/css asset in the last main build before the MapLibre swap (Leaflet + protomaps-leaflet), measured with scripts/bundle-total.mjs. The Maps budget is against this.",
-  "initialGzipKB": 158.6
+  "initialGzipKB": 140,
+  "initialNote": "Ceiling for the initial (non-lazy) bundle, lowered from the Leaflet-era 158.6 to 140 on Nov 21 (lead ruling) after the Pro sheet went lazy (measured 139.0); keeps the gain from silently filling up."
 }
