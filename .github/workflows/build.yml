@@ -937,6 +937,8 @@ jobs:
         run: bash .github/scripts/policy-date-check.test.sh
       - name: The release verdict's final-gate mirror
         run: bash .github/ci/release-verdict.test.sh
+      - name: The preview tags guard
+        run: bash .github/ci/preview-tags-agree.test.sh
       - name: Policy text changed, date moved
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
@@ -1589,6 +1591,12 @@ jobs:
           # a depth-1 clone every file's last commit is the grafted HEAD, whatever it changed.
           fetch-depth: 0
 
+      # The bump keeps the admin preview on preview's tag through .github/ci/preview-tags-agree.sh.
+      - name: Checkout the bump helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/ci
+          path: app
       - name: Bump preview image.tag (newest wins)
         env:
           SHA: ${{ github.sha }}
@@ -1628,7 +1636,7 @@ jobs:
               case "$rel" in ahead|behind|identical|diverged) ;; *) rel=unknown ;; esac
               echo "preview runs ${prev}; this build ${SHA:0:7} is '${rel}' relative to it"
               case "$rel" in
-                behind|identical) echo "preview already has this or newer; skipping."; exit 0 ;;
+                behind|identical) echo "preview already has this or newer; skipping."; bash app/.github/ci/preview-tags-agree.sh "$file" "$admin_file" check; exit 0 ;;
                 # A migration in the range needs no extra wait: this job needs
                 # publish, which needs go and integration, so a migration only
                 # reaches preview's DB from a commit whose tests passed.
@@ -1652,9 +1660,10 @@ jobs:
             # admin site (rivolt-admin-preview) moves with it in the same
             # commit: it shares preview's DB and migrates on boot, so it
             # must never run ahead of (or drift behind) preview.
-            files=("$file")
-            [ -f "$admin_file" ] && files+=("$admin_file")
-            sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "${files[@]}"
+            files=("$file" "$admin_file")
+            sed -i -E "s/^([[:space:]]+tag:)[[:space:]]+sha-[0-9a-f]+/\1 ${short}/" "$file"
+            # The admin site takes preview's tag whatever it held (a leftover rc tag included) and the job fails if the two still differ.
+            bash app/.github/ci/preview-tags-agree.sh "$file" "$admin_file"
             if git diff --quiet "${files[@]}"; then echo "image.tag unchanged; nothing to commit."; exit 0; fi
             git add "${files[@]}"
             git commit -q -m "rivolt-preview: bump image.tag to ${short} (${VERSION_STAMP})" -m "Source-SHA: ${SHA}"
