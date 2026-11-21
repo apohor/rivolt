@@ -302,6 +302,14 @@ final class NowSlotTests: XCTestCase {
         XCTAssertFalse(model.spoken.contains("estimated $2.13"), model.spoken)
     }
 
+    func testAnEndedSessionsRivianFlagDoesNotNameANewCharge() throws {
+        let now = try snapshot("charging", extra: #","charge":{"started_at":"\#(ISO8601DateFormatter().string(from: at.addingTimeInterval(-600)))","soc_start":40,"peak_kw":150}"#)
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 150), now: now, clock: at)
+        let ended = LiveSession(active: false, powerKw: 150, isRivianCharger: true)
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: ended, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at))
+        XCTAssertEqual(model.chips.map(\.text), ["Fast charger"])
+    }
+
     func testARivianChargerFlagNamesTheChargerAsOnTheWeb() throws {
         let now = try snapshot("charging", extra: #","charge":{"started_at":"\#(ISO8601DateFormatter().string(from: at.addingTimeInterval(-600)))","soc_start":40,"peak_kw":150}"#)
         let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 150), now: now, clock: at)

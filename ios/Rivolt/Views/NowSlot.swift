@@ -107,8 +107,8 @@ struct NowSlotModel: Equatable {
             guard let detail = ChargingDetail.make(summary: summary, session: session, charge: charge), let kw = detail.powerKw else { return nil }
             // As the web: fast at a session peak of 50 kW or more, else the home charger at home, else public only with a saved home, a fix away from it and a known peak.
             let peak = max(snapshot?.charge?.peakKw ?? 0, kw)
-            // The truck's own Rivian-charger flag wins, as on the web's Live page and Now card.
-            let kind = session?.isRivianCharger == true ? "Rivian charger" : peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
+            // The truck's own Rivian-charger flag wins, as on the web's Live page and Now card; only an active session's, an ended one is the previous plug-in's.
+            let kind = session?.active == true && session?.isRivianCharger == true ? "Rivian charger" : peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
             return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, clock: clock),
                                 chips: kind.map { [Chip(text: $0, accent: true)] } ?? [])
         case .driving:
