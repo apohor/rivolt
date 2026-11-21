@@ -96,20 +96,46 @@ tab](https://demo.rivolt.dev/demo/trips/plan) has sample trips, including Los An
 
 Rivolt is organised around five tabs: **Now**, **Activity**,
 **Money**, **Plan** and **Truck**. Now, Activity and
-Truck share one calendar scope (Day, Week, Month or a custom range,
-with "This year" and "All time" inside Custom), Money steps month by month, and the app follows your system
-light / dark setting (or the Appearance card in Settings).
+Truck share one calendar scope (Day, Week, Month, 30 days or a custom range,
+with "This year" and "All time" inside Custom), Money steps month by month, and a
+light / dark / auto switch in the header (auto follows your system setting) picks the theme.
 
 ### Now — the truck at a glance
 
-The current state on one card: battery as an arc with the charge limit
-marked on it, range, and whether the truck is parked, plugged in,
-charging or driving (live frames while it moves, slower when parked).
-Under it, the numbers for the scope you picked: miles since the last
-charge, miles, energy added, efficiency, cost, and an Idle awake tile
-that links to Truck. Below those, miles per day and a battery trend
-with charging and driving shaded behind the line, so you can see why
-the percentage moved.
+The card at the top changes with what the truck is doing, and a status
+chip beside the title says which: parked, plugged in, charging or
+driving. Parked, it shows the battery as an arc with the charge limit
+marked on it, the range, a map of where the truck is and the weather
+there; a sleeping truck says where it is parked, how long it has been
+asleep and its total sleep time today. While charging or driving the
+card shows live figures instead (they update every few seconds while
+the truck moves, slower when it is parked), and each state has its own
+graph:
+
+- **Parked or asleep:** the battery over the last day, when the truck
+  slept and woke, and how much it lost since it parked.
+- **Charging:** the battery and power over the session, the pack
+  temperature, when it should finish, and energy and range added, the
+  rate and the time elapsed. Cost so far is priced from your rates and
+  always says it is an estimate and which rate it used.
+- **Driving:** your speed and battery over the drive, with gear, mode,
+  distance, time, efficiency and energy.
+
+Figures the truck does not report are worked out by Rivolt and marked:
+they sit under one "Estimated so far" heading, and a single worked-out
+figure next to measured ones carries a small "est.". Under the card,
+the numbers for the scope you picked (Day, Week, Month, 30 days or
+Custom): miles, kWh added, mi/kWh and what you spent. Below those,
+miles per day and a battery trend with charging and driving shaded
+behind the line, so you can see why the percentage moved.
+
+Only the Live button on the card opens the Live page: a charging panel with the charger (a "Fast
+charger" or a "Rivian charger" where it is one), energy added, range
+added, time, rate and what it is costing so far (a free session says
+"Free", and a charge with no price yet says so), or a drive panel with
+live speed, and a map. The truck picture steps aside while it drives or
+charges, so the panel and the map get the full width. Live needs a
+signed-in account, so it is not on the demo.
 
 ![Now](docs/screenshots/now.png)
 
@@ -123,8 +149,8 @@ the percentage moved.
 ### Activity — every drive and charge
 
 One day-grouped **Feed** of drives and charges, newest first, with
-**Table** and **Map** views of the same rows (the map shows Drives or
-Charges one layer at a time). Open any row for its detail page.
+**Table**, **Map** and **Efficiency** views of the same rows (the map
+shows Drives or Charges one layer at a time). Open any row for its detail page.
 
 **Drives.** Distance, duration, average speed, energy used and cost.
 The detail page draws the road-snapped route (self-hosted Valhalla over

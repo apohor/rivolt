@@ -13,7 +13,7 @@ are 390 × 844.
 
 | Filename          | Page / view                                                     | Theme |
 |---                |---                                                              |:---:  |
-| `now.png`         | Now — state card, KPIs, miles per day, battery trend            | dark  |
+| `now.png`         | Now — state card, month tiles, miles per day, battery trend      | dark  |
 | `activity.png`    | Activity — the day-grouped feed                                 | dark  |
 | `money.png`       | Money — monthly statement, energy split, receipts               | dark  |
 | `plan.png`        | Plan — a sample trip with route, summary and itinerary          | dark  |
