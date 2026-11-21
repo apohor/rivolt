@@ -18,13 +18,15 @@ export type LegWeatherFacts = {
   wind?: { kind: "head" | "tail"; speed: number; unit: "mph" | "km/h" };
   rain: boolean;
   snow: boolean;
+  // The forecast radar's word for the leg (Pro, design key radar_forecast): when set it is the one rain or snow signal in the tags.
+  forecast?: "rain" | "snow";
 };
 
 const roundTemp = (c: number, unit: TemperatureUnit) => Math.round(unit === "f" ? c * 1.8 + 32 : c);
 // A real minus, not a hyphen.
 const signed = (n: number) => (n < 0 ? "−" : "") + Math.abs(n);
 
-export function legWeatherFacts(leg: TripWeatherAdjLeg | undefined, tempUnit: TemperatureUnit, distUnit: DistanceUnit): LegWeatherFacts | null {
+export function legWeatherFacts(leg: TripWeatherAdjLeg | undefined, tempUnit: TemperatureUnit, distUnit: DistanceUnit, forecast = false): LegWeatherFacts | null {
   if (!leg) return null;
   const out: LegWeatherFacts = { rain: false, snow: leg.snow === true };
   // The air temperature is what the truck shows; until the server sends it, temp_c (feels like, when there is one) stands in.
@@ -45,7 +47,9 @@ export function legWeatherFacts(leg: TripWeatherAdjLeg | undefined, tempUnit: Te
       : { kind: hw > 0 ? "head" : "tail", speed: Math.round(Math.abs(hw)), unit: "km/h" };
   }
   out.rain = !out.snow && leg.precip_mm != null && leg.precip_mm > WET_MM;
-  if (!out.temp && !out.wind && !out.rain && !out.snow) return null;
+  const level = forecast ? leg.radar?.level : undefined;
+  if (level === "rain" || level === "snow") out.forecast = level;
+  if (!out.temp && !out.wind && !out.rain && !out.snow && !out.forecast) return null;
   return out;
 }
 
@@ -55,7 +59,8 @@ export function legWeatherTags(f: LegWeatherFacts | null): string[] {
   const tags: string[] = [];
   if (f.temp) tags.push(f.temp);
   if (f.wind) tags.push(`${f.wind.speed} ${f.wind.unit} ${f.wind.kind}wind`);
-  if (f.snow) tags.push("snow expected");
+  if (f.forecast) tags.push(f.forecast === "snow" ? "Snow likely at arrival" : "Rain likely at arrival");
+  else if (f.snow) tags.push("snow expected");
   else if (f.rain) tags.push("rain");
   return tags;
 }

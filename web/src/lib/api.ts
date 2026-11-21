@@ -3035,6 +3035,8 @@ export type TripWeatherAdjustment = {
   // chip uses to explain what's contributing.
   profile_multiplier?: number;
   profile_reasons?: string[];
+  // Free accounts only (forecast radar is Pro): how many legs have rain or snow likely, of the legs the forecast could read. Names no leg.
+  radar_teaser?: { wet_legs: number; legs: number };
 };
 
 export type TripWeatherAdjLeg = {
@@ -3049,6 +3051,8 @@ export type TripWeatherAdjLeg = {
   // The leg's total climb and descent from the elevation model, in metres.
   climb_m?: number;
   descent_m?: number;
+  // Pro only: the forecast radar along the leg at the times the truck is there. Absent when the forecast could not say; "dry" is never shown.
+  radar?: { level: "dry" | "rain" | "snow" };
 };
 
 export type TripRoute = {

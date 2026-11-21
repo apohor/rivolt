@@ -8,6 +8,7 @@ import { useSelectedStop } from "./selection";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { wholeDistance } from "./units";
 import { type ElevationProfile, type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
+import { useDesignPreview } from "../lib/config";
 import { ElevationChart } from "./ElevationChart";
 import { usableProfile } from "./elevation";
 import { Card } from "../components/ui";
@@ -20,6 +21,7 @@ import { Stat } from "./Stat";
 import { climbLine, legEstimateLine, legWeatherFacts } from "./legWeather";
 import type { LegWeatherInfo } from "../map/legBadges";
 import { TERRAIN_ATTRIBUTION } from "../map/style";
+import { hasForecastTag, RadarCredit, RadarTeaser } from "./RadarForecast";
 
 // Lazy-load TripRouteMap so the MapLibre
 // chunk (several hundred KB) only ships when the user actually opens
@@ -86,6 +88,7 @@ export function RouteCard({
   elevation?: ElevationProfile;
 }) {
   const { distanceUnit, temperatureUnit } = usePreferences();
+  const forecastOn = useDesignPreview("radar_forecast");
   // Map-first layout is for the primary route; alternatives and stacked days keep the in-flow card.
   const next = !stacked && (index === 0 || forceNext);
   const [expanded, setExpanded] = useState(!defaultCollapsed);
@@ -259,7 +262,7 @@ export function RouteCard({
     : undefined;
   const row = (idx: number, kind: "start" | "stop" | "via" | "end", name: string, n?: number) => (
     <StopCard
-      weather={legWeatherFacts(legTo(idx), temperatureUnit, distanceUnit)}
+      weather={legWeatherFacts(legTo(idx), temperatureUnit, distanceUnit, forecastOn)}
       weatherNote={weatherNoteTo(idx)}
       key={idx}
       kind={kind}
@@ -325,6 +328,12 @@ export function RouteCard({
                 </p>
               )}
               {hero}
+              {forecastOn && (
+                <RadarTeaser
+                  teaser={adjustment?.radar_teaser}
+                  planKey={route.Waypoints.map((w) => w.Name || `${w.Latitude},${w.Longitude}`).join("|") + "@" + (route.Waypoints[0]?.DepartureTimeUTC ?? "")}
+                />
+              )}
             </section>
           {profile && (
             <ElevationChart
@@ -342,6 +351,7 @@ export function RouteCard({
             {!profile && adjustment?.legs.some((l) => climbLine(l.climb_m, l.descent_m, distanceUnit)) && (
               <p data-testid="terrain-credit" className="mt-2 text-[11px] text-neutral-600">{TERRAIN_ATTRIBUTION}</p>
             )}
+            {forecastOn && hasForecastTag(adjustment) && <RadarCredit />}
             {credit}
           </section>
         </BottomSheet>
