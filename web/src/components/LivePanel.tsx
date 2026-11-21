@@ -597,8 +597,9 @@ function ChargingDetail({
     [state, nowMs, server, vehicle.pack_kwh, chargingQ.data, home],
   );
   const free = !!ls?.is_free_session;
+  const haveLiveData = !!ls && (ls.active || ls.power_kw > 0 || ls.total_charged_energy_kwh > 0);
   const stats = liveStats(
-    { view: slotView(view), nowMs, unit: distanceUnit, currency: chargingQ.data?.home_currency || "USD", session: ls?.active ? ls : null, charge: freshCharge(server?.charge ?? null, ls ?? null) },
+    { view: slotView(view), nowMs, unit: distanceUnit, currency: chargingQ.data?.home_currency || "USD", session: haveLiveData ? ls : null, charge: freshCharge(server?.charge ?? null, ls ?? null) },
     ls?.time_remaining_seconds ?? 0,
   )
     .filter((x) => !(free && x.k === "Cost so far"));
@@ -609,7 +610,6 @@ function ChargingDetail({
   stats.sort((a, b) => LIVE_ORDER.indexOf(a.k) - LIVE_ORDER.indexOf(b.k));
   const allEst = allEstimated(stats);
   const haveCost = stats.some((x) => x.k === "Cost so far");
-  const haveLiveData = !!ls && (ls.active || ls.power_kw > 0 || ls.total_charged_energy_kwh > 0);
   // Design "live_v2": the charge so far as a graph, only while energy is actually flowing (not plugged in and waiting).
   const liveV2 = useDesignPreview("live_v2");
 
