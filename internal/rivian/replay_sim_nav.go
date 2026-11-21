@@ -81,6 +81,17 @@ func simNavFrames(seg sampleSeg, p simPlan, at time.Time) []*NavFrame {
 		way = []samplePoint{errand, p.origin}
 	}
 	path, mi := sampleRoad(way)
+	if p.road != nil {
+		// An away start's road is a stored prefix, out and back the same way.
+		path = p.road
+		if i > turn {
+			path = make([]samplePoint, len(p.road))
+			for j, pt := range p.road {
+				path[len(p.road)-1-j] = pt
+			}
+		}
+		mi = pathMiles(path)
+	}
 	metres := mi * metresPerMile
 	info := &NavInfo{Name: name, Lat: to.Lat, Lon: to.Lon, Stops: 1, LegMetres: []float64{metres}, Route: encodePolyline6(path)}
 	left := haversineMeters(fr.Lat, fr.Lon, to.Lat, to.Lon) * sampleRoadRatio

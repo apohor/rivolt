@@ -212,7 +212,7 @@ func TestShortSimDriveNavNamesItsOwnErrand(t *testing.T) {
 			names[fr[0].Info.Name] = true
 		}
 	}
-	if !names["Pasadena City College"] || !names["Rose Bowl Stadium"] || names["Santa Anita Park"] {
+	if !names["Jackie Robinson Park"] || !names["Rose Bowl Stadium"] || names["Santa Anita Park"] {
 		t.Fatalf("destinations %v, want the short errand then home", names)
 	}
 }

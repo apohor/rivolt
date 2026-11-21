@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -180,8 +181,14 @@ type SimRefusal struct {
 
 func (e *SimRefusal) Error() string { return e.Reason }
 
-// simShortErrand is the short drive's errand: Pasadena City College, 3.6 road miles there and back, about 4.5 minutes at the cruise speed.
-var simShortErrand = samplePoint{34.1466, -118.1488}
+// simShortErrand is the short drive's errand: Jackie Robinson Park, 3.5 road miles there and back, about 4.5 minutes at the cruise speed.
+// Its two legs to and from SampleHome have road shapes (simLegs, sample_routes_gen.go).
+var simShortErrand = samplePoint{34.1636, -118.1500}
+
+// simLegs are the legs the sim drives beyond the corpus's own, for the route generator: the short errand, there and back.
+func simLegs() [][2]samplePoint {
+	return [][2]samplePoint{{SampleHome, simShortErrand}, {simShortErrand, SampleHome}}
+}
 
 // simSpec is what differs between a run's full and short variants. The short drive is a nearer errand at the full drive's cruise speed, so
 // speed, distance, time and energy agree in either. The short charge is a DC fast slice at a power a real stall gives, not the home
@@ -201,7 +208,7 @@ type simSpec struct {
 
 func specFor(short bool) simSpec {
 	if short {
-		return simSpec{errand: simShortErrand, errandName: "Pasadena City College", wake: 30 * time.Second, chargeKW: simFastKW, chargeGain: simFastGain, fast: true,
+		return simSpec{errand: simShortErrand, errandName: "Jackie Robinson Park", wake: 30 * time.Second, chargeKW: simFastKW, chargeGain: simFastGain, fast: true,
 			driveTail: 30 * time.Second, cableTail: 30 * time.Second}
 	}
 	return simSpec{errand: sampleErrand[0], errandName: "Santa Anita Park", wake: time.Minute, chargeKW: sampleL2KW, chargeGain: sampleL2KW * simChargeMin / 60 / samplePackKWh * 100,
@@ -220,6 +227,9 @@ type simPlan struct {
 	// The drive's places: where it starts and ends, and where it turns.
 	origin, errand         samplePoint
 	originName, errandName string
+	// road is the road out to errand when the drive follows a stored shape the corpus has no leg for (an away start's out-and-back); nil when
+	// sampleRoad finds the legs between origin and errand.
+	road []samplePoint
 }
 
 // planSim builds the run that starts at wall time start, or says why it cannot.
@@ -267,10 +277,14 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 	}
 	soc := scheduleSoC(c, cs)
 	errand, errandName, originName, back := sp.errand, sp.errandName, "Rose Bowl Stadium", origin
+	var road []samplePoint
 	if atHome {
 		back = SampleHome
 	} else {
 		errand, errandName, originName = awayErrand(origin), "Sample stop", "Sample start"
+		if out, turn, ok := awayRoad(origin); ok {
+			errand, road = turn, out
+		}
 	}
 	b := &sampleBuilder{rng: nil, t: cs, soc: math.Min(100, math.Max(0, soc+fromSoC)), odo: cur.odoA, at: origin, limit: cur.limit, plugged: false, userPriced: -1}
 	wake := sampleSeg{kind: segParked, start: cs, end: cs.Add(sp.wake), step: sampleAwakeStep, socA: b.soc, socB: b.soc,
@@ -284,7 +298,11 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 		// The cruise speed is the full drive's whatever the variant: the full route's miles over its 24 minutes.
 		_, fullMiles := sampleRoad([]samplePoint{SampleHome, specFor(false).errand, SampleHome})
 		cruise := fullMiles / (float64(simDriveMin) / 60)
-		b.drive(cruise, errand, back)
+		if road != nil {
+			b.driveRoad(cruise, road, origin)
+		} else {
+			b.drive(cruise, errand, back)
+		}
 		b.parkSim(sp.driveTail, "ready")
 	case SimCharge:
 		if b.soc+sp.chargeGain > 100 {
@@ -319,7 +337,7 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 		}
 		return simPlan{}, &SimRefusal{Reason: fmt.Sprintf("a scheduled drive starts at %s, too soon after a run would end; try again after it ends at %s", next.Add(shift).UTC().Format("15:04Z"), nextEnd.Add(shift).UTC().Format("15:04Z")), FreeAt: nextEnd.Add(shift)}
 	}
-	return simPlan{segs: b.segs, shift: shift, loop: k, end: b.t.Add(shift), addedMi: b.odo - cur.odoA, endSoC: b.soc, addSoC: b.soc - scheduleSoC(c, b.t) - fromSoC, origin: origin, errand: errand, originName: originName, errandName: errandName}, nil
+	return simPlan{segs: b.segs, shift: shift, loop: k, end: b.t.Add(shift), addedMi: b.odo - cur.odoA, endSoC: b.soc, addSoC: b.soc - scheduleSoC(c, b.t) - fromSoC, origin: origin, errand: errand, originName: originName, errandName: errandName, road: road}, nil
 }
 
 // parkSim adds a parked stretch of d at the builder's place.
@@ -556,11 +574,49 @@ func (s flagsSimStore) Update(ctx context.Context, fn func(SimState) (SimState, 
 	return tx.Commit()
 }
 
-// awayErrand is the turn of a short drive that starts away from home, where there is no real road to follow: a point due north that makes
-// the out-and-back about as long as the short errand's 3.6 road miles (straight legs, at the road ratio).
+// simAwayLegMiles is the road one way of a short drive that starts away from home, so the out-and-back is about the short errand's 3.5 miles.
+const simAwayLegMiles = 1.8
+
+// awayErrand is the turn of a short drive that starts away from a place with no stored road out of it: a point due north that makes
+// the out-and-back about as long as the short errand's road miles (straight legs, at the road ratio). The only straight drive left.
 func awayErrand(from samplePoint) samplePoint {
-	const legMiles = 1.8
-	return samplePoint{Lat: from.Lat + legMiles/sampleRoadRatio/69.0, Lon: from.Lon}
+	return samplePoint{Lat: from.Lat + simAwayLegMiles/sampleRoadRatio/69.0, Lon: from.Lon}
+}
+
+// awayRoad is the road a short drive takes from a sample place away from home: the first simAwayLegMiles of the shortest stored road shape
+// that leaves the place (a prefix of a real road, driven out and back). ok is false where no stored shape leaves from, or none is long
+// enough, and the drive is awayErrand's straight line.
+func awayRoad(from samplePoint) (out []samplePoint, turn samplePoint, ok bool) {
+	prefix := fmt.Sprintf("%.6f,%.6f>", from.Lat, from.Lon)
+	best := ""
+	bestMi := math.MaxFloat64
+	for k, enc := range sampleRouteShapes {
+		if !strings.HasPrefix(k, prefix) {
+			continue
+		}
+		mi := pathMiles(decodeSamplePolyline(enc))
+		if mi >= simAwayLegMiles && (mi < bestMi || mi == bestMi && k < best) {
+			best, bestMi = k, mi
+		}
+	}
+	if best == "" {
+		return nil, samplePoint{}, false
+	}
+	pts := decodeSamplePolyline(sampleRouteShapes[best])
+	pts[0] = from
+	out = []samplePoint{from}
+	left := simAwayLegMiles
+	for i := 1; i < len(pts); i++ {
+		d := haversineMeters(pts[i-1].Lat, pts[i-1].Lon, pts[i].Lat, pts[i].Lon) / 1609.344
+		if d >= left {
+			g := left / d
+			turn = samplePoint{pts[i-1].Lat + (pts[i].Lat-pts[i-1].Lat)*g, pts[i-1].Lon + (pts[i].Lon-pts[i-1].Lon)*g}
+			return append(out, turn), turn, true
+		}
+		out = append(out, pts[i])
+		left -= d
+	}
+	return nil, samplePoint{}, false
 }
 
 // scheduleBatteryAt is the routine's battery and charge limit at wall time t (ok false at the wrap).
