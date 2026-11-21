@@ -111,6 +111,13 @@ describe("NowSlot", () => {
       expect(screen.getByTestId("now-slot-cost-so-far").textContent).toMatch(/estimated .*2\.91.*estimate · at your home rate/);
       expect(screen.getByTestId("now-slot-figures").textContent).not.toMatch(/≈/);
     });
+    it("clock cells only (elapsed, plugged in): nothing is estimated, so no heading and no mark", () => {
+      render(<NowSlot {...base({ ...v, energyKwh: null, rangeMi: null } as unknown as NowView, { soft: true, charge: { started_at: started } })} />);
+      const el = screen.getByTestId("now-slot-figures");
+      expect(screen.queryByTestId("now-slot-estimated")).toBeNull();
+      expect(screen.getByTestId("now-slot-elapsed")).toBeTruthy();
+      expect(el.textContent).not.toMatch(/≈|est|estimated/);
+    });
     it("all exact: no heading and no mark", () => {
       const el = figures({ session, charge: { started_at: started, cost: 5, cost_source: "rivian", cost_is_estimate: false } });
       expect(screen.queryByTestId("now-slot-estimated")).toBeNull();
