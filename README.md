@@ -33,7 +33,7 @@ affiliated with, endorsed by or sponsored by Rivian.
 
 ## Free, Pro and self-hosting
 
-Rivolt was free during its public beta. The hosted service at rivolt.dev now has
+The hosted service at rivolt.dev has
 a **free tier** and a paid plan, **Rivolt Pro**, at $3.99 a month or $34.99 a year. Subscribe on
 the web; iPhone purchase coming soon. Nothing is tracked to sell
 it; counts come from the billing table only.
@@ -83,12 +83,12 @@ tab](https://demo.rivolt.dev/demo/trips/plan) has sample trips, including Los An
   [rivolt.dev/charging-cost](https://rivolt.dev/charging-cost). Every
   figure on it is an example.
 - To use it with your own truck, sign up at [rivolt.dev](https://rivolt.dev)
-  with Google or GitHub (the beta has an account cap); see
+  with Google or GitHub (the hosted service caps the number of accounts); see
   [`docs/SIGNUP.md`](docs/SIGNUP.md). We recommend connecting an Authorized
   Driver account, so Rivolt never holds your primary Rivian login and you
   can revoke access from the Rivian app at any time.
 - Rivolt uses Rivian's unofficial API, so it can break. It is read-only
-  (it can't control your truck) and in beta.
+  (it can't control your truck).
 
 ---
 

@@ -277,7 +277,7 @@ export default function SignupPage() {
 
         {fullMode && !tokenMode && (
           <div className="mb-4 rounded-md border border-amber-900 bg-amber-950/40 px-3 py-2 text-xs leading-relaxed text-amber-200">
-            All beta seats are currently taken. We've pre-filled your
+            All seats are currently taken. We've pre-filled your
             email{fullProvider ? ` from ${fullProvider}` : ""} — leave
             the request below and we'll let you know when a seat opens up.
           </div>
