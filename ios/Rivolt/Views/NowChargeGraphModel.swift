@@ -80,7 +80,7 @@ struct NowChargeGraphModel: Equatable {
         let sy = { (v: Double) in (v - yLo) / (yHi - yLo) }
         let socPts = thin(series.soc).map { Pt(x: sx($0.at.timeIntervalSince(first.at)), y: sy($0.value)) }
         let powPts = thin(series.power).map { Pt(x: sx($0.at.timeIntervalSince(first.at)), y: min(1, max(0, $0.value / pMax))) }
-        let packSeries = series.packAvgC.filter { $0.at >= first.at && $0.at <= last.at }
+        let packSeries = series.packAvgC.filter { $0.at >= first.at }
         var packPts: [Pt] = []
         var packNow: String?
         var packSpoken: String?
@@ -94,7 +94,7 @@ struct NowChargeGraphModel: Equatable {
             let pMid = (pMin + pMax) / 2
             let pLo = pMid - pSpan * 0.65
             let pHi = pMid + pSpan * 0.65
-            packPts = thin(packSeries).map { Pt(x: sx($0.at.timeIntervalSince(first.at)), y: 0.06 + 0.88 * (($0.value - pLo) / (pHi - pLo))) }
+            packPts = thin(packSeries).map { Pt(x: min(1, sx($0.at.timeIntervalSince(first.at))), y: 0.06 + 0.88 * (($0.value - pLo) / (pHi - pLo))) }
             packNow = NowComfort.wholeDegrees(celsius: packC)
             let delta = Int(((packC - pFirst.value) * (DisplayUnits.celsius ? 1 : 1.8)).rounded())
             let change = delta == 0 ? "unchanged" : "\(delta > 0 ? "up" : "down") \(abs(delta)) degrees"
