@@ -72,7 +72,9 @@ func TestGrantProAgainstPostgres(t *testing.T) {
 	audits := func(uid uuid.UUID, action string) int {
 		return count(`SELECT count(*) FROM admin_audit WHERE target_user_id = $1 AND action = $2`, uid, action)
 	}
-	grantRows := func(uid uuid.UUID) int { return count(`SELECT count(*) FROM entitlements WHERE user_id = $1 AND source = 'grant'`, uid) }
+	grantRows := func(uid uuid.UUID) int {
+		return count(`SELECT count(*) FROM entitlements WHERE user_id = $1 AND source = 'grant'`, uid)
+	}
 	run := func(p GrantParams) (int, string, string) {
 		t.Helper()
 		var out, errOut bytes.Buffer
