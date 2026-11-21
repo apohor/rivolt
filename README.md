@@ -144,7 +144,7 @@ signed-in account, so it is not on the demo.
   "Preconditioning". It disappears when the data is stale, so an old
   "Pet mode on" is never read as current.
 
-<img src="docs/screenshots/now-comfort.png" width="390" alt="The Now card parked, on the demo's sample truck: battery arc and range, the parked map with the weather, and the cabin temperature, 49 degrees Fahrenheit">
+<img src="docs/screenshots/now-comfort.png" width="390" alt="The Now card plugged in, on the demo's sample truck: battery arc and range, the parked map with the weather, and the cabin temperature, 49 degrees Fahrenheit">
 
 ### Activity — every drive and charge
 
