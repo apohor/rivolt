@@ -84,7 +84,9 @@ struct NowChargeGraphModel: Equatable {
         var packPts: [Pt] = []
         var packNow: String?
         var packSpoken: String?
-        if let packC, packSeries.count >= 2, let pFirst = packSeries.first {
+        // The value shown is the line's own last reading (as on the web), so the number and the end of the line agree; `packC` only says the pack is being read lately.
+        if packC != nil, packSeries.count >= 2, let pFirst = packSeries.first, let pLast = packSeries.last {
+            let packC = pLast.value
             let vals = packSeries.map(\.value)
             let pMin = vals.min() ?? packC
             let pMax = vals.max() ?? packC

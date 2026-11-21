@@ -106,6 +106,18 @@ final class AccessibilitySnapshotTests: XCTestCase {
         try render("a11y-activity-detail-ax3", detail, size: .accessibility3)
     }
 
+    /// The charge graph's labels are laid out for the bigger text: none runs off the plot (look at the renders; the numbers here only say it drew).
+    func testChargeGraphAtAnAccessibilitySize() throws {
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+        let pts = stride(from: 0, through: 40 * 60, by: 30).map { (at: t0.addingTimeInterval(Double($0)), f: Double($0) / 2400) }
+        let curve = ChargeCurve.Series(soc: pts.map { .init(at: $0.at, value: 41 + 18 * $0.f) }, power: pts.map { .init(at: $0.at, value: 11) },
+                                       packAvgC: pts.map { .init(at: $0.at, value: 21 + 14 * $0.f) })
+        let m = try XCTUnwrap(NowChargeGraphModel.make(series: curve, startPct: 41, nowPct: 59, target: 80, etaHours: 2, packC: 35, now: t0.addingTimeInterval(2400)))
+        for (name, size) in [("default", DynamicTypeSize.large), ("ax3", .accessibility3)] {
+            try render("a11y-charge-graph-\(name)", NowChargeGraph(model: m).padding(16).frame(width: 393, alignment: .leading).themePage(), size: size)
+        }
+    }
+
     func testMoneyAtAnAccessibilitySize() throws {
         let model = MoneyModel(month: try Fixture.decode(LedgerMonth.self, "ledger_monthly"),
                                summary: try Fixture.decode(LedgerSummary.self, "ledger_summary"),
