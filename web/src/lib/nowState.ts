@@ -136,6 +136,32 @@ function rawKind(s: VehicleState, server?: NowSnapshot | null): Exclude<NowKind,
   return "parked";
 }
 
+// One rule for "what kind of charger is this", for the Now card and the Live page: a session peak at the DC threshold is a fast charger wherever
+// it is; below it, at home is the home charger; away is a public AC charger, but only when the whole session's peak is known (a taper below
+// 50 kW seen from mid-session could be a Supercharger). Otherwise we do not say.
+export function chargeFlavorOf(peakKw: number, place: Place, peakKnown: boolean): ChargeFlavor | null {
+  if (peakKw >= DCFC_PEAK_KW) return "dcfc";
+  if (place === "home") return "home_l2";
+  if (place === "away" && peakKnown) return "away_ac";
+  return null;
+}
+
+// Metres from the home point to the vehicle's fix; null when either is missing.
+export function placeOfFix(home: { latitude: number; longitude: number } | null, s: { latitude: number; longitude: number }): Place {
+  const m = homeDistanceM(home, s);
+  return m == null ? "unknown" : m <= HOME_RADIUS_M ? "home" : "away";
+}
+
+export function homeDistanceM(home: { latitude: number; longitude: number } | null, s: { latitude: number; longitude: number }): number | null {
+  const hasFix = Number.isFinite(s.latitude) && Number.isFinite(s.longitude) && (s.latitude !== 0 || s.longitude !== 0);
+  return home && hasFix ? haversineM(home, s) : null;
+}
+
+export const CHARGER_LABEL: Record<ChargeFlavor, string> = { home_l2: "Home charger", dcfc: "Fast charger", away_ac: "Public charger" };
+
+// The label a Rivian-flagged session carries on its own (the truck says so), else the rule's.
+export const chargerLabel = (flavor: ChargeFlavor | null, rivian = false): string | null => (rivian ? "Rivian charger" : flavor ? CHARGER_LABEL[flavor] : null);
+
 export function computeNow(i: NowInput): NowView {
   const s = i.state;
   // Freshest evidence of contact: /api/state's At can lag /now's `at`
@@ -166,14 +192,9 @@ export function computeNow(i: NowInput): NowView {
   const rangeMi = s.distance_to_empty > 0 ? s.distance_to_empty / KM_PER_MI : null;
   const limitPct = s.charge_target_pct > 0 ? s.charge_target_pct : null;
 
-  let place: Place = "unknown";
-  let kmFromHome: number | null = null;
-  const hasFix = Number.isFinite(s.latitude) && Number.isFinite(s.longitude) && (s.latitude !== 0 || s.longitude !== 0);
-  if (i.home && hasFix) {
-    const m = haversineM(i.home, s);
-    kmFromHome = m / 1000;
-    place = m <= HOME_RADIUS_M ? "home" : "away";
-  }
+  const m = homeDistanceM(i.home, s);
+  const kmFromHome = m == null ? null : m / 1000;
+  const place = placeOfFix(i.home, s);
 
   const charging = kind === "charging" && !offline;
   const rawKw = s.charger_power_kw;
@@ -183,11 +204,8 @@ export function computeNow(i: NowInput): NowView {
   const peak = Math.max(i.peakKw ?? 0, powerKw ?? 0);
   let chargeFlavor: ChargeFlavor | null = null;
   if (kind === "charging" || kind === "plugged") {
-    if (peak >= DCFC_PEAK_KW) chargeFlavor = "dcfc";
-    else if (place === "home") chargeFlavor = "home_l2";
-    // Away AC only when the whole session's peak is known: a taper
-    // below 50 kW seen from mid-session could be a Supercharger.
-    else if (place === "away" && i.peakKw != null) chargeFlavor = "away_ac";
+    // One rule with the Live page (chargerLabel.ts).
+    chargeFlavor = chargeFlavorOf(peak, place, i.peakKw != null);
   }
 
   const target = limitPct ?? 100;

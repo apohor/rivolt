@@ -4,7 +4,7 @@ import { appPath, inDemo } from "../lib/demo";
 import { usePreferences } from "../lib/preferences";
 import { YearCard } from "../components/YearCard";
 import { ProLimitNotice } from "../components/ProLimitNotice";
-import { ProSheet } from "../components/ProSheet";
+import { ProSheet, ProSheetPreload } from "../components/ProSheetLazy";
 import { proLimitOf } from "../lib/proLimit";
 import { planState } from "../lib/plan";
 import { csvIsPro } from "../lib/moneyWindow";
@@ -342,6 +342,7 @@ function Statement({
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <ShareStatementButton m={m} partialFrom={partialFrom ?? null} disabled={sample || empty} prompt={askShare} />
           <CsvDownloadLink month={m.period} vehicleID={vehicleID} disabled={sample || empty || inDemo()} proOnly={csvPro} onUpsell={() => setUpsell(true)} />
+          {csvPro && <ProSheetPreload />}
           {upsell && <ProSheet state={plan} onClose={() => setUpsell(false)} />}
         </div>
         <p className="mt-1 text-sm text-neutral-400">

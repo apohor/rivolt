@@ -7,7 +7,7 @@ final class NowDriveGraphUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["RIVOLT_UITEST_DRIVE_CASE"] = driveCase
         if !dest { app.launchEnvironment["RIVOLT_UITEST_DRIVE_DEST"] = "none" }
-        if dark { app.launchArguments += ["-rivolt.appearance", "dark"] }
+        app.launchArguments += ["-rivolt.appearance", dark ? "dark" : "light"]
         // The parity shots place the history at the instant the web shots were taken at (STUB_NOW), so both show the same clock times.
         if let pinned = try? String(contentsOfFile: "/tmp/rivolt-ui-shots/.parity-now", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), !pinned.isEmpty {
             app.launchEnvironment["RIVOLT_UITEST_CHARGE_NOW"] = pinned
@@ -18,16 +18,18 @@ final class NowDriveGraphUITests: XCTestCase {
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = [here.appendingPathComponent("Fixtures").path, ios.appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
         app.launchArguments += ["-uitest-now-v2", "-uitest-driving"]
         app.launch()
+        assertRendered(app, dark: dark)
         return app
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
-        let a = XCTAttachment(screenshot: app.screenshot())
+        let screenshot = app.screenshot()  // one capture: a second request is a second chance to time out on a loaded runner
+        let a = XCTAttachment(screenshot: screenshot)
         a.name = name
         a.lifetime = .keepAlways
         add(a)
         try? FileManager.default.createDirectory(atPath: "/tmp/rivolt-ui-shots", withIntermediateDirectories: true)
-        try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/rivolt-ui-shots/\(name).png"))
+        try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/rivolt-ui-shots/\(name).png"))
     }
 
     private func element(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id].firstMatch }

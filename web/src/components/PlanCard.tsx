@@ -5,7 +5,7 @@ import { planState } from "../lib/plan";
 import { checkoutMessage, checkoutReturn, POLL_EVERY_MS, POLL_TIMES, withoutCheckout, type CheckoutReturn } from "../lib/checkoutReturn";
 import { planCardCopy, PRO } from "../lib/proCopy";
 import { Card } from "./ui";
-import { ProSheet } from "./ProSheet";
+import { ProSheet, ProSheetPreload } from "./ProSheetLazy";
 
 const btn = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500";
 
@@ -48,7 +48,12 @@ export function PlanCard() {
         )}
         <p className="text-sm font-medium text-neutral-100">{copy.title}</p>
         <p className="text-sm text-neutral-300">{copy.line}</p>
-        {copy.action && <button type="button" className={btn} onClick={() => setOpen(true)}>{copy.action}</button>}
+        {copy.action && (
+          <>
+            <ProSheetPreload />
+            <button type="button" className={btn} onClick={() => setOpen(true)}>{copy.action}</button>
+          </>
+        )}
       </div>
       {open && <ProSheet state={state} onClose={() => setOpen(false)} />}
     </Card>

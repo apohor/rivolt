@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { toRegExp, evaluateCapture, stateLines, tally, summariseDiff, classifyFiles, renderSheet, FAIL, PASS, NOT_SEEN } from "./lib.mjs";
+import { buildDiff, diffText, toRegExp, evaluateCapture, stateLines, tally, summariseDiff, classifyFiles, renderSheet, FAIL, PASS, NOT_SEEN } from "./lib.mjs";
 
 const manifest = {
   viewports: [{ name: "393", width: 393, height: 852 }], schemes: ["light"],
@@ -64,4 +64,21 @@ test("the sheet escapes text and lists failures first", () => {
   assert.match(html, /1 PASS &middot; 1 FAIL/);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /a\.png/);
+});
+
+test("buildDiff: validated equal to rc is an empty diff and runs no git call", () => {
+  const said = []; let calls = 0;
+  const d = buildDiff({ git: () => { calls++; return ""; }, say: (l) => said.push(l), validated: "abc1234", rc: "abc1234" });
+  assert.equal(calls, 0);
+  assert.deepEqual(d.files, []);
+  assert.match(said[0], /same ref/);
+});
+
+test("buildDiff: says what it does before each call and survives a failing git", () => {
+  const said = [];
+  const git = (...a) => { if (a[0] === "cat-file") throw new Error("missing"); if (a[0] === "fetch") throw new Error("fetch timed out\nmore"); return ""; };
+  const d = buildDiff({ git, say: (l) => said.push(l), validated: "aaa1111", rc: "bbb2222" });
+  assert.match(said[0], /fetching/);
+  assert.equal(d.unavailable, "fetch timed out");
+  assert.match(diffText(d), /NOT AVAILABLE/);
 });

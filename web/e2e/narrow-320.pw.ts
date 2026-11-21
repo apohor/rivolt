@@ -28,7 +28,7 @@ for (const [name, opts] of [
         const r = el.getBoundingClientRect();
         if (r.width && r.right > w + 1 && !el.closest("[data-keep-row]") ) out.push(`${el.tagName} ${(el.className + "").slice(0, 60)} left=${Math.round(r.left)} right=${Math.round(r.right)} parent=${Math.round(el.parentElement!.getBoundingClientRect().right)} ${el.parentElement!.className.slice(0,80)}`);
         // Text cut off by its own box (a clipped label), unless it is meant to ellipsize one-liners we allow to wrap.
-        if (el.children.length === 0 && el.clientWidth > 0 && el.textContent?.trim() && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflow !== "visible")
+        if (!el.classList.contains("sr-only") && el.children.length === 0 && el.clientWidth > 0 && el.textContent?.trim() && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflow !== "visible")
           out.push(`clipped "${el.textContent.trim().slice(0, 30)}" ${el.scrollWidth} > ${el.clientWidth}`);
       }
       return out;

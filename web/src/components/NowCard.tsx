@@ -1,3 +1,4 @@
+import { useHomeLocation, useVehicleNow } from "../lib/useNowInputs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { displayTimeZone } from "../lib/format";
 import { formatScheduleStart, nextScheduledStartMin } from "../lib/chargingSchedule";
@@ -141,12 +142,7 @@ export default function NowCard({
     refetchInterval: (q) => stateRefetchMs(q.state.data),
     retry: 1,
   });
-  const homeQ = useQuery({
-    queryKey: ["settings", "home-location"],
-    queryFn: () => backend.homeLocationGet(),
-    staleTime: 5 * 60_000,
-    retry: 1,
-  });
+  const homeQ = useHomeLocation();
   const chargingQ = useQuery({
     queryKey: ["settings", "charging"],
     queryFn: () => backend.getChargingSettings(),
@@ -179,12 +175,7 @@ export default function NowCard({
   // GET /now: the server's state, freshness inputs and charge baseline.
   // Null when absent (an older server): fall back to the
   // client-derived path below.
-  const nowQ = useQuery({
-    queryKey: ["vehicle", "now", vehicleID],
-    queryFn: () => backend.vehicleNow(vehicleID),
-    refetchInterval: 15_000,
-    retry: 0,
-  });
+  const nowQ = useVehicleNow(vehicleID);
   const server = nowQ.data ?? null;
 
   // Server-side baselines: the open charge row carries the session's
@@ -702,7 +693,7 @@ function details(
     if (v.powerKw != null) rows.push({ k: "Power", v: `${v.powerKw.toFixed(v.powerKw < 10 ? 1 : 0)} kW` });
     // The truck's own figure plainly (it is Rivian's, as its app shows it); ours is an estimate and says so.
     if (v.etaHours != null) rows.push({ k: "Time left", v: v.etaSource === "truck" ? formatEta(v.etaHours, nowMs, false) : `${formatEta(v.etaHours, nowMs)} · est.` });
-    if (v.energyKwh != null && v.energyKwh > 0) rows.push({ k: "Added", v: `≈ ${v.energyKwh.toFixed(1)} kWh` });
+    if (v.energyKwh != null && v.energyKwh > 0) rows.push({ k: "Added", v: `${v.energyKwh.toFixed(1)} kWh est.` });
     if (v.costSoFar) rows.push({ k: "Cost so far", v: `${formatMoney(v.costSoFar.amount, currency)} · home rate` });
     else if (v.priceUnknown) rows.push({ k: "Price", v: "Unknown, add it after" });
     else if (v.chargeFlavor === "dcfc") rows.push({ k: "Price", v: "Estimated when it ends" });

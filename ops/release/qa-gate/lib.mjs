@@ -91,7 +91,22 @@ export function summariseDiff(validated, rc, log, names) {
   return { validated, rc, commits, prs, files, ...classifyFiles(files) };
 }
 
+// The diff between the validated SHA and the rc. git(...args) runs one git call (the runner gives it a timeout and no prompts); say(line) prints
+// before each call that can wait. A call that fails or times out gives { unavailable: reason }, never a throw: the gate still gets its verdict.
+// Same SHA on both sides is an empty diff with no git call at all.
+export function buildDiff({ git, say, validated, rc }) {
+  if (validated === rc) { say(`diff: validated and rc are the same ref (${validated}): nothing differs`); return summariseDiff(validated, rc, "", ""); }
+  try {
+    try { git("cat-file", "-e", `${validated}^{commit}`); git("cat-file", "-e", `${rc}^{commit}`); } catch { say("diff: a commit is not local, fetching it (30 s at most)"); git("fetch", "--quiet", "origin", validated, rc); }
+    say("diff: reading the log and the file list");
+    return summariseDiff(validated, rc, git("log", "--format=%H%x09%s", `${validated}..${rc}`), git("diff", "--name-only", `${validated}...${rc}`));
+  } catch (e) {
+    return { validated, rc, unavailable: String(e.message).split("\n")[0].slice(0, 160), commits: [], prs: [], files: [], area: {}, carries: false };
+  }
+}
+
 export function diffText(d) {
+  if (d.unavailable) return `diff ${d.validated}..${d.rc}: NOT AVAILABLE (${d.unavailable}); QA reads the PR list by hand`;
   const a = d.area;
   const l = [`Validated ${d.validated} -> rc ${d.rc}: ${d.commits.length} commit(s), ${d.files.length} file(s), PRs ${d.prs.map((n) => "#" + n).join(" ") || "none"}`];
   l.push(`  web ${a.web.length}, server ${a.server.length}, ios ${a.ios.length}, infra ${a.infra.length}, notes/docs ${a.notes.length}, other ${a.other.length}`);

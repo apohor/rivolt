@@ -27,6 +27,9 @@ final class PlanSheetUITests: XCTestCase {
         XCTAssertTrue(trip.waitForExistence(timeout: 20), "the saved trip \(name) is listed")
         trip.tap()
         let grabber = app.descendants(matching: .any)["plan-sheet-grabber"].firstMatch
+        // A tap that lands while the list is still settling opens nothing (a CI run failed on "the sheet is there" with the trip still listed):
+        // tap once more if the sheet is not up after 8 s and the trip is still on screen.
+        if !grabber.waitForExistence(timeout: 8), trip.exists { trip.tap() }
         XCTAssertTrue(grabber.waitForExistence(timeout: 20), "the sheet is there")
         return grabber
     }
