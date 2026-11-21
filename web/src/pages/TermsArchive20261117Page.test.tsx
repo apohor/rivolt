@@ -1,13 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
-import TermsArchive20261117Page from "./TermsArchive20261117Page";
+import TermsArchivePage from "./TermsArchivePage";
 
 describe("/terms/2026-11-17", () => {
   it("shows the launch-day Terms with the archive note and a link to the current Terms", () => {
     const { container } = render(
       <MemoryRouter initialEntries={["/terms/2026-11-17"]}>
-        <TermsArchive20261117Page />
+        <TermsArchivePage version="2026-11-17" />
       </MemoryRouter>,
     );
     expect(screen.getByText(/Last updated: November 17, 2026/)).toBeInTheDocument();
