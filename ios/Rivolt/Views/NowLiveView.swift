@@ -86,15 +86,16 @@ struct NowLiveView: View {
 
     private var energy: some View {
         let detail = ChargingDetail.make(summary: summary, session: session, charge: charge)
+        // Worked out once per render: the rows, the heading and the spoken sentences all read these.
+        let stats = streaming && detail != nil ? NowSlotModel.liveStats(summary: summary, snapshot: snapshot, session: session, charge: charge, clock: .now) : []
         return ThemeSection(title: "\(vehicle.name): \(streaming ? summary.stateLabel : NowCard.pill(for: summary, clock: .now).text)") {
             row("Battery", summary.socPct.map { "\(Int($0.rounded()))%" })
             row("Range", summary.rangeKm.map { km in "\(Int((NowFormat.usesMetric ? km : km / 1.609344).rounded())) \(NowFormat.usesMetric ? "km" : "mi")" })
             row("Charge limit", summary.chargeTargetPct.map { "\(Int($0.rounded()))%" })
             if streaming, let detail {
                 row("Power", detail.powerKw.map { "\(NumberText.fixed($0, $0 < 10 ? 1 : 0)) kW" })
-                chargeRows(NowSlotModel.liveStats(summary: summary, snapshot: snapshot, session: session, charge: charge, clock: .now))
-                if !NowSlotModel.liveStats(summary: summary, snapshot: snapshot, session: session, charge: charge, clock: .now).contains(where: { $0.label == "Cost so far" }),
-                   let cost = NowFormat.liveCostText(detail.cost, place: detail.place) { row("Cost so far", cost) }
+                chargeRows(stats)
+                if !stats.contains(where: { $0.label == "Cost so far" }), let cost = NowFormat.liveCostText(detail.cost, place: detail.place) { row("Cost so far", cost) }
             }
         }
     }
@@ -105,7 +106,8 @@ struct NowLiveView: View {
         let all = NowSlotModel.estimatedHeading(stats)
         if all { Text("Estimated so far").themeText(.caption, color: Theme.textTertiary).accessibilityIdentifier("live-estimated") }
         ForEach(stats, id: \.label) { st in
-            row(st.label == "Added" ? "Energy" : st.label, st.note.map { "\(st.value) · \($0)" } ?? st.value, estimated: st.estimated && !all && st.label != "Cost so far")
+            // The mark is on each figure only in a mixed group; VoiceOver says "estimated" on every worked-out figure either way, from the row itself.
+            row(st.label, st.note.map { "\(st.value) · \($0)" } ?? st.value, estimated: st.estimated, marked: !all && st.label != "Cost so far")
         }
     }
 
@@ -134,12 +136,12 @@ struct NowLiveView: View {
     }
 
     /// A label and its value; a figure the truck has not reported is a dash, never a made-up zero.
-    private func row(_ label: String, _ value: String?, estimated: Bool = false) -> some View {
+    private func row(_ label: String, _ value: String?, estimated: Bool = false, marked: Bool = true) -> some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
         return layout {
             Text(label).themeText(.value, color: Theme.textSecondary)
             if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
-            (Text(value ?? "–") + Text(estimated && value != nil ? " est." : "").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textTertiary))
+            (Text(value ?? "–") + Text(estimated && marked && value != nil ? " est." : "").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textTertiary))
                 .themeText(.value).fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)

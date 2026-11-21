@@ -288,11 +288,22 @@ final class NowSlotTests: XCTestCase {
         return NowSlotModel.liveStats(summary: summary, snapshot: now, session: session, charge: nil, clock: at)
     }
 
+    func testLiveIgnoresThePreviousPlugInsPrice() throws {
+        // An ended session (the self-hosted feed can still return it) is not this charge: its price is never "billed by Rivian".
+        let ended = LiveSession(active: false, powerKw: 9, totalChargedEnergyKwh: 20, currentPrice: "9.50", currentCurrency: "USD")
+        let stats = try liveStats(session: ended)
+        let cost = try XCTUnwrap(stats.first { $0.label == "Cost so far" })
+        XCTAssertFalse(cost.value.contains("9.50"), cost.value)
+        XCTAssertNotEqual(cost.note, "billed by Rivian")
+        XCTAssertEqual(stats.first { $0.label == "Energy" }?.value.contains("20.0"), true, "its measured figures still show")
+        XCTAssertEqual(ChargingDetail.cost(of: ended, summary: NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 11), now: nil, clock: at), charge: nil), nil)
+    }
+
     func testLiveAllFiguresFromRivianCarryNoMark() throws {
         let session = LiveSession(active: true, timeElapsedSeconds: 3600, timeRemainingSeconds: 1800, powerKw: 11, kilometersChargedPerHour: 30, rangeAddedKm: 60,
                                   totalChargedEnergyKwh: 8, currentPrice: "2.27", currentCurrency: "USD")
         let stats = try liveStats(session: session)
-        XCTAssertEqual(stats.map(\.label), ["Added", "Range added", "Rate", "Elapsed", "Cost so far", "Time left"])
+        XCTAssertEqual(stats.map(\.label), ["Rate", "Range added", "Energy", "Elapsed", "Remaining", "Cost so far"])
         XCTAssertTrue(stats.allSatisfy { !$0.estimated }, "\(stats)")
         XCTAssertFalse(NowSlotModel.estimatedHeading(stats))
         let cost = try XCTUnwrap(stats.first { $0.label == "Cost so far" })
