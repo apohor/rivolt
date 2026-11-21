@@ -262,3 +262,50 @@ test("Pro: forward and backward Tab visit every stop of the sheet in order", asy
   expect(await sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
   await ctx.close();
 });
+
+// The gap, forced: the sheet's chunk is held back, so the sheet renders when it arrives, not in the click. A MutationObserver (a microtask, so it
+// runs right after the commit that put the sheet in the DOM and before React's passive effects, which run in a later task) acts in that window,
+// as a fast keyboard user could: it moves focus to a plan choice, or presses Escape. On a sheet that places focus and attaches its Escape listener
+// in a passive effect, the focus is then stolen by Close and the Escape is lost.
+for (const act of ["focus", "escape"] as const) {
+  test(`Pro: the sheet takes focus and Escape in the commit that shows it, not after @webkit · ${act}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await as(page, FREE);
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    await page.route(/\/assets\/ProSheet[^/]*\.js/, async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto("/settings#plan");
+    await page.evaluate((what) => {
+      const w = window as unknown as { __gap: { focused: string; sawSheet: boolean } };
+      w.__gap = { focused: "", sawSheet: false };
+      const mo = new MutationObserver(() => {
+        const sheet = document.querySelector("[data-pro-sheet]");
+        if (!sheet || w.__gap.sawSheet) return;
+        w.__gap.sawSheet = true;
+        if (what === "focus") (sheet.querySelector("input[type=radio]") as HTMLElement).focus();
+        else window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        mo.disconnect();
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    }, act);
+    const opener = page.locator("[data-plan-card]").getByRole("button", { name: "See Pro" });
+    await opener.click();
+    release();
+    const sheet = page.locator("[data-pro-sheet]");
+    if (act === "escape") {
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __gap: { sawSheet: boolean } }).__gap.sawSheet)).toBe(true);
+      await expect(sheet).toHaveCount(0);
+      await expect(opener).toBeFocused();
+    } else {
+      await expect(sheet).toBeVisible();
+      // Give any later effect its chance to steal focus back.
+      await page.waitForTimeout(500);
+      expect(await page.evaluate(() => document.activeElement?.getAttribute("type"))).toBe("radio");
+    }
+    await ctx.close();
+  });
+}
