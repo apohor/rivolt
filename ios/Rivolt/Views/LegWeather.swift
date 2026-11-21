@@ -14,6 +14,8 @@ enum LegWeather {
         var wind: Wind?
         var rain = false
         var snow = false
+        /// "rain" or "snow" when the forecast radar says so for the arrival (the Pro tier, key radar_forecast); the stop row says it in place of the rain tag.
+        var forecast: String?
 
         struct Wind: Equatable {
             enum Kind: String { case head, tail }
@@ -32,7 +34,7 @@ enum LegWeather {
     /// A real minus, not a hyphen.
     private static func signed(_ n: Int) -> String { (n < 0 ? "−" : "") + String(abs(n)) }
 
-    static func facts(_ leg: TripWeatherLeg?, celsius: Bool, metric: Bool) -> Facts? {
+    static func facts(_ leg: TripWeatherLeg?, celsius: Bool, metric: Bool, forecast: Bool = false) -> Facts? {
         guard let leg else { return nil }
         var out = Facts(snow: leg.snow == true)
         let unit = celsius ? "C" : "F"
@@ -51,7 +53,8 @@ enum LegWeather {
                                   speed: Int((metric ? abs(hw) : abs(hw) / kphPerMph).rounded()), unit: metric ? "km/h" : "mph")
         }
         out.rain = !out.snow && (leg.precipMm ?? 0) > wetMm
-        if out.temp == nil, out.wind == nil, !out.rain, !out.snow { return nil }
+        if forecast, let level = leg.radar?.level, level == "rain" || level == "snow" { out.forecast = level }
+        if out.temp == nil, out.wind == nil, !out.rain, !out.snow, out.forecast == nil { return nil }
         return out
     }
 
@@ -61,7 +64,7 @@ enum LegWeather {
         var out: [String] = []
         if let t = f.temp { out.append(t) }
         if let w = f.wind { out.append("\(w.speed) \(w.unit) \(w.kind.rawValue)wind") }
-        if f.snow { out.append("snow expected") } else if f.rain { out.append("rain") }
+        if let r = f.forecast { out.append(r == "snow" ? "Snow likely at arrival" : "Rain likely at arrival") } else if f.snow { out.append("snow expected") } else if f.rain { out.append("rain") }
         return out
     }
 
@@ -108,5 +111,13 @@ enum LegWeather {
     }
 
     /// The terrain data asks to be credited wherever the climb shows (the web's line).
+    /// The forecast radar's credit, once wherever its tags show (the web's line).
+    static let radarCredit = "Rain and snow likely at arrival: NOAA RRFS"
+
+    /// Whether any leg carries a forecast tag, so the plan says where it comes from once.
+    static func showsForecast(_ legs: [TripWeatherLeg]?) -> Bool {
+        (legs ?? []).contains { $0.radar?.level == "rain" || $0.radar?.level == "snow" }
+    }
+
     static let terrainCredit = "Terrain: USGS 3DEP, GMTED2010 and SRTM; Natural Resources Canada (Open Government Licence – Canada); INEGI; ArcticDEM; NOAA ETOPO1"
 }

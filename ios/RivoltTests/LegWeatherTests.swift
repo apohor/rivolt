@@ -113,6 +113,24 @@ final class LegWeatherTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(PlanRouteLogic.Weather(plain)).withSetup)
     }
 
+    /// The forecast radar's tags (design_preview key radar_forecast, the Pro tier): "Rain likely at arrival" in place of the rain tag, nothing for dry or an
+    /// absent field, nothing with the key off (web/src/plan/legWeather.test.ts says the same).
+    func testTheForecastRadarTagsShowOnlyWithTheKeyAndOnlyForRainOrSnow() throws {
+        let json = #"{"legs":[{"multiplier":1,"air_temp_c":5,"precip_mm":2,"radar":{"level":"rain"}},{"multiplier":1,"air_temp_c":-3,"radar":{"level":"snow"}},{"multiplier":1,"air_temp_c":9,"radar":{"level":"dry"}},{"multiplier":1,"air_temp_c":9}]}"#
+        let adj = try JSON.decoder().decode(TripWeatherAdjustment.self, from: Data(json.utf8))
+        let tags = { (i: Int, on: Bool) in LegWeather.tags(LegWeather.facts(adj.legs[i], celsius: true, metric: true, forecast: on)) }
+        XCTAssertEqual(tags(0, true), ["5 °C", "Rain likely at arrival"], "the radar's word replaces the rain tag")
+        XCTAssertEqual(tags(0, false), ["5 °C", "rain"], "key off: as before")
+        XCTAssertEqual(tags(1, true), ["−3 °C", "Snow likely at arrival"])
+        XCTAssertEqual(tags(2, true), ["9 °C"], "dry says nothing")
+        XCTAssertEqual(tags(3, true), ["9 °C"], "no field says nothing")
+        XCTAssertTrue(LegWeather.showsForecast(adj.legs))
+        XCTAssertFalse(LegWeather.showsForecast(Array(adj.legs[2...])))
+        let only = try JSON.decoder().decode(TripWeatherLeg.self, from: Data(#"{"multiplier":1,"radar":{"level":"rain"}}"#.utf8))
+        XCTAssertNotNil(LegWeather.facts(only, celsius: true, metric: true, forecast: true), "a leg with only the radar word still has facts")
+        XCTAssertNil(LegWeather.facts(only, celsius: true, metric: true, forecast: false))
+    }
+
     func testOneLabelPerLegAtItsMiddleAndNoneWithoutWeather() throws {
         let plan = try Fixture.decode(TripPlan.self, "trip_plan_rivian_shape")
         let route = try XCTUnwrap(plan.best)
