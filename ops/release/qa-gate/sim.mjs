@@ -3,15 +3,17 @@ import { FAIL, PASS } from "./lib.mjs";
 
 // A refusal that carries free_at says when to book again: the gate can wait for it or record the sim as NOT SEEN.
 export const nextBookable = (b) => (b?.free_at && !Number.isNaN(Date.parse(b.free_at)) ? `; next bookable at ${new Date(b.free_at).toISOString().slice(11, 16)}Z` : "");
+// A refusal because a run is under way carries that run (read from GET /api/admin/sim), so the report says whose slot it is and when it ends.
+export const underWay = (b) => (b?.under_way ? `; under way: ${b.under_way.kind} ${b.under_way.start} to ${b.under_way.end}` : "");
 const line = (id, ok, detail) => ({ id: `sim:${id}`, screen: "sim", vp: "-", scheme: "-", check: id, status: ok ? PASS : FAIL, detail });
 const run = (r) => r?.body?.active ?? {};
 
 export function pairLines(first, second) {
   const d = run(first), c = run(second);
   return [
-    line("drive booked", first.status === 200, first.status === 200 ? `${d.id} ${d.start} to ${d.end}` : `${first.status} ${first.body?.error ?? ""}${nextBookable(first.body)}`),
+    line("drive booked", first.status === 200, first.status === 200 ? `${d.id} ${d.start} to ${d.end}` : `${first.status} ${first.body?.error ?? ""}${nextBookable(first.body)}${underWay(first.body)}`),
     line("drive kind", /_short$/.test(d.kind ?? ""), `kind ${d.kind ?? "none"}: the short variant, not the 28-minute run`),
-    line("charge booked", second.status === 200, second.status === 200 ? `${c.id} ${c.start} to ${c.end}` : `${second.status} ${second.body?.error ?? ""}${nextBookable(second.body)}`),
+    line("charge booked", second.status === 200, second.status === 200 ? `${c.id} ${c.start} to ${c.end}` : `${second.status} ${second.body?.error ?? ""}${nextBookable(second.body)}${underWay(second.body)}`),
     line("charge kind", /_short$/.test(c.kind ?? ""), `kind ${c.kind ?? "none"}`),
     line("charge starts when the drive ends", !!d.end && c.start === d.end, `drive end ${d.end}, charge start ${c.start}`),
     line("pair within 11 minutes", !!d.start && !!c.end && new Date(c.end) - new Date(d.start) <= 11 * 60000, `${d.start} to ${c.end}`),
@@ -71,7 +73,16 @@ export async function bookPair({ browser, adminBase, token, login }) {
   try {
     await ctx.route("**/*", accessRoute(new URL(adminBase).origin, token, (c) => ctx.addCookies(c)));
     await login(await ctx.newPage(), adminBase);
-    const post = async (path) => { const r = await ctx.request.post(`${adminBase}${path}`, { data: {}, headers: token, maxRedirects: 0 }); return { status: r.status(), body: await r.json().catch(() => ({})) }; };
+    const post = async (path) => {
+      const r = await ctx.request.post(`${adminBase}${path}`, { data: {}, headers: token, maxRedirects: 0 });
+      const out = { status: r.status(), body: await r.json().catch(() => ({})) };
+      if (out.status === 409 && /under way/.test(out.body?.error ?? "")) {
+        const g = await ctx.request.get(`${adminBase}/api/admin/sim`, { headers: token, maxRedirects: 0 }).catch(() => null);
+        const a = g?.ok() ? (await g.json().catch(() => ({})))?.active : null;
+        if (a) out.body = { ...out.body, under_way: { kind: a.kind, start: a.start, end: a.end } };
+      }
+      return out;
+    };
     const first = await post("/api/admin/sim/drive?short=1");
     const second = first.status === 200 ? await post("/api/admin/sim/charge?short=1&queue=1") : { status: 0, body: {} };
     return { first, second };
