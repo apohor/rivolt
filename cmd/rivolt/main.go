@@ -806,8 +806,10 @@ func runServer() {
 	// The preview's simulated drive and charge buttons exist on the admin site only, and only when asked for and when a live Rivian client is
 	// forbidden outright (admin-preview sets both); prod's admin site sets neither, so the routes are not there.
 	var replaySim api.SimRunner
+	var sampleHistory api.SampleHistoryRunner
 	if adminOnlyMode && pgPool != nil && rivian.SimControlsEnabled(os.Getenv) {
 		replaySim = rivian.NewSimControl(rivian.NewFlagsSimStore(pgPool))
+		sampleHistory = &demo.SampleHistoryWriter{DB: pgPool, Drives: drivesFactory, Charges: chargesFactory, Getenv: os.Getenv}
 	}
 	flagsStore, err := flags.OpenStore(ctx, pgPool, logger)
 	if err != nil {
@@ -3558,6 +3560,7 @@ func runServer() {
 		AdminDisabled:         adminDisabled,
 		AdminOnly:             adminOnlyMode,
 		ReplaySim:             replaySim,
+		SampleHistory:         sampleHistory,
 		ProbesOnly:            !role.PublicRoutes,
 		PlanLegs:              newPlanLegs(sharedRedis, redisKeyPrefix, logger, appMetrics, replicaDivisor),
 		Redis:                 sharedRedis,
