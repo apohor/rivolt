@@ -188,10 +188,10 @@ export function SoftFill({ id, d, baseY, x0, x1 }: { id: string; d: string; base
 }
 
 // A small dot with a soft halo; `big` is the live "now" dot.
-export function HaloDot({ id, x, y, color, big = false }: { id: string; x: number; y: number; color: string; big?: boolean }) {
+export function HaloDot({ id, x, y, color, big = false, pulse = false }: { id: string; x: number; y: number; color: string; big?: boolean; pulse?: boolean }) {
   return (
     <g>
-      <circle cx={x} cy={y} r={big ? 10 : 7} fill={color} fillOpacity={big ? 0.35 : 0.3} filter={`url(#${id}-halo)`} />
+      <circle cx={x} cy={y} r={big ? 10 : 7} fill={color} fillOpacity={big ? 0.35 : 0.3} filter={`url(#${id}-halo)`} {...(pulse ? { className: "cp-dot", "data-testid": "charge-pulse-dot" } : {})} />
       <circle cx={x} cy={y} r={big ? 4.5 : 3} fill={color} />
     </g>
   );

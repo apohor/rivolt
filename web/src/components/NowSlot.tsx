@@ -5,6 +5,8 @@ import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../l
 import type { LiveSession } from "../lib/api";
 import { ParkedMap } from "../map/ParkedMap";
 import { inDemo } from "../lib/demo";
+import { useDesignPreview } from "../lib/config";
+import { chargePulseState, PulseBolt } from "./ChargePulse";
 
 // The state slot of the Now hero (design_preview "now_slot"): under the gauge, in place of the vehicle picture and the rows,
 // the figures of what the truck is doing. Charging: power and the charger, when it reaches the limit, then the session. Driving:
@@ -312,6 +314,8 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, pla
 // Null when the state has no slot, so the picture stays.
 export default function NowSlot(i: SlotInput) {
   const { view, nowMs, unit } = i;
+  // Design "charge_pulse": the bolt beside the kW figure while power flows.
+  const pulse = chargePulseState(useDesignPreview("charge_pulse"), view.powerKw, false);
   if (!slotAvailable(view, i.fix ?? null)) return null;
   if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} placeText={i.placeText ?? null} noMap={i.noMap ?? false} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
   const stats = slotStats(i);
@@ -346,6 +350,7 @@ export default function NowSlot(i: SlotInput) {
       <p className="text-4xl font-semibold leading-none tabular-nums text-neutral-100" data-testid="now-slot-big">
         {big}
         <span className="ml-1 text-base font-normal text-neutral-400">{bigUnit}</span>
+        {view.kind === "charging" && <PulseBolt state={pulse} />}
         {chips}
       </p>
       {sub && <p className="mt-2 text-sm font-medium text-neutral-200" data-testid="now-slot-sub">{sub}</p>}
