@@ -26,3 +26,5 @@ To refresh them, open the demo with a clean browser profile, pick the
 theme (Settings → Appearance, or the system setting), choose the "Las Vegas
 weekend" sample trip for the Plan shots, and replace the file with the
 same name.
+
+The remaining files (`now-comfort`, `first-charge`, `three-things`, `truck-tires`, `truck-sleep-health`, `trends`, `drain-split`, `share-sheet`, `plan-multiday-phone`) are element or phone-width crops of the same demo pages; retake them the same way when the card changes.

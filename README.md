@@ -144,7 +144,7 @@ signed-in account, so it is not on the demo.
   "Preconditioning". It disappears when the data is stale, so an old
   "Pet mode on" is never read as current.
 
-<img src="docs/screenshots/now-comfort.png" width="390" alt="The comfort line on Now for the demo's sample truck, live only: here just the cabin temperature, 49 degrees Fahrenheit">
+<img src="docs/screenshots/now-comfort.png" width="390" alt="The Now card parked, on the demo's sample truck: battery arc and range, the parked map with the weather, and the cabin temperature, 49 degrees Fahrenheit">
 
 ### Activity — every drive and charge
 
@@ -269,7 +269,7 @@ phone the map is on top and the trip sits in a sheet you drag up.
 
 Radar comes from NOAA and is for general awareness, not for
 safety-critical decisions. Rivolt's own server fetches it, so your phone
-or browser never contacts NOAA. It is not on the signed-out demo.
+or browser never contacts NOAA. The demo's map has the radar button too.
 
 #### Multi-day trips
 
@@ -306,7 +306,7 @@ Every figure in a plan is an estimate built from your own truck's
 efficiency, the route and the chargers along it. Real charging speed,
 weather and traffic will differ.
 
-<img src="docs/screenshots/plan-multiday-phone.png" width="390" alt="Day 1 of the demo's two-day Las Vegas trip on a phone: one charging stop at Barstow, then the overnight at the hotel">
+<img src="docs/screenshots/plan-multiday-phone.png" width="390" alt="The demo's two-day Las Vegas trip on a phone: the trip summary, then Day 1 with its route map and rain radar legend">
 
 ![Plan](docs/screenshots/plan.png)
 
@@ -345,13 +345,14 @@ minute.
 #### Trends
 
 With enough history, Truck shows two trends for your own truck:
-monthly efficiency (pack-side mi/kWh) and the usable pack capacity
-estimated from your charges (not tracked on the R2 yet). Both come
-from your recorded data only and are labelled estimates; they appear
-once there is enough history to say anything, and never compare you
-with other owners.
+monthly efficiency (pack-side mi/kWh) in Trends, and in the Battery
+capacity card the usable capacity your truck reports next to an
+estimate worked out from your charges (not tracked on the R2 yet). Both
+come from your recorded data only and the estimate is labelled; they
+appear once there is enough history to say anything, and never compare
+you with other owners.
 
-<img src="docs/screenshots/trends.png" width="390" alt="Trends for the demo's sample truck: efficiency by month and an estimated usable capacity of about 131 kWh">
+<img src="docs/screenshots/trends.png" width="390" alt="Trends for the demo's sample truck: efficiency by month, with the note that drives with a trailer are left out">
 
 #### Range near a temperature
 
@@ -473,7 +474,7 @@ the lease tracker and the monthly statement email. Setup reminders by
 email stop as soon as Rivolt has data from your truck, and every
 reminder email has a one-click unsubscribe.
 
-<img src="docs/screenshots/first-charge.png" width="390" alt="The first-charge card on the demo's Now tab: 26 kWh and its cost at the home rate, with links to the receipt and Money">
+<img src="docs/screenshots/first-charge.png" width="390" alt="The first-charge card on the demo's Now tab: the kWh and cost of the first charge, its range added marked as an estimate, with links to the receipt and Money">
 <img src="docs/screenshots/three-things.png" width="390" alt="The Three things card: charge-done notifications, lease tracker and monthly statement by email">
 
 ---
