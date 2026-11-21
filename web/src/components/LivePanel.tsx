@@ -11,6 +11,7 @@ import { formatMoney } from "../lib/ledger";
 import { pickLiveImage, useIsLight } from "../lib/vehicleImage";
 import { formatTemperature, usePreferences } from "../lib/preferences";
 import { useDesignPreview } from "../lib/config";
+import { chargePulseState, PulseBolt, withGlow } from "./ChargePulse";
 import { PlugPicture } from "./PlugPicture";
 import { LiveChargeGraph } from "./LiveChargeGraph";
 import { LiveDriveTrail } from "./LiveDriveTrail";
@@ -612,6 +613,8 @@ function ChargingDetail({
   const haveCost = stats.some((x) => x.k === "Cost so far");
   // Design "live_v2": the charge so far as a graph, only while energy is actually flowing (not plugged in and waiting).
   const liveV2 = useDesignPreview("live_v2");
+  // Design "charge_pulse": a pulse while power flows, a still plug badge while plugged in and waiting.
+  const pulse = chargePulseState(useDesignPreview("charge_pulse"), powerKw, cs === "charging_ready" || cs === "charging_complete");
 
   return (
     <div data-testid="live-session-card" className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
@@ -620,6 +623,7 @@ function ChargingDetail({
           Charging session
         </div>
         <div className="text-[11px] text-neutral-500">
+          {pulse === "plugged" && <PulseBolt state={pulse} />}
           {sess.isLoading ? "…" : kind}
         </div>
       </div>
@@ -628,12 +632,14 @@ function ChargingDetail({
         <div className="tabular-nums text-3xl font-semibold text-emerald-200">
           {powerKw > 0 ? powerKw.toFixed(1) : "0.0"}
           <span className="ml-1 text-sm font-normal text-emerald-400/70">kW</span>
+          {pulse === "charging" && <PulseBolt state={pulse} />}
         </div>
         <div className="flex-1">
           <div className="mb-0.5 flex justify-between text-[11px] text-neutral-400">
             <span>{pct(soc, 0)}</span>
             <span>→ {pct(targetPct, 0)}</span>
           </div>
+          {withGlow(pulse, soc, (
           <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
             <div
               className="h-full bg-emerald-400"
@@ -651,6 +657,7 @@ function ChargingDetail({
               />
             ) : null}
           </div>
+          ))}
           {toTarget > 0 ? (
             <div className="mt-0.5 text-[11px] text-neutral-500">
               {pct(toTarget, 0)} to target

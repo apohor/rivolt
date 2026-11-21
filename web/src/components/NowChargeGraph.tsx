@@ -1,5 +1,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { chargeFinishMs, clock } from "../lib/nowState";
+import { useDesignPreview } from "../lib/config";
+import { chargePulseState } from "./ChargePulse";
 import { formatTemperature, type TemperatureUnit } from "../lib/preferences";
 import { powerMax, useOpenChargeSeries } from "./LiveChargeGraph";
 import { GraphHead, HaloDot, Legend, Pill, QuietLine, SoftDefs, SoftFill, SoftLine, labelWidth, softPath, textScale, thin, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
@@ -37,6 +39,8 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
   const [ref, { w, h }] = useBox();
   const ink = useSoftInk();
   const id = useSoftId();
+  // Design "charge_pulse": the live end of the battery line pulses while power flows.
+  const pulseKey = useDesignPreview("charge_pulse");
   if (!open) return null;
   const first = soc[0];
   const last = soc[soc.length - 1];
@@ -54,6 +58,7 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
   // The power named is the card's live figure (the slot's big number), so one kW is said once; the line itself is the stored samples.
   const lastPower = power[power.length - 1];
   const nowKw = powerKw ?? lastPower?.y ?? null;
+  const pulse = chargePulseState(pulseKey, nowKw, false) === "charging";
   // The pack's line: only the measured part (from the first battery reading), and only with two readings of which the newest is recent. No flat fake line.
   const packPts = packLine.filter((p) => p.x >= first.x);
   const packLast = packPts[packPts.length - 1];
@@ -218,7 +223,7 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
               </>
             )}
             <HaloDot id={id} x={socPts[0].x} y={socPts[0].y} color={ink.line} />
-            <HaloDot id={id} x={lx} y={ly} color={ink.line} big />
+            <HaloDot id={id} x={lx} y={ly} color={ink.line} big pulse={pulse} />
             {labelStartValue && (
               <text x={socPts[0].x + 2} y={Math.max(socPts[0].y - 14, 12)} className="fill-neutral-300 text-xs">
                 {startShown}%

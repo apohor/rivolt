@@ -807,3 +807,59 @@ html[data-theme='light'] {
   --car-body: oklch(68% 0.01 250);
   --car-line: oklch(40% 0.01 250);
 }
+
+/* ---- Design "charge_pulse" (ChargePulse.tsx) ---------------------
+   A soft green pulse of about 2 s while power flows. The resting opacity is the still glow; reduced motion (above) drops the animation and
+   leaves it. Opacity only: nothing moves or resizes. */
+@keyframes cp-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.cp-bolt {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-left: 0.3em;
+  vertical-align: 0.12em;
+  color: rgb(52 211 153);
+  opacity: 0.8;
+}
+.cp-bolt svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.cp-bolt[data-pulse="charging"] {
+  filter: drop-shadow(0 0 3px rgb(52 211 153 / 0.6));
+  animation: cp-pulse 2s ease-in-out infinite;
+}
+.cp-bolt[data-pulse="plugged"] {
+  color: rgb(163 163 163);
+  width: 0.9em;
+  height: 0.9em;
+  margin-left: 0;
+  margin-right: 0.35em;
+  vertical-align: -0.12em;
+}
+.cp-glow {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: rgb(52 211 153 / 0.7);
+  filter: blur(4px);
+  pointer-events: none;
+  opacity: 0.8;
+  animation: cp-pulse 2s ease-in-out infinite;
+}
+.cp-dot {
+  opacity: 0.8;
+  animation: cp-pulse 2s ease-in-out infinite;
+}

@@ -4,6 +4,7 @@ import { displayTimeZone } from "../lib/format";
 import { formatScheduleStart, nextScheduledStartMin } from "../lib/chargingSchedule";
 import { ArcGauge } from "./ArcGauge";
 import { PowerSpark } from "./PowerSpark";
+import { chargePulseState, PulseBolt } from "./ChargePulse";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useImpersonationTarget } from "../lib/impersonation";
@@ -242,6 +243,8 @@ export default function NowCard({
   // Design "now_parked_graph" (with now_tidy): the last 24 hours of the battery on a parked, plugged or asleep truck, with the sleeps and
   // wake-ups. Without a line to draw (parked a few minutes, no data, an older server) the card is as it was.
   const parkedKind = view != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
+  // Design "charge_pulse": the bolt beside the kW figure while power flows.
+  const pulse = chargePulseState(useDesignPreview("charge_pulse"), view?.powerKw, false);
   const parkedKindOn = useDesignPreview("now_parked_graph") && tidy && parkedKind;
   const { series: parkedSeries, waiting: parkedWaiting } = useParkedSeries(vehicleID, parkedKindOn);
   // Design "now_drive_graph" (with now_slot and now_tidy), driving: the speed from the start of the drive to now, the battery as a second line, read from
@@ -570,6 +573,7 @@ export default function NowCard({
             <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-100">
               {Math.round(powerHist[powerHist.length - 1])}
               <span className="ml-1 inline-block text-xs font-normal text-neutral-400">kW</span>
+              <PulseBolt state={pulse} />
             </span>
           </div>
         )}
