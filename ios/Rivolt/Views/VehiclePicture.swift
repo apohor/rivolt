@@ -55,13 +55,20 @@ enum VehiclePicture {
         var frunkClosed: Bool?
         var liftgateClosed: Bool?
         var tonneauClosed: Bool?
+        /// What the web's panel rule reads (`isCharging`, `isDriving` in LivePanel.tsx): the charger's state, its plug status and its power.
+        var chargerState: String?
+        var chargerStatus: String?
+        var chargerPowerKw: Double?
 
-        init(gear: String? = nil, doorsClosed: Bool? = nil, frunkClosed: Bool? = nil, liftgateClosed: Bool? = nil, tonneauClosed: Bool? = nil) {
+        init(gear: String? = nil, doorsClosed: Bool? = nil, frunkClosed: Bool? = nil, liftgateClosed: Bool? = nil, tonneauClosed: Bool? = nil,
+             chargerState: String? = nil, chargerStatus: String? = nil, chargerPowerKw: Double? = nil) {
             self.gear = gear; self.doorsClosed = doorsClosed; self.frunkClosed = frunkClosed; self.liftgateClosed = liftgateClosed; self.tonneauClosed = tonneauClosed
+            self.chargerState = chargerState; self.chargerStatus = chargerStatus; self.chargerPowerKw = chargerPowerKw
         }
 
         init(_ state: VehicleState) {
-            self.init(gear: state.gear, doorsClosed: state.doorsClosed, frunkClosed: state.frunkClosed, liftgateClosed: state.liftgateClosed, tonneauClosed: state.tonneauClosed)
+            self.init(gear: state.gear, doorsClosed: state.doorsClosed, frunkClosed: state.frunkClosed, liftgateClosed: state.liftgateClosed, tonneauClosed: state.tonneauClosed,
+                      chargerState: state.chargerState, chargerStatus: state.chargerStatus, chargerPowerKw: state.chargerPowerKw)
         }
     }
 
@@ -80,10 +87,26 @@ enum VehiclePicture {
         return pick(images, wants: wants, light: light)
     }
 
-    /// Whether the Live screen draws the picture at all: not while the truck drives or charges (the panel takes the whole width, as on the web's
-    /// Live card); parked, asleep, offline or stale it stays, since it shows the open doors, frunk and tailgate.
-    static func showsOnLive(kind: NowSnapshot.State, streaming: Bool) -> Bool {
-        !(streaming && (kind == .driving || kind == .charging))
+    /// Whether the Live screen draws the picture at all: not while the drive or charge panel takes its place (the whole width, as on the web's
+    /// Live card); parked, asleep, offline or stale it stays, since it shows the open doors, frunk and tailgate. The panel rule is the web's,
+    /// from the same fields: gear D, R or N is driving; a plugged-in truck (`chrgr_sts_connected*`) is charging unless the session is
+    /// `charging_complete`, and then when it reports power or is `charging_active` or `charging_ready`. The web reads its last frame as it is;
+    /// the phone's panels are shown only while the truck is streaming (`streaming`), so a stale truck has no panel to give the width to.
+    static func showsOnLive(state: LiveInputs?, streaming: Bool) -> Bool {
+        guard streaming, let state else { return true }
+        return !(isDriving(state) || isCharging(state))
+    }
+
+    private static func isDriving(_ s: LiveInputs) -> Bool {
+        ["D", "R", "N"].contains((s.gear ?? "").uppercased())
+    }
+
+    private static func isCharging(_ s: LiveInputs) -> Bool {
+        guard (s.chargerStatus ?? "").lowercased().hasPrefix("chrgr_sts_connected") else { return false }
+        let cs = s.chargerState ?? ""
+        if cs == "charging_complete" { return false }
+        if (s.chargerPowerKw ?? 0) > 0 { return true }
+        return cs == "charging_active" || cs == "charging_ready"
     }
 
     /// The Live pictures to try in order: the state's pick, then the vehicle's own `image_url`; one that failed to load is skipped

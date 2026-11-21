@@ -45,11 +45,23 @@ final class VehiclePictureParityTests: XCTestCase {
         XCTAssertEqual(s.frunkClosed, false)
     }
 
-    /// Driving or charging, the Live screen has no picture and the panel takes the width; every other state keeps it.
-    func testTheLivePictureIsAbsentWhileDrivingOrCharging() {
-        XCTAssertFalse(VehiclePicture.showsOnLive(kind: .driving, streaming: true))
-        XCTAssertFalse(VehiclePicture.showsOnLive(kind: .charging, streaming: true))
-        XCTAssertTrue(VehiclePicture.showsOnLive(kind: .parked, streaming: true))
-        XCTAssertTrue(VehiclePicture.showsOnLive(kind: .driving, streaming: false), "a stale truck keeps its picture")
+    /// The web's panel rule (LivePanel.tsx isDriving / isCharging): where the drive or charge panel takes the width there is no picture.
+    func testTheLivePictureIsAbsentWhereTheWebPanelReplacesIt() {
+        func shows(_ s: VehiclePicture.LiveInputs?, streaming: Bool = true) -> Bool { VehiclePicture.showsOnLive(state: s, streaming: streaming) }
+        let plugged = "chrgr_sts_connected_charging"
+        XCTAssertFalse(shows(.init(gear: "D")), "drive")
+        XCTAssertFalse(shows(.init(gear: "r")), "reverse")
+        XCTAssertFalse(shows(.init(gear: "N")), "neutral")
+        XCTAssertTrue(shows(.init(gear: "P")), "park")
+        XCTAssertFalse(shows(.init(chargerState: "charging_active", chargerStatus: plugged)), "charging_active")
+        XCTAssertFalse(shows(.init(chargerState: "charging_ready", chargerStatus: plugged)), "charging_ready")
+        XCTAssertFalse(shows(.init(chargerState: "", chargerStatus: plugged, chargerPowerKw: 7)), "power with the cable in")
+        XCTAssertTrue(shows(.init(chargerState: "charging_complete", chargerStatus: plugged, chargerPowerKw: 7)), "complete")
+        XCTAssertTrue(shows(.init(chargerState: "charging_active", chargerStatus: "chrgr_sts_not_connected")), "the state sticks after an unplug")
+        XCTAssertTrue(shows(.init(chargerState: "charging_active")), "no plug status")
+        XCTAssertTrue(shows(.init(gear: "P", chargerState: "charger_disconnected")), "parked")
+        XCTAssertTrue(shows(nil), "no state yet")
+        XCTAssertTrue(shows(.init(gear: "D"), streaming: false), "stale: the phone's panels are not shown, so the picture stays")
+        XCTAssertTrue(shows(.init(chargerState: "charging_active", chargerStatus: plugged), streaming: false), "stale charging")
     }
 }
