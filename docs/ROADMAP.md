@@ -1,6 +1,6 @@
 # Rivolt roadmap
 
-Rivolt is open source and in beta at [rivolt.dev](https://rivolt.dev), with a
+Rivolt is open source, at [rivolt.dev](https://rivolt.dev), with a
 read-only demo at [demo.rivolt.dev](https://demo.rivolt.dev). This is the
 public view of where it's going; plans change, and there are no dates.
 

@@ -6,7 +6,7 @@ import SwiftUI
 /// chooses another under "Other server", which is checked before it's used.
 ///
 /// Looks like the web's sign-in page (new look): one card on the page, the
-/// Rivolt mark, "Sign in" with the beta pill, then the action and the small print.
+/// Rivolt mark, "Sign in", then the action and the small print.
 struct LoginView: View {
     @Environment(AppState.self) private var state
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
@@ -52,7 +52,7 @@ struct LoginView: View {
                 ThemeLogo(size: 28)
                 Text("Rivolt").font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary)
             }
-            // No "BETA" pill: the App Store does not take betas (guideline 2.2); the web keeps it.
+            // No "BETA" pill on the heading (the web login has none either).
             Text("Sign in").font(Theme.sans(ThemeTokens.typeHeadline, .semibold, relativeTo: .title3)).foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
             if let notice = state.signInNotice {

@@ -1,7 +1,7 @@
 package api
 
 // HTTP handlers for the pre-account signup request flow. Public
-// POST /api/signup/request lets anyone ask for beta access; admin
+// POST /api/signup/request lets anyone ask for access; admin
 // GET / approve / reject endpoints live under /api/admin and are
 // gated by the existing requireAdminMW.
 
@@ -121,7 +121,7 @@ func handleSignupRequestCreate(store *signuprequests.Store, mailer *email.Client
 			// requester on Resend latency.
 			go notifyAdmin(context.Background(), mailer, logger,
 				"New Rivolt signup request: "+reqEmail,
-				"A new beta-access request landed:\n\n"+
+				"A new sign-up request landed:\n\n"+
 					"  Email:   "+reqEmail+"\n"+
 					(func() string {
 						if message == "" {

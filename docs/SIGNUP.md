@@ -1,6 +1,6 @@
 # Signing up for Rivolt
 
-This walks you from signing up for the beta through your first
+This walks you from signing up through your first
 planned trip. It assumes you're using the hosted instance at
 [rivolt.dev](https://rivolt.dev); local-development setups skip
 the OIDC steps and use the docker-compose login instead.
@@ -9,7 +9,7 @@ the OIDC steps and use the docker-compose login instead.
 
 ## 1. Sign up
 
-Rivolt is in public beta, no invite needed; total accounts are capped. There are two
+No invite is needed; the total number of accounts is capped. There are two
 ways in, and both are instant while there is room:
 
 ### Option A — Continue with Google or GitHub (fastest)
@@ -21,7 +21,7 @@ ways in, and both are instant while there is room:
 3. You're dropped straight into Rivolt with a session cookie.
    No password to set, no approval email to wait for.
 
-If the beta is at capacity, the OAuth callback bounces you to a
+If sign-up is at capacity, the OAuth callback bounces you to a
 "we're at capacity" page with your email pre-filled — leave the
 request and we'll let you know when a seat opens up.
 
@@ -44,7 +44,7 @@ you own the address, which the emailed link does:
    and a 12+ character password.
 4. Click **Create account**. You're signed in straight away.
 
-If the beta is at capacity, the request waits instead: it stays
+If sign-up is at capacity, the request waits instead: it stays
 pending until a seat opens up and an admin approves it (or you ask
 again once there is room, which approves it), and the email arrives
 then. A link that was sent while there was room only works while

@@ -35,7 +35,7 @@ func linkOrName(l Links) string {
 func footer(l Links) string {
 	return "\n--\nYou can stop these emails here: " + l.Unsubscribe + "\n" +
 		"(or in Settings, under Notifications). Delete your account any time from Settings.\n" +
-		"Rivolt has a free tier and Rivolt Pro; the full export of your data is always free. Unofficial, not affiliated with Rivian.\n"
+		"Rivolt has a free tier and a Pro tier; the full export of your data is always free. Unofficial, not affiliated with Rivian.\n"
 }
 
 // Welcome is the day-0 email.

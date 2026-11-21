@@ -11,7 +11,7 @@ describe("the iPhone app link", () => {
   });
   it("labels the button for the kind of link", () => {
     expect(appButtonLabel("store")).toBe("Open in the App Store");
-    expect(appButtonLabel("testflight")).toBe("Join the TestFlight beta");
+    expect(appButtonLabel("testflight")).toBe("Join on TestFlight");
   });
   it("puts the app on a share card for an App Store link only", () => {
     expect(shareFooterLine("https://apps.apple.com/us/app/rivolt/id1234567890")).toBe("Made with Rivolt · rivolt.dev · iPhone app on the App Store");

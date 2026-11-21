@@ -10,12 +10,13 @@ const VIEWPORTS = ['desktop', 'mobile'];
 const STEP_KINDS = ['wait', 'goto', 'click', 'tap', 'scroll', 'scrollto', 'top', 'back', 'highlight', 'waitfor', 'waitscroll', 'mark'];
 // Controls that write something. The recorder's GET-only guard aborts the request, but a clip that clicks one is a clip that fails or lies.
 const MUTATING_CLICKS = [/add as a stop/i, /^save$/i, /save and plan/i, /delete/i, /remove/i, /sign in/i, /connect/i, /add price/i, /subscribe/i, /upgrade/i, /buy/i, /checkout/i, /^send$/i];
-// Public wording rules: "free" appears only inside "free during the beta". Words that must stay out of clips until the launch copy is
+// Public wording rules: "free" appears only inside "free tier and Pro tier" (the launch wording); "beta" never appears. Words that must stay out of clips until the launch copy is
 // public (feature names that are held back, plan names) are NOT listed here: they come from DEMO_VIDEO_HELD_WORDS (newline-separated,
 // case-insensitive patterns, a CI secret like the personal-data denylist) or DEMO_VIDEO_HELD_WORDS_FILE for local runs.
 const BANNED_WORDING = [
   [/\bforever\b/i, 'never "forever"'],
-  [/limited beta|invite[- ]only|early access/i, 'not "limited beta", "invite-only" or "early access"'],
+  [/\bbeta\b/i, 'never "beta" (Rivolt has a free tier and Pro tier)'],
+  [/invite[- ]only|early access/i, 'not "invite-only" or "early access"'],
   [/for life|always free/i, 'not "for life" or "always free"'],
   [/\$\s?\d/, 'no prices or dollar figures in captions (they roll with the demo data)'],
   [/no tracking/i, 'never claim "no tracking"'],
@@ -115,8 +116,8 @@ function lintCaptions(key, caps, allowUniversal, held, err) {
   caps.forEach((c, i) => {
     const lines = captionLines(c);
     const text = lines.join(' ');
-    const stripped = text.replace(/free during the beta/gi, '');
-    if (/\bfree\b/i.test(stripped)) err(`${key}[${i}]: "free" may only appear as "free during the beta"`);
+    const stripped = text.replace(/free tier and Pro tier/gi, '');
+    if (/\bfree\b/i.test(stripped)) err(`${key}[${i}]: "free" may only appear as "free tier and Pro tier"`);
     for (const [re, why] of BANNED_WORDING) if (re.test(stripped)) err(`${key}[${i}]: ${why}: "${text}"`);
     for (const re of held) if (re.test(stripped)) err(`${key}[${i}]: held back until the launch copy is cleared (DEMO_VIDEO_HELD_WORDS): "${text}"`);
     for (const [re, what] of PII) if (re.test(text)) err(`${key}[${i}]: contains ${what}`);
@@ -128,7 +129,7 @@ function lintCaptions(key, caps, allowUniversal, held, err) {
   const endText = end.end.join(' ');
   if (!/not affiliated with Rivian/i.test(endText)) err(`${key}: end card must say it is not affiliated with Rivian`);
   if (!/Sample truck, generated data/i.test(endText)) err(`${key}: end card must say "Sample truck, generated data"`);
-  if (!/free during the beta/i.test(endText)) err(`${key}: the public end card is the beta wording; the launch variant lives in rivolt-infra and is applied with ENDCARD_FILE`);
+  if (!/free tier and Pro tier/i.test(endText)) err(`${key}: the end card must carry the launch wording "free tier and Pro tier"`);
 }
 
 module.exports = { lint };
