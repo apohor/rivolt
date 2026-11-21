@@ -23,6 +23,7 @@ import (
 	"github.com/apohor/rivolt/internal/chargers"
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/demo"
 	"github.com/apohor/rivolt/internal/drives"
 	"github.com/apohor/rivolt/internal/email"
 	"github.com/apohor/rivolt/internal/flags"
@@ -263,6 +264,7 @@ var webCallsOptionalByConfig = map[string]string{
 	"POST /api/public/trips/share":          "as above (the public /s page)",
 	"GET /api/admin/sim":                    "mounted only on the preview admin site (Deps.ReplaySim: RIVOLT_SIM_CONTROLS=true with live Rivian forbidden); the admin card is not drawn on a 404",
 	"POST /api/admin/sim/{x}":               "as above",
+	"POST /api/admin/sample-history":        "as above (Deps.SampleHistory, set with ReplaySim)",
 }
 
 // appleLinkStub stands in for the identity store behind the Apple link routes: they are mounted in the contract router, never called.
@@ -321,8 +323,9 @@ func contractRouterWith(t *testing.T, gates bool, mut func(*Deps)) chi.Routes {
 	}
 	if gates { // the Apple link routes exist only where its identity store is wired
 		d.AppleLinkAccounts = appleLinkStub{}
-		d.ReplaySim = fakeSim{}                   // the simulated drive and charge routes exist only where the preview admin controls are on
-		d.StripeBilling = new(stripebill.Service) // the billing routes exist only where Stripe is configured; mounted here, never called
+		d.ReplaySim = fakeSim{}                       // the simulated drive and charge routes exist only where the preview admin controls are on
+		d.SampleHistory = &demo.SampleHistoryWriter{} // as does the sample truck's older history; mounted here, never called
+		d.StripeBilling = new(stripebill.Service)     // the billing routes exist only where Stripe is configured; mounted here, never called
 	}
 	if mut != nil {
 		mut(&d)

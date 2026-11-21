@@ -171,6 +171,7 @@ var notOwnerSide = map[string]string{
 	"demo.Seed":                    "demo account seed at start",
 	"demo.SeedPlans":               "demo account seed at start",
 	"demo.ApplySampleWeather":      "demo account seed at start",
+	"demo.SampleHistoryWriter.Run": "admin action on the preview admin site (sim controls on, live Rivian forbidden); no live recorder writes these rows",
 
 	// Accounts, sign-in, sessions and admin.
 	"db.AcceptTerms":                          "user action (terms)",

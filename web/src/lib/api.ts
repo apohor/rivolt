@@ -1784,6 +1784,8 @@ export const backend = {
   adminFlagsGet: () => api.get<AdminFlagsState>("/api/admin/kill-switch"),
   // Preview's simulated drive and charge (the routes exist on the preview admin site only; elsewhere both answer 404).
   adminSimGet: () => api.get<{ active: AdminSimRun | null }>("/api/admin/sim"),
+  adminSampleHistory: (username: string) =>
+    api.post<{ from: string; before: string; drives: number; charges: number }>("/api/admin/sample-history", { username }),
   adminSimStart: (kind: "drive" | "charge") => api.post<{ active: AdminSimRun | null }>(`/api/admin/sim/${kind}`),
   adminFlagsKillPut: (paused: boolean, reason: string) =>
     api.put<AdminFlagsState>("/api/admin/kill-switch", { paused, reason }),
