@@ -241,9 +241,20 @@ jobs:
         if: always() && steps.sim.outcome == 'success'
         run: |
           set -euo pipefail
-          xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/ui.xcresult" --compact > "$RUNNER_TEMP/summary.json"
+          # Name every failed test even when xcodebuild died after a long run and left a thin bundle (run 44838705727: "TEST FAILED" and no
+          # name). Each read is tolerant: a bundle that cannot be read must say so, not end the step before the names are printed.
+          bundle="$RUNNER_TEMP/ui.xcresult"
+          if ! xcrun xcresulttool get test-results summary --path "$bundle" --compact > "$RUNNER_TEMP/summary.json"; then
+            echo "the result bundle could not be read (xcodebuild died before finishing it?)"; ls -la "$bundle" || true; exit 1
+          fi
           jq '{result, totalTestCount, passedTests, failedTests, skippedTests}' "$RUNNER_TEMP/summary.json"
           jq -r '.testFailures[]? | "FAILED \(.testIdentifierString // .testName): \(.failureText)"' "$RUNNER_TEMP/summary.json"
+          # Anything not Passed or Skipped in the test tree, with the failure text under it.
+          xcrun xcresulttool get test-results tests --path "$bundle" --compact \
+            | jq -r '.. | objects | select(.nodeType? == "Test Case" and (.result? != "Passed") and (.result? != "Skipped")) | "case \(.result // "no result"): \(.nodeIdentifier // .name)"' || true
+          # Build and runner-level problems (crash, launch failure, timeout) that belong to no single test.
+          xcrun xcresulttool get build-results --path "$bundle" --compact \
+            | jq -r '(.errors[]?, .warnings[]? | select(.message | test("crash|timed out|Timed out|failed to launch|Failed to launch|Lost connection")) ) | "runner: \(.message)"' || true
           total=$(jq -r '.totalTestCount' "$RUNNER_TEMP/summary.json")
           if [ "${total:-0}" -lt 1 ]; then echo "no UI tests ran"; exit 1; fi
           {

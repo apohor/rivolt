@@ -14,12 +14,13 @@ final class NowV2UITests: XCTestCase {
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
-        let a = XCTAttachment(screenshot: app.screenshot())
+        let screenshot = app.screenshot()  // one capture: a second request is a second chance to time out on a loaded runner
+        let a = XCTAttachment(screenshot: screenshot)
         a.name = name
         a.lifetime = .keepAlways
         add(a)
         try? FileManager.default.createDirectory(atPath: "/tmp/rivolt-ui-shots", withIntermediateDirectories: true)
-        try? app.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/rivolt-ui-shots/\(name).png"))
+        try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/rivolt-ui-shots/\(name).png"))
     }
 
     func testNowV2ShowsTheNewLayout() {
