@@ -3,8 +3,10 @@ package rivian
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"math"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -12,18 +14,40 @@ import (
 // A date well past the corpus's first recorded row on preview, the usual boundary.
 var sampleHistTestBefore = time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
 
-// The public demo's frames are exactly what they were before the older history existed: the history planner shares the builder, and its
-// only hook (effMi) is off for the corpus.
+// The public demo's corpus is exactly what it was before the older history existed: the history planner shares the builder, and its only
+// hook (effMi) is off for the corpus. The plan (every segment's kind, start, end and step, and the totals) is pinned on every
+// architecture; the full JSONL bytes are pinned on arm64 only, because float rounding in the frames differs between architectures. Both
+// values were taken from the code before the history existed.
 func TestSampleCorpusUnchanged(t *testing.T) {
 	t.Parallel()
-	var b bytes.Buffer
-	if err := NewSampleCorpus(SampleSeed).WriteJSONL(&b); err != nil {
+	c := NewSampleCorpus(SampleSeed)
+	h := sha256.New()
+	var b [8]byte
+	put := func(v int64) { binary.LittleEndian.PutUint64(b[:], uint64(v)); h.Write(b[:]) }
+	for _, s := range c.segs {
+		put(int64(s.kind))
+		put(s.start.UnixNano())
+		put(s.end.UnixNano())
+		put(int64(s.step))
+	}
+	const wantPlan = "506c4829adfdf552be48e082689ca440a36896042725b61e3805e3b4c036d59d"
+	if got := hex.EncodeToString(h.Sum(nil)); len(c.segs) != 892 || got != wantPlan {
+		t.Fatalf("the demo corpus plan changed: %d segments, sha256 %s, want 892 and %s", len(c.segs), got, wantPlan)
+	}
+	if sum := c.Summary(); sum.Frames != 183345 || sum.Drives != 99 {
+		t.Fatalf("the demo corpus totals changed: %d frames, %d drives", sum.Frames, sum.Drives)
+	}
+	if runtime.GOARCH != "arm64" {
+		return
+	}
+	var buf bytes.Buffer
+	if err := c.WriteJSONL(&buf); err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256(b.Bytes())
+	sum := sha256.Sum256(buf.Bytes())
 	const want = "a5e0d9c235acad8b0c9daf1bcc5e3f6a82ee6e4cb62b74f361899f13f8270330"
 	if got := hex.EncodeToString(sum[:]); got != want {
-		t.Fatalf("the demo corpus changed: sha256 %s, want %s", got, want)
+		t.Fatalf("the demo corpus bytes changed: sha256 %s, want %s", got, want)
 	}
 }
 
