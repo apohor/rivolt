@@ -1,0 +1,1941 @@
+{
+ "meta": {
+  "stages": [
+   {
+    "name": "start",
+    "at": "2026-11-20T23:14:37.102Z"
+   },
+   {
+    "name": "version",
+    "at": "2026-11-20T23:14:37.274Z"
+   },
+   {
+    "name": "sign-in",
+    "at": "2026-11-20T23:14:40.666Z"
+   },
+   {
+    "name": "screens done",
+    "at": "2026-11-20T23:14:51.116Z"
+   },
+   {
+    "name": "sign-out",
+    "at": "2026-11-20T23:14:53.494Z"
+   },
+   {
+    "name": "verdict",
+    "at": "2026-11-20T23:14:53.494Z"
+   }
+  ],
+  "base": "https://preview.rivolt.dev",
+  "version": "v1.4.0-dev.4+sha-97f2cce",
+  "at": "2026-11-20T23:14:53.495Z",
+  "seconds": 17
+ },
+ "tally": {
+  "PASS": 206,
+  "FAIL": 1,
+  "NOT SEEN": 4
+ },
+ "lines": [
+  {
+   "id": "version",
+   "screen": "version",
+   "vp": "-",
+   "scheme": "-",
+   "check": "version",
+   "status": "PASS",
+   "detail": "v1.4.0-dev.4+sha-97f2cce (no --expect-version)"
+  },
+  {
+   "id": "now/393/light/loaded",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/light/no-console-errors",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "FAIL",
+   "detail": "TypeError: undefined is not an object (evaluating 'e._result.default') | [ErrorBoundary] TypeError: undefined is not an object (evaluating 'e._result.default') \nLazy@unknown:0:0\nur@https://preview.rivolt.dev/assets/index-KzgBSixF.js:"
+  },
+  {
+   "id": "now/393/light/no-failed-requests",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/light/no-horizontal-overflow",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "now/393/light/never-shows /\\bNaN\\b/",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/light/never-shows /\\bundefined\\b/",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/light/never-shows /\\[object /",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/light/state asleep",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "light",
+   "check": "state asleep",
+   "status": "PASS",
+   "detail": "seen"
+  },
+  {
+   "id": "live/393/light/loaded",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/light/no-console-errors",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/light/no-failed-requests",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/light/no-horizontal-overflow",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "live/393/light/never-shows /\\bNaN\\b/",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/light/never-shows /\\bundefined\\b/",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/light/never-shows /\\[object /",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/light/loaded",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/light/no-console-errors",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/light/no-failed-requests",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/light/no-horizontal-overflow",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "activity/393/light/shows /Activity/",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "light",
+   "check": "shows /Activity/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/light/never-shows /\\bNaN\\b/",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/light/never-shows /\\bundefined\\b/",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/light/never-shows /\\[object /",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/light/loaded",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/light/no-console-errors",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/light/no-failed-requests",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/light/no-horizontal-overflow",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "money/393/light/shows /Money/",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "light",
+   "check": "shows /Money/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/light/never-shows /\\bNaN\\b/",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/light/never-shows /\\bundefined\\b/",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/light/never-shows /\\[object /",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/light/loaded",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/light/no-console-errors",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/light/no-failed-requests",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/light/no-horizontal-overflow",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "plan/393/light/never-shows /\\bNaN\\b/",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/light/never-shows /\\bundefined\\b/",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/light/never-shows /\\[object /",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/light/loaded",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/light/no-console-errors",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/light/no-failed-requests",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/light/no-horizontal-overflow",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "truck/393/light/never-shows /\\bNaN\\b/",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/light/never-shows /\\bundefined\\b/",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/light/never-shows /\\[object /",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/dark/loaded",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/dark/no-console-errors",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/dark/no-failed-requests",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/dark/no-horizontal-overflow",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "now/393/dark/never-shows /\\bNaN\\b/",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/dark/never-shows /\\bundefined\\b/",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/dark/never-shows /\\[object /",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/393/dark/state asleep",
+   "screen": "now",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "state asleep",
+   "status": "PASS",
+   "detail": "seen"
+  },
+  {
+   "id": "live/393/dark/loaded",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/dark/no-console-errors",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/dark/no-failed-requests",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/dark/no-horizontal-overflow",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "live/393/dark/never-shows /\\bNaN\\b/",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/dark/never-shows /\\bundefined\\b/",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/dark/never-shows /\\[object /",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/393/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "live",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/dark/loaded",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/dark/no-console-errors",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/dark/no-failed-requests",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/dark/no-horizontal-overflow",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "activity/393/dark/shows /Activity/",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "shows /Activity/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/dark/never-shows /\\bNaN\\b/",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/dark/never-shows /\\bundefined\\b/",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/dark/never-shows /\\[object /",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/393/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "activity",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/dark/loaded",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/dark/no-console-errors",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/dark/no-failed-requests",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/dark/no-horizontal-overflow",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "money/393/dark/shows /Money/",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "shows /Money/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/dark/never-shows /\\bNaN\\b/",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/dark/never-shows /\\bundefined\\b/",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/dark/never-shows /\\[object /",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/393/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "money",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/dark/loaded",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/dark/no-console-errors",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/dark/no-failed-requests",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/dark/no-horizontal-overflow",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "plan/393/dark/never-shows /\\bNaN\\b/",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/dark/never-shows /\\bundefined\\b/",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/dark/never-shows /\\[object /",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/393/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "plan",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/dark/loaded",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/dark/no-console-errors",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/dark/no-failed-requests",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/dark/no-horizontal-overflow",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 393 vs 393"
+  },
+  {
+   "id": "truck/393/dark/never-shows /\\bNaN\\b/",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/dark/never-shows /\\bundefined\\b/",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/dark/never-shows /\\[object /",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/393/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "truck",
+   "vp": "393",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/light/loaded",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/light/no-console-errors",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/light/no-failed-requests",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/light/no-horizontal-overflow",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "now/1440/light/never-shows /\\bNaN\\b/",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/light/never-shows /\\bundefined\\b/",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/light/never-shows /\\[object /",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/light/state asleep",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "state asleep",
+   "status": "PASS",
+   "detail": "seen"
+  },
+  {
+   "id": "live/1440/light/loaded",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/light/no-console-errors",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/light/no-failed-requests",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/light/no-horizontal-overflow",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "live/1440/light/never-shows /\\bNaN\\b/",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/light/never-shows /\\bundefined\\b/",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/light/never-shows /\\[object /",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/light/loaded",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/light/no-console-errors",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/light/no-failed-requests",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/light/no-horizontal-overflow",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "activity/1440/light/shows /Activity/",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "shows /Activity/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/light/never-shows /\\bNaN\\b/",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/light/never-shows /\\bundefined\\b/",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/light/never-shows /\\[object /",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/light/loaded",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/light/no-console-errors",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/light/no-failed-requests",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/light/no-horizontal-overflow",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "money/1440/light/shows /Money/",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "shows /Money/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/light/never-shows /\\bNaN\\b/",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/light/never-shows /\\bundefined\\b/",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/light/never-shows /\\[object /",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/light/loaded",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/light/no-console-errors",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/light/no-failed-requests",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/light/no-horizontal-overflow",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "plan/1440/light/never-shows /\\bNaN\\b/",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/light/never-shows /\\bundefined\\b/",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/light/never-shows /\\[object /",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/light/loaded",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/light/no-console-errors",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/light/no-failed-requests",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/light/no-horizontal-overflow",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "truck/1440/light/never-shows /\\bNaN\\b/",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/light/never-shows /\\bundefined\\b/",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/light/never-shows /\\[object /",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/light/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "light",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/dark/loaded",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/dark/no-console-errors",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/dark/no-failed-requests",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/dark/no-horizontal-overflow",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "now/1440/dark/never-shows /\\bNaN\\b/",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/dark/never-shows /\\bundefined\\b/",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/dark/never-shows /\\[object /",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/1440/dark/state asleep",
+   "screen": "now",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "state asleep",
+   "status": "PASS",
+   "detail": "seen"
+  },
+  {
+   "id": "live/1440/dark/loaded",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/dark/no-console-errors",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/dark/no-failed-requests",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/dark/no-horizontal-overflow",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "live/1440/dark/never-shows /\\bNaN\\b/",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/dark/never-shows /\\bundefined\\b/",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/dark/never-shows /\\[object /",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "live/1440/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "live",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/dark/loaded",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/dark/no-console-errors",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/dark/no-failed-requests",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/dark/no-horizontal-overflow",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "activity/1440/dark/shows /Activity/",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "shows /Activity/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/dark/never-shows /\\bNaN\\b/",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/dark/never-shows /\\bundefined\\b/",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/dark/never-shows /\\[object /",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "activity/1440/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "activity",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/dark/loaded",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/dark/no-console-errors",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/dark/no-failed-requests",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/dark/no-horizontal-overflow",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "money/1440/dark/shows /Money/",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "shows /Money/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/dark/never-shows /\\bNaN\\b/",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/dark/never-shows /\\bundefined\\b/",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/dark/never-shows /\\[object /",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "money/1440/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "money",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/dark/loaded",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/dark/no-console-errors",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/dark/no-failed-requests",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/dark/no-horizontal-overflow",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "plan/1440/dark/never-shows /\\bNaN\\b/",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/dark/never-shows /\\bundefined\\b/",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/dark/never-shows /\\[object /",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "plan/1440/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "plan",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/dark/loaded",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "loaded",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/dark/no-console-errors",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-console-errors",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/dark/no-failed-requests",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-failed-requests",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/dark/no-horizontal-overflow",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "no-horizontal-overflow",
+   "status": "PASS",
+   "detail": "scrollWidth 1440 vs 1440"
+  },
+  {
+   "id": "truck/1440/dark/never-shows /\\bNaN\\b/",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bNaN\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/dark/never-shows /\\bundefined\\b/",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bundefined\\b/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/dark/never-shows /\\[object /",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\[object /",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "truck/1440/dark/never-shows /\\bnull (mi|km|kW|%)/",
+   "screen": "truck",
+   "vp": "1440",
+   "scheme": "dark",
+   "check": "never-shows /\\bnull (mi|km|kW|%)/",
+   "status": "PASS",
+   "detail": ""
+  },
+  {
+   "id": "now/state:charging",
+   "screen": "now",
+   "vp": "-",
+   "scheme": "-",
+   "check": "state charging",
+   "status": "NOT SEEN",
+   "detail": "the sample truck was not in this state during the run"
+  },
+  {
+   "id": "now/state:driving",
+   "screen": "now",
+   "vp": "-",
+   "scheme": "-",
+   "check": "state driving",
+   "status": "NOT SEEN",
+   "detail": "the sample truck was not in this state during the run"
+  },
+  {
+   "id": "now/state:parked",
+   "screen": "now",
+   "vp": "-",
+   "scheme": "-",
+   "check": "state parked",
+   "status": "NOT SEEN",
+   "detail": "the sample truck was not in this state during the run"
+  },
+  {
+   "id": "now/state:plugged",
+   "screen": "now",
+   "vp": "-",
+   "scheme": "-",
+   "check": "state plugged",
+   "status": "NOT SEEN",
+   "detail": "the sample truck was not in this state during the run"
+  },
+  {
+   "id": "signout/393/light/leaves-settings",
+   "screen": "signout",
+   "vp": "393",
+   "scheme": "light",
+   "check": "leaves-settings",
+   "status": "PASS",
+   "detail": "/login"
+  },
+  {
+   "id": "signout/393/light/shows-sign-in",
+   "screen": "signout",
+   "vp": "393",
+   "scheme": "light",
+   "check": "shows-sign-in",
+   "status": "PASS",
+   "detail": ""
+  }
+ ],
+ "diff": null
+}

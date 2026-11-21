@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { accessRoute, cookieFrom, pairLines } from "./sim.mjs";
+import { accessRoute, cookieFrom, nextBookable, pairLines } from "./sim.mjs";
 import { FAIL, PASS } from "./lib.mjs";
 
 const ok = (kind, start, end) => ({ status: 200, body: { active: { id: kind, kind, start, end } } });
@@ -91,4 +91,12 @@ test("an error from route.fetch is swallowed: its message carries the request he
   r.route.abort = async () => { r.seen.aborted = true; };
   await accessRoute(ADMIN, TOKEN)(r.route);
   assert.ok(r.seen.aborted);
+});
+
+test("a refusal with free_at prints when to book again", () => {
+  assert.equal(nextBookable({ free_at: "2026-11-21T11:34:00Z" }), "; next bookable at 11:34Z");
+  assert.equal(nextBookable({ error: "busy" }), "");
+  assert.equal(nextBookable({ free_at: "nonsense" }), "");
+  const ls = pairLines({ status: 409, body: { error: "on a scheduled drive", free_at: "2026-11-21T11:34:00Z" } }, { status: 0, body: {} });
+  assert.match(ls.find((l) => l.id === "sim:drive booked").detail, /next bookable at 11:34Z/);
 });
