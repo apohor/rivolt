@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
@@ -41,7 +41,10 @@ export function ProSheet({ state, onClose, opener: given }: { state: PlanState; 
   // opening, not once per parent render (each re-run took focus back to Close from whatever the person had reached).
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  useEffect(() => {
+  // A layout effect, not a passive one: it runs in the commit that puts the sheet in the DOM, before the browser paints or handles any input,
+  // so there is no moment when the sheet can be seen or pressed with focus elsewhere and Escape unhandled. It depends on `given` only (stable
+  // for one opening), so it never moves focus a second time.
+  useLayoutEffect(() => {
     // What opened the sheet: given by ProSheetLazy, which saw it before the chunk was here; else what has focus now.
     const opener = given ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     closeRef.current?.focus();
