@@ -39,8 +39,16 @@ final class PlanAccessibilitySizeTests: XCTestCase {
         XCTAssertGreaterThan(s.height, 60, "the text took more than one line")
     }
 
+    /// The chips read the person's planner settings once, from the signed-in account, and a setting that has the layers off clears them. A test
+    /// host that is signed in (a simulator that has run the app against a server) would then lose "Preferred only" and fit one row, so the settings
+    /// are read here, from a stand-in that has none, before the view can ask the real client.
+    private struct NoPrefs: PlannerPrefsSource {
+        func plannerPrefs() async throws -> PlannerPrefs { throw URLError(.notConnectedToInternet) }
+    }
+
     func testTheLayerChipsWrapAtNormalSizeAndBecomeOneButtonAtLargeText() async throws {
         let model = TripPlanModel()
+        await model.loadPlannerPrefs(source: NoPrefs())
         model.setPreferred(["ea"])
         await model.setLayer(.chargers, on: true, source: Fake())
         let normal = try await size(of: PlanLayerChips(model: model).environment(AppState()).environment(\.dynamicTypeSize, .large), width: 393)
