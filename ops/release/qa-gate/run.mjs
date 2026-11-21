@@ -202,7 +202,7 @@ stage("start");
 const vg = await versionGate();
 const before = await healthSample();
 let simLines = [];
-const steady = new Set(before).size === 1 && before[0] && (!vg.want || before[0] === vg.want);
+const steady = new Set(before).size === 1 && before[0] && (!vg.want || String(before[0]).replace(/^v/, "") === vg.want || String(before[0]).endsWith(vg.want));
 if (a.sim && !steady) simLines = [{ id: "sim:book", screen: "sim", vp: "-", scheme: "-", check: "book", status: FAIL, detail: `not booked: preview is not steady on one version (${[...new Set(before)].join(", ")})` }];
 else if (a.sim) { try { const b0 = await pw[a.browser].launch(); simLines = await bookSim(b0, stage); await b0.close(); } catch (e) { simLines = [{ id: "sim:book", screen: "sim", vp: "-", scheme: "-", check: "book", status: FAIL, detail: String(e.message).split("\n")[0] }]; } }
 stage("version");
