@@ -285,8 +285,8 @@ for (const width of [320, 393, 1440]) {
     await expect(row).toBeVisible();
     await expect(page.locator("[data-now-v2]")).not.toContainText(/next 3 h/i);
     const items = row.locator("> p");
-    expect(await items.count()).toBeGreaterThanOrEqual(2);
-    // The card settles as the weather and the cabin arrive: wait for the row, then check it.
+    // The card settles as the weather and the cabin arrive: wait for the second item, then check the row.
+    await expect.poll(() => items.count()).toBeGreaterThanOrEqual(2);
     await expect
       .poll(async () => new Set(await items.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)))).size)
       .toBe(1);
