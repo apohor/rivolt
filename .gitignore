@@ -53,3 +53,6 @@ ios/Rivolt/Info.plist
 
 # Python bytecode (CI helper scripts run with python3 -I)
 __pycache__/
+
+# Output of ops/release/qa-gate/run.mjs when run without --out (never commit it)
+.gate-out/
