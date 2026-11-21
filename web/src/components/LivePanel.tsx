@@ -496,10 +496,14 @@ function StatusPill({ state }: { state: VehicleState }) {
 // is misleading. When the session is done we fall through to
 // ParkedSummary, which surfaces the idle / asleep state and a
 // "plugged in" label so the cable status is still visible.
-function isCharging(s: VehicleState): boolean {
-  if (!isPluggedIn(s)) return false;
+//
+// An R2 sends no charger_status at all: with the field empty, an active charge counts (the server's /now does the same). A status that is
+// there and says "not connected" still wins over a sticky charger_state.
+export function isCharging(s: Pick<VehicleState, "charger_status" | "charger_state" | "charger_power_kw">): boolean {
   const cs = s.charger_state || "";
   if (cs === "charging_complete") return false;
+  if (!(s.charger_status || "")) return cs === "charging_active";
+  if (!isPluggedIn(s)) return false;
   if (s.charger_power_kw > 0) return true;
   return cs === "charging_active" || cs === "charging_ready";
 }
@@ -507,7 +511,7 @@ function isCharging(s: VehicleState): boolean {
 // isPluggedIn interprets Rivian's charger_status field. The
 // connected-charging and connected-not-charging states are the only
 // ones that mean there's a physical cable in the port.
-function isPluggedIn(s: VehicleState): boolean {
+function isPluggedIn(s: Pick<VehicleState, "charger_status">): boolean {
   const st = (s.charger_status || "").toLowerCase();
   return st.startsWith("chrgr_sts_connected");
 }
