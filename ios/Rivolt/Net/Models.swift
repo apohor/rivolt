@@ -160,6 +160,8 @@ struct VehicleState: Decodable, Equatable {
     var latitude: Double? = nil
     var longitude: Double? = nil
     var driveMode: String? = nil
+    /// The charger's plug status (`chrgr_sts_connected_*` when the cable is in), read by the Live picture rule as the web's panel rule does.
+    var chargerStatus: String? = nil
 
     var coordinate: (lat: Double, lon: Double)? {
         guard let latitude, let longitude, latitude != 0 || longitude != 0 else { return nil }
