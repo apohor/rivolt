@@ -61,6 +61,8 @@ func TestDemoOnlyPublicSet(t *testing.T) {
 		{"POST", "/api/maps/valhalla/route", false},
 		{"GET", "/api/vehicles/owned", false},
 		{"GET", "/api/vehicles/other/drain", false},
+		{"GET", "/api/vehicles/" + demoVeh + "/parked-series", true},
+		{"GET", "/api/vehicles/other/parked-series", false},
 		{"GET", "/api/push/vapid", false},
 		{"GET", "/api", false},
 	}

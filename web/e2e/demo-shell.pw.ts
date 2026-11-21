@@ -11,7 +11,7 @@ test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const ALLOW: RegExp[] = [
   /^\/api\/demo$/, /^\/api\/config$/, /^\/api\/health$/,
-  /^\/api\/vehicles$/, new RegExp(`^/api/vehicles/${VEHICLE_ID}/(now|pack-health|drain|sleep-health|trends|cold-range)$`),
+  /^\/api\/vehicles$/, new RegExp(`^/api/vehicles/${VEHICLE_ID}/(now|pack-health|drain|sleep-health|parked-series|trends|cold-range)$`),
   new RegExp(`^/api/state/${VEHICLE_ID}$`),
   /^\/api\/ledger\/(enabled|monthly|summary|trips|savings)$/,
   /^\/api\/charges(\/clusters)?$/, /^\/api\/drives(\/route-thumbs)?$/, /^\/api\/samples$/, /^\/api\/sleep-activity$/,

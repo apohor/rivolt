@@ -21,7 +21,7 @@ export function appLinkKind(url: string | undefined | null): AppLinkKind | null 
 export const APP_ROW_TITLE = "Get the iPhone app";
 export const APP_ROW_HELP =
   "Now at a glance, Lock Screen widgets, a Live Activity while charging, and notifications. Signs in with this account; it never sees your Rivian password.";
-export const appButtonLabel = (kind: AppLinkKind): string => (kind === "store" ? "Open in the App Store" : "Join the TestFlight beta");
+export const appButtonLabel = (kind: AppLinkKind): string => (kind === "store" ? "Open in the App Store" : "Join on TestFlight");
 
 // The share card's first footer line: the app clause only for an App Store link (never TestFlight), else the plain line.
 export function shareFooterLine(url: string | undefined | null): string {
