@@ -243,9 +243,9 @@ export function GraphHead({ title, change, since, testid, sinceAlone = false }: 
 // The legend row under a graph: a soft swatch and a word each.
 export function Legend({ items }: { items: { swatch: "line" | "dash" | "dot"; color: string; label: string; testid?: string }[] }) {
   return (
-    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
+    <div data-testid="now-graph-legend" className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-400">
       {items.map((it) => (
-        <span key={it.label} data-testid={it.testid} className="inline-flex items-center gap-1.5">
+        <span key={it.label} data-testid={it.testid} className="inline-flex items-center gap-1.5 whitespace-nowrap">
           {it.swatch === "dot" ? (
             <i className="inline-block h-2 w-2 rounded-full" style={{ background: it.color }} />
           ) : (

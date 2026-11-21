@@ -311,3 +311,17 @@ for (const name of ["ac", "dc", "end", "start"]) {
     expect(cut).toEqual([]);
   });
 }
+
+// A legend entry wraps as a whole (to the next row), never inside itself: "Power 101 kW" is not split from its unit, at 393 or at 320 px with 200% text.
+for (const [w, zoom] of [[393, false], [320, true]] as const) {
+  test(`legend entries stay on one line each at ${w} px${zoom ? " and 200% text" : ""}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: 800 });
+    await open(page, CASES.dc);
+    if (zoom) await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+    const g = page.getByTestId("now-charge-graph");
+    await expect(g).toBeVisible();
+    await page.waitForTimeout(400);
+    const split = await g.getByTestId("now-graph-legend").locator("> span").evaluateAll((els) => els.filter((e) => e.getBoundingClientRect().height > parseFloat(getComputedStyle(e).lineHeight) * 1.5).map((e) => e.textContent));
+    expect(split).toEqual([]);
+  });
+}
