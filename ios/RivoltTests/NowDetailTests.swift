@@ -216,9 +216,12 @@ final class NowDetailTests: XCTestCase {
         XCTAssertFalse(said.contains("mi/kWh"))
     }
 
-    func testLiveCostRowSaysWhenTheFigureComesWhenThereIsNone() {
-        XCTAssertEqual(NowFormat.liveCostText(nil), "Estimated when it ends")
-        XCTAssertEqual(NowFormat.liveCostText(.free), "Free")
-        XCTAssertTrue(NowFormat.liveCostText(.estimate(amount: 3.42, currency: "USD")).contains("estimate"))
+    func testLiveCostRowFollowsTheNowCardWhenThereIsNoFigure() {
+        XCTAssertEqual(NowFormat.liveCostText(nil, place: "Fast"), "Estimated when it ends")
+        XCTAssertEqual(NowFormat.liveCostText(nil, place: "Away"), "Unknown, add it after")
+        XCTAssertNil(NowFormat.liveCostText(nil, place: "Home"), "no home rate: no price will come, so no row")
+        XCTAssertNil(NowFormat.liveCostText(nil, place: nil))
+        XCTAssertEqual(NowFormat.liveCostText(.free, place: "Fast"), "Free")
+        XCTAssertEqual(NowFormat.liveCostText(.estimate(amount: 3.42, currency: "USD"), place: "Home")?.contains("estimate"), true)
     }
 }

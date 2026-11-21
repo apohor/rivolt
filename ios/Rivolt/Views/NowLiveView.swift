@@ -92,7 +92,7 @@ struct NowLiveView: View {
                 row("Power", detail.powerKw.map { "\(NumberText.fixed($0, $0 < 10 ? 1 : 0)) kW" })
                 row("Time left", detail.remaining.map { NowFormat.duration($0) })
                 row("Energy added", detail.energyKwh.map { "\(NowFormat.oneDecimal($0)) kWh" }, estimated: detail.energyEstimated)
-                row("Cost so far", NowFormat.liveCostText(detail.cost))
+                if let cost = NowFormat.liveCostText(detail.cost, place: detail.place) { row("Cost so far", cost) }
             }
         }
     }
