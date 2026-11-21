@@ -10,12 +10,17 @@ export const ProSheetPreload = () => {
   return null;
 };
 
-// While the chunk is on its way (a slow line, or a click before the preload landed) the button that was pressed is marked aria-busy (the
-// stylesheet dims it and shows the progress cursor), so the press visibly did something.
+// While the chunk is on its way (a slow line, or a click before the preload landed) the button that was pressed is marked aria-busy and
+// data-sheet-pending; the stylesheet dims only the latter and shows the progress cursor, so the press visibly did something and no other busy
+// button is touched.
 const Pending = ({ opener }: { opener: HTMLElement | null }) => {
   useEffect(() => {
     opener?.setAttribute("aria-busy", "true");
-    return () => opener?.removeAttribute("aria-busy");
+    opener?.setAttribute("data-sheet-pending", "");
+    return () => {
+      opener?.removeAttribute("aria-busy");
+      opener?.removeAttribute("data-sheet-pending");
+    };
   }, [opener]);
   return null;
 };
