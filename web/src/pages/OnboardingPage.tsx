@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDesignPreview } from "../lib/config";
 import { backend, type AuthUser } from "../lib/api";
 import Logo from "../components/Logo";
 import { ConnectTrustLines } from "../components/ConnectTrustLines";
@@ -22,6 +23,8 @@ export default function OnboardingPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [completing, setCompleting] = useState(false);
+  // Design key signup_v2 (preview): the button names the tab it opens.
+  const v2 = useDesignPreview("signup_v2");
   // Shares its cache with RivianAccountPanel's own status query.
   const status = useQuery({
     queryKey: ["rivian", "status"],
@@ -80,7 +83,7 @@ export default function OnboardingPage() {
             disabled={completing}
             className="mt-6 w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
-            {completing ? "Saving…" : "Go to Overview"}
+            {completing ? "Saving…" : v2 ? "See my truck" : "Go to Overview"}
           </button>
         ) : (
           <button
