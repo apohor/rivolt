@@ -69,8 +69,11 @@ struct ChargingDetail: Equatable {
     static func cost(of s: LiveSession?, summary: NowSummary, charge: ChargeBrief?) -> Cost? {
         // A session Rivian marks free says so first. A price counts as billed only above zero: the feed sends "0" before it has priced a session,
         // and a zero must not read as a charge that costs nothing (the web does the same). Not verified against a real session's mid-charge feed.
-        if s?.isFreeSession == true { return .free }
-        if let s, let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed > 0 {
+        // Only the session of the charge on screen: an ended session is the previous plug-in's (the self-hosted feed can still return it), and its
+        // price must not read as "billed by Rivian" on this charge.
+        let own = s?.active == true ? s : nil
+        if own?.isFreeSession == true { return .free }
+        if let s = own, let billed = Double(s.currentPrice.trimmingCharacters(in: .whitespaces)), billed > 0 {
             return .billed(amount: billed, currency: s.currentCurrency)
         }
         if let open = openCharge(charge, summary: summary) {

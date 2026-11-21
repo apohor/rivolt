@@ -188,17 +188,21 @@ struct NowSlotModel: Equatable {
         return stats
     }
 
-    /// The Live screen's figures for a charge: the Now card's (`chargingStats`, no "Plugged in") plus the time left (the truck's, else the estimate).
-    /// Empty when the truck is not charging. Whatever has no figure is left out, never a dash.
+    /// The Live screen's figures for a charge, in the web Live card's order and words (Rate, Range added, Energy, Elapsed, Remaining, Cost so far): the
+    /// Now card's (`chargingStats`, no "Plugged in") plus the time left (the truck's, else the estimate). Empty when the truck is not charging. Whatever
+    /// has no figure is left out, never a dash.
     static func liveStats(summary: NowSummary, snapshot: NowSnapshot?, session: LiveSession?, charge: ChargeBrief?, clock: Date) -> [Stat] {
         guard let detail = ChargingDetail.make(summary: summary, session: session, charge: charge) else { return [] }
         var stats = chargingStats(summary: summary, detail: detail, snapshot: snapshot, soft: true, clock: clock)
         if let session, session.timeRemainingSeconds > 0 {
-            stats.append(Stat(label: "Time left", value: NowFormat.duration(session.timeRemainingSeconds), note: nil))
+            stats.append(Stat(label: "Remaining", value: NowFormat.duration(session.timeRemainingSeconds), note: nil))
         } else if let eta = summary.chargeEta {
-            stats.append(Stat(label: "Time left", value: NowFormat.duration(TimeInterval(eta.minutes) * 60), note: nil, estimated: eta.source != .truck))
+            stats.append(Stat(label: "Remaining", value: NowFormat.duration(TimeInterval(eta.minutes) * 60), note: nil, estimated: eta.source != .truck))
         }
-        return stats
+        let order = ["Rate", "Range added", "Energy", "Elapsed", "Remaining", "Cost so far"]
+        func rank(_ label: String) -> Int { order.firstIndex(of: label) ?? order.count }
+        return stats.map { $0.label == "Added" ? Stat(label: "Energy", value: $0.value, note: $0.note, estimated: $0.estimated) : $0 }
+            .sorted { rank($0.label) < rank($1.label) }
     }
 
     // MARK: Driving
