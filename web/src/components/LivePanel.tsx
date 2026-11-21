@@ -15,6 +15,8 @@ import { PlugPicture } from "./PlugPicture";
 import { LiveChargeGraph } from "./LiveChargeGraph";
 import { LiveDriveTrail } from "./LiveDriveTrail";
 import { formatDriveMode } from "../lib/driveMode";
+import { chargeFlavorOf } from "../lib/nowState";
+import { chargerLabel, placeOf } from "../lib/chargerLabel";
 
 // Unit conversions. Backend speaks SI at the wire.
 const kmToMi = (km: number) => km * 0.6213711922;
@@ -528,6 +530,9 @@ function ChargingDetail({
     retry: 1,
   });
   const ls = sess.data;
+  // The same queries as the Now card (shared cache): the home point and the session's peak decide the charger label.
+  const homeQ = useQuery({ queryKey: ["settings", "home-location"], queryFn: () => backend.homeLocationGet(), staleTime: 5 * 60_000, retry: 1 });
+  const nowQ = useQuery({ queryKey: ["vehicle", "now", vehicle.id], queryFn: () => backend.vehicleNow(vehicle.id), refetchInterval: 15_000, retry: 0 });
   // Prefer live-session power when available, fall back to state.
   const powerKw = ls && ls.power_kw > 0 ? ls.power_kw : state.charger_power_kw;
   const ratePerHour =
@@ -551,10 +556,15 @@ function ChargingDetail({
   // authoritative.
   const cs = state.charger_state || "";
   const isActiveState = cs === "charging_active" || state.charger_power_kw > 0;
+  // The Now card's rule (chargerLabel.ts): power at the DC threshold = fast charger, else the place; the truck's own Rivian flag wins.
+  const home = homeQ.data?.set ? homeQ.data : null;
+  const peakKw = Math.max(ls?.power_kw ?? 0, state.charger_power_kw || 0, nowQ.data?.charge?.peak_kw ?? 0);
+  const flavor = chargeFlavorOf(peakKw, placeOf(home, state), nowQ.data?.charge?.peak_kw != null);
+  const label = chargerLabel(flavor, !!ls?.is_rivian_charger);
   const kind = ls?.is_rivian_charger
-    ? "Rivian charger"
+    ? label
     : isActiveState
-      ? "Home / AC"
+      ? label ?? "Charging"
       : cs === "charging_ready"
         ? "ready · plugged in"
         : cs === "charging_complete"

@@ -136,6 +136,16 @@ function rawKind(s: VehicleState, server?: NowSnapshot | null): Exclude<NowKind,
   return "parked";
 }
 
+// One rule for "what kind of charger is this", for the Now card and the Live page: a session peak at the DC threshold is a fast charger wherever
+// it is; below it, at home is the home charger; away is a public AC charger, but only when the whole session's peak is known (a taper below
+// 50 kW seen from mid-session could be a Supercharger). Otherwise we do not say.
+export function chargeFlavorOf(peakKw: number, place: Place, peakKnown: boolean): ChargeFlavor | null {
+  if (peakKw >= DCFC_PEAK_KW) return "dcfc";
+  if (place === "home") return "home_l2";
+  if (place === "away" && peakKnown) return "away_ac";
+  return null;
+}
+
 export function computeNow(i: NowInput): NowView {
   const s = i.state;
   // Freshest evidence of contact: /api/state's At can lag /now's `at`
@@ -183,11 +193,8 @@ export function computeNow(i: NowInput): NowView {
   const peak = Math.max(i.peakKw ?? 0, powerKw ?? 0);
   let chargeFlavor: ChargeFlavor | null = null;
   if (kind === "charging" || kind === "plugged") {
-    if (peak >= DCFC_PEAK_KW) chargeFlavor = "dcfc";
-    else if (place === "home") chargeFlavor = "home_l2";
-    // Away AC only when the whole session's peak is known: a taper
-    // below 50 kW seen from mid-session could be a Supercharger.
-    else if (place === "away" && i.peakKw != null) chargeFlavor = "away_ac";
+    // One rule with the Live page (chargerLabel.ts).
+    chargeFlavor = chargeFlavorOf(peak, place, i.peakKw != null);
   }
 
   const target = limitPct ?? 100;

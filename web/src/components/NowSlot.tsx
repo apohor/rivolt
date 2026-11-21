@@ -1,3 +1,4 @@
+import { chargerLabel } from "../lib/chargerLabel";
 import { chargeFinishMs, clock, type NowView } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
@@ -55,7 +56,6 @@ const COST_NOTE: Record<string, string> = {
   network_estimate: "network rate",
   observed_estimate: "from similar sessions",
 };
-const CHARGER: Record<string, string> = { home_l2: "Home charger", dcfc: "Fast charger", away_ac: "Public charger" };
 
 // The mock's wording: "3 h 26 min", "45 min" (no tilde; our own estimate says so after it).
 // `up`: a time left rounds up to the whole minute (the iPhone's rule: never say less than there is); a duration so far rounds to the nearest.
@@ -301,7 +301,7 @@ export default function NowSlot(i: SlotInput) {
   if (view.kind === "charging" && view.powerKw != null) {
     big = view.powerKw.toFixed(view.powerKw < 10 ? 1 : 0);
     bigUnit = "kW";
-    const label = view.chargeFlavor ? CHARGER[view.chargeFlavor] : null;
+    const label = chargerLabel(view.chargeFlavor);
     if (label) chips.push(<Chip key="c" tone="green" testid="now-slot-charger">{label}</Chip>);
     if (view.etaHours != null) {
       const when = clock(chargeFinishMs(view.etaHours, nowMs));
