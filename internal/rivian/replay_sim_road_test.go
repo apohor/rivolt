@@ -44,6 +44,11 @@ func roadSegDistM(p, a, b samplePoint) float64 {
 // Every simulated drive follows a road, from home (short and full) and from each place the routine parks the truck (short): a stretch over
 // simStraightKm must lie on a stored road shape, except from the starts named in simStraightFallback.
 func TestSimDrivesFollowRoads(t *testing.T) {
+	for _, l := range simLegs() {
+		if _, ok := sampleRouteShapes[routeKey(l[0], l[1])]; !ok {
+			t.Errorf("sim leg %s has no road shape; regenerate sample_routes_gen.go", routeKey(l[0], l[1]))
+		}
+	}
 	c, _ := sampleShared()
 	places := map[samplePoint]bool{}
 	for _, s := range c.segs {
