@@ -49,6 +49,7 @@ export default function HomePage() {
   const [period, setPeriod] = usePeriod();
   // The first-run setup sheet (preview only, design key first_screen): once for a connected truck, until it is finished or closed.
   const setupOn = useDesignPreview("first_screen");
+  const signupV2 = useDesignPreview("signup_v2");
   const [setupClosed, setSetupClosed] = useState(setupDismissed);
   const baseRange = useMemo(() => periodRange(period), [period]);
   const {
@@ -315,7 +316,8 @@ export default function HomePage() {
           <SetupSheet vehicleID={activeVehicleID} onClose={() => setSetupClosed(true)} />
         </Suspense>
       )}
-      {historyEmpty && !inDemo() && activeVehicleID && <FirstDayCard vehicleID={activeVehicleID} />}
+      {/* signup_v2: the setup sheet asks the same things (home, price, alerts), so the checklist waits until it is done or skipped. */}
+      {historyEmpty && !inDemo() && activeVehicleID && !(signupV2 && setupWanted) && <FirstDayCard vehicleID={activeVehicleID} />}
       {historyEmpty && <ElectraFiImportHint />}
       <PageHeader
         title="Now"

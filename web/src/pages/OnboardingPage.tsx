@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDesignPreview } from "../lib/config";
 import { backend, type AuthUser } from "../lib/api";
 import Logo from "../components/Logo";
+import { WhatHappensNext } from "../components/WhatHappensNext";
 import { SignupChoice } from "../components/SignupChoice";
 import { ConnectTrustLines } from "../components/ConnectTrustLines";
 import { ImpersonationBanner } from "../components/ImpersonationBanner";
@@ -75,6 +76,11 @@ export default function OnboardingPage() {
           <SignupChoice onAdd={() => setSearch({ connect: "1" })} />
         ) : v2 && !connected ? (
           <RivianAccountPanel v2 onLater={finish} />
+        ) : v2 && connected ? (
+          <>
+            <RivianAccountPanel />
+            <WhatHappensNext />
+          </>
         ) : (
           <>
         <h2 className="mb-3 text-base font-semibold text-neutral-100">
