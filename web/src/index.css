@@ -19,6 +19,11 @@
   ::file-selector-button {
     border-color: var(--color-gray-200, currentcolor);
   }
+  /* A button whose sheet is still on its way (ProSheetLazy marks it): dimmed, with the progress cursor. */
+  button[aria-busy="true"] {
+    cursor: progress;
+    opacity: 0.6;
+  }
 }
 
 @utility input {
