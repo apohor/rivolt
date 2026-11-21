@@ -59,6 +59,9 @@ describe("ProSheet", () => {
     const when = firstCharge(founding);
     expect(when).toMatch(/^on .*2027/);
     expect(consentText("year", founding)).toContain(`the first charge is ${when}`);
+    // An operator grant is free Pro too: Stripe starts billing at its end, so the consent line names that date.
+    const granted = planState({ ...foundingMe, plan_source: "grant", plan_period_end: "2027-03-04T23:59:59Z", plan_period_end_date: "2027-03-04" });
+    expect(firstCharge(granted)).toBe("on March 4, 2027");
     expect(consentText("year", free)).toContain("the first charge is today");
     expect(consentText("month", planState(lapsedMe))).toContain("the first charge is today");
   });

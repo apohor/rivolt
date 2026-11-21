@@ -39,11 +39,11 @@ export function checkoutLabel(i: Interval): string {
   return `Subscribe: ${o.price} ${o.unit}, renews ${o.renews}`;
 }
 
-// Where the first charge happens, for the consent line: "today", except for a founding-year account subscribing early, whose billing
-// starts when its free year ends (the lead's decision, so no free day is lost). TODO(Pro 7): take this from the actual Stripe Checkout
+// Where the first charge happens, for the consent line: "today", except for an account inside free Pro (the founding year, or a grant
+// from the operator) subscribing early, whose billing starts when the free period ends (the lead's decision, so no free day is lost). TODO(Pro 7): take this from the actual Stripe Checkout
 // session ("on {period_end}" when the session carries a billing start, "today" otherwise) instead of the account's founding end.
 export function firstCharge(state: PlanState): string {
-  if (state.kind === "pro" && state.source === "founding") {
+  if (state.kind === "pro" && (state.source === "founding" || state.source === "grant")) {
     const d = planDate(state.periodEnd);
     if (d) return `on ${d}`;
   }
@@ -82,6 +82,9 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
           line: "Yours at no charge for the first year; no card, nothing is charged. We'll email you at least 30 days before it ends.",
           action: "See what free keeps",
         };
+      // A grant from the operator: free until its date, and no email comes before it ends (the founding line's promise is not made here).
+      if (state.periodEnd && planDate(state.periodEnd))
+        return { title: `Rivolt Pro, free until ${planDate(state.periodEnd)}`, line: "Yours at no charge until then; no card, nothing is charged. Nothing is deleted when it ends.", action: null };
       return { title: "Rivolt Pro", line: "Granted to this account.", action: null };
     case "lapsed":
       return {

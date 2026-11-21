@@ -57,7 +57,7 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
 
   it("shows an old trial row as plain Pro, never as a trial or with Keep Pro", async () => {
     const { container } = renderWith(trial, <PlanCard />);
-    expect(await screen.findByText("Rivolt Pro")).toBeInTheDocument();
+    expect(await screen.findByText(/^Rivolt Pro, free until /)).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/trial|14 days|Keep Pro/i);
   });
 
@@ -69,6 +69,15 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
     renderWith(stripe, <PlanCard />);
     expect(await screen.findByText(/Rivolt Pro, renews .*2026/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Manage subscription" })).toBeInTheDocument();
+  });
+
+  it("shows an operator grant as free until its date, with no promise of an email and no action", async () => {
+    const granted = { ...founding, plan_source: "grant", plan_period_end: "2027-03-04T23:59:59Z", plan_period_end_date: "2027-03-04" };
+    const { container } = renderWith(granted, <PlanCard />);
+    expect(await screen.findByText("Rivolt Pro, free until March 4, 2027")).toBeInTheDocument();
+    expect(screen.getByText(/Yours at no charge until then; no card, nothing is charged\. Nothing is deleted when it ends\./)).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/email you|first year|trial|Keep Pro/i);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("explains a lapse: nothing deleted, the export stays, and the banner can be dismissed once", async () => {

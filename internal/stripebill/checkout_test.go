@@ -486,6 +486,27 @@ func TestCheckoutDuringTheFoundingYear(t *testing.T) {
 	}
 }
 
+// An operator grant is free Pro like the founding year: a subscription bought during it starts billing when it ends, and the consent line
+// names that date (so a granted account is never charged for the months the grant already covers).
+func TestCheckoutDuringAnOperatorGrant(t *testing.T) {
+	f := newFakeStripe(t)
+	end := launchDay.AddDate(0, 0, 90)
+	svc := newService(f, fakePlans{billing: true, state: entitlements.State{Pro: true, Source: entitlements.SourceGrant}, trial: end}, launchDay)
+	if _, err := svc.Checkout(context.Background(), uuid.New(), "year"); err != nil {
+		t.Fatalf("a granted account was refused: %v", err)
+	}
+	form := f.posts[0]
+	if got := form.Get("subscription_data[trial_end]"); got != strconv.FormatInt(end.Unix(), 10) {
+		t.Errorf("trial_end = %q, want the grant's end %d", got, end.Unix())
+	}
+	if got := form.Get("custom_text[submit][message]"); !strings.HasPrefix(got, "First charge on "+end.UTC().Format("January 2, 2006")) {
+		t.Errorf("consent line %q does not name the grant's end", got)
+	}
+	if got := form.Get("custom_text[after_submit][message]"); !strings.Contains(got, "your free period") || strings.Contains(got, "founding") {
+		t.Errorf("free-period line %q", got)
+	}
+}
+
 // Account deletion cancels every live subscription of the customer (pages included), skips the ones already over, never prorates or
 // invoices, and treats an unknown customer as nothing to do.
 func TestCancelCustomerSubscriptions(t *testing.T) {
