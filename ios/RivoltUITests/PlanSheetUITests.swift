@@ -84,8 +84,16 @@ final class PlanSheetUITests: XCTestCase {
         app.buttons["plan-sheet-map"].firstMatch.tap()
         expect(grabber, "peek", "Map shows the map")
         // The grabber rides up under the finger: letting go on it is the end of a drag, not a tap that steps the sheet on.
-        grabber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-            .press(forDuration: 0.1, thenDragTo: app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)))
+        // The start is read from the grabber's frame each time and the drag is held 0.3 s at the end so the sheet settles on the detent; a drag that
+        // a loaded CI simulator dropped (the finger down but no move) is made once more, the sheet being still at the peek.
+        let top = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+        for attempt in 1...2 where grabber.value as? String != "full" {
+            grabber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                .press(forDuration: 0.1, thenDragTo: top, withVelocity: .default, thenHoldForDuration: 0.3)
+            if attempt == 1 {
+                _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", "full"), object: grabber)], timeout: 8)
+            }
+        }
         expect(grabber, "full", "a drag up past half opens the details")
     }
 
