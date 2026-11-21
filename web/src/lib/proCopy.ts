@@ -13,6 +13,7 @@ export const PRO = {
     "Unlimited history and trends (free: the last 12 months)",
     "Range near a temperature",
     "Multi-day trip plans with hotel and campground overnights",
+    "Rain and snow likely at each stop on arrival, from NOAA RRFS (free: a note when stops are wet)",
     "Re-plan from where the truck is, and plan-vs-actual after the trip",
     "Unlimited saved trips (free: 3)",
     "Every vehicle shown (free: 1)",
