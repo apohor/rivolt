@@ -24,4 +24,8 @@ if bash "$here/preview-tags-agree.sh" "$t/p.yaml" "$t/a.yaml" check >/dev/null 2
 grep -q 'rc.1' "$t/a.yaml" && echo "ok   check wrote nothing" || { echo "FAIL check changed the file"; fail=1; }
 printf '  tag: sha-aaaaaaa\n' >"$t/a.yaml"
 bash "$here/preview-tags-agree.sh" "$t/p.yaml" "$t/a.yaml" check >/dev/null 2>&1 && echo "ok   check passes when equal" || { echo "FAIL check failed on equal tags"; fail=1; }
+printf '  tag: "1.3.1-rc.1"\n' >"$t/p.yaml"; printf '  tag: 1.3.1-rc.1\n' >"$t/a.yaml"
+bash "$here/preview-tags-agree.sh" "$t/p.yaml" "$t/a.yaml" check >/dev/null 2>&1 && echo "ok   check ignores quotes" || { echo "FAIL check compared quotes"; fail=1; }
+printf '  tag: sha-aaaaaaa\n' >"$t/p.yaml"; printf '  tag: sha-bbbbbbb\n' >"$t/a.yaml"
+out=$(bash "$here/preview-tags-agree.sh" "$t/p.yaml" "$t/a.yaml" check 2>&1); grep -q "repair:" <<<"$out" && echo "ok   the error says how to repair" || { echo "FAIL no repair hint"; fail=1; }
 exit $fail

@@ -14,12 +14,14 @@ tag_of() {
 }
 want=$(tag_of "$pre")
 got=$(tag_of "$adm")
+hint="repair: set image.tag in $adm to the one in $pre (the next preview bump does it too)"
 if [ "${3:-}" = check ]; then
-  [ "$got" = "$want" ] || { echo "::error::admin preview tag is '$got', preview's is '$want'" >&2; exit 1; }
+  # Quotes are not part of the tag: "1.3.1-rc.1" and 1.3.1-rc.1 are the same image.
+  [ "${got//\"/}" = "${want//\"/}" ] || { echo "::error::admin preview tag is '$got', preview's is '$want'; $hint" >&2; exit 1; }
   echo "preview and admin preview both at $want"; exit 0
 fi
 # `|` as the delimiter: a tag holds no `|`. The indent and the key stay as they are.
 sed -i.bak -E "s|^([[:space:]]+tag:[[:space:]]+).*\$|\1${want}|" "$adm" && rm -f "$adm.bak"
 got=$(tag_of "$adm")
-[ "$got" = "$want" ] || { echo "::error::admin preview tag is '$got', preview's is '$want'" >&2; exit 1; }
+[ "$got" = "$want" ] || { echo "::error::admin preview tag is '$got', preview's is '$want'; $hint" >&2; exit 1; }
 echo "preview and admin preview both at $want"
