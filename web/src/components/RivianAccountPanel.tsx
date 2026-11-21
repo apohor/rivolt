@@ -5,6 +5,7 @@ import { ErrorBox, Spinner, Toggle } from "./ui";
 import { track } from "../lib/track";
 import { expiryDate } from "../lib/rivianExpiry";
 import { connectFailure, type ConnectFailure } from "../lib/connectErrors";
+import { RivianCodeV2, RivianLoginV2 } from "./RivianSignInV2";
 import { discoveryStateOf, discoveryView, type DiscoveryState } from "../lib/vehicleDiscovery";
 
 // RivianAccountPanel drives the POST /api/settings/rivian/{login,mfa,
@@ -61,7 +62,8 @@ function RivianExpiryEmailToggle() {
 }
 
 // `onLater` (onboarding) adds an "I'll do this later" step to a failure that is Rivian's, not the user's.
-export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
+// v2 (design key signup_v2, onboarding only): the single "Sign in to Rivian" screen and the code step in RivianSignInV2.
+export function RivianAccountPanel({ onLater, v2 = false }: { onLater?: () => void; v2?: boolean } = {}) {
   const qc = useQueryClient();
   const status = useQuery({
     queryKey: ["rivian", "status"],
@@ -76,7 +78,7 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
   // Recommended path first: a dedicated driver account keeps the main
   // login out of Rivolt and is revocable from the Rivian app. The main
   // account stays available.
-  const [kind, setKind] = useState<"driver" | "main">("driver");
+  const [kind, setKind] = useState<"driver" | "main">(v2 ? "main" : "driver");
   const [whyOpen, setWhyOpen] = useState(false);
 
   const invalidate = () => {
@@ -307,6 +309,28 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
   }
 
   if (s.mfa_pending || (holdForm && login.isSuccess && !mfa.isSuccess)) {
+    if (v2) {
+      return (
+        <RivianCodeV2
+          otp={otp}
+          setOtp={setOtp}
+          pending={mfa.isPending}
+          error={mfa.error}
+          onSubmit={() => mfa.mutate()}
+          onNewCode={() => {
+            mfa.reset();
+            setOtp("");
+            logout.mutate();
+          }}
+          onDifferent={() => {
+            mfa.reset();
+            setOtp("");
+            setEmail("");
+            logout.mutate();
+          }}
+        />
+      );
+    }
     return (
       <form
         onSubmit={(e) => {
@@ -355,6 +379,23 @@ export function RivianAccountPanel({ onLater }: { onLater?: () => void } = {}) {
           />
         )}
       </form>
+    );
+  }
+
+  if (v2) {
+    return (
+      <RivianLoginV2
+        email={email}
+        setEmail={setEmail}
+        password={password}
+        setPassword={setPassword}
+        driver={kind === "driver"}
+        setDriver={(d) => setKind(d ? "driver" : "main")}
+        pending={login.isPending}
+        error={login.error}
+        onSubmit={() => login.mutate()}
+        onLater={onLater}
+      />
     );
   }
 

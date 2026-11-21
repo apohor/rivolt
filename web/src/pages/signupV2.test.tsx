@@ -11,7 +11,7 @@ async function mount(file: "SignupPage" | "OnboardingPage" | "DemoBanner", keys:
     "/api/config": { body: { features: { signup_enabled: true, demo_enabled: !!opts.demo, design_preview: keys } } },
     "/api/auth/oidc": { body: [{ name: "google", display_name: "Google", start_url: "/auth/google" }] },
     "/api/auth/me": { status: 401, body: {} },
-    "/api/settings/rivian": { body: { authenticated: !!opts.connected, email: "a@b.c" } },
+    "/api/settings/rivian": { body: { enabled: true, authenticated: !!opts.connected, email: "a@b.c" } },
   });
   const mod = await import(file === "DemoBanner" ? "../components/DemoBanner" : `./${file}`);
   const Page = file === "DemoBanner" ? mod.DemoBanner : mod.default;
@@ -73,7 +73,7 @@ describe("signup_v2 copy", () => {
     expect(sample.getAttribute("href")).toBe("/demo?from=app");
     expect(screen.queryByRole("heading", { name: "Connect your Rivian" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Add my truck/ }));
-    expect(await screen.findByRole("heading", { name: "Connect your Rivian" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Sign in to Rivian" })).toBeTruthy();
     cleanup();
     await mount("OnboardingPage", [], { demo: true });
     expect(await screen.findByRole("heading", { name: "Connect your Rivian" })).toBeTruthy();
