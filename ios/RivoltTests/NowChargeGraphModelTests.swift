@@ -75,6 +75,17 @@ final class NowChargeGraphModelTests: XCTestCase {
         XCTAssertNotEqual(m.packNow, NowComfort.wholeDegrees(celsius: 40))
     }
 
+    /// As the web's: a pack reading newer than the last battery sample still counts, so the value and the delta are the newest, not the one at the last sample.
+    func testAPackReadingNewerThanTheLastBatterySampleCounts() throws {
+        var s = series(minutes: 40)
+        let base = packSeries().packAvgC
+        s.packAvgC = base + [.init(at: t0.addingTimeInterval(2430), value: 38)]
+        let m = try XCTUnwrap(NowChargeGraphModel.make(series: s, startPct: 41, nowPct: 59, target: 80, etaHours: 2, packC: 38, now: t0.addingTimeInterval(2440)))
+        XCTAssertEqual(m.packNow, NowComfort.wholeDegrees(celsius: 38))
+        XCTAssertGreaterThan(m.pack.last?.x ?? 0, m.last.x, "the line runs to the newer reading")
+        XCTAssertTrue(m.pack.allSatisfy { $0.x <= 1 })
+    }
+
     func testAFlatPackStaysFlat() throws {
         let m = try XCTUnwrap(NowChargeGraphModel.make(series: packSeries(from: 25, to: 25.5), startPct: 41, nowPct: 59, target: 80, etaHours: 2, packC: 25.5, now: t0.addingTimeInterval(2400)))
         let ys = m.pack.map(\.y)
