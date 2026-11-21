@@ -106,8 +106,8 @@ struct NowLiveView: View {
         let all = NowSlotModel.estimatedHeading(stats)
         if all { Text("Estimated so far").themeText(.caption, color: Theme.textTertiary).accessibilityIdentifier("live-estimated") }
         ForEach(stats, id: \.label) { st in
-            // The mark is on each figure only in a mixed group; VoiceOver says "estimated" on every worked-out figure either way, from the row itself.
-            row(st.label, st.note.map { "\(st.value) · \($0)" } ?? st.value, estimated: st.estimated, marked: !all && st.label != "Cost so far")
+            // The mark is on each figure only in a mixed group; VoiceOver says "estimated" on every worked-out figure either way, from the row itself (the cost's own note already says "estimate").
+            row(st.label, st.note.map { "\(st.value) · \($0)" } ?? st.value, estimated: st.estimated && st.label != "Cost so far", marked: !all && st.label != "Cost so far")
         }
     }
 

@@ -107,7 +107,8 @@ struct NowSlotModel: Equatable {
             guard let detail = ChargingDetail.make(summary: summary, session: session, charge: charge), let kw = detail.powerKw else { return nil }
             // As the web: fast at a session peak of 50 kW or more, else the home charger at home, else public only with a saved home, a fix away from it and a known peak.
             let peak = max(snapshot?.charge?.peakKw ?? 0, kw)
-            let kind = peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
+            // The truck's own Rivian-charger flag wins, as on the web's Live page and Now card.
+            let kind = session?.isRivianCharger == true ? "Rivian charger" : peak >= fastPeakKw ? "Fast charger" : atHome ? "Home charger" : home != nil && fix != nil && snapshot?.charge?.peakKw != nil ? "Public charger" : nil
             return NowSlotModel(content: charging(summary: summary, detail: detail, kw: kw, snapshot: snapshot, soft: soft, clock: clock),
                                 chips: kind.map { [Chip(text: $0, accent: true)] } ?? [])
         case .driving:
@@ -181,8 +182,10 @@ struct NowSlotModel: Equatable {
             stats.append(Stat(label: "Cost so far", value: NowFormat.money(amount, currency: currency.isEmpty ? "USD" : currency), note: "billed by Rivian", estimated: false))
         } else if let c = snapshot?.charge, let cost = c.cost {
             let estimate = c.costIsEstimate != false
-            stats.append(Stat(label: "Cost so far", value: "\(NowFormat.money(cost, currency: c.currency ?? "USD"))",
-                              note: ([estimate ? "estimate" : nil, c.costSource.flatMap { costNotes[$0] }].compactMap { $0 }.joined(separator: " · ") as String?).flatMap { $0.isEmpty ? nil : $0 }, estimated: estimate))
+            // An estimated cost always names its rate: a missing or unknown source says so rather than nothing (the web's costNote).
+            let source = c.costSource.flatMap { costNotes[$0] } ?? (estimate ? "rate not known" : nil)
+            let note = [estimate ? "estimate" : nil, source].compactMap { $0 }.joined(separator: " · ")
+            stats.append(Stat(label: "Cost so far", value: "\(NowFormat.money(cost, currency: c.currency ?? "USD"))", note: note.isEmpty ? nil : note, estimated: estimate))
         }
         if !soft, let started { stats.append(Stat(label: "Plugged in", value: started.formatted(date: .omitted, time: .shortened), note: nil)) }
         return stats
@@ -278,7 +281,7 @@ struct NowSlotModel: Equatable {
             if let sub { parts.append("\(SpokenText.words(sub)).") }
             if let small { parts.append("\(SpokenText.words(small)).") }
             for st in stats {
-                parts.append("\(st.label), \(st.estimated ? "estimated " : "")\(SpokenText.words(st.value))\(st.note.map { ", \($0)" } ?? "").")
+                parts.append("\(st.label), \(st.estimated && st.label != "Cost so far" ? "estimated " : "")\(SpokenText.words(st.value))\(st.note.map { ", \($0)" } ?? "").")
             }
             return parts.joined(separator: " ")
         }
