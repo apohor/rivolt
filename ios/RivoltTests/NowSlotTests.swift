@@ -288,6 +288,28 @@ final class NowSlotTests: XCTestCase {
         return NowSlotModel.liveStats(summary: summary, snapshot: now, session: session, charge: nil, clock: at)
     }
 
+    func testLiveAnEstimatedCostWithoutAKnownRateSaysSo() throws {
+        let extra = #","charge":{"started_at":"\#(ISO8601DateFormatter().string(from: at.addingTimeInterval(-3600)))","soc_start":40,"peak_kw":11,"cost":2.13,"currency":"USD","cost_source":"something_new","cost_is_estimate":true}"#
+        let stats = try liveStats(session: nil, extra: extra)
+        XCTAssertEqual(try XCTUnwrap(stats.first { $0.label == "Cost so far" }).note, "estimate · rate not known")
+    }
+
+    func testTheCostRowIsNotSpokenAsEstimatedTwice() throws {
+        let now = try snapshot("charging", extra: #","charge":{"started_at":"\#(ISO8601DateFormatter().string(from: at.addingTimeInterval(-3600)))","soc_start":40,"peak_kw":11,"cost":2.13,"currency":"USD","cost_source":"home_rate","cost_is_estimate":true}"#)
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 11), now: now, clock: at)
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: nil, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at))
+        XCTAssertTrue(model.spoken.contains("Cost so far, $2.13, estimate"), model.spoken)
+        XCTAssertFalse(model.spoken.contains("estimated $2.13"), model.spoken)
+    }
+
+    func testARivianChargerFlagNamesTheChargerAsOnTheWeb() throws {
+        let now = try snapshot("charging", extra: #","charge":{"started_at":"\#(ISO8601DateFormatter().string(from: at.addingTimeInterval(-600)))","soc_start":40,"peak_kw":150}"#)
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: 150), now: now, clock: at)
+        let session = LiveSession(active: true, powerKw: 150, isRivianCharger: true)
+        let model = try XCTUnwrap(NowSlotModel.make(summary: summary, snapshot: now, session: session, charge: nil, liveDrive: nil, fix: nil, home: nil, clock: at))
+        XCTAssertEqual(model.chips.map(\.text), ["Rivian charger"])
+    }
+
     func testLiveIgnoresThePreviousPlugInsPrice() throws {
         // An ended session (the self-hosted feed can still return it) is not this charge: its price is never "billed by Rivian".
         let ended = LiveSession(active: false, powerKw: 9, totalChargedEnergyKwh: 20, currentPrice: "9.50", currentCurrency: "USD")
