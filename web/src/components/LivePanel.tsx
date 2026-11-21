@@ -674,7 +674,6 @@ function ChargingDetail({
           {stats.map((x) => (
             <Figure key={x.k} stat={x} all={allEst} />
           ))}
-          <Field label="State" value={formatChargerState(state.charger_state)} />
           {priceText && !haveCost ? <Field label="Price" value={priceText} /> : null}
         </div>
         </>
