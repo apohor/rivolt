@@ -469,7 +469,7 @@ func TestMoneyWindowAgainstPostgres(t *testing.T) {
 		}
 		return pv.Text
 	}
-	compared := month(-histwin.Months-1).Format("January") // the month before oldest, as the delta line names it
+	compared := month(-histwin.Months - 1).Format("January") // the month before oldest, as the delta line names it
 	if pt := previewText(pro); !strings.Contains(pt, compared) {
 		t.Errorf("the Pro preview of %s does not compare with %s (no positive control): %s", oldest, compared, pt)
 	}
