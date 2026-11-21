@@ -87,12 +87,33 @@ func TestLiveSessionEstimateIsForHomeAndACChargesOnly(t *testing.T) {
 // The fallback path (no monitor, self-hosted) has only the session: a "0" price at a fast charger's power gets no home-rate estimate.
 func TestDecorateLiveSessionFallbackHonoursPower(t *testing.T) {
 	cfg := settings.ChargingConfig{HomePricePerKWh: 0.11, HomeCurrency: "USD"}
-	ac := decorateLiveSession(&rivian.LiveSession{PowerKW: 7.6, TotalChargedEnergyKWh: 5, CurrentPrice: "0"}, cfg)
+	ac := decorateLiveSession(&rivian.LiveSession{PowerKW: 7.6, TotalChargedEnergyKWh: 5, CurrentPrice: "0"}, 7.6, cfg)
 	if math.Abs(ac.EstimatedCost-0.55) > 1e-9 {
 		t.Fatalf("AC charge: want the home-rate estimate 0.55, got %v", ac.EstimatedCost)
 	}
-	fast := decorateLiveSession(&rivian.LiveSession{PowerKW: 150, TotalChargedEnergyKWh: 5, CurrentPrice: "0"}, cfg)
+	fast := decorateLiveSession(&rivian.LiveSession{PowerKW: 150, TotalChargedEnergyKWh: 5, CurrentPrice: "0"}, 150, cfg)
 	if fast.EstimatedCost != 0 || fast.EstimatedCurrency != "" {
 		t.Fatalf("fast charge: want no estimate, got %v %q", fast.EstimatedCost, fast.EstimatedCurrency)
+	}
+}
+
+// A fast charge that has tapered (or paused) below the L2 threshold is still a fast charge: the session's peak decides, and a new session starts over.
+func TestFallbackPeakKeepsAFastChargeFastAfterItTapers(t *testing.T) {
+	cfg := settings.ChargingConfig{HomePricePerKWh: 0.11, HomeCurrency: "USD"}
+	var p sessionPeaks
+	at := func(start string, kw float64) liveSessionResponse {
+		s := &rivian.LiveSession{VehicleID: "v", StartTime: start, PowerKW: kw, TotalChargedEnergyKWh: 20, CurrentPrice: "0"}
+		return decorateLiveSession(s, p.note(s), cfg)
+	}
+	if r := at("t1", 150); r.EstimatedCost != 0 {
+		t.Fatalf("at 150 kW: want no estimate, got %v", r.EstimatedCost)
+	}
+	for _, kw := range []float64{18, 0} {
+		if r := at("t1", kw); r.EstimatedCost != 0 {
+			t.Fatalf("tapered or paused to %v kW: want no estimate, got %v", kw, r.EstimatedCost)
+		}
+	}
+	if r := at("t2", 7.6); math.Abs(r.EstimatedCost-2.2) > 1e-9 {
+		t.Fatalf("a new AC session: want the home-rate estimate 2.2, got %v", r.EstimatedCost)
 	}
 }

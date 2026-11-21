@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
@@ -76,7 +77,7 @@ func handleLiveSessionForwarded(c rivian.Client, mon *rivian.StateMonitor, store
 			writeUpstreamError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, decorateLiveSession(sess, cfg))
+		writeJSON(w, http.StatusOK, decorateLiveSession(sess, fallbackPeaks.note(sess), cfg))
 	}
 }
 
@@ -149,7 +150,43 @@ func decorateLiveSessionFor(vehicleID string, sess *rivian.LiveSession, now rivi
 	return resp
 }
 
-func decorateLiveSession(sess *rivian.LiveSession, cfg settings.ChargingConfig) liveSessionResponse {
+// sessionPeaks remembers the highest power each vehicle's session has shown, for the path with no state monitor: the home rate is a fair price
+// for an AC charge, and one reading at the end of a fast charge's taper (or at a pause) looks like AC. A new StartTime starts a new session.
+type sessionPeaks struct {
+	mu sync.Mutex
+	m  map[string]sessionPeak
+}
+
+type sessionPeak struct {
+	start string
+	kw    float64
+}
+
+var fallbackPeaks sessionPeaks
+
+// note records the session's power and returns the peak so far for its session (0 for no session).
+func (p *sessionPeaks) note(sess *rivian.LiveSession) float64 {
+	if sess == nil {
+		return 0
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.m == nil {
+		p.m = map[string]sessionPeak{}
+	}
+	cur := p.m[sess.VehicleID]
+	if cur.start != sess.StartTime {
+		cur = sessionPeak{start: sess.StartTime}
+	}
+	if sess.PowerKW > cur.kw {
+		cur.kw = sess.PowerKW
+	}
+	p.m[sess.VehicleID] = cur
+	return cur.kw
+}
+
+// decorateLiveSession is the response on the path with no state monitor; peakKW is the session's highest power seen so far (see sessionPeaks).
+func decorateLiveSession(sess *rivian.LiveSession, peakKW float64, cfg settings.ChargingConfig) liveSessionResponse {
 	resp := liveSessionResponse{LiveSession: sess}
 	if sess == nil {
 		return resp
@@ -159,7 +196,7 @@ func decorateLiveSession(sess *rivian.LiveSession, cfg settings.ChargingConfig) 
 	// another network has a price of its own; this path has no place). Don't overwrite a Rivian-reported price — those come
 	// from RAN / Wall Charger sessions where the real billing rate
 	// is authoritative.
-	if cfg.HomePricePerKWh > 0 && sess.TotalChargedEnergyKWh > 0 && liveUnpriced(sess) && rivian.HomeRateFitsPower(sess.PowerKW) {
+	if cfg.HomePricePerKWh > 0 && sess.TotalChargedEnergyKWh > 0 && liveUnpriced(sess) && rivian.HomeRateFitsPower(max(peakKW, sess.PowerKW)) {
 		resp.EstimatedCost = cfg.HomePricePerKWh * sess.TotalChargedEnergyKWh
 		resp.EstimatedCurrency = cfg.HomeCurrency
 	}
