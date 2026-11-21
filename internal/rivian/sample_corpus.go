@@ -322,6 +322,21 @@ func (b *sampleBuilder) drive(cruise float64, to ...samplePoint) {
 		towing = b.errandDrives == sampleTrailerDrive
 	}
 	path, miles := sampleRoad(way)
+	b.driveOn(cruise, path, miles, towing, to[len(to)-1])
+}
+
+// driveRoad drives out along road and back the same way, to where it began (a stored road's prefix; the sim's away start).
+func (b *sampleBuilder) driveRoad(cruise float64, road []samplePoint, end samplePoint) {
+	path := append([]samplePoint(nil), road...)
+	for i := len(road) - 2; i >= 0; i-- {
+		path = append(path, road[i])
+	}
+	path[len(path)-1] = end
+	b.driveOn(cruise, path, pathMiles(path), false, end)
+}
+
+// driveOn is a drive along path of miles, ending at end.
+func (b *sampleBuilder) driveOn(cruise float64, path []samplePoint, miles float64, towing bool, end samplePoint) {
 	dur := time.Duration(miles / cruise * float64(time.Hour))
 	drop := miles / (sampleMiPerKWh * samplePackKWh) * 100
 	b.plugged = false
@@ -330,7 +345,7 @@ func (b *sampleBuilder) drive(cruise float64, to ...samplePoint) {
 		prof: newSampleProfile(b.t, miles, dur, 5*time.Second, cruise), trailer: towing})
 	b.soc -= drop
 	b.odo += miles
-	b.at = to[len(to)-1]
+	b.at = end
 	if b.soc < 5 {
 		panic("sample corpus: battery ran flat; fix the plan")
 	}

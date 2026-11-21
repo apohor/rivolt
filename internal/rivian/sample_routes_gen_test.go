@@ -1,7 +1,7 @@
 //go:build samplegen
 
 // Generates sample_routes_gen.go: the road shape of every leg the sample
-// truck drives, from a Valhalla routing service. Run by hand, never in
+// truck drives (the corpus's and the sim's, simLegs), from a Valhalla routing service. Run by hand, never in
 // CI, so the corpus itself stays offline and deterministic:
 //
 //	SAMPLEGEN_VALHALLA=http://localhost:18081 go test -tags samplegen -run TestGenerateSampleRoutes ./internal/rivian
@@ -35,6 +35,9 @@ func TestGenerateSampleRoutes(t *testing.T) {
 	c := NewSampleCorpus(SampleSeed)
 	legs := map[string][2]samplePoint{}
 	for _, l := range c.legs {
+		legs[routeKey(l[0], l[1])] = l
+	}
+	for _, l := range simLegs() {
 		legs[routeKey(l[0], l[1])] = l
 	}
 	keys := make([]string, 0, len(legs))
@@ -89,8 +92,10 @@ func valhallaRoute(client *http.Client, base string, from, to samplePoint) ([]sa
 	defer resp.Body.Close()
 	var out struct {
 		Trip struct {
-			Summary struct{ Length float64 }
-			Legs    []struct{ Shape string }
+			Legs []struct {
+				Summary struct{ Length float64 }
+				Shape   string
+			}
 		}
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
@@ -99,11 +104,11 @@ func valhallaRoute(client *http.Client, base string, from, to samplePoint) ([]sa
 	if resp.StatusCode != http.StatusOK || len(out.Trip.Legs) == 0 {
 		return nil, 0, fmt.Errorf("valhalla: status %d", resp.StatusCode)
 	}
-	return decodePolyline6(out.Trip.Legs[0].Shape), out.Trip.Summary.Length, nil
+	return decodeValhallaShape(out.Trip.Legs[0].Shape), out.Trip.Legs[0].Summary.Length, nil
 }
 
-// decodePolyline6 decodes Valhalla's precision-6 encoded polyline.
-func decodePolyline6(s string) []samplePoint {
+// decodeValhallaShape decodes Valhalla's precision-6 encoded polyline.
+func decodeValhallaShape(s string) []samplePoint {
 	p5 := decodeSamplePolyline(s) // same algorithm, scaled for 1e5
 	out := make([]samplePoint, len(p5))
 	for i, p := range p5 {
