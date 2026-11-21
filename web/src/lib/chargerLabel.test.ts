@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chargeFlavorOf } from "./nowState";
-import { chargerLabel, placeOf } from "./chargerLabel";
+import { chargeFlavorOf, chargerLabel, placeOfFix as placeOf } from "./nowState";
 
 const home = { latitude: 40, longitude: -100 };
 const label = (peak: number, place: "home" | "away" | "unknown", known = true, rivian = false) => chargerLabel(chargeFlavorOf(peak, place, known), rivian);

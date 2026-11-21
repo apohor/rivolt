@@ -15,8 +15,7 @@ import { PlugPicture } from "./PlugPicture";
 import { LiveChargeGraph } from "./LiveChargeGraph";
 import { LiveDriveTrail } from "./LiveDriveTrail";
 import { formatDriveMode } from "../lib/driveMode";
-import { chargeFlavorOf } from "../lib/nowState";
-import { chargerLabel, placeOf } from "../lib/chargerLabel";
+import { chargeFlavorOf, chargerLabel, placeOfFix } from "../lib/nowState";
 
 // Unit conversions. Backend speaks SI at the wire.
 const kmToMi = (km: number) => km * 0.6213711922;
@@ -559,7 +558,7 @@ function ChargingDetail({
   // The Now card's rule (chargerLabel.ts): power at the DC threshold = fast charger, else the place; the truck's own Rivian flag wins.
   const home = homeQ.data?.set ? homeQ.data : null;
   const peakKw = Math.max(ls?.power_kw ?? 0, state.charger_power_kw || 0, nowQ.data?.charge?.peak_kw ?? 0);
-  const flavor = chargeFlavorOf(peakKw, placeOf(home, state), nowQ.data?.charge?.peak_kw != null);
+  const flavor = chargeFlavorOf(peakKw, placeOfFix(home, state), nowQ.data?.charge?.peak_kw != null);
   const label = chargerLabel(flavor, !!ls?.is_rivian_charger);
   const kind = ls?.is_rivian_charger
     ? label

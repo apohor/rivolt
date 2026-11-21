@@ -1,5 +1,4 @@
-import { chargerLabel } from "../lib/chargerLabel";
-import { chargeFinishMs, clock, type NowView } from "../lib/nowState";
+import { chargeFinishMs, chargerLabel, clock, type NowView } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
 import { formatDriveMode } from "../lib/driveMode";
 import { formatTemperature, type DistanceUnit, type TemperatureUnit } from "../lib/preferences";
