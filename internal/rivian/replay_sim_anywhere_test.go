@@ -137,7 +137,7 @@ func TestRoutineResumesWithoutJumpsAfterARunAnywhere(t *testing.T) {
 	for name, starts := range cases {
 		for _, kind := range []SimKind{SimDriveShort, SimChargeShort} {
 			start, p := bookable(t, kind, starts)
-			run := SimRun{ID: "r", Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi), AddedSoC: p.addSoC}
+			run := SimRun{ID: "r", Kind: kind, Start: start, End: p.end, AddedMi: round2(p.addedMi), AddedSoC: p.addSoC, EndSoC: p.endSoC}
 			with, without := testSimFeed(&memSimStore{st: SimState{Runs: []SimRun{run}}}), testSimFeed(nil)
 			from, to := start.Add(-2*time.Minute), p.end.Add(simEase+10*time.Minute)
 			got, err := with.frames(ctx, from, to)
@@ -203,4 +203,95 @@ func TestShortChargeReportsALiveSessionAnywhere(t *testing.T) {
 			t.Errorf("%s: last frame has no session price", name)
 		}
 	}
+}
+
+// A scheduled charge that would start inside the window does not refuse a short run: the run pre-empts it.
+func TestScheduledChargeInsideTheWindowDoesNotRefuse(t *testing.T) {
+	c, tl := sampleShared()
+	base := tl.loopStart(100)
+	var tried int
+	for i, s := range c.segs {
+		if s.kind != segCharge || i == 0 || c.segs[i-1].kind != segParked {
+			continue
+		}
+		// A minute before the charge starts: the run (6 to 11 minutes) reaches into it.
+		at := base.Add(s.start.Add(-time.Minute).Sub(tl.start))
+		if c.segs[i-1].start.After(s.start.Add(-90 * time.Second)) {
+			continue
+		}
+		// (The drive may refuse for a low battery, which is why the truck charges there; the charge is the case.)
+		if _, err := planSim(SimChargeShort, at); err != nil {
+			t.Errorf("a minute before a scheduled charge: %v", err)
+		}
+		tried++
+	}
+	if tried == 0 {
+		t.Fatal("no scheduled charge with a parked stretch before it")
+	}
+}
+
+// A run booked while an earlier one is still easing starts from the eased battery, and the ease it leaves is measured from that.
+func TestRunBookedDuringAnEaseStartsFromTheEasedBattery(t *testing.T) {
+	ctx := context.Background()
+	start := simStartFor(t, SimDriveShort)
+	p, err := planSim(SimDriveShort, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := SimRun{ID: "a", Kind: SimDriveShort, Start: start, End: p.end, AddedMi: round2(p.addedMi), AddedSoC: p.addSoC, EndSoC: p.endSoC}
+	ctl := NewSimControl(&memSimStore{st: SimState{Runs: []SimRun{first}}})
+	now := p.end.Add(simEase / 2)
+	ctl.now = func() time.Time { return now }
+	run, err := ctl.Start(ctx, SimChargeShort, SimOpts{Short: true})
+	if err != nil {
+		t.Skipf("the routine is not free half an ease after this run: %v", err)
+	}
+	if want := first.AddedSoC / 2; math.Abs(run.FromSoC-want) > 0.3 {
+		t.Errorf("second run starts %.2f points from the schedule, want about %.2f (half of the first run's %.2f)", run.FromSoC, want, first.AddedSoC)
+	}
+	if first.AddedSoC >= 0 {
+		t.Errorf("the drive should have used battery, got %.2f", first.AddedSoC)
+	}
+}
+
+// While easing the battery stays at the car's charge limit, and a run that itself ended above the limit gives the overshoot back smoothly.
+func TestEaseHoldsTheChargeLimit(t *testing.T) {
+	end := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+	s := SimState{Runs: []SimRun{{ID: "a", End: end, AddedSoC: 3}}}
+	if got := s.easedBattery(end.Add(time.Minute), 80, 80); got != 80 {
+		t.Errorf("a truck at its limit rose to %.2f", got)
+	}
+	if got := s.easedBattery(end.Add(time.Minute), 70, 80); math.Abs(got-72.975) > 0.01 {
+		t.Errorf("below the limit the offset applies: %.3f", got)
+	}
+	// Ended 3 points over the limit: the first frame after is the run's end, and the overshoot leaves linearly.
+	s.Runs[0].EndSoC = 83
+	if got := s.easedBattery(end, 80, 80); math.Abs(got-83) > 1e-9 {
+		t.Errorf("at the run's end %.3f, want 83", got)
+	}
+	if got := s.easedBattery(end.Add(simEase/2), 80, 80); math.Abs(got-81.5) > 1e-9 {
+		t.Errorf("halfway %.3f, want 81.5", got)
+	}
+	if got := s.easedBattery(end.Add(simEase), 80, 80); got != 80 {
+		t.Errorf("after the ease %.3f, want 80", got)
+	}
+}
+
+// The refusal for a scheduled drive carries when it is free, as a field the booking script can read.
+func TestRefusalCarriesFreeAt(t *testing.T) {
+	c, tl := sampleShared()
+	base := tl.loopStart(100)
+	for _, s := range c.segs {
+		if s.kind != segDrive {
+			continue
+		}
+		at := base.Add(s.start.Add(s.end.Sub(s.start) / 2).Sub(tl.start))
+		_, err := planSim(SimDriveShort, at)
+		r := asRefusal(err)
+		if r == nil || !r.FreeAt.Equal(base.Add(s.end.Sub(tl.start))) {
+			t.Fatalf("refusal %v does not carry the drive's end %s", err, base.Add(s.end.Sub(tl.start)))
+		}
+		return
+	}
+	t.Fatal("no scheduled drive")
 }

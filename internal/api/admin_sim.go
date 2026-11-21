@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/apohor/rivolt/internal/rivian"
 )
@@ -37,7 +38,11 @@ func handleAdminSimStart(s SimRunner, kind rivian.SimKind) http.HandlerFunc {
 		case errors.Is(err, rivian.ErrSimBusy):
 			writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
 		case errors.As(err, &refusal):
-			writeJSON(w, http.StatusConflict, map[string]any{"error": refusal.Reason})
+			body := map[string]any{"error": refusal.Reason}
+			if !refusal.FreeAt.IsZero() {
+				body["free_at"] = refusal.FreeAt.UTC().Format(time.RFC3339)
+			}
+			writeJSON(w, http.StatusConflict, body)
 		case err != nil:
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "could not book the simulated run"})
 		default:
