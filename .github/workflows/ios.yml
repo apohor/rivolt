@@ -254,7 +254,7 @@ jobs:
             | jq -r '.. | objects | select(.nodeType? == "Test Case" and (.result? != "Passed") and (.result? != "Skipped")) | "case \(.result // "no result"): \(.nodeIdentifier // .name)"' || true
           # Build and runner-level problems (crash, launch failure, timeout) that belong to no single test.
           xcrun xcresulttool get build-results --path "$bundle" --compact \
-            | jq -r '(.errors[]?, .warnings[]? | select(.message | test("crash|timed out|Timed out|failed to launch|Failed to launch|Lost connection")) ) | "runner: \(.message)"' || true
+            | jq -r '(.errors[]?, (.warnings[]? | select(.message | test("crash|timed out|Timed out|failed to launch|Failed to launch|Lost connection")))) | "runner: \(.message)"' || true
           total=$(jq -r '.totalTestCount' "$RUNNER_TEMP/summary.json")
           if [ "${total:-0}" -lt 1 ]; then echo "no UI tests ran"; exit 1; fi
           {
