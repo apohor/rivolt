@@ -109,9 +109,9 @@ export function slotStats(i: SlotInput): Stat[] {
 }
 
 // Rivian's own price for the open session, when its latest read has one above zero (a zero is the feed before it has priced the session; a free
-// session has no price): newer than the charge row's snapshot of it, so the Now card and the Live page, reading the same session, say the same cost.
+// session has no price; an ended session is the previous plug-in's, not this charge's): newer than the charge row's snapshot of it, so the Now card and the Live page, reading the same session, say the same cost.
 export function freshCharge(charge: SlotCharge | null, ls: LiveSession | null): SlotCharge | null {
-  const price = ls && !ls.is_free_session ? Number(ls.current_price) : 0;
+  const price = ls?.active && !ls.is_free_session ? Number(ls.current_price) : 0;
   if (!(price > 0)) return charge;
   return { started_at: "", ...charge, cost: price, currency: ls?.current_currency || charge?.currency, cost_source: "rivian", cost_is_estimate: false };
 }

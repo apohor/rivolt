@@ -20,6 +20,7 @@ describe("freshCharge", () => {
     expect(freshCharge(charge, ls({ current_price: "0" }))).toBe(charge);
     expect(freshCharge(charge, ls({ current_price: "3", is_free_session: true }))).toBe(charge);
     expect(freshCharge(charge, null)).toBe(charge);
+    expect(freshCharge(charge, ls({ current_price: "9.5", active: false }))).toBe(charge); // the previous plug-in's price, not this charge's
     expect(freshCharge(null, null)).toBeNull();
   });
   it("a price with no recorded charge still makes a priced charge", () => {
