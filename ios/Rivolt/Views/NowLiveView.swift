@@ -42,7 +42,7 @@ struct NowLiveView: View {
                         ThemeSection(title: "Destination") { NowDestinationBlock(destination: destination) }
                         LiveDestinationMap(destination: destination)
                     }
-                    if streaming, summary.kind == .driving || liveDrive != nil { drive }
+                    if streaming, summary.kind == .driving || liveDrive != nil || pictureState.map(VehiclePicture.isDriving) == true { drive }
                     if !tidy, streaming, summary.kind == .driving, let destination, destination.hasFix { LiveDestinationMap(destination: destination) }
                     if streaming, comfortRows { climate }
                 }
@@ -69,7 +69,7 @@ struct NowLiveView: View {
 
     @ViewBuilder
     private var truck: some View {
-        let urls = VehiclePicture.showsOnLive(state: pictureState, streaming: streaming) ? VehiclePicture.liveCandidates(images, imageURL: vehicle.imageUrl, state: pictureState, light: colorScheme == .light) : []
+        let urls = VehiclePicture.showsOnLive(kind: summary.kind, state: pictureState, streaming: streaming) ? VehiclePicture.liveCandidates(images, imageURL: vehicle.imageUrl, state: pictureState, light: colorScheme == .light) : []
         // No picture, nothing to hang the plug badge and glow on: the overlay goes with the picture.
         Group {
             if urls.isEmpty { EmptyView() } else {

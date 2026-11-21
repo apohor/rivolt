@@ -47,7 +47,7 @@ final class VehiclePictureParityTests: XCTestCase {
 
     /// The web's panel rule (LivePanel.tsx isDriving / isCharging): where the drive or charge panel takes the width there is no picture.
     func testTheLivePictureIsAbsentWhereTheWebPanelReplacesIt() {
-        func shows(_ s: VehiclePicture.LiveInputs?, streaming: Bool = true) -> Bool { VehiclePicture.showsOnLive(state: s, streaming: streaming) }
+        func shows(_ s: VehiclePicture.LiveInputs?, kind: NowSnapshot.State = .parked, streaming: Bool = true) -> Bool { VehiclePicture.showsOnLive(kind: kind, state: s, streaming: streaming) }
         let plugged = "chrgr_sts_connected_charging"
         XCTAssertFalse(shows(.init(gear: "D")), "drive")
         XCTAssertFalse(shows(.init(gear: "r")), "reverse")
@@ -58,7 +58,11 @@ final class VehiclePictureParityTests: XCTestCase {
         XCTAssertFalse(shows(.init(chargerState: "", chargerStatus: plugged, chargerPowerKw: 7)), "power with the cable in")
         XCTAssertTrue(shows(.init(chargerState: "charging_complete", chargerStatus: plugged, chargerPowerKw: 7)), "complete")
         XCTAssertTrue(shows(.init(chargerState: "charging_active", chargerStatus: "chrgr_sts_not_connected")), "the state sticks after an unplug")
-        XCTAssertTrue(shows(.init(chargerState: "charging_active")), "no plug status")
+        XCTAssertFalse(shows(.init(chargerState: "charging_active")), "an R2 reports charging_active and no plug status")
+        XCTAssertTrue(shows(.init(chargerState: "charging_ready")), "ready without the cable in")
+        XCTAssertFalse(shows(nil, kind: .charging), "the server says charging")
+        XCTAssertFalse(shows(nil, kind: .driving), "the server says driving")
+        XCTAssertTrue(shows(nil, kind: .driving, streaming: false), "stale, whatever the kind")
         XCTAssertTrue(shows(.init(gear: "P", chargerState: "charger_disconnected")), "parked")
         XCTAssertTrue(shows(nil), "no state yet")
         XCTAssertTrue(shows(.init(gear: "D"), streaming: false), "stale: the phone's panels are not shown, so the picture stays")

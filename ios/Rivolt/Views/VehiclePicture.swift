@@ -88,25 +88,29 @@ enum VehiclePicture {
     }
 
     /// Whether the Live screen draws the picture at all: not while the drive or charge panel takes its place (the whole width, as on the web's
-    /// Live card); parked, asleep, offline or stale it stays, since it shows the open doors, frunk and tailgate. The panel rule is the web's,
-    /// from the same fields: gear D, R or N is driving; a plugged-in truck (`chrgr_sts_connected*`) is charging unless the session is
-    /// `charging_complete`, and then when it reports power or is `charging_active` or `charging_ready`. The web reads its last frame as it is;
-    /// the phone's panels are shown only while the truck is streaming (`streaming`), so a stale truck has no panel to give the width to.
-    static func showsOnLive(state: LiveInputs?, streaming: Bool) -> Bool {
-        guard streaming, let state else { return true }
+    /// Live card); parked, asleep, offline or stale it stays, since it shows the open doors, frunk and tailgate. The server's kind (`/now`)
+    /// counts, and so does the web's panel rule from the same fields: gear D, R or N is driving; with no plug status (an R2 reports none) `charging_active` is charging, and so is a plugged-in truck (`chrgr_sts_connected*`) with power or `charging_ready`, unless the session is
+    /// `charging_complete`. The web reads its last frame as it is; the phone's panels are shown only while the truck is streaming
+    /// (`streaming`), so a stale truck has no panel to give the width to.
+    static func showsOnLive(kind: NowSnapshot.State, state: LiveInputs?, streaming: Bool) -> Bool {
+        guard streaming else { return true }
+        if kind == .driving || kind == .charging { return false }
+        guard let state else { return true }
         return !(isDriving(state) || isCharging(state))
     }
 
-    private static func isDriving(_ s: LiveInputs) -> Bool {
+    /// Gear D, R or N: the web's `isDriving`. The Live screen's drive section opens on the same test, so the picture never goes with nothing in its place.
+    static func isDriving(_ s: LiveInputs) -> Bool {
         ["D", "R", "N"].contains((s.gear ?? "").uppercased())
     }
 
     private static func isCharging(_ s: LiveInputs) -> Bool {
-        guard (s.chargerStatus ?? "").lowercased().hasPrefix("chrgr_sts_connected") else { return false }
         let cs = s.chargerState ?? ""
         if cs == "charging_complete" { return false }
-        if (s.chargerPowerKw ?? 0) > 0 { return true }
-        return cs == "charging_active" || cs == "charging_ready"
+        let status = (s.chargerStatus ?? "").lowercased()
+        if status.isEmpty { return cs == "charging_active" }
+        guard status.hasPrefix("chrgr_sts_connected") else { return false }
+        return (s.chargerPowerKw ?? 0) > 0 || cs == "charging_active" || cs == "charging_ready"
     }
 
     /// The Live pictures to try in order: the state's pick, then the vehicle's own `image_url`; one that failed to load is skipped
