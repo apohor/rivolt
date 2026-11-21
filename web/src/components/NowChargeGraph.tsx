@@ -2,7 +2,7 @@ import { createContext, useContext, type ReactNode } from "react";
 import { chargeFinishMs, clock } from "../lib/nowState";
 import { formatTemperature, type TemperatureUnit } from "../lib/preferences";
 import { powerMax, useOpenChargeSeries } from "./LiveChargeGraph";
-import { GraphHead, HaloDot, Legend, Pill, QuietLine, SoftDefs, SoftFill, SoftLine, labelWidth, softPath, thin, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
+import { GraphHead, HaloDot, Legend, Pill, QuietLine, SoftDefs, SoftFill, SoftLine, labelWidth, softPath, textScale, thin, useBox, useSoftId, useSoftInk, type Pt } from "./NowGraphKit";
 
 // The Now card's charging graph (design_preview "now_charge_graph"), in the soft look of the parked graph: the open charge's battery from plug-in
 // to now as one soft line, the charger's power as a quieter second line, and, when the card has a finish time, the way on to the target as a
@@ -112,15 +112,18 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
     const f = (v: number) => v.toFixed(1);
     return `M${f(lx)} ${f(ly)} C${f(lx + dx * 0.4)} ${f(ly + rise)} ${f(ex - dx * 0.35)} ${f(ey)} ${f(ex)} ${f(ey)}`;
   })();
-  const pill = target != null ? `${Math.round(target)}% · ${clock(endX ?? last.x)}` : null;
+  const k = textScale();
+  // At a large text size the full pill is wider than the graph itself; then it carries the time alone (the target is the dashed line's end).
+  const pillFull = target != null ? `${Math.round(target)}% · ${clock(endX ?? last.x)}` : null;
+  const pill = pillFull != null && labelWidth(pillFull) * k > w - PAD.l - PAD.r ? clock(endX ?? last.x) : pillFull;
   const startText = w >= 260 ? `Plugged in ${clock(first.x)}` : clock(first.x);
   const labelNow = lx - PAD.l > 170;
   const labelStartValue = lx - PAD.l > 90;
   const valueLeft = lx - PAD.l > 60;
   // The finish pill sits at the top right; when "now" is close to it (a charge about to finish) the current value goes under the dot, beside the estimate, so the two never overlap.
   const pillY = Math.max((ey ?? 0) - 18, 12);
-  const pillLeft = w - PAD.r - labelWidth(pill ?? "");
-  const nowW = Math.ceil(`${nowShown}%`.length * 8.4);
+  const pillLeft = w - PAD.r - labelWidth(pill ?? "") * k;
+  const nowW = Math.ceil(`${nowShown}%`.length * 8.4 * k);
   const nowBelow = pill != null && ey != null && Math.abs(ly - 12 - pillY) < 20 && (valueLeft ? lx - 10 : lx + 40) > pillLeft - 6;
   // The now value under the dot is kept inside the card's right edge.
   const nowX = nowBelow ? Math.min(lx + 8, w - PAD.r - nowW) : valueLeft ? lx - 10 : lx + 10;
@@ -129,7 +132,7 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
   // The pack's value at the end of its line goes where it touches nothing else: the boxes of the other labels are collected and the first free
   // spot (above the end to its left, below it, then to its right) is taken. With no free spot the legend alone carries the value.
   type Box = { x0: number; y0: number; x1: number; y1: number };
-  const boxOf = (x: number, y: number, tw: number, anchor: "start" | "end", fs: number): Box => ({ x0: anchor === "end" ? x - tw : x, x1: anchor === "end" ? x : x + tw, y0: y - fs, y1: y + 4 });
+  const boxOf = (x: number, y: number, tw: number, anchor: "start" | "end", fs: number): Box => ({ x0: anchor === "end" ? x - tw : x, x1: anchor === "end" ? x : x + tw, y0: y - fs * k, y1: y + 4 * k });
   const taken: Box[] = [
     boxOf(nowX, nowY, nowW, nowAnchor, 14),
     { x0: PAD.l, x1: PAD.l + 60, y0: h - 20, y1: h },
@@ -137,12 +140,12 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
   ];
   // The power line runs level across the top; a label on it is hard to read.
   if (powPts.length > 1) taken.push({ x0: PAD.l, x1: lx, y0: Math.min(...powPts.map((p) => p.y)) - 1, y1: Math.max(...powPts.map((p) => p.y)) + 1 });
-  if (labelStartValue) taken.push(boxOf(socPts[0].x + 2, Math.max(socPts[0].y - 14, 12), `${startShown}%`.length * 7, "start", 12));
-  if (pill) taken.push({ x0: pillLeft, x1: w - PAD.r, y0: pillY - 10, y1: pillY + 10 });
+  if (labelStartValue) taken.push(boxOf(socPts[0].x + 2, Math.max(socPts[0].y - 14, 12), `${startShown}%`.length * 7 * k, "start", 12));
+  if (pill) taken.push({ x0: pillLeft, x1: w - PAD.r, y0: pillY - 10 * k, y1: pillY + 10 * k });
   if (ex != null && ey != null) taken.push({ x0: ex - 12, x1: ex + 12, y0: ey - 12, y1: ey + 12 });
   const packX = packOn ? sx(packLast.x) : 0;
   const packY = packOn ? sk(packLast.y) : 0;
-  const packW = packNow ? Math.ceil(packNow.length * 8.4) : 0;
+  const packW = packNow ? Math.ceil(packNow.length * 8.4 * k) : 0;
   // First choice: above its own line, left of the dot, ending where the line has risen to that spot's height, so it reads as the pack's and never as the battery's value beside it.
   const packYAt = (x: number) => {
     const pts = thin(packPts).map((p) => ({ x: sx(p.x), y: sk(p.y) }));
@@ -211,7 +214,7 @@ export function NowChargeGraph({ nowMs, nowPct, targetPct, etaHours, powerKw = n
               <>
                 <path d={estimate} data-testid="now-charge-graph-estimate-line" fill="none" stroke={ink.line} strokeWidth={2.2} strokeLinecap="round" strokeDasharray="0.1 7" strokeOpacity=".8" />
                 <HaloDot id={id} x={ex} y={ey} color={ink.line} />
-                <Pill x={w - PAD.r} y={Math.max(ey - 18, 12)} text={pill ?? ""} w={labelWidth(pill ?? "")} anchor="end" />
+                <Pill x={w - PAD.r} y={Math.max(ey - 18, 12)} text={pill ?? ""} w={labelWidth(pill ?? "") * k} anchor="end" />
               </>
             )}
             <HaloDot id={id} x={socPts[0].x} y={socPts[0].y} color={ink.line} />
