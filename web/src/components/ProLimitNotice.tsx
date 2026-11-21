@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { planState } from "../lib/plan";
 import { proFeatureText, proLimitText, type ProFeature, type ProLimit } from "../lib/proLimit";
-import { ProSheet } from "./ProSheet";
+import { ProSheet, ProSheetPreload } from "./ProSheetLazy";
 import { DemoLinks } from "./DemoLinks";
 import { demoLinksFor } from "../lib/demoLinks";
 
@@ -28,6 +28,7 @@ export function ProLimitNotice({ limit, privacy = false, extra, feature }: { lim
         </div>
       )}
       {state.kind !== "off" && <DemoLinks links={demoLinksFor({ feature, code: limit.code })} className="mt-2" />}
+      {state.kind !== "off" && <ProSheetPreload />}
       {state.kind !== "off" && (
         <button type="button" className="mt-2 rounded-md border border-sky-700 px-3 py-1.5 text-sm hover:border-sky-500" onClick={() => setOpen(true)}>
           See Pro
