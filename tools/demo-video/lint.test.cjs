@@ -22,7 +22,7 @@ test('the real sources are clean', () => assert.deepStrictEqual(lint(__dirname, 
 test('a universal claim without a check fails (the "every charge" caption over Price unknown rows)', () => {
   has(sandbox(({ rw }) => rw('captions.json', (c) => { c['clip-cost'][3] = ['Every charge shows where its price came from.']; })), /universal claim/);
 });
-test('"free" outside "free tier and Pro" fails', () => {
+test('"free" outside "free tier and Pro tier" fails', () => {
   has(sandbox(({ rw }) => rw('captions.json', (c) => { c['clip-share'][1] = ['Sharing is free.']; })), /"free" may only appear/);
 });
 test('"forever" and prices fail', () => {
@@ -33,7 +33,7 @@ test('held-back wording fails (list supplied by the private DEMO_VIDEO_HELD_WORD
   has(sandbox(({ rw }) => rw('captions.json', (c) => { c['clip-trip-1day'][2] = ['The moonbeam view shows more.']; c['clip-trip-1day@mobile'][2] = ['Try sparkle mode.']; })), /held back/);
 });
 test('an end card without the non-affiliation line fails', () => {
-  has(sandbox(({ rw }) => rw('captions.json', (c) => { c['clip-share'][4].end = ['rivolt.dev · free tier and Pro', 'Sample truck, generated data.']; })), /not affiliated/);
+  has(sandbox(({ rw }) => rw('captions.json', (c) => { c['clip-share'][4].end = ['rivolt.dev · free tier and Pro tier', 'Sample truck, generated data.']; })), /not affiliated/);
 });
 test('the old beta end card fails, as does any "beta" in a caption', () => {
   const e = sandbox(({ rw }) => rw('captions.json', (c) => { c['clip-share'][4].end = ['rivolt.dev · free during the beta · open source', 'Unofficial, not affiliated with Rivian.', 'Sample truck, generated data.']; }));

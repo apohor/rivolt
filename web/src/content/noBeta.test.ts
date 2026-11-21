@@ -1,4 +1,4 @@
-// Rivolt has a free tier and Rivolt Pro; it is not "in beta". The owner asked
+// Rivolt has a free tier and a Pro tier; it is not "in beta". The owner asked
 // for the word to go (Nov 21). This fails if the old wording comes back in
 // user-facing copy: web source and content, the README and docs people read,
 // the App Store listing and the demo-video captions.
@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = join(__dirname, "..", "..", "..");
 const OLD_WORDING = /during (its |the )?(public )?beta|public beta|closed beta|in beta\b|the beta\b|beta (seat|access|invite|account)|testflight beta/i;
+// The owner's wording for the two plans is "free tier and Pro tier" (Nov 21), not "free tier and Rivolt Pro" or "a paid plan, Rivolt Pro".
+const OLD_PLANS = /free tier and (a )?(paid )?(Rivolt )?Pro\b(?! tier)|paid plan, Rivolt Pro|paid (Rivolt )?Pro plan/i;
 
 // Files that keep the old wording on purpose (class E: historical or frozen).
 const ALLOW = new Set([
@@ -27,7 +29,7 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-describe("no beta wording in user-facing copy", () => {
+describe("no beta wording, and one wording for the plans, in user-facing copy", () => {
   it("does not say the service is, or was free during, a beta", () => {
     const files = [
       ...walk(join(ROOT, "web", "src")),
@@ -45,7 +47,7 @@ describe("no beta wording in user-facing copy", () => {
       readFileSync(f, "utf8")
         .split("\n")
         .forEach((line, i) => {
-          if (OLD_WORDING.test(line)) hits.push(`${rel}:${i + 1}: ${line.trim().slice(0, 120)}`);
+          if (OLD_WORDING.test(line) || OLD_PLANS.test(line)) hits.push(`${rel}:${i + 1}: ${line.trim().slice(0, 120)}`);
         });
     }
     expect(hits).toEqual([]);

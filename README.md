@@ -3,7 +3,7 @@
 [![build](https://github.com/apohor/rivolt/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/apohor/rivolt/actions/workflows/build.yml) [![release](https://img.shields.io/github/v/release/apohor/rivolt)](https://github.com/apohor/rivolt/releases/latest) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 > Open-source tracker for Rivian owners: what your Rivian actually
-> costs. Free tier and Rivolt Pro; self-hosting is complete and free. Charging cost from what Rivian billed, your rate, or a labelled estimate, trips, efficiency and lease miles.
+> costs. Free tier and Pro tier; self-hosting is complete and free. Charging cost from what Rivian billed, your rate, or a labelled estimate, trips, efficiency and lease miles.
 
 **[Try the demo](https://demo.rivolt.dev)** (sample truck, no sign-in)
  · **[Use it at rivolt.dev](https://rivolt.dev)** (sign in with Google or GitHub)
@@ -34,7 +34,7 @@ affiliated with, endorsed by or sponsored by Rivian.
 ## Free, Pro and self-hosting
 
 The hosted service at rivolt.dev has
-a **free tier** and a paid plan, **Rivolt Pro**, at $3.99 a month or $34.99 a year. Subscribe on
+a **free tier** and a **Pro tier**, at $3.99 a month or $34.99 a year. Subscribe on
 the web; iPhone purchase coming soon. Nothing is tracked to sell
 it; counts come from the billing table only.
 

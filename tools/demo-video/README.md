@@ -33,7 +33,7 @@ Needs `ffmpeg`. Output goes to `tools/demo-video/out/` (git-ignored): per clip, 
 
 ## What the lint checks
 
-- Wording: "free" appears only as "free tier and Pro" (never "forever", "beta", "limited beta", "invite-only", "early access", "always free"), no prices, no "no tracking". Words that must stay out of clips until the launch copy is public come from a private list (`DEMO_VIDEO_HELD_WORDS`, a CI secret; `DEMO_VIDEO_HELD_WORDS_FILE` for local runs); the lint says when it is not set.
+- Wording: "free" appears only as "free tier and Pro tier" (never "forever", "beta", "limited beta", "invite-only", "early access", "always free"), no prices, no "no tracking". Words that must stay out of clips until the launch copy is public come from a private list (`DEMO_VIDEO_HELD_WORDS`, a CI secret; `DEMO_VIDEO_HELD_WORDS_FILE` for local runs); the lint says when it is not set.
 - Universal claims (every, all, always, never, exact) fail unless someone checked them against the demo and listed the caption index in `allow_universal`. The cost clip once said "every charge shows where its price came from" over rows that read "Price unknown".
 - Scripts: only read steps (no typing), start on demo.rivolt.dev, never leave it, never click a control that writes (Add as a stop, Save, Delete, Sign in, Add price, Subscribe, ...), no emails or VIN-shaped strings; one caption per mark.
 - Every end card says "Unofficial, not affiliated with Rivian" and "Sample truck, generated data".
@@ -43,7 +43,7 @@ Not automated yet: asserting that what a caption says is on screen at its mark (
 
 ## The end card
 
-The public end card says "rivolt.dev · open source · free tier and Pro", then "Unofficial, not affiliated with Rivian." and "Sample truck, generated data.". The lint requires "free tier and Pro" on every end card and rejects the word "beta" anywhere in a caption. `ENDCARD_FILE=<json with {"end": [line, ...]}> make demo-videos` swaps the lines for a variant; the lint does not read that file, so DA clears it before use.
+The public end card says "rivolt.dev · open source · free tier and Pro tier", then "Unofficial, not affiliated with Rivian." and "Sample truck, generated data.". The lint requires "free tier and Pro tier" on every end card and rejects the word "beta" anywhere in a caption. `ENDCARD_FILE=<json with {"end": [line, ...]}> make demo-videos` swaps the lines for a variant; the lint does not read that file, so DA clears it before use.
 
 ## Rules
 

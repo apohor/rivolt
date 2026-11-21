@@ -32,7 +32,7 @@ If you have more than one vehicle: on the free plan, Rivolt keeps recording ever
 
 What Pro is: unlimited history and trends, range near a temperature, multi-day trip plans with hotel and campground overnights, re-plan from where the truck is, plan-vs-actual, unlimited saved trips, every vehicle shown, and every iPhone widget except the small Now widget. $3.99 a month or $34.99 a year. Subscribe on the web; iPhone purchase coming soon.
 
-The Terms and the Privacy Policy change with this. The updated Terms (section 5, free tier and Pro, and the refund line in section 2) take effect for your account on December 17, 2026, 30 days from this email: https://rivolt.dev/terms. The Privacy Policy gains an "If you buy Rivolt Pro" section that applies only to accounts that subscribe: https://rivolt.dev/privacy. Until December 17, 2026 the previous Terms apply: https://rivolt.dev/terms/2026-10-23. If you do not agree, you can export and delete your account from Settings before then.
+The Terms and the Privacy Policy change with this. The updated Terms (section 5, free tier and Pro tier, and the refund line in section 2) take effect for your account on December 17, 2026, 30 days from this email: https://rivolt.dev/terms. The Privacy Policy gains an "If you buy Rivolt Pro" section that applies only to accounts that subscribe: https://rivolt.dev/privacy. Until December 17, 2026 the previous Terms apply: https://rivolt.dev/terms/2026-10-23. If you do not agree, you can export and delete your account from Settings before then.
 
 Nothing to do today. Questions: support@rivolt.dev.
 
@@ -41,7 +41,7 @@ Rivolt is unofficial and not affiliated with Rivian.
 
 ## 2. In-app notice (banner on Now and a row in Settings, dismissable; shown until December 17, 2026)
 
-Title: Rivolt now has a free tier and Pro
+Title: Rivolt now has a free tier and a Pro tier
 
 Body: Your account has Pro at no charge until November 17, 2027, with no card and
 nothing charged. The updated Terms take effect for you on
@@ -111,7 +111,7 @@ In-app (subscribed): title as the subject's first clause; body "Your free foundi
 
 ## 5. Demo clip end cards (re-encode on launch day)
 
-Last frame of every clip: "rivolt.dev · open source · free tier and Pro.
+Last frame of every clip: "rivolt.dev · open source · free tier and Pro tier.
 Unofficial, not affiliated with Rivian. Sample truck, generated data."
 
 Trip clip only, under the first caption: "Shown with Rivolt Pro (multi-day
@@ -122,22 +122,20 @@ posted.
 
 ## 6. Forum signature and profile line (the owner's call; the owner posts)
 
-"Tracking my R1S with Rivolt, open source, free tier and Pro: rivolt.dev"
+"Tracking my R1S with Rivolt, open source, free tier and Pro tier: rivolt.dev"
 
 ## 7. GitHub About (repository description; the owner sets it)
 
 "Unofficial, open-source companion app for Rivian owners: drives, charging
-costs, trips, efficiency and lease mileage. Free tier and Pro; self-hostable."
+costs, trips, efficiency and lease mileage. Free tier and Pro tier; self-hostable."
 
 ## 8. Social bios and directory tagline (replace "free during beta" on launch day)
 
-- TikTok (≤80): "Open-source Rivian companion, free tier and Pro. Unofficial.
-  Sample truck shown." (79)
+- TikTok (≤80): "Open-source Rivian app, free tier and Pro tier. Unofficial. Sample truck shown." (79)
 - Instagram (≤150): "Open-source Rivian companion: charging cost, trips, lease
-  miles. Free tier and Pro. Unofficial, not affiliated with Rivian. Sample truck
-  shown." (143)
-- Directory tagline (≤80): "Open-source Rivian tracker, free tier and Pro:
-  charging cost, trips, lease miles." (78)
+  miles. Free tier and Pro tier. Unofficial, not affiliated with Rivian. Sample truck
+  shown." (148)
+- Directory tagline (≤80): "Rivian tracker, free tier and Pro tier: charging cost, trips, lease miles." (74)
 
 ## 9. Statement email, last month of the free year (one line, existing send)
 
