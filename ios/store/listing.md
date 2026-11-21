@@ -14,7 +14,7 @@ Rivolt: EV drives and charging
 Drives, charging cost, truck
 
 ## Promotional text
-Free to start, open source. See your Rivian's drives, each charge's cost and its source, tire pressures and sleep health. Rivolt Pro adds widgets and more. Unofficial.
+Free tier and Pro tier. See your Rivian's drives, each charge's cost and its source, tire pressures and sleep health. Open source. Unofficial.
 
 ## Description
 Rivolt is an open-source companion for Rivian owners. It records your truck's drives and charges, prices each charge, using what Rivian billed where it billed, otherwise your rate or a labelled estimate, and shows where each figure came from.
@@ -30,7 +30,7 @@ HOW IT WORKS
 Sign in with your Rivolt account through a browser sheet on rivolt.dev. The app never sees your Rivian password. It keeps only a Rivolt sign-in token, which you can revoke from Signed-in devices. We recommend connecting a second Rivian account added as an Authorized Driver, so you can remove Rivolt from the Rivian app at any time. Rivolt sends no commands to your truck (no locks, climate or charging controls). Reading its data can occasionally wake it.
 
 FREE AND PRO
-The free tier records every drive and charge, shows the last 12 months, sends every alert, and always includes the full export of your data. Rivolt Pro is a subscription, $3.99 a month or $34.99 a year, that adds unlimited history and trends, multi-day trip plans with overnights, plan-vs-actual, every vehicle, and every widget except the small Now widget. Subscriptions renew automatically unless cancelled at least 24 hours before the end of the period; manage or cancel them in your Apple subscriptions. If you stop paying, nothing is deleted and your export stays free.
+Rivolt has a free tier and a Pro tier. The free tier records every drive and charge, sends every alert, and always includes the full export of your data. Rivolt Pro adds unlimited history and trends, multi-day trip plans with overnights, plan-vs-actual, every vehicle, and the other widgets (the small Now widget is free). Pro belongs to your Rivolt account and is managed there, on rivolt.dev; sign in to the app with an account that has Pro and it applies. The app itself sells nothing. If a Pro subscription ends, nothing is deleted and your export stays free.
 
 Estimates are labelled as estimates. Nothing compares your truck with other owners'. There are no ads and no third-party analytics; you can export or delete your data from Settings on rivolt.dev. The code is open source (MIT) and you can run your own server.
 
@@ -51,12 +51,12 @@ https://rivolt.dev
 https://rivolt.dev/privacy
 
 ## What's New
-First App Store release: Now, notifications, Activity, Money and Truck, signed in with your Rivolt account. Rivolt Pro, with every iPhone widget except the small Now widget, as an in-app subscription.
+First App Store release: Now, notifications, Activity, Money and Truck, signed in with your Rivolt account. The small Now widget is free; the other widgets are Pro.
 
 ## Review notes
 Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo truck" on the sign-in screen; no account needed (a sample truck with generated data), and every feature, including the Pro ones, is browsable there. The app sends no commands to vehicles. Sign-in for real owners opens a browser sheet to rivolt.dev.
 
-In-app purchase: one auto-renewable subscription group, "Rivolt Pro", with a monthly ($3.99) and a yearly ($34.99) product, no introductory offer. It unlocks every widget except the small Now widget, unlimited history and trends, and multi-day trip planning. The paywall (Settings → Account → Plan) shows the price, period, auto-renewal and cancellation terms, links to the Terms and Privacy Policy, and has Restore Purchases and Manage Subscription. A web subscription bought on rivolt.dev is also honoured in the app, and the app never links out to buy. The entitlement is verified server-side from the App Store Server API; sandbox purchases work on the test account.
+Pricing: the app has no in-app purchase and no purchase button, and links to no payment page. Rivolt has a free tier and a Pro tier; Pro is a subscription bought on rivolt.dev (the web), and the app applies it to the signed-in Rivolt account. Account deletion starts in Settings and finishes on rivolt.dev, where the person confirms. We are available in the United States storefront only, matching our Terms (adults in the United States).
 
 A plain test account is also supplied in App Store Connect's private field; it has no truck connected, because a Rivian is needed for your own data.
 
@@ -70,4 +70,4 @@ Six shots at 6.9" and 6.5", dark primary, one light Now variant if a slot is fre
 6. Sends no commands to your truck. Your Rivian password is never stored.
 
 ## Other settings
-Age rating 4+. Category Utilities, secondary Travel. "Rivian", "R1T", "R1S" and "R2" appear only descriptively. If review objects to "Rivian" in the name, use the fallback name and keep Rivian in the subtitle or description only. The privacy nutrition label is in the readiness notes the lead keeps with the owner's App Store Connect checklist; the submission that adds the subscription also adds **Purchases** (purchase history, linked to the user, used for app functionality, not for tracking), matching the "If you buy Rivolt Pro" section of the privacy policy. The listing text from before the Pro launch and the review note "Nothing is purchased in the app" must not outlive that submission.
+Age rating 4+. Category Utilities, secondary Travel. "Rivian", "R1T", "R1S" and "R2" appear only descriptively. If review objects to "Rivian" in the name, use the fallback name and keep Rivian in the subtitle or description only. The privacy nutrition label is in the readiness notes the lead keeps with the owner's App Store Connect checklist; while the app sells nothing, the label has no **Purchases** row; the submission that adds the in-app subscription adds it (purchase history, linked to the user, used for app functionality, not for tracking), matching the "If you buy Rivolt Pro" section of the privacy policy. This listing describes the product as it is: a free tier and a Pro tier, with Pro bought on the web and no purchase inside the iPhone app. If iPhone billing is ever turned on, the Pro paragraph, What's New and the review notes change in the same PR.
