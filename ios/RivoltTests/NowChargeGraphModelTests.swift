@@ -68,6 +68,13 @@ final class NowChargeGraphModelTests: XCTestCase {
         XCTAssertTrue(m.spoken.contains("up "), m.spoken)
     }
 
+    func testThePackValueIsTheLinesOwnLastReadingEvenWhenAnewerOneArrived() throws {
+        // `packC` (the newest reading, 40) came after the last battery sample the line is drawn to (35): the number is the line's end, as on the web.
+        let m = try XCTUnwrap(NowChargeGraphModel.make(series: packSeries(), startPct: 41, nowPct: 59, target: 80, etaHours: 2, packC: 40, now: t0.addingTimeInterval(2400)))
+        XCTAssertEqual(m.packNow, NowComfort.wholeDegrees(celsius: 35))
+        XCTAssertNotEqual(m.packNow, NowComfort.wholeDegrees(celsius: 40))
+    }
+
     func testAFlatPackStaysFlat() throws {
         let m = try XCTUnwrap(NowChargeGraphModel.make(series: packSeries(from: 25, to: 25.5), startPct: 41, nowPct: 59, target: 80, etaHours: 2, packC: 25.5, now: t0.addingTimeInterval(2400)))
         let ys = m.pack.map(\.y)

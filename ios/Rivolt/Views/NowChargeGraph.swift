@@ -9,6 +9,8 @@ struct NowChargeGraph: View {
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// How much larger the graph's text is than at the default size: the label boxes below are laid out in points, so they grow with it.
+    @ScaledMetric(relativeTo: .caption) private var textScale: CGFloat = 1
 
     private let padT: CGFloat = 30
     private let padB: CGFloat = 26
@@ -67,13 +69,13 @@ struct NowChargeGraph: View {
             let labelStartValue = now.x - padL > 90
             let valueLeft = now.x - padL > 60
             // Near the end of a charge the "now" value would sit under the finish pill: it goes below the dot then.
-            let pillWidth = CGFloat((m.estimate?.pill.count ?? 0)) * 6.5 + 24
+            let pillWidth = CGFloat((m.estimate?.pill.count ?? 0)) * 6.5 * textScale + 24
             let pillLeft = w - padR - pillWidth
             let pillMidY = max((end?.y ?? 0) - 30, 2) + 11
             let valueEdge = valueLeft ? now.x - 10 : now.x + 40
             let nowBelow = end != nil && m.estimate?.pill != nil && abs(max(now.y - 12, 12) - pillMidY) < 20 && valueEdge > pillLeft - 6
             let nowText = "\(m.nowShown)%"
-            let nowW = CGFloat(nowText.count) * 8.4
+            let nowW = CGFloat(nowText.count) * 8.4 * textScale
             // The now value under the dot stays inside the card's right edge.
             let belowX = min(now.x + 8, w - padR - nowW)
             let nowAnchorLeft = !valueLeft || nowBelow
@@ -81,8 +83,8 @@ struct NowChargeGraph: View {
             let nowBox = Self.box(x: nowBelow ? belowX : (valueLeft ? now.x - 10 : now.x + 10), y: nowTextY, tw: nowW, leading: nowAnchorLeft)
             let startY = max((soc.first?.y ?? 0) - 14, 12)
             let packSpot = Self.packSpot(m: m, pack: pack, soc: soc, pow: pow, now: now, nowBox: nowBox, end: end, pillLeft: pillLeft, pillMidY: pillMidY,
-                                         startBox: labelStartValue ? soc.first.map { Self.box(x: $0.x + 2, y: startY, tw: CGFloat("\(m.startShown)%".count) * 7, leading: true) } : nil,
-                                         w: w, h: h, base: base, padL: padL, padR: padR)
+                                         startBox: labelStartValue ? soc.first.map { Self.box(x: $0.x + 2, y: startY, tw: CGFloat("\(m.startShown)%".count) * 7 * textScale, leading: true) } : nil,
+                                         w: w, h: h, base: base, padL: padL, padR: padR, textScale: textScale)
             ZStack(alignment: .topLeading) {
                 Canvas { ctx, _ in
                     if let end {
@@ -202,9 +204,9 @@ struct NowChargeGraph: View {
     /// Where the pack's value goes: the first candidate near the end of its line that touches no other label, pill or dot and sits on neither the
     /// battery nor the pack line. Nil when there is none: the legend alone carries the value, as on the web.
     private static func packSpot(m: NowChargeGraphModel, pack: [CGPoint], soc: [CGPoint], pow: [CGPoint], now: CGPoint, nowBox: Box, end: CGPoint?,
-                                 pillLeft: CGFloat, pillMidY: CGFloat, startBox: Box?, w: CGFloat, h: CGFloat, base: CGFloat, padL: CGFloat, padR: CGFloat) -> (x: CGFloat, y: CGFloat, leading: Bool)? {
+                                 pillLeft: CGFloat, pillMidY: CGFloat, startBox: Box?, w: CGFloat, h: CGFloat, base: CGFloat, padL: CGFloat, padR: CGFloat, textScale: CGFloat) -> (x: CGFloat, y: CGFloat, leading: Bool)? {
         guard let packNow = m.packNow, let last = pack.last, pack.count > 1 else { return nil }
-        let tw = CGFloat(packNow.count) * 8.4
+        let tw = CGFloat(packNow.count) * 8.4 * textScale
         var taken: [Box] = [nowBox, Box(x0: padL, x1: padL + 60, y0: h - 20, y1: h), Box(x0: now.x - 10, x1: now.x + 10, y0: now.y - 10, y1: now.y + 10)]
         // The power line runs level across the top; a label on it is hard to read.
         if pow.count > 1, let lo = pow.map(\.y).min(), let hi = pow.map(\.y).max() { taken.append(Box(x0: padL, x1: now.x, y0: lo - 1, y1: hi + 1)) }
