@@ -278,6 +278,50 @@ final class NowSlotTests: XCTestCase {
         XCTAssertTrue(atHome.spoken.contains("Home charger"))
     }
 
+    // The Live screen's figures (`liveStats`): the same worked-out figures as the Now card, the same estimate rule, Rivian's latest price for the cost.
+    private func liveStats(session: LiveSession?, kw: Double = 11, extra: String? = nil) throws -> [NowSlotModel.Stat] {
+        let iso = ISO8601DateFormatter().string(from: at.addingTimeInterval(-3600))
+        let now = try snapshot("charging", extra: extra ?? #","charge":{"started_at":"\#(iso)","soc_start":40,"peak_kw":11,"cost":2.13,"currency":"USD","cost_source":"home_rate","cost_is_estimate":true}"#)
+        let summary = NowSummary(input: input(gear: "P", charger: "charger_connected", kw: kw), now: now, clock: at)
+        DisplayUnits.demo = true
+        defer { DisplayUnits.demo = false }
+        return NowSlotModel.liveStats(summary: summary, snapshot: now, session: session, charge: nil, clock: at)
+    }
+
+    func testLiveAllFiguresFromRivianCarryNoMark() throws {
+        let session = LiveSession(active: true, timeElapsedSeconds: 3600, timeRemainingSeconds: 1800, powerKw: 11, kilometersChargedPerHour: 30, rangeAddedKm: 60,
+                                  totalChargedEnergyKwh: 8, currentPrice: "2.27", currentCurrency: "USD")
+        let stats = try liveStats(session: session)
+        XCTAssertEqual(stats.map(\.label), ["Added", "Range added", "Rate", "Elapsed", "Cost so far", "Time left"])
+        XCTAssertTrue(stats.allSatisfy { !$0.estimated }, "\(stats)")
+        XCTAssertFalse(NowSlotModel.estimatedHeading(stats))
+        let cost = try XCTUnwrap(stats.first { $0.label == "Cost so far" })
+        XCTAssertTrue(cost.value.contains("2.27"), "Rivian's latest price beats the charge row's older 2.13: \(cost.value)")
+        XCTAssertEqual(cost.note, "billed by Rivian")
+    }
+
+    func testLiveSessionWithOnlyAPriceWorksTheRestOutFromTheBattery() throws {
+        let session = LiveSession(active: true, currentPrice: "2.27", currentCurrency: "USD")
+        let stats = try liveStats(session: session)
+        for label in ["Range added", "Rate"] { XCTAssertTrue(try XCTUnwrap(stats.first { $0.label == label }).estimated, label) }
+        XCTAssertFalse(NowSlotModel.estimatedHeading(stats), "the billed price is the truck's: a mixed group, a small est. each")
+        XCTAssertFalse(try XCTUnwrap(stats.first { $0.label == "Cost so far" }).estimated)
+    }
+
+    func testLiveHomeACWithNoSessionIsAllEstimatedWithOneHeading() throws {
+        let stats = try liveStats(session: nil)
+        XCTAssertFalse(stats.isEmpty, "no dashes: the cells are worked out from the battery")
+        XCTAssertTrue(NowSlotModel.estimatedHeading(stats), "\(stats)")
+        XCTAssertEqual(try XCTUnwrap(stats.first { $0.label == "Cost so far" }).note, "estimate · at your home rate")
+    }
+
+    func testLiveFastChargeWithNoSessionEstimatesWithoutACost() throws {
+        let stats = try liveStats(session: nil, kw: 150, extra: "," + #""charge":{"started_at":"\#(ISO8601DateFormatter().string(from: at.addingTimeInterval(-600)))","soc_start":20,"peak_kw":150}"#)
+        XCTAssertFalse(stats.contains { $0.label == "Cost so far" }, "a fast charge has no price until it ends")
+        XCTAssertTrue(stats.contains { $0.label == "Range added" })
+        XCTAssertTrue(NowSlotModel.estimatedHeading(stats), "\(stats)")
+    }
+
     func testDrivingChipsAndTheLiveFallbackNeedsAPercentOfBattery() throws {
         let now = try snapshot("driving")
         let summary = NowSummary(input: input(gear: "D", charger: "charger_disconnected", kw: 0, kph: 80), now: now, clock: at)

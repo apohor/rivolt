@@ -10,6 +10,8 @@ struct NowLiveView: View {
     /// Where the truck's navigation is going (design_preview key live_destination); nil without a trip or with the design off.
     var destination: LiveDestination?
     var charge: ChargeBrief?
+    /// The server's Now snapshot: the charge's cost and start, the figures the Now card works out from when the truck's session has none.
+    var snapshot: NowSnapshot?
     /// The calmer layout (design_preview key ios_now_tidy): the destination is its own block with the map under it, above the drive figures.
     var tidy = false
     var images: [VehicleImage]?
@@ -90,10 +92,20 @@ struct NowLiveView: View {
             row("Charge limit", summary.chargeTargetPct.map { "\(Int($0.rounded()))%" })
             if streaming, let detail {
                 row("Power", detail.powerKw.map { "\(NumberText.fixed($0, $0 < 10 ? 1 : 0)) kW" })
-                row("Time left", detail.remaining.map { NowFormat.duration($0) })
-                row("Energy added", detail.energyKwh.map { "\(NowFormat.oneDecimal($0)) kWh" }, estimated: detail.energyEstimated)
-                if let cost = NowFormat.liveCostText(detail.cost, place: detail.place) { row("Cost so far", cost) }
+                chargeRows(NowSlotModel.liveStats(summary: summary, snapshot: snapshot, session: session, charge: charge, clock: .now))
+                if !NowSlotModel.liveStats(summary: summary, snapshot: snapshot, session: session, charge: charge, clock: .now).contains(where: { $0.label == "Cost so far" }),
+                   let cost = NowFormat.liveCostText(detail.cost, place: detail.place) { row("Cost so far", cost) }
             }
+        }
+    }
+
+    /// The charge's figures as the Now card says them: one "Estimated so far" heading when every worked-out figure is ours, else "est." on each; a figure
+    /// the truck and the battery both lack has no row. The cost keeps its source.
+    @ViewBuilder private func chargeRows(_ stats: [NowSlotModel.Stat]) -> some View {
+        let all = NowSlotModel.estimatedHeading(stats)
+        if all { Text("Estimated so far").themeText(.caption, color: Theme.textTertiary).accessibilityIdentifier("live-estimated") }
+        ForEach(stats, id: \.label) { st in
+            row(st.label == "Added" ? "Energy" : st.label, st.note.map { "\(st.value) · \($0)" } ?? st.value, estimated: st.estimated && !all && st.label != "Cost so far")
         }
     }
 
