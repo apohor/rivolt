@@ -1,4 +1,4 @@
-import { useHomeLocation, useVehicleNow } from "../lib/useNowInputs";
+import { useChargingSettings, useHomeLocation, useVehicleNow } from "../lib/useNowInputs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { displayTimeZone } from "../lib/format";
 import { formatScheduleStart, nextScheduledStartMin } from "../lib/chargingSchedule";
@@ -28,7 +28,7 @@ import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
 import { DriveGraph, useDriveDestination, useDriveSeriesState } from "./DriveGraph";
 import { ParkedGraph, ParkedRows, useParkedSeries } from "./ParkedGraph";
 import { openSleepSince } from "../lib/parkedSeries";
-import NowSlot, { pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
+import NowSlot, { freshCharge, pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
 import { cabinValue, comfortParts } from "../lib/comfort";
@@ -143,12 +143,7 @@ export default function NowCard({
     retry: 1,
   });
   const homeQ = useHomeLocation();
-  const chargingQ = useQuery({
-    queryKey: ["settings", "charging"],
-    queryFn: () => backend.getChargingSettings(),
-    staleTime: 5 * 60_000,
-    retry: 1,
-  });
+  const chargingQ = useChargingSettings();
   const sleepSince = useMemo(() => new Date(Date.now() - 2 * 86_400_000).toISOString(), []);
   const sleepQ = useQuery({
     queryKey: ["sleepActivity", "now", vehicleID],
@@ -401,7 +396,7 @@ export default function NowCard({
       noMap={parkedMapGone}
       placeText={parkedPlaceText(view, homeQ.data?.label, distanceUnit)}
       session={sessionQ.data?.active ? sessionQ.data : null}
-      charge={server?.charge ?? null}
+      charge={freshCharge(server?.charge ?? null, sessionQ.data ?? null)}
       drive={slotDrive}
     />
   );

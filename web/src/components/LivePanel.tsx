@@ -1,7 +1,7 @@
 import { fieldHidden, fieldLabel } from "../lib/fieldSupport";
 import { ENERGY_ESTIMATED_NOTE, ESTIMATED_FIGURE, isEnergyEstimated } from "../lib/energyEstimated";
 import { detailPath } from "../lib/demo";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ApiError, backend, isReconnecting, type Charge, type Drive, type LiveDrive, type LiveSession, type Vehicle, type VehicleState } from "../lib/api";
@@ -15,8 +15,9 @@ import { PlugPicture } from "./PlugPicture";
 import { LiveChargeGraph } from "./LiveChargeGraph";
 import { LiveDriveTrail } from "./LiveDriveTrail";
 import { formatDriveMode } from "../lib/driveMode";
-import { useHomeLocation, useVehicleNow } from "../lib/useNowInputs";
-import { chargeFlavorOf, chargerLabel, placeOfFix, type ChargeFlavor } from "../lib/nowState";
+import { useChargingSettings, useHomeLocation, useVehicleNow } from "../lib/useNowInputs";
+import { chargeFlavorOf, chargerLabel, computeNow, placeOfFix, type ChargeFlavor } from "../lib/nowState";
+import { allEstimated, freshCharge, liveStats, slotView, type Stat } from "./NowSlot";
 
 // Unit conversions. Backend speaks SI at the wire.
 const kmToMi = (km: number) => km * 0.6213711922;
@@ -537,16 +538,16 @@ function ChargingDetail({
   // The same queries as the Now card (shared cache): the home point and the session's peak decide the charger label.
   const homeQ = useHomeLocation();
   const nowQ = useVehicleNow(vehicle.id);
+  const chargingQ = useChargingSettings();
+  const { distanceUnit } = usePreferences();
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const server = nowQ.data ?? null;
   // Prefer live-session power when available, fall back to state.
   const powerKw = ls && ls.power_kw > 0 ? ls.power_kw : state.charger_power_kw;
-  const ratePerHour =
-    ls && ls.kilometers_charged_per_hour > 0
-      ? kmToMi(ls.kilometers_charged_per_hour)
-      : 0;
-  const rangeAdded = ls ? kmToMi(ls.range_added_km) : 0;
-  const energyKwh = ls ? ls.total_charged_energy_kwh : 0;
-  const elapsed = ls ? ls.time_elapsed_seconds : 0;
-  const remaining = ls ? ls.time_remaining_seconds : 0;
   const targetPct = state.charge_target_pct;
   const soc = ls && ls.soc_pct > 0 ? ls.soc_pct : state.battery_level_pct;
   const toTarget = Math.max(0, targetPct - soc);
@@ -578,12 +579,42 @@ function ChargingDetail({
   // charging per vehicleState) but swap in an explanation block
   // instead of a grid full of em-dashes.
   const priceText = livePriceText(ls, flavor);
+  // The figures the Now card works out from the truck's own readings fill every cell the Rivian session leaves empty (a home or third-party
+  // charge has no session at all): the same computation, the same queries, the same estimate marks.
+  const view = useMemo(
+    () =>
+      computeNow({
+        state,
+        nowMs,
+        asleepSinceMs: null,
+        socAtChargeStart: server?.charge ? server.charge.soc_start : null,
+        peakKw: server?.charge ? Math.max(server.charge.peak_kw, state.charger_power_kw || 0) : null,
+        server,
+        packKwh: vehicle.pack_kwh || null,
+        homeRate: chargingQ.data?.home_price_per_kwh ?? null,
+        home,
+      }),
+    [state, nowMs, server, vehicle.pack_kwh, chargingQ.data, home],
+  );
+  const free = !!ls?.is_free_session;
+  const stats = liveStats(
+    { view: slotView(view), nowMs, unit: distanceUnit, currency: chargingQ.data?.home_currency || "USD", session: ls?.active ? ls : null, charge: freshCharge(server?.charge ?? null, ls ?? null) },
+    ls?.time_remaining_seconds ?? 0,
+  )
+    .filter((x) => !(free && x.k === "Cost so far"));
+  // The server's own estimate (the energy recorded so far at the home rate) when /now has no priced charge to show.
+  if (!free && !stats.some((x) => x.k === "Cost so far") && ls?.estimated_cost && ls.estimated_cost > 0) {
+    stats.push({ k: "Cost so far", v: formatMoney(ls.estimated_cost, ls.estimated_currency || "USD"), note: "estimate · at your home rate", est: true });
+  }
+  stats.sort((a, b) => LIVE_ORDER.indexOf(a.k) - LIVE_ORDER.indexOf(b.k));
+  const allEst = allEstimated(stats);
+  const haveCost = stats.some((x) => x.k === "Cost so far");
   const haveLiveData = !!ls && (ls.active || ls.power_kw > 0 || ls.total_charged_energy_kwh > 0);
   // Design "live_v2": the charge so far as a graph, only while energy is actually flowing (not plugged in and waiting).
   const liveV2 = useDesignPreview("live_v2");
 
   return (
-    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+    <div data-testid="live-session-card" className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
       <div className="mb-2 flex items-center justify-between">
         <div className="text-[11px] uppercase tracking-wide text-emerald-300">
           Charging session
@@ -627,31 +658,26 @@ function ChargingDetail({
           ) : null}
         </div>
       </div>
-      {haveLiveData ? (
+      {haveLiveData || stats.length > 0 ? (
+        <>
+        {!haveLiveData && (
+          <div className="mb-2 text-[11px] font-medium text-neutral-300" data-testid="live-status-line">
+            {liveStatusLine(state.charger_state, powerKw)}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 md:grid-cols-4">
-          <Field
-            label="Rate"
-            value={ratePerHour > 0 ? num(ratePerHour, 0, "mi/h") : "—"}
-          />
-          <Field
-            label="Range added"
-            value={rangeAdded > 0 ? num(rangeAdded, 0, "mi") : "—"}
-          />
-          <Field
-            label="Energy"
-            value={energyKwh > 0 ? num(energyKwh, 2, "kWh") : "—"}
-          />
-          <Field
-            label="Elapsed"
-            value={elapsed > 0 ? formatDuration(elapsed) : "—"}
-          />
-          <Field
-            label="Remaining"
-            value={remaining > 0 ? formatDuration(remaining) : "—"}
-          />
+          {allEst && (
+            <div data-testid="live-estimated" className="col-span-full text-[11px] text-neutral-500">
+              Estimated so far
+            </div>
+          )}
+          {stats.map((x) => (
+            <Figure key={x.k} stat={x} all={allEst} />
+          ))}
           <Field label="State" value={formatChargerState(state.charger_state)} />
-          {priceText ? <Field label="Price" value={priceText} /> : null}
+          {priceText && !haveCost ? <Field label="Price" value={priceText} /> : null}
         </div>
+        </>
       ) : (
         // Compact fallback when the first telemetry frame hasn't
         // arrived yet. The long explainer we used to show here is
@@ -977,6 +1003,25 @@ function LockIcon({ className = "" }: { className?: string }) {
       <rect x="4" y="11" width="16" height="10" rx="2" />
       <path d="M8 11V7a4 4 0 0 1 8 0v4" />
     </svg>
+  );
+}
+
+// The Now card's figures, in the order the Live cells have always had.
+const LIVE_ORDER = ["Rate", "Range added", "Added", "Elapsed", "Remaining", "Cost so far"];
+
+// One figure: a worked-out one reads "estimated" to a screen reader, and carries a small "est." only in a mixed group (all estimated: the heading says it once).
+function Figure({ stat: x, all }: { stat: Stat; all: boolean }) {
+  const label = x.k === "Added" ? "Energy" : x.k;
+  return (
+    <div data-testid={`live-${label.toLowerCase().replace(/ /g, "-")}`}>
+      <div className="text-[11px] text-neutral-500">{label}</div>
+      <div className="tabular-nums text-sm text-neutral-200">
+        {x.est && <span className="sr-only">estimated </span>}
+        {x.v}
+        {x.est && !all && x.k !== "Cost so far" && <span aria-hidden="true" className="ml-1 text-[11px] text-neutral-500">est.</span>}
+        {x.note && <span className="ml-1.5 text-[11px] text-neutral-500">{x.note}</span>}
+      </div>
+    </div>
   );
 }
 
