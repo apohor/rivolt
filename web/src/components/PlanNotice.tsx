@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { planState } from "../lib/plan";
 import { graceBanner, lapseBanner, PRO } from "../lib/proCopy";
-import { ProSheet } from "./ProSheet";
+import { ProSheet, ProSheetPreload } from "./ProSheetLazy";
 
 const KEY = "rivolt.planNotice.dismissed";
 const dismissedFor = (id: string): boolean => {
@@ -49,6 +49,7 @@ export function PlanNotice() {
     <div role="note" data-plan-notice className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-800/60 bg-sky-950/40 px-3 py-2 text-xs text-sky-100">
       <span>{lapseBanner(state)}</span>
       <span className="flex gap-3">
+        <ProSheetPreload />
         <button type="button" className="underline underline-offset-2" onClick={() => setOpen(true)}>Keep Pro</button>
         <Link to="/settings#export" className="underline underline-offset-2">Export everything</Link>
         <button

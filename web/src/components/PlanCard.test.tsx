@@ -42,7 +42,17 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
     renderWith(free, <PlanCard />);
     expect(await screen.findByText("Recording, alerts, the last 12 months and the full export, always.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "See Pro" }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("the lapsed banner's Keep Pro and the limit note's See Pro each open the sheet, now a lazy chunk", async () => {
+    renderWith(lapsed, <PlanNotice />);
+    fireEvent.click(await screen.findByRole("button", { name: "Keep Pro" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    cleanup();
+    renderWith(free, <ProLimitNotice limit={{ code: "pro_required", limit: 12 } as never} />);
+    fireEvent.click(await screen.findByRole("button", { name: "See Pro" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
   });
 
   it("shows an old trial row as plain Pro, never as a trial or with Keep Pro", async () => {
