@@ -15,6 +15,7 @@ import { PlugPicture } from "./PlugPicture";
 import { LiveChargeGraph } from "./LiveChargeGraph";
 import { LiveDriveTrail } from "./LiveDriveTrail";
 import { formatDriveMode } from "../lib/driveMode";
+import { useHomeLocation, useVehicleNow } from "../lib/useNowInputs";
 import { chargeFlavorOf, chargerLabel, placeOfFix } from "../lib/nowState";
 
 // Unit conversions. Backend speaks SI at the wire.
@@ -530,8 +531,8 @@ function ChargingDetail({
   });
   const ls = sess.data;
   // The same queries as the Now card (shared cache): the home point and the session's peak decide the charger label.
-  const homeQ = useQuery({ queryKey: ["settings", "home-location"], queryFn: () => backend.homeLocationGet(), staleTime: 5 * 60_000, retry: 1 });
-  const nowQ = useQuery({ queryKey: ["vehicle", "now", vehicle.id], queryFn: () => backend.vehicleNow(vehicle.id), refetchInterval: 15_000, retry: 0 });
+  const homeQ = useHomeLocation();
+  const nowQ = useVehicleNow(vehicle.id);
   // Prefer live-session power when available, fall back to state.
   const powerKw = ls && ls.power_kw > 0 ? ls.power_kw : state.charger_power_kw;
   const ratePerHour =

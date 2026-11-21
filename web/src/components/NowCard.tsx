@@ -1,3 +1,4 @@
+import { useHomeLocation, useVehicleNow } from "../lib/useNowInputs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { displayTimeZone } from "../lib/format";
 import { formatScheduleStart, nextScheduledStartMin } from "../lib/chargingSchedule";
@@ -141,12 +142,7 @@ export default function NowCard({
     refetchInterval: (q) => stateRefetchMs(q.state.data),
     retry: 1,
   });
-  const homeQ = useQuery({
-    queryKey: ["settings", "home-location"],
-    queryFn: () => backend.homeLocationGet(),
-    staleTime: 5 * 60_000,
-    retry: 1,
-  });
+  const homeQ = useHomeLocation();
   const chargingQ = useQuery({
     queryKey: ["settings", "charging"],
     queryFn: () => backend.getChargingSettings(),
@@ -179,12 +175,7 @@ export default function NowCard({
   // GET /now: the server's state, freshness inputs and charge baseline.
   // Null when absent (an older server): fall back to the
   // client-derived path below.
-  const nowQ = useQuery({
-    queryKey: ["vehicle", "now", vehicleID],
-    queryFn: () => backend.vehicleNow(vehicleID),
-    refetchInterval: 15_000,
-    retry: 0,
-  });
+  const nowQ = useVehicleNow(vehicleID);
   const server = nowQ.data ?? null;
 
   // Server-side baselines: the open charge row carries the session's
