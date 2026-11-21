@@ -6,6 +6,7 @@ import { ProviderButton } from "../components/ProviderButton";
 import Logo from "../components/Logo";
 import { getConfig, useDesignPreview, useSignupEnabled } from "../lib/config";
 import { track } from "../lib/track";
+import { rememberTermsTick } from "../lib/termsTick";
 
 // Providers we surface on the signup page. Hydra is rivolt's own
 // federation backend (used by downstream apps) — it doesn't make
@@ -32,6 +33,20 @@ const rules = [
   { id: "digit", label: "One digit", test: (p: string) => /[0-9]/.test(p) },
   { id: "special", label: "One special character", test: (p: string) => /[^A-Za-z0-9]/.test(p) },
 ];
+
+function TermsBox({ ticked, onChange }: { ticked: boolean; onChange: (v: boolean) => void }) {
+  const link = "text-emerald-500 underline underline-offset-2 hover:text-emerald-400";
+  return (
+    <label className="mb-4 flex cursor-pointer items-start gap-3 rounded-md border border-neutral-700 p-3 text-sm text-neutral-200">
+      <input type="checkbox" checked={ticked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" />
+      <span>
+        I agree to the{" "}
+        <a href="/terms" target="_blank" rel="noopener noreferrer" className={link}>Terms of Service</a> and{" "}
+        <a href="/privacy" target="_blank" rel="noopener noreferrer" className={link}>Privacy Policy</a>
+      </span>
+    </label>
+  );
+}
 
 export default function SignupPage() {
   const queryClient = useQueryClient();
@@ -73,7 +88,13 @@ export default function SignupPage() {
     };
   }, []);
 
+  // signup_v2: the Terms and Privacy box (unticked) gates the provider buttons and the email form. Ticking records nothing by itself:
+  // a note for this Terms version rides the sign-in redirect and TermsGate saves the acceptance for the signed-in account.
+  const [ticked, setTicked] = useState(false);
+  const termsVersion = getConfig().termsVersion;
   function startOIDC(p: OIDCProvider) {
+    if (v2 && !ticked) return;
+    if (v2) rememberTermsTick(termsVersion);
     const url = new URL(p.start_url, window.location.origin);
     window.location.assign(url.toString());
   }
@@ -138,6 +159,7 @@ export default function SignupPage() {
   const v2Default = v2 && !fullMode && !tokenMode;
   const canSubmit =
     tokenMode &&
+    (!v2 || ticked) &&
     email.trim().length > 0 &&
     passwordValid &&
     passwordsMatch &&
@@ -158,6 +180,8 @@ export default function SignupPage() {
       // to the Rivian connect step, no second sign-in. Its cookie
       // replaces any session that was already in this browser.
       if (res.signed_in) {
+        // The box ticked on this form is the account's own acceptance: saved now that it is signed in (a failure falls back to the gate).
+        if (v2 && ticked && termsVersion) await backend.acceptTerms(termsVersion).catch(() => undefined);
         // The app's cached "who am I" still says signed out (it was asked on this page): refresh it
         // first, so the terms gate decides before the Rivian connect step shows.
         await queryClient.resetQueries({ queryKey: ["auth", "me"] });
@@ -323,10 +347,11 @@ export default function SignupPage() {
               )}
             </p>
 
+            {v2Default && <TermsBox ticked={ticked} onChange={setTicked} />}
             {!fullMode && oauthProviders && oauthProviders.length > 0 && (
               <div className="mb-4 flex flex-col gap-2">
                 {oauthProviders.map((p) => (
-                  <ProviderButton key={p.name} provider={p} onClick={() => startOIDC(p)} />
+                  <ProviderButton key={p.name} provider={p} disabled={v2Default && !ticked} onClick={() => startOIDC(p)} />
                 ))}
                 <p className="text-center text-[11px] text-neutral-500">
                   {v2Default ? "or with your email" : "or sign up by email"}
@@ -372,7 +397,7 @@ export default function SignupPage() {
                 )}
                 <button
                   type="submit"
-                  disabled={reqSubmitting || !reqEmail.trim()}
+                  disabled={reqSubmitting || !reqEmail.trim() || (v2Default && !ticked)}
                   className="mt-1 w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {reqSubmitting ? "Sending…" : v2Default ? "Email me a sign-up link" : "Send signup link"}
@@ -526,6 +551,7 @@ export default function SignupPage() {
             )}
           </div>
 
+          {v2 && <TermsBox ticked={ticked} onChange={setTicked} />}
           {error && (
             <div
               role="alert"

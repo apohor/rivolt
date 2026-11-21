@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError, backend, type TermsState } from "../lib/api";
 import Logo from "./Logo";
 import { SignOutButton } from "./SignOutButton";
 import { ErrorBox } from "./ui";
 import { useSystemTheme } from "../lib/theme";
+import { takeTermsTick } from "../lib/termsTick";
 
 // Full-screen step before the app until the current Terms are accepted. The checkbox starts
 // unticked and Continue stays disabled until it is ticked. The Terms and the Privacy Policy open in
@@ -25,6 +26,19 @@ export function TermsGate({ terms }: { terms: TermsState }) {
     },
   });
   const changed = terms.accepted != null;
+  // A box ticked on the sign-up screen for this version is recorded here, once, as the signed-in user's own acceptance; with no
+  // fresh note (or if saving fails) the screen below asks as before.
+  const [auto, setAuto] = useState(false);
+  const tried = useRef(false);
+  useEffect(() => {
+    if (tried.current || changed) return;
+    tried.current = true;
+    if (!takeTermsTick(terms.current)) return;
+    setAuto(true);
+    accept.mutate(undefined, { onError: () => setAuto(false) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (auto) return <div data-terms-gate className="p-4 text-sm text-neutral-400">Saving…</div>;
   return (
     <div data-terms-gate className="flex min-h-full items-center justify-center bg-neutral-950 px-4 py-10 text-neutral-200">
       <main className="w-full max-w-md rounded-xl border border-neutral-800 bg-neutral-900/60 p-6 shadow-lg">
