@@ -124,11 +124,12 @@ struct NowSummary: Equatable {
         rangeKm = input?.rangeKm
         chargeTargetPct = input.flatMap { $0.chargeTargetPct.flatMap { $0 > 0 ? $0 : nil } }
 
-        let kind = now?.state ?? NowSummary.inferState(from: input)
+        let overtaken = NowSummary.frameOvertakes(now, input)
+        let kind = overtaken ? .driving : now?.state ?? NowSummary.inferState(from: input)
         self.kind = kind
         sleeping = now?.asleep ?? (input?.powerState == "sleep")
         stateLabel = NowSummary.label(kind, asleep: now?.asleep ?? false)
-        since = now?.stateSince
+        since = overtaken ? nil : now?.stateSince
         chargePowerKw = (kind == .charging) ? input?.chargerPowerKw.flatMap { $0 > 0 ? $0 : nil } : nil
         if let charge = now?.charge, let start = charge.socStart, let soc = input?.socPct {
             chargeAddedPct = max(0, soc - start)
@@ -214,6 +215,14 @@ struct NowSummary: Equatable {
         case .asleep: return "Asleep"
         case .unknown: return "Status unknown"
         }
+    }
+
+    /// True when the truck is in gear on a state frame newer than the `/now` that says otherwise. While driving `/state` is read every 2 s and
+    /// `/now` every 10 s, so for a few seconds (a drive's start, the turn at the end of a short leg) `/now` is the one that is behind: the newer
+    /// frame wins, never a "Parked" beside a "Last seen just now". Only toward driving: a late "Driving" after the gear goes to P is harmless.
+    static func frameOvertakes(_ now: NowSnapshot?, _ input: Input?) -> Bool {
+        guard let now, now.state != .driving, let frame = input?.at, let snap = now.at, frame > snap else { return false }
+        return inferState(from: input) == .driving
     }
 
     /// Without `/now` (an older server), a rough state from `/state` alone.

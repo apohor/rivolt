@@ -71,6 +71,12 @@ enum NowReads {
         fresh ?? (lastID == id ? last : nil)
     }
 
+    /// The `/now` to show after a read: the fresh one, else the last one for this same truck. A failed read must not turn a known state into a
+    /// guess from `/state` alone.
+    static func nowToShow(fresh: NowSnapshot?, last: NowSnapshot?, lastID: String?, id: String) -> NowSnapshot? {
+        fresh ?? (lastID == id ? last : nil)
+    }
+
     private static let log = Logger(subsystem: "dev.rivolt.app", category: "now")
 
     /// `record` gets the read's outcome as a fixed class (see `ConnectionDiagnostics.Outcome`) for the Connection details
