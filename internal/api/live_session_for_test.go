@@ -36,6 +36,15 @@ func TestDecorateLiveSessionFor(t *testing.T) {
 	if r := decorateLiveSessionFor("v", &rivian.LiveSession{CurrentPrice: "4.20"}, rivian.ChargeNow{EnergyKWh: 30, PeakKW: 7.6}, cfg); r.EstimatedCost != 0 {
 		t.Errorf("an estimate beside a billed price: %+v", r)
 	}
+	// A zero price is not Rivian's price: the estimate still comes, but a free session gets none, whatever its price field says.
+	if r := decorateLiveSessionFor("v", &rivian.LiveSession{CurrentPrice: "0"}, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6}, cfg); math.Abs(r.EstimatedCost-0.55) > 1e-9 {
+		t.Errorf("no estimate beside a zero price: %+v", r)
+	}
+	for _, price := range []string{"", "0", "0.00"} {
+		if r := decorateLiveSessionFor("v", &rivian.LiveSession{CurrentPrice: price, IsFreeSession: true}, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6}, cfg); r.EstimatedCost != 0 {
+			t.Errorf("an estimate for a free session (price %q): %+v", price, r)
+		}
+	}
 	// No home rate configured: no estimate.
 	if r := decorateLiveSessionFor("v", nil, rivian.ChargeNow{EnergyKWh: 5, PeakKW: 7.6}, settings.ChargingConfig{}); r.EstimatedCost != 0 {
 		t.Errorf("an estimate with no rate: %+v", r)
