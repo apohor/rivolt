@@ -10,7 +10,7 @@ import { inDemo } from "../lib/demo";
 // the figures of what the truck is doing. Charging: power and the charger, when it reaches the limit, then the session. Driving:
 // speed, gear and mode, then the drive so far. Only values that exist are shown; nothing is a placeholder.
 
-export type SlotSession = { range_added_km: number; total_charged_energy_kwh: number; time_elapsed_seconds: number; kilometers_charged_per_hour: number };
+export type SlotSession = { range_added_km: number; total_charged_energy_kwh: number; time_elapsed_seconds: number; kilometers_charged_per_hour: number; is_rivian_charger?: boolean };
 export type SlotCharge = { started_at: string; soc_start?: number | null; cost?: number | null; currency?: string; cost_source?: string; cost_is_estimate?: boolean };
 // effMiPerKwh is the distance shown over the energy shown, or null while it would be absurd (a short drive, a state of charge that has not dropped).
 export type SlotDrive = { tripMi: number; elapsed_sec: number; energy_used_kwh: number | null; effMiPerKwh: number | null };
@@ -57,6 +57,11 @@ const COST_NOTE: Record<string, string> = {
   observed_estimate: "from similar sessions",
 };
 
+// An estimated cost always says which rate it used; when the source is missing or one we do not know, it says that instead of nothing.
+export function costNote(source: string | undefined, est: boolean): string {
+  return (source && COST_NOTE[source]) || (est ? "rate not known" : "");
+}
+
 // The mock's wording: "3 h 26 min", "45 min" (no tilde; our own estimate says so after it).
 // `up`: a time left rounds up to the whole minute (the iPhone's rule: never say less than there is); a duration so far rounds to the nearest.
 function timeLeft(hours: number, up = false): string {
@@ -95,7 +100,7 @@ export function slotStats(i: SlotInput): Stat[] {
     if (elapsedSec != null) out.push({ k: "Elapsed", v: duration(elapsedSec) });
     if (c && c.cost != null) {
       const est = c.cost_is_estimate !== false;
-      out.push({ k: "Cost so far", v: formatMoney(c.cost, c.currency || i.currency), note: [est ? "estimate" : "", c.cost_source ? COST_NOTE[c.cost_source] : ""].filter(Boolean).join(" · ") || undefined, est });
+      out.push({ k: "Cost so far", v: formatMoney(c.cost, c.currency || i.currency), note: [est ? "estimate" : "", costNote(c.cost_source, est)].filter(Boolean).join(" · ") || undefined, est });
     }
     if (Number.isFinite(startedMs) && !i.soft) out.push({ k: "Plugged in", v: clock(startedMs) });
   } else if (v.kind === "driving" && i.drive) {
@@ -318,7 +323,8 @@ export default function NowSlot(i: SlotInput) {
   if (view.kind === "charging" && view.powerKw != null) {
     big = view.powerKw.toFixed(view.powerKw < 10 ? 1 : 0);
     bigUnit = "kW";
-    const label = chargerLabel(view.chargeFlavor);
+    // One rule with the Live page: the truck's own Rivian-charger flag wins, else the flavour.
+    const label = chargerLabel(view.chargeFlavor, !!i.session?.is_rivian_charger);
     if (label) chips.push(<Chip key="c" tone="green" testid="now-slot-charger">{label}</Chip>);
     if (view.etaHours != null) {
       const when = clock(chargeFinishMs(view.etaHours, nowMs));

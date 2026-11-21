@@ -52,6 +52,13 @@ describe("liveStats", () => {
     expect(allEstimated(s)).toBe(true);
     expect(s.find((x) => x.k === "Cost so far")?.note).toBe("estimate · at your home rate");
   });
+  it("an estimated cost never renders without a source: a missing or unknown one says the rate is not known", () => {
+    const note = (cost_source?: string) => liveStats(input({ session: null, charge: { ...charge, cost: 1.8, cost_source, cost_is_estimate: true } }), 0).find((x) => x.k === "Cost so far")?.note;
+    expect(note(undefined)).toBe("estimate · rate not known");
+    expect(note("something_new")).toBe("estimate · rate not known");
+    expect(note("network_estimate")).toBe("estimate · network rate");
+    expect(liveStats(input({ session: null, charge: { ...charge, cost_source: undefined, cost_is_estimate: false } }), 0).find((x) => x.k === "Cost so far")?.note).toBeUndefined();
+  });
   it("a fast charge with no session and no recorded charge: only what the battery says, no Plugged in", () => {
     const s = liveStats(input({ session: null, charge: null, view: { ...view, chargeFlavor: "dcfc", etaHours: 0.4 } as unknown as NowView }), 0);
     expect(keys(s)).toEqual(["Added", "Remaining"]);

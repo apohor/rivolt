@@ -29,6 +29,10 @@ describe("one finish time", () => {
 });
 
 describe("NowSlot", () => {
+  it("the truck's own Rivian-charger flag names the charger, as the Live page does", () => {
+    render(<NowSlot {...base(charging, { session: { ...session, is_rivian_charger: true } })} />);
+    expect(screen.getByTestId("now-slot-charger").textContent).toBe("Rivian charger");
+  });
   it("charging shows power, charger, the limit, the session and the priced cost", () => {
     render(<NowSlot {...base(charging, { session, charge: { started_at: "2026-01-01T11:00:00Z", cost: 2.91, currency: "USD", cost_source: "home_rate", cost_is_estimate: true } })} />);
     expect(screen.getByTestId("now-slot-big").textContent).toContain("7.4");
