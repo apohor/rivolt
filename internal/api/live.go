@@ -151,15 +151,18 @@ func decorateLiveSessionFor(vehicleID string, sess *rivian.LiveSession, now rivi
 }
 
 // sessionPeaks remembers the highest power each vehicle's session has shown, for the path with no state monitor: the home rate is a fair price
-// for an AC charge, and one reading at the end of a fast charge's taper (or at a pause) looks like AC. A new StartTime starts a new session.
+// for an AC charge, and one reading at the end of a fast charge's taper (or at a pause) looks like AC. A new session starts over: a different
+// non-empty StartTime (an empty one is a frame without it, the same session, as the monitor reads it), the energy falling below what it was, or
+// the session going inactive. The peak lives in this process's memory: self-hosted runs one, and a restart falls back to the current power.
 type sessionPeaks struct {
 	mu sync.Mutex
 	m  map[string]sessionPeak
 }
 
 type sessionPeak struct {
-	start string
-	kw    float64
+	start  string
+	kw     float64
+	energy float64
 }
 
 var fallbackPeaks sessionPeaks
@@ -175,9 +178,13 @@ func (p *sessionPeaks) note(sess *rivian.LiveSession) float64 {
 		p.m = map[string]sessionPeak{}
 	}
 	cur := p.m[sess.VehicleID]
-	if cur.start != sess.StartTime {
-		cur = sessionPeak{start: sess.StartTime}
+	if (sess.StartTime != "" && cur.start != "" && sess.StartTime != cur.start) || sess.TotalChargedEnergyKWh < cur.energy || !sess.Active && cur.kw > 0 && sess.PowerKW == 0 && sess.TotalChargedEnergyKWh == 0 {
+		cur = sessionPeak{}
 	}
+	if sess.StartTime != "" {
+		cur.start = sess.StartTime
+	}
+	cur.energy = sess.TotalChargedEnergyKWh
 	if sess.PowerKW > cur.kw {
 		cur.kw = sess.PowerKW
 	}

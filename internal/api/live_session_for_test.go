@@ -117,3 +117,30 @@ func TestFallbackPeakKeepsAFastChargeFastAfterItTapers(t *testing.T) {
 		t.Fatalf("a new AC session: want the home-rate estimate 2.2, got %v", r.EstimatedCost)
 	}
 }
+
+// A frame without start_time is the same session; a session with no start_time at all still starts over when its energy falls or it ends.
+func TestFallbackPeakSessionBoundaries(t *testing.T) {
+	cfg := settings.ChargingConfig{HomePricePerKWh: 0.11, HomeCurrency: "USD"}
+	var p sessionPeaks
+	at := func(start string, kw, kwh float64, active bool) liveSessionResponse {
+		s := &rivian.LiveSession{VehicleID: "v", StartTime: start, PowerKW: kw, Active: active, TotalChargedEnergyKWh: kwh, CurrentPrice: "0"}
+		return decorateLiveSession(s, p.note(s), cfg)
+	}
+	at("t1", 150, 10, true)
+	if r := at("", 18, 20, true); r.EstimatedCost != 0 {
+		t.Fatalf("a frame without start_time must keep the peak: got %v", r.EstimatedCost)
+	}
+	if r := at("t1", 18, 25, true); r.EstimatedCost != 0 {
+		t.Fatalf("the start_time coming back must not reset it: got %v", r.EstimatedCost)
+	}
+	// No start_time is ever sent: a later, smaller session (energy below the last) starts over.
+	if r := at("", 7.6, 2, true); r.EstimatedCost == 0 {
+		t.Fatalf("energy fell below the stored value: a new session, want the home-rate estimate")
+	}
+	// A fast session with no start_time, then the session ends and a fresh one begins.
+	at("", 120, 30, true)
+	at("", 0, 0, false)
+	if r := at("", 7.6, 0.5, true); r.EstimatedCost == 0 {
+		t.Fatalf("a new session after the end: want the home-rate estimate")
+	}
+}
