@@ -36,6 +36,14 @@
   }
 }
 
+/* plan_v2: the form folds to its summary line at every width once a plan is shown. */
+:root [data-plan-bar][data-plan-bar-v2][data-collapsed='true'] > [data-plan-bar-body] {
+  display: none;
+}
+:root [data-plan-bar][data-plan-bar-v2] > [data-plan-edit] {
+  padding-block: 0;
+}
+
 /* plan_v2 on a phone: no tall empty "your route appears here" box before there is a route (the map arrives with the plan; the planning
    message is the spinner by the button). Wide screens keep the empty map: it fills the right column. */
 @media (max-width: 1023.98px) {

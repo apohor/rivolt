@@ -63,6 +63,21 @@ export function formatRouteSummary(
   return parts.join(" · ");
 }
 
+// formatResultSummary is the plan_v2 summary line over a shown plan: "From → To · departure · starting charge". Unlike
+// formatRouteSummary it always names the departure ("Leaves now" when none is set) and falls back to the live charge.
+export function formatResultSummary(
+  s: Pick<RouteBarState, "origin" | "destination" | "startingSoc" | "departureAt">,
+  liveSoc: number | null,
+  locale?: string,
+): string {
+  const parts = [`${s.origin?.label ?? "…"} → ${s.destination?.label ?? "…"}`];
+  const d = s.departureAt ? new Date(s.departureAt) : null;
+  parts.push(d && !Number.isNaN(d.getTime()) ? d.toLocaleString(locale, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "Leaves now");
+  if (s.startingSoc.trim()) parts.push(`${s.startingSoc.trim()}% charge`);
+  else if (liveSoc != null) parts.push(`${Math.round(liveSoc)}% charge now`);
+  return parts.join(" · ");
+}
+
 // useRouteBarCollapse drives the phone route bar. With a result on screen it
 // folds to its one-line summary (resultKey identifies the result; a NEW result
 // folds it again even if it was open for editing, so replanning from the open
