@@ -25,7 +25,7 @@ type samplePlace struct {
 }
 
 var (
-	samplePlaceHome  = samplePlace{SampleHome, "Rose Bowl parking (sample)"}
+	samplePlaceHome  = samplePlace{SampleHome, "Sample home"}
 	samplePlaceVegas = samplePlace{sampleVegas, "Las Vegas, NV"}
 )
 

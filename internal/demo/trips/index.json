@@ -14,7 +14,7 @@
         "extra_stops": [],
         "has_adapter": true,
         "origin": {
-          "label": "Rose Bowl parking (sample)",
+          "label": "Sample home",
           "lat": 34.1613,
           "lon": -118.1676
         },
@@ -35,7 +35,7 @@
       "inputs": {
         "departure_at": "",
         "destination": {
-          "label": "Rose Bowl parking (sample)",
+          "label": "Sample home",
           "lat": 34.1613,
           "lon": -118.1676
         },
@@ -64,7 +64,7 @@
       "inputs": {
         "departure_at": "2026-11-14T08:00",
         "destination": {
-          "label": "Rose Bowl parking (sample)",
+          "label": "Sample home",
           "lat": 34.1613,
           "lon": -118.1676
         },
@@ -79,7 +79,7 @@
         "has_adapter": true,
         "max_overnight_soc_pct": 90,
         "origin": {
-          "label": "Rose Bowl parking (sample)",
+          "label": "Sample home",
           "lat": 34.1613,
           "lon": -118.1676
         },
@@ -179,7 +179,7 @@
         "extra_stops": [],
         "has_adapter": true,
         "origin": {
-          "label": "Rose Bowl parking (sample)",
+          "label": "Sample home",
           "lat": 34.1613,
           "lon": -118.1676
         },
@@ -208,7 +208,7 @@
         "extra_stops": [],
         "has_adapter": true,
         "origin": {
-          "label": "Rose Bowl parking (sample)",
+          "label": "Sample home",
           "lat": 34.1613,
           "lon": -118.1676
         },
