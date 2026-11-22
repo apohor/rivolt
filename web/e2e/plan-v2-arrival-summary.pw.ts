@@ -157,7 +157,7 @@ for (const u of [
   for (const same of [false, true]) {
     test(`@webkit the weather warning reads in ${u.n} units${same ? ", and says no feels like when the two temperatures are equal" : ", feels like and a headwind"}`, async ({ page }) => {
       await page.addInitScript((p) => localStorage.setItem("rivolt.preferences.v1", JSON.stringify(p)), u.prefs);
-      await open(page, same ? chipFor(8, 8) : chipFor(5, 8), []);
+      await open(page, same ? chipFor(8, 8) : chipFor(5, 8), ["plan_v2"]);
       const chip = page.getByText("Weather pushes arrival below your target").locator("..");
       await expect(chip).toBeVisible();
       if (same) {
