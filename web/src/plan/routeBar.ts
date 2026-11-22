@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 // The planner's route bar: from, to, departure and starting SoC. The state
 // lives here, in one hook, so the classic form and the map-first bar share
@@ -98,14 +98,29 @@ export function formatResultSummaryParts(
 // folds it again even if it was open for editing, so replanning from the open
 // bar returns to the result); without one it is open. The Edit/Done button
 // toggles it, and bodyId is the id the button controls.
+// EDIT_EVENT: fired on window when Edit opens the form over a result (detail.open true) and when it closes again (false), so the phone's details
+// sheet (a sibling, not a child) lowers to its handle while the form is open and comes back to where it was.
+export const EDIT_EVENT = "rivolt:plan-edit";
+export type EditEventDetail = { open: boolean };
+function announceEdit(open: boolean) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent<EditEventDetail>(EDIT_EVENT, { detail: { open } }));
+}
+
 export function useRouteBarCollapse(hasResult: boolean, resultKey: unknown) {
   const [editing, setEditing] = useState(false);
   const bodyId = useId();
+  const wasEditing = useRef(false);
+  wasEditing.current = editing;
   useEffect(() => {
+    // A new result (or none) closes the form without Done: the sheet comes back all the same.
+    if (wasEditing.current) announceEdit(false);
     setEditing(false);
   }, [resultKey, hasResult]);
   const collapsed = hasResult && !editing;
-  const toggle = useCallback(() => setEditing((v) => !v), []);
+  const toggle = useCallback(() => {
+    if (hasResult) announceEdit(!editing);
+    setEditing((v) => !v);
+  }, [hasResult, editing]);
   return { collapsed, toggle, bodyId };
 }
 
