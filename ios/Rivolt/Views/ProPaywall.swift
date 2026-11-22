@@ -43,9 +43,9 @@ struct FreeWindow: Equatable {
 
     /// The reason a row is hidden.
     var olderThan: String {
-        if let d = fromText { return "This is from before \(d), as far back as the free plan shows." }
-        if let n = days { return "This is older than the last \(n) days that the free plan shows." }
-        return "This is older than the history the free plan shows."
+        if let d = fromText { return "This is from before \(d), as far back as the free tier shows." }
+        if let n = days { return "This is older than the last \(n) days that the free tier shows." }
+        return "This is older than the history the free tier shows."
     }
 }
 
@@ -107,8 +107,8 @@ enum PlanLogic {
 /// Pro screen wording, from growth's docs/PRO_LAUNCH_COPY.md section 10 (PR #1366; DA's copy check is part of that PR, so re-verify
 /// this against the merged text before billing is on: LAUNCH-BLOCKING). The prices are the plan's. The web's twin is `lib/proCopy.ts`.
 enum ProCopy {
-    static let primaryVehicleIntro = "The free plan shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
-    static func primaryVehicleSaved(_ name: String) -> String { "Done. The free plan now shows \(name)." }
+    static let primaryVehicleIntro = "The free tier shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
+    static func primaryVehicleSaved(_ name: String) -> String { "Done. The free tier now shows \(name)." }
     static let title = "Rivolt Pro"
     static let subtitle = "Full history, multi-day trips and more widgets, from $3.99 a month."
     static func included(_ window: FreeWindow = .unknown) -> [String] { [
@@ -157,10 +157,10 @@ enum ProCopy {
     static let plannerLimit = "Multi-day plans, overnights and re-plan from here are part of Rivolt Pro. A single-day plan stays free."
     static let planVsActualLimit = "Plan vs actual is part of Rivolt Pro. Your saved trips and drives are kept either way."
     static func savedTripsLimit(_ n: Int = 3) -> String {
-        "The free plan keeps \(n) saved trips. Your other trips stay saved: you can open them, and Pro lets you edit and add more."
+        "The free tier keeps \(n) saved trips. Your other trips stay saved: you can open them, and Pro lets you edit and add more."
     }
-    static let vehicleLimit = "This vehicle's history is part of Rivolt Pro. It keeps recording and alerting, and everything stays in your export. The free plan shows your primary vehicle."
-    static let primaryVehicleHelp = "The free plan shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
+    static let vehicleLimit = "This vehicle's history is part of Rivolt Pro. It keeps recording and alerting, and everything stays in your export. The free tier shows your primary vehicle."
+    static let primaryVehicleHelp = "The free tier shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
 
     static func choiceLabel(_ yearly: Bool) -> String { yearly ? "Subscribe: $34.99 a year, renews yearly" : "Subscribe: $3.99 a month, renews monthly" }
 
@@ -170,7 +170,7 @@ enum ProCopy {
         case .off:
             return nil
         case .free:
-            return ("Free", "Recording, alerts, \(window.history) and the full export, always.")
+            return ("Free tier", "Recording, alerts, \(window.history) and the full export, always.")
         case .pro(let source, let end):
             let renews = PlanLogic.date(end).map { ", renews \($0)" } ?? ""
             switch source {

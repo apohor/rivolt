@@ -443,7 +443,7 @@ struct SaveTripSection: View {
                     .buttonStyle(ThemeSecondaryButtonStyle())
                     .disabled(saved.saveState == .saving || active.readOnly == true)
                 if active.readOnly == true {
-                    Text("This trip is past the free plan's saved trips, so it is read-only: open it, or save it under a new name.").themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                    Text("This trip is past the free tier's saved trips, so it is read-only: open it, or save it under a new name.").themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             switch saved.saveState {

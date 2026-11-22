@@ -36,7 +36,7 @@ struct PrimaryVehicleView: View {
                 .padding(4 * Theme.unit)
             }
             .themePage()
-            .navigationTitle("Vehicle the free plan shows")
+            .navigationTitle("Vehicle the free tier shows")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bar, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)

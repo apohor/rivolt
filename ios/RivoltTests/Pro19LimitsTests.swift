@@ -47,7 +47,7 @@ final class Pro19LimitsTests: XCTestCase {
     func testLimitSentences() {
         XCTAssertTrue(ProCopy.plannerLimit.contains("single-day plan stays free"))
         XCTAssertTrue(ProCopy.primaryVehicleIntro.contains("Nothing is deleted"))
-        XCTAssertEqual(ProCopy.primaryVehicleSaved("Alpha"), "Done. The free plan now shows Alpha.")
+        XCTAssertEqual(ProCopy.primaryVehicleSaved("Alpha"), "Done. The free tier now shows Alpha.")
     }
 }
 
