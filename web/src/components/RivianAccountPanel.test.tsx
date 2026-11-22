@@ -365,4 +365,18 @@ describe("a status refetch does not take the form away", () => {
     wrap();
     expect(await screen.findByText("Rivian session expired")).toBeInTheDocument();
   });
+
+  it("sign-in off on the server: a plain sentence and Try again, never the env var or a restart", async () => {
+    let enabled = false;
+    const fn = stubFetchRoutes({ "/api/settings/rivian": { body: { enabled: false, authenticated: false, mfa_pending: false } } });
+    renderPanel();
+    expect(await screen.findByText("Rivian sign-in isn't available right now.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/RIVIAN_CLIENT|Restart the server|env var/);
+    const before = fn.mock.calls.length;
+    stubFetchRoutes({ "/api/settings/rivian": { body: { enabled: (enabled = true), authenticated: false, mfa_pending: false } } });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("button", { name: /Sign in/ })).toBeInTheDocument();
+    expect(enabled).toBe(true);
+    expect(before).toBeGreaterThan(0);
+  });
 });

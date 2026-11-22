@@ -11,7 +11,7 @@ import { discoveryStateOf, discoveryView, type DiscoveryState } from "../lib/veh
 // RivianAccountPanel drives the POST /api/settings/rivian/{login,mfa,
 // logout} flow. Three UI states derived from the status endpoint:
 //
-//   - Not enabled   → read-only notice (RIVIAN_CLIENT=stub|mock).
+//   - Not enabled   → "not available right now" with Try again (the server's RIVIAN_CLIENT detail is for admins and the docs).
 //   - Not auth'd    → email + password form.
 //   - MFA pending   → OTP form (email/password are already stashed in
 //                     the server-side LiveClient).
@@ -213,13 +213,12 @@ export function RivianAccountPanel({ onLater, v2 = false }: { onLater?: () => vo
   const s = status.data;
   if (!s?.enabled) {
     return (
-      <p className="text-sm text-neutral-400">
-        Live Rivian client is disabled (
-        <code className="text-neutral-300">RIVIAN_CLIENT=stub</code> or{" "}
-        <code className="text-neutral-300">mock</code>). Restart the server
-        without that env var — or set it to{" "}
-        <code className="text-neutral-300">live</code> — to enable sign-in.
-      </p>
+      <div className="space-y-2 text-sm text-neutral-400">
+        <p>Rivian sign-in isn't available right now.</p>
+        <button type="button" onClick={() => void status.refetch()} className="text-emerald-400 hover:underline">
+          Try again
+        </button>
+      </div>
     );
   }
 
