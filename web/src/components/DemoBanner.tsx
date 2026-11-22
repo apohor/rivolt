@@ -60,12 +60,8 @@ export function DemoBanner() {
           <span className="font-medium">Sample truck.</span> {v2 ? "Simulated data, read-only." : "Generated data, read-only. Connect your Rivian to see yours."}
         </span>
         <span className="flex flex-wrap items-center gap-2">
-          {fromApp &&
-            (appUrl ? (
-              <a href={`${appUrl}/onboarding`} className={back}>Back to my account</a>
-            ) : (
-              <Link to="/onboarding" className={back}>Back to my account</Link>
-            ))}
+          {/* A full page load, not a router link: the demo answers the Rivian status with "disabled", and the app would otherwise show that cached answer (staleTime 30 s) on the sign-in screen. */}
+          {fromApp && <a href={`${appUrl}/onboarding`} className={back}>Back to my account</a>}
           <ConnectLink className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-500">
             {v2 ? "Add my truck" : "Connect with a driver account"}
           </ConnectLink>
