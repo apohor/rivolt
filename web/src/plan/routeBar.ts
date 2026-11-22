@@ -98,6 +98,10 @@ export function formatResultSummaryParts(
 // folds it again even if it was open for editing, so replanning from the open
 // bar returns to the result); without one it is open. The Edit/Done button
 // toggles it, and bodyId is the id the button controls.
+// EDIT_OPENED_EVENT: fired on window when Edit opens the form over a result, so the phone's details sheet (a sibling, not a child) steps down to its
+// peek instead of staying over the form.
+export const EDIT_OPENED_EVENT = "rivolt:plan-edit-opened";
+
 export function useRouteBarCollapse(hasResult: boolean, resultKey: unknown) {
   const [editing, setEditing] = useState(false);
   const bodyId = useId();
@@ -105,7 +109,10 @@ export function useRouteBarCollapse(hasResult: boolean, resultKey: unknown) {
     setEditing(false);
   }, [resultKey, hasResult]);
   const collapsed = hasResult && !editing;
-  const toggle = useCallback(() => setEditing((v) => !v), []);
+  const toggle = useCallback(() => {
+    if (hasResult && !editing && typeof window !== "undefined") window.dispatchEvent(new Event(EDIT_OPENED_EVENT));
+    setEditing((v) => !v);
+  }, [hasResult, editing]);
   return { collapsed, toggle, bodyId };
 }
 

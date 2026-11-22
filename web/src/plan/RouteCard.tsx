@@ -1,5 +1,6 @@
 import "../styles/next-plan.css";
-import { lazy, Suspense, useLayoutEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
+import { EDIT_OPENED_EVENT } from "./routeBar";
 import { StopCard } from "./StopCard";
 import { SummaryStrip } from "./SummaryStrip";
 import { formatDuration, formatWaypointTime } from "./format";
@@ -102,6 +103,13 @@ export function RouteCard({
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   // The phone sheet's height, kept across re-renders and new plans (a re-plan does not drop the sheet back); the map follows it once it settles.
   const [sheetSnap, setSheetSnap] = useState<Snap>("peek");
+  // Edit opens the form above the result: the sheet steps down to its peek (a lower sheet stays), so the form is not under it.
+  useEffect(() => {
+    if (!planV2) return;
+    const down = () => setSheetSnap((s) => (s === "min" ? s : "peek"));
+    window.addEventListener(EDIT_OPENED_EVENT, down);
+    return () => window.removeEventListener(EDIT_OPENED_EVENT, down);
+  }, [planV2]);
   // The elevation chart's cursor and the map's dot are one place: a share (0 to 1) of the way along the route.
   const [cursorShare, setCursorShare] = useState<number | null>(null);
   const profile = usableProfile(elevation);
