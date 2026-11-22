@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LiveSession } from "../lib/api";
 import type { NowView } from "../lib/nowState";
-import { allEstimated, freshCharge, liveStats, type SlotInput } from "./NowSlot";
+import { allEstimated, freshCharge, liveStats, shownCharge, type SlotInput } from "./NowSlot";
 
 const view = { kind: "charging", soc: 52, rangeMi: 200, powerKw: 11, etaHours: 1.5, etaSource: "estimate", energyKwh: 16.2, limitPct: 80, chargeFlavor: "home_l2" } as unknown as NowView;
 const nowMs = Date.UTC(2026, 0, 1, 12);
@@ -25,6 +25,32 @@ describe("freshCharge", () => {
   });
   it("a price with no recorded charge still makes a priced charge", () => {
     expect(freshCharge(null, ls({ current_price: "2.27" }))).toMatchObject({ cost: 2.27, cost_source: "rivian" });
+  });
+});
+
+describe("shownCharge", () => {
+  const est = { started_at: "2026-01-01T11:40:00Z", cost: 25.92, currency: "USD", cost_source: "home_rate", cost_is_estimate: true };
+  const rivian = (o: Partial<LiveSession> = {}) => ls({ is_rivian_charger: true, ...o });
+  it("a home charge keeps its home-rate estimate", () => {
+    expect(shownCharge(est, ls({ active: false }), "home_l2")).toBe(est);
+    expect(shownCharge(est, null, "home_l2")).toBe(est);
+  });
+  it("a fast charge or AC away never shows a home-rate cost, with the session read pending, failed or answered", () => {
+    for (const f of ["dcfc", "away_ac"] as const) for (const s of [null, rivian(), ls({})]) expect(shownCharge(est, s, f)?.cost).toBeUndefined();
+  });
+  it("the first minute of a fast charge (place and peak not known): no cost until the session says the charger is not a Rivian one", () => {
+    expect(shownCharge(est, null, null)?.cost).toBeUndefined(); // read pending, or failed: no cost
+    expect(shownCharge(est, rivian({ active: true }), null)?.cost).toBeUndefined();
+    expect(shownCharge(est, ls({ active: false, is_rivian_charger: false }), null)).toBe(est); // a charge on someone else's charger at an unknown place keeps the old behaviour
+  });
+  it("Rivian's price wins over the gate at any flavor, and a non-estimated cost is left alone", () => {
+    expect(shownCharge(est, rivian({ current_price: "9.5" }), "dcfc")).toMatchObject({ cost: 9.5, cost_source: "rivian", cost_is_estimate: false });
+    expect(shownCharge(charge, null, "dcfc")).toBe(charge);
+    expect(shownCharge(null, null, "dcfc")).toBeNull();
+  });
+  it("the card shows no Cost row for the gated charge", () => {
+    const g = shownCharge(est, null, "dcfc");
+    expect(keys(liveStats(input({ session: { ...full }, charge: g }), 1500))).not.toContain("Cost so far");
   });
 });
 

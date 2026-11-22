@@ -8,6 +8,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/charges"
 	"github.com/apohor/rivolt/internal/drives"
+	"github.com/apohor/rivolt/internal/rivian"
 )
 
 // nowLiveMaxAge is how old the recorder's last write to the open charge or drive row may be and still describe the session now. The
@@ -65,6 +66,20 @@ func nowDriveFromRow(d drives.Drive, now time.Time) *nowDrive {
 	return out
 }
 
+// homeRateFits reports whether the home rate is a fair price for the open charge. The charge list's own guard (IsDCFCSession) needs 1 kWh
+// delivered, so in the first minutes of a fast charge it still says "not a fast charge": a peak at or above DCFCMinKW is no home charge, and a Rivian
+// charger away from a known home (or with no saved home to tell) is the network's to price. A Wall Charger at home stays priced at the home rate.
+func homeRateFits(c charges.Charge, placeAuto string) bool {
+	if c.MaxPowerKW >= rivian.DCFCMinKW {
+		return false
+	}
+	place := c.Place // the person's own place wins over the automatic one
+	if place == "" {
+		place = placeAuto
+	}
+	return !(c.RivianCharger != nil && *c.RivianCharger && place != rivian.PlaceHome)
+}
+
 // nowChargeFromResponse reads the cost of an open charge the way the charge list shows a finished one: the classification's effective source
 // decides whether the stored cost counts, a row with no stored price falls back to the home-rate estimate, and an unknown or unpriced session
 // has no cost (null), never zero. Estimates (anything but Rivian-billed or typed in by the user) are marked.
@@ -86,7 +101,7 @@ func nowChargeFromResponse(resp chargeResponse, now time.Time) *nowChargeLive {
 	case src == "user" || (c.Cost > 0 && (src == "rivian" || src == "home_rate" || src == "network_estimate" || src == "observed_estimate")):
 		cost := c.Cost
 		out.Cost, out.Currency, out.CostSource = &cost, c.Currency, src
-	case resp.EstimatedCost > 0:
+	case resp.EstimatedCost > 0 && homeRateFits(c, resp.PlaceAuto):
 		cost := resp.EstimatedCost
 		out.Cost, out.Currency, out.CostSource = &cost, resp.EstimatedCurrency, "home_rate"
 	}

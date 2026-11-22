@@ -25,7 +25,7 @@ import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
 import { DriveGraph, useDriveDestination, useDriveSeriesState } from "./DriveGraph";
 import { ParkedGraph, ParkedRows, useParkedSeries } from "./ParkedGraph";
 import { openSleepSince } from "../lib/parkedSeries";
-import NowSlot, { freshCharge, pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
+import NowSlot, { shownCharge, pickFix, slotShown, slotView, type SlotDrive } from "./NowSlot";
 import { useDesignPreview } from "../lib/config";
 import { inDemo } from "../lib/demo";
 import { cabinValue, comfortParts } from "../lib/comfort";
@@ -370,7 +370,7 @@ export default function NowCard({
       noMap={parkedMapGone}
       placeText={parkedPlaceText(view, homeQ.data?.label, distanceUnit)}
       session={sessionQ.data?.active ? sessionQ.data : null}
-      charge={freshCharge(server?.charge ?? null, sessionQ.data ?? null)}
+      charge={shownCharge(server?.charge ?? null, sessionQ.data ?? null, view.chargeFlavor)}
       drive={slotDrive}
     />
   );

@@ -64,6 +64,30 @@ func TestNowChargeFromResponse(t *testing.T) {
 	if got = nowChargeFromResponse(r, now); got.Cost == nil || *got.Cost != 1.5 || got.Currency != "USD" || !got.CostIsEstimate {
 		t.Fatalf("estimate: %+v", got)
 	}
+	// The first minute of a fast charge (under 1 kWh, so the charge list's fast-charge test says no): no home-rate estimate, whatever the place says.
+	yes := true
+	for name, c := range map[string]charges.Charge{
+		"peak at a fast charger":             {EnergyAddedKWh: 0.4, MaxPowerKW: 148},
+		"Rivian charger, no saved home":      {EnergyAddedKWh: 0.4, MaxPowerKW: 20, RivianCharger: &yes},
+		"Rivian charger, away from the home": {EnergyAddedKWh: 0.4, MaxPowerKW: 20, RivianCharger: &yes, Place: "away"},
+	} {
+		for _, auto := range []string{"home", "away", ""} {
+			if name != "peak at a fast charger" && auto == "home" && c.Place == "" {
+				continue // a Rivian charger inside the home radius is the Wall Charger case below
+			}
+			r = mk(c, "home_rate")
+			r.EstimatedCost, r.EstimatedCurrency, r.PlaceAuto = 1.5, "USD", auto
+			if got = nowChargeFromResponse(r, now); got.Cost != nil || got.CostIsEstimate || got.EnergyAddedKWh == nil {
+				t.Fatalf("%s (auto place %q): %+v", name, auto, got)
+			}
+		}
+	}
+	// A Wall Charger at home (a Rivian charger inside the home radius, AC power) stays priced at the home rate.
+	r = mk(charges.Charge{EnergyAddedKWh: 0.4, MaxPowerKW: 11, RivianCharger: &yes}, "home_rate")
+	r.EstimatedCost, r.EstimatedCurrency, r.PlaceAuto = 0.1, "USD", "home"
+	if got = nowChargeFromResponse(r, now); got.Cost == nil || *got.Cost != 0.1 || !got.CostIsEstimate {
+		t.Fatalf("wall charger at home: %+v", got)
+	}
 	// The user's own free price: a real zero.
 	got = nowChargeFromResponse(mk(charges.Charge{EnergyAddedKWh: 10, CostSource: "user", Currency: "USD"}, "user"), now)
 	if got.Cost == nil || *got.Cost != 0 || got.CostIsEstimate {
