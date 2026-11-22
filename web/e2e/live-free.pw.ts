@@ -67,7 +67,9 @@ for (const k of CASES) {
     await expect(page.getByTestId("now-slot")).toBeVisible();
     if (k.want) await expect(page.getByTestId("now-slot-cost-so-far")).toBeVisible();
     else await page.waitForLoadState("networkidle");
-    expect(await costText(page, "/")).toEqual(live);
+    // The Now card shows the home-rate estimate until the live session arrives, then the billed price: it is the settled text that must match
+    // (the first attempt on main read "$25.92 estimate" against Live's "$9.50 billed by Rivian", run 44958188557).
+    await expect.poll(() => costText(page, "/")).toEqual(live);
   });
 }
 
