@@ -188,6 +188,13 @@ test("the Trends title and range control share one row at 393 px", async ({ brow
   const title = await page.getByRole("heading", { name: "Trends for your truck" }).boundingBox();
   const range = await page.locator("[data-trends-range]").boundingBox();
   expect(title && range && Math.abs(title.y + title.height / 2 - (range.y + range.height / 2)) < 6, `title ${JSON.stringify(title)} range ${JSON.stringify(range)}`).toBe(true);
+  // The selected range is drawn as selected, and every button keeps its vertical padding.
+  const sel = await page.locator("[data-trends-range] button[aria-pressed=true]").evaluate((el) => {
+    const c = getComputedStyle(el);
+    return { bg: c.backgroundColor, pt: parseFloat(c.paddingTop) };
+  });
+  expect(sel.bg).not.toBe("rgba(0, 0, 0, 0)");
+  expect(sel.pt).toBeGreaterThan(0);
   await ctx.close();
 });
 
