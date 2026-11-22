@@ -133,10 +133,10 @@ export function StopCard({
             return (
               <span>
                 {/* plan_v2: each piece wraps as a whole and the separator opens the piece after it, so a line never ends on a dot. */}
-                <span className={nw}>{arr && <>{arr} </>}arrive{(correctedArrival != null || own > 0) && <> at <span className={low ? "text-amber-300" : "text-neutral-200"} data-under-reserve={low ? "" : undefined} title={low ? `Under your ${Math.round(reserve ?? 0)}% target` : undefined}>{shown.toFixed(0)}<Unit>%</Unit></span></>}</span>
+                <span data-arrival-piece className={nw}>{arr && <>{arr} </>}arrive{(correctedArrival != null || own > 0) && <> at <span className={low ? "text-amber-300" : "text-neutral-200"} data-under-reserve={low ? "" : undefined} title={low ? `Under your ${Math.round(reserve ?? 0)}% target` : undefined}>{shown.toFixed(0)}<Unit>%</Unit></span></>}</span>
                 {(correctedArrival != null || own > 0) && <>
-                  {low && <span className={`text-amber-300 ${nw ?? ""}`}> · under your {Math.round(reserve ?? 0)}% target</span>}
-                  {differs && <span data-rivian-arrival className={`pt-sub text-neutral-500 ${nw ?? ""}`}> · Rivian's planner: {own.toFixed(0)}%</span>}
+                  {low && <>{" "}<span data-arrival-piece className={`text-amber-300 ${nw ?? ""}`}>· under your {Math.round(reserve ?? 0)}% target</span></>}
+                  {differs && <>{" "}<span data-rivian-arrival data-arrival-piece className={`pt-sub text-neutral-500 ${nw ?? ""}`}>· Rivian's planner: {own.toFixed(0)}%</span></>}
                 </>}
               </span>
             );
