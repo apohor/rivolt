@@ -76,3 +76,32 @@ describe("the free plan's limits on the client", () => {
     }
   });
 });
+
+describe("the planner note under design key pro_entry (D5 A)", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.doUnmock("../lib/config");
+    vi.resetModules();
+  });
+
+  async function planError(keyOn: boolean) {
+    vi.resetModules();
+    vi.doMock("../lib/config", async (orig) => ({ ...(await orig<typeof import("../lib/config")>()), useDesignPreview: (k: string) => keyOn && k === "pro_entry" }));
+    const { PlanError } = await import("../pages/TripPlanPage");
+    const { ApiError } = await import("../lib/api");
+    Element.prototype.scrollIntoView = vi.fn();
+    stubFetchRoutes({ "/api/auth/me": { body: free } });
+    wrap(<PlanError error={new ApiError(402, { error: "pro_required" })} />);
+  }
+
+  it("key on: the reworded note and See the Pro tier; key off: today's note and See Pro", async () => {
+    await planError(true);
+    expect(screen.getByText("Plans with an overnight are in the Pro tier. A single-day plan stays free: remove the overnight and plan again.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "See the Pro tier" })).toBeInTheDocument();
+    cleanup();
+    await planError(false);
+    expect(screen.getByText(/Multi-day plans, overnights and re-plan from here are part of Rivolt Pro\. A single-day plan stays free\./)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "See Pro" })).toBeInTheDocument();
+  });
+});
