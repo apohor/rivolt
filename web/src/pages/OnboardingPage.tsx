@@ -73,6 +73,8 @@ export default function OnboardingPage() {
 
         {choosing ? (
           <SignupChoice onAdd={() => setSearch({ connect: "1" })} />
+        ) : v2 && !connected ? (
+          <RivianAccountPanel v2 onLater={finish} />
         ) : (
           <>
         <h2 className="mb-3 text-base font-semibold text-neutral-100">

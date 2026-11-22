@@ -40,6 +40,7 @@ const TermsArchivePage = lazy(() => import("./pages/TermsArchivePage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const MovingFromElectraFiPage = lazy(() => import("./pages/MovingFromElectraFiPage"));
 const SafeToConnectPage = lazy(() => import("./pages/SafeToConnectPage"));
+const DriverAccountPage = lazy(() => import("./pages/DriverAccountPage"));
 const SupportPage = lazy(() => import("./pages/SupportPage"));
 const CreditsPage = lazy(() => import("./pages/CreditsPage"));
 const SharedTripPage = lazy(() => import("./pages/SharedTripPage"));
@@ -136,6 +137,7 @@ export default function App() {
       <Route path="terms/2026-11-17" element={<TermsArchivePage version="2026-11-17" />} />
       <Route path="moving-from-electrafi" element={<MovingFromElectraFiPage />} />
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
+      <Route path="driver-account" element={<DriverAccountPage />} />
       <Route path="support" element={<SupportPage />} />
       <Route path="credits" element={<CreditsPage />} />
       <Route path="s" element={<SharedTripPage />} />
