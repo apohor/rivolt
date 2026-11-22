@@ -59,10 +59,16 @@ test("next-mode on a phone: map first, then the summary and itinerary; Saved and
   // The planner tab is only planning.
   await expect(page.getByRole("heading", { name: "Plan vs actual" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Saved trips" })).toHaveCount(0);
-  await page.getByRole("tab", { name: "Plan vs actual" }).click();
-  await expect(page.getByRole("heading", { name: "Plan vs actual" })).toBeVisible();
-  await page.getByRole("tab", { name: "Saved" }).click();
-  await expect(page.getByRole("heading", { name: "Saved trips" })).toBeVisible();
+  // For up to 3 s after a plan arrives the page keeps re-aiming its scroll, and on a loaded WebKit runner the tab can move between the press and
+  // the release of a click, so the click is lost (seen once on main: the Planner tab stayed selected). A person would tap again: so does the test.
+  const openTab = async (tab: string, heading: string) => {
+    await expect(async () => {
+      await page.getByRole("tab", { name: tab }).click({ timeout: 2_000 });
+      await expect(page.getByRole("heading", { name: heading })).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 15_000 });
+  };
+  await openTab("Plan vs actual", "Plan vs actual");
+  await openTab("Saved", "Saved trips");
   await ctx.close();
 });
 

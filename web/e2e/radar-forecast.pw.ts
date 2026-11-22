@@ -113,3 +113,17 @@ for (const w of [393, 1440]) for (const scheme of ["light", "dark"] as const) {
     }
   });
 }
+
+// plan_v2 takes the weather chips off the map: the rain or snow line then lives only in the itinerary rows, and it must stay there for Pro.
+test("plan_v2 on, Pro: no weather chip on the map, the itinerary rows still say rain or snow likely, with the credit", async ({ page }) => {
+  await open(page, PRO, RAIN, ["radar_forecast", "plan_v2"]);
+  await expect(page.locator("[data-weather-chip], [data-leg-badge]")).toHaveCount(0);
+  await expect(tags(page).nth(0)).toHaveText("41°F · Rain likely at arrival");
+  await expect(tags(page).nth(1)).toHaveText("46°F · Snow likely at arrival");
+  await expect(page.getByTestId("radar-credit")).toHaveText("Rain and snow likely at arrival: NOAA RRFS");
+});
+
+test("plan_v2 on, free with wet legs: the teaser line is still there", async ({ page }) => {
+  await open(page, FREE, TEASE, ["radar_forecast", "plan_v2"]);
+  await expect(page.locator("[data-radar-teaser]")).toContainText("Rain or snow is likely at 2 stops");
+});

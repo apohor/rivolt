@@ -3,7 +3,7 @@ import { movableVia, moveVia, viaMoveLabel, viaPosition, viaRemoveLabel } from "
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";
 import { DEFAULT_OVERNIGHT_KW, HOOKUPS, type HookupId, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw, hookupNote } from "../plan/hookups";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { usePlanner } from "../plan/usePlanner";
@@ -44,10 +44,12 @@ import { proLimitOf, type ProLimit } from "../lib/proLimit";
 // anywhere else.
 
 export default function TripPlanPage() {
-  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
+  const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, plannedTargetRef, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab();
   // plan_v2 (preview): once a plan is shown the result takes over and the form folds to one summary line.
   const v2 = useDesignPreview("plan_v2");
+  // plan_v2: the result is judged against the target it was planned with, so editing the field does not retint it before planning again.
+  const plannedReserve = useMemo(() => reservePct(plannedTargetRef.current), [plannedTargetRef, resultKey]);
   const aiConsent = useAIConsent();
   // When a plan arrives, bring it into view. Phones: the map (or the multi-day result) up under the top bar so
   // it fills the space above the sheet's peek. Wide screens: only when the result starts well below the fold
@@ -705,7 +707,7 @@ export default function TripPlanPage() {
         {/* One selected stop for the whole result: the itinerary, the map and
             anything that follows the selection. A new plan clears it. */}
         <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null}>
-        <ReserveProvider value={v2 ? reservePct(targetSoc) : null}>
+        <ReserveProvider value={v2 ? plannedReserve : null}>
         <div data-plan-split data-has-result={hasResult ? "true" : undefined} data-plan-v2={v2 ? "" : undefined}>
           {formEl}
           {resultEl}
@@ -861,7 +863,6 @@ function DemoPresetPicker({ activeId, onOpen }: { activeId: string | null; onOpe
     const p = list.data.trips.find((x) => x.id === presetParam || x.saved_trip_id === presetParam);
     autoOpened.current = true;
     if (p) void open(p);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetParam, list.data]);
   return (
     <div data-plan-bar>

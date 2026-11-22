@@ -287,6 +287,9 @@ export function usePlanner() {
   // Ref (not state) because we only care about latch-and-fire on the
   // immediately-following render, not as a render input itself.
   const autoReplanAfterAddRef = useRef(false);
+  // The Target arrival SoC the result on screen was planned with (sent with the request, or saved with the trip): the result is judged against it,
+  // not against the field, which the person may edit before planning again.
+  const plannedTargetRef = useRef("");
   const planMutation = useMutation({
     // A single-day plan replaces any multi-day answer on screen.
     onMutate: () => {
@@ -297,6 +300,7 @@ export function usePlanner() {
       if (!origin || !destination) {
         return Promise.reject(new Error("origin + destination required"));
       }
+      plannedTargetRef.current = targetSoc;
       const target = targetSoc.trim() === "" ? undefined : Number(targetSoc);
       const vid = firstVehicle?.rivian_vehicle_id;
       const liveSoc = stateQuery.data?.battery_level_pct;
@@ -391,6 +395,7 @@ export function usePlanner() {
       const req = buildMultidayRequest();
       if (!req) return Promise.reject(new Error("origin + destination required"));
       lastMultidayRequest.current = req;
+      plannedTargetRef.current = targetSoc;
       return retryOnceAfterReconnect(() => backend.planTripMultiday(req));
     },
   });
@@ -533,6 +538,7 @@ export function usePlanner() {
       ),
     );
     if (typeof i.overnight_departure_local === "string") setOvernightDepartureLocal(i.overnight_departure_local);
+    plannedTargetRef.current = typeof i.target_soc === "string" ? i.target_soc : "";
     if (typeof i.target_soc === "string") setTargetSoc(i.target_soc);
     if (typeof i.starting_soc === "string") setStartingSoc(i.starting_soc);
     if (typeof i.drive_mode === "string") setDriveMode(normalizeDriveMode(i.drive_mode));
@@ -631,6 +637,7 @@ export function usePlanner() {
     setOvernightDepartureLocal,
     targetSoc,
     setTargetSoc,
+    plannedTargetRef,
     startingSoc,
     setStartingSoc,
     driveMode,

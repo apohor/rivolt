@@ -13,8 +13,15 @@ export function tripTotalsText(p: { day?: string; meters: number; stops: number;
   return parts.join(" · ");
 }
 
-// timeSplit: the total's two parts, shown once beneath it. Driving is what is left of the total after charging, so the two always add up to it.
-export function timeSplit(totalSec: number, chargingSec: number): { driving: string; charging: string } | null {
-  if (!(totalSec > 0) || !(chargingSec > 0) || chargingSec >= totalSec) return null;
-  return { driving: formatDuration(totalSec - chargingSec), charging: formatDuration(chargingSec) };
+// OTHER_MIN_SEC: what the total holds beyond driving and charging (a rest, a wait) is named once it is 5 minutes or more; less is rounding.
+const OTHER_MIN_SEC = 300;
+
+// timeSplit: the total's parts, shown once beneath it. Driving is the plan's own driving time and charging its charging time; if the total holds
+// more than the two (a rest, a wait), the remainder is shown as "other" rather than counted as driving. Null when a part is unknown (the plan
+// has no driving time) or the parts overrun the total: the strip then keeps today's Charging cell.
+export function timeSplit(totalSec: number, chargingSec: number, driveSec: number): { driving: string; charging: string; other: string | null } | null {
+  if (!(totalSec > 0) || !(chargingSec > 0) || !(driveSec > 0)) return null;
+  const rest = totalSec - driveSec - chargingSec;
+  if (rest < -OTHER_MIN_SEC) return null;
+  return { driving: formatDuration(driveSec), charging: formatDuration(chargingSec), other: rest >= OTHER_MIN_SEC ? formatDuration(rest) : null };
 }

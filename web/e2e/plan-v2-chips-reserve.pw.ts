@@ -8,11 +8,11 @@ import { DEMO_PLAN, DEMO_PRESETS, stubApi } from "./stub";
 const SHOTS = process.env.PLAN_V2_SHOTS || path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
-async function openSaved(page: Page, key: boolean) {
+async function openSaved(page: Page, key: boolean, target?: string) {
   await stubApi(page, key ? { designPreview: ["plan_v2"] } : {});
   const t = DEMO_PRESETS[0];
   await page.route("**/api/trips/saved", (r) =>
-    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ id: "st-v2", name: t.name, inputs: t.inputs, plan: DEMO_PLAN, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }]) }),
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ id: "st-v2", name: t.name, inputs: { ...t.inputs, ...(target !== undefined ? { target_soc: target } : {}) }, plan: DEMO_PLAN, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }]) }),
   );
   await page.goto("/trips/plan");
   await page.getByRole("tab", { name: "Saved" }).click();
@@ -58,26 +58,36 @@ test("key off: chips are today's, no check", async ({ page }) => {
   await expect(page.locator("[data-chip-check]")).toHaveCount(0);
 });
 
-test("reserve: an arrival under it is tinted, over it is not, key off never", async ({ page }) => {
+// The result is judged against the target it was planned with (saved with the trip), not against the field, which can be edited afterwards.
+test("target: an arrival under it is tinted and said in words; over it, or none, is not", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await openSaved(page, true);
-  const target = await targetField(page);
-  await target.fill("1");
-  await expect(page.locator("[data-under-reserve]")).toHaveCount(0);
-  await target.fill("");
-  await expect(page.locator("[data-under-reserve]")).toHaveCount(0);
-  await target.fill("99");
+  await openSaved(page, true, "99");
   await expect(page.locator("[data-plan-hero] [data-under-reserve]")).toBeVisible();
-  await expect(page.locator("[data-plan-hero] svg[role='img']")).toHaveAttribute("aria-label", /under your 99 percent reserve/);
+  await expect(page.locator("[data-plan-hero] svg[role='img']")).toHaveAttribute("aria-label", /under your 99 percent target/);
   await expect(page.locator("[data-plan-timeline] [data-under-reserve]")).toContainText("%");
-  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.locator("[data-plan-timeline]")).toContainText("under your 99% target");
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(SHOTS, "item6-reserve-under.png") });
 });
 
-test("reserve, key off: no tint", async ({ page }) => {
+test("target: over it, or none, is not tinted", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await openSaved(page, false);
+  await openSaved(page, true, "1");
+  await expect(page.locator("[data-plan-hero]")).toBeVisible();
+  await expect(page.locator("[data-under-reserve]")).toHaveCount(0);
+});
+
+test("target: editing the field does not retint the plan on screen", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openSaved(page, true, "1");
+  await expect(page.locator("[data-plan-hero]")).toBeVisible();
   await (await targetField(page)).fill("99");
+  await expect(page.locator("[data-under-reserve]")).toHaveCount(0);
+});
+
+test("target, key off: no tint", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openSaved(page, false, "99");
+  await expect(page.locator("[data-plan-hero]")).toBeVisible();
   await expect(page.locator("[data-under-reserve]")).toHaveCount(0);
 });
