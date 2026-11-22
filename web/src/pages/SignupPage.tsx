@@ -152,6 +152,25 @@ export default function SignupPage() {
   const passwordValid = passwordChecks.every((c) => c.ok);
   const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
 
+  // A signed-in visitor has an account already (they followed an "Add my truck" or "Connect" link, or opened /signup by hand): send them on
+  // instead of showing account creation. No truck yet: the connect step; else home. A good sign-up link (?token) is a new account on purpose and
+  // keeps the page, as does the full-signup notice; a used or expired link is passed on like a plain /signup.
+  useEffect(() => {
+    if ((token && tokenStatus !== "invalid") || fullMode) return;
+    let cancelled = false;
+    (async () => {
+      const me = await backend.whoami().catch(() => null);
+      if (cancelled || !me) return;
+      const rivian = await backend.rivianStatus().catch(() => null);
+      // The app's cached "who am I" was taken signed out: refresh it so the terms gate applies.
+      await queryClient.resetQueries({ queryKey: ["auth", "me"] });
+      if (!cancelled) navigate(rivian && rivian.enabled && !rivian.authenticated ? "/onboarding?connect=1" : "/", { replace: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, tokenStatus, fullMode, navigate, queryClient]);
+
   // Token-mode is the only mode now — the user got here via a magic
   // link from an admin approval. Without a valid token the page
   // shows the "request access" form instead of a signup form.

@@ -1,3 +1,4 @@
+import { forgetFromApp } from "../lib/demoFromApp";
 import { forgetCardHeights } from "../lib/nowCardSize";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
@@ -27,6 +28,7 @@ export function SignOutButton({ label = "Sign out", solid = false }: { label?: s
         // always signs the real admin (or user) out cleanly.
         stopImpersonation();
         forgetCardHeights();
+        forgetFromApp();
         try {
           await backend.logout();
         } finally {
