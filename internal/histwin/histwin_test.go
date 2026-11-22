@@ -97,7 +97,8 @@ func TestCutoffUnset(t *testing.T) {
 	if w := Free(now, time.Time{}); w.Months != LegacyMonths || !w.Since.Equal(time.Date(2029, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("unset: %+v, want 12 months back from January", w)
 	}
-	if err := ConfigureCutoff(" 2026-12-01T00:00:00Z "); err != nil || !Cutoff.Equal(X		t.Errorf("ConfigureCutoff: %v, cutoff %v", err, Cutoff)
+	if err := ConfigureCutoff(" 2026-12-01T00:00:00Z "); err != nil || !Cutoff.Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("ConfigureCutoff: %v, cutoff %v", err, Cutoff)
 	}
 	if err := ConfigureCutoff("2026-12-01"); err == nil {
 		t.Error("a date without a time was accepted")
