@@ -150,8 +150,12 @@ func TestVehicleTrendsForOneTruck(t *testing.T) {
 		t.Errorf("metric = %+v", m)
 	}
 	// Bad months.
-	if w := serve(alice, "rv-trends-a", "?months=99"); w.Code != http.StatusBadRequest {
-		t.Errorf("months=99 = %d, want 400", w.Code)
+	if w := serve(alice, "rv-trends-a", "?months=121"); w.Code != http.StatusBadRequest {
+		t.Errorf("months=121 = %d, want 400", w.Code)
+	}
+	// The web's "All" asks for 120.
+	if w := serve(alice, "rv-trends-a", "?months=120"); w.Code != http.StatusOK {
+		t.Errorf("months=120 = %d, want 200", w.Code)
 	}
 	// An R2: efficiency yes, capacity null (cannot be tracked there).
 	r2t := decode(serve(alice, "rv-trends-r2", ""))

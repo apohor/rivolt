@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ProLimitNotice } from "./ProLimitNotice";
 import { proLimitOf, retryUnlessLimit } from "../lib/proLimit";
@@ -9,6 +10,13 @@ import { Card } from "./ui";
 const monthFmt = new Intl.DateTimeFormat(undefined, { month: "short", year: "2-digit", timeZone: "UTC" });
 const monthLabel = (ym: string): string => monthFmt.format(new Date(`${ym}-15T12:00:00Z`));
 
+// The Pro range: 12 or 24 months, or everything the server keeps (it returns only months with driving, so a long range is cheap).
+const RANGES = [
+  { months: 12, label: "12 months" },
+  { months: 24, label: "24 months" },
+  { months: 120, label: "All" },
+] as const;
+
 const note = "text-sm text-neutral-400";
 
 // "Trends for your truck" (Truck tab): efficiency by month, for this truck only. (The capacity estimate's history
@@ -18,9 +26,12 @@ const note = "text-sm text-neutral-400";
 export function TrendsCard({ vehicleID }: { vehicleID: string }) {
   const { distanceUnit } = usePreferences();
   const units = distanceUnit === "km" ? "metric" : "imperial";
+  const [months, setMonths] = useState<number>(RANGES[0].months);
   const q = useQuery({
-    queryKey: ["trends", vehicleID, units],
-    queryFn: () => backend.trends(vehicleID, units),
+    queryKey: ["trends", vehicleID, units, months],
+    queryFn: () => backend.trends(vehicleID, units, months),
+    // Keep the chart on screen while another range of the same truck and units loads; never another truck's.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === vehicleID && prevQuery.queryKey[2] === units ? prev : undefined),
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
     // A free account's 402 is an answer, not a failure: no retry.
@@ -35,8 +46,25 @@ export function TrendsCard({ vehicleID }: { vehicleID: string }) {
       </Card>
     );
   }
+  // Only a Pro account gets here with data (the route is Pro-only: a free account's 402 is the notice above), so the control is shown
+  // once the first answer is in, and no range is asked for before the account has proved it can read trends.
+  const ranges = q.data ? (
+    <div className="inline-flex rounded-md border border-neutral-800 p-0.5 text-xs" role="group" aria-label="Range" data-trends-range>
+      {RANGES.map((r) => (
+        <button
+          key={r.months}
+          type="button"
+          aria-pressed={months === r.months}
+          onClick={() => setMonths(r.months)}
+          className={`rounded px-2 py-0.5 ${months === r.months ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+        >
+          {r.label}
+        </button>
+      ))}
+    </div>
+  ) : undefined;
   return (
-    <Card title="Trends for your truck" span="full">
+    <Card title="Trends for your truck" span="full" actions={ranges}>
       <div data-trends className="space-y-6">
         {q.isPending && <div className="h-40 animate-pulse rounded-sm bg-neutral-900/50" />}
         {q.isError && (
