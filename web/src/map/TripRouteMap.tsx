@@ -36,6 +36,7 @@ import { foldCredits, tripCard, tilesNotice } from "./controls";
 import { drawLegBadges, type BadgesHandle, type LegWeatherInfo } from "./legBadges";
 import { legWeatherTags } from "../plan/legWeather";
 import { chargePillText } from "./pillText";
+import { chargeRingLabel, chargeRingSvg } from "../plan/chargeRing";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
   bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, offRouteLine, sameSpot, valhallaMultiRoute, waypointTooltip,
@@ -51,15 +52,25 @@ const CHARGERS_SOURCE = "rivolt-chargers";
 const CHARGERS_LAYER = "rivolt-chargers-dots";
 const VARIANTS: Variant[] = ["dcfc", "l2", "hotel", "camp"];
 
+// plan_v2: what a charge ring needs; its marker is the shared drawing (plan/chargeRing.ts).
+type RingSpec = { arrival: number; departure: number };
+
 // The waypoint dot, plain or selected (the stops-table row is highlighted): the selected one is larger and ringed, its glow a touch target.
-function dotElement(color: string, size: number, selected: boolean, bolt: boolean | string = false): HTMLElement {
+function dotElement(color: string, size: number, selected: boolean, bolt: boolean | RingSpec = false): HTMLElement {
   const el = document.createElement("span");
+  if (typeof bolt === "object") {
+    // plan_v2: the charge ring; highlighted (selected or hovered, here or in its row) it is larger with a halo.
+    el.className = "trip-route-dot";
+    el.setAttribute("data-charge-ring", "");
+    if (selected) el.setAttribute("data-on", "");
+    el.innerHTML = chargeRingSvg(30, bolt.arrival, bolt.departure);
+    return el;
+  }
   if (bolt) {
     // A charging stop: an amber disc with a bolt, as in the mockup; the selected one is ringed and larger.
     const px = selected ? 26 : 22;
     el.className = selected ? "trip-route-dot-selected" : "trip-route-dot";
-    // plan_v2: the stop's number (the itinerary row carries the same one) in place of the bolt.
-    el.textContent = typeof bolt === "string" ? bolt : "⚡";
+    el.textContent = "⚡";
     el.style.cssText =
       `display:inline-flex;align-items:center;justify-content:center;width:${px}px;height:${px}px;border-radius:9999px;background:${color};color:#0a0a0a;` +
       `font:700 ${selected ? 15 : 13}px/1 ui-sans-serif,system-ui;border:${selected ? 3 : 2}px solid ${selected ? "#fafafa" : "#0a0a0a"};box-shadow:0 0 0 ${selected ? 4 : 2}px ${color}55;`;
@@ -115,6 +126,8 @@ export function TripRouteMap({
   onPreviewStop,
   selectedIdx,
   onSelectStop,
+  hoverIdx,
+  onHoverStop,
   departureAt,
   dayLabel,
   planV2 = false,
@@ -140,6 +153,9 @@ export function TripRouteMap({
   // Bidirectional selection between the stops table and the map: the index into route.Waypoints of the highlighted waypoint, or null.
   selectedIdx?: number | null;
   onSelectStop?: (idx: number | null) => void;
+  // plan_v2: the stop under the pointer (here or in its itinerary row); the charge rings highlight together.
+  hoverIdx?: number | null;
+  onHoverStop?: (idx: number | null) => void;
   // "Day 2" on a multi-day plan's map: the card says which day it is.
   dayLabel?: string;
   // plan_v2: the card writes its time the way the summary strip and the sheet do (one total, one form).
@@ -165,7 +181,7 @@ export function TripRouteMap({
   // Waypoint markers by their index in route.Waypoints, so a table-row selection can restyle the right one.
   const selectedIdxRef = useRef(selectedIdx);
   selectedIdxRef.current = selectedIdx;
-  const wpMarkersRef = useRef<Map<number, { marker: Marker; color: string; size: number; wrap: HTMLElement; bolt: boolean | string }>>(new Map());
+  const wpMarkersRef = useRef<Map<number, { marker: Marker; color: string; size: number; wrap: HTMLElement; bolt: boolean | RingSpec }>>(new Map());
   const chargersRef = useRef<GeoJSON.FeatureCollection>({ type: "FeatureCollection", features: [] });
   const popupRef = useRef<Popup | null>(null);
   // True between a style's "style.load" and the next setStyle. Not map.isStyleLoaded(): that is false while any source is still loading a
@@ -548,6 +564,10 @@ export function TripRouteMap({
   };
   const onSelectStopRef = useRef(onSelectStop);
   useEffect(() => { onSelectStopRef.current = onSelectStop; }, [onSelectStop]);
+  const onHoverStopRef = useRef(onHoverStop);
+  useEffect(() => { onHoverStopRef.current = onHoverStop; }, [onHoverStop]);
+  const hoverIdxRef = useRef(hoverIdx);
+  hoverIdxRef.current = hoverIdx;
   const { distanceUnit } = usePreferences();
   const distanceUnitRef = useRef(distanceUnit);
   distanceUnitRef.current = distanceUnit;
@@ -705,7 +725,7 @@ export function TripRouteMap({
         }
         return null;
       };
-      // plan_v2: a charging stop's place among the charging stops (1, 2, ...): the number its itinerary row carries.
+      // plan_v2: a charging stop's place among the charging stops (1, 2, ...): the order its marker's label says.
       const chargeNumber = (origIdx: number) => route.Waypoints.slice(0, origIdx).filter(isChargingWaypoint).length + 1;
       const pillKeyRef = { key: "" };
       const updatePills = (force = false) => {
@@ -746,8 +766,7 @@ export function TripRouteMap({
           const w = ws[i];
           const ll: [number, number] = [w.Longitude, w.Latitude];
           const min = Math.round(w.ChargeDurationSec / 60);
-          const num = planV2 && isChargingWaypoint(w) ? chargeNumber(wsWithIdx[i].i) : null;
-          const text = w.ChargeDurationSec > 0 ? chargePillText(min, w.ArrivalSoC, w.DepartureSoC, num) : shortName(w.Name || "Stop");
+          const text = w.ChargeDurationSec > 0 ? chargePillText(min, w.ArrivalSoC, w.DepartureSoC) : shortName(w.Name || "Stop");
           const size = measurePill(text);
           const usual = pillSide(map, ll);
           const pin = map.project(ll);
@@ -790,8 +809,18 @@ export function TripRouteMap({
         // The marker's own element keeps the library's classes and a fixed box (a steady anchor and a touch target); the dot inside swaps on selection.
         const element = document.createElement("div");
         element.style.cssText = "display:flex;align-items:center;justify-content:center;width:28px;height:28px;";
-        const bolt: boolean | string = !isEnd && isChargingWaypoint(w) ? (planV2 ? String(chargeNumber(origIdx)) : true) : false;
-        element.appendChild(dotElement(color, size, false, bolt));
+        const charging = !isEnd && isChargingWaypoint(w);
+        const bolt: boolean | RingSpec = charging ? (planV2 ? { arrival: w.ArrivalSoC, departure: w.DepartureSoC } : true) : false;
+        const hot = selectedIdxRef.current === origIdx || hoverIdxRef.current === origIdx;
+        element.appendChild(dotElement(color, size, planV2 && charging ? hot : false, bolt));
+        if (planV2 && charging) {
+          // The ring is the whole marker now (no number): its label says the order and the charge.
+          element.style.width = element.style.height = "34px"; // a touch target above today's 28 px, around the 30 px ring and its halo
+          element.setAttribute("role", "button");
+          element.setAttribute("aria-label", chargeRingLabel(chargeNumber(origIdx), chargingStopCount(route), w.ArrivalSoC, w.DepartureSoC));
+          element.addEventListener("mouseenter", () => onHoverStopRef.current?.(origIdx));
+          element.addEventListener("mouseleave", () => onHoverStopRef.current?.(null));
+        }
         element.style.cursor = "pointer";
         const marker = new ml.Marker({ element }).setLngLat([w.Longitude, w.Latitude]).addTo(map);
         // A tap or click selects the stops-table row and opens the stop's callout (a touch screen has no hover); hovering shows the same words.
@@ -1104,18 +1133,27 @@ export function TripRouteMap({
     return () => { map.off("click", onClick as never); };
   }, [mapReady, routePath, routeCum]);
 
-  // Effect: external selection. A table-row click makes the matching marker larger and ringed and pans onto it; the previous one reverts.
+  // Effect: external selection. A table-row click makes the matching marker larger and ringed; the previous one reverts. plan_v2: a charge ring is
+  // highlighted the same way while the pointer is over it or over its row.
   useEffect(() => {
     const markers = wpMarkersRef.current;
     if (markers.size === 0) return;
     for (const [idx, m] of markers.entries()) {
       const selected = selectedIdx === idx;
+      if (typeof m.bolt === "object") {
+        const hot = selected || hoverIdx === idx;
+        m.wrap.firstElementChild?.toggleAttribute("data-on", hot);
+        m.wrap.style.zIndex = hot ? "1000" : "";
+        continue;
+      }
       m.wrap.replaceChildren(dotElement(m.color, m.size, selected, m.bolt));
       m.wrap.style.zIndex = selected ? "1000" : "";
     }
+  }, [selectedIdx, hoverIdx, mapReady]);
+  useEffect(() => {
     const map = mapRef.current;
     if (map && typeof selectedIdx === "number") {
-      const m = markers.get(selectedIdx);
+      const m = wpMarkersRef.current.get(selectedIdx);
       if (m) map.easeTo({ center: m.marker.getLngLat(), duration: 300 });
     }
   }, [selectedIdx, mapReady]);

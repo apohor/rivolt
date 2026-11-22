@@ -912,3 +912,35 @@
   width: 2.5rem;
   background: linear-gradient(90deg, #00eded, #00c800, #ffff00, #ff8f00, #ff0000, #ff00ff);
 }
+
+/* plan_v2 charge ring (plan/chargeRing.ts): one marker on the map and on the itinerary's rail. The colours follow the theme; a highlighted one
+   (selected or hovered, here or on its twin) is a little larger with an outer halo. */
+:root {
+  --cr-arc: #f59e0b;
+  --cr-track: #41464d;
+  --cr-disc: #16191d;
+}
+:root[data-theme='light'] {
+  --cr-arc: #b45309;
+  --cr-track: #d8dadd;
+  --cr-disc: #ffffff;
+}
+[data-charge-ring] {
+  display: inline-flex;
+  border-radius: 9999px;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+[data-charge-ring][data-on] {
+  transform: scale(1.14);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cr-arc) 38%, transparent);
+}
+/* The rail's ring replaces the node: centred on the rail and the name's first line. */
+:root [data-plan-timeline] > li[data-ring]::before {
+  display: none;
+}
+:root [data-plan-timeline] > li > [data-charge-ring-rail] {
+  position: absolute;
+  left: -1.825rem;
+  top: 0.4rem;
+  pointer-events: none;
+}
