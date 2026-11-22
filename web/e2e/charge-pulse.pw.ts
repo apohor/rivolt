@@ -75,3 +75,33 @@ test("now card, key on while charging: the bolt beside the kW and the live dot p
   expect(await animation(page, "charge-pulse-dot")).toBe("cp-pulse");
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "now-on.png") });
 });
+
+// WCAG relative luminance of an rgb() string, and the contrast of the bolt's colour against the card behind it (a graphic needs 3:1).
+const lum = (c: string) => {
+  const [r, g, b] = (c.match(/[\d.]+/g) ?? []).slice(0, 3).map((v) => { const x = Number(v) / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a: string, b: string) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05); };
+
+for (const theme of ["light", "dark"] as const) {
+  test(`live, key on, ${theme} theme: the charging bolt is at least 3:1 against the card`, async ({ page }) => {
+    await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), theme);
+    await page.emulateMedia({ colorScheme: theme });
+    await page.setViewportSize({ width: 393, height: 852 });
+    await live(page, ["charge_pulse"]);
+    const bolt = page.getByTestId("charge-pulse-bolt");
+    await expect(bolt).toBeVisible();
+    expect((await page.evaluate(() => document.documentElement.dataset.theme)) === "light").toBe(theme === "light");
+    // The painted colours as sRGB: the bolt's own, and the first opaque surface behind it (the page, when the card is translucent).
+    const [color, bg] = await bolt.evaluate((el) => {
+      const px = (c: string) => { const cv = document.createElement("canvas"); cv.width = cv.height = 1; const x = cv.getContext("2d")!; x.fillStyle = "#000"; x.fillRect(0, 0, 1, 1); x.fillStyle = c; x.fillRect(0, 0, 1, 1); const d = x.getImageData(0, 0, 1, 1).data; return `rgb(${d[0]}, ${d[1]}, ${d[2]})`; };
+      let n: HTMLElement | null = el.parentElement;
+      const solid = (e: HTMLElement) => { const c = getComputedStyle(e).backgroundColor; const a = /\/\s*([\d.]+)\)$/.exec(c)?.[1] ?? /,\s*([\d.]+)\)$/.exec(c)?.[1]; return a == null || Number(a) >= 0.9; };
+      while (n && !solid(n)) n = n.parentElement;
+      return [px(getComputedStyle(el).color), px(getComputedStyle(n ?? document.body).backgroundColor)];
+    });
+    // The pulse dips to half opacity; the resting colour is what is checked.
+    expect(contrast(color, bg), `${color} on ${bg}`).toBeGreaterThanOrEqual(3);
+    if (SHOTS) await page.getByTestId("live-session-card").screenshot({ path: path.join(SHOTS, `live-card-${theme}.png`) });
+  });
+}
