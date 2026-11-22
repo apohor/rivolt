@@ -49,6 +49,13 @@ function Failure({ title, children, action }: { title: string; children: React.R
 function SignInFailure({ error, step, retry, onLater, onNewCode }: { error: unknown; step: "password" | "code"; retry: () => void; onLater?: () => void; onNewCode?: () => void }) {
   const f = connectFailure(error, step);
   if (f.cls === "rate_limited") return <Failure title="Too many tries right now">Sign-in is paused for about 10 minutes. Then try once more.</Failure>;
+  if (step === "code" && f.cls === "outage") {
+    return (
+      <Failure title="That code may have expired" action={onNewCode ? { label: "Get a new code", run: onNewCode } : undefined}>
+        The code may have expired, or Rivian didn't answer. Get a new code: you'll enter your password again and Rivian sends a new one.
+      </Failure>
+    );
+  }
   if (f.cls === "transient" || f.cls === "outage") {
     return (
       <Failure title="Rivian isn't answering right now" action={{ label: "Try again", run: retry }}>

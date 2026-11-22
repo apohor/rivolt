@@ -20,6 +20,12 @@ describe("connectFailure", () => {
       expect(f.track).toBe("other");
     }
   });
+  it("an outage on the code step says the code may have expired, not that Rivian is down", () => {
+    const f = connectFailure(err(503, { error: "didn't accept this code", class: "outage" }), "code");
+    expect(f.title).toBe("That code may have expired");
+    expect(f.body).toContain("may have expired, or Rivian didn't answer");
+    expect(f.track).toBe("mfa");
+  });
   it("rate limiting says to wait and tracks as rate", () => {
     const f = connectFailure(err(429, { error: "x", class: "rate_limited" }), "code");
     expect(f.title).toBe("Too many tries right now");
