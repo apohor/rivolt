@@ -15,7 +15,7 @@ enum SettingsLogic {
             case .devices: return "Signed-in devices"
             case .passkeys: return "Passkeys"
             case .vehicleProfile: return "Vehicle profile"
-            case .primaryVehicle: return "Vehicle the free plan shows"
+            case .primaryVehicle: return "Vehicle the free tier shows"
             case .homeLocation: return "Home location"
             case .units: return "Units"
             case .chargingRates: return "Charging rates"
@@ -70,12 +70,13 @@ enum SettingsLogic {
     }
 
     /// Account, Security, Vehicle, Charging, Notifications (only where this server can push), App, Data and About, as the web's tabs.
-    /// "Rivolt Pro" is listed only where the server bills (the account carries a plan); with billing off nothing mentions a plan.
+    /// "Rivolt Pro" is listed only where the server bills (the account carries a plan); with billing off nothing mentions a plan, except that a
+    /// free-tier account still gets its primary-vehicle row (the server limits it however the build bills).
     static func groups(notificationsOffered: Bool, planOffered: Bool = false, primaryVehicleOffered: Bool = false, noticesOffered: Bool = false, themeSwitch: Bool = false) -> [Group] {
         var out = [
             Group(title: "Account", rows: (planOffered ? [.plan] : []) + (noticesOffered ? [.notices] : []) + [.connection, .signOut]),
             Group(title: "Security", rows: [.devices, .passkeys]),
-            Group(title: "Vehicle", rows: [.vehicleProfile] + (planOffered && primaryVehicleOffered ? [.primaryVehicle] : []) + [.homeLocation, .units]),
+            Group(title: "Vehicle", rows: [.vehicleProfile] + (primaryVehicleOffered ? [.primaryVehicle] : []) + [.homeLocation, .units]),
             Group(title: "Charging", rows: [.chargingRates, .offpeak, .chargingNetworks, .plannerDefaults]),
         ]
         if notificationsOffered { out.append(Group(title: "Notifications", rows: [.notifications])) }
@@ -107,6 +108,8 @@ struct SettingsView: View {
     @AppStorage(AppearanceChoice.storageKey) private var appearance = AppearanceChoice.system
     @State private var showDelete = false
     @State private var plan: PlanState = .off
+    /// The account is on the free tier (or lapsed) whether or not this build bills: the server limits it either way.
+    @State private var primaryVehicleLimited = false
     @State private var freeWindow: FreeWindow = .unknown
     @State private var hasNotices = false
     private var themeSwitch: Bool { state.designPreview.contains("theme_switch") }
@@ -119,7 +122,7 @@ struct SettingsView: View {
                     Section { AppearancePicker() }
                         .listRowBackground(Theme.card)
                 }
-                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered, planOffered: plan != .off, primaryVehicleOffered: plan == .free, noticesOffered: hasNotices, themeSwitch: themeSwitch)) { group in
+                ForEach(SettingsLogic.groups(notificationsOffered: state.notifications.offered, planOffered: plan != .off, primaryVehicleOffered: primaryVehicleLimited, noticesOffered: hasNotices, themeSwitch: themeSwitch)) { group in
                     Section {
                         ForEach(group.rows, id: \.rawValue) { row in rowView(row) }
                     } header: {
@@ -150,6 +153,7 @@ struct SettingsView: View {
                 guard !state.isDemo else { return }
                 let me = try? await state.readMe()
                 plan = PlanLogic.state(me)
+                primaryVehicleLimited = PlanLogic.primaryVehicleLimited(me)
                 freeWindow = FreeWindow(me)
                 hasNotices = !((try? await state.client.notices()) ?? []).isEmpty
             }

@@ -10,8 +10,8 @@ const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 const j = (b: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(b) });
 
-async function open(page: Page, rivian: "disconnected" | "mfa", answer: { status: number; body: unknown }) {
-  await stubApi(page, { rivian: rivian === "mfa" ? "disconnected" : rivian });
+async function open(page: Page, rivian: "disconnected" | "mfa", answer: { status: number; body: unknown }, keys: string[] = []) {
+  await stubApi(page, { rivian: rivian === "mfa" ? "disconnected" : rivian, designPreview: keys });
   const events: string[] = [];
   await page.route("**/api/events", (r) => {
     events.push(r.request().postData() ?? "");
@@ -20,7 +20,7 @@ async function open(page: Page, rivian: "disconnected" | "mfa", answer: { status
   if (rivian === "mfa") await page.route("**/api/settings/rivian/", (r) => r.fulfill(j({ enabled: true, authenticated: false, mfa_pending: true })));
   // The events switch is on for this server.
   await page.route("**/api/config", (r) =>
-    r.fulfill(j({ features: { trip_planner_enabled: true, signup_enabled: true, events_enabled: true }, tiles: { url: "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles" }, valhalla: { path: "/api/maps/valhalla" }, impersonation: { disabled: true } })),
+    r.fulfill(j({ features: { trip_planner_enabled: true, signup_enabled: true, events_enabled: true, design_preview: keys }, tiles: { url: "/api/maps/tiles/us.pmtiles", chargers_url: "/api/maps/tiles/chargers.pmtiles" }, valhalla: { path: "/api/maps/valhalla" }, impersonation: { disabled: true } })),
   );
   await page.route("**/api/settings/rivian/login", (r) => r.fulfill(j(answer.body, answer.status)));
   await page.route("**/api/settings/rivian/mfa", (r) => r.fulfill(j(answer.body, answer.status)));
@@ -89,3 +89,35 @@ test("a wrong code says codes expire, and the failure is tracked with its class"
   await expect.poll(() => events.join(" "), { timeout: 10_000 }).toContain('"class":"mfa"');
   await ctx.close();
 });
+
+// v1.4.1: Rivian answers an expired or superseded code with a server error, which arrives as class outage. The code step then says the code may
+// have expired and offers a new one; it never says Rivian is down and never offers to send the same code again. Both forms (signup_v2 on and off).
+for (const on of [true, false]) {
+  test(`@webkit an outage on the code step says the code may have expired and offers a new code · key ${on ? "on" : "off"}`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
+    const page = await ctx.newPage();
+    await open(page, "mfa", { status: 503, body: { error: "didn't accept this code", class: "outage" } }, on ? ["signup_v2"] : []);
+    if (on) await page.getByLabel("Code").fill("123456");
+    else await page.getByPlaceholder("123456").fill("123456");
+    await page.getByRole("button", { name: on ? "Finish signing in" : "Verify" }).click();
+    // The new form marks its failure box as an alert; the old one as data-connect-failure.
+    const box = on ? page.getByRole("alert") : page.locator("[data-connect-failure]");
+    await expect(box).toContainText("That code may have expired");
+    await expect(box).toContainText("may have expired, or Rivian didn't answer");
+    await expect(page.getByText("Rivian isn't answering")).toHaveCount(0);
+    await expect(box.getByRole("button", { name: "Try again" })).toHaveCount(0);
+    const again = box.getByRole("button", { name: on ? "Get a new code" : "Start again for a new code" });
+    await expect(again).toBeVisible();
+    await box.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(SHOTS, `connect-code-outage-key-${on ? "on" : "off"}.png`) });
+    // Starting again signs the half-made login out; the server then says there is no code to wait for.
+    await page.route("**/api/settings/rivian/logout", (r) => r.fulfill(j({ authenticated: false })));
+    await page.route("**/api/settings/rivian/", (r) => r.fulfill(j({ enabled: true, authenticated: false, mfa_pending: false })));
+    await again.click();
+    // This page opens straight on the code step (the stub says a code is pending), so the new form's way back is its "Add my truck" step, then the sign-in form.
+    if (on) await page.getByRole("button", { name: /^Add my truck/ }).click();
+    await expect(on ? page.getByLabel("Rivian email") : page.getByPlaceholder("you@example.com")).toBeVisible();
+    await expect(on ? page.getByLabel("Code") : page.getByPlaceholder("123456")).toHaveCount(0);
+    await ctx.close();
+  });
+}

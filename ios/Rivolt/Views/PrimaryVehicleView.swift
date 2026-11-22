@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Settings → Vehicle → "Vehicle the free plan shows". A free account with several vehicles shows one; the rest keep recording and are
-/// listed as Pro. Nothing is hidden or deleted. Listed only where the server bills.
+/// listed as Pro. Nothing is hidden or deleted. Listed for any free-tier account, billing or not.
 struct PrimaryVehicleView: View {
     @Environment(AppState.self) private var state
     @State private var vehicles: [Vehicle] = []
@@ -36,7 +36,7 @@ struct PrimaryVehicleView: View {
                 .padding(4 * Theme.unit)
             }
             .themePage()
-            .navigationTitle("Vehicle the free plan shows")
+            .navigationTitle("Vehicle the free tier shows")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.bar, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)

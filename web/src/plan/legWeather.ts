@@ -26,6 +26,10 @@ const roundTemp = (c: number, unit: TemperatureUnit) => Math.round(unit === "f" 
 // A real minus, not a hyphen.
 const signed = (n: number) => (n < 0 ? "−" : "") + Math.abs(n);
 
+// A temperature (given in Celsius) and a wind speed (given in km/h) in the account's units, as the stop rows say them: "41°F", "25 mph".
+export const tempText = (c: number, unit: TemperatureUnit): string => `${signed(roundTemp(c, unit))}°${unit === "f" ? "F" : "C"}`;
+export const windText = (kph: number, distUnit: DistanceUnit): string => (distUnit === "mi" ? `${Math.round(Math.abs(kph) / KPH_PER_MPH)} mph` : `${Math.round(Math.abs(kph))} km/h`);
+
 export function legWeatherFacts(leg: TripWeatherAdjLeg | undefined, tempUnit: TemperatureUnit, distUnit: DistanceUnit, forecast = false): LegWeatherFacts | null {
   if (!leg) return null;
   const out: LegWeatherFacts = { rain: false, snow: leg.snow === true };

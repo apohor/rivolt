@@ -1,4 +1,5 @@
 import "../styles/next-plan.css";
+import { endpointColor, endpointGlow } from "../plan/endpointColors";
 import { movableVia, moveVia, viaMoveLabel, viaPosition, viaRemoveLabel } from "../plan/reorderVias";
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";
@@ -379,7 +380,7 @@ export default function TripPlanPage() {
                     {planSpinnerEl}
                   </div>
                   {/* Right under the button that was pressed, not under the result area far below it. */}
-                  {(planMutation.error || multidayMutation.isError) && <PlanError error={planMutation.error ?? multidayMutation.error} />}
+                  {(planMutation.error || multidayMutation.isError) && <PlanError error={planMutation.error ?? multidayMutation.error} overnight={!planMutation.error && hasOvernightStops} />}
                 </div>
               }
             />
@@ -1402,7 +1403,7 @@ function LocationField({
   // One compact row: a coloured node, the place (or the search), presets below.
   return (
     <div data-plan-field data-heading={heading} role="group" aria-label={heading}>
-      <span data-plan-dot aria-hidden />
+      <span data-plan-dot aria-hidden style={v2 ? { background: endpointColor(heading === "To" ? "end" : "start"), boxShadow: endpointGlow(endpointColor(heading === "To" ? "end" : "start")) } : undefined} />
       <div data-plan-field-main>
         {value ? (
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
@@ -1542,7 +1543,8 @@ function formatGeocode(r: GeocodeResult): string {
 
 // PlanError is the inline failure under the form, scrolled into view because on
 // a phone the result area starts below the fold.
-export function PlanError({ error }: { error: unknown }) {
+// `overnight` is true when the refused plan had an overnight: only then does the pro_entry note tell the person to remove it.
+export function PlanError({ error, overnight = false }: { error: unknown; overnight?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -1552,7 +1554,7 @@ export function PlanError({ error }: { error: unknown }) {
   if (limit) {
     return (
       <div ref={ref}>
-        <ProLimitNotice limit={limit} feature="planner" />
+        <ProLimitNotice limit={limit} feature="planner" overnight={overnight} />
       </div>
     );
   }

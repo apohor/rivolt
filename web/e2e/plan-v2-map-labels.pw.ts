@@ -93,6 +93,9 @@ test("key on, phone: tapping the marker highlights its row in the sheet", async 
   await page.setViewportSize({ width: 393, height: 852 });
   await openSaved(page, true);
   const mark = page.locator(".maplibregl-marker:has([data-charge-ring])").first();
+  // The map re-fits after it loads, so a marker can still be moving when it first shows: tap only once its box has stopped moving.
+  let last = "";
+  await expect.poll(async () => { const b = JSON.stringify(await mark.boundingBox()); const same = b === last; last = b; return same; }, { intervals: [150] }).toBe(true);
   const box = (await mark.boundingBox())!;
   expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(28); // a touch target no smaller than before
   await mark.click();

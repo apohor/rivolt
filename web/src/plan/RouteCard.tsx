@@ -22,6 +22,8 @@ import { Stat } from "./Stat";
 import { climbLine, legEstimateLine, legWeatherFacts } from "./legWeather";
 import type { LegWeatherInfo } from "../map/legBadges";
 import { TERRAIN_ATTRIBUTION } from "../map/style";
+import { sameSpot } from "../map/tripPure";
+import { endpointColor } from "./endpointColors";
 import { hasForecastTag, RadarCredit, RadarTeaser } from "./RadarForecast";
 
 // Lazy-load TripRouteMap so the MapLibre
@@ -136,6 +138,8 @@ export function RouteCard({
   })();
   const origin = originIdx >= 0 ? route.Waypoints[originIdx] : undefined;
   const dest = destIdx >= 0 ? route.Waypoints[destIdx] : undefined;
+  // The map draws a round trip as one pin in the start's colour; the end row's dot matches it.
+  const roundTrip = route.Waypoints.length > 1 && sameSpot(route.Waypoints[0], route.Waypoints[route.Waypoints.length - 1]);
   const totalChargeMin = Math.round(route.TotalChargingDurationSec / 60);
   const showTable = origin || dest || charging.length > 0;
 
@@ -289,6 +293,7 @@ export function RouteCard({
       hovered={hoverStop === idx}
       onHover={(on) => setHoverStop(on ? idx : null)}
       correctedArrival={planV2 && kind === "end" ? adjustment?.final_arrival_soc : undefined}
+      nodeColor={planV2 && (kind === "start" || kind === "end") ? endpointColor(kind, roundTrip) : undefined}
     />
   );
   const timeline = showTable && (

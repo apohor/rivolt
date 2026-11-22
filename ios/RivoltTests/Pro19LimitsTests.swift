@@ -41,13 +41,32 @@ final class Pro19LimitsTests: XCTestCase {
         }
         XCTAssertTrue(rows(true, true).contains(.primaryVehicle))
         XCTAssertFalse(rows(true, false).contains(.primaryVehicle))
-        XCTAssertFalse(rows(false, true).contains(.primaryVehicle), "billing off: no plan wording anywhere")
+        XCTAssertTrue(rows(false, true).contains(.primaryVehicle), "the server limits a free account whether or not this build bills")
+    }
+
+    /// The exact shape prod sends the iPhone today: plan free, billing_enabled false (RIVOLT_BILLING_IOS unset), no manage_subscription.
+    func testFreeAccountOnABuildThatDoesNotBillStillGetsThePrimaryVehicleRowAndNoPurchaseUI() throws {
+        let me = try Fixture.decode(AuthUser.self, "me_plan_free_bearer_billing_off")
+        XCTAssertEqual(PlanLogic.state(me), .off, "billing off: no plan screen, no prices, no See Pro")
+        XCTAssertTrue(PlanLogic.primaryVehicleLimited(me))
+        let rows = SettingsLogic.groups(notificationsOffered: false, planOffered: PlanLogic.state(me) != .off, primaryVehicleOffered: PlanLogic.primaryVehicleLimited(me)).flatMap(\.rows)
+        XCTAssertTrue(rows.contains(.primaryVehicle))
+        XCTAssertFalse(rows.contains(.plan), "no Rivolt Pro row, so no paywall")
+        XCTAssertNil(ProCopy.card(PlanLogic.state(me)))
+    }
+
+    func testPrimaryVehicleLimitedIsFalseForProDemoAndBillingOff() throws {
+        XCTAssertFalse(PlanLogic.primaryVehicleLimited(nil))
+        XCTAssertFalse(PlanLogic.primaryVehicleLimited(try Fixture.decode(AuthUser.self, "me_plan_subscriber")))
+        XCTAssertFalse(PlanLogic.primaryVehicleLimited(try Fixture.decode(AuthUser.self, "me_plan_billing_off_manage")))
+        XCTAssertTrue(PlanLogic.primaryVehicleLimited(try Fixture.decode(AuthUser.self, "me_plan_lapsed")))
+        XCTAssertTrue(PlanLogic.primaryVehicleLimited(try Fixture.decode(AuthUser.self, "me_plan_free")))
     }
 
     func testLimitSentences() {
         XCTAssertTrue(ProCopy.plannerLimit.contains("single-day plan stays free"))
         XCTAssertTrue(ProCopy.primaryVehicleIntro.contains("Nothing is deleted"))
-        XCTAssertEqual(ProCopy.primaryVehicleSaved("Alpha"), "Done. The free plan now shows Alpha.")
+        XCTAssertEqual(ProCopy.primaryVehicleSaved("Alpha"), "Done. The free tier now shows Alpha.")
     }
 }
 

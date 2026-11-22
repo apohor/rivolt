@@ -240,7 +240,7 @@ function Statement({
 }) {
   const coachOn = useDesignPreview("savings_coach");
   const cur = m.currency;
-  // Where the server bills, a free account's statement shows this month and the two before; the CSV of an older month is Pro.
+  // Where the server bills, a free account's statement shows this month and the server's window of months before it; the CSV of an older month is Pro.
   const me = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 });
   const plan = planState(me.data);
   const csvPro = csvIsPro(plan, m.period, currentMonth());

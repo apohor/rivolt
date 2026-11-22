@@ -21,6 +21,7 @@ import { BottomTabBar, SideRail, SubNav } from "./TabShell";
 import DegradedBanner from "./DegradedBanner";
 import { PlanNotice } from "../components/PlanNotice";
 import { ThemeSwitch } from "../components/ThemeSwitch";
+import { ProTierLink } from "../components/ProTierLink";
 
 // Warm a route's lazy chunk before the user clicks. The dynamic
 // import is module-cached, so repeat calls are cheap no-ops; firing on
@@ -89,6 +90,7 @@ function UserLayout() {
           </NavLink>
           <div className="flex items-center gap-2 max-[200px]:gap-1">
           <ThemeSwitch />
+          <ProTierLink />
           {/* Settings, one tap from every screen (the person icon, as on the iPhone). The Settings sub-link under Truck stays. */}
           <NavLink
             to="/settings"

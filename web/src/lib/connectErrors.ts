@@ -25,6 +25,16 @@ export function connectFailure(err: unknown, step: "password" | "code"): Connect
       track: "rate",
     };
   }
+  // Rivian answers an expired or superseded code with a server error, which the server classes as an outage. On the code step the same
+  // code would fail again, so the way on is a new code; we cannot tell the two causes apart and do not say which it was.
+  if (step === "code" && cls === "outage") {
+    return {
+      cls,
+      title: "That code may have expired",
+      body: "The code may have expired, or Rivian didn't answer. Start again to get a new code.",
+      track: "mfa",
+    };
+  }
   if (cls === "transient" || cls === "outage") {
     return {
       cls,

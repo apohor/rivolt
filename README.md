@@ -83,7 +83,7 @@ tab](https://demo.rivolt.dev/demo/trips/plan) has sample trips, including Los An
   [rivolt.dev/charging-cost](https://rivolt.dev/charging-cost). Every
   figure on it is an example.
 - To use it with your own truck, sign up at [rivolt.dev](https://rivolt.dev)
-  with Google or GitHub (the hosted service caps the number of accounts); see
+  with Google, GitHub or your email (the hosted service caps the number of accounts); see
   [`docs/SIGNUP.md`](docs/SIGNUP.md). We recommend connecting an Authorized
   Driver account, so Rivolt never holds your primary Rivian login and you
   can revoke access from the Rivian app at any time.
@@ -114,8 +114,11 @@ graph:
 
 - **Parked or asleep:** the battery over the last day, when the truck
   slept and woke, and how much it lost since it parked.
-- **Charging:** the battery and power over the session, the pack
-  temperature, when it should finish, and energy and range added, the
+- **Charging:** a small green bolt pulses beside the kW figure while
+  power flows, with a soft glow at the live end of the progress bar and on
+  the battery line's last point; plugged in but not charging, the status
+  text is the cue and nothing pulses. The card also shows the battery and
+  power over the session, the pack temperature, when it should finish, and energy and range added, the
   rate and the time elapsed. Cost so far is priced from your rates and
   always says it is an estimate and which rate it used.
 - **Driving:** your speed and battery over the drive, with gear, mode,
@@ -228,14 +231,29 @@ phone the map is on top and the trip sits in a sheet you drag up.
 
 - **Route bar.** From and To (with a swap button), departure, starting
   SoC on a slider, and a Plan button. Via-stops, target arrival SoC,
-  drive mode and the adapter switch live under "More options".
+  drive mode and the adapter switch live under "More options". Once a
+  trip is planned the form folds into one line ("Los Angeles → Las
+  Vegas", with its departure and charge) and an **Edit** button opens it
+  again.
 - **Result.** Rivolt asks Rivian's own planner for a route with
   charging stops and shows arrival SoC, trip cost, time, distance and
   charging time, with alternatives as a compact chooser.
 - **Itinerary.** Start, every charging stop and arrival as a vertical
   timeline. Open a stop for the charger and network, SoC in and out,
   charge time, energy and cost, and see it highlighted on the map (and
-  the reverse).
+  the reverse). **Save trip** sits directly under the itinerary, and the
+  elevation profile of the route comes after it.
+- **Charge ring.** Each charging stop is a ring on the map and on the
+  itinerary's rail: the arc is the share of the battery the stop adds
+  (arrival SoC to departure SoC), with the bolt in the middle. A label
+  beside it gives the time and the SoC change, for example "25 min ·
+  38→65%". Point at a stop on the map, or at its row, and the other one
+  lights up too.
+- **Start and destination colours.** The start is green and the
+  destination rose, the same colours on the map pins, the itinerary's dots
+  and the form's From and To dots. A round trip is one pin on the map, in
+  the start's colour; on a multi-day trip each day's card carries its own
+  start and end.
 - **Map.** Self-hosted Protomaps basemap with the route, plus a charger
   overlay along the route corridor (distance to the polyline, not a
   bounding box) with DCFC / L2 / Hotels filters from NREL AFDC data.
@@ -453,11 +471,17 @@ anomaly alerts have the plumbing — event sources land next.
 
 ## Sign up
 
-See [`docs/SIGNUP.md`](docs/SIGNUP.md) for an end-to-end walkthrough
+The sign-up screen asks you to accept the Terms with one tick, then
+creates the account and asks one question: **Add my truck**, or **Try it
+with a sample truck** first (the demo, read-only, nothing saved to your
+account). Adding the truck is one short form: your Rivian login, read-only,
+and your password is never stored. A separate driver account is the safer
+option. See [`docs/SIGNUP.md`](docs/SIGNUP.md) for an end-to-end walkthrough
 of:
 - signing up directly,
-- connecting your Rivian account (with the dedicated Authorized
-  Driver account approach we recommend),
+- connecting your Rivian account (your own login by default, or a
+  dedicated Authorized Driver account, which we recommend as the safer
+  choice),
 - importing your history from ElectraFi,
 - configuring your home charging cost,
 - planning your first trip.
