@@ -86,7 +86,11 @@ const views: View[] = [
 
 function collectErrors(page: Page) {
   const errors: string[] = [];
-  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  // WebKit's notice that some observer's size change was handled a frame late (the full-page screenshot resizes the window while the gauge,
+  // the charts and the map settle); it names no fault and the page is laid out right.
+  page.on("pageerror", (e) => {
+    if (!/^ResizeObserver loop completed with undelivered notifications\.?$/.test(e.message)) errors.push(`pageerror: ${e.message}`);
+  });
   page.on("console", (m) => {
     if (m.type() !== "error") return;
     const t = m.text();
