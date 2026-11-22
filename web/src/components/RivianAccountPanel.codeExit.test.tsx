@@ -7,11 +7,11 @@ import { RivianAccountPanel } from "./RivianAccountPanel";
 import { stubFetchRoutes } from "../test/fetchRoutes";
 
 // N10: every way out of the code step (Start again, Get a new code, Cancel) must show the sign-in form again, not leave the code form until a reload.
-function mount(v2: boolean, mfaStatus = 200) {
+function mount(v2: boolean, mfaStatus = 200, mfaBody: Record<string, unknown> = { error: "invalid code" }) {
   stubFetchRoutes({
     "/api/settings/rivian": { body: { enabled: true, authenticated: false, mfa_pending: false } },
     "/api/settings/rivian/login": { body: { authenticated: false, mfa_pending: true } },
-    "/api/settings/rivian/mfa": { status: mfaStatus, body: { error: "invalid code" } },
+    "/api/settings/rivian/mfa": { status: mfaStatus, body: mfaBody },
     "/api/settings/rivian/logout": { body: { authenticated: false } },
     "/api/events": { body: {} },
   });
@@ -82,5 +82,25 @@ describe("leaving the Rivian code step", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Start again for a new code" }));
     await backOnForm(false);
     expect(screen.queryByPlaceholderText("123456")).toBeNull();
+  });
+
+  // N11: Rivian answers an expired code with a server error, which arrives as class outage. Try again would resend the same dead code.
+  it("new form: an outage on the code step offers a new code, not Try again", async () => {
+    mount(true, 503, { error: "didn't accept this code", class: "outage" });
+    await toCodeStep(true);
+    await wrongCode(true);
+    expect(await screen.findByText("That code may have expired")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Get a new code" }));
+    await backOnForm(true);
+  });
+
+  it("old form: an outage on the code step says the code may have expired and offers a new code", async () => {
+    mount(false, 503, { error: "didn't accept this code", class: "outage" });
+    await toCodeStep(false);
+    await wrongCode(false);
+    expect(await screen.findByText("That code may have expired")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start again for a new code" }));
+    await backOnForm(false);
   });
 });
