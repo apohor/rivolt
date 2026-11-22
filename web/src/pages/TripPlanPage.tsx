@@ -384,7 +384,7 @@ export default function TripPlanPage() {
                     {planSpinnerEl}
                   </div>
                   {/* Right under the button that was pressed, not under the result area far below it. */}
-                  {(planMutation.error || multidayMutation.isError) && <PlanError error={planMutation.error ?? multidayMutation.error} />}
+                  {(planMutation.error || multidayMutation.isError) && <PlanError error={planMutation.error ?? multidayMutation.error} overnight={!planMutation.error && hasOvernightStops} />}
                 </div>
               }
             />
@@ -1547,7 +1547,8 @@ function formatGeocode(r: GeocodeResult): string {
 
 // PlanError is the inline failure under the form, scrolled into view because on
 // a phone the result area starts below the fold.
-export function PlanError({ error }: { error: unknown }) {
+// `overnight` is true when the refused plan had an overnight: only then does the pro_entry note tell the person to remove it.
+export function PlanError({ error, overnight = false }: { error: unknown; overnight?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -1557,7 +1558,7 @@ export function PlanError({ error }: { error: unknown }) {
   if (limit) {
     return (
       <div ref={ref}>
-        <ProLimitNotice limit={limit} feature="planner" />
+        <ProLimitNotice limit={limit} feature="planner" overnight={overnight} />
       </div>
     );
   }

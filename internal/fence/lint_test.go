@@ -316,6 +316,7 @@ var notOwnerSide = map[string]string{
 	"api.pgGaps.clear":             "user action (backup / restore rate limit)",
 	"api.pgPlanLinks.Link":         "user action (trip plan link)",
 	"api.pgPlanLinks.Unlink":       "user action (trip plan link)",
+	"api.dismissPrompt":            "user action (api/pro_prompts.go: the account turns away a Pro prompt with Not now; its own settings row, not vehicle owner state)",
 	"api.saveDriveEfficiency":      "user request (drive efficiency cache)",
 	"api.upsertDriveAnalysis":      "user action (restore from backup)",
 	"api.upsertDriveRecap":         "user action (restore from backup)",
