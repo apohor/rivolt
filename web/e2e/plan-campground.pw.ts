@@ -65,8 +65,8 @@ const CANDIDATES = {
 };
 const CAMP_POI = { lat: 37.59, lon: -118.86, name: "Convict Lake Campground", isDCFC: false, isL2: false, facilityType: "CAMPGROUND", hookupAmps: 50, electricSites: 12, sites: 88, ridbID: "ridb/232447", asof: "2026-10-20" };
 
-async function open(page: Page, asked: { kinds?: string[] }[]) {
-  await stubApi(page);
+async function open(page: Page, asked: { kinds?: string[] }[], key = false) {
+  await stubApi(page, key ? { designPreview: ["plan_v2"] } : {});
   await page.route("**/api/trips/overnight-candidates", (r) => {
     asked.push(r.request().postDataJSON());
     return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CANDIDATES) });
@@ -196,3 +196,24 @@ test("on a phone, a Use tap whose re-plan fails says why", async ({ browser }) =
   await expect(page.locator("[data-overnight-stop]").filter({ hasText: "Convict Lake Campground (campground)" })).toBeVisible();
   await ctx.close();
 });
+
+// plan_v2, a two-day plan: nothing below the day cards moves after the answer is on screen. The map's chip rows (the campground chip, the count, the
+// legend) arrive after the map's chunk and the corridor call; the Use button sat about 200 px lower a second after it first showed.
+for (const v of [
+  { name: "phone", w: 390, h: 844 },
+  { name: "desktop", w: 1440, h: 960 },
+]) {
+  test(`${v.name}: the Use button holds its place from the first paint to one second later (key on)`, async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: v.w, height: v.h }, colorScheme: "dark", timezoneId: "America/Los_Angeles" });
+    const page = await ctx.newPage();
+    await open(page, [], true);
+    const use = page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" });
+    await expect(use).toBeVisible();
+    const top = () => use.evaluate((e) => Math.round(e.getBoundingClientRect().top + window.scrollY));
+    const atOpen = await top();
+    await page.waitForTimeout(1000);
+    const later = await top();
+    expect(later - atOpen, `the Use button moved from ${atOpen} to ${later}`).toBe(0);
+    await ctx.close();
+  });
+}
