@@ -23,15 +23,15 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  XCODE_APP: /Applications/Xcode_26.3.app
-  SIM_RUNTIME: iOS 26.2
+  XCODE_APP: /Applications/Xcode_27.2.app
+  SIM_RUNTIME: iOS 27.2
   XCODEGEN_VERSION: 2.46.0
   XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 
 jobs:
   shots:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'store-shots')
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 150
     strategy:
       fail-fast: false

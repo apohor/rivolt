@@ -9,7 +9,7 @@ name: ios
 # builds the app locally (no heavy local builds), so this is the only place
 # the iOS code compiles: keep it green.
 #
-# Pins: the runner image's Xcode 26.3 (iOS 26.2 simulator SDK; App Store
+# Pins: the runner image's Xcode 27.2 (iOS 27.2 SDK and simulator; App Store
 # uploads need the current SDK) and XcodeGen 2.46.0 checked against its
 # release sha256. Public repo: standard macOS runners cost nothing.
 
@@ -37,8 +37,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  XCODE_APP: /Applications/Xcode_26.3.app
-  SIM_RUNTIME: iOS 26.2
+  XCODE_APP: /Applications/Xcode_27.2.app
+  SIM_RUNTIME: iOS 27.2
   XCODEGEN_VERSION: 2.46.0
   XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 
@@ -65,7 +65,7 @@ jobs:
   # simulator screenshots and the Release device build run beside it.
   build-test:
     if: github.event.action != 'labeled'
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -171,7 +171,7 @@ jobs:
   ui-tests:
     name: ui-tests (${{ matrix.shard }})
     if: github.event.action != 'labeled'
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -287,7 +287,7 @@ jobs:
     # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
     # label before merge, so the App Store basics check runs on it.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens') && (github.event.action != 'labeled' || github.event.label.name == 'ios-screens'))
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -437,7 +437,7 @@ jobs:
     # AppIcon asset or ios/check-app-store-basics.sh gets the ios-screens
     # label before merge, so the App Store basics check runs on it.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ios-screens') && (github.event.action != 'labeled' || github.event.label.name == 'ios-screens'))
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
