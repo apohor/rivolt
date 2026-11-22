@@ -9,19 +9,9 @@ You don't need an account to see what Rivolt does. The [demo](https://demo.rivol
 ## What Rivolt reads, and what it never does
 
 - Connect a Rivian account and Rivolt reads your truck's data, such as drives, charges, battery and location.
-- It sends no commands to your truck (no locks, climate or charging controls). Reading its data can occasionally wake it.
+- It sends no commands to your truck (no locks, climate or charging controls): the only thing it sends Rivian is the sign-in itself. Reading its data can occasionally wake it.
 - Your Rivian password is used once to sign in and is never stored. What Rivolt keeps is your Rivian email, an encrypted session token, and when you signed in (so it can warn you before Rivian ends the session).
 - The drives and charges it records, including location, are described in the [Privacy policy](/privacy): what is recorded, how long it is kept and how to delete it. There are no ads and no third-party analytics.
-
-## What the connect screen says, in full
-
-The connect screen says: "Use your Rivian app login. Read-only, and your password is never stored." Here is what stands behind each part.
-
-- **Read-only.** The only thing Rivolt sends Rivian is the sign-in itself. Everything after that is reading: no locks, climate or charging controls, and no way to send one.
-- **Your password is never stored.** It is used once, to sign in, and dropped. Rivolt keeps your Rivian email, an encrypted session token and when you signed in.
-- **Disconnect any time.** Settings → Account → Rivian account → Sign out of Rivian deletes the stored session (see "How to undo it" below).
-- **Your Rivian app login or a driver account.** Either works. A separate driver account is safer, because you can cut Rivolt off from the Rivian app (next section).
-- **Location and vehicle data.** Rivolt records your truck's location and vehicle data to build your drives and charges. The [Privacy policy](/privacy) says what, for how long, and how to delete it.
 
 ## We recommend a separate Authorized Driver account
 
