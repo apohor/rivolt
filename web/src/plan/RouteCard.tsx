@@ -305,6 +305,15 @@ export function RouteCard({
     route.TotalDriveDurationSec > 0 ? `${formatDuration(route.TotalDriveDurationSec)} driving` : null,
     route.TotalChargingDurationSec > 0 ? `${formatDuration(route.TotalChargingDurationSec)} charging` : null,
   ].filter((p): p is string => !!p).join(" · ");
+  const elevationChart = profile ? (
+    <ElevationChart
+      profile={profile}
+      share={cursorShare}
+      onShare={setCursorShare}
+      distanceUnit={distanceUnit}
+      stopNames={route.Waypoints.map((w) => w.Name)}
+    />
+  ) : null;
   if (next) {
     // Map-first: summary strip and itinerary in the left panel, the map beside it.
     return (
@@ -346,15 +355,7 @@ export function RouteCard({
                 />
               )}
             </section>
-          {profile && (
-            <ElevationChart
-              profile={profile}
-              share={cursorShare}
-              onShare={setCursorShare}
-              distanceUnit={distanceUnit}
-              stopNames={route.Waypoints.map((w) => w.Name)}
-            />
-          )}
+          {!planV2 && elevationChart}
           <section data-plan-area="itinerary" aria-label="Itinerary">
             <h2 className="ui-label mb-1">Itinerary</h2>
             {timeline}
@@ -365,6 +366,8 @@ export function RouteCard({
             {forecastOn && hasForecastTag(adjustment) && <RadarCredit />}
             {credit}
           </section>
+          {/* plan_v2: the profile comes after the itinerary; it still shares its cursor with the map. */}
+          {planV2 && elevationChart}
         </BottomSheet>
         <div data-plan-area="map">
           <Suspense fallback={<div className="h-full animate-pulse bg-neutral-900/50" />}>
