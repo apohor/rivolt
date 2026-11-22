@@ -507,7 +507,7 @@ const AuthErrorHeader = "X-Rivolt-Auth-Error"
 // token, a Kratos session, a signed session cookie, or the debug bypass,
 // and injects the user_id into request context. Requests with none of
 // those fall through with no user set: the individual handler
-// (or RequireUser) decides what to do, so /api/auth/oidc/* (the
+// (or requireUserMW) decides what to do, so /api/auth/oidc/* (the
 // only sign-in surface in OIDC-only mode) stays reachable to the
 // unauthenticated.
 func (s *Service) Middleware(next http.Handler) http.Handler {
@@ -639,18 +639,6 @@ func (s *Service) maybeBypass(next http.Handler, w http.ResponseWriter, r *http.
 		return
 	}
 	next.ServeHTTP(w, r)
-}
-
-// RequireUser wraps a handler so only authenticated requests reach
-// it; everything else gets a 401.
-func (s *Service) RequireUser(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := UserFromContext(r.Context()); !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next(w, r)
-	}
 }
 
 // Configured reports whether the auth Service is wired. Used by

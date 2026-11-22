@@ -12,10 +12,9 @@ import (
 )
 
 // requireUserMW is chi middleware that 401s any request the auth
-// package hasn't resolved an identity for. It's separate from
-// auth.Service.RequireUser (which wraps a single handler) because
-// chi.Router.Use expects the standard Handler→Handler shape so we
-// can apply it once to a Group.
+// package hasn't resolved an identity for. It has the standard
+// Handler→Handler shape chi.Router.Use expects, so it is applied once
+// to a Group.
 //
 // The check intentionally reads only from request context — the
 // actual cookie-or-header resolution has already happened in
