@@ -74,6 +74,25 @@ export default function SignupPage() {
     track("signup_start", { method: fullProvider ? "oidc" : "email" });
   }, [signupEnabled, fullProvider]);
 
+  // A signed-in visitor has an account already (they followed an "Add my truck" or "Connect" link, or opened /signup by hand): send them on
+  // instead of showing account creation. No truck yet: the connect step; else home. A sign-up link (?token) is a new account on purpose and
+  // keeps the page, as does the full-signup notice.
+  useEffect(() => {
+    if (token || fullMode) return;
+    let cancelled = false;
+    (async () => {
+      const me = await backend.whoami().catch(() => null);
+      if (cancelled || !me) return;
+      const rivian = await backend.rivianStatus().catch(() => null);
+      // The app's cached "who am I" was taken signed out: refresh it so the terms gate applies.
+      await queryClient.resetQueries({ queryKey: ["auth", "me"] });
+      if (!cancelled) navigate(rivian && rivian.enabled && !rivian.authenticated ? "/onboarding?connect=1" : "/", { replace: true });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, fullMode, navigate, queryClient]);
+
   // Social-sign-in providers (Google / GitHub), fetched once on mount.
   // null = still loading; [] = no eligible providers configured.
   const [oauthProviders, setOauthProviders] = useState<OIDCProvider[] | null>(null);
