@@ -11,9 +11,17 @@ describe("a free account's Money window", () => {
   });
 
   it("makes the CSV of a month outside the window a Pro download, only for a free or lapsed account", () => {
-    expect(csvIsPro({ kind: "free" }, "2026-08", "2026-10")).toBe(false);
-    expect(csvIsPro({ kind: "free" }, "2026-07", "2026-10")).toBe(true);
-    expect(csvIsPro({ kind: "lapsed", endedOn: null, endedSource: null }, "2026-01", "2026-10")).toBe(true);
+    // 12 months back is inside the window (the current month and the 12 before it); 13 is outside.
+    expect(csvIsPro({ kind: "free", months: 12 }, "2025-10", "2026-10")).toBe(false);
+    expect(csvIsPro({ kind: "free", months: 12 }, "2025-09", "2026-10")).toBe(true);
+    // The server's length wins: a new account's 6 months.
+    expect(csvIsPro({ kind: "free", months: 6 }, "2026-04", "2026-10")).toBe(false);
+    expect(csvIsPro({ kind: "free", months: 6 }, "2026-03", "2026-10")).toBe(true);
+    // Not stated: the 12 every account had before the setting.
+    expect(csvIsPro({ kind: "free" }, "2025-10", "2026-10")).toBe(false);
+    expect(csvIsPro({ kind: "free" }, "2025-09", "2026-10")).toBe(true);
+    expect(csvIsPro({ kind: "lapsed", endedOn: null, endedSource: null }, "2024-01", "2026-10")).toBe(true);
+    expect(csvIsPro({ kind: "lapsed", endedOn: null, endedSource: null, months: 12 }, "2026-01", "2026-10")).toBe(false);
     expect(csvIsPro({ kind: "off" }, "2020-01", "2026-10")).toBe(false);
     expect(csvIsPro({ kind: "pro", source: "stripe", periodEnd: null }, "2020-01", "2026-10")).toBe(false);
   });

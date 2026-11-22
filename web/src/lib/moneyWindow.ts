@@ -1,9 +1,11 @@
-// What a free account's Money shows (backend #1370): this month and the two before it. The statement for an older month answers 402
-// outside_free_window, and the month's CSV 402 pro_required, so the page never offers a download it knows will be refused.
+// What a free account's Money shows: this month and the `months` before it, the length the server states (history_months of /api/auth/me;
+// internal/histwin Months). The statement for an older month answers 402 outside_free_window, and the month's CSV 402 pro_required, so
+// the page never offers a download it knows will be refused.
 
 import type { PlanState } from "./plan";
 
-export const FREE_MONTHS = 3;
+// Used only when the server did not say (an old response): the window every account had before the setting existed (histwin.LegacyMonths).
+export const LEGACY_MONTHS = 12;
 
 // Whole calendar months from `month` ("2026-07") up to `now` ("2026-10"): 3 for July when it is October. Negative never happens for a
 // real month, and 0 is the current month.
@@ -14,9 +16,9 @@ export function monthsBack(month: string, now: string): number {
   return (Number(b[1]) - Number(a[1])) * 12 + (Number(b[2]) - Number(a[2]));
 }
 
-// True when this account's plan shows only the last FREE_MONTHS months and the month is older than that. Pro, billing off and the demo
+// True when this account's plan shows only the current month and `plan.months` before it and the month is older than that. Pro, billing off and the demo
 // ("off") see everything.
 export function csvIsPro(plan: PlanState, month: string, now: string): boolean {
   if (plan.kind !== "free" && plan.kind !== "lapsed") return false;
-  return monthsBack(month, now) >= FREE_MONTHS;
+  return monthsBack(month, now) > (plan.months ?? LEGACY_MONTHS);
 }
