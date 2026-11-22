@@ -8,7 +8,7 @@
 #
 # A page that gains a "Last updated" line joins the pages list below in the same PR that adds the date, so the rule and its check never drift.
 # A date that is already the day of the change (a second edit the same day) may stay.
-# Restoring a page to the exact bytes of an earlier version in the base's history (undoing an unreleased change) passes with that version's date.
+# Restoring a page to the exact bytes it has at the latest final release tag (undoing an unreleased change) passes with that version's date.
 #
 # Exit 0 when every listed page that changed in BASE..HEAD also moved its date forward (or its text did not change), 1 otherwise.
 set -euo pipefail
@@ -39,13 +39,16 @@ for f in "${pages[@]}"; do
   # Only the date line changed (or only whitespace): that is a date edit, not a text change.
   body=$(git diff -U0 "$base" "$head" -- "$f" | grep -E '^[+-]' | grep -v -E '^(\+\+\+|---)' | grep -v -E '^[+-]Last updated: ' | grep -E -v '^[+-][[:space:]]*$' || true)
   [ -n "$body" ] || continue
-  # An exact restore of an earlier version of the page (the same bytes, date line included, as a version already in the base's history
-  # of that file) is an undo, not new text: its date is that version's own and may be earlier. One changed byte and it is a change again.
-  hb=$(git rev-parse -q --verify "$head:$f" 2>/dev/null || true); restored=0
-  for c in $(git rev-list -n 30 "$base" -- "$f"); do
-    if [ -n "$hb" ] && [ "$(git rev-parse -q --verify "$c:$f" 2>/dev/null || true)" = "$hb" ]; then restored=1; break; fi
-  done
-  [ "$restored" = 1 ] && continue
+  # Undoing an unreleased change is not a new version: when the page at HEAD is byte-identical (date line included) to the page at the
+  # latest FINAL release tag reachable from the base (vX.Y.Z, no -rc or -dev suffix: the text prod serves), it passes with that
+  # version's own date, which may be earlier. Any other earlier text, or one changed byte, is a change and the rules below apply.
+  # No such tag: the rules below apply. (The job checks out with fetch-depth 0, so tags are present.)
+  rel=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' --exclude '*-*' "$base" 2>/dev/null || true)
+  if [ -n "$rel" ]; then
+    hb=$(git rev-parse -q --verify "$head:$f" 2>/dev/null || true)
+    rb=$(git rev-parse -q --verify "$rel:$f" 2>/dev/null || true)
+    if [ -n "$hb" ] && [ "$hb" = "$rb" ]; then continue; fi
+  fi
   if [ -z "$new" ]; then
     echo "::error file=$f::$f has no \"Last updated: <date>\" line"; fail=1; continue
   fi
