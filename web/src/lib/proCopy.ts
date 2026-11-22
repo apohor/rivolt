@@ -23,6 +23,7 @@ export const PRO = {
   included: [
     "Range near a temperature",
     "Multi-day trip plans with hotel and campground overnights",
+    "Rain or snow likely at your stops on arrival (contiguous US, NOAA RRFS forecast radar; free: a note when stops are wet)",
     "Re-plan from where the truck is, and plan-vs-actual after the trip",
     "Unlimited saved trips (free: 3)",
     "Every vehicle shown (free: 1)",
