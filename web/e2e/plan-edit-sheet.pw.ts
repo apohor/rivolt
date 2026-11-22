@@ -33,6 +33,8 @@ for (const theme of ["dark", "light"] as const) {
     await page.locator("[data-plan-edit]").click();
     await expect(page.locator("[data-plan-form]")).toBeVisible();
     await expect(sheet).toHaveAttribute("data-snap", "min");
+    // The sheet slides down over a transition: measure once it has settled at the handle.
+    await expect.poll(async () => (await sheet.boundingBox())?.y ?? 0).toBeGreaterThan(700);
 
     // Nothing of the form is under the sheet: the departure row, the starting charge and Plan trip each have the form at their centre.
     const targets = [page.locator("[data-plan-when-inner]"), page.getByRole("slider", { name: "Starting SoC" }), page.getByRole("button", { name: /Update plan|Plan trip/ })];
