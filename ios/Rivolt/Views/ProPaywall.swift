@@ -112,7 +112,7 @@ enum ProCopy {
     static let title = "Rivolt Pro"
     static let subtitle = "Full history, multi-day trips and more widgets, from $3.99 a month."
     static func included(_ window: FreeWindow = .unknown) -> [String] { [
-        "Unlimited history and trends (free: \(window.short))",
+        "Unlimited history and trends (free tier: \(window.short))",
         "Range near a temperature",
         "Multi-day trip plans with hotel and campground overnights",
         "Re-plan from where the truck is, and plan-vs-actual after the trip",

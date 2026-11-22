@@ -19,7 +19,7 @@ describe("a free account's limits (HTTP 402)", () => {
 
   it("says why and that nothing is lost", () => {
     expect(proLimitText({ code: "outside_free_window", freeFrom: "2025-11-01" })).toMatch(/before November 1, 2025.*kept.*export/);
-    expect(proLimitText({ code: "outside_free_window" })).toMatch(/last 12 months.*kept.*export/);
+    expect(proLimitText({ code: "outside_free_window" })).toMatch(/older than the history the free plan shows.*kept.*export/);
     expect(proLimitText({ code: "pro_required" })).toMatch(/kept either way/);
   });
 

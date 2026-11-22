@@ -40,9 +40,20 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
 
   it("shows the free state and opens the sheet", async () => {
     renderWith(free, <PlanCard />);
-    expect(await screen.findByText("Recording, alerts, the last 12 months and the full export, always.")).toBeInTheDocument();
+    // The fixture predates history_months: no length is claimed.
+    expect(await screen.findByText("Recording, alerts, only recent months and the full export, always.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "See Pro" }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Unlimited history and trends (free tier: only recent months)")).toBeInTheDocument();
+  });
+
+  it("names the window from history_months (6, or 12 in the notice period)", async () => {
+    renderWith({ ...free, history_months: 6 }, <PlanCard />);
+    expect(await screen.findByText("Recording, alerts, the last 6 months and the full export, always.")).toBeInTheDocument();
+    cleanup();
+    vi.unstubAllGlobals();
+    renderWith({ ...free, history_months: 12 }, <PlanCard />);
+    expect(await screen.findByText("Recording, alerts, the last 12 months and the full export, always.")).toBeInTheDocument();
   });
 
   it("the lapsed banner's Keep Pro and the limit note's See Pro each open the sheet, now a lazy chunk", async () => {

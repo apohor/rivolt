@@ -22,6 +22,7 @@ export type PlanFields = Pick<
   | "plan_ended_date"
   | "billing_enabled"
   | "history_days"
+  | "history_months"
 >;
 
 // B8: one billing instant must show one date everywhere. Stripe (and the founding year) show the UTC calendar date of the instant, so with the
@@ -33,10 +34,10 @@ function shown(me: PlanFields, instant: string | null | undefined, date: string 
 
 export type PlanState =
   | { kind: "off" } // billing is off: everything is on, nothing mentions a plan
-  | { kind: "free" } // never had Pro
+  | { kind: "free"; months?: number } // never had Pro; months: how far back the free window reaches, from the server (absent: unknown)
   // cancelsAt: set to not renew, Pro stays on until then. graceEnds: a renewal payment failed, Pro stays on until then (7 days).
   | { kind: "pro"; source: "apple" | "stripe" | "founding" | "grant"; periodEnd: string | null; cancelsAt?: string | null; graceEnds?: string | null }
-  | { kind: "lapsed"; endedOn: string | null; endedSource: string | null }; // had Pro or a trial, now on the free window
+  | { kind: "lapsed"; endedOn: string | null; endedSource: string | null; months?: number }; // had Pro or a trial, now on the free window
 
 const DAY = 86_400_000;
 
@@ -55,8 +56,9 @@ export function planState(me: PlanFields | null | undefined): PlanState {
       graceEnds: shown(me, me.plan_grace_ends, me.plan_grace_ends_date),
     };
   }
-  if (me.plan_ended_at) return { kind: "lapsed", endedOn: shown(me, me.plan_ended_at, me.plan_ended_date), endedSource: me.plan_ended_source ?? null };
-  return { kind: "free" };
+  const months = typeof me.history_months === "number" ? me.history_months : undefined;
+  if (me.plan_ended_at) return { kind: "lapsed", endedOn: shown(me, me.plan_ended_at, me.plan_ended_date), endedSource: me.plan_ended_source ?? null, months };
+  return { kind: "free", months };
 }
 
 // "March 4, 2027" in the reader's language; "" when the value is not a date. A bare calendar date ("2027-03-04", the server's UTC date) is shown as
