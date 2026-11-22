@@ -38,9 +38,12 @@ type Result struct {
 	// Admin1 is state / province / region. Useful for disambiguating
 	// "Dallas, TX" from "Dallas, OR".
 	Admin1 string `json:"admin1,omitempty"`
+	// Locality is the city of a street or house-number result, whose Name starts with the street; omitted for any other result, whose Name
+	// is already the place.
+	Locality string `json:"locality,omitempty"`
 	// Population helps the SPA show the relevance order Open-Meteo
 	// already applies (top result is highest-population match).
-	Population int `json:"population,omitempty"`
+	Population int    `json:"population,omitempty"`
 	Timezone   string `json:"timezone,omitempty"`
 }
 

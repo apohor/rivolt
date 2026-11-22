@@ -10,7 +10,7 @@ import { usePlanner } from "../plan/usePlanner";
 import { haversineMeters, planErrorCopy, relabelIfHome, type Selection } from "../plan/plannerHelpers";
 import { PlannerNetworks } from "../plan/PlannerNetworks";
 import { RouteBar } from "../plan/RouteBarPanel";
-import { countNonDefaultOptions, formatResultSummaryParts, isStreetPart, useRouteBarCollapse } from "../plan/routeBar";
+import { countNonDefaultOptions, formatResultSummaryParts, geocodePlace, useRouteBarCollapse } from "../plan/routeBar";
 import { PlanSelectionProvider } from "../plan/selection";
 import { ReserveProvider, reservePct } from "../plan/reserve";
 import { ConnectHint } from "../components/DemoBanner";
@@ -1531,11 +1531,6 @@ function LocationSearch({
       ) : null)}
     </div>
   );
-}
-
-// The short name of a hit: its locality when it has one, else its name unless that is a street address ("12 Main St").
-function geocodePlace(r: GeocodeResult): string | undefined {
-  return r.locality || (isStreetPart(r.name) ? undefined : r.name);
 }
 
 function formatGeocode(r: GeocodeResult): string {

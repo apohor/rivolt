@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { formatResultSummaryParts, formatRouteSummary, useRouteBarCollapse, useRouteBarState, type RouteEnd } from "./routeBar";
+import { formatResultSummaryParts, formatRouteSummary, geocodePlace, useRouteBarCollapse, useRouteBarState, type RouteEnd } from "./routeBar";
 
 afterEach(cleanup);
 
@@ -97,6 +97,14 @@ describe("useRouteBarCollapse", () => {
     expect(result.current.collapsed).toBe(true);
     rerender({ has: false, key: null });
     expect(result.current.collapsed).toBe(false);
+  });
+});
+
+describe("geocodePlace", () => {
+  it("is the locality of a street hit, else the name unless that is a street", () => {
+    expect(geocodePlace({ name: "Main St, Austin", locality: "Austin" })).toBe("Austin");
+    expect(geocodePlace({ name: "Yosemite National Park" })).toBe("Yosemite National Park");
+    expect(geocodePlace({ name: "12 Main St" })).toBeUndefined();
   });
 });
 

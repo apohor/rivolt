@@ -137,8 +137,13 @@ func resultFromProps(p photonProps, lat, lon float64) Result {
 	if (p.HouseNumber != "" || p.Street != "") && p.City != "" && !strings.Contains(label, p.City) {
 		label = label + ", " + p.City
 	}
+	var locality string
+	if p.HouseNumber != "" || p.Street != "" {
+		locality = p.City
+	}
 	return Result{
 		Name:        label,
+		Locality:    locality,
 		Latitude:    lat,
 		Longitude:   lon,
 		Country:     p.Country,

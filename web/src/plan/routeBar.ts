@@ -69,6 +69,8 @@ export function formatRouteSummary(
 // full labels are in `full`, for the title), so the departure and the charge, the `facts`, are never what gets cut.
 // A street part begins with a house number ("12 Main St") or names a corner ("Main St & 5th Ave"). "St. George", "Mt. Shasta" and "Fort Collins" are places.
 export const isStreetPart = (x: string) => /^\d/.test(x) || / & /.test(x);
+// The short name of a geocoder hit: its locality when it has one (a street hit), else its name unless that is a street part.
+export const geocodePlace = (r: { name: string; locality?: string }): string | undefined => r.locality || (isStreetPart(r.name) ? undefined : r.name);
 // The place name is the one set at the pick (`place`). Without it (a draft from before) the label's first part, skipping a leading house number
 // ("12 Main St, Austin, TX" is Austin).
 const city = (end: RouteEnd | undefined) => {
