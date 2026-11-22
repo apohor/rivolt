@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { stubFetchRoutes } from "../test/fetchRoutes";
 
 // /signup for someone who is already signed in: no account creation; on to the connect step (no truck yet) or home.
+const track = vi.fn();
+vi.mock("../lib/track", () => ({ track: (...a: unknown[]) => track(...a) }));
 const me = { user_id: "u1", username: "a@b.c", role: "user", onboarding_completed: true };
 
 function Where() {
@@ -38,6 +40,7 @@ async function mountSignup(path: string, opts: { signedIn: boolean; rivian?: { e
 describe("/signup while signed in", () => {
   afterEach(() => {
     cleanup();
+    track.mockClear();
     vi.unstubAllGlobals();
   });
 
@@ -79,5 +82,21 @@ describe("/signup while signed in", () => {
     expect(await screen.findByRole("heading", { level: 1 })).toBeTruthy();
     await new Promise((r) => setTimeout(r, 100));
     expect(screen.queryByTestId("where")).toBeNull();
+  });
+
+  it("signup_start: not sent for a signed-in visitor who is forwarded", async () => {
+    await mountSignup("/signup", { signedIn: true });
+    await screen.findByTestId("where");
+    expect(track).not.toHaveBeenCalledWith("signup_start", expect.anything());
+  });
+
+  it("signup_start: sent once for a signed-out visitor, and for a good sign-up link", async () => {
+    await mountSignup("/signup", { signedIn: false });
+    await vi.waitFor(() => expect(track).toHaveBeenCalledWith("signup_start", { method: "email" }));
+    cleanup();
+    track.mockClear();
+    await mountSignup("/signup?token=T1", { signedIn: true });
+    await vi.waitFor(() => expect(track).toHaveBeenCalledWith("signup_start", { method: "email" }));
+    expect(track.mock.calls.filter((c) => c[0] === "signup_start")).toHaveLength(1);
   });
 });

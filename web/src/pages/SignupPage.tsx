@@ -66,14 +66,6 @@ export default function SignupPage() {
   const signupEnabled = useSignupEnabled();
   // Design key signup_v2 (preview): providers first, then email; no bullets, no GitHub walkthrough; a sample-truck link. Off, unchanged.
   const v2 = useDesignPreview("signup_v2");
-  // signup_start: the form is open (not when sign-ups are closed).
-  const startedRef = useRef(false);
-  useEffect(() => {
-    if (signupEnabled !== true || startedRef.current) return;
-    startedRef.current = true;
-    track("signup_start", { method: fullProvider ? "oidc" : "email" });
-  }, [signupEnabled, fullProvider]);
-
   // Social-sign-in providers (Google / GitHub), fetched once on mount.
   // null = still loading; [] = no eligible providers configured.
   const [oauthProviders, setOauthProviders] = useState<OIDCProvider[] | null>(null);
@@ -155,12 +147,21 @@ export default function SignupPage() {
   // A signed-in visitor has an account already (they followed an "Add my truck" or "Connect" link, or opened /signup by hand): send them on
   // instead of showing account creation. No truck yet: the connect step; else home. A good sign-up link (?token) is a new account on purpose and
   // keeps the page, as does the full-signup notice; a used or expired link is passed on like a plain /signup.
+  const [stays, setStays] = useState(false);
   useEffect(() => {
-    if ((token && tokenStatus !== "invalid") || fullMode) return;
+    if (fullMode || tokenStatus === "valid") {
+      setStays(true);
+      return;
+    }
+    if (token && tokenStatus !== "invalid") return;
     let cancelled = false;
     (async () => {
       const me = await backend.whoami().catch(() => null);
-      if (cancelled || !me) return;
+      if (cancelled) return;
+      if (!me) {
+        setStays(true);
+        return;
+      }
       const rivian = await backend.rivianStatus().catch(() => null);
       // The app's cached "who am I" was taken signed out: refresh it so the terms gate applies.
       await queryClient.resetQueries({ queryKey: ["auth", "me"] });
@@ -170,6 +171,14 @@ export default function SignupPage() {
       cancelled = true;
     };
   }, [token, tokenStatus, fullMode, navigate, queryClient]);
+
+  // signup_start: the form is open and stays (not when sign-ups are closed, and not for a signed-in visitor who is forwarded on).
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (!stays || signupEnabled !== true || startedRef.current) return;
+    startedRef.current = true;
+    track("signup_start", { method: fullProvider ? "oidc" : "email" });
+  }, [stays, signupEnabled, fullProvider]);
 
   // Token-mode is the only mode now — the user got here via a magic
   // link from an admin approval. Without a valid token the page
