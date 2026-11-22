@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
 import { useDesignPreview } from "../lib/config";
 import { planState } from "../lib/plan";
+import { useProPrompt } from "../lib/proPrompts";
 import { PLANNER_NOTE_V2, proFeatureText, proLimitText, type ProFeature, type ProLimit } from "../lib/proLimit";
 import { ProSheet, ProSheetPreload } from "./ProSheetLazy";
 import { DemoLinks } from "./DemoLinks";
@@ -21,6 +22,8 @@ export function ProLimitNotice({ limit, privacy = false, extra, feature, overnig
   // pro_entry (D5 A): the planner note's button reads as the mock says. Its sentence ("remove the overnight") is true only for a refused plan
   // that had an overnight (`overnight`, set by the plan form); the overnight suggestions and re-plan from the truck keep today's sentence.
   const entryV2 = useDesignPreview("pro_entry") && feature === "planner";
+  // "Not now" (D6): the action goes for 90 days (a second one: for good); the reason line stays, because it explains why there is no result.
+  const notNow = useProPrompt("planner", entryV2 ? me.data : undefined);
   return (
     <div role="note" data-pro-limit={limit.code} className="rounded-lg border border-sky-800/60 bg-sky-950/40 px-3 py-3 text-sm text-sky-100">
       <p>{entryV2 && overnight ? PLANNER_NOTE_V2 : feature ? proFeatureText(feature, limit.code === "pro_required" ? limit.limit : undefined) : proLimitText(limit)}</p>
@@ -33,10 +36,20 @@ export function ProLimitNotice({ limit, privacy = false, extra, feature, overnig
       )}
       {state.kind !== "off" && <DemoLinks links={demoLinksFor({ feature, code: limit.code })} className="mt-2" />}
       {state.kind !== "off" && <ProSheetPreload />}
-      {state.kind !== "off" && (
+      {state.kind !== "off" && !entryV2 && (
         <button type="button" className="mt-2 rounded-md border border-sky-700 px-3 py-1.5 text-sm hover:border-sky-500" onClick={() => setOpen(true)}>
-          {entryV2 ? "See the Pro tier" : "See Pro"}
+          See Pro
         </button>
+      )}
+      {state.kind !== "off" && entryV2 && !notNow.hidden && (
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <button type="button" className="rounded-md border border-sky-700 px-3 py-1.5 text-sm hover:border-sky-500" onClick={() => setOpen(true)}>
+            See the Pro tier
+          </button>
+          <button type="button" data-pro-not-now className="rounded-md px-3 py-1.5 text-sm text-sky-300 hover:text-sky-100" onClick={() => void notNow.dismiss()}>
+            Not now
+          </button>
+        </div>
       )}
       {open && <ProSheet state={state} onClose={() => setOpen(false)} />}
     </div>
