@@ -63,19 +63,22 @@ export function formatRouteSummary(
   return parts.join(" · ");
 }
 
-// formatResultSummary is the plan_v2 summary line over a shown plan: "From → To · departure · starting charge". Unlike
-// formatRouteSummary it always names the departure ("Leaves now" when none is set) and falls back to the live charge.
-export function formatResultSummary(
+// formatResultSummaryParts is the plan_v2 summary line over a shown plan: "From → To · departure · starting charge". Unlike formatRouteSummary it
+// always names the departure ("Leaves now" when none is set) and falls back to the live charge. The places are the city only (no state or country; the
+// full labels are in `full`, for the title), so the departure and the charge, the `facts`, are never what gets cut.
+const city = (label: string | undefined) => (label ?? "").split(",")[0].trim() || "…";
+export function formatResultSummaryParts(
   s: Pick<RouteBarState, "origin" | "destination" | "startingSoc" | "departureAt">,
   liveSoc: number | null,
   locale?: string,
-): string {
-  const parts = [`${s.origin?.label ?? "…"} → ${s.destination?.label ?? "…"}`];
+): { route: string; facts: string; full: string } {
+  const facts: string[] = [];
   const d = s.departureAt ? new Date(s.departureAt) : null;
-  parts.push(d && !Number.isNaN(d.getTime()) ? d.toLocaleString(locale, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "Leaves now");
-  if (s.startingSoc.trim()) parts.push(`${s.startingSoc.trim()}% charge`);
-  else if (liveSoc != null) parts.push(`${Math.round(liveSoc)}% charge now`);
-  return parts.join(" · ");
+  facts.push(d && !Number.isNaN(d.getTime()) ? d.toLocaleString(locale, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "Leaves now");
+  if (s.startingSoc.trim()) facts.push(`${s.startingSoc.trim()}% charge`);
+  else if (liveSoc != null) facts.push(`${Math.round(liveSoc)}% charge now`);
+  const route = `${city(s.origin?.label)} → ${city(s.destination?.label)}`;
+  return { route, facts: facts.join(" · "), full: `${s.origin?.label ?? "…"} → ${s.destination?.label ?? "…"} · ${facts.join(" · ")}` };
 }
 
 // useRouteBarCollapse drives the phone route bar. With a result on screen it

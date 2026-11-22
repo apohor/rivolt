@@ -8,7 +8,6 @@ import { BottomSheet, type Snap } from "./BottomSheet";
 import { useSelectedStop } from "./selection";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { wholeDistance } from "./units";
-import { tripTotalsText } from "./tripTotals";
 import { type ElevationProfile, type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
 import { useDesignPreview } from "../lib/config";
 import { ElevationChart } from "./ElevationChart";
@@ -281,6 +280,7 @@ export function RouteCard({
       selected={selectedStop === idx}
       onSelect={() => toggleStop(idx)}
       number={planV2 && kind === "stop" && n != null ? n + 1 : undefined}
+      correctedArrival={planV2 && kind === "end" ? adjustment?.final_arrival_soc : undefined}
     />
   );
   const timeline = showTable && (
@@ -297,8 +297,9 @@ export function RouteCard({
   const fromName = shortName(originLabel || origin?.Name);
   const toName = shortName(destLabel || dest?.Name) || "Your trip";
   const sheetTitle = fromName ? `${fromName} → ${toName}` : `To ${toName}`;
+  // plan_v2: the map's pill already says "378 mi · 2 charging stops · 6h 22m" and the TIME cell says the time, so the peek keeps the title only.
   const sheetLine = planV2
-    ? tripTotalsText({ meters: route.TotalDriveDistanceMeters, stops: charging.length, seconds: route.TotalTripDurationSec, unit: distanceUnit })
+    ? ""
     : [
     route.TotalDriveDistanceMeters > 0 ? wholeDistance(route.TotalDriveDistanceMeters, distanceUnit) : null, // the same whole number as the map card
     route.TotalDriveDurationSec > 0 ? `${formatDuration(route.TotalDriveDurationSec)} driving` : null,
@@ -320,10 +321,12 @@ export function RouteCard({
               {/* One line each, cut short, on a phone at its usual text size; narrower than 360 CSS px (Safari's aA at 200 % and up) two lines
                   each, so the peek (which grows to fit, up to its cap) still ends in a whole line. The full figures are in the sheet. */}
               <h2 className="max-[360px]:line-clamp-2 text-base font-semibold text-neutral-100 [overflow-wrap:anywhere] min-[360px]:truncate">{sheetTitle}</h2>
-              <p className="max-[360px]:line-clamp-2 text-sm text-neutral-400 [overflow-wrap:anywhere] min-[360px]:truncate">
-                {sheetLine}
-                {!route.DestinationReached && <span className="text-amber-400">{sheetLine ? " · " : ""}destination unreachable</span>}
-              </p>
+              {(sheetLine || !route.DestinationReached) && (
+                <p className="max-[360px]:line-clamp-2 text-sm text-neutral-400 [overflow-wrap:anywhere] min-[360px]:truncate">
+                  {sheetLine}
+                  {!route.DestinationReached && <span className="text-amber-400">{sheetLine ? " · " : ""}destination unreachable</span>}
+                </p>
+              )}
             </div>
           }
         >

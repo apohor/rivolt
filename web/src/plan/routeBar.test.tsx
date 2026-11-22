@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { formatResultSummary, formatRouteSummary, useRouteBarCollapse, useRouteBarState, type RouteEnd } from "./routeBar";
+import { formatResultSummaryParts, formatRouteSummary, useRouteBarCollapse, useRouteBarState, type RouteEnd } from "./routeBar";
 
 afterEach(cleanup);
 
@@ -100,12 +100,19 @@ describe("useRouteBarCollapse", () => {
   });
 });
 
-describe("formatResultSummary", () => {
+describe("formatResultSummaryParts", () => {
   const base = { origin: LA, destination: LV, startingSoc: "", departureAt: "" };
   it("names the departure, 'Leaves now' when none, and the typed or live starting charge", () => {
-    expect(formatResultSummary(base, null)).toBe("Los Angeles → Las Vegas · Leaves now");
-    expect(formatResultSummary(base, 72.4)).toBe("Los Angeles → Las Vegas · Leaves now · 72% charge now");
-    expect(formatResultSummary({ ...base, startingSoc: "85" }, 72)).toBe("Los Angeles → Las Vegas · Leaves now · 85% charge");
-    expect(formatResultSummary({ ...base, departureAt: "2026-11-14T08:00" }, null, "en-US")).toMatch(/^Los Angeles → Las Vegas · Sat,? 8:00 AM$/);
+    expect(formatResultSummaryParts(base, null).facts).toBe("Leaves now");
+    expect(formatResultSummaryParts(base, 72.4).facts).toBe("Leaves now · 72% charge now");
+    expect(formatResultSummaryParts({ ...base, startingSoc: "85" }, 72).facts).toBe("Leaves now · 85% charge");
+    expect(formatResultSummaryParts({ ...base, departureAt: "2026-11-14T08:00" }, null, "en-US").facts).toMatch(/^Sat,? 8:00 AM$/);
+  });
+  it("shortens the places to the city and keeps the full labels for the title", () => {
+    const long = { ...base, origin: { lat: 1, lon: 1, label: "Current vehicle position" }, destination: { lat: 2, lon: 2, label: "Sacramento, California, United States" } };
+    const p = formatResultSummaryParts(long, 74);
+    expect(p.route).toBe("Current vehicle position → Sacramento");
+    expect(p.facts).toBe("Leaves now · 74% charge now");
+    expect(p.full).toBe("Current vehicle position → Sacramento, California, United States · Leaves now · 74% charge now");
   });
 });

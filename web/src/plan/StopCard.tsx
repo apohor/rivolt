@@ -32,6 +32,7 @@ export function StopCard({
   weather,
   weatherNote,
   number,
+  correctedArrival,
 }: {
   kind: "start" | "stop" | "via" | "end";
   name: string;
@@ -48,6 +49,8 @@ export function StopCard({
   weatherNote?: string[];
   // plan_v2: this charging stop's place among the charging stops, the number its pin and pill on the map carry.
   number?: number;
+  // plan_v2: the weather-corrected arrival charge the hero shows; the end row then says that figure (tinted against the target) with Rivian's own beside it.
+  correctedArrival?: number;
 }) {
   const { distanceUnit } = usePreferences();
   const reserve = useReservePct();
@@ -120,11 +123,17 @@ export function StopCard({
               <span>The route passes through it</span>
             </>
           )}
-          {kind === "end" && (
-            <span>
-              {arr && <span>{arr}</span>} arrive{w.ArrivalSoC > 0 && <> at <span className={underReserve(w.ArrivalSoC, reserve) ? "text-amber-300" : "text-neutral-200"} data-under-reserve={underReserve(w.ArrivalSoC, reserve) ? "" : undefined} title={underReserve(w.ArrivalSoC, reserve) ? `Under your ${Math.round(reserve ?? 0)}% target` : undefined}>{w.ArrivalSoC.toFixed(0)}<Unit>%</Unit></span>{underReserve(w.ArrivalSoC, reserve) && <span className="text-amber-300"> · under your {Math.round(reserve ?? 0)}% target</span>}</>}
-            </span>
-          )}
+          {kind === "end" && (() => {
+            const own = w.ArrivalSoC;
+            const shown = correctedArrival != null && correctedArrival > 0 ? correctedArrival : own;
+            const low = underReserve(shown, reserve);
+            const differs = shown !== own && own > 0 && Math.round(shown) !== Math.round(own);
+            return (
+              <span>
+                {arr && <span>{arr}</span>} arrive{shown > 0 && <> at <span className={low ? "text-amber-300" : "text-neutral-200"} data-under-reserve={low ? "" : undefined} title={low ? `Under your ${Math.round(reserve ?? 0)}% target` : undefined}>{shown.toFixed(0)}<Unit>%</Unit></span>{low && <span className="text-amber-300"> · under your {Math.round(reserve ?? 0)}% target</span>}{differs && <span data-rivian-arrival className="pt-sub text-neutral-500"> · Rivian's planner: {own.toFixed(0)}%</span>}</>}
+              </span>
+            );
+          })()}
         </span>
         {weatherTags.length > 0 && (
           <span data-leg-weather className="pt-sub mt-0.5 block text-neutral-400">{weatherTags.join(" · ")}</span>
