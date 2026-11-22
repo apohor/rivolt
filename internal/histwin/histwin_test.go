@@ -71,7 +71,8 @@ func TestMonthsForCutoff(t *testing.T) {
 	}
 	// A year on, the existing account still has 12 and the new one 6.
 	now := Cutoff.AddDate(1, 0, 0)
-	if w := Free(now, before); w.Months != LegacyMonths || !w.Since.Equal(X		t.Errorf("existing a year on: %+v, want 12 months back from November 2027", w)
+	if w := Free(now, before); w.Months != LegacyMonths || !w.Since.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("existing a year on: %+v, want 12 months back from November 2027", w)
 	}
 	if w := Free(now, Cutoff.Add(time.Hour)); w.Months != Months || !w.Since.Equal(time.Date(2027, 5, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("new a year on: %+v, want 6 months back from November 2027", w)
