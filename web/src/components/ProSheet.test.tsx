@@ -15,7 +15,7 @@ const free = planState(freeMe);
 function renderSheet(state: Parameters<typeof ProSheet>[0]["state"]) {
   return render(
     <MemoryRouter>
-      <ProSheet state={state} onClose={() => {}} />
+      <ProSheet from="settings" state={state} onClose={() => {}} />
     </MemoryRouter>,
   );
 }
@@ -113,11 +113,14 @@ describe("ProSheet", () => {
   it("opens Checkout at the URL the server answers", async () => {
     const assign = vi.fn();
     Object.defineProperty(window, "location", { value: { pathname: "/settings", search: "", assign }, writable: true });
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => JSON.stringify({ url: "https://checkout.example/x" }) }) as unknown as Response));
+    const fetchMock = vi.fn(async (_u: RequestInfo | URL, _i?: RequestInit) => ({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => JSON.stringify({ url: "https://checkout.example/x" }) }) as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
     renderSheet(free);
     fireEvent.click(screen.getByLabelText(/Monthly/));
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: checkoutLabel("month") }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.example/x"));
+    // The entry point goes with the interval, for the server's count; nothing else is added.
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ interval: "month", from: "settings" });
   });
 });

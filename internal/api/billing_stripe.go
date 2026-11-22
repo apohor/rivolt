@@ -8,15 +8,17 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/stripebill"
 )
 
 // handleBillingCheckout is POST /api/billing/checkout {"interval":"month"|"year"} -> {"url": the Stripe-hosted Checkout page}. The account
-// is the signed-in one and nothing in the request names another: the body carries the interval and nothing else is read from it.
-func handleBillingCheckout(svc *stripebill.Service) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+// is the signed-in one and nothing in the request names another: the body carries the interval and "from" (the entry point, for a count only) and nothing else is read from it.
+func handleBillingCheckout(svc *stripebill.Service, m *metrics.Metrics) func(uuid.UUID, http.ResponseWriter, *http.Request) {
 	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Interval string `json:"interval"`
+			From     string `json:"from"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&in); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "bad_request"})
@@ -25,6 +27,10 @@ func handleBillingCheckout(svc *stripebill.Service) func(uuid.UUID, http.Respons
 		url, err := svc.Checkout(r.Context(), uid, in.Interval)
 		if !billingAnswer(w, r, err, "checkout") {
 			return
+		}
+		if m != nil {
+			// Counted when a URL is returned; an unknown "from" is "other", so the label set stays closed.
+			m.BillingCheckoutsStarted.WithLabelValues(in.Interval, metrics.ProFrom(in.From)).Inc()
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"url": url})
 	}

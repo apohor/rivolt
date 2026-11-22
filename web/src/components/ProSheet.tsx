@@ -5,6 +5,7 @@ import { backend } from "../lib/api";
 import { DemoLinks } from "./DemoLinks";
 import { DEMO_HISTORY, DEMO_PLANNER, DEMO_TRENDS } from "../lib/demoLinks";
 import { PRO, checkoutLabel, consentText, proIncluded, type Interval } from "../lib/proCopy";
+import type { ProFrom } from "../lib/proFrom";
 import { planDate, type PlanState } from "../lib/plan";
 
 const ring = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300";
@@ -27,7 +28,7 @@ function tabStops(box: HTMLElement): HTMLElement[] {
 // terms and an unticked consent directly above the button, links to Terms and Privacy, and "Manage subscription" for someone already
 // subscribed. It opens Stripe Checkout (hosted) and never takes a card here. Mocked until billing exists: a failure says so and nothing
 // is charged.
-export function ProSheet({ state, onClose, opener: given }: { state: PlanState; onClose: () => void; opener?: HTMLElement | null }) {
+export function ProSheet({ state, onClose, from, opener: given }: { state: PlanState; onClose: () => void; from: ProFrom; opener?: HTMLElement | null }) {
   const [interval, setInterval] = useState<Interval | null>(null);
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -162,7 +163,7 @@ export function ProSheet({ state, onClose, opener: given }: { state: PlanState; 
                 </span>
               </label>
             )}
-            <button type="button" className={solid} disabled={!interval || !agreed || busy} onClick={() => interval && void open(() => backend.billingCheckout(interval))}>
+            <button type="button" className={solid} disabled={!interval || !agreed || busy} onClick={() => interval && void open(() => backend.billingCheckout(interval, from))}>
               {interval ? checkoutLabel(interval) : "Choose a plan"}
             </button>
             <p className="text-xs text-neutral-500">{PRO.underButton} <span data-us-billing>{PRO.usBilling}</span></p>

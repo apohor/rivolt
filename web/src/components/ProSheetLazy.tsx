@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type ComponentProps } from "react";
+import { track } from "../lib/track";
 
 // The Pro sheet is opened rarely, so it is its own chunk. Whatever shows a button that opens it mounts <ProSheetPreload/> beside it: the chunk
 // is fetched then (and kept by the browser), so the click opens the sheet at once, with no flash, and still works offline after load.
@@ -37,6 +38,9 @@ function openerNow(): HTMLElement | null {
 // moves focus into itself when it mounts and gives it back to this element on close.
 export const ProSheet = (props: Omit<ComponentProps<typeof Sheet>, "opener">) => {
   const [opener] = useState(openerNow);
+  // One count per opening, on the person's tap (this mounts only when something they pressed opens the sheet; never in the background).
+  // The event carries the entry point from the fixed list and nothing else; track() sends nothing under Do Not Track or GPC.
+  useEffect(() => track("pro_sheet_open", { from: props.from }), [props.from]);
   return (
     <Suspense fallback={<Pending opener={opener} />}>
       <Sheet {...props} opener={opener} />

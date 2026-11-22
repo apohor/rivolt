@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/apohor/rivolt/internal/entitlements"
+	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/stripebill"
 )
 
@@ -83,7 +85,7 @@ func postBilling(h func(uuid.UUID, http.ResponseWriter, *http.Request), uid uuid
 // asked for a session for the caller.
 func TestCheckoutAccountComesFromTheSessionOnly(t *testing.T) {
 	stripe, srv := newStripeRecorder(t)
-	h := handleBillingCheckout(billingSvc(srv, billingPlans{on: true}))
+	h := handleBillingCheckout(billingSvc(srv, billingPlans{on: true}), nil)
 	me, other := uuid.New(), uuid.New()
 	rec := postBilling(h, me, `{"interval":"year","user_id":"`+other.String()+`","client_reference_id":"`+other.String()+`","customer":"cus_victim","rivolt_user_id":"`+other.String()+`"}`)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "checkout.stripe.test") {
@@ -125,7 +127,7 @@ func TestCheckoutAnswers(t *testing.T) {
 		stripe.fail = c.fail
 		stripe.mu.Unlock()
 		// A fresh service each time: the price cache would otherwise hide the failing price read.
-		rec := postBilling(handleBillingCheckout(billingSvc(srv, c.plans)), uid, c.body)
+		rec := postBilling(handleBillingCheckout(billingSvc(srv, c.plans), nil), uid, c.body)
 		if rec.Code != c.code || !strings.Contains(rec.Body.String(), `"`+c.err+`"`) {
 			t.Errorf("%s: %d %s, want %d %s", c.name, rec.Code, rec.Body, c.code, c.err)
 		}
@@ -194,8 +196,42 @@ func TestCheckoutWithoutAPaymentMethodConfigurationIs503(t *testing.T) {
 	t.Cleanup(srv.Close)
 	svc := billingSvc(srv, billingPlans{on: true})
 	svc.PaymentMethodConfig = ""
-	rec := postBilling(handleBillingCheckout(svc), uuid.New(), `{"interval":"year"}`)
+	rec := postBilling(handleBillingCheckout(svc, nil), uuid.New(), `{"interval":"year"}`)
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), `"payment_methods_not_configured"`) {
 		t.Errorf("answered %d %s, want 503 payment_methods_not_configured", rec.Code, rec.Body.String())
 	}
+}
+
+// The started-checkout counter moves once per URL returned, by interval and entry point; a "from" outside the fixed list counts as "other"
+// (the label set stays closed), and a checkout that fails counts nothing.
+func TestCheckoutCountsStartedByFromAndInterval(t *testing.T) {
+	stripe, srv := newStripeRecorder(t)
+	m := metrics.New()
+	h := handleBillingCheckout(billingSvc(srv, billingPlans{on: true}), m)
+	read := func(interval, from string) float64 {
+		return testutil.ToFloat64(m.BillingCheckoutsStarted.WithLabelValues(interval, from))
+	}
+	uid := uuid.New()
+	for _, c := range []struct{ body, interval, from string }{
+		{`{"interval":"year","from":"truck"}`, "year", "truck"},
+		{`{"interval":"month","from":"lapse_banner"}`, "month", "lapse_banner"},
+		{`{"interval":"year","from":"https://evil.test/?a=b"}`, "year", "other"},
+		{`{"interval":"year"}`, "year", "other"},
+	} {
+		before := read(c.interval, c.from)
+		if rec := postBilling(h, uid, c.body); rec.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", c.body, rec.Code, rec.Body)
+		}
+		if got := read(c.interval, c.from); got != before+1 {
+			t.Errorf("%s: counter %v -> %v, want +1", c.body, before, got)
+		}
+	}
+	// A bad interval returns no URL: nothing is counted.
+	if rec := postBilling(h, uid, `{"interval":"week","from":"truck"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad interval: %d", rec.Code)
+	}
+	if got := testutil.CollectAndCount(m.BillingCheckoutsStarted); got != 2*len(metrics.ProFromValues) {
+		t.Errorf("%d series, want %d (pre-set, closed label set)", got, 2*len(metrics.ProFromValues))
+	}
+	_ = stripe
 }

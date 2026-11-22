@@ -37,7 +37,7 @@ export function RadarTeaser({ teaser, planKey }: { teaser: TripWeatherAdjustment
       >
         Dismiss
       </button>
-      {open && <ProSheet state={state} onClose={() => setOpen(false)} />}
+      {open && <ProSheet from="planner" state={state} onClose={() => setOpen(false)} />}
     </div>
   );
 }
