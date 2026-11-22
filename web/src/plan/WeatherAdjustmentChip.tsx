@@ -38,8 +38,13 @@ export function WeatherAdjustmentChip({ plan }: { plan: TripPlan }) {
       if (leg.multiplier > worst.multiplier) worst = leg;
     });
     const out: string[] = [];
-    if (worst.temp_c != null && worst.temp_c < 10) out.push(`cold (${tempText(worst.temp_c, temperatureUnit)})`);
-    if (worst.temp_c != null && worst.temp_c > 30) out.push(`heat (${tempText(worst.temp_c, temperatureUnit)})`);
+    // temp_c is the feels-like temperature and the threshold stays on it; the stop row prints the air temperature (air_temp_c),
+    // so say "feels like" when the two differ after rounding.
+    const feels = worst.temp_c != null ? tempText(worst.temp_c, temperatureUnit) : "";
+    const air = worst.air_temp_c != null ? tempText(worst.air_temp_c, temperatureUnit) : feels;
+    const temp = feels === air ? feels : `feels like ${feels}`;
+    if (worst.temp_c != null && worst.temp_c < 10) out.push(`cold (${temp})`);
+    if (worst.temp_c != null && worst.temp_c > 30) out.push(`heat (${temp})`);
     if (worst.headwind_kph != null && worst.headwind_kph > 10) out.push(`${windText(worst.headwind_kph, distanceUnit)} headwind`);
     if (worst.precip_mm != null && worst.precip_mm > 0.5) out.push("rain");
     if (adj.profile_reasons) out.push(...adj.profile_reasons);
