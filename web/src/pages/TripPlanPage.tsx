@@ -66,7 +66,11 @@ export default function TripPlanPage() {
       const el = document.querySelector("[data-plan-area='map']:not([data-empty]), [data-plan-wide]");
       if (!el) return null;
       const bar = document.querySelector("header.sticky")?.getBoundingClientRect().height ?? 48;
-      return Math.max(0, Math.round(el.getBoundingClientRect().top + window.scrollY - bar - 8));
+      // plan_v2 on a phone: the folded summary line and its Edit button come first, so the page rests with them under the top bar and the map
+      // right below, not the other way round (#2536: Edit sat under the top bar).
+      const fold = v2 && !wide ? document.querySelector("[data-plan-bar][data-collapsed='true']") : null;
+      const anchor = fold ?? el;
+      return Math.max(0, Math.round(anchor.getBoundingClientRect().top + window.scrollY - bar - 8));
     };
     let r2 = 0;
     let idle = 0;
@@ -120,7 +124,7 @@ export default function TripPlanPage() {
       cancelAnimationFrame(r2);
       stop();
     };
-  }, [resultKey, planTab]);
+  }, [resultKey, planTab, v2]);
   // The form's pieces, laid out by the map-first route bar (RouteBar).
   const departureEl = <DeparturePicker value={departureAt} onChange={setDepartureAt} />;
   const targetSocEl = (
