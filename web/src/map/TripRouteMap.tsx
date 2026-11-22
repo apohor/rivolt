@@ -1234,6 +1234,12 @@ export function TripRouteMap({
           <span aria-hidden="true">{radarLabel}</span>
         </span>
   ) : null;
+  // plan_v2: on = filled with a check and a border; off = outlined and clear. Both have a border, so a chip keeps its size when toggled.
+  const chipV2 = (on: boolean) =>
+    `inline-flex items-center gap-1 border ${on ? "border-cyan-400 bg-cyan-800 font-medium text-cyan-50" : "border-neutral-600 bg-transparent text-neutral-400 hover:text-neutral-200"}`;
+  const ChipCheck = () => (
+    <svg data-chip-check aria-hidden viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5l2.5 2.5 4.5-5.5" /></svg>
+  );
   // The charger chips: floating over the map's top (fill), in the flow above it, or in the Layers panel (tight).
   const chargerChips = (panel: boolean) => (
         <div className={fill && !panel ? "pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm max-[200px]:px-1" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill && !panel ? "" : undefined} data-map-chips={panel ? undefined : ""}>
@@ -1245,9 +1251,10 @@ export function TripRouteMap({
               aria-pressed={layers.has(f)}
               onClick={() => toggleLayer(f)}
               className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors max-[200px]:px-1 ${
-                layers.has(f) ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
+                planV2 ? chipV2(layers.has(f)) : layers.has(f) ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"
               }`}
             >
+              {planV2 && layers.has(f) && <ChipCheck />}
               {filterLabels[f]}
             </button>
           ))}
@@ -1259,8 +1266,9 @@ export function TripRouteMap({
               aria-pressed={preferredOnly}
               onClick={() => setPreferredOnly(!preferredOnly)}
               title="Only the networks you prefer in Settings. The planner favours them; it doesn't promise one."
-              className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors ${preferredOnly ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"}`}
+              className={`whitespace-nowrap px-2 py-0.5 text-xs rounded transition-colors ${planV2 ? chipV2(preferredOnly) : preferredOnly ? "bg-cyan-800 text-cyan-100" : "bg-neutral-800 text-neutral-400 hover:text-neutral-200"}`}
             >
+              {planV2 && preferredOnly && <ChipCheck />}
               Preferred only
             </button>
           )}
