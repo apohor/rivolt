@@ -179,3 +179,26 @@ test("no figure from the truck: our estimate leads, labelled as one", async ({ b
   await expect(cap.locator("[data-cap-estimate]")).toHaveCount(0);
   await ctx.close();
 });
+
+// The range control sits on the title's row when it fits (a phone at normal text), and wraps under it, right-aligned, when it does not.
+test("the Trends title and range control share one row at 393 px", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, SPREAD);
+  const title = await page.getByRole("heading", { name: "Trends for your truck" }).boundingBox();
+  const range = await page.locator("[data-trends-range]").boundingBox();
+  expect(title && range && Math.abs(title.y + title.height / 2 - (range.y + range.height / 2)) < 6, `title ${JSON.stringify(title)} range ${JSON.stringify(range)}`).toBe(true);
+  await ctx.close();
+});
+
+test("at 320 px and 200% text the Truck page, charts and range control included, has no sideways scroll", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 320, height: 640 }, colorScheme: "dark" });
+  const page = await ctx.newPage();
+  await open(page, SPREAD);
+  await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+  await expect(page.locator("[data-trends-range]")).toBeVisible();
+  await expect(page.locator("[data-cap-chart] svg")).toBeVisible();
+  const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(over, "page scrolls sideways by this many px").toBeLessThanOrEqual(0);
+  await ctx.close();
+});

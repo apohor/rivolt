@@ -67,9 +67,10 @@ export function Card({
   return (
     <section id={id} data-span={span} data-ui-area={area} className="rounded-xl border border-neutral-800 bg-neutral-900/50 scroll-mt-20">
       {(title || actions) && (
-        <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-neutral-800 px-4 py-2.5">
+        <header className="flex flex-wrap items-center justify-between gap-y-2 border-b border-neutral-800 px-4 py-2.5">
           {title && <h2 className="text-sm font-medium text-neutral-200">{title}</h2>}
-          {actions}
+          {/* No sideways gap, so actions that fit beside the title stay on its row; when they wrap they keep the right edge. */}
+          {actions && <div className={`min-w-0 max-w-full ${title ? "ml-auto" : ""}`}>{actions}</div>}
         </header>
       )}
       <div className="p-4">{children}</div>

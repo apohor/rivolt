@@ -98,7 +98,7 @@ export function CapacityDots({ samples, median, spec }: { samples: CapacitySampl
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const set = () => setW(Math.max(260, Math.round(el.clientWidth)));
+    const set = () => setW(Math.max(160, Math.round(el.clientWidth)));
     set();
     const ro = new ResizeObserver(set);
     ro.observe(el);
