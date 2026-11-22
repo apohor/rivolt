@@ -276,7 +276,7 @@ func planSimFrom(kind SimKind, start time.Time, fromSoC float64) (simPlan, error
 		}
 	}
 	soc := scheduleSoC(c, cs)
-	errand, errandName, originName, back := sp.errand, sp.errandName, "Rose Bowl Stadium", origin
+	errand, errandName, originName, back := sp.errand, sp.errandName, "Sample home", origin
 	var road []samplePoint
 	if atHome {
 		back = SampleHome
