@@ -64,6 +64,7 @@ import (
 	"github.com/apohor/rivolt/internal/flags"
 	"github.com/apohor/rivolt/internal/fleetbucket"
 	"github.com/apohor/rivolt/internal/geocoding"
+	"github.com/apohor/rivolt/internal/histwin"
 	"github.com/apohor/rivolt/internal/hydra"
 	"github.com/apohor/rivolt/internal/identity"
 	"github.com/apohor/rivolt/internal/idp"
@@ -355,6 +356,12 @@ func runServer() {
 
 	// Settings that no longer exist are refused, not ignored (header sign-in, N48).
 	if err := removedSettingError(os.Getenv); err != nil {
+		logger.Error("refusing to start: " + err.Error())
+		os.Exit(1)
+	}
+
+	// The free tier's history window: unset keeps 12 months for everyone; set only after the notice of the 12 to 6 change has gone out.
+	if err := histwin.Configure(os.Getenv(histwin.NoticeEnv)); err != nil {
 		logger.Error("refusing to start: " + err.Error())
 		os.Exit(1)
 	}

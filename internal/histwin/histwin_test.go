@@ -6,7 +6,16 @@ import (
 	"time"
 )
 
+// noticeRun sets the notice far in the past for one test, so every free account has Months.
+func noticeRun(t *testing.T) {
+	t.Helper()
+	old := NoticeAt
+	SetNotice(time.Unix(0, 0))
+	t.Cleanup(func() { SetNotice(old) })
+}
+
 func TestFreeWindow(t *testing.T) {
+	noticeRun(t)
 	// After the notice has run, every free account has Months, whenever it was created.
 	now := time.Date(2027, 1, 20, 15, 4, 5, 0, time.UTC)
 	w := Free(now, time.Time{})
@@ -37,6 +46,8 @@ func TestFreeWindow(t *testing.T) {
 // The 30 days' notice (Terms section 11): an account that existed before the notice keeps LegacyMonths until EffectiveAt; one created
 // at or after the notice gets Months at once; nothing unknown shows less history.
 func TestMonthsForNotice(t *testing.T) {
+	SetNotice(time.Date(2026, 11, 23, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(func() { SetNotice(time.Time{}) })
 	before := NoticeAt.Add(-time.Hour)
 	for _, c := range []struct {
 		name         string
@@ -62,6 +73,30 @@ func TestMonthsForNotice(t *testing.T) {
 	w := Free(NoticeAt.Add(time.Hour), before)
 	if w.Months != LegacyMonths || !w.Since.Equal(time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("an existing account during the notice: %+v, want 12 months back from November", w)
+	}
+}
+
+// Unset (the default) is the code shipping inert: every account, old, new or unknown, keeps 12 months; and the setting is parsed strictly.
+func TestNoticeUnset(t *testing.T) {
+	SetNotice(time.Time{})
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, created := range []time.Time{{}, now.AddDate(-3, 0, 0), now.Add(-time.Hour)} {
+		if got := MonthsFor(created, now); got != LegacyMonths {
+			t.Errorf("created %v, notice unset: %d months, want %d", created, got, LegacyMonths)
+		}
+	}
+	if w := Free(now, time.Time{}); w.Months != LegacyMonths || !w.Since.Equal(time.Date(2029, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("unset: %+v, want 12 months back from January", w)
+	}
+	t.Cleanup(func() { SetNotice(time.Time{}) })
+	if err := Configure(" 2026-12-01T00:00:00Z "); err != nil || !NoticeAt.Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)) || !EffectiveAt.Equal(NoticeAt.AddDate(0, 0, 30)) {
+		t.Errorf("Configure: %v, notice %v effective %v", err, NoticeAt, EffectiveAt)
+	}
+	if err := Configure("2026-12-01"); err == nil {
+		t.Error("a date without a time was accepted")
+	}
+	if err := Configure(""); err != nil || !NoticeAt.IsZero() || !EffectiveAt.IsZero() {
+		t.Errorf("Configure empty: %v, notice %v", err, NoticeAt)
 	}
 }
 

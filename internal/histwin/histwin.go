@@ -11,6 +11,8 @@ package histwin
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -22,17 +24,50 @@ const Months = 6
 // when it signed up, and shrinking it takes something away from the tier it is on.
 const LegacyMonths = 12
 
-// NoticeAt is when the notice of the 12 to 6 change goes out (the new Terms and the email). An account created at or after it signs up
-// under the 6-month Terms and gets Months at once; one created before it keeps LegacyMonths until EffectiveAt.
-// EffectiveAt is NoticeAt plus the 30 days the Terms promise. Both are UTC instants and are set once the owner has picked the date.
+// NoticeAt is when the notice of the 12 to 6 change went out (the new Terms, the email and the in-app notice). An account created at or
+// after it signs up under the 6-month Terms and gets Months at once; one created before it keeps LegacyMonths until EffectiveAt, which is
+// NoticeAt plus the 30 days the Terms promise. Both are UTC instants. Unset (the zero value, the default) means the notice has not gone
+// out, and every account keeps LegacyMonths: the code ships inert and the setting is made in the deployment's values only afterwards
+// (RIVOLT_HISTORY_NOTICE_AT, read at start by Configure).
 var (
-	NoticeAt    = time.Date(2026, 11, 23, 0, 0, 0, 0, time.UTC)
-	EffectiveAt = NoticeAt.AddDate(0, 0, 30)
+	NoticeAt    time.Time
+	EffectiveAt time.Time
 )
 
-// MonthsFor is the window length for an account created at created, at now. An unknown creation time (zero) counts as an existing
-// account, so a failed lookup shows more history, never less.
+// NoticeEnv names the setting that holds the notice time (RFC 3339).
+const NoticeEnv = "RIVOLT_HISTORY_NOTICE_AT"
+
+// SetNotice sets NoticeAt and derives EffectiveAt; the zero time unsets both.
+func SetNotice(at time.Time) {
+	if at.IsZero() {
+		NoticeAt, EffectiveAt = time.Time{}, time.Time{}
+		return
+	}
+	NoticeAt = at.UTC()
+	EffectiveAt = NoticeAt.AddDate(0, 0, 30)
+}
+
+// Configure applies the setting's value: empty leaves the window at LegacyMonths for everyone; anything else must be an RFC 3339 time.
+func Configure(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		SetNotice(time.Time{})
+		return nil
+	}
+	at, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return fmt.Errorf("%s: %q is not an RFC 3339 time", NoticeEnv, raw)
+	}
+	SetNotice(at)
+	return nil
+}
+
+// MonthsFor is the window length for an account created at created, at now. Until the notice is set it is LegacyMonths for everyone.
+// An unknown creation time (zero) counts as an existing account, so a failed lookup shows more history, never less.
 func MonthsFor(created, now time.Time) int {
+	if NoticeAt.IsZero() {
+		return LegacyMonths
+	}
 	if !now.Before(EffectiveAt) || (!created.IsZero() && !created.Before(NoticeAt)) {
 		return Months
 	}
