@@ -61,10 +61,18 @@ struct PulseDot: View {
 private extension View {
     /// Fades `dim` back and forth (1 s each way, a 2 s cycle); with reduced motion, or when not `active`, nothing moves.
     func pulsing(_ dim: Binding<Bool>, reduceMotion: Bool, active: Bool = true) -> some View {
-        onAppear {
-            guard active, !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) { dim.wrappedValue = true }
-        }
+        onAppear { start(dim, reduceMotion: reduceMotion, active: active) }
+        // A dot that was on screen before charging began starts pulsing then; one that stops charging goes back to full.
+        .onChange(of: active) { _, now in start(dim, reduceMotion: reduceMotion, active: now) }
         .onDisappear { dim.wrappedValue = false }
+    }
+
+    private func start(_ dim: Binding<Bool>, reduceMotion: Bool, active: Bool) {
+        guard active, !reduceMotion else {
+            // A new animation replaces the repeating one, so the dot settles instead of carrying on.
+            withAnimation(.easeOut(duration: 0.2)) { dim.wrappedValue = false }
+            return
+        }
+        withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) { dim.wrappedValue = true }
     }
 }
