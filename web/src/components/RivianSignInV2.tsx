@@ -10,21 +10,25 @@ const input = "w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 p
 const primaryBtn = "w-full rounded-md bg-emerald-600/90 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50";
 const DEMO_HOST = "https://demo.rivolt.dev";
 
-function useHeadingFocus() {
+// `focus` false: the card sits in a page the reader is already on (Now, Settings), so mounting it must not move focus off their place.
+function useHeadingFocus(focus: boolean) {
   const ref = useRef<HTMLHeadingElement>(null);
-  useEffect(() => ref.current?.focus(), []);
+  useEffect(() => {
+    if (focus) ref.current?.focus();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return ref;
 }
 
-function SampleLink({ label = "look at the sample truck" }: { label?: string }) {
+function SampleLink({ label = "look at the sample truck", block = false }: { label?: string; block?: boolean }) {
   const demoEnabled = useDemoEnabled();
   const hosted = /(^|\.)rivolt\.dev$/.test(window.location.hostname);
   if (!demoEnabled && !hosted) return null;
-  return (
+  const a = (
     <a href={demoEnabled ? "/demo?from=app" : `${DEMO_HOST}/demo?from=app`} className={link}>
       {label}
     </a>
   );
+  return block ? <p>{a}</p> : a;
 }
 
 function Failure({ title, children, action }: { title: string; children: React.ReactNode; action?: { label: string; run: () => void } }) {
@@ -94,13 +98,14 @@ export type LoginFormProps = {
   onLater?: () => void;
   // The step heading: the card's own title, "Connect your Rivian". Off where the page already has one.
   heading?: boolean;
+  focus?: boolean;
 };
 
 // The short connect card (design key signup_v2): one form for the Now card and the onboarding step. What it states is all true (the Rivian client
 // sends only the sign-in itself, never a command; the password is used once). The longer account of what is kept, how to undo it and the
 // risks lives on /safe-to-connect.
-export function RivianLoginV2({ email, setEmail, password, setPassword, pending, error, onSubmit, onLater, heading = true }: LoginFormProps) {
-  const h = useHeadingFocus();
+export function RivianLoginV2({ email, setEmail, password, setPassword, pending, error, onSubmit, onLater, heading = true, focus = true }: LoginFormProps) {
+  const h = useHeadingFocus(focus);
   return (
     <form
       onSubmit={(e) => {
@@ -137,9 +142,7 @@ export function RivianLoginV2({ email, setEmail, password, setPassword, pending,
         {pending ? "Signing in…" : "Sign in to Rivian"}
       </button>
       {!!error && <SignInFailure error={error} step="password" retry={onSubmit} onLater={onLater} />}
-      <p>
-        <SampleLink label="Try a sample truck" />
-      </p>
+      <SampleLink label="Try a sample truck" block />
       <p data-connect-privacy className="text-xs text-neutral-400">
         Rivolt records your truck's location and vehicle data.{" "}
         <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-neutral-200">
@@ -166,10 +169,11 @@ export type CodeFormProps = {
   onNewCode: () => void;
   onDifferent: () => void;
   heading?: boolean;
+  focus?: boolean;
 };
 
-export function RivianCodeV2({ otp, setOtp, pending, error, onSubmit, onNewCode, onDifferent, heading = true }: CodeFormProps) {
-  const h = useHeadingFocus();
+export function RivianCodeV2({ otp, setOtp, pending, error, onSubmit, onNewCode, onDifferent, heading = true, focus = true }: CodeFormProps) {
+  const h = useHeadingFocus(focus);
   return (
     <form
       onSubmit={(e) => {

@@ -75,7 +75,7 @@ export default function OnboardingPage() {
         {choosing ? (
           <SignupChoice onAdd={() => setSearch({ connect: "1" })} />
         ) : v2 && !connected ? (
-          <RivianAccountPanel v2 onLater={finish} />
+          <RivianAccountPanel v2 focusOnMount onLater={finish} />
         ) : v2 && connected ? (
           <>
             <RivianAccountPanel />
