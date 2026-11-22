@@ -47,12 +47,11 @@ test("desktop keeps the empty map beside the form with the key on", async ({ pag
   await expect(page.locator("[data-plan-area='map'][data-empty='true']")).toBeVisible();
 });
 
-test("key on: one total, the same on the map card and the sheet, with driving and charging beneath", async ({ page }) => {
+test("key on: the total is said on the map card only (not again in the peek), with driving and charging beneath it in the sheet", async ({ page }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await openSaved(page, true);
-  const card = (await page.locator(".rivolt-trip-card").first().innerText()).trim();
-  const peek = (await page.locator("[data-plan-sheet-title] p").innerText()).trim();
-  expect(peek).toBe(card);
+  await expect(page.locator(".rivolt-trip-card").first()).toContainText(/charging stop/);
+  await expect(page.locator("[data-plan-sheet-title] p")).toHaveCount(0);
   const handle = page.locator("[data-plan-sheet-handle]");
   await handle.click();
   await handle.click();

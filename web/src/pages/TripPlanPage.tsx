@@ -10,7 +10,7 @@ import { usePlanner } from "../plan/usePlanner";
 import { haversineMeters, planErrorCopy, relabelIfHome, type Selection } from "../plan/plannerHelpers";
 import { PlannerNetworks } from "../plan/PlannerNetworks";
 import { RouteBar } from "../plan/RouteBarPanel";
-import { countNonDefaultOptions, formatResultSummary, useRouteBarCollapse } from "../plan/routeBar";
+import { countNonDefaultOptions, formatResultSummaryParts, useRouteBarCollapse } from "../plan/routeBar";
 import { PlanSelectionProvider } from "../plan/selection";
 import { ReserveProvider, reservePct } from "../plan/reserve";
 import { ConnectHint } from "../components/DemoBanner";
@@ -340,7 +340,7 @@ export default function TripPlanPage() {
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
-      <FormShell hasResult={hasResult} resultKey={resultKey} v2={v2} summary={v2 ? formatResultSummary(routeBar, typeof stateQuery.data?.battery_level_pct === "number" ? stateQuery.data.battery_level_pct : null) : routeSummary}>
+      <FormShell hasResult={hasResult} resultKey={resultKey} v2={v2} summary={routeSummary} v2Summary={v2 ? formatResultSummaryParts(routeBar, typeof stateQuery.data?.battery_level_pct === "number" ? stateQuery.data.battery_level_pct : null) : undefined}>
         {firstVehicle && (
           <p className="mb-3 text-xs text-neutral-500">
             Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
@@ -806,7 +806,7 @@ function EmptyMap({ text }: { text: string }) {
 
 // FormShell: the classic card, or otherwise the compact route bar. On a
 // phone the bar collapses to a one-line summary once there is a plan.
-function FormShell({ hasResult, resultKey, summary, v2, children }: { hasResult: boolean; resultKey: unknown; summary: string; v2?: boolean; children: React.ReactNode }) {
+function FormShell({ hasResult, resultKey, summary, v2Summary, v2, children }: { hasResult: boolean; resultKey: unknown; summary: string; v2Summary?: { route: string; facts: string; full: string }; v2?: boolean; children: React.ReactNode }) {
   const { collapsed, toggle, bodyId } = useRouteBarCollapse(hasResult, resultKey);
   return (
     <div data-plan-bar data-collapsed={collapsed ? "true" : undefined} data-plan-bar-v2={v2 ? "" : undefined}>
@@ -819,7 +819,15 @@ function FormShell({ hasResult, resultKey, summary, v2, children }: { hasResult:
           onClick={toggle}
           className={`flex w-full items-center justify-between gap-3 text-left text-sm ${v2 ? "" : "lg:hidden"}`}
         >
-          <span className={`min-w-0 text-neutral-100 ${v2 ? "line-clamp-2 [overflow-wrap:anywhere]" : "truncate"}`}>{summary}</span>
+          {v2 && v2Summary ? (
+            // The places are the city only and may wrap; the departure and the charge stay whole, on the line or under it, never cut.
+            <span className="flex min-w-0 flex-wrap gap-x-1.5 text-neutral-100" title={v2Summary.full}>
+              <span className="[overflow-wrap:anywhere]">{v2Summary.route}</span>
+              <span className="whitespace-nowrap">· {v2Summary.facts}</span>
+            </span>
+          ) : (
+            <span className={`min-w-0 text-neutral-100 ${v2 ? "line-clamp-2 [overflow-wrap:anywhere]" : "truncate"}`}>{summary}</span>
+          )}
           <span className={v2 ? "shrink-0 rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-200" : "shrink-0 text-xs text-emerald-300"}>{collapsed ? "Edit" : "Done"}</span>
         </button>
       )}
