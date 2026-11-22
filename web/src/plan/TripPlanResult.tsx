@@ -27,6 +27,7 @@ export function TripPlanResult({
   onPreviewStop,
   departureAt,
   adviceLast = false,
+  afterItinerary,
 }: {
   plan: TripPlan;
   originLabel: string;
@@ -45,6 +46,8 @@ export function TripPlanResult({
   departureAt?: string;
   // plan_v2: the trip analysis follows the summary and itinerary instead of leading them.
   adviceLast?: boolean;
+  // plan_v2: Save trip, shown right under the itinerary (before the elevation profile).
+  afterItinerary?: React.ReactNode;
 }) {
   const [active, setActive] = useState(0);
   const planKey = plan.Routes.length;
@@ -77,6 +80,7 @@ export function TripPlanResult({
               route={route}
               index={i}
               forceNext
+              afterItinerary={afterItinerary}
               allRoutes={plan.Routes}
               originLabel={originLabel}
               destLabel={destLabel}

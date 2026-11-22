@@ -47,6 +47,47 @@ test("weather-corrected: the end row says the gauge's figure, tinted, with Rivia
   await page.screenshot({ path: path.join(SHOTS, "item9-arrival-corrected.png") });
 });
 
+// The end row wraps by piece: "arrive at 18%", "· under your 20% target" and "· Rivian's planner: 24%" each stay on one line, whatever the width.
+for (const width of [1440, 393]) {
+  test(`the arrival line wraps by whole pieces, never ending on a dot · ${width}`, async ({ page }) => {
+    await open(page, CORRECTED, ["plan_v2"], width);
+    if (width < 500) await page.locator("[data-plan-sheet-handle]").click();
+    const end = page.locator("[data-plan-timeline] li").last();
+    // Squeeze the row so the pieces have to wrap.
+    await end.evaluate((el) => { (el as HTMLElement).style.maxWidth = "250px"; });
+    const pieces = end.locator("[data-arrival-piece]");
+    await expect(pieces).toHaveCount(3);
+    const info = await pieces.evaluateAll((els) => els.map((e) => ({ text: (e.textContent ?? "").trim(), lines: new Set(Array.from(e.getClientRects()).map((r) => Math.round(r.top))).size })));
+    expect(info.map((i) => i.lines)).toEqual([1, 1, 1]);
+    expect(info.map((i) => i.text.endsWith("·"))).toEqual([false, false, false]);
+    // Independent of the styling: read the row's rendered lines character by character; none may end on a dot.
+    const lines = await end.evaluate((el) => {
+      const byTop = new Map<number, string>();
+      const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n = w.nextNode(); n; n = w.nextNode()) {
+        const t = n.textContent ?? "";
+        for (let i = 0; i < t.length; i++) {
+          const r = document.createRange();
+          r.setStart(n, i); r.setEnd(n, i + 1);
+          const b = r.getBoundingClientRect();
+          if (!b.height) continue;
+          const k = Math.round(b.top);
+          byTop.set(k, (byTop.get(k) ?? "") + t[i]);
+        }
+      }
+      return [...byTop.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v.trim());
+    });
+    expect(lines.length).toBeGreaterThan(1);
+    // Whole pieces wrap onto the next line; none runs past the row's edge.
+    expect(await end.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    for (const l of lines) expect(l.endsWith("·")).toBe(false);
+    expect(info[1].text).toBe("· under your 20% target");
+    expect(info[2].text).toBe("· Rivian's planner: 24%");
+    await end.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await end.screenshot({ path: path.join(SHOTS, `item9-arrival-wrap-${width}.png`) });
+  });
+}
+
 test("corrected to 0%: the row says 0%, amber, never Rivian's softer figure alone", async ({ page }) => {
   await open(page, { ...CORRECTED, weather_adjustment: { ...CORRECTED.weather_adjustment, adjusted_arrival_soc: [34, 0], final_arrival_soc: 0 } }, ["plan_v2"]);
   const end = page.locator("[data-plan-timeline] li").last();

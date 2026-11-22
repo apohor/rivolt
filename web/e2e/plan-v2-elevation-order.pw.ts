@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { DEMO_PLAN, DEMO_PRESETS, stubApi } from "./stub";
 
-// plan_v2: the elevation profile comes after the itinerary (key off: between the summary and the itinerary, as before). Its link to the map stays.
+// plan_v2: Save trip sits directly under the itinerary, then the elevation profile (key off: Save trip leads, the profile sits between the summary and the itinerary, as before). The profile's link to the map stays.
 const SHOTS = process.env.PLAN_V2_SHOTS || path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 const TOTAL = 434_500;
@@ -38,6 +38,15 @@ for (const [w, h] of [[393, 852], [1440, 900]]) {
       const sel = "[data-plan-area=itinerary]";
       expect(await follows(page, "[data-plan-area=summary]", "[data-elevation-chart]")).toBe(true);
       expect(await follows(page, sel, "[data-elevation-chart]")).toBe(key);
+      // Save trip: key on, right after the itinerary and before the profile; key off, ahead of everything.
+      await expect(page.locator("[data-save-trip]")).toHaveCount(1);
+      expect(await follows(page, sel, "[data-save-trip]")).toBe(key);
+      expect(await follows(page, "[data-save-trip]", "[data-elevation-chart]")).toBe(true);
+      if (key) {
+        // Nothing but the Save trip bar sits between the itinerary and the profile.
+        expect(await page.evaluate(() => document.querySelector("[data-plan-area=itinerary]")!.nextElementSibling === document.querySelector("[data-save-trip]"))).toBe(true);
+        expect(await page.evaluate(() => document.querySelector("[data-save-trip]")!.nextElementSibling?.contains(document.querySelector("[data-elevation-chart]")) ?? false)).toBe(true);
+      }
       if (key) {
         // The link to the map stays: pointing at the chart puts the dot on the route.
         const chart = page.locator("[data-elevation-chart]");

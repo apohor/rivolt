@@ -129,9 +129,15 @@ export function StopCard({
             const shown = correctedArrival ?? own;
             const low = correctedArrival != null ? reserve != null && correctedArrival < reserve : underReserve(own, reserve);
             const differs = correctedArrival != null && own > 0 && Math.round(shown) !== Math.round(own);
+            const nw = correctedArrival != null ? "whitespace-nowrap" : undefined;
             return (
               <span>
-                {arr && <span>{arr}</span>} arrive{(correctedArrival != null || own > 0) && <> at <span className={low ? "text-amber-300" : "text-neutral-200"} data-under-reserve={low ? "" : undefined} title={low ? `Under your ${Math.round(reserve ?? 0)}% target` : undefined}>{shown.toFixed(0)}<Unit>%</Unit></span>{low && <span className="text-amber-300"> · under your {Math.round(reserve ?? 0)}% target</span>}{differs && <span data-rivian-arrival className="pt-sub text-neutral-500"> · Rivian's planner: {own.toFixed(0)}%</span>}</>}
+                {/* plan_v2: each piece wraps as a whole and the separator opens the piece after it, so a line never ends on a dot. */}
+                <span data-arrival-piece className={nw}>{arr && <>{arr} </>}arrive{(correctedArrival != null || own > 0) && <> at <span className={low ? "text-amber-300" : "text-neutral-200"} data-under-reserve={low ? "" : undefined} title={low ? `Under your ${Math.round(reserve ?? 0)}% target` : undefined}>{shown.toFixed(0)}<Unit>%</Unit></span></>}</span>
+                {(correctedArrival != null || own > 0) && <>
+                  {low && <>{" "}<span data-arrival-piece className={`text-amber-300 ${nw ?? ""}`}>· under your {Math.round(reserve ?? 0)}% target</span></>}
+                  {differs && <>{" "}<span data-rivian-arrival data-arrival-piece className={`pt-sub text-neutral-500 ${nw ?? ""}`}>· Rivian's planner: {own.toFixed(0)}%</span></>}
+                </>}
               </span>
             );
           })()}

@@ -53,6 +53,7 @@ export function RouteCard({
   dayLabel,
   startsAtOrigin,
   elevation,
+  afterItinerary,
 }: {
   route: TripRoute;
   index: number;
@@ -72,6 +73,8 @@ export function RouteCard({
   adjustment?: TripPlan["weather_adjustment"];
   // The weather data's credit: with the itinerary (a phone's sheet), not under the fixed sheet where the page's other children land.
   credit?: React.ReactNode;
+  // plan_v2: what follows the itinerary directly (Save trip), ahead of the elevation profile.
+  afterItinerary?: React.ReactNode;
   // Collapse the body (map + stops table + per-network breakdown)
   // behind a "Tap to view" affordance on first render. Caller sets
   // this for alternatives so the page doesn't pile maps on top of
@@ -366,6 +369,7 @@ export function RouteCard({
             {forecastOn && hasForecastTag(adjustment) && <RadarCredit />}
             {credit}
           </section>
+          {planV2 && afterItinerary}
           {/* plan_v2: the profile comes after the itinerary; it still shares its cursor with the map. */}
           {planV2 && elevationChart}
         </BottomSheet>
