@@ -81,7 +81,7 @@ final class ProPaywallTests: XCTestCase {
 
     func testTheCardCopyPerState() throws {
         let now = d("2026-11-11T12:00:00Z")
-        XCTAssertEqual(ProCopy.card(.free)?.title, "Free")
+        XCTAssertEqual(ProCopy.card(.free)?.title, "Free tier")
         // An old trial row shows as plain Pro, never as a trial.
         let old = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_trial")), now: now))
         XCTAssertEqual(old.title, "Rivolt Pro")
