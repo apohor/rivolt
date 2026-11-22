@@ -2924,6 +2924,8 @@ export type GeocodeResult = {
   country?: string;
   country_code?: string;
   admin1?: string;
+  // The town or city of an address hit, when the geocoder gives one.
+  locality?: string;
   population?: number;
   timezone?: string;
 };

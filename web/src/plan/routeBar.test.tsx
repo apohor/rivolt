@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { formatResultSummaryParts, formatRouteSummary, useRouteBarCollapse, useRouteBarState, type RouteEnd } from "./routeBar";
+import { formatResultSummaryParts, formatRouteSummary, geocodePlace, useRouteBarCollapse, useRouteBarState, type RouteEnd } from "./routeBar";
 
 afterEach(cleanup);
 
@@ -100,6 +100,14 @@ describe("useRouteBarCollapse", () => {
   });
 });
 
+describe("geocodePlace", () => {
+  it("is the locality of a street hit, else the name unless that is a street", () => {
+    expect(geocodePlace({ name: "Main St, Austin", locality: "Austin" })).toBe("Austin");
+    expect(geocodePlace({ name: "Yosemite National Park" })).toBe("Yosemite National Park");
+    expect(geocodePlace({ name: "12 Main St" })).toBeUndefined();
+  });
+});
+
 describe("formatResultSummaryParts", () => {
   const base = { origin: LA, destination: LV, startingSoc: "", departureAt: "" };
   it("names the departure, 'Leaves now' when none, and the typed or live starting charge", () => {
@@ -116,5 +124,17 @@ describe("formatResultSummaryParts", () => {
     const addr = formatResultSummaryParts({ ...base, origin: { lat: 1, lon: 1, label: "1560 North, Salt Lake City, Utah, United States" }, destination: { lat: 2, lon: 2, label: "Las Vegas, Nevada, United States" } }, null);
     expect(addr.route).toBe("Salt Lake City → Las Vegas");
     expect(p.full).toBe("Current vehicle position → Sacramento, California, United States · Leaves now · 74% charge now");
+  });
+  it("names the place: an address by its city, a city, a national park, a saved label as it is", () => {
+    const route = (origin: string, destination: string, place?: string) =>
+      formatResultSummaryParts({ ...base, origin: { lat: 1, lon: 1, label: origin }, destination: { lat: 2, lon: 2, label: destination, place } }, null).route;
+    expect(route("12 Main St, Austin, TX, United States", "Boise, Idaho, United States")).toBe("Austin → Boise");
+    expect(route("Denver, Colorado, United States", "Yosemite National Park, California, United States")).toBe("Denver → Yosemite National Park");
+    expect(route("St. George, Utah, United States", "St. Louis, Missouri, United States")).toBe("St. George → St. Louis");
+    expect(route("Mt. Shasta, California, United States", "Fort Collins, Colorado, United States")).toBe("Mt. Shasta → Fort Collins");
+    expect(route("Main St & 5th Ave, Austin, TX, United States", "St. Louis, Missouri, USA")).toBe("Austin → St. Louis");
+    // A saved place keeps its own label, comma and all; a geocoder locality beats the street.
+    expect(route("Denver, Colorado, United States", "Mom's house, Austin", "Mom's house, Austin")).toBe("Denver → Mom's house, Austin");
+    expect(route("Denver, Colorado, United States", "12 Main St, Austin, TX, United States", "Austin")).toBe("Denver → Austin");
   });
 });

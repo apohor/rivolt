@@ -4,7 +4,8 @@ import { useCallback, useEffect, useId, useState } from "react";
 // lives here, in one hook, so the classic form and the map-first bar share
 // exactly the same values and the same plan call; only the markup differs.
 
-export type RouteEnd = { lat: number; lon: number; label: string } | null;
+// `place` is the short place name, set where the place is picked (a saved place's own label, a geocoder hit's locality or name); older drafts lack it.
+export type RouteEnd = { lat: number; lon: number; label: string; place?: string } | null;
 
 export interface RouteBarState {
   origin: RouteEnd;
@@ -66,11 +67,17 @@ export function formatRouteSummary(
 // formatResultSummaryParts is the plan_v2 summary line over a shown plan: "From → To · departure · starting charge". Unlike formatRouteSummary it
 // always names the departure ("Leaves now" when none is set) and falls back to the live charge. The places are the city only (no state or country; the
 // full labels are in `full`, for the title), so the departure and the charge, the `facts`, are never what gets cut.
-// An address label starts with the street ("1560 North, Salt Lake City, Utah, ..."): the city is then the next part.
-const STREET = /^\d|\b(street|avenue|road|boulevard|parkway|drive|lane|way|highway|st|ave|rd|blvd|dr|ln|hwy)\b/i;
-const city = (label: string | undefined) => {
-  const parts = (label ?? "").split(",").map((x) => x.trim()).filter(Boolean);
-  return (parts.length >= 3 && STREET.test(parts[0]) ? parts[1] : parts[0]) || "…";
+// A street part begins with a house number ("12 Main St") or names a corner ("Main St & 5th Ave"). "St. George", "Mt. Shasta" and "Fort Collins" are places.
+export const isStreetPart = (x: string) => /^\d/.test(x) || / & /.test(x);
+// The short name of a geocoder hit: its locality when it has one (a street hit), else its name unless that is a street part.
+export const geocodePlace = (r: { name: string; locality?: string }): string | undefined => r.locality || (isStreetPart(r.name) ? undefined : r.name);
+// The place name is the one set at the pick (`place`). Without it (a draft from before) the label's first part, skipping a leading house number
+// ("12 Main St, Austin, TX" is Austin).
+const city = (end: RouteEnd | undefined) => {
+  if (end?.place?.trim()) return end.place.trim();
+  const parts = (end?.label ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const named = parts.findIndex((x) => !isStreetPart(x));
+  return (named >= 0 ? parts[named] : parts[0]) || "…";
 };
 export function formatResultSummaryParts(
   s: Pick<RouteBarState, "origin" | "destination" | "startingSoc" | "departureAt">,
@@ -82,7 +89,7 @@ export function formatResultSummaryParts(
   facts.push(d && !Number.isNaN(d.getTime()) ? d.toLocaleString(locale, { weekday: "short", hour: "numeric", minute: "2-digit" }) : "Leaves now");
   if (s.startingSoc.trim()) facts.push(`${s.startingSoc.trim()}% charge`);
   else if (liveSoc != null) facts.push(`${Math.round(liveSoc)}% charge now`);
-  const route = `${city(s.origin?.label)} → ${city(s.destination?.label)}`;
+  const route = `${city(s.origin)} → ${city(s.destination)}`;
   return { route, facts: facts.join(" · "), full: `${s.origin?.label ?? "…"} → ${s.destination?.label ?? "…"} · ${facts.join(" · ")}` };
 }
 

@@ -9,6 +9,7 @@ export type Selection = {
   lat: number;
   lon: number;
   label: string;
+  place?: string;
 } | null;
 
 // LAST_TRIP_KEY versions the localStorage shape. Bump on breaking
