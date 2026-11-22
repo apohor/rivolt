@@ -248,6 +248,9 @@ type meResponse struct {
 	// Passkeys is true when this server offers passkeys to the signed-in user (the routes under /api/auth/passkeys exist), so
 	// Settings shows the card only where it can work. Absent (false) where passkeys are off, such as prod today.
 	Passkeys bool `json:"passkeys,omitempty"`
+	// ProPromptsHidden lists the Pro prompts the person turned away with "Not now" and that stay hidden now (pro_prompts.go); absent when
+	// none is. A failed read lists every place (fail closed). Only a free account has it.
+	ProPromptsHidden []string `json:"pro_prompts_hidden,omitempty"`
 	// The plan (Rivolt Pro): see PlanFields. Absent when the entitlement lookup failed, which a client treats as "unchanged behaviour,
 	// no paywall".
 	*PlanFields
@@ -412,6 +415,13 @@ func handleMeEnrichedPlan(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor
 			if me.PlanFields != nil && !iosBilling && auth.ViaBearer(r.Context()) {
 				me.PlanFields.BillingEnabled = false
 				me.PlanFields.ManageSubscription = false
+			}
+			if me.PlanFields != nil && me.PlanFields.Plan == "free" && d != nil {
+				var changed time.Time
+				if me.PlanFields.PlanEndedAt != nil {
+					changed = *me.PlanFields.PlanEndedAt
+				}
+				me.ProPromptsHidden = hiddenPrompts(r.Context(), d, uid, changed, time.Now())
 			}
 		}
 		_ = json.NewEncoder(w).Encode(me)
