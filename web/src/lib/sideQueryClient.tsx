@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
+import { VersionBar } from "../components/VersionBar";
 import { isDemoPath } from "./demo";
 import { retryUnlessLimit } from "./proLimit";
 
@@ -23,5 +24,17 @@ export function SideQueryProvider({ appClient, children }: { appClient: QueryCli
     <QueryClientProvider key={demo ? "demo" : "app"} client={demo ? demoClient : appClient}>
       {children}
     </QueryClientProvider>
+  );
+}
+
+// What main.tsx mounts inside the router. The version bar sits OUTSIDE the keyed provider: it takes its baseline from the first /api/health
+// answer after it mounts, so remounting it at a demo/app crossing would make a tab that was open across a deploy adopt the new server version
+// as its own (no "New version available", no preview self-reload). It uses no query, so it needs no client.
+export function AppShell({ appClient, children }: { appClient: QueryClient; children: ReactNode }) {
+  return (
+    <>
+      <SideQueryProvider appClient={appClient}>{children}</SideQueryProvider>
+      <VersionBar />
+    </>
   );
 }

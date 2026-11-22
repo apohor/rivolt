@@ -4,8 +4,7 @@ import { createRoot } from "react-dom/client";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
-import { SideQueryProvider } from "./lib/sideQueryClient";
-import { VersionBar } from "./components/VersionBar";
+import { AppShell } from "./lib/sideQueryClient";
 import { isTermsRequiredError } from "./lib/terms";
 import { registerServiceWorker } from "./pwa";
 // Catches the browser's install prompt early (it fires once, at load); the first-charge card offers it.
@@ -28,10 +27,9 @@ const queryClient: QueryClient = new QueryClient({
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
-      <SideQueryProvider appClient={queryClient}>
+      <AppShell appClient={queryClient}>
         <App />
-        <VersionBar />
-      </SideQueryProvider>
+      </AppShell>
     </BrowserRouter>
   </StrictMode>,
 );

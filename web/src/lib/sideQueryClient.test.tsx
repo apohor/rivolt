@@ -3,7 +3,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { BrowserRouter, Link, Route, Routes, useNavigate } from "react-router-dom";
 import { QueryClient, useQuery } from "@tanstack/react-query";
 import { stubFetchRoutes } from "../test/fetchRoutes";
-import { SideQueryProvider } from "./sideQueryClient";
+import { AppShell, SideQueryProvider } from "./sideQueryClient";
 
 // The sample truck's cached answers must never be read by the real app, nor the reverse, whichever way the visitor crosses.
 const me = { user_id: "u1", username: "a@b.c", role: "user", onboarding_completed: true };
@@ -95,5 +95,33 @@ describe("demo and app caches", () => {
     await vi.waitFor(() => expect(screen.getByTestId("status").textContent).toBe("enabled:true"));
     obs.disconnect();
     expect(seen).not.toContain("enabled:false");
+  });
+
+  it("the version bar is mounted once and survives a crossing: it keeps its first /api/health baseline", async () => {
+    const health = { calls: 0 };
+    window.history.pushState({}, "", "/demo");
+    stubFetchRoutes({
+      "/api/config": { body: { features: { signup_enabled: true, demo_enabled: true, design_preview: [] } } },
+      "/api/auth/oidc": { body: [] },
+      "/api/auth/me": { body: me },
+      "/api/health": {
+        get body() {
+          return { status: "ok", version: `v${++health.calls}` };
+        },
+      },
+    });
+    render(
+      <BrowserRouter>
+        <AppShell appClient={new QueryClient()}>
+          <Nav />
+        </AppShell>
+      </BrowserRouter>,
+    );
+    await vi.waitFor(() => expect(health.calls).toBe(1));
+    await act(async () => nav("/onboarding?connect=1"));
+    await act(async () => nav("/demo"));
+    await act(async () => nav("/onboarding"));
+    // A remount would ask /api/health again at each crossing and take the new answer as its baseline.
+    expect(health.calls).toBe(1);
   });
 });
