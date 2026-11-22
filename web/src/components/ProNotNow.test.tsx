@@ -58,6 +58,16 @@ describe("Not now (pro_entry)", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "See the Pro tier" })).not.toBeInTheDocument());
   });
 
+  it("key on: no demo link on the planner note; key off keeps it", async () => {
+    stubFetchRoutes({ "/api/auth/me": { body: free } });
+    await notice(true);
+    await screen.findByRole("button", { name: "Not now" });
+    expect(screen.queryByText(/in the demo/)).not.toBeInTheDocument();
+    cleanup();
+    await notice(false);
+    expect(await screen.findByText(/in the demo/)).toBeInTheDocument();
+  });
+
   it("key off: no Not now, no request to the store", async () => {
     const f = stubFetchRoutes({ "/api/auth/me": { body: free } });
     await notice(false);
@@ -66,10 +76,10 @@ describe("Not now (pro_entry)", () => {
     expect(posts(f)).toEqual([]);
   });
 
-  it("the lapse banner: Dismiss goes to the store, not the browser", async () => {
+  it("the lapse banner: Not now goes to the store, not the browser", async () => {
     const f = stubFetchRoutes({ "/api/auth/me": { body: lapsed }, "/api/pro/prompts/lapse_banner/dismiss": { status: 204, body: "" } });
     await banner(true);
-    fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     await waitFor(() => expect(document.querySelector("[data-plan-notice]")).toBeNull());
     expect(posts(f)).toEqual(["/api/pro/prompts/lapse_banner/dismiss"]);
     expect(window.localStorage.getItem("rivolt.planNotice.dismissed")).toBeNull();

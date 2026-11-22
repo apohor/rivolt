@@ -22,7 +22,7 @@ export function ProLimitNotice({ limit, privacy = false, extra, feature, overnig
   // pro_entry (D5 A): the planner note's button reads as the mock says. Its sentence ("remove the overnight") is true only for a refused plan
   // that had an overnight (`overnight`, set by the plan form); the overnight suggestions and re-plan from the truck keep today's sentence.
   const entryV2 = useDesignPreview("pro_entry") && feature === "planner";
-  // "Not now" (D6): the action goes for 90 days (a second one: for good); the reason line stays, because it explains why there is no result.
+  // Key on (m23a): no demo link on the planner note. "Not now" (D6): the action goes for 90 days (a second one: for good); the reason line stays, because it explains why there is no result.
   const notNow = useProPrompt("planner", entryV2 ? me.data : undefined);
   return (
     <div role="note" data-pro-limit={limit.code} className="rounded-lg border border-sky-800/60 bg-sky-950/40 px-3 py-3 text-sm text-sky-100">
@@ -34,7 +34,7 @@ export function ProLimitNotice({ limit, privacy = false, extra, feature, overnig
           {extra}
         </div>
       )}
-      {state.kind !== "off" && <DemoLinks links={demoLinksFor({ feature, code: limit.code })} className="mt-2" />}
+      {state.kind !== "off" && !entryV2 && <DemoLinks links={demoLinksFor({ feature, code: limit.code })} className="mt-2" />}
       {state.kind !== "off" && <ProSheetPreload />}
       {state.kind !== "off" && !entryV2 && (
         <button type="button" className="mt-2 rounded-md border border-sky-700 px-3 py-1.5 text-sm hover:border-sky-500" onClick={() => setOpen(true)}>

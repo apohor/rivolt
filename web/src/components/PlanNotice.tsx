@@ -88,7 +88,7 @@ export function PlanNotice() {
             }
           }}
         >
-          Dismiss
+          {entry ? "Not now" : "Dismiss"}
         </button>
       </span>
       {open && <ProSheet state={state} onClose={() => setOpen(false)} />}
