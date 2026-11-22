@@ -4,8 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { stubApi, VEHICLE_ID } from "./stub";
 import { e2eNow } from "./clock";
 
-// trailer_inline (design preview): the Trailer card is gone; one line under the title says "Trailer: none" or "Trailer: yes (not in efficiency)",
-// and "change" opens a small menu of the same three choices. Flag off: the card as before. Shots at 393 and 1280, light and dark.
+// The Trailer card is gone; one line under the title says "Trailer: none" or "Trailer: yes (not in efficiency)",
+// and "change" opens a small menu of the same three choices. Shots at 393 and 1280, light and dark.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
@@ -16,8 +16,8 @@ const drive = (id: string, days: number, o: Record<string, unknown> = {}) => ({
 });
 const DRIVES = [drive("plain", 3), drive("towing", 2, { Trailer: true })];
 
-async function open(page: Page, id: string, flag: boolean) {
-  await stubApi(page, { scenario: "parked", designPreview: flag ? ["trailer_inline"] : [] });
+async function open(page: Page, id: string) {
+  await stubApi(page, { scenario: "parked" });
   const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
   await page.route(/\/api\/drives(\?|$)/, (r) => r.fulfill(j(DRIVES)));
   await page.route(/\/api\/drives\/[^/?]+$/, (r) => {
@@ -35,10 +35,9 @@ for (const [vpName, vp] of [["393", { width: 393, height: 852 }], ["1280", { wid
       const ctx = await browser.newContext({ viewport: vp, colorScheme: scheme });
       const page = await ctx.newPage();
       await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), scheme);
-      await open(page, "towing", true);
+      await open(page, "towing");
       const line = page.locator("[data-trailer-inline]");
       await expect(line).toContainText("Trailer: yes (not in efficiency)");
-      await expect(page.locator("[data-trailer-control]")).toHaveCount(0);
       await page.locator("[data-trailer-change]").click();
       const menu = page.getByRole("menu", { name: "Trailer" });
       await expect(menu.getByRole("menuitemradio")).toHaveCount(3);
@@ -73,24 +72,13 @@ for (const [vpName, vp] of [["393", { width: 393, height: 852 }], ["1280", { wid
       await page.screenshot({ path: path.join(SHOTS, `trailer-inline-${vpName}-${scheme}.png`) });
       await ctx.close();
     });
-
-    test(`flag off keeps the card · ${vpName} · ${scheme}`, async ({ browser }) => {
-      const ctx = await browser.newContext({ viewport: vp, colorScheme: scheme });
-      const page = await ctx.newPage();
-      await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), scheme);
-      await open(page, "towing", false);
-      await expect(page.locator("[data-trailer-control]")).toHaveCount(1);
-      await expect(page.locator("[data-trailer-inline]")).toHaveCount(0);
-      await page.screenshot({ path: path.join(SHOTS, `trailer-card-${vpName}-${scheme}.png`), fullPage: true });
-      await ctx.close();
-    });
   }
 }
 
 test("a drive with no trailer says none", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await open(page, "plain", true);
+  await open(page, "plain");
   await expect(page.locator("[data-trailer-inline]")).toContainText("Trailer: none");
   await ctx.close();
 });

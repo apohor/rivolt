@@ -148,8 +148,6 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
   // The vehicle's owner server did not answer (a 503 with Retry-After): a calm line, the last values stay, and the poll carries on.
   const reconnecting = state.isError && isReconnecting(state.error);
   const failed = state.isError && !reconnecting;
-  // Design "plug_anim": the plug badge whenever the cable is in; the picture stays the whole truck.
-  const plugPicture = useDesignPreview("plug_anim");
 
   // Pick the configurator image that matches the current vehicle
   // state — charging shows the whole truck, driving shows in-use,
@@ -199,7 +197,7 @@ function LiveVehicleCard({ vehicle }: { vehicle: Vehicle }) {
                   className="max-h-40 w-full max-w-sm rounded-md object-contain"
                 />
               );
-              return plugPicture && s && isPluggedIn(s) ? <PlugPicture kw={s.charger_power_kw} className="w-full max-w-sm">{img}</PlugPicture> : img;
+              return s && isPluggedIn(s) ? <PlugPicture kw={s.charger_power_kw} className="w-full max-w-sm">{img}</PlugPicture> : img;
             })()}
           </div>
         ) : (

@@ -54,11 +54,12 @@ for (const v of [
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
     await open(page, "/drives/towing", DRIVES);
-    await expect(page.locator("[data-drive-trailer]")).toContainText("Trailer connected");
-    const select = page.locator("[data-trailer-control] select");
-    await expect(select).toHaveValue("auto");
-    await expect(select.locator("option").first()).toContainText("the truck reported a trailer");
-    await expect(page.locator("[data-trailer-control]").locator("xpath=..")).toContainText("bike rack");
+    await expect(page.locator("[data-drive-trailer]")).toContainText("Trailer: yes (not in efficiency)");
+    await page.locator("[data-trailer-change]").click();
+    const menu = page.getByRole("menu", { name: "Trailer" });
+    await expect(menu.getByRole("menuitemradio", { name: /Automatic/ })).toContainText("the truck reported a trailer");
+    await expect(menu.getByRole("menuitemradio", { name: /Automatic/ })).toHaveAttribute("aria-checked", "true");
+    await page.keyboard.press("Escape");
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(SHOTS, `trailer-drive-${v.n}.png`), fullPage: true });
     let body: unknown = null;
@@ -66,7 +67,8 @@ for (const v of [
       body = r.request().postDataJSON();
       return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ trailer_override: false }) });
     });
-    await select.selectOption("no");
+    await page.locator("[data-trailer-change]").click();
+    await menu.getByRole("menuitemradio", { name: "No trailer" }).click();
     await expect.poll(() => body).toEqual({ trailer: false });
     const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).exclude(".maplibregl-map").analyze();
     expect(res.violations.map((x) => x.id)).toEqual([]);

@@ -86,7 +86,7 @@ export type DriveRoute = {
   // Where the match gave up: road-routed fills (solid) and true dropouts (dashed), drawn neutral over the track.
   routedGaps?: LatLng[][];
   gaps?: { from: LatLng; to: LatLng }[];
-  // gap_dim: where the dropouts fall along the track, as [from, to] line progress. When set, the track is cleared there and each dropout is
+  // Where the dropouts fall along the track, as [from, to] line progress. When set, the track is cleared there and each dropout is
   // drawn solid in the colour the route has at that point, faded, instead of the neutral dashes.
   gapRanges?: [number, number][];
 };

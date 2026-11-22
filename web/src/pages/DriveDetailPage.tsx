@@ -27,11 +27,11 @@ import {
   num,
   pct,
 } from "../lib/format";
-import { collapseRoundTrips, driveDurationSeconds, driveHasTrailer } from "../lib/drives";
+import { collapseRoundTrips, driveDurationSeconds } from "../lib/drives";
 import { cleanTrack } from "../lib/driveTrack";
-import { TrailerControl, TrailerInline } from "../components/TrailerControl";
+import { TrailerInline } from "../components/TrailerControl";
 import { analyzeDrivePower } from "../lib/power";
-import { useDesignPreview, useGPSThresholds } from "../lib/config";
+import { useGPSThresholds } from "../lib/config";
 import { usePreferences } from "../lib/preferences";
 
 export default function DriveDetailPage() {
@@ -393,12 +393,10 @@ export default function DriveDetailPage() {
   // normal and must not flag an otherwise-good track, so we only warn
   // when a meaningful share of the drive's fixes are stale and report
   // the worst such age. A frozen-fix drive trips this at ~100%.
-  // gap_dim (design preview): a drive needs 60% stale fixes, not 30%, before the badge shows.
-  const gapDim = useDesignPreview("gap_dim");
-  const trailerInline = useDesignPreview("trailer_inline");
+  // A drive needs 60% stale fixes before the badge shows.
   const fixAgeSeconds = useMemo(() => {
     const STALE_S = 5 * 60; // per-sample staleness floor; mirrors DriveMap's badge threshold
-    const STALE_FRACTION = gapDim ? 0.6 : 0.3;
+    const STALE_FRACTION = 0.6;
     let withFix = 0;
     let stale = 0;
     let worstStale = 0;
@@ -414,7 +412,7 @@ export default function DriveDetailPage() {
     }
     if (withFix === 0 || stale / withFix < STALE_FRACTION) return null;
     return worstStale;
-  }, [mapPathSamples, gapDim]);
+  }, [mapPathSamples]);
 
   // Physics-based power totals — share the same model the timeline
   // ribbon uses so the "Regen recovered" stat tile and the chart's
@@ -555,17 +553,11 @@ export default function DriveDetailPage() {
         }
       />
 
-      {trailerInline ? (
-        (drive.round_trip_legs ?? 1) <= 1 ? (
-          <div className="-mt-3">
-            <TrailerInline drive={drive} canChange={!demo} />
-          </div>
-        ) : null
-      ) : driveHasTrailer(drive) === true && (
-        <p data-drive-trailer className="text-xs text-neutral-400">
-          Trailer connected. This drive is left out of the efficiency figures.
-        </p>
-      )}
+      {(drive.round_trip_legs ?? 1) <= 1 ? (
+        <div className="-mt-3">
+          <TrailerInline drive={drive} canChange={!demo} />
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Stat label="Distance" value={num(drive.DistanceMi, 1, "mi")} />
@@ -714,8 +706,6 @@ export default function DriveDetailPage() {
           detail={String(samples.error)}
         />
       ) : null}
-
-      {!trailerInline && drive && !demo && (drive.round_trip_legs ?? 1) <= 1 ? <TrailerControl drive={drive} /> : null}
 
       {drive && !demo ? <EfficiencyExplainerCard driveId={drive.ID} /> : null}
     </div>

@@ -1,4 +1,4 @@
-// The basemap under the share card's route (design_preview "share_map"): the area the drive went through, drawn by MapLibre off screen from our own
+// The basemap under the share card's route: the area the drive went through, drawn by MapLibre off screen from our own
 // tiles and copied into a canvas the card painter lays under the line. The style is the app's own dark basemap with no symbol layer (so no labels at
 // any zoom), no glyphs, no sprite, no terrain and no radar: the only requests are same-origin /api/maps/tiles reads. The route is the server's trimmed
 // postcard route (both ends and the saved home already cut off), so the map shows no more than the line did. The map is framed to the segments with at
