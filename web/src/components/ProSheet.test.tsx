@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { ProSheet } from "./ProSheet";
-import { PRO, checkoutLabel, consentText, firstCharge } from "../lib/proCopy";
+import { PRO, checkoutLabel, consentText, firstCharge, proIncluded } from "../lib/proCopy";
 import { planState } from "../lib/plan";
 import foundingMe from "../../../ios/RivoltTests/Fixtures/me_plan_founding.json";
 import freeMe from "../../../ios/RivoltTests/Fixtures/me_plan_free.json";
@@ -29,7 +29,7 @@ describe("ProSheet", () => {
   it("shows the title, the inclusions and both prices before any button, with nothing pre-selected", () => {
     renderSheet(free);
     expect(screen.getByText(PRO.title)).toBeInTheDocument();
-    for (const x of PRO.included) expect(screen.getByText(x)).toBeInTheDocument();
+    for (const x of proIncluded(undefined)) expect(screen.getByText(x)).toBeInTheDocument();
     expect(screen.getByText("$34.99")).toBeInTheDocument();
     expect(screen.getByText("$3.99")).toBeInTheDocument();
     for (const r of screen.getAllByRole("radio")) expect(r).not.toBeChecked();

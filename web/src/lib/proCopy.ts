@@ -6,11 +6,21 @@ import { planDate, type PlanState } from "./plan";
 
 export type Interval = "month" | "year";
 
+// How far back the free window reaches, in words: the number is the server's (history_months of /api/auth/me; 6, or 12 for an account still
+// inside the 30 days' notice of the change), never written here. Without it (an older server) nothing is claimed about the length.
+export function windowWords(months?: number | null): string {
+  return typeof months === "number" && months > 0 ? `the last ${months} months` : "only recent months";
+}
+
+// The Pro sheet's list: the history line names the window of this account's own free tier.
+export function proIncluded(months?: number | null): string[] {
+  return [`Unlimited history and trends (free tier: ${windowWords(months)})`, ...PRO.included];
+}
+
 export const PRO = {
   title: "Rivolt Pro",
   subtitle: "Full history, multi-day trips and more widgets, from $3.99 a month.",
   included: [
-    "Unlimited history and trends (free: the last 12 months)",
     "Range near a temperature",
     "Multi-day trip plans with hotel and campground overnights",
     "Re-plan from where the truck is, and plan-vs-actual after the trip",
@@ -62,7 +72,7 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
     case "off":
       return null;
     case "free":
-      return { title: "Free", line: "Recording, alerts, the last 12 months and the full export, always.", action: "See Pro" };
+      return { title: "Free", line: `Recording, alerts, ${windowWords(state.months)} and the full export, always.`, action: "See Pro" };
     case "pro":
       // A failed payment comes first: it is the one that needs the person to do something (web only: Apple handles its own).
       if (state.graceEnds && state.source === "stripe")
@@ -89,7 +99,7 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
     case "lapsed":
       return {
         title: `Your Pro ended${planDate(state.endedOn) ? ` on ${planDate(state.endedOn)}` : ""}`,
-        line: "Showing the last 12 months. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).",
+        line: `Showing ${windowWords(state.months)}. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`,
         action: "Keep Pro",
       };
   }
@@ -104,7 +114,7 @@ export function graceBanner(state: PlanState): string | null {
 // The lapse banner (dismissable, on Now and in Settings).
 export function lapseBanner(state: PlanState): string {
   const on = state.kind === "lapsed" ? planDate(state.endedOn) : "";
-  return `Your Pro ended${on ? ` on ${on}` : ""}. Showing the last 12 months. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`;
+  return `Your Pro ended${on ? ` on ${on}` : ""}. Showing ${windowWords(state.kind === "lapsed" ? state.months : undefined)}. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`;
 }
 
 // Shown in the delete-account flow of an account paying through the App Store: the server cannot cancel an Apple subscription, so the

@@ -39,10 +39,10 @@ export function proFeatureText(f: ProFeature, limit?: number): string {
   }
 }
 
-// The reason a record is hidden: the date the server names (free_from), as iOS does; the free window is the last 12 months otherwise.
+// The reason a record is hidden: the date the server names (free_from), as iOS does; otherwise no length is claimed (it depends on the account).
 function olderThan(from?: string): string {
   const d = planDate(from);
-  return d ? `This is from before ${d}, as far back as the free plan shows.` : "This is older than the last 12 months that the free plan shows.";
+  return d ? `This is from before ${d}, as far back as the free plan shows.` : "This is older than the history the free plan shows.";
 }
 
 export function proLimitText(l: ProLimit): string {
