@@ -52,13 +52,13 @@ test("steps already done show as done, and Dismiss sticks", async ({ page }) => 
   await card.getByRole("button", { name: "Hide this" }).click();
   await expect(card).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Now" }).or(page.locator("[data-ui-grid=now]")).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Now" }).or(page.getByTestId("now-month")).first()).toBeVisible();
   await expect(card).toHaveCount(0);
 });
 
 test("not shown once there is history", async ({ page }) => {
   await open(page, { history: true });
-  await expect(page.locator("[data-ui-grid=now]")).toBeVisible();
+  await expect(page.getByTestId("now-month")).toBeVisible();
   await page.waitForTimeout(500);
   await expect(page.locator("[data-first-day]")).toHaveCount(0);
 });

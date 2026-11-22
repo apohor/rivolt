@@ -17,8 +17,6 @@ const VEHICLES = [
 const PAGES = [
   { name: "truck", url: "/truck", design: [] as string[] },
   { name: "now", url: "/", design: [] as string[] },
-  { name: "now_v2", url: "/", design: ["now_v2"] },
-  { name: "now_tidy", url: "/", design: ["now_v2", "now_tidy"] },
 ];
 
 for (const pg of PAGES) {

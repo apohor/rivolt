@@ -2,11 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 import { stubApi, VEHICLE_ID } from "./stub";
 import { e2eNow } from "./clock";
 
-// Design 1 (design_preview "now_v2"): the redesigned Now. Off, the screen is the one users have today.
+// The redesigned Now.
 const j = (b: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(b) });
 
-async function open(page: Page, flag: boolean, scenario: "parked" | "asleep" | "charging" | "driving" = "parked", ambientOn = true, extraKeys: string[] = []) {
-  await stubApi(page, { scenario, nowEndpoint: true, designPreview: flag ? ["now_v2", ...extraKeys] : [] });
+async function open(page: Page, scenario: "parked" | "asleep" | "charging" | "driving" = "parked", ambientOn = true) {
+  await stubApi(page, { scenario, nowEndpoint: true });
   await page.route("**/api/settings/ambient-temp", (r) => r.fulfill(j({ enabled: ambientOn })));
   // The "Three things" card has something to offer.
   await page.route("**/api/push/status", (r) => r.fulfill(j({ enabled: true, subscription_count: 0 })));
@@ -35,7 +35,7 @@ async function open(page: Page, flag: boolean, scenario: "parked" | "asleep" | "
 }
 
 test("@webkit flag on: the new hero shows the chip, the full-charge estimate and the month strip", async ({ page }) => {
-  await open(page, true);
+  await open(page);
   const hero = page.locator("[data-now-v2]");
   await expect(hero).toBeVisible();
   await expect(page.locator("[data-now-chip]")).toBeVisible();
@@ -50,9 +50,6 @@ test("@webkit flag on: the new hero shows the chip, the full-charge estimate and
   // The only "Live" on the card is the button; the chip names the state.
   await expect(page.locator("[data-now-chip]")).not.toHaveText(/\bLive\b/);
   await expect(hero.getByTestId("now-live-link")).toHaveAttribute("href", "/live");
-  await expect(page.getByTestId("now-temps")).not.toContainText("estimate");
-  await page.getByRole("button", { name: "About the outside temperature" }).click();
-  await expect(page.getByTestId("now-temps")).toContainText("estimate");
   await expect(page.getByTestId("now-month")).toBeVisible();
   await expect(page.getByTestId("now-month")).toContainText("miles");
   await expect(page.getByTestId("now-month")).toContainText("kWh added");
@@ -72,7 +69,7 @@ test.describe("touch", () => {
 });
 
 async function live44(page: Page) {
-  await open(page, true);
+  await open(page);
   const live = page.getByTestId("now-live-link");
   const box = (await live.boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(44);
@@ -83,21 +80,14 @@ async function live44(page: Page) {
 }
 
 test("flag on, charging: the Live pill pulses", async ({ page }) => {
-  await open(page, true, "charging");
+  await open(page, "charging");
   await expect(page.getByTestId("now-live-link").locator(".animate-pulse")).toHaveCount(1);
-});
-
-test("flag on, outside temperature setting off: Cabin only, and no offer to turn it on", async ({ page }) => {
-  await open(page, true, "parked", false);
-  await expect(page.getByTestId("now-temps")).not.toContainText("Outside");
-  await expect(page.getByText("Show outside temperature")).toHaveCount(0);
-  await expect(page.locator("[data-weather-credit]")).toHaveCount(1);
 });
 
 for (const width of [1440, 1280, 393]) {
 test(`flag on: the Three things card is last on Now, below the Battery trend and above the footer (${width} px)`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 });
-  await open(page, true);
+  await open(page);
   const card = page.locator("[data-three-things]");
   await expect(card).toBeVisible();
   const trend = (await page.getByRole("heading", { name: "Battery (SoC) trend" }).boundingBox())!;
@@ -109,7 +99,7 @@ test(`flag on: the Three things card is last on Now, below the Battery trend and
 }
 
 test("flag on: the (i) has a 44 px target and a tap beside it stays on the page", async ({ page }) => {
-  await open(page, true);
+  await open(page);
   const btn = page.getByRole("button", { name: "About the outside temperature" });
   const box = (await btn.boundingBox())!;
   expect(box.width).toBeGreaterThanOrEqual(44);
@@ -117,13 +107,13 @@ test("flag on: the (i) has a 44 px target and a tap beside it stays on the page"
   // 18 px icon, so 18 px off its centre is a near miss that must still hit the button, not Live.
   const url = page.url();
   await page.mouse.click(box.x + box.width / 2 + 18, box.y + box.height / 2);
-  await expect(page.getByTestId("now-temps")).toContainText("estimate");
+  await expect(page.locator("[data-now-tidy]")).toContainText("looked up from Open-Meteo");
   expect(page.url()).toBe(url);
 });
 
 for (const width of [393, 440, 519, 520, 639, 640, 700, 768, 900, 1024, 1280]) test(`@webkit flag on: no month-strip cell clips at ${width} px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 852 });
-  await open(page, true);
+  await open(page);
   const strip = page.getByTestId("now-month");
   await expect(strip).toBeVisible();
   // The widest plausible figure, so the check does not depend on the stub's totals.
@@ -142,15 +132,15 @@ for (const width of [393, 440, 519, 520, 639, 640, 700, 768, 900, 1024, 1280]) t
 });
 
 test("flag on, charging: the chip says power and the subline says what the limit buys", async ({ page }) => {
-  await open(page, true, "charging");
+  await open(page, "charging");
   await expect(page.locator("[data-now-chip]")).toContainText(/Charging · .* kW · (done|full) by \d/);
   await expect(page.getByTestId("now-subline")).toContainText(/Charging to \d+%/);
 });
 
 test("flag on: stepping the period (picker above) renames the strip", async ({ page }) => {
-  await open(page, true);
+  await open(page);
   // In the first hours of a month (in UTC) the month holds nothing yet and the strip shows the last 30 days (earlyMonthFallback), by design.
-  const heading = page.getByTestId("now-month").getByRole("heading");
+  const heading = page.getByTestId("now-month").getByRole("heading").first();
   await expect(heading).toHaveText(/^(This month|[A-Z][a-z]{2} \d+ – [A-Z][a-z]{2} \d+, \d{4})$/);
   const before = await heading.innerText();
   // The picker is in the strip, not the page header.
@@ -160,24 +150,9 @@ test("flag on: stepping the period (picker above) renames the strip", async ({ p
   await expect(page.getByRole("region", { name: await heading.innerText() })).toBeVisible();
 });
 
-test("flag off: the screen is today's (no new hero, the KPI tiles are there)", async ({ page }) => {
-  await open(page, false);
-  await expect(page.getByTestId("now-headline")).toBeVisible();
-  await expect(page.locator("[data-now-v2]")).toHaveCount(0);
-  await expect(page.getByTestId("now-month")).toHaveCount(0);
-  await expect(page.getByText("Since last charge")).toBeVisible();
-});
-
-test("flag missing from /api/config: also today's screen", async ({ page }) => {
-  await stubApi(page, { scenario: "parked", designPreview: null });
-  await page.goto("/");
-  await expect(page.getByTestId("now-headline")).toBeVisible();
-  await expect(page.locator("[data-now-v2]")).toHaveCount(0);
-});
-
 test("flag on: every distance on the hero is in the user's unit (km)", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("rivolt.preferences.v1", JSON.stringify({ distanceUnit: "km" })));
-  await open(page, true);
+  await open(page);
   const hero = page.locator("[data-now-v2]");
   await expect(hero).toContainText("km");
   await expect(hero).not.toContainText(/\d mi\b/);
@@ -186,7 +161,7 @@ test("flag on: every distance on the hero is in the user's unit (km)", async ({ 
 });
 
 test("design now_slot: charging figures replace the picture; without the key the picture stays", async ({ page }) => {
-  await open(page, true, "charging", true, ["now_slot"]);
+  await open(page, "charging");
   const slot = page.getByTestId("now-slot");
   await expect(slot).toBeVisible();
   await expect(slot.getByTestId("now-slot-big")).toContainText("kW");
@@ -194,24 +169,22 @@ test("design now_slot: charging figures replace the picture; without the key the
 });
 
 test("design now_slot: parked shows the map and the weather in place of the picture", async ({ page }) => {
-  await open(page, true, "parked", true, ["now_slot"]);
+  await open(page, "parked");
   const slot = page.getByTestId("now-slot");
   await expect(slot).toBeVisible();
   await expect(slot.getByTestId("now-slot-map")).toBeVisible();
-  const weather = slot.getByTestId("now-slot-weather");
-  await expect(weather).toContainText("Partly cloudy here now");
-  await expect(weather.getByTestId("now-slot-icon")).toBeVisible();
-  await expect(weather).not.toContainText("next 3 h");
+  await expect(slot.getByTestId("now-slot-weather")).toHaveCount(0);
+  await expect(page.getByTestId("now-temps")).toContainText("Partly cloudy");
+  await expect(page.getByTestId("now-temps")).not.toContainText("next 3 h");
   await expect(page.getByTestId("now-car")).toHaveCount(0);
   // The full-charge line stays, and the outside temperature is shown once (in the weather), not twice.
   await expect(page.getByTestId("now-subline")).toContainText("Full charge today");
-  await expect(page.getByTestId("now-temps")).not.toContainText("Outside");
   // Not interactive: no zoom buttons.
   await expect(slot.locator(".maplibregl-ctrl-zoom-in")).toBeHidden();
 });
 
 test("design now_slot: driving figures come from /now, with no live-drive record", async ({ page }) => {
-  await open(page, true, "driving", true, ["now_slot"]);
+  await open(page, "driving");
   await page.route(`**/api/live-drive/${VEHICLE_ID}`, (r) => r.fulfill({ status: 204 }));
   await page.route(new RegExp(`/api/vehicles/${VEHICLE_ID}/now`), (r) => {
     const iso = (ago: number) => new Date(e2eNow() - ago).toISOString();
@@ -230,19 +203,13 @@ test("design now_slot: driving figures come from /now, with no live-drive record
   await expect(slot.getByTestId("now-slot-energy-used")).toContainText("2.7 kWh");
 });
 
-test("design now_slot off: the picture or sketch shows, no slot", async ({ page }) => {
-  await open(page, true, "charging");
-  await expect(page.locator("[data-now-v2]")).toBeVisible();
-  await expect(page.getByTestId("now-slot")).toHaveCount(0);
-});
-
 // Design "now_tidy": one hierarchy in the hero (status row, battery and range, the state's slot, one row of conditions); the month's blocks
 // under one heading; the setup cards last.
 test.describe("design now_tidy, phone and desktop", () => {
   for (const width of [393, 1280]) {
     test(`asleep, ${width} px: the status is said once, the conditions share one row of equal items, setup cards come last`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 });
-      await open(page, true, "asleep", true, ["now_slot", "now_tidy"]);
+      await open(page, "asleep");
       const hero = page.locator("[data-now-tidy]");
       await expect(hero).toBeVisible();
       // The chip sits in the card, on the row of the Live button, and not in the page header.
@@ -280,7 +247,7 @@ test.describe("design now_tidy, phone and desktop", () => {
 
   test("320 px: the status chip and the Live button share one line", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 900 });
-    await open(page, true, "asleep", true, ["now_slot", "now_tidy"]);
+    await open(page, "asleep");
     const chip = (await page.locator("[data-now-tidy] [data-now-chip]").boundingBox())!;
     const live = (await page.getByTestId("now-live-link").boundingBox())!;
     expect(chip.height).toBeLessThan(34);
@@ -290,7 +257,7 @@ test.describe("design now_tidy, phone and desktop", () => {
   for (const width of [320, 360, 390]) {
     test(`${width} px, charging with no slot: a long chip is cut short, Live stays inside the card, no sideways scroll`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await open(page, true, "charging", true, ["now_tidy"]);
+      await open(page, "charging");
       const card = (await page.locator("[data-now-tidy]").boundingBox())!;
       const chip = (await page.locator("[data-now-tidy] [data-now-chip]").boundingBox())!;
       const live = (await page.getByTestId("now-live-link").boundingBox())!;
@@ -301,97 +268,32 @@ test.describe("design now_tidy, phone and desktop", () => {
     });
   }
 
-  test("flag off: the chip is in the header's slot in every frame it is drawn, never first in the card", async ({ page }) => {
-    // Every animation frame: where is the chip? It used to move to the slot in a passive effect, so a frame (and a measure) could land between
-    // the first render, with the chip in the card, and the move: the card sat one row lower, then jumped up.
-    await page.addInitScript(() => {
-      const w = window as unknown as { __chipFrames: { seen: number; inCard: number } };
-      w.__chipFrames = { seen: 0, inCard: 0 };
-      const tick = () => {
-        const chip = document.querySelector("[data-now-chip]");
-        if (chip) {
-          w.__chipFrames.seen++;
-          if (!chip.closest("[data-now-chip-slot]")) w.__chipFrames.inCard++;
-        }
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-    await open(page, true, "charging", true, ["now_slot"]);
-    await expect(page.locator("[data-now-chip]")).toBeVisible();
-    await page.waitForTimeout(300);
-    const f = await page.evaluate(() => (window as unknown as { __chipFrames: { seen: number; inCard: number } }).__chipFrames);
-    expect(f.seen).toBeGreaterThan(0);
-    expect(f.inCard).toBe(0);
-  });
-
-  test("flag off, 320 px: the header chip wraps beside or under the title, never over it", async ({ page }) => {
-    await page.setViewportSize({ width: 320, height: 900 });
-    await open(page, true, "charging", true, ["now_slot"]);
-    await expect(page.getByRole("heading", { name: "Now", exact: true })).toBeVisible();
-    await expect(page.locator("[data-now-chip]")).toBeVisible();
-    // Measure the title text (the h1 box can be squeezed), the chip, and the header around them.
-    const m = await page.evaluate(() => {
-      const h1 = [...document.querySelectorAll("h1")].find((h) => h.textContent?.trim() === "Now")!;
-      const range = document.createRange();
-      range.selectNodeContents(h1);
-      const text = range.getBoundingClientRect();
-      const chipNode = document.querySelector("[data-now-chip]")!;
-      const chip = chipNode.getBoundingClientRect();
-      const header = h1.closest("[data-ui-header]")!.getBoundingClientRect();
-      const clipped = [chipNode, ...chipNode.querySelectorAll("*")].some((n) => n.scrollWidth > n.clientWidth);
-      const r = (b: DOMRect) => ({ left: b.left, right: b.right, top: b.top, bottom: b.bottom });
-      return { text: r(text), chip: r(chip), header: r(header), clipped };
-    });
-    // Never over the title: beside it, or (the picker row wraps since #2290) under it.
-    expect(m.chip.left >= m.text.right || m.chip.top >= m.text.bottom).toBe(true);
-    // Inside the header and the screen, nothing cut off inside the chip.
-    expect(m.chip.right).toBeLessThanOrEqual(320);
-    expect(m.chip.left).toBeGreaterThanOrEqual(m.header.left);
-    expect(m.chip.right).toBeLessThanOrEqual(m.header.right);
-    expect(m.chip.top).toBeGreaterThanOrEqual(m.header.top);
-    expect(m.chip.bottom).toBeLessThanOrEqual(m.header.bottom);
-    expect(m.clipped).toBe(false);
-  });
-
   test("charging: the chip names the state and the slot keeps its figures", async ({ page }) => {
-    await open(page, true, "charging", true, ["now_slot", "now_tidy"]);
-    await expect(page.locator("[data-now-chip]")).toHaveText("Charging");
+    await open(page, "charging");
+    await expect(page.locator("[data-now-chip]").first()).toHaveText(/^Charging/);
     await expect(page.getByTestId("now-slot-big")).toContainText("kW");
     await expect(page.getByTestId("now-slot-big")).toContainText("Home charger");
     await expect(page.getByTestId("now-live-link").locator(".animate-pulse")).toHaveCount(1);
   });
 
   test("driving: speed and drive figures stay", async ({ page }) => {
-    await open(page, true, "driving", true, ["now_slot", "now_tidy"]);
+    await open(page, "driving");
     await expect(page.locator("[data-now-chip]")).toHaveText("Driving");
     await expect(page.getByTestId("now-slot-big")).toContainText("mph");
   });
 
   test("the (i) beside Outside explains the estimate", async ({ page }) => {
-    await open(page, true, "parked", true, ["now_slot", "now_tidy"]);
+    await open(page, "parked");
     await page.getByRole("button", { name: "About the outside temperature" }).click();
     await expect(page.locator("[data-now-tidy]")).toContainText("looked up from Open-Meteo");
   });
 
-  test("without now_tidy the hero is the earlier one", async ({ page }) => {
-    await open(page, true, "parked", true, ["now_slot"]);
-    await expect(page.locator("[data-now-v2]")).toBeVisible();
-    await expect(page.locator("[data-now-tidy]")).toHaveCount(0);
-  });
 });
 
 // Only the Live button opens Live: a tap on the ring, the figures, the graph, the weather row or the location row does nothing.
-for (const [scenario, keys] of [
-  ["parked", ["now_slot", "now_tidy"]],
-  ["asleep", ["now_slot", "now_tidy"]],
-  ["charging", ["now_slot", "now_tidy"]],
-  ["driving", ["now_slot", "now_tidy"]],
-  ["parked", []],
-  ["charging", []],
-] as const) {
-  test(`the card is not a link, only Live is: ${scenario}${keys.length ? " tidy" : " plain"}`, async ({ page }) => {
-    await open(page, true, scenario, true, [...keys]);
+for (const scenario of ["parked", "asleep", "charging", "driving"] as const) {
+  test(`the card is not a link, only Live is: ${scenario}`, async ({ page }) => {
+    await open(page, scenario);
     const hero = page.locator("[data-now-v2]").first();
     await expect(hero).toBeVisible();
     await expect(hero.getByRole("link")).toHaveCount(1);

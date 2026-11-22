@@ -27,23 +27,16 @@ export type SlotInput = {
   charge?: SlotCharge | null;
   drive?: SlotDrive | null;
   fix?: SlotFix | null;
-  weather?: SlotWeather | null;
-  tempUnit?: TemperatureUnit;
   // A saved place the truck is at ("Home"), shown on the map; none otherwise.
   placeLabel?: string | null;
   // Design "now_parked_graph": the graph is the card's content, so the map gives way to one line saying where the truck is (null: no line, no row).
   placeText?: string | null;
   noMap?: boolean;
-  // While asleep: when this sleep began and the seconds asleep today, shown under the map.
-  asleep?: SlotAsleep | null;
-  // Design "now_tidy": see TIDY_ROOT.
-  tidy?: boolean;
   // Design "now_charge_graph": the figures as rows (the graph sits beside them), the target said once, and no plug-in time (the graph's start says it).
   soft?: boolean;
   // Design "now_drive_graph": the figures sit in the left half beside the graph, two to a row at every width.
   half?: boolean;
 };
-export type SlotAsleep = { since: string | null; todayS: number | null };
 export type SlotFix = { lat: number; lon: number };
 export type SlotWeather = { temp_c: number; condition?: string; wind_kph?: number };
 
@@ -150,15 +143,6 @@ export function pickFix(location: SlotFix | null | undefined, lat: number, lon: 
   return ok(last) ? { lat: last.lat, lon: last.lon } : null;
 }
 
-// "Asleep for 2 h 15 min" and "Asleep today 18 h 40 min", each only when the server sent it.
-export function asleepFigures(a: SlotAsleep | null | undefined, nowMs: number): { k: string; v: string }[] {
-  const out: { k: string; v: string }[] = [];
-  const since = a?.since ? Date.parse(a.since) : NaN;
-  if (Number.isFinite(since) && nowMs >= since) out.push({ k: "Asleep for", v: timeLeft((nowMs - since) / 3_600_000) });
-  if (a?.todayS != null && a.todayS >= 0) out.push({ k: "Asleep today", v: timeLeft(a.todayS / 3600) });
-  return out;
-}
-
 // A truck whose newest frame says asleep keeps its slot past the stale (30 min) and offline (45 min) limits: sleeping for hours is normal under
 // the sleep gate, and its position does not change. Past the offline limit the view's kind reads "offline", so the slot reads it as asleep.
 export function slotView(v: NowView): NowView {
@@ -203,35 +187,6 @@ export function weatherView(w: SlotWeather, tempUnit: TemperatureUnit, unit: Dis
   };
 }
 
-// A small line drawing for the weather, 28 px, in the text colour.
-function WeatherIcon({ kind }: { kind: string | null }) {
-  if (!kind) return null;
-  const sun = (cx: number, cy: number, r: number) => (
-    <>
-      <circle cx={cx} cy={cy} r={r} />
-      {[0, 45, 90, 135, 180, 225, 270, 315].map((a) => (
-        <line key={a} x1={cx} y1={cy - r - 2} x2={cx} y2={cy - r - 4} transform={`rotate(${a} ${cx} ${cy})`} />
-      ))}
-    </>
-  );
-  const cloud = <path d="M7 18h10a4 4 0 0 0 .5-7.97A5.5 5.5 0 0 0 7 11.5 3.25 3.25 0 0 0 7 18z" />;
-  const drops = (n: number) => [0, 1, 2].slice(0, n).map((i) => <line key={i} x1={9 + i * 3.5} y1={20} x2={8 + i * 3.5} y2={22.5} />);
-  let body: React.ReactNode = cloud;
-  if (kind === "clear") body = sun(12, 12, 4);
-  else if (kind === "night") body = <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z" />;
-  else if (kind === "partly_cloudy") body = (<>{sun(8, 8, 2.8)}<path d="M9 20h8.5a3.5 3.5 0 0 0 .4-6.97A4.8 4.8 0 0 0 9 14a3 3 0 0 0 0 6z" /></>);
-  else if (kind === "fog") body = (<><path d="M7 14h10a4 4 0 0 0 .5-7.97A5.5 5.5 0 0 0 7 7.5 3.25 3.25 0 0 0 7 14z" /><line x1="5" y1="18" x2="19" y2="18" /><line x1="8" y1="21" x2="16" y2="21" /></>);
-  else if (kind === "drizzle") body = (<>{cloud}{drops(2)}</>);
-  else if (kind === "rain") body = (<>{cloud}{drops(3)}</>);
-  else if (kind === "snow") body = (<>{cloud}<circle cx="9" cy="21" r=".6" /><circle cx="12.5" cy="21" r=".6" /><circle cx="16" cy="21" r=".6" /></>);
-  else if (kind === "thunder") body = (<>{cloud}<path d="M12.5 15l-2 3h3l-1.5 3" /></>);
-  return (
-    <svg data-testid="now-slot-icon" data-icon={kind} width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-amber-500">
-      {body}
-    </svg>
-  );
-}
-
 function Chip({ children, tone, testid }: { children: React.ReactNode; tone: "green" | "grey"; testid: string }) {
   return (
     <span data-testid={testid} className={`ml-2 inline-block rounded-md px-1.5 py-0.5 align-middle text-xs font-medium ${tone === "green" ? "bg-emerald-500/15 text-emerald-300" : "bg-neutral-800 text-neutral-300"}`}>
@@ -240,9 +195,7 @@ function Chip({ children, tone, testid }: { children: React.ReactNode; tone: "gr
   );
 }
 
-const ROOT = "pointer-events-none relative mt-4 w-full min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mt-0 min-[900px]:self-start min-[900px]:border-t-0 min-[900px]:pt-0";
-
-// Design "now_tidy": the slot is the map or the state's figures only; the outside conditions and the asleep-today figure move to one row of
+// The slot is the map or the state's figures only; the outside conditions and the asleep-today figure move to one row of
 // compact items under it (conditionItems), so the card reads in one hierarchy: status, battery, what the truck is doing, conditions.
 const TIDY_ROOT = "pointer-events-none relative w-full min-w-0";
 
@@ -264,12 +217,9 @@ export function conditionItems(i: { weather: SlotWeather | null; tempUnit: Tempe
   return out;
 }
 
-// Parked or plugged in: where the truck is on the map, then the weather there as one row (temperature and sky left, wind right).
-function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, placeText, noMap, asleep, tidy }: { tidy: boolean; placeText: string | null; noMap: boolean; fix: SlotFix; asleep: SlotAsleep | null; weather: SlotWeather | null; tempUnit: TemperatureUnit; unit: DistanceUnit; kind: string; nowMs: number; placeLabel: string | null }) {
-  const hour = new Date(nowMs).getHours();
-  const w = weather ? weatherView(weather, tempUnit, unit, hour >= 6 && hour < 20) : null;
-  const sleepFigures = kind === "asleep" && !tidy ? asleepFigures(asleep, nowMs) : [];
-  if (tidy && noMap)
+// Parked or plugged in: where the truck is on the map (or one line saying where, when a graph is the card's content).
+function ParkedSlot({ fix, kind, placeLabel, placeText, noMap }: { placeText: string | null; noMap: boolean; fix: SlotFix; kind: string; placeLabel: string | null }) {
+  if (noMap)
     return placeText ? (
       <div data-testid="now-slot" data-kind={kind} className={TIDY_ROOT}>
         <p data-testid="now-parked-place" className="flex items-center gap-2 rounded-xl bg-neutral-800/50 px-3 py-2.5 text-sm text-neutral-200">
@@ -281,39 +231,9 @@ function ParkedSlot({ fix, weather, tempUnit, unit, kind, nowMs, placeLabel, pla
         </p>
       </div>
     ) : null;
-  if (tidy)
-    return (
-      <div data-testid="now-slot" data-kind={kind} className={TIDY_ROOT}>
-        <ParkedMap lat={fix.lat} lon={fix.lon} label={placeLabel} caption={inDemo() ? "Sample map, not a real location" : null} />
-      </div>
-    );
   return (
-    <div data-testid="now-slot" data-kind={kind} className={ROOT}>
+    <div data-testid="now-slot" data-kind={kind} className={TIDY_ROOT}>
       <ParkedMap lat={fix.lat} lon={fix.lon} label={placeLabel} caption={inDemo() ? "Sample map, not a real location" : null} />
-      {sleepFigures.length > 0 && (
-        <div data-testid="now-slot-asleep" className="mt-3 grid grid-cols-2 gap-x-4">
-          {sleepFigures.map((f) => (
-            <div key={f.k} data-testid={`now-slot-${f.k.toLowerCase().replace(/ /g, "-")}`}>
-              <p className="ui-label">{f.k}</p>
-              <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">{f.v}</p>
-            </div>
-          ))}
-        </div>
-      )}
-      {w && (
-        <div data-testid="now-slot-weather" className="mt-3 flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <WeatherIcon kind={w.icon} />
-            <div className="min-w-0">
-              <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100" data-testid="now-slot-temp">{w.temp}</p>
-              {w.condition && <p className="mt-1 text-sm text-neutral-400">{w.condition}</p>}
-            </div>
-          </div>
-          <div className="shrink-0 text-right text-sm text-neutral-400">
-            {w.wind && <p>{w.wind}</p>}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -324,7 +244,7 @@ export default function NowSlot(i: SlotInput) {
   // Design "charge_pulse": the bolt beside the kW figure while power flows.
   const pulse = chargePulseState(useDesignPreview("charge_pulse"), view.powerKw, false);
   if (!slotAvailable(view, i.fix ?? null)) return null;
-  if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} weather={i.weather ?? null} tempUnit={i.tempUnit ?? "c"} unit={unit} kind={view.kind} nowMs={nowMs} placeLabel={i.placeLabel ?? null} placeText={i.placeText ?? null} noMap={i.noMap ?? false} asleep={i.asleep ?? null} tidy={i.tidy ?? false} />;
+  if (isParkedKind(view.kind)) return <ParkedSlot fix={i.fix as SlotFix} kind={view.kind} placeLabel={i.placeLabel ?? null} placeText={i.placeText ?? null} noMap={i.noMap ?? false} />;
   const stats = slotStats(i);
   let big = "";
   let bigUnit = "";
@@ -353,7 +273,7 @@ export default function NowSlot(i: SlotInput) {
     sub = stats.length > 0 ? "This drive so far" : null;
   }
   return (
-    <div data-testid="now-slot" data-kind={view.kind} className={i.tidy ? TIDY_ROOT : ROOT}>
+    <div data-testid="now-slot" data-kind={view.kind} className={TIDY_ROOT}>
       <p className="text-4xl font-semibold leading-none tabular-nums text-neutral-100" data-testid="now-slot-big">
         {big}
         <span className="ml-1 text-base font-normal text-neutral-400">{bigUnit}</span>

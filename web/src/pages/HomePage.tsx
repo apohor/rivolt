@@ -4,14 +4,13 @@ import { fetchLedgerMonth, fetchLedgerSummary, formatMoney, statementTotal } fro
 import { SocTrendChart } from "../components/SocTrendChart";
 import { PeriodPicker } from "../components/PeriodPicker";
 import { axisDayIndices, barDayCount, barsEndDay, earlyMonthFallback, filterByRange, periodLabel, periodRange, sleepWindow, toYmd, usePeriod, type Period } from "../lib/period";
-import { isActiveCharge } from "../lib/format";
 import { inDemo } from "../lib/demo";
 import { lazy, Suspense, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import FirstDayCard from "../components/FirstDayCard";
 import { setupDismissed } from "../lib/setupSheet";
-import { EARLY_MONTH_TAG, EarlyMonthNote } from "../components/EarlyMonthNote";
+import { EarlyMonthNote } from "../components/EarlyMonthNote";
 import MilestoneCard from "../components/MilestoneCard";
 import FirstChargeCard from "../components/FirstChargeCard";
 import { LockedVehicleNotice } from "../components/LockedVehicle";
@@ -23,13 +22,11 @@ import { backend, type Charge, type ChargeCluster } from "../lib/api";
 import { chargePlaceLabels, type ChargePlaceLabel } from "../lib/chargePlace";
 import { Card, ErrorBox, PageHeader } from "../components/ui";
 import { BarChart } from "../components/charts";
-import { IdleAwakeTile } from "../components/IdleAwakeTile";
 import { appPath } from "../lib/demo";
 import { num } from "../lib/format";
 import {
   chargeStats,
   driveStats,
-  efficiencyTrailerNote,
   milesPerDay,
   shareByEnergy,
   socTrend,
@@ -50,10 +47,6 @@ export default function HomePage() {
   const [win, setWin] = useState<WindowKey>("30d");
   // The calendar scope (Week/Month/Year/All/Custom).
   const [period, setPeriod] = usePeriod();
-  // Design 1 (design_preview "now_v2"): the month strip replaces the KPI tiles. Off, the page is unchanged.
-  const v2 = useDesignPreview("now_v2");
-  // Design "now_tidy" (with now_v2): the month's blocks under one heading, the setup cards at the end, the chip in the hero card.
-  const tidy = useDesignPreview("now_tidy") && v2;
   // The first-run setup sheet (preview only, design key first_screen): once for a connected truck, until it is finished or closed.
   const setupOn = useDesignPreview("first_screen");
   const [setupClosed, setSetupClosed] = useState(setupDismissed);
@@ -74,8 +67,6 @@ export default function HomePage() {
   const range = early ? early.range : baseRange;
   // The period the page is following: the chosen one, or the last 30 days.
   const scope: Period = early ? early.period : period;
-  // KPI hints carry the period when the page is following the last 30 days instead of the chosen month.
-  const tag = early ? `${EARLY_MONTH_TAG} · ` : "";
   // Recorded drives in the window. Counts and averages use these, like
   // Money and the API; the round-trip collapse only groups rows for the
   // charts below (the miles are the same either way).
@@ -136,16 +127,6 @@ export default function HomePage() {
     refetchInterval: 60_000,
     retry: 1,
   });
-  // The hero gauge already shows the battery %, so the first KPI
-  // tile reads "Since last charge" (miles driven since the latest finished charge).
-  const sinceCharge = useMemo(() => {
-    const ends = allC.filter((c) => !isActiveCharge(c)).map((c) => new Date(c.EndedAt).getTime()).filter(Number.isFinite);
-    if (ends.length === 0) return null;
-    const last = Math.max(...ends);
-    const ds = all.filter((d) => new Date(d.StartedAt).getTime() > last);
-    return { miles: ds.reduce((n, d) => n + (d.DistanceMi || 0), 0), drives: ds.length, since: last };
-  }, [all, allC]);
-
   // The Cost tile: the period's charging spend, the same number Money shows. A single
   // month comes from the ledger month; a year or All sums the ledger months inside it; a week
   // or custom range (not whole months) falls back to the charges in the window.
@@ -341,13 +322,12 @@ export default function HomePage() {
         wrap
         actions={
           <>
-          {v2 && !tidy && <div data-now-chip-slot />}
           <ScopeBar
             win={win}
             onWinChange={setWin}
             period={period}
             onPeriodChange={setPeriod}
-            hidePeriod={v2}
+            hidePeriod
             vehicles={vehicles.data ?? []}
             selectedVehicleID={activeVehicleID}
             onSelectVehicle={selectVehicle}
@@ -355,7 +335,7 @@ export default function HomePage() {
           </>
         }
       />
-      {!activeVehicleID && vehicles.isPending && <NowCardSkeleton tall={v2} />}
+      {!activeVehicleID && vehicles.isPending && <NowCardSkeleton />}
       {activeVehicleID && (
         <NowCard
           vehicleID={activeVehicleID}
@@ -369,12 +349,11 @@ export default function HomePage() {
           showTelemetryLink={!inDemo()}
         />
       )}
-      {tidy && !isError && sleepTroubleNote}
-      {tidy && !inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
-      {v2 && !isError && (
+      {!isError && sleepTroubleNote}
+      {!inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
+      {!isError && (
         <MonthStrip
-              tidy={tidy}
-              groups={tidy ? monthGroups : null}
+              groups={monthGroups}
               early={!!early}
               scope={scope}
               period={period}
@@ -385,21 +364,8 @@ export default function HomePage() {
               spent={chargingSpend != null ? formatMoney(chargingSpend.total, chargingSpend.currency) : "—"}
             />
       )}
-      {early && !tidy && <EarlyMonthNote />}
-      {/* The truck first (the Now card); the first-charge note, the milestone and the asks follow
-          it, so they never push it down (the iPhone does the same). Tidy: they close the page instead. */}
-      {!tidy && firstCharge}
-      {!tidy && !inDemo() && !!rivianStatus.data?.authenticated && <MilestoneCard />}
-      {!v2 && threeThings}
-
-
-      {/* KPI row (Battery / Miles / Energy added / Efficiency) sits
-          at the top of the data area now — it's the highest-signal
-          row on the page. Battery uses the live SoC so it also
-          doubles as the "current state" readout that used to live
-          in the separate LiveSummary card. Renders even while
-          drives/charges are still loading; the derived stats fill
-          in once those queries settle. */}
+      {/* The truck first (the Now card); the first-charge note, the milestone and the asks close the page, so they never push it down
+          (the iPhone does the same). */}
       {isError ? (
         <ErrorBox
           title="Failed to load sessions"
@@ -407,99 +373,10 @@ export default function HomePage() {
         />
       ) : (
         <>
-          {!v2 && (
-          <div data-ui-area="kpi" className="grid grid-cols-2 md:grid-cols-6 gap-3">
-              <Stat
-                label="Since last charge"
-                value={sinceCharge ? num(sinceCharge.miles, 1, "mi") : "—"}
-                hint={
-                  sinceCharge
-                    ? `${sinceCharge.drives} ${sinceCharge.drives === 1 ? "drive" : "drives"} · since ${new Date(sinceCharge.since).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                    : "no finished charges yet"
-                }
-              />
-            <Stat
-              label="Miles"
-              value={num(ds.miles, 1, "mi")}
-              hint={`${tag}${ds.count} drives · avg ${num(ds.avgTripMi, 1, "mi")}`}
-            />
-            <Stat
-              label="Energy added"
-              value={num(cs.energyKWh, 1, "kWh")}
-              hint={`${tag}${cs.count} charges · peak ${num(cs.maxPowerKW, 0, "kW")}`}
-            />
-            <Stat
-              label="Efficiency"
-              value={
-                ds.miPerKWh > 0
-                  ? `${ds.miPerKWh.toFixed(2)} mi/kWh`
-                  : cs.energyKWh > 0 && ds.miles > 0
-                    ? `${(ds.miles / cs.energyKWh).toFixed(2)} mi/kWh`
-                    : ds.milesPerPct > 0
-                      ? `${ds.milesPerPct.toFixed(2)} mi/%`
-                      : "—"
-              }
-              hint={
-                (ds.miPerKWh > 0
-                  ? `pack-side · ${num(ds.milesForEnergy, 0, "mi")} / ${num(ds.energyUsedKWh, 0, "kWh")}`
-                  : cs.energyKWh > 0 && ds.miles > 0
-                    ? `wall-to-wheel · ${num(ds.miles, 0, "mi")} / ${num(cs.energyKWh, 0, "kWh")}`
-                    : `top speed ${num(ds.maxSpeedMph, 0, "mph")}`) +
-                efficiencyTrailerNote(ds, cs.energyKWh)
-              }
-            />
-              <Stat
-                label="Charging cost"
-                value={chargingSpend != null ? formatMoney(chargingSpend.total, chargingSpend.currency) : "—"}
-                hint={
-                  chargingSpend != null && chargingSpend.total > 0
-                    ? ds.miles > 0
-                      ? `${(chargingSpend.total / ds.miles).toFixed(3)} ${chargingSpend.currency}/mi · ${cs.count} ${cs.count === 1 ? "session" : "sessions"}`
-                      : `${cs.count} ${cs.count === 1 ? "session" : "sessions"}`
-                    : "no priced charges yet"
-                }
-              />
-              <IdleAwakeTile days={sleepActivity.data ?? []} loading={sleepActivity.isLoading} />
-          </div>
-          )}
-
-          {!tidy && sleepTroubleNote}
-          {!tidy && monthGroups}
-          {/* now_v2: the setup nudges close the page, below the trend and above the footer. */}
-          {v2 && (tidy ? <div className="space-y-3">{firstCharge}{threeThings}</div> : threeThings)}
+          {/* The setup nudges close the page, below the trend and above the footer. */}
+          <div className="space-y-3">{firstCharge}{threeThings}</div>
         </>
       )}
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-}) {
-  // "2.30 mi/kWh" keeps one line, the unit a 12px suffix.
-  const m = value.match(/^(\S+) (\S+)$/);
-  return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900/50 p-3">
-      <div className="text-xs text-neutral-500">{label}</div>
-      <div className={`mt-1 text-xl font-semibold tabular-nums${m ? " whitespace-nowrap" : ""}`}>
-        {m ? (
-          <>
-            {m[1]}
-            <span className="ml-1 inline-block text-xs font-normal text-neutral-400">{m[2]}</span>
-          </>
-        ) : (
-          value
-        )}
-      </div>
-      {hint ? (
-        <div className="mt-1 text-[11px] text-neutral-500 tabular-nums">{hint}</div>
-      ) : null}
     </div>
   );
 }
@@ -651,14 +528,12 @@ function MonthStrip({
   kwh,
   eff,
   spent,
-  tidy,
   groups,
   early,
 }: {
-  tidy?: boolean;
-  // Design "now_tidy": the month's other blocks (locations, charts) sit under the same heading and picker.
+  // The month's other blocks (locations, charts) sit under the same heading and picker.
   groups?: React.ReactNode;
-  // Design "now_tidy": the early-month note sits right under the stats, before the blocks it explains.
+  // The early-month note sits right under the stats, before the blocks it explains.
   early?: boolean;
   scope: Period;
   period: Period;
@@ -679,8 +554,8 @@ function MonthStrip({
     [spent, "spent"],
   ];
   return (
-    <section data-testid="now-month" aria-label={title} className={tidy ? "space-y-3" : undefined}>
-      <div className={`${tidy ? "" : "mb-2 mt-2 "}flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-0.5`}>
+    <section data-testid="now-month" aria-label={title} className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-0.5">
         <h2 className="text-sm font-semibold text-neutral-200">{title}</h2>
         <PeriodPicker value={period} onChange={onPeriod} />
       </div>
@@ -692,7 +567,7 @@ function MonthStrip({
           </div>
         ))}
       </div>
-      {tidy && early && <EarlyMonthNote />}
+      {early && <EarlyMonthNote />}
       {groups}
     </section>
   );

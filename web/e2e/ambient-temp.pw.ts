@@ -5,7 +5,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { stubApi, VEHICLE_ID } from "./stub";
 import { e2eNow } from "./clock";
 
-// Outside temperature is off until the user turns it on: the Settings switch, the offer under Now's details,
+// Outside temperature is off until the user turns it on: the Settings switch
 // and the reading once it is on. Nothing is asked or shown in the demo.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
@@ -61,37 +61,6 @@ for (const v of [
   });
 }
 
-test("Now: an offer shows the text first, turning it on shows the reading, Not now hides the offer", async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
-  const page = await ctx.newPage();
-  const puts = await open(page, { enabled: false });
-  await page.goto("/");
-  const offer = page.locator("[data-ambient-offer]");
-  await expect(offer.getByRole("button", { name: "Show outside temperature" })).toBeVisible();
-  await offer.getByRole("button", { name: "Show outside temperature" }).click();
-  await expect(offer).toContainText(TEXT);
-  await page.screenshot({ path: path.join(SHOTS, "ambient-offer-iphone-dark.png") });
-  await offer.getByRole("button", { name: "Turn on" }).click();
-  await expect(page.locator("[data-ambient-temp]")).toContainText(/Outside\s*(7\s*°C|45\s*°F)/);
-  // Cabin is its own row, in whole degrees, in the same style as Outside.
-  await expect(page.getByTestId("now-cabin")).toContainText(/Cabin\s*29\s*°C|Cabin\s*83\s*°F/);
-  await expect(page.getByTestId("now-cabin").locator("dd")).toHaveClass(/text-right/);
-  expect(puts).toEqual([{ enabled: true }]);
-  await ctx.close();
-
-  const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
-  const p2 = await ctx2.newPage();
-  await open(p2, { enabled: false });
-  await p2.goto("/");
-  await p2.locator("[data-ambient-offer]").getByRole("button", { name: "Show outside temperature" }).click();
-  await p2.getByRole("button", { name: "Not now" }).click();
-  await expect(p2.locator("[data-ambient-offer]")).toHaveCount(0);
-  await p2.reload();
-  await p2.waitForTimeout(800);
-  await expect(p2.locator("[data-ambient-offer]")).toHaveCount(0);
-  await ctx2.close();
-});
-
 test("the demo never asks for, or offers, outside temperature", async ({ page }) => {
   await stubApi(page, { demo: true, signedIn: false });
   const calls: string[] = [];
@@ -104,24 +73,3 @@ test("the demo never asks for, or offers, outside temperature", async ({ page })
   expect(calls).toEqual([]);
 });
 
-test("with the reading on, Now adds one sentence from the user's own drives; nothing when there is too little history", async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
-  const base = { units: "imperial", distance_unit: "mi", efficiency_unit: "mi/kWh", min_drives: 5, min_miles: 50, available: [] as number[] };
-  for (const [name, body, want] of [
-    ["figure", { ...base, temp_c: 7, efficiency_low: 2.4, efficiency_high: 2.8, range_low: 283.2, range_high: 283.4, based_on: { drives: 12, miles: 300, temp_lo_c: 3, temp_hi_c: 11 } }, "It's 45°F now: about 283 mi on a full charge, from your own drives (estimate)."],
-    ["no pack", { ...base, temp_c: 7, efficiency_low: 2.4, efficiency_high: 2.8, range_low: null, range_high: null, based_on: { drives: 12, miles: 300, temp_lo_c: 3, temp_hi_c: 11 } }, "your drives near this temperature average about 2.4–2.8 mi/kWh (estimate)."],
-    ["sparse", { ...base, temp_c: 7, reason: "not_enough_data", efficiency_low: null, efficiency_high: null, range_low: null, range_high: null, based_on: null }, null],
-  ] as const) {
-    const page = await ctx.newPage();
-    await open(page, { enabled: true });
-    await page.route(new RegExp(`/api/vehicles/${VEHICLE_ID}/cold-range`), (r) => r.fulfill(j(body)));
-    await page.goto("/");
-    await expect(page.locator("[data-ambient-temp]")).toBeVisible();
-    if (want) await expect(page.locator("[data-cold-range-now]"), name).toContainText(want);
-    else {
-      await page.waitForTimeout(800);
-      await expect(page.locator("[data-cold-range-now]"), name).toHaveCount(0);
-    }
-  }
-  await ctx.close();
-});

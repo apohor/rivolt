@@ -33,7 +33,6 @@ for (const v of VIEWS) {
           for (let i = 0; i < 4; i++) await page.clock.runFor(16_000);
         }
         await page.waitForTimeout(900);
-        if (scenario === "charging") await expect(page.locator(".ui-spark")).toBeVisible();
         await page.screenshot({ path: path.join(SHOTS, `uinext-now-${scenario}-${v.name}-${state}.png`) });
         await ctx.close();
       });

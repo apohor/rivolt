@@ -4,7 +4,7 @@ import { stubApi, VEHICLE_ID } from "./stub";
 // The public demo (signed out, read-only) with design key now_parked_graph on: the Now card draws "Battery while parked" from
 // GET /api/vehicles/{id}/parked-series, a route the demo serves for the sample truck, and no /api request on the page fails (the
 // card used to hide the map while a 404 on that route was pending).
-const KEYS = ["now_v2", "now_tidy", "now_slot", "now_parked_graph"];
+const KEYS = ["now_parked_graph"];
 
 test("demo Now with the parked graph key on: the graph renders and no request fails @webkit", async ({ page }) => {
   await stubApi(page, { demo: true, signedIn: false, nowEndpoint: true, scenario: "parked", designPreview: KEYS, parkedCase: "overnight" });

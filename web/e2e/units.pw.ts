@@ -39,7 +39,7 @@ for (const v of VIEWS) {
         await row.scrollIntoViewIfNeeded();
         await row.screenshot({ path: path.join(SHOTS, `units-money-${v.name}-${scheme}-${unit}.png`) });
         await page.goto("/");
-        await expect(page.getByText(new RegExp(`Parked · [\\d.]+ ${unit} from home`))).toBeVisible();
+        await expect(page.getByRole("region", { name: "Now" }).getByText(new RegExp(`\\d+ ${unit} range`))).toBeVisible();
         await page.getByRole("region", { name: "Now" }).locator(":scope > *").first().screenshot({ path: path.join(SHOTS, `units-now-${v.name}-${scheme}-${unit}.png`) });
         await ctx.close();
       });

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// Design "now_charge_graph" (with now_slot): the Now card's charging slot draws the open charge so far (battery, power, the target, a dashed
+// The Now card's charging slot draws the open charge so far (battery, power, the target, a dashed
 // estimate to it). Too few samples: a "collecting" line and no frame. Off, the card is as it was. SHOTS_DIR makes the image-gate shots.
 type Curve = { elapsedMin: number; soc: (m: number) => number; kw: (m: number) => number; targetPct?: number; pack?: (m: number) => number | null };
 // A pack that warms from about 70 F (21 C) toward 95 F (35 C), quickly at first, as a pack does when charging starts.
@@ -19,7 +19,7 @@ const CASES: Record<string, Curve> = {
 const SHOTS = process.env.SHOTS_DIR;
 
 async function open(page: Page, c: Curve, flag = true, slot = true) {
-  await stubApi(page, { scenario: "charging", nowEndpoint: true, designPreview: flag ? ["now_v2", "now_tidy", "now_slot", "now_charge_graph"] : ["now_v2", "now_tidy", "now_slot"], chargeCase: c });
+  await stubApi(page, { scenario: "charging", nowEndpoint: true, designPreview: flag ? [] : [], chargeCase: c });
   await page.goto("/");
   if (slot) await expect(page.getByTestId("now-slot")).toBeVisible();
   else await page.waitForTimeout(800);
@@ -154,12 +154,6 @@ test("a charge just started says it is collecting, with no graph @webkit", async
 test("a paused charge (no power) leaves the card without a slot, so no graph @webkit", async ({ page }) => {
   await open(page, CASES.paused, true, false);
   await expect(page.getByTestId("now-charge-graph")).toHaveCount(0);
-});
-
-test("flag off: no graph and no collecting line @webkit", async ({ page }) => {
-  await open(page, CASES.ac, false);
-  await expect(page.getByTestId("now-charge-graph")).toHaveCount(0);
-  await expect(page.getByTestId("now-charge-graph-collecting")).toHaveCount(0);
 });
 
 test("it reads the stored samples at the card's pace, never /api/vehicles @webkit", async ({ page }) => {

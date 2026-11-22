@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { e2eNow } from "./clock";
 import { stubApi } from "./stub";
 
-// qa2's demo audit (new look): the Now cost tile is the period's charging spend, the same number
+// qa2's demo audit (new look): the Now month strip's spend is the period's charging spend, the same number
 // Money shows; the Charging locations percents are the kWh shares and add up to 100.
 for (const w of [390, 1280] as const) {
   test(`Now charging cost equals Money's total · ${w}px`, async ({ browser }) => {
@@ -15,7 +15,7 @@ for (const w of [390, 1280] as const) {
     });
     await stubApi(page, { scenario: "parked" });
     await page.goto("/");
-    const tile = page.locator("[data-ui-area='kpi']").getByText("Charging cost", { exact: true }).locator("xpath=..");
+    const tile = page.getByTestId("now-month").getByText("spent", { exact: true }).locator("xpath=..");
     await expect(tile).toBeVisible();
     await expect(tile.locator(".text-xl")).toHaveText(/^\$[\d,]+\.\d{2}$/);
     const now = (await tile.locator(".text-xl").innerText()).trim();

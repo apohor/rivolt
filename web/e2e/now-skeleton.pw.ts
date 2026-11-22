@@ -2,11 +2,11 @@ import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
 
 // The Now card's placeholder is as tall as the card, so what is under it does not jump down when the truck's state arrives.
-for (const [name, keys] of [["redesigned", ["now_v2", "now_tidy", "now_slot"]], ["plain", undefined]] as const) {
+{
   for (const width of [390, 768, 1024, 1280]) {
-    test(`the Now placeholder matches the card's height (${name}, ${width})`, async ({ page }) => {
+    test(`the Now placeholder matches the card's height (${width})`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await stubApi(page, { nowEndpoint: true, ...(keys ? { designPreview: [...keys] } : {}) });
+      await stubApi(page, { nowEndpoint: true });
       await page.route(/\/api\/state\//, async (route) => {
         await new Promise((r) => setTimeout(r, 4000));
         await route.fallback();
@@ -35,7 +35,7 @@ for (const [name, keys] of [["redesigned", ["now_v2", "now_tidy", "now_slot"]], 
 // not known yet: the one picked last is), and the card keeps it while its graph's series is on its way. Sampled in the page every 25 ms from the
 // reload on, with the vehicles, the state and the series each answering late: the placeholder is never far from the card, and the section under
 // it (the month) does not move once it is drawn.
-const GRAPH_KEYS = ["now_v2", "now_tidy", "now_slot", "now_charge_graph", "now_parked_graph"];
+const GRAPH_KEYS = ["now_parked_graph"];
 const kinds = [
   { name: "charging", graph: "now-charge-graph", opts: { scenario: "charging", chargeCase: { elapsedMin: 90, soc: (m: number) => 40 + m * 0.136, kw: () => 11 } } },
   { name: "parked", graph: "now-parked-graph", opts: { scenario: "parked", parkedCase: "overnight" } },
@@ -130,7 +130,7 @@ test("a remembered height that is too tall comes down over three loads", async (
 });
 
 test("sign-out forgets the remembered heights", async ({ page }) => {
-  await stubApi(page, { scenario: "charging", nowEndpoint: true, designPreview: ["now_v2"] });
+  await stubApi(page, { scenario: "charging", nowEndpoint: true, designPreview: [] });
   await page.goto("/");
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("rivolt.nowCardHeights"))).not.toBeNull();
   await page.goto("/settings");

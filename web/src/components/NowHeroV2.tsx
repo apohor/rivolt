@@ -1,5 +1,4 @@
-import { useLayoutEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArcGauge } from "./ArcGauge";
 import { PlugPicture } from "./PlugPicture";
@@ -8,7 +7,7 @@ import { useColdRange } from "./AmbientTempLine";
 import { pickImageForNow, useIsLight, type PlacedImage } from "../lib/vehicleImage";
 import { useAmbientTemp } from "../lib/ambientTemp";
 import { useDesignPreview } from "../lib/config";
-import { formatTemperature, usePreferences } from "../lib/preferences";
+import { usePreferences } from "../lib/preferences";
 import { chargeFinishMs, clock, type NowView } from "../lib/nowState";
 import { useChargePending } from "./NowChargeGraph";
 import { conditionItems, type CondItem, type SlotWeather } from "./NowSlot";
@@ -71,7 +70,6 @@ export default function NowHeroV2({
   images,
   model,
   stateSlot,
-  tidy = false,
   nowMs = 0,
   asleepTodayS = null,
   soft = false,
@@ -97,8 +95,6 @@ export default function NowHeroV2({
   model?: string | null;
   // Design "now_slot": the state's figures in place of the picture (null keeps the picture).
   stateSlot?: React.ReactNode;
-  // Design "now_tidy": one hierarchy (status row, battery and range, the state's slot, one row of conditions). Same data as without.
-  tidy?: boolean;
   nowMs?: number;
   // While asleep: the seconds asleep today, shown in the conditions row.
   asleepTodayS?: number | null;
@@ -145,22 +141,12 @@ export default function NowHeroV2({
     : fullCharge != null
       ? `Full charge today ${fullCharge} ${distanceUnit}`
       : null;
-  const outside =
-    amb.enabled && ambient && !parkedSlot
-      ? formatTemperature(ambient.temp_c, temperatureUnit)
-      : null;
-  // The chip sits in the page header's title row (Now ... chip), as in the design; inline when the page has no slot.
   // Design "plug_anim": the plug badge whenever the cable is in; the picture stays the whole truck.
   const plugPicture = useDesignPreview("plug_anim");
   const carUrl = pickImageForNow(images, view.kind, light);
   // A Rivian image that fails to load (moved or blocked) gives way to the drawn truck instead of a broken picture.
   const [failedUrl, setFailedUrl] = useState("");
   const [info, setInfo] = useState(false);
-  const [slot, setSlot] = useState<Element | null>(null);
-  // Before the first paint: a passive effect let one frame draw the chip in the card and then move it up, shifting the card.
-  useLayoutEffect(() => {
-    setSlot(document.querySelector("[data-now-chip-slot]"));
-  }, []);
   const chipEl = (
     <span
       data-testid="now-pill"
@@ -186,170 +172,89 @@ export default function NowHeroV2({
           <span className="hidden min-w-0 @[22rem]:truncate @[24rem]:inline max-[430px]:hidden!">{chip}</span>
         </>
       ) : (
-        <span className={tidy ? (soft ? "min-w-0 @[22rem]:truncate" : "min-w-0 truncate") : undefined}>{chip}</span>
+        <span className={soft ? "min-w-0 @[22rem]:truncate" : "min-w-0 truncate"}>{chip}</span>
       )}
     </span>
   );
-  if (tidy) {
-    const parked = stateSlot != null && parkedSlot;
-    // The parked slot showed the weather whatever the outside-temperature setting; elsewhere the setting rules.
-    const weather = ambient && (parked || amb.enabled) ? ambient : null;
-    const items = conditionItems({ weather, tempUnit: temperatureUnit, unit: distanceUnit, nowMs, cabin, asleepTodayS: view.kind === "asleep" || (view.kind === "offline" && view.sleeping) ? asleepTodayS : null, detail: parked });
-    const asleepItem = items.find((c) => c.k === "Asleep today");
-    const footItem = asleepItem ?? (items.length % 2 === 1 && items.length !== 3 ? items[items.length - 1] : undefined);
-    const gridItems = items.filter((c) => c !== footItem);
-    const infoBtn = (c: CondItem) =>
-      c.info && (
-        <button
-          type="button"
-          aria-label="About the outside temperature"
-          aria-expanded={info}
-          onClick={() => setInfo((o) => !o)}
-          className="pointer-events-auto -my-4 -ml-2 -mr-4 inline-flex p-4 text-neutral-500 hover:text-neutral-300"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 11v6M12 7.5v.5" strokeLinecap="round" />
-          </svg>
-        </button>
-      );
-    const picture =
-      stateSlot ? null : carUrl && carUrl !== failedUrl ? (
-        plugPicture && (view.kind === "plugged" || view.kind === "charging") ? (
-          <PlugPicture kw={view.powerKw} className="w-full">
-            <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-32 w-full object-contain object-left min-[900px]:max-h-60 min-[900px]:object-center" />
-          </PlugPicture>
-        ) : (
+  const parked = stateSlot != null && parkedSlot;
+  // The parked slot showed the weather whatever the outside-temperature setting; elsewhere the setting rules.
+  const weather = ambient && (parked || amb.enabled) ? ambient : null;
+  const items = conditionItems({ weather, tempUnit: temperatureUnit, unit: distanceUnit, nowMs, cabin, asleepTodayS: view.kind === "asleep" || (view.kind === "offline" && view.sleeping) ? asleepTodayS : null, detail: parked });
+  const asleepItem = items.find((c) => c.k === "Asleep today");
+  const footItem = asleepItem ?? (items.length % 2 === 1 && items.length !== 3 ? items[items.length - 1] : undefined);
+  const gridItems = items.filter((c) => c !== footItem);
+  const infoBtn = (c: CondItem) =>
+    c.info && (
+      <button
+        type="button"
+        aria-label="About the outside temperature"
+        aria-expanded={info}
+        onClick={() => setInfo((o) => !o)}
+        className="pointer-events-auto -my-4 -ml-2 -mr-4 inline-flex p-4 text-neutral-500 hover:text-neutral-300"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v6M12 7.5v.5" strokeLinecap="round" />
+        </svg>
+      </button>
+    );
+  const picture =
+    stateSlot ? null : carUrl && carUrl !== failedUrl ? (
+      plugPicture && (view.kind === "plugged" || view.kind === "charging") ? (
+        <PlugPicture kw={view.powerKw} className="w-full">
           <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-32 w-full object-contain object-left min-[900px]:max-h-60 min-[900px]:object-center" />
-        )
+        </PlugPicture>
       ) : (
-        <CarSketch model={model} charging={charging} className="min-[900px]:mx-auto min-[900px]:max-w-[440px]" />
-      );
-    if (soft) {
-      // The charging and the driving card share one layout: ring, then the figures under it on the left, the graph on the right.
-      const rail = charging || view.kind === "driving";
-      const condBlock = items.length > 0 && (
-        // Cabin, Outside and Wind: three equal columns under their labels (the sky word wraps inside Outside), so nothing hangs alone on a second row.
-        // The charging card keeps them on one line (each label before its value), to spare the left column its height.
-        <div
-          data-testid="now-temps"
-          className={charging ? "pointer-events-none relative flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm" : `pointer-events-none relative grid gap-x-3 gap-y-2 text-sm ${items.length === 3 ? "grid-cols-3" : "grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))]"}`}
-        >
-          {[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin")).map((c) =>
-            charging ? (
-              <p key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="flex min-w-0 max-w-full flex-wrap items-baseline gap-x-1.5">
-                <span className="flex items-center text-neutral-400">
-                  {c.k}
-                  {infoBtn(c)}
-                </span>
-                <span className="font-semibold tabular-nums text-neutral-100">{c.v}</span>
-                {c.note && <span className="text-xs text-neutral-400">{c.note}</span>}
+        <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-32 w-full object-contain object-left min-[900px]:max-h-60 min-[900px]:object-center" />
+      )
+    ) : (
+      <CarSketch model={model} charging={charging} className="min-[900px]:mx-auto min-[900px]:max-w-[440px]" />
+    );
+  if (soft) {
+    // The charging and the driving card share one layout: ring, then the figures under it on the left, the graph on the right.
+    const rail = charging || view.kind === "driving";
+    const condBlock = items.length > 0 && (
+      // Cabin, Outside and Wind: three equal columns under their labels (the sky word wraps inside Outside), so nothing hangs alone on a second row.
+      // The charging card keeps them on one line (each label before its value), to spare the left column its height.
+      <div
+        data-testid="now-temps"
+        className={charging ? "pointer-events-none relative flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm" : `pointer-events-none relative grid gap-x-3 gap-y-2 text-sm ${items.length === 3 ? "grid-cols-3" : "grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))]"}`}
+      >
+        {[...items].sort((a, b) => Number(b.k === "Cabin") - Number(a.k === "Cabin")).map((c) =>
+          charging ? (
+            <p key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="flex min-w-0 max-w-full flex-wrap items-baseline gap-x-1.5">
+              <span className="flex items-center text-neutral-400">
+                {c.k}
+                {infoBtn(c)}
+              </span>
+              <span className="font-semibold tabular-nums text-neutral-100">{c.v}</span>
+              {c.note && <span className="text-xs text-neutral-400">{c.note}</span>}
+            </p>
+          ) : (
+            <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
+              <p className="flex items-center text-neutral-400">
+                {c.k}
+                {infoBtn(c)}
               </p>
-            ) : (
-              <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
-                <p className="flex items-center text-neutral-400">
-                  {c.k}
-                  {infoBtn(c)}
-                </p>
-                <p className="font-semibold tabular-nums text-neutral-100">{c.v}</p>
-                {c.note && <p className="break-words text-xs text-neutral-400">{c.note}</p>}
-              </div>
-            ),
-          )}
-        </div>
-      );
-      return (
-        <div
-          data-now-v2="true"
-          style={hold}
-          data-now-tidy="true"
-          data-now-soft="true"
-          data-ui-hero="true"
-          data-live={charging ? "charging" : undefined}
-          className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
-        >
-          <div className="@container pointer-events-none relative z-10 mb-4">
-            <div className="flex flex-wrap @[22rem]:flex-nowrap items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
-            {chipEl}
-            {telemetryLink && (
-              <Link
-                to="/live"
-                data-testid="now-live-link"
-                className="pointer-events-auto inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium pointer-fine:min-h-8 pointer-fine:min-w-8 pointer-fine:gap-1.5 pointer-fine:px-3 pointer-fine:text-xs text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
-              >
-                {charging && <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />}
-                Live
-                <svg aria-hidden className="max-[430px]:hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m9 5 7 7-7 7" />
-                </svg>
-              </Link>
-            )}
-          </div>
-          </div>
-          <div className="grid grid-cols-[minmax(0,1fr)] gap-y-3 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] min-[900px]:gap-x-10">
-            <div className="pointer-events-none relative flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 min-[900px]:col-start-1">
-              <ArcGauge
-                size={charging ? 100 : undefined}
-                value={view.soc}
-                label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
-                live={charging}
-                tone={offline ? "idle" : critical ? "critical" : "ok"}
-                limit={view.limitPct}
-              >
-                {(shown) => (
-                  <span className={`font-semibold leading-none tabular-nums ${tone}`}>
-                    <span className={charging ? "text-4xl" : "text-5xl"}>{view.soc > 0 ? Math.round(shown) : "—"}</span>
-                    <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
-                  </span>
-                )}
-              </ArcGauge>
-              <div className="min-w-[min(10rem,100%)] flex-1 space-y-0.5">
-                {view.rangeMi != null && (
-                  <p>
-                    <span className="text-2xl font-semibold tabular-nums text-neutral-100 min-[360px]:text-3xl">{dist(view.rangeMi)}</span>{" "}
-                    <span className="text-sm text-neutral-400">range</span>
-                  </p>
-                )}
-                {subline && (
-                  <p data-testid="now-subline" className="text-sm text-neutral-400 [text-wrap:balance]">
-                    {subline}
-                  </p>
-                )}
-              </div>
+              <p className="font-semibold tabular-nums text-neutral-100">{c.v}</p>
+              {c.note && <p className="break-words text-xs text-neutral-400">{c.note}</p>}
             </div>
-            {!rail && (
-              <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>
-            )}
-            {!rail && parkedRows && <div className="pointer-events-none relative min-w-0 min-[900px]:col-start-1 min-[900px]:row-start-2">{parkedRows}</div>}
-            <div className={`min-w-0 border-t border-neutral-800 pt-3 empty:hidden ${rail ? "min-[900px]:col-start-1" : "min-[900px]:col-span-2 min-[900px]:row-start-4"}`}>{stateSlot}</div>
-            {rail && <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:flex min-[900px]:flex-col min-[900px]:justify-center min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>}
-            {(condBlock || info) && (
-              <div className={`min-w-0 space-y-2 border-t border-neutral-800 pt-3 min-[900px]:col-start-1 ${rail ? "" : "min-[900px]:row-start-3"}`}>
-                {condBlock}
-                {info && (
-                  <p className="pointer-events-none relative text-xs text-neutral-400">
-                    Outside is an estimate, looked up from Open-Meteo for your truck&apos;s location.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">{extra}</div>
-          {footer}
-        </div>
-      );
-    }
+          ),
+        )}
+      </div>
+    );
     return (
       <div
         data-now-v2="true"
         style={hold}
         data-now-tidy="true"
+        data-now-soft="true"
         data-ui-hero="true"
-        data-live={charging ? "charging" : view.kind === "driving" ? "driving" : undefined}
+        data-live={charging ? "charging" : undefined}
         className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
       >
-        {/* The one status line: the state and since when, with the Live button on the same row. */}
-        <div className="pointer-events-none relative z-10 mb-4 flex items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs">
+        <div className="@container pointer-events-none relative z-10 mb-4">
+          <div className="flex flex-wrap @[22rem]:flex-nowrap items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs max-[430px]:[&_[data-now-chip]]:px-2.5 max-[430px]:[&_[data-now-chip]]:text-xs">
           {chipEl}
           {telemetryLink && (
             <Link
@@ -357,104 +262,62 @@ export default function NowHeroV2({
               data-testid="now-live-link"
               className="pointer-events-auto inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium pointer-fine:min-h-8 pointer-fine:min-w-8 pointer-fine:gap-1.5 pointer-fine:px-3 pointer-fine:text-xs text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
             >
-              {(charging || view.kind === "driving") && <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />}
+              {charging && <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />}
               Live
-              <svg aria-hidden className="max-[359px]:hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <svg aria-hidden className="max-[430px]:hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                 <path d="m9 5 7 7-7 7" />
               </svg>
             </Link>
           )}
         </div>
-        <div className="min-[900px]:grid min-[900px]:grid-cols-[auto_minmax(0,1fr)] min-[900px]:items-center min-[900px]:gap-x-12">
-          {/* Battery and range are the hero. */}
-          <div className="pointer-events-none relative flex flex-wrap items-center gap-x-5 gap-y-3 min-[900px]:flex-col min-[900px]:flex-nowrap min-[900px]:items-center min-[900px]:gap-3">
+        </div>
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-y-3 min-[900px]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] min-[900px]:gap-x-10">
+          <div className="pointer-events-none relative flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 min-[900px]:col-start-1">
             <ArcGauge
+              size={charging ? 100 : undefined}
               value={view.soc}
               label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
               live={charging}
               tone={offline ? "idle" : critical ? "critical" : "ok"}
-              limit={charging || view.kind === "plugged" ? view.limitPct : null}
+              limit={view.limitPct}
             >
               {(shown) => (
                 <span className={`font-semibold leading-none tabular-nums ${tone}`}>
-                  <span className="text-5xl">{view.soc > 0 ? Math.round(shown) : "—"}</span>
+                  <span className={charging ? "text-4xl" : "text-5xl"}>{view.soc > 0 ? Math.round(shown) : "—"}</span>
                   <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
                 </span>
               )}
             </ArcGauge>
-            <div className="min-w-0 min-[900px]:text-center">
+            <div className="min-w-[min(10rem,100%)] flex-1 space-y-0.5">
               {view.rangeMi != null && (
                 <p>
-                  <span className="text-2xl font-semibold min-[360px]:text-3xl tabular-nums text-neutral-100">{dist(view.rangeMi)}</span>{" "}
+                  <span className="text-2xl font-semibold tabular-nums text-neutral-100 min-[360px]:text-3xl">{dist(view.rangeMi)}</span>{" "}
                   <span className="text-sm text-neutral-400">range</span>
                 </p>
               )}
               {subline && (
-                <p data-testid="now-subline" className="mt-1 text-sm text-neutral-400">
+                <p data-testid="now-subline" className="text-sm text-neutral-400 [text-wrap:balance]">
                   {subline}
-                  {fullCharge != null && !charging && <span className="sr-only"> (estimate from your own drives)</span>}
                 </p>
               )}
             </div>
           </div>
-          <div className="mt-4 min-w-0 space-y-4 border-t border-neutral-800 pt-4 min-[900px]:mt-0 min-[900px]:border-t-0 min-[900px]:pt-0 empty:hidden">
-            {stateSlot}
-            {picture}
-            {rows.length > 0 && (
-              <dl className="pointer-events-none relative grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                {rows.map((d) => (
-                  <div key={d.k} className="contents">
-                    <dt className="text-neutral-500">{d.k}</dt>
-                    <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-            {items.length > 0 && (
-              <div className="pointer-events-none relative space-y-3">
-                <div
-                  data-testid="now-temps"
-                  className={`grid gap-x-4 gap-y-3 ${gridItems.length === 3 ? "grid-cols-3 gap-x-3" : "grid-cols-2 min-[480px]:grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))]"}`}
-                >
-                  {gridItems.map((c) => (
-                    <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
-                      <p className="ui-label flex items-center">
-                        {c.k}
-                        {infoBtn(c)}
-                      </p>
-                      <p className="text-lg font-semibold tabular-nums text-neutral-100">
-                        {c.v}
-                        {c.note && <span className="ml-1.5 text-sm font-normal text-neutral-400">{c.note}</span>}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                {footItem && (
-                  // The time asleep (or an odd last item) is a footer line, so the grid above always ends evenly.
-                  <div
-                    data-testid={`now-cond-${footItem.k.split(" ")[0].toLowerCase()}`}
-                    className="flex items-baseline justify-between gap-3 border-t border-neutral-800 pt-3"
-                  >
-                    <p className="ui-label flex items-center">
-                      {footItem.k}
-                      {infoBtn(footItem)}
-                    </p>
-                    <p className="text-lg font-semibold tabular-nums text-neutral-100">
-                      {footItem.v}
-                      {footItem.note && (
-                        <span className="ml-1.5 text-sm font-normal text-neutral-400">{footItem.note}</span>
-                      )}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-            {info && (
-              <p className="pointer-events-none relative text-xs text-neutral-400">
-                Outside is an estimate, looked up from Open-Meteo for your truck&apos;s location.
-              </p>
-            )}
-          </div>
+          {!rail && (
+            <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>
+          )}
+          {!rail && parkedRows && <div className="pointer-events-none relative min-w-0 min-[900px]:col-start-1 min-[900px]:row-start-2">{parkedRows}</div>}
+          <div className={`min-w-0 border-t border-neutral-800 pt-3 empty:hidden ${rail ? "min-[900px]:col-start-1" : "min-[900px]:col-span-2 min-[900px]:row-start-4"}`}>{stateSlot}</div>
+          {rail && <div className="pointer-events-none relative min-w-0 border-t border-neutral-800 pt-4 min-[900px]:col-start-2 min-[900px]:row-span-3 min-[900px]:row-start-1 min-[900px]:flex min-[900px]:flex-col min-[900px]:justify-center min-[900px]:border-l min-[900px]:border-t-0 min-[900px]:pl-10 min-[900px]:pt-0">{graph}</div>}
+          {(condBlock || info) && (
+            <div className={`min-w-0 space-y-2 border-t border-neutral-800 pt-3 min-[900px]:col-start-1 ${rail ? "" : "min-[900px]:row-start-3"}`}>
+              {condBlock}
+              {info && (
+                <p className="pointer-events-none relative text-xs text-neutral-400">
+                  Outside is an estimate, looked up from Open-Meteo for your truck&apos;s location.
+                </p>
+              )}
+            </div>
+          )}
         </div>
         <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">{extra}</div>
         {footer}
@@ -462,169 +325,124 @@ export default function NowHeroV2({
     );
   }
   return (
-    <>
-      {slot ? (
-        createPortal(chipEl, slot)
-      ) : (
-        <div className="flex justify-end">{chipEl}</div>
-      )}
-      <div
-        data-now-v2="true"
-        style={hold}
-        data-ui-hero="true"
-        data-live={
-          charging
-            ? "charging"
-            : view.kind === "driving"
-              ? "driving"
-              : undefined
-        }
-        className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
-      >
+    <div
+      data-now-v2="true"
+      style={hold}
+      data-now-tidy="true"
+      data-ui-hero="true"
+      data-live={charging ? "charging" : view.kind === "driving" ? "driving" : undefined}
+      className={`relative rounded-2xl border bg-neutral-900/60 p-5 ${critical ? "border-rose-500/50" : charging ? "border-emerald-500/30" : "border-neutral-800"}`}
+    >
+      {/* The one status line: the state and since when, with the Live button on the same row. */}
+      <div className="pointer-events-none relative z-10 mb-4 flex items-center justify-between gap-3 max-[359px]:gap-2 [&_[data-now-chip]]:min-w-0 max-[359px]:[&_[data-now-chip]]:px-2.5 max-[359px]:[&_[data-now-chip]]:text-xs">
+        {chipEl}
         {telemetryLink && (
-          <>
-            {/* The pill has its own row above the gauge and the truck, so nothing overlaps it. */}
-            <div className="pointer-events-none relative z-10 mb-2 flex justify-end">
-            <Link
-              to="/live"
-              data-testid="now-live-link"
-              className="pointer-events-auto inline-flex min-h-11 min-w-11 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium pointer-fine:min-h-8 pointer-fine:min-w-8 pointer-fine:gap-1.5 pointer-fine:px-3 pointer-fine:text-xs text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
-            >
-              {(charging || view.kind === "driving") && (
-                <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />
-              )}
-              Live
-              <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m9 5 7 7-7 7" />
-              </svg>
-            </Link>
-            </div>
-          </>
+          <Link
+            to="/live"
+            data-testid="now-live-link"
+            className="pointer-events-auto inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center gap-2 rounded-full border border-neutral-600 bg-neutral-800 px-4 text-sm font-medium pointer-fine:min-h-8 pointer-fine:min-w-8 pointer-fine:gap-1.5 pointer-fine:px-3 pointer-fine:text-xs text-neutral-100 shadow-sm transition-colors hover:border-neutral-400 hover:bg-neutral-700 active:scale-95 active:bg-neutral-600"
+          >
+            {(charging || view.kind === "driving") && <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 motion-reduce:animate-none" />}
+            Live
+            <svg aria-hidden className="max-[359px]:hidden" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m9 5 7 7-7 7" />
+            </svg>
+          </Link>
         )}
-        {/* From 900 px up the card fills the width: the gauge with the range under it, the truck large beside them, and the context in a column on the right. */}
-        <div className="min-[900px]:grid min-[900px]:grid-cols-[auto_minmax(0,1fr)_17rem] min-[900px]:items-center min-[900px]:gap-x-10 min-[900px]:gap-y-2">
-        <div className="pointer-events-none relative flex items-center gap-4 min-[900px]:contents">
+      </div>
+      <div className="min-[900px]:grid min-[900px]:grid-cols-[auto_minmax(0,1fr)] min-[900px]:items-center min-[900px]:gap-x-12">
+        {/* Battery and range are the hero. */}
+        <div className="pointer-events-none relative flex flex-wrap items-center gap-x-5 gap-y-3 min-[900px]:flex-col min-[900px]:flex-nowrap min-[900px]:items-center min-[900px]:gap-3">
           <ArcGauge
             value={view.soc}
-            label={
-              view.soc > 0
-                ? `Battery ${Math.round(view.soc)} percent`
-                : "Battery level unknown"
-            }
+            label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
             live={charging}
             tone={offline ? "idle" : critical ? "critical" : "ok"}
             limit={charging || view.kind === "plugged" ? view.limitPct : null}
           >
             {(shown) => (
-              <span
-                className={`font-semibold leading-none tabular-nums ${tone}`}
-              >
-                <span className="text-5xl">
-                  {view.soc > 0 ? Math.round(shown) : "—"}
-                </span>
-                <span className="ml-0.5 text-lg font-normal text-neutral-400">
-                  %
-                </span>
+              <span className={`font-semibold leading-none tabular-nums ${tone}`}>
+                <span className="text-5xl">{view.soc > 0 ? Math.round(shown) : "—"}</span>
+                <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
               </span>
             )}
           </ArcGauge>
-          <div className="flex min-w-0 flex-1 flex-col items-start gap-1 min-[900px]:contents">
-            {stateSlot ? null : carUrl && carUrl !== failedUrl ? (
-              plugPicture && (view.kind === "plugged" || view.kind === "charging") ? (
-                <PlugPicture kw={view.powerKw} className="w-full min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1">
-                  <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left min-[900px]:max-h-60 min-[900px]:object-center" />
-                </PlugPicture>
-              ) : (
-                <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-24 w-full object-contain object-left min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:max-h-60 min-[900px]:object-center" />
-              )
-            ) : (
-              <CarSketch model={model} charging={charging} className="min-[900px]:col-start-2 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:mx-auto min-[900px]:max-w-[440px]" />
-            )}
+          <div className="min-w-0 min-[900px]:text-center">
             {view.rangeMi != null && (
-              <p className="min-w-0 min-[900px]:col-start-1 min-[900px]:row-start-2 min-[900px]:text-center">
-                <span className="text-2xl font-semibold tabular-nums text-neutral-100">
-                  {dist(view.rangeMi)}
-                </span>{" "}
+              <p>
+                <span className="text-2xl font-semibold min-[360px]:text-3xl tabular-nums text-neutral-100">{dist(view.rangeMi)}</span>{" "}
                 <span className="text-sm text-neutral-400">range</span>
               </p>
             )}
-          </div>
-        </div>
-        {stateSlot}
-        <div className="min-[900px]:col-start-3 min-[900px]:row-span-2 min-[900px]:row-start-1 min-[900px]:border-l min-[900px]:border-neutral-800 min-[900px]:pl-6">
-        {subline && (
-          <p
-            data-testid="now-subline"
-            className="mt-3 text-sm text-neutral-400 min-[900px]:mt-0"
-          >
-            {subline}
-            {fullCharge != null && !charging && (
-              <span className="sr-only"> (estimate from your own drives)</span>
-            )}
-          </p>
-        )}
-        {rows.length > 0 && (
-          <dl className="mt-3 min-[900px]:first:mt-0 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-            {rows.map((d) => (
-              <div key={d.k} className="contents">
-                <dt className="text-neutral-500">{d.k}</dt>
-                <dd className="text-right tabular-nums text-neutral-200">
-                  {d.v}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
-        {(cabin || outside) && (
-          <div
-            // On a phone the temps sit under the truck and the rule separates them. In the desktop column, when nothing
-            // comes before them (parked, no subline or rows), the rule would hang over empty space, so it goes.
-            className={`pointer-events-none relative mt-3 border-t border-neutral-800 pt-3 text-sm text-neutral-300${
-              !subline && rows.length === 0 ? " min-[900px]:mt-0 min-[900px]:border-t-0 min-[900px]:pt-0" : ""
-            }`}
-            data-testid="now-temps"
-          >
-            <span>
-              {[cabin && `Cabin ${cabin}`, outside && `Outside ${outside}`]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-            {outside && (
-              <button
-                type="button"
-                aria-label="About the outside temperature"
-                aria-expanded={info}
-                onClick={() => setInfo((o) => !o)}
-                className="pointer-events-auto -my-3.5 -mr-3.5 ml-0 inline-flex p-3.5 align-middle text-neutral-500 hover:text-neutral-300"
-              >
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                >
-                  <circle cx="12" cy="12" r="9" />
-                  <path d="M12 11v6M12 7.5v.5" strokeLinecap="round" />
-                </svg>
-              </button>
-            )}
-            {outside && info && (
-              <p className="mt-2 text-xs text-neutral-400">
-                Outside is an estimate, looked up from Open-Meteo for your
-                truck&apos;s location.
+            {subline && (
+              <p data-testid="now-subline" className="mt-1 text-sm text-neutral-400">
+                {subline}
+                {fullCharge != null && !charging && <span className="sr-only"> (estimate from your own drives)</span>}
               </p>
             )}
           </div>
-        )}
         </div>
+        <div className="mt-4 min-w-0 space-y-4 border-t border-neutral-800 pt-4 min-[900px]:mt-0 min-[900px]:border-t-0 min-[900px]:pt-0 empty:hidden">
+          {stateSlot}
+          {picture}
+          {rows.length > 0 && (
+            <dl className="pointer-events-none relative grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              {rows.map((d) => (
+                <div key={d.k} className="contents">
+                  <dt className="text-neutral-500">{d.k}</dt>
+                  <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {items.length > 0 && (
+            <div className="pointer-events-none relative space-y-3">
+              <div
+                data-testid="now-temps"
+                className={`grid gap-x-4 gap-y-3 ${gridItems.length === 3 ? "grid-cols-3 gap-x-3" : "grid-cols-2 min-[480px]:grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))]"}`}
+              >
+                {gridItems.map((c) => (
+                  <div key={c.k} data-testid={`now-cond-${c.k.split(" ")[0].toLowerCase()}`} className="min-w-0">
+                    <p className="ui-label flex items-center">
+                      {c.k}
+                      {infoBtn(c)}
+                    </p>
+                    <p className="text-lg font-semibold tabular-nums text-neutral-100">
+                      {c.v}
+                      {c.note && <span className="ml-1.5 text-sm font-normal text-neutral-400">{c.note}</span>}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {footItem && (
+                // The time asleep (or an odd last item) is a footer line, so the grid above always ends evenly.
+                <div
+                  data-testid={`now-cond-${footItem.k.split(" ")[0].toLowerCase()}`}
+                  className="flex items-baseline justify-between gap-3 border-t border-neutral-800 pt-3"
+                >
+                  <p className="ui-label flex items-center">
+                    {footItem.k}
+                    {infoBtn(footItem)}
+                  </p>
+                  <p className="text-lg font-semibold tabular-nums text-neutral-100">
+                    {footItem.v}
+                    {footItem.note && (
+                      <span className="ml-1.5 text-sm font-normal text-neutral-400">{footItem.note}</span>
+                    )}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          {info && (
+            <p className="pointer-events-none relative text-xs text-neutral-400">
+              Outside is an estimate, looked up from Open-Meteo for your truck&apos;s location.
+            </p>
+          )}
         </div>
-        <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
-          {extra}
-        </div>
-        {footer}
       </div>
-    </>
+      <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">{extra}</div>
+      {footer}
+    </div>
   );
 }

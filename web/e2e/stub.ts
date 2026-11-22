@@ -194,6 +194,8 @@ export type StubOptions = {
   rivian?: RivianState;
   // Serve GET /api/vehicles/{id}/now (replay connection).
   nowEndpoint?: boolean;
+  // The state frame has no position, so the Now card has no map slot and shows the picture.
+  noFix?: boolean;
   // Serve GET /api/demo (public sample truck).
   demo?: boolean;
   // Standalone demo deployment: features.demo_only + app_url in /api/config.
@@ -233,7 +235,7 @@ export type StubOptions = {
 export async function stubApi(page: Page, opts: StubOptions = {}) {
   // A live run (E2E_LIVE_URL, the rc smoke against preview) uses the real backend: stub nothing.
   if (process.env.E2E_LIVE_URL) return;
-  const { failedSleeps6h = 0, scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase, driveCase, parkedCase, parkedDelayMs = 0, parkedPlace = "home" } = opts;
+  const { failedSleeps6h = 0, scenario = "parked", signedIn = true, landing = false, admin = true, noTiles = false, tilesUrl = "", signupDisabled = false, rivian = "ok", nowEndpoint = false, demo = false, demoOnly = false, drain = "absent", historyImport = false, tripShare = false, designPreview = [], liveSamples = false, liveDestination, chargeCase, driveCase, parkedCase, parkedDelayMs = 0, parkedPlace = "home", noFix = false } = opts;
   // The parked-series answer; the state and the /now snapshot take their battery and parked time from it, so the card never contradicts itself.
   const parkedFix = parkedCase && parkedCase !== "gone" ? parkedSeriesFixture(parkedCase) : null;
   const month = currentMonth(new Date(e2eNow()));
@@ -372,6 +374,7 @@ export async function stubApi(page: Page, opts: StubOptions = {}) {
       // A truck that is asleep sends no frames: its last one is when the open sleep began, which is the time the chip says.
       const openSleep = scenario === "asleep" ? parkedFix?.sleeps.find((x) => x.open) : null;
       if (openSleep) st.at = openSleep.from;
+      if (noFix) Object.assign(st, { latitude: 0, longitude: 0 });
       if (parkedPlace === "away") Object.assign(st, { latitude: 40.05, longitude: -100.0 });
       if (driveCase && scenario === "driving") {
         const m = driveCase.elapsedMin;
