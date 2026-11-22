@@ -15,3 +15,14 @@ describe("StopCard for your own stop", () => {
     expect(screen.queryByText(/min$/)).toBeNull();
   });
 });
+
+describe("StopCard charger badge", () => {
+  afterEach(cleanup);
+  it("keeps the type and power on one line", () => {
+    const stop = { ...w, WaypointType: "charger", Source: "charger", Name: "Some Charger", MaxPowerKW: 200 } as PlannedWaypoint;
+    const { container } = render(<ol><StopCard kind="stop" name={stop.Name} waypoint={stop} currency="USD" timeShiftMs={0} selected={false} onSelect={() => {}} showLeg={false} /></ol>);
+    const badge = container.querySelector("[data-charger-type]");
+    expect(badge?.textContent).toMatch(/200 kW/);
+    expect(badge).toHaveClass("whitespace-nowrap");
+  });
+});
