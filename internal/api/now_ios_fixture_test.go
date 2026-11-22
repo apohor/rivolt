@@ -75,6 +75,8 @@ func iosFixtureTargets() map[string]any {
 		"me_plan_grace.json":      &meResponse{}, // a failed renewal inside the 7-day grace: plan_grace_ends
 		// Billing off after a rollback, but this account still holds a Stripe subscription: manage_subscription (Manage -> the portal).
 		"me_plan_billing_off_manage.json": &meResponse{},
+		// What the iPhone token gets today for a free account: billing_enabled false because RIVOLT_BILLING_IOS is off.
+		"me_plan_free_bearer_billing_off.json": &meResponse{},
 		// The 402 bodies of the free plan's limits (Sprint 14, item 2): act on the code.
 		"err_outside_free_window.json": &paywallBody{},
 		"err_pro_required.json":        &paywallBody{},
