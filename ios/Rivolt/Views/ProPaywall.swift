@@ -109,7 +109,7 @@ enum PlanLogic {
 enum ProCopy {
     static let primaryVehicleIntro = "The free tier shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
     static func primaryVehicleSaved(_ name: String) -> String { "Done. The free tier now shows \(name)." }
-    static let title = "Rivolt Pro"
+    static let title = "Pro tier"
     static let subtitle = "Full history, multi-day trips and more widgets, from $3.99 a month."
     static func included(_ window: FreeWindow = .unknown) -> [String] { [
         "Unlimited history and trends (free tier: \(window.short))",
@@ -154,12 +154,12 @@ enum ProCopy {
     static let deletionNote = "If you subscribed through the App Store, cancel in Settings → your name → Subscriptions first: deleting your Rivolt account doesn't cancel it."
 
     // What each free-plan limit says (the web's `proFeatureText`): why, what stays free, and that nothing is lost.
-    static let plannerLimit = "Multi-day plans, overnights and re-plan from here are part of Rivolt Pro. A single-day plan stays free."
-    static let planVsActualLimit = "Plan vs actual is part of Rivolt Pro. Your saved trips and drives are kept either way."
+    static let plannerLimit = "Multi-day plans, overnights and re-plan from here are part of the Pro tier. A single-day plan stays free."
+    static let planVsActualLimit = "Plan vs actual is part of the Pro tier. Your saved trips and drives are kept either way."
     static func savedTripsLimit(_ n: Int = 3) -> String {
         "The free tier keeps \(n) saved trips. Your other trips stay saved: you can open them, and Pro lets you edit and add more."
     }
-    static let vehicleLimit = "This vehicle's history is part of Rivolt Pro. It keeps recording and alerting, and everything stays in your export. The free tier shows your primary vehicle."
+    static let vehicleLimit = "This vehicle's history is part of the Pro tier. It keeps recording and alerting, and everything stays in your export. The free tier shows your primary vehicle."
     static let primaryVehicleHelp = "The free tier shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
 
     static func choiceLabel(_ yearly: Bool) -> String { yearly ? "Subscribe: $34.99 a year, renews yearly" : "Subscribe: $3.99 a month, renews monthly" }
@@ -174,16 +174,16 @@ enum ProCopy {
         case .pro(let source, let end):
             let renews = PlanLogic.date(end).map { ", renews \($0)" } ?? ""
             switch source {
-            case "apple": return ("Rivolt Pro\(renews)", "Billed through Apple.")
-            case "stripe": return ("Rivolt Pro\(renews)", "Billed through Stripe.")
+            case "apple": return ("Pro tier\(renews)", "Billed through Apple.")
+            case "stripe": return ("Pro tier\(renews)", "Billed through Stripe.")
             case "founding":
-                return ("Rivolt Pro, free until \(PlanLogic.date(end) ?? "the end of the year")", "Yours at no charge for the first year; no card, nothing is charged. We'll email you 30 days before it ends.")
-            default: return ("Rivolt Pro", "Granted to this account.")
+                return ("Pro tier, free until \(PlanLogic.date(end) ?? "the end of the year")", "Yours at no charge for the first year; no card, nothing is charged. We'll email you 30 days before it ends.")
+            default: return ("Pro tier", "Granted to this account.")
             }
         case .cancelled(_, let until):
-            return ("Rivolt Pro", "Won't renew; ends \(PlanLogic.date(until) ?? "at the end of the period"). Nothing is deleted after.")
+            return ("Pro tier", "Won't renew; ends \(PlanLogic.date(until) ?? "at the end of the period"). Nothing is deleted after.")
         case .paymentFailed(_, let until):
-            return ("Rivolt Pro, payment failed", "Update your card from the payment email we sent, by \(PlanLogic.date(until) ?? "the end of the week"), to keep Pro. Nothing is deleted either way.")
+            return ("Pro tier, payment failed", "Update your card from the payment email we sent, by \(PlanLogic.date(until) ?? "the end of the week"), to keep Pro. Nothing is deleted either way.")
         case .lapsed(let on, _):
             return ("Your Pro ended\(PlanLogic.date(on).map { " on \($0)" } ?? "")", "Showing \(window.history). Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).")
         }
@@ -256,7 +256,7 @@ enum ProLimit: Equatable {
     func text(window: FreeWindow = .unknown) -> String {
         switch self {
         case .outsideFreeWindow: return "\(window.olderThan) It is kept, and it is in your export; Pro shows all of it."
-        case .proRequired: return "This is part of Rivolt Pro. Everything you recorded is kept either way."
+        case .proRequired: return "This is part of the Pro tier. Everything you recorded is kept either way."
         }
     }
 }

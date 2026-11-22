@@ -22,7 +22,7 @@ final class ProPaywallTests: XCTestCase {
 
     func testTheRowIsListedOnlyWhereTheServerBills() {
         XCTAssertEqual(SettingsLogic.groups(notificationsOffered: true, planOffered: true).first?.rows, [.plan, .connection, .signOut])
-        XCTAssertEqual(SettingsLogic.Row.plan.title, "Rivolt Pro")
+        XCTAssertEqual(SettingsLogic.Row.plan.title, "Pro tier")
     }
 
     func testTheStatesAreToldApartFromTheFixtures() throws {
@@ -46,12 +46,12 @@ final class ProPaywallTests: XCTestCase {
         let founding = try JSON.decoder().decode(AuthUser.self, from: Data(#"{"username":"a","plan":"pro","plan_source":"founding","plan_cancels_at":"2027-01-01T00:00:00Z","billing_enabled":true}"#.utf8))
         XCTAssertEqual(PlanLogic.state(founding), .pro(source: "founding", periodEnd: nil))
         let cancelled = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_cancelled"))))
-        XCTAssertEqual(cancelled.title, "Rivolt Pro")
+        XCTAssertEqual(cancelled.title, "Pro tier")
         XCTAssertTrue(cancelled.line.hasPrefix("Won't renew; ends "))
         XCTAssertTrue(cancelled.line.hasSuffix(". Nothing is deleted after."))
         XCTAssertFalse((cancelled.title + cancelled.line).contains("renews"))
         let failed = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_grace"))))
-        XCTAssertEqual(failed.title, "Rivolt Pro, payment failed")
+        XCTAssertEqual(failed.title, "Pro tier, payment failed")
         XCTAssertTrue(failed.line.hasPrefix("Update your card from the payment email we sent, by"))
         XCTAssertTrue(failed.line.hasSuffix("Nothing is deleted either way."))
     }
@@ -84,11 +84,11 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertEqual(ProCopy.card(.free)?.title, "Free tier")
         // An old trial row shows as plain Pro, never as a trial.
         let old = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_trial")), now: now))
-        XCTAssertEqual(old.title, "Rivolt Pro")
+        XCTAssertEqual(old.title, "Pro tier")
         XCTAssertFalse((old.title + old.line).lowercased().contains("trial"))
         XCTAssertEqual(ProCopy.card(PlanLogic.state(try me("me_plan_apple")))?.line, "Billed through Apple.")
         XCTAssertEqual(ProCopy.card(PlanLogic.state(try me("me_plan_subscriber")))?.line, "Billed through Stripe.")
-        XCTAssertTrue(ProCopy.card(PlanLogic.state(try me("me_plan_founding")))?.title.hasPrefix("Rivolt Pro, free until") == true)
+        XCTAssertTrue(ProCopy.card(PlanLogic.state(try me("me_plan_founding")))?.title.hasPrefix("Pro tier, free until") == true)
         let lapse = try XCTUnwrap(ProCopy.card(PlanLogic.state(try me("me_plan_lapsed"))))
         XCTAssertTrue(lapse.title.hasPrefix("Your Pro ended on"))
         XCTAssertTrue(lapse.line.contains("Nothing is deleted"))

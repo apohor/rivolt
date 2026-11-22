@@ -8,7 +8,7 @@ enum SettingsLogic {
 
         var title: String {
             switch self {
-            case .plan: return "Rivolt Pro"
+            case .plan: return "Pro tier"
             case .notices: return "Notices"
             case .connection: return "Connection details"
             case .signOut: return "Sign out"

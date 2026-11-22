@@ -18,7 +18,7 @@ struct NowWidgetView: View {
 
     var body: some View {
         if WidgetGate.locks(family, proLocked: entry.proLocked) {
-            PlaceholderView(text: "More widgets are Rivolt Pro", family: family)
+            PlaceholderView(text: "More widgets are in the Pro tier", family: family)
         } else {
             switch entry.content {
             case .signedOut:
