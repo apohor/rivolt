@@ -30,6 +30,7 @@ export function StopCard({
   showLeg,
   weather,
   weatherNote,
+  number,
 }: {
   kind: "start" | "stop" | "via" | "end";
   name: string;
@@ -44,6 +45,8 @@ export function StopCard({
   // The weather on the leg that arrives here: tags in the row, and (for a charging stop) the estimate and climb lines in its detail.
   weather?: LegWeatherFacts | null;
   weatherNote?: string[];
+  // plan_v2: this charging stop's place among the charging stops, the number its pin and pill on the map carry.
+  number?: number;
 }) {
   const { distanceUnit } = usePreferences();
   const money = (v: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(v);
@@ -79,6 +82,9 @@ export function StopCard({
         {/* Narrower than 200 CSS px (a phone at Safari's aA 300 %) the leg distance drops under the name rather than squeezing it to nothing. */}
         <span className="flex items-baseline justify-between gap-3 max-[200px]:flex-wrap">
           <span className="pt-value min-w-0 text-neutral-100">
+            {isStop && number != null && (
+              <span data-stop-number aria-label={`Stop ${number}`} className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 align-text-bottom text-[11px] font-bold leading-none text-neutral-950">{number}</span>
+            )}
             {name}
             {/* A place to break before the badges: on a very narrow screen they go to the next line instead of sticking out past the edge. */}
             <wbr />

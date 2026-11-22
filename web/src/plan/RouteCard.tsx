@@ -280,6 +280,7 @@ export function RouteCard({
       timeShiftMs={timeShiftMs}
       selected={selectedStop === idx}
       onSelect={() => toggleStop(idx)}
+      number={planV2 && kind === "stop" && n != null ? n + 1 : undefined}
     />
   );
   const timeline = showTable && (
