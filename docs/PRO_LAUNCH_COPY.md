@@ -26,7 +26,7 @@ Rivolt has been free during its public beta. From November 17, 2026 the hosted s
 
 Your account has Pro at no charge until November 17, 2027. There is no card on file and nothing will be charged. We will email you and show a notice in the app at least 30 days before that date. After it, your account is on the free tier unless you choose to subscribe.
 
-What the free tier keeps: every drive and charge keeps being recorded; Now, Activity, Money and Truck for the last 12 months; the monthly statement; a single-day trip planner; three saved trips; trip share links and all share cards; the charging Live Activity and the small Now widget on iPhone; imports; every alert; and the full export of everything Rivolt holds, always, including history older than 12 months. Nothing is ever deleted when a plan ends.
+What the free tier keeps: every drive and charge keeps being recorded; Now, Activity, Money and Truck for the last 6 months (12 for accounts created before November 22, 2026); the monthly statement; a single-day trip planner; three saved trips; trip share links and all share cards; the charging Live Activity and the small Now widget on iPhone; imports; every alert; and the full export of everything Rivolt holds, always, including history older than the free window. Nothing is ever deleted when a plan ends.
 
 If you have more than one vehicle: on the free plan, Rivolt keeps recording every drive and charge on all your vehicles, but shows one vehicle at a time (you choose which). Every vehicle stays in your full export, and Pro shows them all.
 
@@ -71,9 +71,9 @@ Your account has had Rivolt Pro at no charge since Pro launched. That ends on No
 
 [If the date was moved to give 30 days' notice: "We moved this date from {old date} to November 17, 2027 so that you have at least 30 days' notice."]
 
-What changes on that date: Activity, Money and Truck show the last 12 months; the planner plans single-day trips; three saved trips stay editable and the rest stay read-only; one vehicle is shown at a time; trends and range near a temperature are not shown; the other iPhone widgets are Pro-only; the small Now widget and the charging Live Activity stay free.
+What changes on that date: Activity, Money and Truck show the free window (the last 6 months, or 12 for accounts created before November 22, 2026); the planner plans single-day trips; three saved trips stay editable and the rest stay read-only; one vehicle is shown at a time; trends and range near a temperature are not shown; the other iPhone widgets are Pro-only; the small Now widget and the charging Live Activity stay free.
 
-What does not change: every drive and charge keeps being recorded on every connected vehicle, every alert keeps working, and the full export of everything, including history older than 12 months, stays free.
+What does not change: every drive and charge keeps being recorded on every connected vehicle, every alert keeps working, and the full export of everything, including history older than the free window, stays free.
 
 Export everything first if you like: https://rivolt.dev/settings#export
 
@@ -150,7 +150,7 @@ Title: **Rivolt Pro**
 Subtitle: Full history, multi-day trips and more widgets, from $3.99 a month.
 
 What's included (one list, as shown):
-- Unlimited history and trends (free: the last 12 months)
+- Unlimited history and trends (free tier: the last 6 months, or 12 for older accounts)
 - Range near a temperature
 - Multi-day trip plans with hotel and campground overnights
 - Re-plan from where the truck is, and plan-vs-actual after the trip
@@ -174,11 +174,11 @@ iPhone, under the Subscribe button: "Terms · Privacy" (links to rivolt.dev/term
 Restore purchases (iPhone): label "Restore purchases"; helper "Bought Pro on this Apple ID before? Restore it here. A subscription bought on rivolt.dev is already on your account; sign in and it applies."
 Manage subscription: label "Manage subscription"; helper, iPhone: "Opens your Apple subscriptions, where you change or cancel the plan. Cancelling keeps Pro until the paid period ends."; web: "Opens Stripe's portal, where you change the plan, update the card or cancel in one step. Cancelling keeps Pro until the paid period ends."
 
-Lapse banner (dismissable, Now and Settings): "Your Pro ended on {date}. Showing the last 12 months. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data)." Buttons: "Keep Pro" · "Export everything" · "Dismiss"
+Lapse banner (dismissable, Now and Settings): "Your Pro ended on {date}. Showing the last {N} months. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data)." Buttons: "Keep Pro" · "Export everything" · "Dismiss"
 Payment-failed banner (7-day grace, web only): "A payment for Rivolt Pro failed. Update your card in Settings → Account → Plan by {grace_end} to keep Pro. Either way, nothing is deleted."
 
 Settings plan card states (title, line, action):
-- Free: "Free" · "Recording, alerts, the last 12 months and the full export, always." · "See Pro"
+- Free: "Free" · "Recording, alerts, the last {N} months and the full export, always." · "See Pro"
 - Free, just signed up: same card; no trial state exists (owner decision, no Pro trial).
 - Pro via Apple: "Rivolt Pro, renews {date}" · "Billed through Apple." · "Manage subscription"
 - Pro via Stripe: "Rivolt Pro, renews {date}" · "Billed through Stripe, $34.99 a year [or $3.99 a month]." · "Manage subscription"
