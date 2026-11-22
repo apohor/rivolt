@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-// The truck picture with its plug state (design "plug_anim"): a grey plug badge while plugged in and not charging; while power flows (> 0 kW) a soft
+// The truck picture with its plug state (a grey plug badge while plugged in and not charging; while power flows (> 0 kW) a soft
 // green glow pulsing along the base (about 2 s) and a green bolt badge. Reduced motion keeps the glow, still. The badge is the screen reader's cue.
 export function plugLabel(kw: number | null | undefined): string {
   return (kw ?? 0) > 0 ? `Charging, ${Math.round((kw as number) * 10) / 10} kW` : "Plugged in, not charging";

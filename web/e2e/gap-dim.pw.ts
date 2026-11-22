@@ -5,16 +5,16 @@ import { stubApi, VEHICLE_ID } from "./stub";
 import { e2eNow } from "./clock";
 import { DRAWN_MS, drawnMap } from "./drawn";
 
-// gap_dim (design preview): a tunnel-style dropout in the track is drawn solid and faded in the route's own colour, not dashed grey.
-// One made-up drive with the samples from 50 to 70 missing (five minutes, about a mile), shot with the flag on and off.
+// A tunnel-style dropout in the track is drawn solid and faded in the route's own colour, not dashed grey.
+// One made-up drive with the samples from 50 to 70 missing (five minutes, about a mile), shot.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
 const MIN = 60_000;
 const START = e2eNow() - 3 * 3_600_000;
 
-async function setup(page: Page, flag: boolean) {
-  await stubApi(page, { designPreview: flag ? ["gap_dim"] : [] });
+async function setup(page: Page) {
+  await stubApi(page);
   const drive = {
     ID: "drive-1", VehicleID: VEHICLE_ID,
     StartedAt: new Date(START).toISOString(), EndedAt: new Date(START + 30 * MIN).toISOString(),
@@ -40,16 +40,16 @@ for (const [vpName, vp] of [
   ["1280", { width: 1280, height: 900 }],
 ] as const) {
   for (const theme of ["light", "dark"] as const) {
-    for (const flag of [false, true]) {
-      test(`gap_dim ${flag ? "on" : "off"} · ${vpName} · ${theme}`, async ({ browser }) => {
+    {
+      test(`gap dim · ${vpName} · ${theme}`, async ({ browser }) => {
         const ctx = await browser.newContext({ viewport: vp, colorScheme: theme });
         const page = await ctx.newPage();
         await page.addInitScript((t) => localStorage.setItem("rivolt.theme", t), theme);
-        await setup(page, flag);
+        await setup(page);
         await page.goto("/drives/drive-1");
         await expect(drawnMap(page)).toBeAttached({ timeout: DRAWN_MS });
         await page.waitForTimeout(2500);
-        await page.locator("[data-map-drawn]").first().locator("xpath=..").screenshot({ path: path.join(SHOTS, `gap-dim-${flag ? "on" : "off"}-${vpName}-${theme}.png`) });
+        await page.locator("[data-map-drawn]").first().locator("xpath=..").screenshot({ path: path.join(SHOTS, `gap-dim-${vpName}-${theme}.png`) });
         await ctx.close();
       });
     }

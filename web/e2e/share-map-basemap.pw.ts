@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
 
-// The share card's optional map (design_preview "share_map"): off every time the sheet opens, and when the tile archive cannot be read the card
+// The share card's optional map: off every time the sheet opens, and when the tile archive cannot be read the card
 // still saves with the plain line; whatever the map asks for stays on the page's own origin. (The real basemap is looked at in the preview
 // shots; the style audit and the camera are in src/map/shareBasemap.test.ts.)
 const SEGMENTS = ["_p~iF~ps|U_ulLnnqC_mqNvxq`@"];
@@ -10,7 +10,7 @@ for (const [name, size] of [["phone", { width: 393, height: 852 }], ["desktop", 
   test(`the map toggle is off on every open, and an unreadable archive leaves the plain line (${name})`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: size, colorScheme: "dark", acceptDownloads: true });
     const page = await ctx.newPage();
-    await stubApi(page, { designPreview: ["share_map"] });
+    await stubApi(page);
     await page.route("**/api/maps/tiles/us.pmtiles", (r) => r.fulfill({ status: 404, body: "" }));
     await page.route("**/api/drives/drive-4/postcard", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ version: 1, distance_mi: 34, route: { segments: SEGMENTS } }) }));
     await page.goto("/drives/drive-4");

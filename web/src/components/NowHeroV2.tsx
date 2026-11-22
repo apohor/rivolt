@@ -6,7 +6,6 @@ import { CarSketch } from "./CarSketch";
 import { useColdRange } from "./AmbientTempLine";
 import { pickImageForNow, useIsLight, type PlacedImage } from "../lib/vehicleImage";
 import { useAmbientTemp } from "../lib/ambientTemp";
-import { useDesignPreview } from "../lib/config";
 import { usePreferences } from "../lib/preferences";
 import { chargeFinishMs, clock, type NowView } from "../lib/nowState";
 import { useChargePending } from "./NowChargeGraph";
@@ -141,8 +140,6 @@ export default function NowHeroV2({
     : fullCharge != null
       ? `Full charge today ${fullCharge} ${distanceUnit}`
       : null;
-  // Design "plug_anim": the plug badge whenever the cable is in; the picture stays the whole truck.
-  const plugPicture = useDesignPreview("plug_anim");
   const carUrl = pickImageForNow(images, view.kind, light);
   // A Rivian image that fails to load (moved or blocked) gives way to the drawn truck instead of a broken picture.
   const [failedUrl, setFailedUrl] = useState("");
@@ -200,7 +197,7 @@ export default function NowHeroV2({
     );
   const picture =
     stateSlot ? null : carUrl && carUrl !== failedUrl ? (
-      plugPicture && (view.kind === "plugged" || view.kind === "charging") ? (
+      view.kind === "plugged" || view.kind === "charging" ? (
         <PlugPicture kw={view.powerKw} className="w-full">
           <img data-testid="now-car" src={carUrl} alt="" loading="lazy" onError={() => setFailedUrl(carUrl)} className="max-h-32 w-full object-contain object-left min-[900px]:max-h-60 min-[900px]:object-center" />
         </PlugPicture>
