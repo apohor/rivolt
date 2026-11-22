@@ -18,6 +18,8 @@ async function mountSignup(path: string, opts: { signedIn: boolean; rivian?: { e
     "/api/config": { body: { features: { signup_enabled: true, demo_enabled: true, design_preview: [] } } },
     "/api/auth/oidc": { body: [] },
     "/api/auth/me": { body: opts.signedIn ? me : { authenticated: false } },
+    "/api/signup/token": { status: 410, body: { error: "gone" } },
+    "/api/signup/token/T1": { body: { email: "new@example.com" } },
     "/api/settings/rivian": { body: { enabled: true, authenticated: false, mfa_pending: false, ...opts.rivian } },
   });
   const { default: SignupPage } = await import("./SignupPage");
@@ -62,6 +64,18 @@ describe("/signup while signed in", () => {
 
   it("a sign-up link (?token) is a new account on purpose: the page stays even when signed in", async () => {
     await mountSignup("/signup?token=T1", { signedIn: true });
+    expect(await screen.findByRole("heading", { level: 1 })).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.queryByTestId("where")).toBeNull();
+  });
+
+  it("a used or expired sign-up link, signed in (the owner clicks his emailed link again): passed on like /signup", async () => {
+    await mountSignup("/signup?token=USED", { signedIn: true });
+    expect((await screen.findByTestId("where")).textContent).toBe("/onboarding?connect=1");
+  });
+
+  it("a used or expired sign-up link, signed out: the page says so and stays", async () => {
+    await mountSignup("/signup?token=USED", { signedIn: false });
     expect(await screen.findByRole("heading", { level: 1 })).toBeTruthy();
     await new Promise((r) => setTimeout(r, 100));
     expect(screen.queryByTestId("where")).toBeNull();

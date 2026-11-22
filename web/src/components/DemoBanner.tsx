@@ -1,9 +1,8 @@
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { Link } from "react-router-dom";
+import { FROM_APP_KEY } from "../lib/demoFromApp";
 import { useAppUrl, useDesignPreview, useSignupEnabled } from "../lib/config";
-
-const FROM_APP_KEY = "rivolt.demo_from_app";
 
 // signup_v2: did the visitor come from the account's choice screen (?from=app)? The mark is kept for the tab (written by DemoBanner) so it
 // survives moving around the demo; the URL is read too, so the first render already knows. Off, always false.

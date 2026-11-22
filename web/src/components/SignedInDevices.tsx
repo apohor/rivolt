@@ -1,3 +1,4 @@
+import { forgetFromApp } from "../lib/demoFromApp";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, backend, type AuthSession } from "../lib/api";
@@ -34,6 +35,7 @@ export function SignedInDevices() {
     onSuccess: (s) => {
       setConfirming(null);
       if (s.current) {
+        forgetFromApp();
         window.location.assign("/login"); // this browser's own sign-in is gone
         return;
       }
