@@ -47,6 +47,24 @@ test("weather-corrected: the end row says the gauge's figure, tinted, with Rivia
   await page.screenshot({ path: path.join(SHOTS, "item9-arrival-corrected.png") });
 });
 
+// The end row wraps by piece: "arrive at 18%", "· under your 20% target" and "· Rivian's planner: 24%" each stay on one line, whatever the width.
+for (const width of [1440, 393]) {
+  test(`the arrival line wraps by whole pieces, never ending on a dot · ${width}`, async ({ page }) => {
+    await open(page, CORRECTED, ["plan_v2"], width);
+    const end = page.locator("[data-plan-timeline] li").last();
+    // Squeeze the row so the pieces have to wrap.
+    await end.evaluate((el) => { (el as HTMLElement).style.maxWidth = "250px"; });
+    const pieces = end.locator("span.whitespace-nowrap");
+    await expect(pieces).toHaveCount(3);
+    const info = await pieces.evaluateAll((els) => els.map((e) => ({ text: (e.textContent ?? "").trim(), lines: new Set(Array.from(e.getClientRects()).map((r) => Math.round(r.top))).size })));
+    expect(info.map((i) => i.lines)).toEqual([1, 1, 1]);
+    expect(info.map((i) => i.text.endsWith("·"))).toEqual([false, false, false]);
+    expect(info[1].text).toBe("· under your 20% target");
+    expect(info[2].text).toBe("· Rivian's planner: 24%");
+    await page.screenshot({ path: path.join(SHOTS, `item9-arrival-wrap-${width}.png`) });
+  });
+}
+
 test("corrected to 0%: the row says 0%, amber, never Rivian's softer figure alone", async ({ page }) => {
   await open(page, { ...CORRECTED, weather_adjustment: { ...CORRECTED.weather_adjustment, adjusted_arrival_soc: [34, 0], final_arrival_soc: 0 } }, ["plan_v2"]);
   const end = page.locator("[data-plan-timeline] li").last();

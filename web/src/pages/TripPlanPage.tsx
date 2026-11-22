@@ -437,6 +437,8 @@ export default function TripPlanPage() {
         onShowSaved={() => setPlanTab("saved")}
       />
     ) : null;
+  // plan_v2: Save trip sits directly under the itinerary, inside the route card (and a phone's sheet); a multi-day plan has no single card, so it keeps it last.
+  const saveInCard = v2 && !multiday && ((loadedSnapshot?.plan ?? planMutation.data)?.Routes.length ?? 0) > 0;
   const resultEl = (
     <>
       {!v2 && saveBarEl}
@@ -682,12 +684,13 @@ export default function TripPlanPage() {
               onAddOvernight={pickOvernightNow}
               departureAt={departureAt}
               adviceLast={v2}
+              afterItinerary={saveInCard ? saveBarEl : undefined}
             />
           </ErrorBoundary>
         );
       })()}
       {/* plan_v2: Save trip follows the summary and itinerary instead of leading them. */}
-      {v2 && saveBarEl}
+      {v2 && !saveInCard && saveBarEl}
     </>
   );
 
