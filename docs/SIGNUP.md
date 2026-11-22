@@ -53,8 +53,16 @@ there is still room when you click it; the page tells you if not.
 The token is consumed on success and your identity is provisioned
 at `auth.rivolt.dev` (Ory Kratos under the hood).
 
-You land on the **Connect your Rivian** screen — the next step
-connects your truck.
+On the sign-up screen you tick the Terms once before any of these
+buttons works; that tick is carried through the sign-in, and the account
+records its acceptance as soon as you are in. You then land on **Your
+account is ready**, with two choices:
+
+- **Add my truck** (about 2 minutes): the next step, below.
+- **Try it with a sample truck**: opens the demo, a generated truck with
+  sample drives, charges and planned trips. It is read-only and nothing you
+  do there is saved to your account. You can add your truck afterwards from
+  **Now** or **Settings**.
 
 ---
 
@@ -69,11 +77,14 @@ sign-in steps.
 Tip: connect a dedicated Authorized Driver account (see
 "Recommended" below) if you can; the steps here are the same.
 
-1. Right after signup Rivolt shows the Rivian sign-in form. (Later,
-   it's on **Now** until you're connected, and always under
-   **Settings → Account → Rivian account**.)
-2. Enter the email + password you use in the Rivian app.
-3. Click **Sign in**.
+1. **Add my truck** opens one short form, the same one on **Now** until
+   you're connected and under **Settings → Account → Rivian account**:
+   "Use your Rivian app login. Read-only, and your password is never
+   stored." It also says "Safer: use a separate driver account" with a
+   **How** link to the steps below.
+2. Enter the email + password you use in the Rivian app (your own login by
+   default; the driver account below is the safer option).
+3. Click **Sign in to Rivian**.
 
 If Rivian prompts for a one-time code, copy it from your phone /
 email and submit it. Rivolt seals the resulting session token
