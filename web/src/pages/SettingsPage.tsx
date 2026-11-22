@@ -1,5 +1,5 @@
 import { UNSET_RATE_NOTE, memberSaving, networkRateSet } from "../lib/networkRates";
-import { useAIEnabled, useDesignPreview, useHistoryImport, useTripPlannerEnabled } from "../lib/config";
+import { useAIEnabled, useHistoryImport, useTripPlannerEnabled } from "../lib/config";
 import { HistoryImportCard, ImportsListCard } from "../components/HistoryImport";
 import { usePlannerPrefs, useSavePlannerPrefs } from "../lib/plannerPrefs";
 import { ChargersOnMapCard, MapDefaultsCard } from "../components/TripPlannerSettings";
@@ -2847,9 +2847,8 @@ export function DeleteAccountBlock() {
 // AppearanceCard: Auto / Light / Dark, per device (localStorage).
 export function AppearanceCard() {
   const [choice, setChoice] = useThemeChoice();
-  const auto = useDesignPreview("theme_switch") ? "Auto" : "System";
   const opts: { key: ThemeChoice; label: string }[] = [
-    { key: "system", label: auto },
+    { key: "system", label: "Auto" },
     { key: "light", label: "Light" },
     { key: "dark", label: "Dark" },
   ];
@@ -2869,7 +2868,7 @@ export function AppearanceCard() {
           </button>
         ))}
       </div>
-      <p className="mt-2 text-xs text-neutral-500">{auto} follows your device. Saved on this device only.</p>
+      <p className="mt-2 text-xs text-neutral-500">Auto follows your device. Saved on this device only.</p>
     </Card>
   );
 }
