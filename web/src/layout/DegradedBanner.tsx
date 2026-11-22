@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
+import { useDesignPreview } from "../lib/config";
+import { useConnectPromptShown } from "../lib/connectPromptShown";
 import { expiryNotice } from "../lib/rivianExpiry";
 
 // The tab-bar shell dropped the header's connection pill, which was the
@@ -9,7 +11,7 @@ import { expiryNotice } from "../lib/rivianExpiry";
 // when something is actually wrong; healthy renders nothing. It reads
 // the same sources the pill did (/api/health, /api/settings/rivian/).
 
-export type Degraded = { tone: "rose" | "amber"; text: string; to?: string; cta?: string };
+export type Degraded = { tone: "rose" | "amber"; text: string; to?: string; cta?: string; notConnected?: boolean };
 
 export function degradedState(
   health: { ok?: boolean } | undefined,
@@ -38,7 +40,7 @@ export function degradedState(
     return { tone: "amber", text: "Your Rivian sign-in expired. Reconnect to keep recording.", to: "/settings?tab=account", cta: "Reconnect" };
   }
   if (!rivian.authenticated) {
-    return { tone: "amber", text: "Rivian isn't connected.", to: "/settings?tab=account", cta: "Connect" };
+    return { tone: "amber", text: "Rivian isn't connected.", to: "/settings?tab=account", cta: "Connect", notConnected: true };
   }
   // From a week before Rivian ends this sign-in: the date, and one tap to sign in again (the renewal).
   const notice = expiryNotice(rivian.session_days_left, rivian.session_expires_at);
@@ -65,7 +67,11 @@ export default function DegradedBanner() {
     enabled: !!health.data?.ok,
   });
   const d = degradedState(health.data, health.isError, rivian.data);
-  if (!d) return null;
+  // signup_v2: where the connect card is on the screen, "Rivian isn't connected" is the card's own message. Elsewhere (Money, Truck, Settings)
+  // it stays, and every other state (paused, code, reconnect, expiry, server) stays everywhere.
+  const signupV2 = useDesignPreview("signup_v2");
+  const promptShown = useConnectPromptShown();
+  if (!d || (d.notConnected && signupV2 && promptShown)) return null;
   const cls =
     d.tone === "rose"
       ? "border-rose-500/40 bg-rose-950/30 text-rose-200"

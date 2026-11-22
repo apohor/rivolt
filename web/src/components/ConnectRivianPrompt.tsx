@@ -5,6 +5,7 @@ import { ApiError, backend } from "../lib/api";
 import { discoveryStateOf, discoveryView } from "../lib/vehicleDiscovery";
 import { useDemoEnabled, useDesignPreview } from "../lib/config";
 import { AuthorizedDriverNote, NO_VEHICLE_CAUSE, NO_VEHICLE_MAIN_ACCOUNT, RivianAccountPanel } from "./RivianAccountPanel";
+import { useMarkConnectPromptShown } from "../lib/connectPromptShown";
 import { Card } from "./ui";
 import { CONNECT_TRUST_LINE, ConnectTrustLines } from "./ConnectTrustLines";
 
@@ -36,8 +37,6 @@ export default function ConnectRivianPrompt({
 }) {
   const demoEnabled = useDemoEnabled();
   const signupV2 = useDesignPreview("signup_v2");
-  const hosted = /(^|\.)rivolt\.dev$/.test(window.location.hostname);
-  const sampleHref = demoEnabled ? "/demo?from=app" : hosted ? "https://demo.rivolt.dev/demo?from=app" : "";
   const status = useQuery({
     queryKey: ["rivian", "status"],
     queryFn: () => backend.rivianStatus(),
@@ -65,6 +64,8 @@ export default function ConnectRivianPrompt({
   useEffect(() => {
     if (dstate === "found") void owned.refetch();
   }, [dstate]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The connect state under signup_v2 (a truckless, signed-out-of-Rivian account): the banner above says nothing more than this card does.
+  useMarkConnectPromptShown(signupV2 && !!status.data?.enabled && !authenticated);
   if (status.isLoading || !status.data || !status.data.enabled) return null;
   if (authenticated && !noVehicles) return null;
   if (dview) {
@@ -100,6 +101,36 @@ export default function ConnectRivianPrompt({
     ? "Your Rivian sign-in worked, but that account doesn't list a vehicle yet, so there's nothing to record."
     : CONNECT_TRUST_LINE;
 
+  // signup_v2: the short card. The Now card is the one form (the same as the onboarding step); the other pages' prompt is a title, one line and a
+  // button. The sample truck is inside the form, so there is no second link to it.
+  if (signupV2 && !noVehicles) {
+    if (inline) {
+      return (
+        <Card>
+          <div className="max-w-md">
+            <RivianAccountPanel v2 />
+          </div>
+        </Card>
+      );
+    }
+    return (
+      <Card>
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="min-w-[200px] flex-1">
+            <h2 className="text-base font-semibold text-neutral-100">Connect your Rivian</h2>
+            {context && <p className="mt-1 text-sm text-neutral-400">{context}</p>}
+          </div>
+          <Link
+            to="/settings?tab=account#rivian"
+            className="shrink-0 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500"
+          >
+            Connect Rivian
+          </Link>
+        </div>
+      </Card>
+    );
+  }
+
   if (inline) {
     return (
       <Card>
@@ -117,12 +148,6 @@ export default function ConnectRivianPrompt({
           )}
           <RivianAccountPanel />
           {!noVehicles && <AuthorizedDriverNote />}
-          {/* signup_v2: the sample truck stays one tap away until a truck is connected. */}
-          {signupV2 && !authenticated && sampleHref && (
-            <a data-sample-truck href={sampleHref} className="inline-block text-sm text-emerald-300 underline underline-offset-2 hover:text-emerald-200">
-              Try it with a sample truck first
-            </a>
-          )}
         </div>
       </Card>
     );
