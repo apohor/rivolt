@@ -8,6 +8,7 @@ import { BottomSheet, type Snap } from "./BottomSheet";
 import { useSelectedStop } from "./selection";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { wholeDistance } from "./units";
+import { tripTotalsText } from "./tripTotals";
 import { type ElevationProfile, type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
 import { useDesignPreview } from "../lib/config";
 import { ElevationChart } from "./ElevationChart";
@@ -90,6 +91,8 @@ export function RouteCard({
 }) {
   const { distanceUnit, temperatureUnit } = usePreferences();
   const forecastOn = useDesignPreview("radar_forecast");
+  // plan_v2 (preview): one set of totals, the same on the map's card, in the sheet's peek and in the strip.
+  const planV2 = useDesignPreview("plan_v2");
   // Map-first layout is for the primary route; alternatives and stacked days keep the in-flow card.
   const next = !stacked && (index === 0 || forceNext);
   const [expanded, setExpanded] = useState(!defaultCollapsed);
@@ -236,6 +239,7 @@ export function RouteCard({
       stopCount={charging.length}
       chargeMinutes={totalChargeMin}
       compact={next || stacked}
+      split={planV2}
     />
   );
   // Leg i of the weather adjustment runs from waypoint i to i+1, so the weather on the way to waypoint idx is leg idx-1.
@@ -293,7 +297,9 @@ export function RouteCard({
   const fromName = shortName(originLabel || origin?.Name);
   const toName = shortName(destLabel || dest?.Name) || "Your trip";
   const sheetTitle = fromName ? `${fromName} → ${toName}` : `To ${toName}`;
-  const sheetLine = [
+  const sheetLine = planV2
+    ? tripTotalsText({ meters: route.TotalDriveDistanceMeters, stops: charging.length, seconds: route.TotalTripDurationSec, unit: distanceUnit })
+    : [
     route.TotalDriveDistanceMeters > 0 ? wholeDistance(route.TotalDriveDistanceMeters, distanceUnit) : null, // the same whole number as the map card
     route.TotalDriveDurationSec > 0 ? `${formatDuration(route.TotalDriveDurationSec)} driving` : null,
     route.TotalChargingDurationSec > 0 ? `${formatDuration(route.TotalChargingDurationSec)} charging` : null,
@@ -369,6 +375,7 @@ export function RouteCard({
               onSelectStop={(idx) => setSelectedStop(idx)}
               departureAt={departureAt}
               dayLabel={dayLabel}
+              planV2={planV2}
               startsAtOrigin={startsAtOrigin}
               originLabel={originLabel}
               destLabel={destLabel}
@@ -439,6 +446,7 @@ export function RouteCard({
             onSelectStop={(idx) => setSelectedStop(idx)}
             departureAt={departureAt}
             dayLabel={dayLabel}
+            planV2={planV2}
               startsAtOrigin={startsAtOrigin}
             originLabel={originLabel}
             destLabel={destLabel}

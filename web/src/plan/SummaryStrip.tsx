@@ -6,6 +6,7 @@ import { estimateLabel, fmtRange, NO_PRICE_TEXT, partialText, spendView } from "
 import { Unit } from "./Unit";
 import { usePreferences } from "../lib/preferences";
 import { distanceIn } from "./units";
+import { timeSplit } from "./tripTotals";
 
 // SummaryStrip: the trip at a glance (arrival SoC arc, trip cost with member and
 // gas sublines, time, arrival, distance, charging). Used by the planner.
@@ -21,6 +22,7 @@ export function SummaryStrip({
   stopCount,
   chargeMinutes,
   compact = false,
+  split = false,
 }: {
   route: TripRoute;
   cost?: TripCostEstimate;
@@ -31,6 +33,8 @@ export function SummaryStrip({
   stopCount: number;
   chargeMinutes: number;
   compact?: boolean;
+  // plan_v2: the total time once, with driving and charging beneath it; the Charging cell then keeps only the stop count.
+  split?: boolean;
 }) {
   const { distanceUnit } = usePreferences();
   const fmtCurrency = (v: number) =>
@@ -47,6 +51,7 @@ export function SummaryStrip({
     }
     return t;
   })();
+  const parts = split ? timeSplit(route.TotalTripDurationSec, route.TotalChargingDurationSec) : null;
   // The result as a hero (cost, arrival arc, time) over the map and a route timeline.
   return (
     // Narrower than 360 CSS px (a phone with Safari's aA text size at 200 % and up) the cost goes under the arc and the four figures stack, so
@@ -105,6 +110,12 @@ export function SummaryStrip({
         <div>
           <dt className="ui-label">Time</dt>
           <dd className="pt-value tabular-nums min-[360px]:whitespace-nowrap text-neutral-100">{route.TotalTripDurationSec > 0 ? formatDuration(route.TotalTripDurationSec) : "—"}</dd>
+          {parts && (
+            <dd data-time-split className="mt-0.5 text-[11px] leading-snug text-neutral-500">
+              <span className="block">{parts.driving} driving</span>
+              <span className="block">{parts.charging} charging</span>
+            </dd>
+          )}
         </div>
         <div>
           <dt className="ui-label">Arrive</dt>
@@ -117,7 +128,7 @@ export function SummaryStrip({
         <div>
           <dt className="ui-label">Charging</dt>
           <dd className="pt-value tabular-nums min-[360px]:whitespace-nowrap text-neutral-100">
-            {stopCount > 0 ? <>{stopCount}<Unit>{stopCount === 1 ? "stop" : "stops"}</Unit> {totalChargeMin}<Unit>min</Unit></> : "none"}
+            {stopCount > 0 ? <>{stopCount}<Unit>{stopCount === 1 ? "stop" : "stops"}</Unit>{!parts && <> {totalChargeMin}<Unit>min</Unit></>}</> : "none"}
           </dd>
         </div>
       </dl>

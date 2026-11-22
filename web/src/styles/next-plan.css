@@ -44,6 +44,14 @@
   padding-block: 0;
 }
 
+/* plan_v2 on a phone: no tall empty "your route appears here" box before there is a route (the map arrives with the plan; the planning
+   message is the spinner by the button). Wide screens keep the empty map: it fills the right column. */
+@media (max-width: 1023.98px) {
+  :root [data-plan-area='map'][data-empty='true'][data-plan-empty-v2] {
+    display: none;
+  }
+}
+
 /* The map. */
 :root [data-plan-area='map'] {
   position: relative;
