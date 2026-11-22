@@ -66,6 +66,9 @@ test("key on, no elevation data: no chart and the itinerary is intact", async ({
   await openSaved(page, true, DEMO_PLAN);
   await expect(page.locator("[data-plan-area=itinerary]")).toBeVisible();
   await expect(page.locator("[data-elevation-chart]")).toHaveCount(0);
+  // The day cards carry the charge ring too, on the rail and on each day's map.
+  await expect(page.locator("[data-plan-timeline] [data-charge-ring-rail]").first()).toBeVisible();
+  await expect(page.locator(".maplibregl-marker [data-charge-ring]").first()).toBeVisible();
 });
 
 test("key on, multi-day: the day cards carry no profile, as before", async ({ page }) => {

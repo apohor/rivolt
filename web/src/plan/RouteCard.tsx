@@ -169,6 +169,8 @@ export function RouteCard({
   // PlanSelectionProvider; the classic cards keep their own (see useSelectedStop).
   const stopSel = useSelectedStop(route, { shared: next });
   const selectedStop = stopSel.selected;
+  // plan_v2: the stop under the pointer, on the map or in the itinerary: the marker and its row are highlighted together.
+  const [hoverStop, setHoverStop] = useState<number | null>(null);
   const setSelectedStop = stopSel.select;
   const toggleStop = stopSel.toggle;
   // The route chooser swaps which route this card shows; the shared selection
@@ -178,6 +180,7 @@ export function RouteCard({
   const clearStop = stopSel.clear;
   useLayoutEffect(() => {
     if (next) clearStop();
+    setHoverStop(null); // a highlight from the old route's stop does not carry over
   }, [route, next, clearStop]);
   // Distance helpers. cumulative is route.Waypoints[i].DistanceFromOriginMeters;
   // leg = current - previous. Hidden when Rivian didn't populate the
@@ -282,7 +285,9 @@ export function RouteCard({
       timeShiftMs={timeShiftMs}
       selected={selectedStop === idx}
       onSelect={() => toggleStop(idx)}
-      number={planV2 && kind === "stop" && n != null ? n + 1 : undefined}
+      ring={planV2 && kind === "stop" && n != null}
+      hovered={hoverStop === idx}
+      onHover={(on) => setHoverStop(on ? idx : null)}
       correctedArrival={planV2 && kind === "end" ? adjustment?.final_arrival_soc : undefined}
     />
   );
@@ -382,6 +387,8 @@ export function RouteCard({
               onAddOvernight={onAddOvernight}
               onPreviewStop={onPreviewStop}
               selectedIdx={selectedStop}
+              hoverIdx={hoverStop}
+              onHoverStop={setHoverStop}
               onSelectStop={(idx) => setSelectedStop(idx)}
               departureAt={departureAt}
               dayLabel={dayLabel}
@@ -453,6 +460,8 @@ export function RouteCard({
             onAddOvernight={onAddOvernight}
             onPreviewStop={onPreviewStop}
             selectedIdx={selectedStop}
+            hoverIdx={hoverStop}
+            onHoverStop={setHoverStop}
             onSelectStop={(idx) => setSelectedStop(idx)}
             departureAt={departureAt}
             dayLabel={dayLabel}
