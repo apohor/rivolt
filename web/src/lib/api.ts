@@ -1317,6 +1317,8 @@ export const backend = {
   billingPortal: () => api.post<{ url: string }>("/api/billing/portal"),
   // Service notices (the Pro launch notice, the founding-member end): shown on Now until dismissed and in Settings until shows_until.
   notices: () => api.get<ServiceNotice[]>("/api/notices"),
+  // "Not now" on a Pro prompt (pro_entry): kept per account; 204.
+  dismissProPrompt: (where: string) => api.post<void>(`/api/pro/prompts/${encodeURIComponent(where)}/dismiss`),
   dismissNotice: (kind: string) => api.post<void>("/api/notices/dismiss", { kind }),
   yearInRivolt: (year?: number) => api.get<YearInRivolt>(`/api/year-in-rivolt${year ? `?year=${year}` : ""}`),
   health: () => api.get<Health>("/api/health"),
@@ -2620,6 +2622,9 @@ export type AuthUser = {
   units?: AccountUnits;
   // True when this server offers passkeys to the user (absent where they are off): the Passkeys card asks nothing otherwise.
   passkeys?: boolean;
+  // The Pro prompts this account turned away with "Not now" and that stay hidden now ("planner", "lapse_banner"); absent: none. A failed read lists
+  // them all. Free accounts only. Used under design key pro_entry.
+  pro_prompts_hidden?: string[];
   // The plan fields of GET /api/auth/me (Sprint 14, item 1). Absent only when the server's entitlement lookup failed: show nothing, gate nothing.
   plan?: "free" | "pro";
   // What makes it Pro: "stripe" | "apple" | "trial" | "founding" | "grant" | "billing_off" | "demo"; null on free.
