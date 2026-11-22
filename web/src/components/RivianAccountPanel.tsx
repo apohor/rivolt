@@ -115,7 +115,15 @@ export function RivianAccountPanel({ onLater, v2 = false, focusOnMount = false }
   });
   const logout = useMutation({
     mutationFn: () => backend.rivianLogout(),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      // Leaving the code step: the sign-in that brought us there is over. Without this, holdForm (a finished login plus a typed email) keeps
+      // the code form on screen after the server has dropped the pending code.
+      login.reset();
+      mfa.reset();
+      setOtp("");
+      setPassword("");
+      invalidate();
+    },
   });
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const authenticated = !!status.data?.authenticated;
