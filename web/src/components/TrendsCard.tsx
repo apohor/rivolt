@@ -56,7 +56,7 @@ export function TrendsCard({ vehicleID }: { vehicleID: string }) {
           type="button"
           aria-pressed={months === r.months}
           onClick={() => setMonths(r.months)}
-          className={`rounded px-2 py-0.5 ${months === r.months ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
+          className={`rounded px-1.5 py-0.5 ${months === r.months ? "bg-neutral-800 text-neutral-100" : "text-neutral-400 hover:text-neutral-100"}`}
         >
           {r.label}
         </button>
