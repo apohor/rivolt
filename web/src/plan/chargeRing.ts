@@ -26,6 +26,9 @@ export function chargeRingLabel(order: number, total: number, arrival: number | 
   return `Charging stop ${order} of ${total}${range}`;
 }
 
+// The drawing's numbers, shared by the markup below (the map's DOM marker) and the React component (the itinerary's rail), so the two cannot drift.
+export const RING = { view: VIEW, stroke: STROKE, r: R, c: C, mid: VIEW / 2, bolt: "M16.6 7.6 10.6 16.2h4.1l-1.3 6.2 6-8.6h-4.1z" };
+
 // The marker as SVG markup (built from numbers only). `size` is the pixel size; the drawing scales.
 export function chargeRingSvg(size: number, arrival: number | null | undefined, departure: number | null | undefined): string {
   const arc = ringArc(arrival, departure);
@@ -38,7 +41,7 @@ export function chargeRingSvg(size: number, arrival: number | null | undefined, 
     `<circle cx="${mid}" cy="${mid}" r="${mid}" fill="var(--cr-disc)"/>` +
     `<circle cx="${mid}" cy="${mid}" r="${R}" fill="none" stroke="var(--cr-track)" stroke-width="${STROKE}"/>` +
     arcEl +
-    `<path d="M16.6 7.6 10.6 16.2h4.1l-1.3 6.2 6-8.6h-4.1z" fill="var(--cr-arc)"/>` +
+    `<path d="${RING.bolt}" fill="var(--cr-arc)"/>` +
     `</svg>`
   );
 }

@@ -1,4 +1,4 @@
-import { chargeRingSvg } from "./chargeRing";
+import { ChargeRing } from "./RingMark";
 import "../styles/next-plan.css";
 import { useEffect, useRef } from "react";
 import { chargerKindOfKw, chargerLabel } from "../lib/chargerLabels";
@@ -84,7 +84,7 @@ export function StopCard({
     <li ref={cardRef} data-kind={kind} data-selected={selected ? "true" : undefined} data-ring={ring ? "" : undefined} onMouseEnter={ring ? () => onHover?.(true) : undefined} onMouseLeave={ring ? () => onHover?.(false) : undefined}>
       {ring && (
         <span data-charge-ring-rail aria-hidden="true">
-          <span data-charge-ring data-on={selected || hovered ? "" : undefined} dangerouslySetInnerHTML={{ __html: chargeRingSvg(28, w.ArrivalSoC, w.DepartureSoC) }} />
+          <ChargeRing size={28} arrival={w.ArrivalSoC} departure={w.DepartureSoC} on={selected || hovered} />
         </span>
       )}
       <button
