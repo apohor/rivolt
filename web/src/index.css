@@ -862,3 +862,18 @@ html[data-theme='light'] {
   opacity: 0.8;
   animation: cp-pulse 2s ease-in-out infinite;
 }
+/* Light theme: the dark theme's emerald-400 bolt is about 1.9:1 on white (the review's nit). Darker greens keep the cue above 3:1 for a graphic, and the
+   plug's grey is darkened the same way; the glow stays soft. */
+html[data-theme='light'] .cp-bolt {
+  color: rgb(4 120 87);
+  opacity: 1;
+}
+html[data-theme='light'] .cp-bolt[data-pulse="charging"] {
+  filter: drop-shadow(0 0 3px rgb(16 185 129 / 0.45));
+}
+html[data-theme='light'] .cp-bolt[data-pulse="plugged"] {
+  color: rgb(82 82 91);
+}
+html[data-theme='light'] .cp-glow {
+  background: rgb(16 185 129 / 0.7);
+}
