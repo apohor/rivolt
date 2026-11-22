@@ -200,20 +200,25 @@ test("on a phone, a Use tap whose re-plan fails says why", async ({ browser }) =
 // plan_v2, a two-day plan: nothing below the day cards moves after the answer is on screen. The map's chip rows (the campground chip, the count, the
 // legend) arrive after the map's chunk and the corridor call; the Use button sat about 200 px lower a second after it first showed.
 for (const v of [
-  { name: "phone", w: 390, h: 844 },
+  { name: "phone", w: 393, h: 852 },
   { name: "desktop", w: 1440, h: 960 },
 ]) {
-  test(`${v.name}: the Use button holds its place from the first paint to one second later (key on)`, async ({ browser }) => {
-    const ctx = await browser.newContext({ viewport: { width: v.w, height: v.h }, colorScheme: "dark", timezoneId: "America/Los_Angeles" });
-    const page = await ctx.newPage();
-    await open(page, [], true);
-    const use = page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" });
-    await expect(use).toBeVisible();
-    const top = () => use.evaluate((e) => Math.round(e.getBoundingClientRect().top + window.scrollY));
-    const atOpen = await top();
-    await page.waitForTimeout(1000);
-    const later = await top();
-    expect(later - atOpen, `the Use button moved from ${atOpen} to ${later}`).toBe(0);
-    await ctx.close();
-  });
+  for (const scheme of ["dark", "light"] as const) {
+    test(`${v.name} ${scheme}: the Use button holds its place from the first paint to one second later (key on)`, async ({ browser }) => {
+      const ctx = await browser.newContext({ viewport: { width: v.w, height: v.h }, colorScheme: scheme, timezoneId: "America/Los_Angeles" });
+      const page = await ctx.newPage();
+      await open(page, [], true);
+      const use = page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" });
+      await expect(use).toBeVisible();
+      const top = () => use.evaluate((e) => Math.round(e.getBoundingClientRect().top + window.scrollY));
+      const atOpen = await top();
+      await page.waitForTimeout(1000);
+      const later = await top();
+      expect(later - atOpen, `the Use button moved from ${atOpen} to ${later}`).toBe(0);
+      // The still: the first day's map and chip rows, a second after the plan opened.
+      await page.locator("[data-day-card] [data-map-chips]").first().scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(process.cwd(), "e2e", "__screenshots__", `plan-open-${v.w}-${scheme}.png`) });
+      await ctx.close();
+    });
+  }
 }
