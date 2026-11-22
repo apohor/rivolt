@@ -73,6 +73,27 @@ for (const k of CASES) {
   });
 }
 
+// The first minutes of a fast charge: /now still carries a home-rate estimate for it (the stub sends one for the DC case), and Rivian has not priced the
+// session or its read fails. Neither card shows a home-rate cost for a fast charge.
+for (const route of ["/live", "/"] as const) {
+  test(`@webkit fast charge, live-session read failing: no home-rate cost on ${route === "/" ? "Now" : "Live"}`, async ({ page }) => {
+    await open(page, route, DC, ZERO);
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await page.setViewportSize({ width: 393, height: 852 });
+    await stubApi(page, { scenario: "charging", nowEndpoint: true, chargeCase: DC, designPreview: ["now_v2", "now_tidy", "now_slot"] });
+    await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...FULL_STATE, charger_power_kw: 150, battery_level_pct: 60 }) }));
+    await page.route(`**/api/live-session/${VEHICLE_ID}`, (r) => r.fulfill({ status: 500, contentType: "application/json", body: "{}" }));
+    const now = page.waitForResponse((r) => /\/now$/.test(r.url()));
+    await page.goto(route);
+    await expect(page.getByTestId(route === "/" ? "now-slot" : "live-session-card")).toBeVisible();
+    await now;
+    await expect(page.getByText(/^elapsed$/i).first()).toBeVisible(); // the figures are drawn; the cost row would be among them
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByText(/at your home rate/)).toHaveCount(0);
+    expect(await costText(page, route)).toBeNull();
+  });
+}
+
 test("@webkit live card, a truly free Rivian session: Free", async ({ page }) => {
   await open(page, "/live", DC, { ...ZERO, active: true, power_kw: 150, total_charged_energy_kwh: 20, current_price: "0", current_currency: "USD", is_free_session: true, is_rivian_charger: true });
   await expect(page.getByTestId("live-session-card").getByText("Free", { exact: true })).toBeVisible();

@@ -18,7 +18,7 @@ import { LiveDriveTrail } from "./LiveDriveTrail";
 import { formatDriveMode } from "../lib/driveMode";
 import { useChargingSettings, useHomeLocation, useVehicleNow } from "../lib/useNowInputs";
 import { chargeFlavorOf, chargerLabel, computeNow, placeOfFix, type ChargeFlavor } from "../lib/nowState";
-import { allEstimated, freshCharge, liveStats, sessionIsFree, slotView, type Stat } from "./NowSlot";
+import { allEstimated, shownCharge, liveStats, sessionIsFree, slotView, type Stat } from "./NowSlot";
 
 // Unit conversions. Backend speaks SI at the wire.
 const kmToMi = (km: number) => km * 0.6213711922;
@@ -598,7 +598,7 @@ function ChargingDetail({
   const free = sessionIsFree(ls, flavor);
   const haveLiveData = !!ls && (ls.active || ls.power_kw > 0 || ls.total_charged_energy_kwh > 0);
   const stats = liveStats(
-    { view: slotView(view), nowMs, unit: distanceUnit, currency: chargingQ.data?.home_currency || "USD", session: haveLiveData ? ls : null, charge: freshCharge(server?.charge ?? null, ls ?? null) },
+    { view: slotView(view), nowMs, unit: distanceUnit, currency: chargingQ.data?.home_currency || "USD", session: haveLiveData ? ls : null, charge: shownCharge(server?.charge ?? null, ls ?? null, flavor) },
     ls?.time_remaining_seconds ?? 0,
   )
     .filter((x) => !(free && x.k === "Cost so far"));

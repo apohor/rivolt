@@ -60,11 +60,13 @@ test("@webkit live card, no session at all (home AC): every figure is the Now ca
   await expect(cell(page, "cost-so-far")).toContainText("estimate");
 });
 
-test("@webkit live card, fast charge with no session: the figures are worked out and the cost names its source", async ({ page }) => {
+test("@webkit live card, fast charge with no session: the figures are worked out and there is no home-rate cost", async ({ page }) => {
   await open(page, DC, null);
   await expect(cell(page, "energy")).toBeVisible();
   await expect(cell(page, "range-added")).toBeVisible();
-  await expect(cell(page, "cost-so-far")).toContainText("estimate");
+  // /now still carries a home-rate cost for the charge (the stub); a fast charge never shows it.
+  await expect(cell(page, "cost-so-far")).toHaveCount(0);
+  await expect(page.getByText(/home rate/)).toHaveCount(0);
   await expect(page.getByTestId("live-session-card").getByText("—", { exact: true })).toHaveCount(0);
 });
 

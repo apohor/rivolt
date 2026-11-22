@@ -116,6 +116,18 @@ export function freshCharge(charge: SlotCharge | null, ls: LiveSession | null): 
   return { started_at: "", ...charge, cost: price, currency: ls?.current_currency || charge?.currency, cost_source: "rivian", cost_is_estimate: false };
 }
 
+// The charge as the cards show it: Rivian's latest price over the row's snapshot (freshCharge), and no home-rate cost unless the home rate is a fair price
+// for it. A home charge keeps its estimate; a fast charge or AC away never has one; while the place or peak is not known the estimate waits for the
+// live session to say the charger is not a Rivian one (until it has answered, and if its read fails, there is no cost rather than a wrong one).
+export function shownCharge(charge: SlotCharge | null, ls: LiveSession | null, flavor: ChargeFlavor | null): SlotCharge | null {
+  const c = freshCharge(charge, ls);
+  if (!c || c.cost == null || c.cost_source !== "home_rate") return c;
+  const fits = flavor === "home_l2" || (flavor == null && !!ls && !ls.is_rivian_charger);
+  if (fits) return c;
+  const { cost: _cost, currency: _currency, cost_source: _source, cost_is_estimate: _est, ...rest } = c;
+  return rest;
+}
+
 // Whether the charge's own active Rivian session says it is free, and a reader can believe it: a Rivian charger (the Adventure Network, a Waypoints
 // charger) on a charge the home rate does not fit (a fast charge, or AC away). Rivian marks any charge it does not bill as "free": a home charge on
 // a Wall Charger and another network's charger included, and none of those is a free charge. (The server's liveSessionIsFree is the same rule.)
