@@ -18,6 +18,8 @@ test("Settings at 320 px and 200% text: no section runs off the side", async ({ 
     await page.goto(href);
     await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
     await expect(nav).toBeVisible();
+    // Cards that fill in after their data arrives (the Trends range control on /truck) must be on the page when it is measured.
+    await page.waitForLoadState("networkidle");
     const wide = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>("body *")]
         .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1 && getComputedStyle(el).position !== "fixed" && !el.closest("[data-scroll-x]"))
