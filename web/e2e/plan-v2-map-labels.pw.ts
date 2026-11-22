@@ -74,6 +74,9 @@ test("key on: pointing at the marker highlights its row, and pointing at the row
   expect(await marks.count()).toBeGreaterThan(0);
   const on = (loc: ReturnType<Page["locator"]>) => loc.locator("[data-charge-ring]").first().evaluate((e) => e.hasAttribute("data-on"));
   await expect.poll(() => on(marks.first())).toBe(false);
+  // The map is still settling after the fit: hover only once the marker's box has stopped moving.
+  let last = "";
+  await expect.poll(async () => { const b = JSON.stringify(await marks.first().boundingBox()); const same = b === last; last = b; return same; }, { intervals: [150] }).toBe(true);
   await marks.first().hover();
   await expect.poll(() => on(rows.first())).toBe(true);
   await expect.poll(() => on(marks.first())).toBe(true);
@@ -127,22 +130,20 @@ for (const [name, w, h] of [["393", 393, 852], ["1440", 1440, 900]] as const) {
   });
 }
 
-// Touch: a tap fires pointerenter with no leave, so a tapped row must not leave its ring highlighted after it is unselected.
-test("key on, touch: tapping a row twice leaves no ring highlighted", async ({ browser }) => {
+// Touch: a tap makes the browser fire compatibility mouse events (mouseover/mouseenter) with no matching leave. With no mouse at all, those events must not
+// leave a ring highlighted (hover comes from a mouse pointer only; a tap selects instead).
+test("key on, no mouse: compatibility mouse events from a tap leave no ring highlighted", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true });
   const page = await ctx.newPage();
   await openSaved(page, true);
-  const h = page.locator("[data-plan-sheet-handle]");
-  await h.tap(); await page.waitForTimeout(500); await h.tap(); await page.waitForTimeout(700);
-  const btn = page.locator(ROW).first().locator("button").first();
-  const tapBtn = async () => { const b = (await btn.boundingBox())!; await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2); };
-  await tapBtn();
-  await expect(page.locator(ROW).first()).toHaveAttribute("data-selected", "true");
-  await tapBtn();
-  await expect(page.locator(ROW).first()).not.toHaveAttribute("data-selected", "true");
-  await page.waitForTimeout(800);
-  // read once, after it has settled: an auto-retrying assertion could wait out a late clear and hide the bug
-  expect(await page.locator("[data-charge-ring][data-on]").count()).toBe(0);
+  const lit = () => page.locator("[data-charge-ring][data-on]").count();
+  expect(await lit()).toBe(0);
+  await page.locator(ROW).first().evaluate((li) => li.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: document.body })));
+  await page.waitForTimeout(300);
+  expect(await lit()).toBe(0);
+  await page.locator(".maplibregl-marker:has([data-charge-ring])").first().evaluate((m) => m.dispatchEvent(new MouseEvent("mouseenter")));
+  await page.waitForTimeout(300);
+  expect(await lit()).toBe(0);
   await ctx.close();
 });
 
