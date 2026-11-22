@@ -50,4 +50,11 @@ echo "We keep B." >> web/src/content/privacy.md
 sed -i.bak 's/^Last updated: .*/Last updated: soon/' web/src/content/privacy.md && rm web/src/content/privacy.md.bak; check "text changed, date unreadable" 1
 echo "We keep B." >> web/src/content/privacy.md
 sed -i.bak '/^Last updated: /d' web/src/content/privacy.md && rm web/src/content/privacy.md.bak; check "text changed, date line removed" 1
+# An exact restore of an earlier version is an undo and keeps that version's (earlier) date; anything else with an earlier date is refused.
+git reset -q --hard "$base"
+printf '# Rivolt Terms of Service\n\nLast updated: November 21, 2026\n\nTerm A approved.\n' > web/src/content/terms.md; git add -A; git commit -qm "approved text"
+cp web/src/content/terms.md "$tmp/approved.md"
+printf '# Rivolt Terms of Service\n\nLast updated: November 30, 2026\n\nTerm A approved.\n\nSix months.\n' > web/src/content/terms.md; git add -A; git commit -qm "unapproved change"; base=$(git rev-parse HEAD)
+cp "$tmp/approved.md" web/src/content/terms.md;                                 check "exact restore of the earlier version, earlier date" 0
+cp "$tmp/approved.md" web/src/content/terms.md; echo "One more word." >> web/src/content/terms.md; check "not an exact restore, earlier date" 1
 exit $fails
