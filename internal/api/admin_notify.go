@@ -4,9 +4,9 @@ package api
 // operator on events that warrant attention (new signup request,
 // user finished connecting their Rivian account, etc).
 //
-// Target address comes from the configured From sender — see
-// email.Client.FromAddress. No second env var is needed; whoever
-// the verified Resend sender is also receives the notifications.
+// Target address is RIVOLT_EMAIL_OPERATOR_NOTICE_TO when set; unset, it
+// is the configured From sender, so whoever the verified Resend sender
+// is also receives the notifications (email.Client.OperatorAddress).
 // Best-effort: failures are logged at WARN and do not fail the
 // underlying request the user made.
 
@@ -18,13 +18,13 @@ import (
 )
 
 // notifyAdmin sends `subject` + `text` to the admin address derived
-// from the email client's From. Returns nothing — the operator
+// from the email client (OperatorAddress). Returns nothing — the operator
 // either receives the mail or sees the warn line in the logs.
 func notifyAdmin(ctx context.Context, mailer *email.Client, logger *slog.Logger, subject, text string) {
 	if mailer == nil {
 		return
 	}
-	to := mailer.FromAddress()
+	to := mailer.OperatorAddress()
 	if to == "" {
 		return
 	}

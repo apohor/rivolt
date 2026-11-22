@@ -41,6 +41,8 @@ type Client struct {
 	hc      *http.Client
 	base    string // override target for tests
 	counter Counter
+	// operatorTo is where operator notices go; empty means the From address.
+	operatorTo string
 }
 
 // Config carries the construction parameters. From must be a verified
@@ -49,6 +51,9 @@ type Config struct {
 	APIKey  string
 	From    string
 	Counter Counter // optional; nil is fine
+	// OperatorNoticeTo, when set, receives operator notices (new access
+	// request, Rivian sign-in finished) instead of the From address.
+	OperatorNoticeTo string
 }
 
 // New returns a Client, or nil when APIKey/From are empty so the
@@ -59,11 +64,12 @@ func New(cfg Config) *Client {
 		return nil
 	}
 	return &Client{
-		apiKey:  cfg.APIKey,
-		from:    cfg.From,
-		hc:      &http.Client{Timeout: 10 * time.Second},
-		base:    "https://api.resend.com",
-		counter: cfg.Counter,
+		apiKey:     cfg.APIKey,
+		from:       cfg.From,
+		hc:         &http.Client{Timeout: 10 * time.Second},
+		base:       "https://api.resend.com",
+		counter:    cfg.Counter,
+		operatorTo: strings.TrimSpace(cfg.OperatorNoticeTo),
 	}
 }
 
@@ -106,6 +112,19 @@ func (c *Client) FromAddress() string {
 		}
 	}
 	return strings.TrimSpace(c.from)
+}
+
+// OperatorAddress returns where operator notices go: the configured
+// OperatorNoticeTo, else the From address (FromAddress). Empty when the
+// client is nil.
+func (c *Client) OperatorAddress() string {
+	if c == nil {
+		return ""
+	}
+	if c.operatorTo != "" {
+		return c.operatorTo
+	}
+	return c.FromAddress()
 }
 
 // Send posts a single message. Returns nil on 2xx; the Resend body is
