@@ -1,6 +1,6 @@
 import "../styles/next-plan.css";
-import { lazy, Suspense, useEffect, useLayoutEffect, useState } from "react";
-import { EDIT_OPENED_EVENT } from "./routeBar";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { EDIT_EVENT, type EditEventDetail } from "./routeBar";
 import { StopCard } from "./StopCard";
 import { SummaryStrip } from "./SummaryStrip";
 import { formatDuration, formatWaypointTime } from "./format";
@@ -103,12 +103,27 @@ export function RouteCard({
   const [expanded, setExpanded] = useState(!defaultCollapsed);
   // The phone sheet's height, kept across re-renders and new plans (a re-plan does not drop the sheet back); the map follows it once it settles.
   const [sheetSnap, setSheetSnap] = useState<Snap>("peek");
-  // Edit opens the form above the result: the sheet steps down to its peek (a lower sheet stays), so the form is not under it.
+  const [editingForm, setEditingForm] = useState(false);
+  const snapBeforeEdit = useRef<Snap>("peek");
+  // Edit opens the form above the result: the sheet lowers to its handle so the whole form shows, and Done brings it back to where it was.
   useEffect(() => {
     if (!planV2) return;
-    const down = () => setSheetSnap((s) => (s === "min" ? s : "peek"));
-    window.addEventListener(EDIT_OPENED_EVENT, down);
-    return () => window.removeEventListener(EDIT_OPENED_EVENT, down);
+    const onEdit = (e: Event) => {
+      const open = (e as CustomEvent<EditEventDetail>).detail?.open;
+      if (open) {
+        // The form is open: the sheet goes down to its handle so the whole form shows, and remembers where it was.
+        setSheetSnap((s) => {
+          if (s !== "min") snapBeforeEdit.current = s;
+          return "min";
+        });
+        setEditingForm(true);
+      } else {
+        setEditingForm(false);
+        setSheetSnap((s) => (s === "min" ? snapBeforeEdit.current : s));
+      }
+    };
+    window.addEventListener(EDIT_EVENT, onEdit);
+    return () => window.removeEventListener(EDIT_EVENT, onEdit);
   }, [planV2]);
   // The elevation chart's cursor and the map's dot are one place: a share (0 to 1) of the way along the route.
   const [cursorShare, setCursorShare] = useState<number | null>(null);
@@ -346,6 +361,7 @@ export function RouteCard({
           label="Trip details"
           snap={sheetSnap}
           onSnapChange={setSheetSnap}
+          lowerable={editingForm}
           peek={
             <div data-plan-sheet-title>
               {/* One line each, cut short, on a phone at its usual text size; narrower than 360 CSS px (Safari's aA at 200 % and up) two lines

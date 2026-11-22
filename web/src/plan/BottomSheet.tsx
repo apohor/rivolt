@@ -147,6 +147,7 @@ export function BottomSheet({
   snap: controlled,
   defaultSnap = "peek",
   onSnapChange,
+  lowerable: lowerableAlways = false,
   className,
 }: {
   // Accessible name of the region, e.g. "Trip details".
@@ -158,10 +159,12 @@ export function BottomSheet({
   snap?: Snap;
   defaultSnap?: Snap;
   onSnapChange?: (s: Snap) => void;
+  // The sheet may be lowered to its handle on any screen (the page asks for it, e.g. while a form is open under it), not only on a very short one.
+  lowerable?: boolean;
   className?: string;
 }) {
   const desktop = useMediaQuery(SHEET_DESKTOP_QUERY);
-  const lowerable = useMediaQuery(SHEET_LOWERABLE_QUERY);
+  const lowerable = useMediaQuery(SHEET_LOWERABLE_QUERY) || lowerableAlways;
   const [own, setOwn] = useState<Snap>(defaultSnap);
   const asked = controlled ?? own;
   // A window that grows out of the short screen (rotated) brings a lowered sheet back to its peek.
