@@ -57,6 +57,15 @@ enum PlanLogic {
         return d
     }
 
+    /// True for an account the server holds to one vehicle: the plan is free or lapsed (not Pro), not the demo or a billing-off server's
+    /// stand-in. This is NOT `state(me) != .off`: the iPhone gets `billing_enabled: false` while its billing is off, so `state` reads
+    /// `.off` for every account, and using it here would put the Pro screen, prices and "See Pro" on a build that sells nothing.
+    static func primaryVehicleLimited(_ me: AuthUser?) -> Bool {
+        guard let me, let plan = me.plan else { return false }
+        if me.planSource == "demo" || me.planSource == "billing_off" { return false }
+        return plan != "pro"
+    }
+
     /// Local noon of the calendar date "YYYY-MM-DD" (nil for anything else).
     static func calendarDate(_ s: String) -> Date? {
         let p = s.split(separator: "-").compactMap { Int($0) }
