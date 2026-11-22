@@ -12,12 +12,12 @@ const trends = {
   capacity: null,
 };
 
-function renderCard() {
+function renderCard(vehicleID = "v1") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
-        <TrendsCard vehicleID="v1" />
+        <TrendsCard vehicleID={vehicleID} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -52,5 +52,22 @@ describe("TrendsCard range", () => {
     await waitFor(() => expect(document.querySelector("[data-pro-limit]")).not.toBeNull());
     expect(screen.queryByRole("group", { name: "Range" })).toBeNull();
     expect(asked(fetch)).toEqual(["12"]);
+  });
+
+  it("switching trucks never shows the other truck's chart while the new answer loads", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const fetch = stubFetchRoutes({ "/api/vehicles/v1/trends": { body: trends }, "/api/vehicles/v2/trends": { body: trends } });
+    const ui = (id: string) => (
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <TrendsCard vehicleID={id} />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui("v1"));
+    await screen.findByRole("group", { name: "Range" });
+    fetch.mockImplementation(() => new Promise(() => {}));
+    rerender(ui("v2"));
+    expect(screen.queryByRole("group", { name: "Range" })).toBeNull();
   });
 });

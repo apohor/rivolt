@@ -30,8 +30,8 @@ export function TrendsCard({ vehicleID }: { vehicleID: string }) {
   const q = useQuery({
     queryKey: ["trends", vehicleID, units, months],
     queryFn: () => backend.trends(vehicleID, units, months),
-    // Keep the chart on screen while another range loads.
-    placeholderData: (prev) => prev,
+    // Keep the chart on screen while another range of the same truck and units loads; never another truck's.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[1] === vehicleID && prevQuery.queryKey[2] === units ? prev : undefined),
     enabled: !!vehicleID,
     staleTime: 5 * 60_000,
     // A free account's 402 is an answer, not a failure: no retry.
