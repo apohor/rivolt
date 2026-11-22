@@ -9,6 +9,8 @@ struct NowSlotView: View {
     var soft = false
     /// The parked graph is the card's content (now_parked_graph): the map gives way to one line saying where the truck is, none when it is not known.
     var noMap = false
+    /// The bolt beside the big figure while power flows (design_preview charge_pulse); `.none` with the key off.
+    var pulse: ChargePulse.State = .none
 
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -30,6 +32,7 @@ struct NowSlotView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(big).font(Theme.sans(soft ? ThemeTokens.typeTitle * 1.5 : ThemeTokens.typeHero, .semibold, relativeTo: .largeTitle)).foregroundStyle(Theme.textPrimary)
                     Text(unit).themeText(.value, color: Theme.textSecondary)
+                    if pulse == .charging { PulseBolt(state: pulse) }
                     ForEach(model.chips, id: \.text) { chip($0) }
                 }
                 if let sub { Text(sub).themeText(.value, color: Theme.textPrimary).fixedSize(horizontal: false, vertical: true) }

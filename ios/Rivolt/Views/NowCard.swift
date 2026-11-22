@@ -182,7 +182,7 @@ struct NowCard: View {
                         NowParkedGraph(model: parked)
                         Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
                     }
-                    NowSlotView(model: slot, soft: soft, noMap: parkedNoMap)
+                    NowSlotView(model: slot, soft: soft, noMap: parkedNoMap, pulse: pulseState)
                     if soft { Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true); NowChargeGraph(model: graphModel) }
                     if let drive, !slot.isParked {
                         Rectangle().fill(Theme.border).frame(height: 1).accessibilityHidden(true)
@@ -232,7 +232,7 @@ struct NowCard: View {
     private func liveButton(_ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                if (charging || driving) && isLive { Circle().fill(Theme.accent).frame(width: 8, height: 8) }
+                if (charging || driving) && isLive { PulseDot(pulsing: charging && pulseOn) }
                 Text("Live").font(Theme.sans(ThemeTokens.typeSubline, .medium, relativeTo: .footnote)).foregroundStyle(Theme.textPrimary)
                     .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(Theme.textSecondary)
@@ -306,6 +306,8 @@ struct NowCard: View {
     }
 
     private var plugAnim: Bool { appState?.designPreview.contains("plug_anim") == true }
+    private var pulseOn: Bool { appState?.designPreview.contains("charge_pulse") == true }
+    private var pulseState: ChargePulse.State { ChargePulse.state(on: pulseOn, kind: summary.kind, powerKw: summary.chargePowerKw, offline: offline) }
 
     @ViewBuilder
     private func heroGaugeV2(pictureShown: Bool) -> some View {
