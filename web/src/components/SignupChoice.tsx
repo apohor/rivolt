@@ -33,7 +33,7 @@ export function SignupChoice({ onAdd }: { onAdd: () => void }) {
         >
           <span className="block text-sm font-semibold text-neutral-100">Try it with a sample truck</span>
           <span className="mt-1 block text-sm text-neutral-400">
-            Opens the demo: a generated truck with a month of drives, charges and planned trips. Read-only, and nothing you do there is saved to your account.
+            Opens the demo: a generated truck with sample drives, charges and planned trips. Read-only, and nothing you do there is saved to your account.
           </span>
         </a>
       )}
