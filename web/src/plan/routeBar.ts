@@ -66,7 +66,12 @@ export function formatRouteSummary(
 // formatResultSummaryParts is the plan_v2 summary line over a shown plan: "From → To · departure · starting charge". Unlike formatRouteSummary it
 // always names the departure ("Leaves now" when none is set) and falls back to the live charge. The places are the city only (no state or country; the
 // full labels are in `full`, for the title), so the departure and the charge, the `facts`, are never what gets cut.
-const city = (label: string | undefined) => (label ?? "").split(",")[0].trim() || "…";
+// An address label starts with the street ("1560 North, Salt Lake City, Utah, ..."): the city is then the next part.
+const STREET = /^\d|\b(street|avenue|road|boulevard|parkway|drive|lane|way|highway|st|ave|rd|blvd|dr|ln|hwy)\b/i;
+const city = (label: string | undefined) => {
+  const parts = (label ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  return (parts.length >= 3 && STREET.test(parts[0]) ? parts[1] : parts[0]) || "…";
+};
 export function formatResultSummaryParts(
   s: Pick<RouteBarState, "origin" | "destination" | "startingSoc" | "departureAt">,
   liveSoc: number | null,

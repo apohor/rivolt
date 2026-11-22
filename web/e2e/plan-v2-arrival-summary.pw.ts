@@ -47,6 +47,15 @@ test("weather-corrected: the end row says the gauge's figure, tinted, with Rivia
   await page.screenshot({ path: path.join(SHOTS, "item9-arrival-corrected.png") });
 });
 
+test("corrected to 0%: the row says 0%, amber, never Rivian's softer figure alone", async ({ page }) => {
+  await open(page, { ...CORRECTED, weather_adjustment: { ...CORRECTED.weather_adjustment, adjusted_arrival_soc: [34, 0], final_arrival_soc: 0 } }, ["plan_v2"]);
+  const end = page.locator("[data-plan-timeline] li").last();
+  await expect(end).toContainText("arrive at 0%");
+  await expect(end.locator("[data-under-reserve]").first()).toBeVisible();
+  await expect(end.locator("[data-rivian-arrival]")).toHaveText("· Rivian's planner: 24%");
+  await expect(page.locator("[data-plan-hero] svg[role='img']")).toHaveAttribute("aria-label", /Arrival battery 0 percent/);
+});
+
 test("no weather correction: the end row is Rivian's figure alone", async ({ page }) => {
   await open(page, DEMO_PLAN, ["plan_v2"]);
   const end = page.locator("[data-plan-timeline] li").last();

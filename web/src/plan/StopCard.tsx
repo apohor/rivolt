@@ -125,12 +125,13 @@ export function StopCard({
           )}
           {kind === "end" && (() => {
             const own = w.ArrivalSoC;
-            const shown = correctedArrival != null && correctedArrival > 0 ? correctedArrival : own;
-            const low = underReserve(shown, reserve);
-            const differs = shown !== own && own > 0 && Math.round(shown) !== Math.round(own);
+            // The correction is used whenever it is there, 0 included: it clamps at 0 and the worst case must not read softer on the row than on the gauge.
+            const shown = correctedArrival ?? own;
+            const low = correctedArrival != null ? reserve != null && correctedArrival < reserve : underReserve(own, reserve);
+            const differs = correctedArrival != null && own > 0 && Math.round(shown) !== Math.round(own);
             return (
               <span>
-                {arr && <span>{arr}</span>} arrive{shown > 0 && <> at <span className={low ? "text-amber-300" : "text-neutral-200"} data-under-reserve={low ? "" : undefined} title={low ? `Under your ${Math.round(reserve ?? 0)}% target` : undefined}>{shown.toFixed(0)}<Unit>%</Unit></span>{low && <span className="text-amber-300"> · under your {Math.round(reserve ?? 0)}% target</span>}{differs && <span data-rivian-arrival className="pt-sub text-neutral-500"> · Rivian's planner: {own.toFixed(0)}%</span>}</>}
+                {arr && <span>{arr}</span>} arrive{(correctedArrival != null || own > 0) && <> at <span className={low ? "text-amber-300" : "text-neutral-200"} data-under-reserve={low ? "" : undefined} title={low ? `Under your ${Math.round(reserve ?? 0)}% target` : undefined}>{shown.toFixed(0)}<Unit>%</Unit></span>{low && <span className="text-amber-300"> · under your {Math.round(reserve ?? 0)}% target</span>}{differs && <span data-rivian-arrival className="pt-sub text-neutral-500"> · Rivian's planner: {own.toFixed(0)}%</span>}</>}
               </span>
             );
           })()}

@@ -113,6 +113,8 @@ describe("formatResultSummaryParts", () => {
     const p = formatResultSummaryParts(long, 74);
     expect(p.route).toBe("Current vehicle position → Sacramento");
     expect(p.facts).toBe("Leaves now · 74% charge now");
+    const addr = formatResultSummaryParts({ ...base, origin: { lat: 1, lon: 1, label: "1560 North, Salt Lake City, Utah, United States" }, destination: { lat: 2, lon: 2, label: "Las Vegas, Nevada, United States" } }, null);
+    expect(addr.route).toBe("Salt Lake City → Las Vegas");
     expect(p.full).toBe("Current vehicle position → Sacramento, California, United States · Leaves now · 74% charge now");
   });
 });
