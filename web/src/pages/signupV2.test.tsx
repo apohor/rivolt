@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { stubFetchRoutes } from "../test/fetchRoutes";
 
 // config.ts caches /api/config at module level, so each case gets a fresh module graph.
-async function mount(file: "SignupPage" | "OnboardingPage" | "DemoBanner", keys: string[], opts: { demo?: boolean; connected?: boolean } = {}) {
+async function mount(file: "SignupPage" | "OnboardingPage" | "DemoBanner" | "ConnectHint", keys: string[], opts: { demo?: boolean; connected?: boolean } = {}) {
   vi.resetModules();
   stubFetchRoutes({
     "/api/config": { body: { features: { signup_enabled: true, demo_enabled: !!opts.demo, design_preview: keys } } },
@@ -13,8 +13,8 @@ async function mount(file: "SignupPage" | "OnboardingPage" | "DemoBanner", keys:
     "/api/auth/me": { status: 401, body: {} },
     "/api/settings/rivian": { body: { enabled: true, authenticated: !!opts.connected, email: "a@b.c" } },
   });
-  const mod = await import(file === "DemoBanner" ? "../components/DemoBanner" : `./${file}`);
-  const Page = file === "DemoBanner" ? mod.DemoBanner : mod.default;
+  const mod = await import(file === "DemoBanner" || file === "ConnectHint" ? "../components/DemoBanner" : `./${file}`);
+  const Page = file === "DemoBanner" ? mod.DemoBanner : file === "ConnectHint" ? () => <mod.ConnectHint what="plan any trip" /> : mod.default;
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <MemoryRouter>
@@ -95,6 +95,33 @@ describe("signup_v2 copy", () => {
     await mount("DemoBanner", [], { demo: true });
     await screen.findByText(/Generated data/);
     expect(screen.queryByRole("link", { name: "Back to my account" })).toBeNull();
+    sessionStorage.clear();
+  });
+
+  it("sample truck from the app: Add my truck and the connect hints go to the app's connect step, not to sign-up", async () => {
+    window.history.pushState({}, "", "/demo?from=app");
+    await mount("DemoBanner", ["signup_v2"], { demo: true });
+    expect((await screen.findByRole("link", { name: "Add my truck" })).getAttribute("href")).toBe("/onboarding?connect=1");
+    cleanup();
+    // Later page, no ?from: the tab's mark decides (the banner wrote it).
+    window.history.pushState({}, "", "/demo/trip");
+    await mount("ConnectHint", ["signup_v2"], { demo: true });
+    expect((await screen.findByRole("link", { name: "Connect your Rivian" })).getAttribute("href")).toBe("/onboarding?connect=1");
+    sessionStorage.clear();
+  });
+
+  it("sample truck not from the app (or key off): still goes to sign-up", async () => {
+    sessionStorage.clear();
+    window.history.pushState({}, "", "/demo");
+    await mount("DemoBanner", ["signup_v2"], { demo: true });
+    expect((await screen.findByRole("link", { name: "Add my truck" })).getAttribute("href")).toBe("/signup");
+    cleanup();
+    await mount("ConnectHint", ["signup_v2"], { demo: true });
+    expect((await screen.findByRole("link", { name: "Connect your Rivian" })).getAttribute("href")).toBe("/signup");
+    cleanup();
+    window.history.pushState({}, "", "/demo?from=app");
+    await mount("DemoBanner", [], { demo: true });
+    expect((await screen.findByRole("link", { name: "Connect with a driver account" })).getAttribute("href")).toBe("/signup");
     sessionStorage.clear();
   });
 });

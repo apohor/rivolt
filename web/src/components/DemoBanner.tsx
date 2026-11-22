@@ -1,15 +1,39 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAppUrl, useDesignPreview, useSignupEnabled } from "../lib/config";
+
+const FROM_APP_KEY = "rivolt.demo_from_app";
+
+// signup_v2: did the visitor come from the account's choice screen (?from=app)? The mark is kept for the tab (written by DemoBanner) so it
+// survives moving around the demo; the URL is read too, so the first render already knows. Off, always false.
+function useFromApp(): boolean {
+  const v2 = useDesignPreview("signup_v2");
+  if (!v2) return false;
+  try {
+    return new URLSearchParams(window.location.search).get("from") === "app" || sessionStorage.getItem(FROM_APP_KEY) === "1";
+  } catch {
+    return false; /* storage blocked: no way back link */
+  }
+}
 
 // ConnectLink sends a demo visitor to the real app's sign-up (or sign-in
 // when sign-ups are closed). On the standalone demo deployment
 // (features.app_url set) that is an external link to the real app; on the
-// shared app it is an in-app route.
+// shared app it is an in-app route. A visitor who came from their own
+// account (signup_v2, fromApp) already has one: they go to the app's
+// connect step, as a full page load (see "Back to my account").
 export function ConnectLink({ children, className, kind }: { children: ReactNode; className?: string; kind?: "signup" | "login" }) {
   const signupEnabled = useSignupEnabled();
   const appUrl = useAppUrl();
+  const fromApp = useFromApp();
+  if (fromApp && kind !== "login") {
+    return (
+      <a href={`${appUrl}/onboarding?connect=1`} className={className}>
+        {children}
+      </a>
+    );
+  }
   // Sign-ups closed: "Connect" goes to sign in instead of a signup page
   // that would only say it's closed. null (loading) behaves as open.
   // On the standalone demo the server forces signup_enabled off (it has no
@@ -30,27 +54,25 @@ export function ConnectLink({ children, className, kind }: { children: ReactNode
   );
 }
 
-// "Back to Rivolt" (signup_v2): shown when the visitor came from the account's choice screen (?from=app), kept for the tab so it
-// survives moving around the demo. Goes to the choice again; nothing done in the demo is saved.
-function useFromApp(on: boolean): boolean {
-  const [from, setFrom] = useState(false);
+// "Back to my account" (signup_v2): the mark that the visitor came from the choice screen is stored for the tab. Goes to the choice again;
+// nothing done in the demo is saved.
+function useRememberFromApp(on: boolean) {
   useEffect(() => {
     if (!on) return;
     try {
-      if (new URLSearchParams(window.location.search).get("from") === "app") sessionStorage.setItem("rivolt.demo_from_app", "1");
-      setFrom(sessionStorage.getItem("rivolt.demo_from_app") === "1");
+      if (new URLSearchParams(window.location.search).get("from") === "app") sessionStorage.setItem(FROM_APP_KEY, "1");
     } catch {
-      /* storage blocked: no way back link */
+      /* storage blocked */
     }
   }, [on]);
-  return from;
 }
 
 // The sample-truck banner shown across the whole /demo shell.
 export function DemoBanner() {
   // Design key signup_v2 (preview): the button says where it goes. Off, unchanged.
   const v2 = useDesignPreview("signup_v2");
-  const fromApp = useFromApp(v2);
+  useRememberFromApp(v2);
+  const fromApp = useFromApp();
   const appUrl = useAppUrl();
   const back = "rounded-md border border-sky-700 px-3 py-1 text-xs font-semibold text-sky-100 hover:bg-sky-900/50";
   return (
