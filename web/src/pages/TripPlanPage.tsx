@@ -12,6 +12,7 @@ import { PlannerNetworks } from "../plan/PlannerNetworks";
 import { RouteBar } from "../plan/RouteBarPanel";
 import { countNonDefaultOptions, formatResultSummary, useRouteBarCollapse } from "../plan/routeBar";
 import { PlanSelectionProvider } from "../plan/selection";
+import { ReserveProvider, reservePct } from "../plan/reserve";
 import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
 import { useQuery } from "@tanstack/react-query";
@@ -700,6 +701,7 @@ export default function TripPlanPage() {
         {/* One selected stop for the whole result: the itinerary, the map and
             anything that follows the selection. A new plan clears it. */}
         <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null}>
+        <ReserveProvider value={v2 ? reservePct(targetSoc) : null}>
         <div data-plan-split data-has-result={hasResult ? "true" : undefined} data-plan-v2={v2 ? "" : undefined}>
           {formEl}
           {resultEl}
@@ -708,6 +710,7 @@ export default function TripPlanPage() {
           )}
           {planning && usingNight && <p role="status" className="sr-only">Re-planning with {usingNight} as the night</p>}
         </div>
+        </ReserveProvider>
         </PlanSelectionProvider>
       </PlanTabPanel>
       <PlanTabPanel tab="saved" active={planTab === "saved"} className="space-y-6">

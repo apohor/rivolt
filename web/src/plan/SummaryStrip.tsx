@@ -7,6 +7,7 @@ import { Unit } from "./Unit";
 import { usePreferences } from "../lib/preferences";
 import { distanceIn } from "./units";
 import { timeSplit } from "./tripTotals";
+import { underReserve, useReservePct } from "./reserve";
 
 // SummaryStrip: the trip at a glance (arrival SoC arc, trip cost with member and
 // gas sublines, time, arrival, distance, charging). Used by the planner.
@@ -43,6 +44,9 @@ export function SummaryStrip({
   const gasEquiv = cost?.gas_equivalent ?? 0;
   const totalChargeMin = chargeMinutes;
   const arrSoCNext = adjustment ? adjustment.final_arrival_soc : route.ArrivalSoC;
+  // plan_v2 only (the provider is not there otherwise): an arrival under the person's reserve is tinted amber and said in the label.
+  const reserve = useReservePct();
+  const low = underReserve(arrSoCNext, reserve);
   const arriveAt = (() => {
     let t = formatWaypointTime(dest?.ArrivalTimeUTC, timeShiftMs, true);
     if (!t && route.TotalTripDurationSec > 0) {
@@ -59,12 +63,12 @@ export function SummaryStrip({
     <div data-plan-hero className="mb-4 grid grid-cols-1 items-center gap-x-5 gap-y-4 min-[360px]:grid-cols-[auto_1fr]">
       <ArcGauge
         value={arrSoCNext}
-        label={arrSoCNext > 0 ? `Arrival battery ${Math.round(arrSoCNext)} percent` : "Arrival battery unknown"}
-        tone={arrSoCNext > 0 && arrSoCNext < 15 ? "critical" : "ok"}
+        label={arrSoCNext > 0 ? `Arrival battery ${Math.round(arrSoCNext)} percent${low ? `, under your ${Math.round(reserve ?? 0)} percent reserve` : ""}` : "Arrival battery unknown"}
+        tone={arrSoCNext > 0 && arrSoCNext < 15 ? "critical" : low ? "low" : "ok"}
         size={compact ? 104 : 116}
       >
         {(shown) => (
-          <span className="font-semibold leading-none tabular-nums text-neutral-100">
+          <span className={`font-semibold leading-none tabular-nums ${low && arrSoCNext >= 15 ? "text-amber-300" : "text-neutral-100"}`} data-under-reserve={low ? "" : undefined}>
             <span className="pt-hero">{arrSoCNext > 0 ? Math.round(shown) : "—"}</span>
             <Unit>%</Unit>
           </span>

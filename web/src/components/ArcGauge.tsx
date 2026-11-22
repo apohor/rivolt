@@ -15,7 +15,7 @@ export function ArcGauge({
   value: number; // 0..100
   label: string;
   live?: boolean;
-  tone?: "ok" | "critical" | "idle";
+  tone?: "ok" | "critical" | "idle" | "low";
   size?: number;
   // Charge limit (0..100): drawn as a tick on the arc.
   limit?: number | null;
@@ -44,7 +44,7 @@ export function ArcGauge({
   const [x1, y1] = pt(start + sweep);
   const arc = `M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 1 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
   const len = (Math.PI * r * sweep) / 180;
-  const stroke = tone === "critical" ? "url(#ag-crit)" : tone === "idle" ? "url(#ag-idle)" : "url(#ag-ok)";
+  const stroke = tone === "critical" ? "url(#ag-crit)" : tone === "idle" ? "url(#ag-idle)" : tone === "low" ? "url(#ag-low)" : "url(#ag-ok)";
   return (
     // Never wider than its column (a phone at Safari's aA 300 % is 130 px wide): it scales down, keeping its shape.
     <div ref={box} className="ui-gauge relative max-w-full shrink-0" style={{ width: size, aspectRatio: "120 / 108" }} data-live={live ? "true" : undefined}>
@@ -57,6 +57,10 @@ export function ArcGauge({
           <linearGradient id="ag-crit" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="oklch(72% 0.19 25)" />
             <stop offset="100%" stopColor="oklch(66% 0.2 15)" />
+          </linearGradient>
+          <linearGradient id="ag-low" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="oklch(82% 0.15 85)" />
+            <stop offset="100%" stopColor="oklch(76% 0.16 65)" />
           </linearGradient>
           <linearGradient id="ag-idle" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="oklch(62% 0.02 260)" />

@@ -10,6 +10,7 @@ import { stopCostText } from "../lib/planCost";
 import { usePreferences } from "../lib/preferences";
 import { distanceIn } from "./units";
 import { legWeatherTags, type LegWeatherFacts } from "./legWeather";
+import { underReserve, useReservePct } from "./reserve";
 
 // StopCard: one itinerary entry for the planner (start, charging
 // stop, arrival). A charging stop expands when selected (from here or from the
@@ -46,6 +47,7 @@ export function StopCard({
   weatherNote?: string[];
 }) {
   const { distanceUnit } = usePreferences();
+  const reserve = useReservePct();
   const money = (v: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "USD" }).format(v);
   const arr = formatWaypointTime(w.ArrivalTimeUTC, timeShiftMs, true);
   const dep = formatWaypointTime(w.DepartureTimeUTC, timeShiftMs, true);
@@ -114,7 +116,7 @@ export function StopCard({
           )}
           {kind === "end" && (
             <span>
-              {arr && <span>{arr}</span>} arrive{w.ArrivalSoC > 0 && <> at <span className="text-neutral-200">{w.ArrivalSoC.toFixed(0)}<Unit>%</Unit></span></>}
+              {arr && <span>{arr}</span>} arrive{w.ArrivalSoC > 0 && <> at <span className={underReserve(w.ArrivalSoC, reserve) ? "text-amber-300" : "text-neutral-200"} data-under-reserve={underReserve(w.ArrivalSoC, reserve) ? "" : undefined} title={underReserve(w.ArrivalSoC, reserve) ? `Under your ${Math.round(reserve ?? 0)}% reserve` : undefined}>{w.ArrivalSoC.toFixed(0)}<Unit>%</Unit></span>{underReserve(w.ArrivalSoC, reserve) && <span className="text-amber-300"> · under your {Math.round(reserve ?? 0)}% reserve</span>}</>}
             </span>
           )}
         </span>
