@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDesignPreview } from "../lib/config";
 import { backend, type AuthUser } from "../lib/api";
 import Logo from "../components/Logo";
+import { SignupChoice } from "../components/SignupChoice";
 import { ConnectTrustLines } from "../components/ConnectTrustLines";
 import { ImpersonationBanner } from "../components/ImpersonationBanner";
 import {
@@ -22,6 +24,9 @@ export default function OnboardingPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [completing, setCompleting] = useState(false);
+  // Design key signup_v2 (preview): the button names the tab it opens.
+  const v2 = useDesignPreview("signup_v2");
+  const [search, setSearch] = useSearchParams();
   // Shares its cache with RivianAccountPanel's own status query.
   const status = useQuery({
     queryKey: ["rivian", "status"],
@@ -29,6 +34,8 @@ export default function OnboardingPage() {
     staleTime: 30_000,
   });
   const connected = !!status.data?.authenticated;
+  // signup_v2: the choice shows first; "Add my truck" (or ?connect=1, the demo's way back) opens the connect step.
+  const choosing = v2 && !connected && !status.data?.mfa_pending && !search.has("connect");
 
   async function finish() {
     setCompleting(true);
@@ -64,6 +71,12 @@ export default function OnboardingPage() {
           <span className="text-lg font-semibold tracking-tight">Rivolt</span>
         </div>
 
+        {choosing ? (
+          <SignupChoice onAdd={() => setSearch({ connect: "1" })} />
+        ) : v2 && !connected ? (
+          <RivianAccountPanel v2 onLater={finish} />
+        ) : (
+          <>
         <h2 className="mb-3 text-base font-semibold text-neutral-100">
           Connect your Rivian
         </h2>
@@ -72,15 +85,17 @@ export default function OnboardingPage() {
           <RivianAccountPanel onLater={finish} />
           {!connected && <AuthorizedDriverNote />}
         </div>
+          </>
+        )}
 
-        {connected ? (
+        {choosing ? null : connected ? (
           <button
             type="button"
             onClick={finish}
             disabled={completing}
             className="mt-6 w-full rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
           >
-            {completing ? "Saving…" : "Go to Overview"}
+            {completing ? "Saving…" : v2 ? "See my truck" : "Go to Overview"}
           </button>
         ) : (
           <button

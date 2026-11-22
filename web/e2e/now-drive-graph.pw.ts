@@ -4,7 +4,7 @@ import { stubApi } from "./stub";
 // Design "now_drive_graph" (with now_slot and now_tidy): the Now card of a driving truck draws the speed from the start of the drive to now,
 // with the battery as a quieter second line. A drive too short to draw, or the key off: the card is as it was. SHOTS_DIR makes the image-gate shots.
 const SHOTS = process.env.SHOTS_DIR;
-const KEYS = ["now_v2", "now_tidy", "now_slot", "now_drive_graph"];
+const KEYS = [];
 type Case = { elapsedMin: number; mph: (m: number) => number; soc: (m: number) => number };
 const CASES: Record<string, Case> = {
   // A town drive that joins a highway and slows for the destination.
@@ -53,13 +53,6 @@ test("a stop in the middle of the drive shows as speed falling to zero and comin
   const g = page.getByTestId("now-drive-graph");
   await expect(g).toBeVisible();
   await expect(g.locator("svg")).toHaveAttribute("aria-label", /top \d+ mph/);
-});
-
-test("the key off leaves the card as it was @webkit", async ({ page }) => {
-  await open(page, CASES.middle, ["now_v2", "now_tidy", "now_slot"]);
-  await expect(page.getByTestId("now-slot")).toBeVisible();
-  await page.waitForTimeout(800);
-  await expect(page.getByTestId("now-drive-graph")).toHaveCount(0);
 });
 
 test("with a destination or without, the graph and the slot do not overlap @webkit", async ({ page }) => {

@@ -1,5 +1,5 @@
 import { LegalDoc } from "../components/LegalDoc";
-import guide from "../content/r2.md?raw";
+import guide from "../content/r2.md?url&no-inline";
 import { R2ArrivalControl } from "../components/R2Arrival";
 import { useSignedIn } from "../lib/useSignedIn";
 
@@ -8,5 +8,5 @@ import { useSignedIn } from "../lib/useSignedIn";
 export default function R2GuidePage() {
   // The reminder needs an account: only a signed-in visitor sees it, between the checklist and Day 1.
   const signedIn = useSignedIn();
-  return <LegalDoc source={guide} splitAt="## Day 1: connect" between={signedIn ? <R2ArrivalControl where="guide" /> : undefined} other={{ to: "/safe-to-connect", label: "Is it safe to connect?" }} />;
+  return <LegalDoc src={guide} splitAt="## Day 1: connect" between={signedIn ? <R2ArrivalControl where="guide" /> : undefined} other={{ to: "/safe-to-connect", label: "Is it safe to connect?" }} />;
 }

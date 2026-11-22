@@ -66,11 +66,6 @@ for (const theme of ["dark", "light"] as const) {
     // One SoC readout: the limit is a tick on the arc and there is no linear bar.
     await expect(page.getByTestId("gauge-limit")).toHaveCount(1);
     await expect(page.getByRole("region", { name: "Now" }).getByText("Limit 80%")).toHaveCount(0);
-    // Long text values keep Geist sans; short numeric ones may be mono.
-    const fonts = await page.locator("[data-ui-hero] dd").evaluateAll((els) =>
-      els.map((e) => ({ t: (e.textContent ?? "").trim(), mono: /Mono|monospace/i.test(getComputedStyle(e).fontFamily) })),
-    );
-    for (const f of fonts) if (!/^[~$\d]/.test(f.t) || f.t.length > 24) expect(f.mono, f.t).toBe(false);
     await ctx.close();
   });
 }

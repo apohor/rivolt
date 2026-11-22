@@ -11,14 +11,15 @@ const SHAPE = "flex w-full items-center justify-center gap-2 rounded-md px-3 py-
 // ProviderButton: one "Continue with …" button for an identity provider the server lists. Every provider gets the same width, height and
 // type size (Apple's rules ask for equal prominence); Apple's own is white with black text and its logo, outlined so it holds on the
 // light theme as well as the dark. The wording is Apple's: "Continue with Apple".
-export function ProviderButton({ provider, onClick }: { provider: OIDCProvider; onClick: () => void }) {
+export function ProviderButton({ provider, onClick, disabled }: { provider: OIDCProvider; onClick: () => void; disabled?: boolean }) {
   if (isApple(provider)) {
     return (
       <button
         type="button"
         data-provider="apple"
         onClick={onClick}
-        className={`${SHAPE} border border-neutral-400 bg-white text-black hover:bg-neutral-100`}
+        disabled={disabled}
+        className={`${SHAPE} border border-neutral-400 bg-white text-black hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40`}
       >
         <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" className="shrink-0">
           <path d={APPLE_LOGO} />
@@ -32,7 +33,8 @@ export function ProviderButton({ provider, onClick }: { provider: OIDCProvider; 
       type="button"
       data-provider={provider.name}
       onClick={onClick}
-      className={`${SHAPE} border border-neutral-800 bg-neutral-900 text-neutral-100 hover:border-emerald-700 hover:bg-neutral-850`}
+      disabled={disabled}
+      className={`${SHAPE} border border-neutral-800 bg-neutral-900 text-neutral-100 hover:border-emerald-700 hover:bg-neutral-850 disabled:cursor-not-allowed disabled:opacity-40`}
     >
       Continue with {provider.display_name}
     </button>

@@ -16,7 +16,7 @@ const ZERO = { at: "", vehicle_id: VEHICLE_ID, active: false, start_time: "", po
 
 async function open(page: Page, route: "/live" | "/", c: typeof HOME, session: object, homeRate = true) {
   await page.setViewportSize({ width: 393, height: 852 });
-  await stubApi(page, { scenario: "charging", nowEndpoint: true, chargeCase: c, designPreview: ["now_v2", "now_tidy", "now_slot"] });
+  await stubApi(page, { scenario: "charging", nowEndpoint: true, chargeCase: c, designPreview: [] });
   await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...FULL_STATE, charger_power_kw: c.kw(0), battery_level_pct: c.soc(c.elapsedMin) }) }));
   await page.route(`**/api/live-session/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(session) }));
   if (!homeRate) {
@@ -67,7 +67,9 @@ for (const k of CASES) {
     await expect(page.getByTestId("now-slot")).toBeVisible();
     if (k.want) await expect(page.getByTestId("now-slot-cost-so-far")).toBeVisible();
     else await page.waitForLoadState("networkidle");
-    expect(await costText(page, "/")).toEqual(live);
+    // The Now card shows the home-rate estimate until the live session arrives, then the billed price: it is the settled text that must match
+    // (the first attempt on main read "$25.92 estimate" against Live's "$9.50 billed by Rivian", run 44958188557).
+    await expect.poll(() => costText(page, "/")).toEqual(live);
   });
 }
 

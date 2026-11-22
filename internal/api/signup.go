@@ -292,8 +292,8 @@ type PlanFields struct {
 	// single drive or charge, with the same two values), and is never deleted. Clients show these, never a number of their own.
 	HistoryDays *int    `json:"history_days"`
 	HistoryFrom *string `json:"history_from"`
-	// HistoryMonths is how many calendar months before the current one the window reaches back (6, or 12 for an account still inside the
-	// 30 days' notice); null where HistoryDays is. Clients that name the window in words ("the last 6 months") take the number from here.
+	// HistoryMonths is how many calendar months before the current one the window reaches back (histwin.Months, or 12 for an account still inside the
+	// 30 days' notice); null where HistoryDays is. Clients that name the window in words take the number from here and never carry it.
 	HistoryMonths *int `json:"history_months"`
 }
 

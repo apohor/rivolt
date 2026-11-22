@@ -1,3 +1,4 @@
+import "../styles/next-plan.css";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 
 // A bottom sheet for phones (planner), with the iPhone app's three heights: the peek (a title and one summary line over the map), half, and full

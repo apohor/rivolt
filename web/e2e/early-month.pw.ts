@@ -45,8 +45,8 @@ for (const v of [
     await open(page, new Date(2026, 10, 2, 9, 0, 0), "/", OCT);
     const note = page.locator("[data-early-month]");
     await expect(note).toContainText("Nothing recorded yet this month, so this shows the last 30 days.");
-    // The tiles count the two October drives (60 mi), not an empty November.
-    await expect(page.locator('[data-ui-grid="now"]')).toContainText(/Miles\s*60\.0\s*mi/);
+    // The month strip counts the two October drives (60 mi), not an empty November.
+    await expect(page.getByTestId("now-month")).toContainText(/60(\.0)?\s*miles/);
     await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(SHOTS, `early-month-now-${v.n}-dark.png`) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -82,14 +82,11 @@ test("no note once the month has data, or when another period is chosen, or when
   await ctx.close();
 });
 
-test("a brand-new account on Activity gets the new-account sentence; the tiles carry the Last 30 days tag on Now", async ({ browser }) => {
+test("a brand-new account on Activity gets the new-account sentence", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const a = await ctx.newPage();
   await open(a, new Date(2026, 10, 2, 9, 0, 0), "/activity", { drives: [], charges: [] });
   await expect(a.getByText("Nothing recorded yet. Drives and charges appear here as you use the truck.")).toBeVisible();
-  const b = await ctx.newPage();
-  await open(b, new Date(2026, 10, 2, 9, 0, 0), "/", OCT);
-  await expect(b.locator('[data-ui-grid="now"]')).toContainText(/Last 30 days · 2 drives/);
   await ctx.close();
 });
 
@@ -107,10 +104,10 @@ test("Activity on its first visit opens on the last 30 days, and a saved Month c
   await ctx.close();
 });
 
-test("design now_tidy: the early-month note sits inside the month section, above the charts it explains", async ({ browser }) => {
+test("the early-month note sits inside the month section, above the charts it explains", async ({ browser }) => {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark" });
   const page = await ctx.newPage();
-  await open(page, new Date(2026, 10, 2, 9, 0, 0), "/", OCT, undefined, ["now_v2", "now_tidy"]);
+  await open(page, new Date(2026, 10, 2, 9, 0, 0), "/", OCT, undefined, []);
   const note = page.locator("[data-early-month]");
   await expect(note).toContainText("this shows the last 30 days");
   await expect(page.getByTestId("now-month").locator("[data-early-month]")).toHaveCount(1);

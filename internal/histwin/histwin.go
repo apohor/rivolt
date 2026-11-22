@@ -1,7 +1,7 @@
 // Package histwin carries the free plan's history window in a request context.
 //
 // A free account (Rivolt Pro, Sprint 14) sees drives, charges and statements from the first day of the calendar month Months back (UTC): one
-// cutoff for all three, so the window is the current month and the Months before it. The window lives only in the context of a request that a windowed route's middleware has stamped: background jobs
+// cutoff for all three, so the window is the current month and the Months before it (12 unless the deployment sets otherwise). The window lives only in the context of a request that a windowed route's middleware has stamped: background jobs
 // (the recorder, recaps, the statement email), repairs, the export and every other context carry none, so they see everything. The stores
 // (drives, charges) narrow their reads when a window is present; nothing here deletes or hides a row from storage.
 //
@@ -12,23 +12,46 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// Months is how many calendar months before the current one the free window reaches back: the one number every client and every
-// route derives from (the cutoff, Money's month list, the 402 body, /api/auth/me).
-const Months = 6
+// Months is how many calendar months before the current one the free window reaches back: the one number every route and client derives
+// from (the cutoff, Money's month list, the 402 body, /api/auth/me history_months). It is a deployment setting (MonthsEnv, read once at
+// start by Configure) and 12 when unset; clients never carry it.
+var Months = 12
 
-// LegacyMonths is the window an account keeps until the 30 days' notice (Terms section 11) has run: it was told "the last 12 months"
-// when it signed up, and shrinking it takes something away from the tier it is on.
+// MonthsEnv names the setting that holds Months.
+const MonthsEnv = "RIVOLT_FREE_HISTORY_MONTHS"
+
+// MaxMonths bounds the setting; the Trends route reaches back 24 months at most.
+const MaxMonths = 24
+
+// Configure applies the setting's value: empty keeps 12; otherwise a whole number of months from 1 to MaxMonths.
+func Configure(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		Months = 12
+		return nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > MaxMonths {
+		return fmt.Errorf("%s: %q is not a number of months from 1 to %d", MonthsEnv, raw, MaxMonths)
+	}
+	Months = n
+	return nil
+}
+
+// LegacyMonths is the window an account keeps until the 30 days' notice (Terms section 11) has run, when the setting is below it: it was
+// told "the last 12 months" when it signed up, and shrinking it takes something away from the tier it is on.
 const LegacyMonths = 12
 
-// NoticeAt is when the notice of the 12 to 6 change went out (the new Terms, the email and the in-app notice). An account created at or
-// after it signs up under the 6-month Terms and gets Months at once; one created before it keeps LegacyMonths until EffectiveAt, which is
+// NoticeAt is when the notice of the change to a shorter window went out (the new Terms, the email and the in-app notice). An account created
+// at or after it signs up under the new Terms and gets Months at once; one created before it keeps LegacyMonths until EffectiveAt, which is
 // NoticeAt plus the 30 days the Terms promise. Both are UTC instants. Unset (the zero value, the default) means the notice has not gone
-// out, and every account keeps LegacyMonths: the code ships inert and the setting is made in the deployment's values only afterwards
-// (RIVOLT_HISTORY_NOTICE_AT, read at start by Configure).
+// out, and every account keeps LegacyMonths whatever Months says: the setting is inert until the notice is set (RIVOLT_HISTORY_NOTICE_AT,
+// read at start by ConfigureNotice).
 var (
 	NoticeAt    time.Time
 	EffectiveAt time.Time
@@ -47,8 +70,8 @@ func SetNotice(at time.Time) {
 	EffectiveAt = NoticeAt.AddDate(0, 0, 30)
 }
 
-// Configure applies the setting's value: empty leaves the window at LegacyMonths for everyone; anything else must be an RFC 3339 time.
-func Configure(raw string) error {
+// ConfigureNotice applies the notice setting's value: empty means no notice yet; anything else must be an RFC 3339 time.
+func ConfigureNotice(raw string) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		SetNotice(time.Time{})
@@ -62,9 +85,13 @@ func Configure(raw string) error {
 	return nil
 }
 
-// MonthsFor is the window length for an account created at created, at now. Until the notice is set it is LegacyMonths for everyone.
-// An unknown creation time (zero) counts as an existing account, so a failed lookup shows more history, never less.
+// MonthsFor is the window length for an account created at created, at now. A setting of LegacyMonths or more applies to everyone. A shorter
+// one applies only after the notice: until it is set everyone keeps LegacyMonths, and then new accounts get Months at once and the others
+// at EffectiveAt. An unknown creation time (zero) counts as an existing account, so a failed lookup shows more history, never less.
 func MonthsFor(created, now time.Time) int {
+	if Months >= LegacyMonths {
+		return Months
+	}
 	if NoticeAt.IsZero() {
 		return LegacyMonths
 	}
@@ -85,7 +112,7 @@ type W struct {
 	Since time.Time
 	// MoneyFrom is the same cutoff for the Money statements (a statement month is whole, so it is a month start).
 	MoneyFrom time.Time
-	// Months is how many calendar months back this window reaches (Months or LegacyMonths).
+	// Months is how many calendar months back this window reaches.
 	Months int
 	// Days is the window's length in days at the moment it was made (it changes through the month), for clients that show a number.
 	Days int

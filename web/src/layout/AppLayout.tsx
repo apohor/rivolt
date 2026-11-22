@@ -3,7 +3,7 @@ import { useAccountUnits } from "../lib/accountUnits";
 import { claimCardHeights } from "../lib/nowCardSize";
 import { rememberAppSeen, useSystemTheme } from "../lib/theme";
 import { Footer } from "../components/Footer";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { backend } from "../lib/api";
@@ -14,7 +14,8 @@ import { ImpersonationBanner } from "../components/ImpersonationBanner";
 import { AdminOnlyShell } from "./AdminOnlyShell";
 import { Spinner } from "../components/ui";
 import Logo from "../components/Logo";
-import IOSInstallBanner from "../components/IOSInstallBanner";
+// Only shown in iOS Safari outside the installed app; renders nothing elsewhere.
+const IOSInstallBanner = lazy(() => import("../components/IOSInstallBanner"));
 import { activeTab, buildTabs } from "./tabs";
 import { BottomTabBar, SideRail, SubNav } from "./TabShell";
 import DegradedBanner from "./DegradedBanner";
@@ -74,7 +75,9 @@ function UserLayout() {
   return (
     <div className="min-h-full flex flex-col">
       <ImpersonationBanner />
-      <IOSInstallBanner />
+      <Suspense fallback={null}>
+        <IOSInstallBanner />
+      </Suspense>
       <header className="border-b border-neutral-800 bg-neutral-950/80 backdrop-blur-sm sticky top-0 z-1100 app-safe-top">
         {/* Narrower than 200 CSS px (a phone at Safari's aA 300 %) the name goes (it stays the link's accessible name) so the settings button fits. */}
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 max-[200px]:gap-2 max-[200px]:px-3">

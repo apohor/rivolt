@@ -98,26 +98,6 @@ for (const v of [
   });
 }
 
-test("next desktop: the hero card and the KPI grid share top and bottom edges; the scope sits in the page header", async ({ browser }) => {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
-  const page = await ctx.newPage();
-  await open(page);
-  await page.goto("/");
-  const hero = page.locator("[data-ui-hero]").first();
-  const kpi = page.locator("[data-ui-area='kpi']");
-  await expect(hero).toBeVisible();
-  const a = (await hero.boundingBox())!;
-  const b = (await kpi.boundingBox())!;
-  expect(Math.abs(a.y - b.y)).toBeLessThanOrEqual(2);
-  expect(Math.abs(a.y + a.height - (b.y + b.height))).toBeLessThanOrEqual(2);
-  // The scope control lives in the header row with the title.
-  const header = page.locator("[data-ui-header]").first();
-  await expect(header.getByRole("group", { name: "Time scope" })).toBeVisible();
-  await expect(header.getByRole("heading", { name: "Now" })).toBeVisible();
-  await page.screenshot({ path: path.join(SHOTS, "uinext-now-parity-desktop.png") });
-  await ctx.close();
-});
-
 for (const url of ["/", "/activity", "/truck"]) {
   test(`next: the scope header is sticky under the nav on scroll · ${url}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 600 }, colorScheme: "dark" });

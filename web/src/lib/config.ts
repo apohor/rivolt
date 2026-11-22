@@ -139,6 +139,8 @@ export type RuntimeConfig = {
   // designPreview: design keys the server shows (features.design_preview, RIVOLT_DESIGN_PREVIEW): preview only, empty in prod. A
   // server that omits the field, or sends anything but strings, gets [].
   designPreview: string[];
+  // termsVersion: the Terms version accepted now (features.terms_version); "" from a server that omits it.
+  termsVersion: string;
 };
 
 const fallback: RuntimeConfig = {
@@ -155,6 +157,7 @@ const fallback: RuntimeConfig = {
   // An unreadable config means "unknown": treated as allowed, like an older server that omits it.
   rivianActions: true,
   designPreview: [],
+  termsVersion: "",
 };
 let cached: RuntimeConfig = fallback;
 let configLoaded = false;
@@ -168,7 +171,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       valhalla?: { path?: string };
       tiles?: { url?: string; chargers_url?: string; glyphs_url?: string; dem_url?: string; dem_minzoom?: number; dem_maxzoom?: number; radar_url?: string; radar_frame_url?: string; radar_minzoom?: number; radar_maxzoom?: number; radar_demo_url?: string; radar_demo_frame_url?: string; radar_demo_minzoom?: number; radar_demo_maxzoom?: number };
       ai?: { enabled?: boolean };
-      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; admin_only?: boolean; history_import?: boolean; trip_share?: boolean; app_url?: string; ios_app_url?: string; rivian_actions?: boolean; design_preview?: unknown };
+      features?: { trip_planner_enabled?: boolean; landing_enabled?: boolean; demo_enabled?: boolean; signup_enabled?: boolean; events_enabled?: boolean; demo_only?: boolean; admin_only?: boolean; history_import?: boolean; trip_share?: boolean; app_url?: string; ios_app_url?: string; rivian_actions?: boolean; design_preview?: unknown; terms_version?: unknown };
       grafana?: { base_url?: string };
       booking?: { affiliate_id?: string };
       gps?: { missing_pct?: number; stale_sec?: number; jump_count?: number };
@@ -217,6 +220,7 @@ async function loadConfig(): Promise<RuntimeConfig> {
       // false wherever Rivian is off (the admin-only site, the demo); absent means allowed.
       rivianActions: j?.features?.rivian_actions !== false,
       designPreview: Array.isArray(j?.features?.design_preview) ? j.features.design_preview.filter((k): k is string => typeof k === "string") : [],
+      termsVersion: typeof j?.features?.terms_version === "string" ? j.features.terms_version : "",
     };
   } catch {
     return fallback;

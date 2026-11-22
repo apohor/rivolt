@@ -71,7 +71,7 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertTrue(t.contains("charged to your Apple ID"))
         XCTAssertFalse(ProCopy.included().isEmpty)
         let w = FreeWindow(days: 395, from: "2025-11-01")
-        XCTAssertTrue(ProCopy.included(w).joined().contains("free: since November 1, 2025"))
+        XCTAssertTrue(ProCopy.included(w).joined().contains("free tier: since November 1, 2025"))
         XCTAssertEqual(ProCopy.card(.free, window: w)?.line, "Recording, alerts, history since November 1, 2025 and the full export, always.")
         XCTAssertTrue(ProCopy.card(.lapsed(endedOn: nil, source: nil), window: w)?.line.hasPrefix("Showing history since November 1, 2025.") == true)
         for text in ProCopy.included(w) + ProCopy.included() + [ProCopy.card(.free)?.line ?? "", ProCopy.card(.lapsed(endedOn: nil, source: nil))?.line ?? ""] { XCTAssertFalse(text.contains("90"), text) }

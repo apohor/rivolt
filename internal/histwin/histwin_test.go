@@ -6,12 +6,13 @@ import (
 	"time"
 )
 
-// noticeRun sets the notice far in the past for one test, so every free account has Months.
+// noticeRun sets a 6-month window and the notice far in the past for one test, so every free account has 6 months.
 func noticeRun(t *testing.T) {
 	t.Helper()
-	old := NoticeAt
+	old, oldM := NoticeAt, Months
+	Months = 6
 	SetNotice(time.Unix(0, 0))
-	t.Cleanup(func() { SetNotice(old) })
+	t.Cleanup(func() { SetNotice(old); Months = oldM })
 }
 
 func TestFreeWindow(t *testing.T) {
@@ -78,6 +79,9 @@ func TestMonthsForNotice(t *testing.T) {
 
 // Unset (the default) is the code shipping inert: every account, old, new or unknown, keeps 12 months; and the setting is parsed strictly.
 func TestNoticeUnset(t *testing.T) {
+	old := Months
+	Months = 6
+	t.Cleanup(func() { Months = old })
 	SetNotice(time.Time{})
 	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	for _, created := range []time.Time{{}, now.AddDate(-3, 0, 0), now.Add(-time.Hour)} {
@@ -89,13 +93,13 @@ func TestNoticeUnset(t *testing.T) {
 		t.Errorf("unset: %+v, want 12 months back from January", w)
 	}
 	t.Cleanup(func() { SetNotice(time.Time{}) })
-	if err := Configure(" 2026-12-01T00:00:00Z "); err != nil || !NoticeAt.Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)) || !EffectiveAt.Equal(NoticeAt.AddDate(0, 0, 30)) {
+	if err := ConfigureNotice(" 2026-12-01T00:00:00Z "); err != nil || !NoticeAt.Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)) || !EffectiveAt.Equal(NoticeAt.AddDate(0, 0, 30)) {
 		t.Errorf("Configure: %v, notice %v effective %v", err, NoticeAt, EffectiveAt)
 	}
-	if err := Configure("2026-12-01"); err == nil {
+	if err := ConfigureNotice("2026-12-01"); err == nil {
 		t.Error("a date without a time was accepted")
 	}
-	if err := Configure(""); err != nil || !NoticeAt.IsZero() || !EffectiveAt.IsZero() {
+	if err := ConfigureNotice(""); err != nil || !NoticeAt.IsZero() || !EffectiveAt.IsZero() {
 		t.Errorf("Configure empty: %v, notice %v", err, NoticeAt)
 	}
 }
@@ -131,5 +135,43 @@ func TestContextWindow(t *testing.T) {
 	// A W with no Since is not a window (a zero value must not hide everything).
 	if _, ok := From(With(ctx, W{})); ok {
 		t.Error("a zero W counts as a window")
+	}
+}
+
+// The one setting: unset is 12, a whole number from 1 to 24 is taken, anything else is refused (the server will not start on it).
+func TestConfigure(t *testing.T) {
+	t.Cleanup(func() { SetNotice(time.Time{}) })
+	SetNotice(time.Unix(0, 0)) // the notice has run, so the setting applies to everyone
+	t.Cleanup(func() { Months = 12 })
+	for raw, want := range map[string]int{"": 12, "  ": 12, "6": 6, " 24 ": 24, "1": 1} {
+		if err := Configure(raw); err != nil || Months != want {
+			t.Errorf("Configure(%q): err %v, months %d, want %d", raw, err, Months, want)
+		}
+	}
+	for _, raw := range []string{"0", "25", "-3", "six", "6.5"} {
+		Months = 12
+		if err := Configure(raw); err == nil || Months != 12 {
+			t.Errorf("Configure(%q): err %v, months %d, want an error and 12", raw, err, Months)
+		}
+	}
+	if err := Configure("6"); err != nil {
+		t.Fatal(err)
+	}
+	if w := Free(time.Date(2027, 1, 20, 0, 0, 0, 0, time.UTC), time.Time{}); w.Months != 6 || !w.Since.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("at 6: %+v", w)
+	}
+}
+
+// A setting of 12 or more takes nothing away, so it needs no notice; a shorter one is inert until the notice is set.
+func TestSettingNeedsNoticeOnlyBelowLegacy(t *testing.T) {
+	old := Months
+	t.Cleanup(func() { Months = old; SetNotice(time.Time{}) })
+	now := time.Date(2027, 1, 20, 0, 0, 0, 0, time.UTC)
+	SetNotice(time.Time{})
+	for m, want := range map[int]int{12: 12, 18: 18, 6: 12, 3: 12} {
+		Months = m
+		if got := MonthsFor(now.AddDate(-1, 0, 0), now); got != want {
+			t.Errorf("setting %d, no notice: %d months, want %d", m, got, want)
+		}
 	}
 }

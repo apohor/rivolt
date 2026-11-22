@@ -44,18 +44,18 @@ const nowViews: View[] = (["parked", "charging", "driving", "asleep", "offline"]
   heading: "Now",
   opts: { scenario: s },
   text: {
-    parked: ["Parked at home"],
-    charging: ["Charging at home"],
+    parked: ["Parked"],
+    charging: [/Charging to 80%/],
     driving: ["Driving"],
     asleep: ["Asleep"],
-    offline: ["Not heard from recently"],
+    offline: ["Offline"],
   }[s],
 }));
 
 const views: View[] = [
   ...nowViews,
   // With GET /now: the Replay badge, "location as of" and "since".
-  { name: "now-endpoint", path: "/", heading: "Now", opts: { scenario: "parked", nowEndpoint: true }, text: ["Replay", /last GPS fix .*before it parked/, /since /] },
+  { name: "now-endpoint", path: "/", heading: "Now", opts: { scenario: "parked", nowEndpoint: true }, text: [/Parked · since /] },
   { name: "demo", path: "/demo", heading: /Rivolt demo/, opts: { signedIn: false, demo: true, nowEndpoint: true }, text: ["Sample truck.", "Connect with a driver account"] },
   // Stale frame: the pill must not say Live next to an old timestamp.
   { name: "now-stale", path: "/", heading: "Now", opts: { scenario: "stale" }, text: [/Last seen [5-7] min ago/, /Updated [5-7] min ago/] },
@@ -86,7 +86,11 @@ const views: View[] = [
 
 function collectErrors(page: Page) {
   const errors: string[] = [];
-  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  // WebKit's notice that some observer's size change was handled a frame late (the full-page screenshot resizes the window while the gauge,
+  // the charts and the map settle); it names no fault and the page is laid out right.
+  page.on("pageerror", (e) => {
+    if (!/^ResizeObserver loop completed with undelivered notifications\.?$/.test(e.message)) errors.push(`pageerror: ${e.message}`);
+  });
   page.on("console", (m) => {
     if (m.type() !== "error") return;
     const t = m.text();
@@ -129,7 +133,7 @@ for (const view of views) {
         }
         if (view.name.startsWith("now-")) {
           await expect(page.getByRole("link", { name: "Overview" })).toHaveCount(0);
-          await expect(page.getByRole("link", { name: "Full telemetry →" })).toBeVisible();
+          await expect(page.getByTestId("now-live-link")).toBeVisible();
           // The Now card leads the page: no other card in main starts above it. (In the new look the
           // region's own box can be the grid's, so its top is its first child's.)
           const above = await page.getByRole("region", { name: "Now" }).evaluate((now) => {

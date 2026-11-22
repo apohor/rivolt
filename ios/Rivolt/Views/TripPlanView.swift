@@ -200,13 +200,17 @@ struct TripPlanResult: View {
             if TripPlanLogic.offersDrivingPerDay(route), !state.isDemo { DrivingPerDayRow(model: model) }
             if TripPlanLogic.isLongDrive(route), !state.isDemo { LongDriveSection(model: model, metric: metric) }
             ThemeSection(title: TripPlanLogic.stopsTitle(route)) {
-                StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric, weather: PlanRouteLogic.Weather(plan)) { model.focusedStop = $0 }
+                StopRows(route: route, cost: plan.costs?.first, base: 0, focused: model.focusedStop, metric: metric, weather: PlanRouteLogic.Weather(plan)?.forecasting(state.designPreview.contains("radar_forecast"))) { model.focusedStop = $0 }
                 if route.chargingStops.isEmpty { Text(TripPlanLogic.noStopsLine(route)).themeText(.value, color: Theme.textSecondary) }
             }
             // The terrain credit once per plan, wherever the climb shows: the elevation row (collapsed or open) and the stops' climb lines.
             if PlanElevation.shown(plan.elevationProfile, designPreview: state.designPreview) != nil || LegWeather.showsClimb(plan.weatherAdjustment?.legs) {
                 Text(LegWeather.terrainCredit).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("plan-terrain-credit")
+            }
+            if state.designPreview.contains("radar_forecast"), LegWeather.showsForecast(plan.weatherAdjustment?.legs) {
+                Text(LegWeather.radarCredit).themeText(.caption, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("plan-radar-credit")
             }
             if !model.vias.isEmpty { YourStopsSection(model: model) }
             if let cost = TripPlanLogic.costLine(plan.costs?.first) {
@@ -690,7 +694,7 @@ struct StopRows: View {
     private func weatherLines(for stop: TripWaypoint, selected: Bool) -> some View {
         if let weather, let k = route.waypoints.firstIndex(where: { $0.id == stop.id }), k >= 1, k - 1 < weather.legs.count {
             let leg = weather.legs[k - 1]
-            let facts = LegWeather.facts(leg, celsius: weather.celsius, metric: weather.metric)
+            let facts = LegWeather.facts(leg, celsius: weather.celsius, metric: weather.metric, forecast: weather.forecast)
             let tags = LegWeather.tags(facts)
             if !tags.isEmpty { Text(tags.joined(separator: " · ")).themeText(.subline, color: Theme.textSecondary) }
             if selected {

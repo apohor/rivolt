@@ -360,8 +360,13 @@ func runServer() {
 		os.Exit(1)
 	}
 
-	// The free tier's history window: unset keeps 12 months for everyone; set only after the notice of the 12 to 6 change has gone out.
-	if err := histwin.Configure(os.Getenv(histwin.NoticeEnv)); err != nil {
+	// The free tier's history window: RIVOLT_FREE_HISTORY_MONTHS is its length (12 when unset); a length below 12 applies to existing
+	// accounts only after the notice (RIVOLT_HISTORY_NOTICE_AT), and nothing shorter than 12 applies while that is unset.
+	if err := histwin.Configure(os.Getenv(histwin.MonthsEnv)); err != nil {
+		logger.Error("refusing to start: " + err.Error())
+		os.Exit(1)
+	}
+	if err := histwin.ConfigureNotice(os.Getenv(histwin.NoticeEnv)); err != nil {
 		logger.Error("refusing to start: " + err.Error())
 		os.Exit(1)
 	}

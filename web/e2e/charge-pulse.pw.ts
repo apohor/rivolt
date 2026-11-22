@@ -59,7 +59,7 @@ test("live, key on, reduced motion: the glow stays, still", async ({ page }) => 
 
 test("now card, key on while charging: the bolt beside the kW and the live dot pulse; off, neither", async ({ page }) => {
   const open = async (keys: string[]) => {
-    await stubApi(page, { scenario: "charging", nowEndpoint: true, designPreview: ["now_v2", "now_tidy", "now_slot", "now_charge_graph", ...keys], chargeCase: { elapsedMin: 90, soc: (m: number) => 40 + m * 0.136, kw: () => 11 } });
+    await stubApi(page, { scenario: "charging", nowEndpoint: true, designPreview: [...keys], chargeCase: { elapsedMin: 90, soc: (m: number) => 40 + m * 0.136, kw: () => 11 } });
     await page.goto("/");
     await expect(page.getByTestId("now-charge-graph")).toBeVisible();
   };

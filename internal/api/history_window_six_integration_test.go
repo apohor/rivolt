@@ -28,6 +28,9 @@ func TestWindowNoticeAgainstPostgres(t *testing.T) {
 	}
 	notice := histwin.NoticeAt
 	t.Cleanup(func() { histwin.SetNotice(notice) })
+	months0 := histwin.Months
+	histwin.Months = 6
+	t.Cleanup(func() { histwin.Months = months0 })
 	ent := entitlements.New(pool, entitlements.Config{Billing: true})
 	months := func() int {
 		w, on := ent.Window(ctx, u)
