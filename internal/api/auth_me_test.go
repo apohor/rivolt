@@ -242,6 +242,9 @@ func TestPlanFieldsForAFreeAccount(t *testing.T) {
 	if d, _ := m["history_days"].(float64); d < 365 || d > 396 {
 		t.Errorf("history_days %v, want 365-396: %s", m["history_days"], b)
 	}
+	if n, _ := m["history_months"].(float64); n != 12 {
+		t.Errorf("history_months %v, want 12: %s", m["history_months"], b)
+	}
 	if f, _ := m["history_from"].(string); len(f) != 10 || f[8:] != "01" {
 		t.Errorf("history_from %v, want a first of the month: %s", m["history_from"], b)
 	}
