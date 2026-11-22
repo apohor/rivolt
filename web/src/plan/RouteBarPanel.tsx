@@ -1,5 +1,6 @@
 import "../styles/next-plan.css";
 import { useId, useState, type ReactNode } from "react";
+import { useDesignPreview } from "../lib/config";
 
 // The map-first planner's route bar. Always visible: From and
 // To with a swap button, the departure chip, the starting SoC slider, and the
@@ -45,6 +46,8 @@ export function RouteBar({
   // The Plan action (data-plan-submit block with button and spinner).
   submit: ReactNode;
 }) {
+  // plan_v2: the badge says what the number is ("2 changed").
+  const v2 = useDesignPreview("plan_v2");
   const [open, setOpen] = useState(false);
   const moreId = useId();
   const typed = soc.value.trim() !== "" ? Number(soc.value) : null;
@@ -98,7 +101,7 @@ export function RouteBar({
           <span>More options</span>
           {moreCount > 0 && (
             <span data-plan-more-count aria-label={`${moreCount} changed`}>
-              {moreCount}
+              {v2 ? `${moreCount} changed` : moreCount}
             </span>
           )}
         </button>

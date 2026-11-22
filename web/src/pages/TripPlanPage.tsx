@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { usePlanner } from "../plan/usePlanner";
-import { planErrorCopy, relabelIfHome, type Selection } from "../plan/plannerHelpers";
+import { haversineMeters, planErrorCopy, relabelIfHome, type Selection } from "../plan/plannerHelpers";
 import { PlannerNetworks } from "../plan/PlannerNetworks";
 import { RouteBar } from "../plan/RouteBarPanel";
 import { countNonDefaultOptions, formatResultSummary, useRouteBarCollapse } from "../plan/routeBar";
@@ -33,6 +33,7 @@ import { ProLimitNotice } from "../components/ProLimitNotice";
 import { TripShareSheet } from "../components/TripShareSheet";
 import { TripReceiptSheet } from "../components/TripReceiptSheet";
 import { useDesignPreview, useTripShare } from "../lib/config";
+import { CalendarIcon, ClockIcon, HomeIcon } from "../plan/lineIcons";
 import { proLimitOf, type ProLimit } from "../lib/proLimit";
 
 
@@ -175,6 +176,9 @@ export default function TripPlanPage() {
               </div>
             
   ) : null;
+  // plan_v2: a place that is already the other end is no use as a chip (no "Home" to go to while the trip starts at Home).
+  const notAtOther = (other: Selection) => (p: { lat: number; lon: number }) =>
+    !(v2 && other && haversineMeters({ lat: p.lat, lon: p.lon }, { lat: other.lat, lon: other.lon }) < 100);
   const fromEl = (
 <LocationField
             heading="From"
@@ -197,7 +201,7 @@ export default function TripPlanPage() {
                 lat: f.latitude,
                 lon: f.longitude,
               })),
-            ]}
+            ].filter(notAtOther(destination))}
           />
   );
   const viaEl = (
@@ -294,7 +298,7 @@ export default function TripPlanPage() {
                 lat: f.latitude,
                 lon: f.longitude,
               })),
-            ]}
+            ].filter(notAtOther(origin))}
           />
   );
   const planButtonEl = (
@@ -1070,6 +1074,7 @@ function DeparturePicker({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const v2 = useDesignPreview("plan_v2");
   const [date, time] = value.split("T");
   const setDate = (d: string) => onChange(d ? `${d}T${time || "08:00"}` : "");
   const setTime = (t: string) => onChange(date ? `${date}T${t}` : "");
@@ -1096,16 +1101,23 @@ function DeparturePicker({
   return (
     <div data-plan-when-inner role="group" aria-label="Departure">
       <span className="ui-label">Departure</span>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {/* plan_v2: the quick picks on one row and the exact date and time on the next, so a phone never leaves one chip alone on a line. */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-plan-when-picks={v2 ? "" : undefined}>
         <button type="button" aria-pressed={!value} data-plan-chip onClick={() => onChange("")}>Now</button>
         {presets.map((p) => (
           <button key={p.label} type="button" data-plan-chip onClick={() => onChange(p.build())}>
             {p.label}
           </button>
         ))}
-        <DatePopover value={date || ""} onChange={setDate} />
-        <TimePopover value={time || ""} onChange={setTime} />
+        {!v2 && <DatePopover value={date || ""} onChange={setDate} />}
+        {!v2 && <TimePopover value={time || ""} onChange={setTime} />}
       </div>
+      {v2 && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5" data-plan-when-exact>
+          <DatePopover value={date || ""} onChange={setDate} />
+          <TimePopover value={time || ""} onChange={setTime} />
+        </div>
+      )}
     </div>
   );
 }
@@ -1142,6 +1154,7 @@ function DatePopover({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const v2 = useDesignPreview("plan_v2");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useOutsideClick(containerRef, () => setOpen(false), open);
@@ -1181,7 +1194,7 @@ function DatePopover({
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 hover:border-neutral-500 focus:outline-hidden"
       >
-        <span className="text-neutral-500">📅</span>
+        <span className="text-neutral-500">{v2 ? <CalendarIcon /> : "📅"}</span>
         <span className={selected ? "" : "text-neutral-500"}>{label}</span>
       </button>
       {open && (
@@ -1267,6 +1280,7 @@ function TimePopover({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const v2 = useDesignPreview("plan_v2");
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   useOutsideClick(containerRef, () => setOpen(false), open);
@@ -1284,7 +1298,7 @@ function TimePopover({
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100 hover:border-neutral-500 focus:outline-hidden"
       >
-        <span className="text-neutral-500">🕐</span>
+        <span className="text-neutral-500">{v2 ? <ClockIcon /> : "🕐"}</span>
         <span className={value ? "" : "text-neutral-500"}>{label}</span>
       </button>
       {open && (
@@ -1369,6 +1383,7 @@ function LocationField({
   presets: { label: string; lat: number; lon: number }[];
   onSaveAsFavorite?: (s: { lat: number; lon: number; label: string }) => void;
 }) {
+  const v2 = useDesignPreview("plan_v2");
   // One compact row: a coloured node, the place (or the search), presets below.
   return (
     <div data-plan-field data-heading={heading} role="group" aria-label={heading}>
@@ -1376,10 +1391,10 @@ function LocationField({
       <div data-plan-field-main>
         {value ? (
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-            <span className="pt-value min-w-0 max-w-full truncate text-neutral-100">{value.label === "Home" ? "🏠 Home" : value.label}</span>
+            <span className="pt-value min-w-0 max-w-full truncate text-neutral-100">{value.label === "Home" ? <>{v2 ? <span className="mr-1 inline-flex align-text-bottom"><HomeIcon /></span> : "🏠 "}Home</> : value.label}</span>
             <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
               {onSaveAsFavorite && value.label !== "Home" && (
-                <button type="button" onClick={() => onSaveAsFavorite(value)} className="text-amber-400 hover:text-amber-200" title="Save this place as a one-tap preset" aria-label={`Save place: ${value.label}, as a favorite`}>
+                <button type="button" onClick={() => onSaveAsFavorite(value)} className={v2 ? "text-neutral-500 hover:text-amber-300 focus-visible:text-amber-300 active:text-amber-300" : "text-amber-400 hover:text-amber-200"} title="Save this place as a one-tap preset" aria-label={`Save place: ${value.label}, as a favorite`}>
                   ☆ save place
                 </button>
               )}
@@ -1398,7 +1413,7 @@ function LocationField({
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {presets.map((p) => (
               <button key={p.label} type="button" data-plan-chip data-home={p.label === "Home" ? "true" : undefined} onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}>
-                {p.label === "Home" ? "🏠 " : ""}{p.label}
+                {p.label === "Home" ? (v2 ? <HomeIcon /> : "🏠 ") : ""}{p.label}
               </button>
             ))}
           </div>
@@ -1551,6 +1566,7 @@ function OvernightList({
   onRemove: (i: number) => void;
   onAdd: StopAdder;
 }) {
+  const v2 = useDesignPreview("plan_v2");
   const [adding, setAdding] = useState(false);
   const nights = stops.map((stop, i) => ({ stop, i })).filter((x) => overnightFlags[x.i]);
   const fieldCls = "rounded-sm border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-neutral-200 tabular-nums";
@@ -1558,7 +1574,7 @@ function OvernightList({
     <div data-plan-overnights className="space-y-2">
       {nights.length === 0 && !adding && (
         <p className="text-xs text-neutral-400">
-          Going further than a day? Add an overnight and Rivolt plans each day, including charging while you sleep.
+          {v2 ? "More than a day? Add a night and each day is planned." : "Going further than a day? Add an overnight and Rivolt plans each day, including charging while you sleep."}
         </p>
       )}
       {nights.map(({ stop, i }, n) => {
