@@ -20,7 +20,7 @@ async function open(page: Page, keys: string[], me: Record<string, unknown>) {
 const link = (page: Page) => page.getByRole("banner").getByRole("button", { name: "Pro tier" });
 
 for (const theme of ["light", "dark"] as const) {
-  for (const w of [393, 1440] as const) {
+  for (const w of [320, 393, 1440] as const) {
     test(`pro_entry header link @webkit · ${w}px · ${theme}`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: { width: w, height: w < 500 ? 852 : 900 }, colorScheme: theme });
       const page = await ctx.newPage();
@@ -32,7 +32,10 @@ for (const theme of ["light", "dark"] as const) {
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
       const l = (await link(page).boundingBox())!;
       const s = (await page.getByRole("link", { name: "Settings" }).first().boundingBox())!;
-      expect(l.x + l.width).toBeLessThanOrEqual(s.x + 1); // not over the person button
+      expect(l.x + l.width).toBeLessThanOrEqual(s.x + 1); // directly left of the person button, not over it
+      // Under 360 px it is the star alone, named "Pro tier"; wider it shows the words.
+      if (w < 360) expect(l.width).toBeLessThan(44);
+      else await expect(link(page)).toContainText("Pro tier");
       await page.screenshot({ path: path.join(SHOTS, `pro-entry-on-${w}-${theme}.png`), clip: { x: 0, y: 0, width: w, height: 160 } });
 
       // One tap opens the sheet; Escape closes it and the link is still there.

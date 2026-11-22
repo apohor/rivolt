@@ -89,8 +89,8 @@ function UserLayout() {
             <span className="max-[359px]:sr-only">Rivolt</span>
           </NavLink>
           <div className="flex items-center gap-2 max-[200px]:gap-1">
-          <ProTierLink />
           <ThemeSwitch />
+          <ProTierLink />
           {/* Settings, one tap from every screen (the person icon, as on the iPhone). The Settings sub-link under Truck stays. */}
           <NavLink
             to="/settings"

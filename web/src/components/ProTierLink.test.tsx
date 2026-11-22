@@ -43,7 +43,7 @@ describe("the header's Pro tier link (design key pro_entry)", () => {
   });
 
   it("never shows for Pro, founding, or billing off", async () => {
-    for (const me of [stripe, founding, billingOff]) {
+    for (const me of [stripe, founding, billingOff, { ...free, plan_source: "demo" }]) {
       const { container } = renderWith(me);
       await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
       await new Promise((r) => setTimeout(r, 20));
