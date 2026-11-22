@@ -37,6 +37,7 @@ import { drawLegBadges, type BadgesHandle, type LegWeatherInfo } from "./legBadg
 import { legWeatherTags } from "../plan/legWeather";
 import { chargePillText } from "./pillText";
 import { chargeRingLabel, chargeRingSvg } from "../plan/chargeRing";
+import { END_COLOR, START_COLOR } from "../plan/endpointColors";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
   bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, offRouteLine, sameSpot, valhallaMultiRoute, waypointTooltip,
@@ -759,7 +760,7 @@ export function TripRouteMap({
           // Away from the line, unless that runs past the map's edge or over a pin or badge: then the first side that fits (else where it was).
           const side = (size && placeStopPill(map.project(ll), size, away, taken.filter((b) => b !== pinBoxes[i]), view)) || away;
           if (size) taken.push(pillBox(map.project(ll), side.anchor, side.offset, size));
-          specs.push({ id: `wp${i}`, text, lngLat: ll, ...side, dot: i === 0 ? "#10b981" : "#f43f5e", priority: i === 0 ? 0 : 1 });
+          specs.push({ id: `wp${i}`, text, lngLat: ll, ...side, dot: i === 0 ? START_COLOR : END_COLOR, priority: i === 0 ? 0 : 1 });
         }
         // A stop's pill goes on its usual side, or the other side, above or below, wherever it clears what is taken; none fits: dropped.
         for (let i = 1; i < last; i++) {
@@ -804,7 +805,7 @@ export function TripRouteMap({
         if (roundTrip && i === ws.length - 1) continue; // one marker for start and end
         const endWp = roundTrip && i === 0 ? ws[ws.length - 1] : undefined;
         const isEnd = i === 0 || i === ws.length - 1;
-        const color = i === 0 ? "#10b981" : i === ws.length - 1 ? "#f43f5e" : "#f59e0b";
+        const color = i === 0 ? START_COLOR : i === ws.length - 1 ? END_COLOR : "#f59e0b";
         const size = isEnd ? 12 : 10;
         // The marker's own element keeps the library's classes and a fixed box (a steady anchor and a touch target); the dot inside swaps on selection.
         const element = document.createElement("div");
