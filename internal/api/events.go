@@ -15,6 +15,7 @@ import (
 
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/metrics"
 )
 
 // Product events. First-party only,
@@ -68,6 +69,8 @@ var eventAllowlist = map[string]map[string]propSpec{
 	"rivian_connect_start":   {"authorized_driver": boolProp},
 	"rivian_connect_done":    {"vehicle_count": intProp},
 	"rivian_connect_fail":    {"class": enumProp("user-action", "mfa", "rate", "other")},
+	"pro_sheet_open":         {"from": enumProp(metrics.ProFromValues...)},
+	"pro_prompt_dismiss":     {"where": enumProp("planner", "lapse_banner")},
 	"first_data":             {"seconds_since_connect": intProp},
 	"money_view":             {"month_offset": intProp, "src": enumProp("statement")},
 	"receipt_open":           {"source": enumProp("billed", "est_home", "est_network", "user")},

@@ -162,6 +162,9 @@ type Metrics struct {
 	StripeWebhookEvents *prometheus.CounterVec
 	StripeWebhookLag    prometheus.Histogram
 	BillingEvents       *prometheus.CounterVec
+	// BillingCheckoutsStarted counts checkouts that returned a Stripe URL, by interval (month, year) and the entry point the person came from
+	// (ProFromValues, "other" for anything else); no account or user label.
+	BillingCheckoutsStarted *prometheus.CounterVec
 	// Entitlements is the count of entitlement rows by source and status and Accounts the number of accounts, both without the demo account and
 	// without any user label, refreshed every few minutes; BillingEnabled is 1 when RIVOLT_BILLING is on.
 	Entitlements   *prometheus.GaugeVec
@@ -645,6 +648,10 @@ func New() *Metrics {
 			Name: "rivolt_billing_events_total",
 			Help: "Billing moments an operator may need to see, by kind (payment_failed: a subscription went past due).",
 		}, []string{"kind"}),
+		BillingCheckoutsStarted: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_billing_checkouts_started_total",
+			Help: "Stripe Checkout sessions started (POST /api/billing/checkout returned a URL), by interval and entry point; no account label.",
+		}, []string{"interval", "from"}),
 		OpenCharges: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "rivolt_open_charges",
 			Help: "Open live charge rows by state (charging or not_charging by the stale-charge janitor's rule, or no_frame: the vehicle sent nothing in 2 days); no vehicle or user labels.",
@@ -1239,6 +1246,7 @@ func New() *Metrics {
 		m.StripeWebhookEvents,
 		m.StripeWebhookLag,
 		m.BillingEvents,
+		m.BillingCheckoutsStarted,
 		m.Entitlements,
 		m.OpenCharges,
 		m.OpenChargesOldestSeconds,
@@ -1403,6 +1411,11 @@ func New() *Metrics {
 		}
 	}
 	m.BillingEvents.WithLabelValues("payment_failed").Add(0)
+	for _, interval := range []string{"month", "year"} {
+		for _, from := range ProFromValues {
+			m.BillingCheckoutsStarted.WithLabelValues(interval, from).Add(0)
+		}
+	}
 	for _, kind := range LeaseFencedKinds {
 		m.LeaseFenced.WithLabelValues(kind).Add(0)
 	}
@@ -1601,4 +1614,18 @@ func (m *Metrics) SetBuildInfo(imageTag, build string) {
 	}
 	m.BuildInfo.Reset()
 	m.BuildInfo.WithLabelValues(imageTag, build).Set(1)
+}
+
+// ProFromValues is the fixed list of places the Pro sheet opens from. The client sends one of these as "from" in the checkout body and as
+// the pro_sheet_open event's prop; the server counts anything else as "other", so the label set is closed.
+var ProFromValues = []string{"settings", "truck", "old_record", "money", "vehicle", "planner", "saved_trips", "lapse_banner", "header", "menu", "activity_end", "other"}
+
+// ProFrom returns v when it is in ProFromValues, else "other".
+func ProFrom(v string) string {
+	for _, f := range ProFromValues {
+		if f == v {
+			return f
+		}
+	}
+	return "other"
 }

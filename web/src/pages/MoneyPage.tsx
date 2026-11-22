@@ -343,7 +343,7 @@ function Statement({
           <ShareStatementButton m={m} partialFrom={partialFrom ?? null} disabled={sample || empty} prompt={askShare} />
           <CsvDownloadLink month={m.period} vehicleID={vehicleID} disabled={sample || empty || inDemo()} proOnly={csvPro} onUpsell={() => setUpsell(true)} />
           {csvPro && <ProSheetPreload />}
-          {upsell && <ProSheet state={plan} onClose={() => setUpsell(false)} />}
+          {upsell && <ProSheet from="money" state={plan} onClose={() => setUpsell(false)} />}
         </div>
         <p className="mt-1 text-sm text-neutral-400">
           spent on charging ·{" "}

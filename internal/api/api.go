@@ -1998,7 +1998,7 @@ func New(d Deps) http.Handler {
 			r.Delete("/data/account", handleDataAccountDelete(d))
 			if d.StripeBilling != nil && !d.AdminOnly {
 				billingLimiter := ls.user("billing", 10)
-				r.With(billingLimiter.Middleware).Post("/billing/checkout", withUser(handleBillingCheckout(d.StripeBilling)))
+				r.With(billingLimiter.Middleware).Post("/billing/checkout", withUser(handleBillingCheckout(d.StripeBilling, d.Metrics)))
 				r.With(billingLimiter.Middleware).Post("/billing/portal", withUser(handleBillingPortal(d.StripeBilling)))
 			}
 		}) // end of bulk-data authenticated /api group

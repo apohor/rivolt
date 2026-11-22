@@ -1313,7 +1313,7 @@ export type YearInRivolt = {
 export const backend = {
   // MOCKED until the billing API merges (paid-tier-plan.md section 3): hosted Stripe Checkout and the Customer Portal each answer a
   // URL to open. Nothing calls them while billing is off, because no screen offers them.
-  billingCheckout: (interval: "month" | "year") => api.post<{ url: string }>("/api/billing/checkout", { interval }),
+  billingCheckout: (interval: "month" | "year", from?: string) => api.post<{ url: string }>("/api/billing/checkout", { interval, from }),
   billingPortal: () => api.post<{ url: string }>("/api/billing/portal"),
   // Service notices (the Pro launch notice, the founding-member end): shown on Now until dismissed and in Settings until shows_until.
   notices: () => api.get<ServiceNotice[]>("/api/notices"),

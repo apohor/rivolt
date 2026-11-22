@@ -7,6 +7,7 @@ import { planState } from "../lib/plan";
 import { useProPrompt } from "../lib/proPrompts";
 import { PLANNER_NOTE_V2, proFeatureText, proLimitText, type ProFeature, type ProLimit } from "../lib/proLimit";
 import { ProSheet, ProSheetPreload } from "./ProSheetLazy";
+import { proFromFeature } from "../lib/proFrom";
 import { DemoLinks } from "./DemoLinks";
 import { demoLinksFor } from "../lib/demoLinks";
 
@@ -51,7 +52,7 @@ export function ProLimitNotice({ limit, privacy = false, extra, feature, overnig
           </button>
         </div>
       )}
-      {open && <ProSheet state={state} onClose={() => setOpen(false)} />}
+      {open && <ProSheet from={proFromFeature(feature)} state={state} onClose={() => setOpen(false)} />}
     </div>
   );
 }

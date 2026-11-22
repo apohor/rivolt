@@ -91,7 +91,7 @@ export function PlanNotice() {
           {entry ? "Not now" : "Dismiss"}
         </button>
       </span>
-      {open && <ProSheet state={state} onClose={() => setOpen(false)} />}
+      {open && <ProSheet from="lapse_banner" state={state} onClose={() => setOpen(false)} />}
     </div>
   );
 }

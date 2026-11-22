@@ -27,7 +27,7 @@ export function ProTierLink() {
         {/* Under 360 px only the star stays; "Pro tier" remains the accessible name. */}
         <span className="max-[359px]:sr-only">Pro tier</span>
       </button>
-      {open && <ProSheet state={state} onClose={() => setOpen(false)} />}
+      {open && <ProSheet from="header" state={state} onClose={() => setOpen(false)} />}
     </>
   );
 }

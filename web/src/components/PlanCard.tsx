@@ -55,7 +55,7 @@ export function PlanCard() {
           </>
         )}
       </div>
-      {open && <ProSheet state={state} onClose={() => setOpen(false)} />}
+      {open && <ProSheet from="settings" state={state} onClose={() => setOpen(false)} />}
     </Card>
   );
 }

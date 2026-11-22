@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/apohor/rivolt/internal/db"
+	"github.com/apohor/rivolt/internal/metrics"
 )
 
 type fakeSink struct {
@@ -172,5 +173,35 @@ func TestEvents_DemoViewVocabulary(t *testing.T) {
 	body := `{"anon_id":"` + anon + `","events":[{"name":"demo_view","props":{"utm_source":"x"}}]}`
 	if rec := postEvents(handleEvents(s), body, nil); rec.Code != http.StatusNoContent || len(s.evs) != 1 || s.evs[0].Name != "demo_view" {
 		t.Errorf("demo_view: code %d stored %v", rec.Code, s.evs)
+	}
+}
+
+// pro_sheet_open and pro_prompt_dismiss carry one fixed enum each and nothing else: a free-form value, a URL, a number or an extra prop drops.
+func TestEvents_ProVocabulary(t *testing.T) {
+	for _, from := range metrics.ProFromValues {
+		if got := sanitizeProps("pro_sheet_open", map[string]any{"from": from}); got["from"] != from {
+			t.Errorf("pro_sheet_open from=%s dropped: %v", from, got)
+		}
+	}
+	for _, where := range []string{"planner", "lapse_banner"} {
+		if got := sanitizeProps("pro_prompt_dismiss", map[string]any{"where": where}); got["where"] != where {
+			t.Errorf("pro_prompt_dismiss where=%s dropped: %v", where, got)
+		}
+	}
+	for _, bad := range []any{"sidebar", "https://x.test/?a=b", "Truck", "", 1, nil} {
+		if got := sanitizeProps("pro_sheet_open", map[string]any{"from": bad}); len(got) != 0 {
+			t.Errorf("from=%v kept: %v", bad, got)
+		}
+		if got := sanitizeProps("pro_prompt_dismiss", map[string]any{"where": bad}); len(got) != 0 {
+			t.Errorf("where=%v kept: %v", bad, got)
+		}
+	}
+	if got := sanitizeProps("pro_sheet_open", map[string]any{"from": "truck", "plan": "year", "user": "u"}); len(got) != 1 {
+		t.Errorf("extra props kept: %v", got)
+	}
+	s := &fakeSink{}
+	body := `{"anon_id":"` + anon + `","events":[{"name":"pro_sheet_open","props":{"from":"truck"}},{"name":"pro_prompt_dismiss","props":{"where":"planner"}}]}`
+	if rec := postEvents(handleEvents(s), body, nil); rec.Code != http.StatusNoContent || len(s.evs) != 2 {
+		t.Errorf("pro events: code %d stored %v", rec.Code, s.evs)
 	}
 }
