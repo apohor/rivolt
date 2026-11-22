@@ -42,7 +42,7 @@ const shot = async (page: Page, name: string) => {
 };
 
 for (const theme of ["light", "dark"] as const) {
-  for (const w of [393, 1440] as const) {
+  for (const w of [320, 393, 1440] as const) {
     test(`pro_entry Not now @webkit · ${w}px · ${theme}`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: { width: w, height: w < 500 ? 852 : 900 }, colorScheme: theme });
       const page = await ctx.newPage();
