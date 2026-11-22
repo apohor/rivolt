@@ -5,6 +5,7 @@ import { backend } from "./lib/api";
 import { inDemo } from "./lib/demo";
 import { trackDemoVisit } from "./lib/demoVisit";
 import { termsGateActive } from "./lib/terms";
+import { TERMS_VERSIONS } from "./lib/termsVersions";
 import { useImpersonationTarget } from "./lib/impersonation";
 
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -133,9 +134,10 @@ export default function App() {
       <Route path="privacy" element={<PrivacyPage />} />
       <Route path="changelog" element={<ChangelogPage />} />
       <Route path="terms" element={<TermsPage />} />
-      <Route path="terms/2026-10-23" element={<TermsArchivePage version="2026-10-23" />} />
-      <Route path="terms/2026-11-17" element={<TermsArchivePage version="2026-11-17" />} />
-      <Route path="terms/2026-11-21" element={<TermsArchivePage version="2026-11-21" />} />
+      {/* One route per archived version, from the list /terms links (lib/termsVersions.ts): a version listed there cannot be a dead link. */}
+      {TERMS_VERSIONS.map((v) => (
+        <Route key={v.key} path={`terms/${v.key}`} element={<TermsArchivePage version={v.key} />} />
+      ))}
       <Route path="moving-from-electrafi" element={<MovingFromElectraFiPage />} />
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
       <Route path="driver-account" element={<DriverAccountPage />} />

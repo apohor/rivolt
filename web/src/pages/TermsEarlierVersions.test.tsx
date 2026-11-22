@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
+import App from "../App";
 import { stubLegalFetch } from "../test/legalFetch";
 import { TERMS_VERSIONS } from "../lib/termsVersions";
 import TermsPage from "./TermsPage";
-import TermsArchivePage from "./TermsArchivePage";
 
 describe("earlier versions of the Terms", () => {
   beforeEach(() => stubLegalFetch());
@@ -22,12 +23,20 @@ describe("earlier versions of the Terms", () => {
     expect(TERMS_VERSIONS.map((v) => v.key)).toEqual(["2026-11-21", "2026-11-17", "2026-10-23"]);
   });
 
-  it("each archive page links back to the current Terms", async () => {
+  // Through the app's own router: a version in the list without a route in App.tsx would be a dead link and fail here.
+  it("every listed version opens from /terms in the app, with its date and the link back", async () => {
     for (const v of TERMS_VERSIONS) {
-      const { unmount } = render(<MemoryRouter initialEntries={[`/terms/${v.key}`]}><TermsArchivePage version={v.key} /></MemoryRouter>);
+      const { unmount } = render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <MemoryRouter initialEntries={["/terms"]}><App /></MemoryRouter>
+        </QueryClientProvider>,
+      );
       await screen.findByRole("heading", { level: 1, name: "Rivolt Terms of Service" });
-      expect(screen.getByText(new RegExp(`dated ${v.label}`))).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Current Terms" })).toHaveAttribute("href", "/terms");
+      fireEvent.click(screen.getByRole("link", { name: v.label }));
+      expect(await screen.findByText(new RegExp(`dated ${v.label}`))).toBeInTheDocument();
+      expect(await screen.findByText(new RegExp(`Last updated: ${v.label}`))).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("link", { name: "Current Terms" }));
+      expect(await screen.findByRole("link", { name: v.label })).toBeInTheDocument();
       unmount();
     }
   });
