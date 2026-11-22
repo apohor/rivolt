@@ -201,6 +201,7 @@ test("on a phone, a Use tap whose re-plan fails says why", async ({ browser }) =
 // legend) arrive after the map's chunk and the corridor call; the Use button sat about 200 px lower a second after it first showed.
 for (const v of [
   { name: "phone", w: 393, h: 852 },
+  { name: "phone narrow", w: 320, h: 640 },
   { name: "desktop", w: 1440, h: 960 },
 ]) {
   for (const scheme of ["dark", "light"] as const) {
@@ -216,7 +217,7 @@ for (const v of [
       const later = await top();
       expect(later - atOpen, `the Use button moved from ${atOpen} to ${later}`).toBe(0);
       // The still: the first day's map and chip rows, a second after the plan opened.
-      await page.locator("[data-day-card] [data-map-chips]").first().scrollIntoViewIfNeeded();
+      await page.locator("[data-day-card] [data-trip-map]").first().scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(process.cwd(), "e2e", "__screenshots__", `plan-open-${v.w}-${scheme}.png`) });
       await ctx.close();
     });
