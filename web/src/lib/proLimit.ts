@@ -39,6 +39,10 @@ export function proFeatureText(f: ProFeature, limit?: number): string {
   }
 }
 
+// Design key pro_entry (D5 A, mock m23a): the planner's note after Plan trip or Re-plan is pressed, saying what needs the Pro tier and how to
+// keep the plan free. Key off, proFeatureText("planner") is unchanged.
+export const PLANNER_NOTE_V2 = "Plans with an overnight are in the Pro tier. A single-day plan stays free: remove the overnight and plan again.";
+
 // The reason a record is hidden: the date the server names (free_from), as iOS does; otherwise no length is claimed (it depends on the account).
 function olderThan(from?: string): string {
   const d = planDate(from);
