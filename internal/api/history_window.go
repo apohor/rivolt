@@ -15,7 +15,7 @@ import (
 
 // The free plan's history window (Rivolt Pro, Sprint 14, item 2).
 //
-// A free account sees the current calendar month and the twelve before it (drives, charges and statements share one cutoff). Nothing is deleted or
+// A free account sees the current calendar month and the histwin.Months before it (drives, charges and statements share one cutoff). Nothing is deleted or
 // hidden in storage: the recorder, the jobs, the export and every privacy path see everything. The window is a property of a request: a
 // route that returns history is registered behind historyWindowMiddleware, which stamps the free window on the request's context for a
 // free account (nothing for Pro, billing off, the demo, or when the plan lookup failed). Handlers then narrow their RESPONSE:
@@ -49,14 +49,16 @@ func historyWindowMiddleware(e *entitlements.Service) func(http.Handler) http.Ha
 	}
 }
 
-// moneyWindowStart is the first instant of the oldest month a free account's Money statements show: the current month and the twelve before,
-// cut in the zone the request asked for. on is false when the request has no window (Pro, billing off, or a background context).
+// moneyWindowStart is the first instant of the oldest month a free account's Money statements show: the current month and the window's
+// months before it (the length stamped on the request), cut in the zone the request asked for. on is false when the request has no window
+// (Pro, billing off, or a background context).
 func moneyWindowStart(ctx context.Context, now time.Time, loc *time.Location) (from time.Time, on bool) {
-	if _, ok := histwin.From(ctx); !ok {
+	w, ok := histwin.From(ctx)
+	if !ok {
 		return time.Time{}, false
 	}
 	cur := now.In(loc)
-	return time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, -histwin.Months, 0), true
+	return time.Date(cur.Year(), cur.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, -w.Months, 0), true
 }
 
 // windowRows narrows rows (newest first or any order) to the request's window; with no window it returns rows unchanged.

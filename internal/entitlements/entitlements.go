@@ -240,8 +240,9 @@ type Service struct {
 }
 
 type cached struct {
-	st Rowset
-	at time.Time
+	st      Rowset
+	created time.Time // users.created_at; zero when it could not be read (the history window then treats the account as an existing one)
+	at      time.Time
 }
 
 // Rowset is the cached form: the rows, so a cache hit is recomputed at the current moment (a trial ending is seen on time).
@@ -324,7 +325,17 @@ func (s *Service) Window(ctx context.Context, uid uuid.UUID) (histwin.W, bool) {
 	if s.Pro(ctx, uid) {
 		return histwin.W{}, false
 	}
-	return histwin.Free(s.now()), true
+	_, created := s.account(ctx, uid)
+	return histwin.Free(s.now(), created), true
+}
+
+// Created is when the account was created (zero if unknown). The history window's length depends on it (against the cutoff).
+func (s *Service) Created(ctx context.Context, uid uuid.UUID) time.Time {
+	if s == nil || !s.billing || (s.demo != uuid.Nil && uid == s.demo) {
+		return time.Time{}
+	}
+	_, created := s.account(ctx, uid)
+	return created
 }
 
 // TrialEnd is the end of the account's running trial (false: none). Billing off, the demo account and a failed lookup have none.
@@ -365,16 +376,30 @@ func (s *Service) Invalidate(uid uuid.UUID) {
 }
 
 func (s *Service) rows(ctx context.Context, uid uuid.UUID) (Rowset, error) {
+	out, _, err := s.load(ctx, uid)
+	return out, err
+}
+
+// account is the account's creation time from the same cache entry as its rows; a failed read is logged and gives the zero time.
+func (s *Service) account(ctx context.Context, uid uuid.UUID) (Rowset, time.Time) {
+	out, created, err := s.load(ctx, uid)
+	if err != nil {
+		s.lookupFailed(err)
+	}
+	return out, created
+}
+
+func (s *Service) load(ctx context.Context, uid uuid.UUID) (Rowset, time.Time, error) {
 	now := s.now()
 	s.mu.Lock()
 	if c, ok := s.cache[uid]; ok && now.Sub(c.at) < s.ttl {
 		s.mu.Unlock()
-		return c.st, nil
+		return c.st, c.created, nil
 	}
 	s.mu.Unlock()
 	rs, err := s.db.QueryContext(ctx, `SELECT source, status, current_period_end, updated_at, cancel_at_period_end FROM entitlements WHERE user_id = $1`, uid)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	defer rs.Close()
 	var out Rowset
@@ -382,7 +407,7 @@ func (s *Service) rows(ctx context.Context, uid uuid.UUID) (Rowset, error) {
 		var r Row
 		var end sql.NullTime
 		if err := rs.Scan(&r.Source, &r.Status, &end, &r.UpdatedAt, &r.CancelAtPeriodEnd); err != nil {
-			return nil, err
+			return nil, time.Time{}, err
 		}
 		if end.Valid {
 			t := end.Time
@@ -391,15 +416,21 @@ func (s *Service) rows(ctx context.Context, uid uuid.UUID) (Rowset, error) {
 		out = append(out, r)
 	}
 	if err := rs.Err(); err != nil {
-		return nil, err
+		return nil, time.Time{}, err
+	}
+	// The account's age decides which window length applies (against the cutoff). A missing row or a failed read leaves it zero.
+	var created time.Time
+	var ct sql.NullTime
+	if err := s.db.QueryRowContext(ctx, `SELECT created_at FROM users WHERE id = $1`, uid).Scan(&ct); err == nil && ct.Valid {
+		created = ct.Time
 	}
 	s.mu.Lock()
 	if len(s.cache) >= s.maxCache {
 		s.cache = map[uuid.UUID]cached{} // a bound, not an eviction policy: the table is small and a miss is one indexed read
 	}
-	s.cache[uid] = cached{st: out, at: now}
+	s.cache[uid] = cached{st: out, created: created, at: now}
 	s.mu.Unlock()
-	return out, nil
+	return out, created, nil
 }
 
 // ManageSubscription is true when billing is off but the account has a Stripe subscription that is not over: it keeps renewing whatever

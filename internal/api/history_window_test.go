@@ -61,10 +61,10 @@ var routeClasses = map[string]windowClass{
 	"GET /api/sleep-activity":                     {"windowed", ""},
 	"GET /api/insights/efficiency":                {"windowed", ""},
 	"GET /api/milestones":                         {"exempt", "milestones are free (the milestone share card is a free feature): cumulative achievements the user earned, not browsable history"},
-	"GET /api/vehicles/{vehicleID}/drain":         {"exempt", "a fixed 30-day range, inside the free window (twelve months); computed per request, cached for a few minutes under a key that is the same for every plan"},
+	"GET /api/vehicles/{vehicleID}/drain":         {"exempt", "a fixed 30-day range, inside the free window (six months); computed per request, cached for a few minutes under a key that is the same for every plan"},
 	"GET /api/vehicles/{vehicleID}/pack-health":   {"proOnly", ""},
-	"GET /api/vehicles/{vehicleID}/parked-series": {"exempt", "a fixed 24-hour range, inside the free window (twelve months)"},
-	"GET /api/vehicles/{vehicleID}/sleep-health":  {"exempt", "a fixed 37-day range (this week and the 30 days before), inside the free window (twelve months)"},
+	"GET /api/vehicles/{vehicleID}/parked-series": {"exempt", "a fixed 24-hour range, inside the free window (six months)"},
+	"GET /api/vehicles/{vehicleID}/sleep-health":  {"exempt", "a fixed 37-day range (this week and the 30 days before), inside the free window (six months)"},
 	"GET /api/vehicles/{vehicleID}/trends":        {"proOnly", ""},
 	"GET /api/vehicles/{vehicleID}/cold-range":    {"proOnly", ""},
 	"GET /api/trips/saved/{id}/actual":            {"proOnly", ""},
@@ -342,7 +342,7 @@ func TestHistoryWindowMiddleware(t *testing.T) {
 // The client-supplied range is clamped to the window; a range inside it is left alone.
 func TestChartWindowIsClampedToTheFreeWindow(t *testing.T) {
 	now := time.Now()
-	win := histwin.Free(now)
+	win := histwin.Free(now, testNewAccount) // 12 or 6 months, depending on the day; 395 days is outside both
 	ctx := histwin.With(context.Background(), win)
 	ask := func(c context.Context, q string) time.Time {
 		req := httptest.NewRequest(http.MethodGet, "/api/chart-points"+q, nil).WithContext(c)
@@ -366,26 +366,26 @@ func TestChartWindowIsClampedToTheFreeWindow(t *testing.T) {
 }
 
 func TestMoneyWindowStart(t *testing.T) {
-	now := time.Date(2026, 11, 20, 15, 0, 0, 0, time.UTC)
+	now := time.Date(2027, 1, 20, 15, 0, 0, 0, time.UTC) // a new account: six months
 	chi, _ := time.LoadLocation("America/Chicago")
-	win := histwin.With(context.Background(), histwin.Free(now))
+	win := histwin.With(context.Background(), histwin.Free(now, testNewAccount))
 	if _, on := moneyWindowStart(context.Background(), now, time.UTC); on {
 		t.Error("no window in the context, but the Money window is on")
 	}
 	from, on := moneyWindowStart(win, now, time.UTC)
-	if !on || !from.Equal(time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("UTC: %v %v, want 2025-11-01 (November 2026 and the twelve months before)", from, on)
+	if !on || !from.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("UTC: %v %v, want 2026-07-01 (January 2027 and the six months before)", from, on)
 	}
 	// The month is cut in the zone the request asked for: just after midnight UTC on 1 December it is still 30 November in Chicago.
-	edge := time.Date(2026, 12, 1, 0, 30, 0, 0, time.UTC)
-	if from, _ := moneyWindowStart(win, edge, chi); !from.Equal(time.Date(2025, 11, 1, 0, 0, 0, 0, chi)) {
-		t.Errorf("Chicago at the month edge: %v, want 2025-11-01 local (it is still November there)", from)
+	edge := time.Date(2027, 2, 1, 0, 30, 0, 0, time.UTC)
+	if from, _ := moneyWindowStart(win, edge, chi); !from.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, chi)) {
+		t.Errorf("Chicago at the month edge: %v, want 2026-07-01 local (it is still January there)", from)
 	}
-	if from, _ := moneyWindowStart(win, edge, time.UTC); !from.Equal(time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("UTC at the month edge: %v, want 2025-12-01 (December 2026 and the twelve before)", from)
+	if from, _ := moneyWindowStart(win, edge, time.UTC); !from.Equal(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("UTC at the month edge: %v, want 2026-08-01 (February 2027 and the six before)", from)
 	}
 	// January reaches back across the year.
-	if from, _ := moneyWindowStart(win, time.Date(2027, 1, 10, 0, 0, 0, 0, time.UTC), time.UTC); !from.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("January: %v, want 2026-01-01", from)
+	if from, _ := moneyWindowStart(win, time.Date(2027, 1, 10, 0, 0, 0, 0, time.UTC), time.UTC); !from.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("January: %v, want 2026-07-01", from)
 	}
 }

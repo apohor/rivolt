@@ -6,30 +6,105 @@ import (
 	"time"
 )
 
+// newAccount is the creation time of an account after the cutoff set by cutoffRun.
+var newAccount = time.Unix(0, 0).Add(time.Hour)
+
+// cutoffRun sets a 6-month window with the cutoff far in the past for one test, so an account of newAccount's age has 6 months.
+func cutoffRun(t *testing.T) {
+	t.Helper()
+	old, oldM := Cutoff, Months
+	Months = 6
+	SetCutoff(time.Unix(0, 0))
+	t.Cleanup(func() { SetCutoff(old); Months = oldM })
+}
+
 func TestFreeWindow(t *testing.T) {
-	now := time.Date(2026, 11, 20, 15, 4, 5, 0, time.UTC)
-	w := Free(now)
-	// One cutoff for rows and statements: the first of the month twelve back, so the window is November 2026 and the twelve months before.
-	want := time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC)
-	if !w.Since.Equal(want) || !w.MoneyFrom.Equal(want) {
-		t.Errorf("since %v money from %v, want both %v", w.Since, w.MoneyFrom, want)
+	cutoffRun(t)
+	// An account created after the cutoff has Months.
+	now := time.Date(2027, 1, 20, 15, 4, 5, 0, time.UTC)
+	w := Free(now, newAccount)
+	// One cutoff for rows and statements: the first of the month Months back, so the window is January 2027 and the six months before.
+	want := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	if !w.Since.Equal(want) || !w.MoneyFrom.Equal(want) || w.Months != 6 {
+		t.Errorf("since %v money from %v months %d, want both %v and 6", w.Since, w.MoneyFrom, w.Months, want)
 	}
-	if w.Days != 384 {
-		t.Errorf("days %d, want 384 (2025-11-01 to 2026-11-20)", w.Days)
+	if w.Days != 203 {
+		t.Errorf("days %d, want 203 (2026-07-01 to 2027-01-20)", w.Days)
 	}
 	// Across a year boundary.
-	if w := Free(time.Date(2027, 1, 15, 0, 0, 0, 0, time.UTC)); !w.Since.Equal(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("january: since %v, want 2026-01-01", w.Since)
+	if w := Free(time.Date(2027, 3, 15, 0, 0, 0, 0, time.UTC), newAccount); !w.Since.Equal(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("march: since %v, want 2026-09-01", w.Since)
 	}
 	// A non-UTC "now" is read in UTC.
-	if w := Free(time.Date(2026, 12, 1, 0, 30, 0, 0, time.FixedZone("x", 2*3600))); !w.Since.Equal(want) {
-		t.Errorf("zone: since %v, want %v (it is still 30 November 22:30 UTC)", w.Since, want)
+	if w := Free(time.Date(2027, 2, 1, 0, 30, 0, 0, time.FixedZone("x", 2*3600)), newAccount); !w.Since.Equal(want) {
+		t.Errorf("zone: since %v, want %v (it is still 31 January 22:30 UTC)", w.Since, want)
 	}
-	// The window never reaches below a year or above a year and a month, so a client can rely on that range for free_days.
+	// The window never reaches below half a year or above half a year and a month, so a client can rely on that range for free_days.
 	for d := 0; d < 800; d++ {
-		if w := Free(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, d)); w.Days < 365 || w.Days > 396 {
+		if w := Free(time.Unix(0, 0).AddDate(0, 0, d), newAccount); w.Days < 181 || w.Days > 214 {
 			t.Fatalf("day %d: window of %d days", d, w.Days)
 		}
+	}
+}
+
+// The cutoff: an account created before it, or of unknown age, keeps LegacyMonths with no end date; one created at or after it gets Months.
+func TestMonthsForCutoff(t *testing.T) {
+	old := Months
+	Months = 6
+	SetCutoff(time.Date(2026, 11, 23, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(func() { SetCutoff(time.Time{}); Months = old })
+	before := Cutoff.Add(-time.Hour)
+	for _, c := range []struct {
+		name    string
+		created time.Time
+		want    int
+	}{
+		{"existing", before, LegacyMonths},
+		{"existing, long ago", Cutoff.AddDate(-3, 0, 0), LegacyMonths},
+		{"new at the cutoff", Cutoff, Months},
+		{"new after it", Cutoff.Add(time.Hour), Months},
+		{"unknown creation time", time.Time{}, LegacyMonths},
+	} {
+		if got := MonthsFor(c.created); got != c.want {
+			t.Errorf("%s: %d months, want %d", c.name, got, c.want)
+		}
+	}
+	// A year on, the existing account still has 12 and the new one 6.
+	now := Cutoff.AddDate(1, 0, 0)
+	if w := Free(now, before); w.Months != LegacyMonths || !w.Since.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("existing a year on: %+v, want 12 months back from November 2027", w)
+	}
+	if w := Free(now, Cutoff.Add(time.Hour)); w.Months != Months || !w.Since.Equal(time.Date(2027, 5, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("new a year on: %+v, want 6 months back from November 2027", w)
+	}
+	if w := Free(now, time.Time{}); w.Months != LegacyMonths {
+		t.Errorf("unknown a year on: %+v, want 12 months", w)
+	}
+}
+
+// Unset (the default) is the code shipping inert: every account, old, new or unknown, keeps 12 months; and the setting is parsed strictly.
+func TestCutoffUnset(t *testing.T) {
+	old := Months
+	Months = 6
+	t.Cleanup(func() { Months = old; SetCutoff(time.Time{}) })
+	SetCutoff(time.Time{})
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, created := range []time.Time{{}, now.AddDate(-3, 0, 0), now.Add(-time.Hour)} {
+		if got := MonthsFor(created); got != LegacyMonths {
+			t.Errorf("created %v, cutoff unset: %d months, want %d", created, got, LegacyMonths)
+		}
+	}
+	if w := Free(now, time.Time{}); w.Months != LegacyMonths || !w.Since.Equal(time.Date(2029, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("unset: %+v, want 12 months back from January", w)
+	}
+	if err := ConfigureCutoff(" 2026-12-01T00:00:00Z "); err != nil || !Cutoff.Equal(time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("ConfigureCutoff: %v, cutoff %v", err, Cutoff)
+	}
+	if err := ConfigureCutoff("2026-12-01"); err == nil {
+		t.Error("a date without a time was accepted")
+	}
+	if err := ConfigureCutoff(""); err != nil || !Cutoff.IsZero() {
+		t.Errorf("ConfigureCutoff empty: %v, cutoff %v", err, Cutoff)
 	}
 }
 
@@ -69,6 +144,8 @@ func TestContextWindow(t *testing.T) {
 
 // The one setting: unset is 12, a whole number from 1 to 24 is taken, anything else is refused (the server will not start on it).
 func TestConfigure(t *testing.T) {
+	t.Cleanup(func() { SetCutoff(time.Time{}) })
+	SetCutoff(time.Unix(0, 0))
 	t.Cleanup(func() { Months = 12 })
 	for raw, want := range map[string]int{"": 12, "  ": 12, "6": 6, " 24 ": 24, "1": 1} {
 		if err := Configure(raw); err != nil || Months != want {
@@ -84,7 +161,21 @@ func TestConfigure(t *testing.T) {
 	if err := Configure("6"); err != nil {
 		t.Fatal(err)
 	}
-	if w := Free(time.Date(2027, 1, 20, 0, 0, 0, 0, time.UTC)); w.Months != 6 || !w.Since.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
+	if w := Free(time.Date(2027, 1, 20, 0, 0, 0, 0, time.UTC), newAccount); w.Months != 6 || !w.Since.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("at 6: %+v", w)
+	}
+}
+
+// A setting of 12 or more takes nothing away, so it needs no cutoff; a shorter one is inert until the cutoff is set.
+func TestSettingNeedsNoticeOnlyBelowLegacy(t *testing.T) {
+	old := Months
+	t.Cleanup(func() { Months = old; SetCutoff(time.Time{}) })
+	now := time.Date(2027, 1, 20, 0, 0, 0, 0, time.UTC)
+	SetCutoff(time.Time{})
+	for m, want := range map[int]int{12: 12, 18: 18, 6: 12, 3: 12} {
+		Months = m
+		if got := MonthsFor(now.AddDate(-1, 0, 0)); got != want {
+			t.Errorf("setting %d, no cutoff: %d months, want %d", m, got, want)
+		}
 	}
 }

@@ -52,7 +52,7 @@ func (a ledgerAPI) coach(uid uuid.UUID, w http.ResponseWriter, r *http.Request) 
 		}
 		periods = append(periods, pp)
 	}
-	// A free account's window is the current month and the twelve before; months older than it are left out.
+	// A free account's window is the current month and the window's months before it; months older than it are left out.
 	if from, on := moneyWindowStart(r.Context(), a.now(), p.loc); on {
 		var keep []ledger.Period
 		for _, pp := range periods {
