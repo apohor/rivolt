@@ -35,6 +35,7 @@ import { ChargerTypeInfo } from "../components/ChargerTypeInfo";
 import { foldCredits, tripCard, tilesNotice } from "./controls";
 import { drawLegBadges, type BadgesHandle, type LegWeatherInfo } from "./legBadges";
 import { legWeatherTags } from "../plan/legWeather";
+import { chargePillText } from "./pillText";
 import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
   bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, offRouteLine, sameSpot, valhallaMultiRoute, waypointTooltip,
@@ -51,13 +52,14 @@ const CHARGERS_LAYER = "rivolt-chargers-dots";
 const VARIANTS: Variant[] = ["dcfc", "l2", "hotel", "camp"];
 
 // The waypoint dot, plain or selected (the stops-table row is highlighted): the selected one is larger and ringed, its glow a touch target.
-function dotElement(color: string, size: number, selected: boolean, bolt = false): HTMLElement {
+function dotElement(color: string, size: number, selected: boolean, bolt: boolean | string = false): HTMLElement {
   const el = document.createElement("span");
   if (bolt) {
     // A charging stop: an amber disc with a bolt, as in the mockup; the selected one is ringed and larger.
     const px = selected ? 26 : 22;
     el.className = selected ? "trip-route-dot-selected" : "trip-route-dot";
-    el.textContent = "⚡";
+    // plan_v2: the stop's number (the itinerary row carries the same one) in place of the bolt.
+    el.textContent = typeof bolt === "string" ? bolt : "⚡";
     el.style.cssText =
       `display:inline-flex;align-items:center;justify-content:center;width:${px}px;height:${px}px;border-radius:9999px;background:${color};color:#0a0a0a;` +
       `font:700 ${selected ? 15 : 13}px/1 ui-sans-serif,system-ui;border:${selected ? 3 : 2}px solid ${selected ? "#fafafa" : "#0a0a0a"};box-shadow:0 0 0 ${selected ? 4 : 2}px ${color}55;`;
@@ -163,7 +165,7 @@ export function TripRouteMap({
   // Waypoint markers by their index in route.Waypoints, so a table-row selection can restyle the right one.
   const selectedIdxRef = useRef(selectedIdx);
   selectedIdxRef.current = selectedIdx;
-  const wpMarkersRef = useRef<Map<number, { marker: Marker; color: string; size: number; wrap: HTMLElement; bolt: boolean }>>(new Map());
+  const wpMarkersRef = useRef<Map<number, { marker: Marker; color: string; size: number; wrap: HTMLElement; bolt: boolean | string }>>(new Map());
   const chargersRef = useRef<GeoJSON.FeatureCollection>({ type: "FeatureCollection", features: [] });
   const popupRef = useRef<Popup | null>(null);
   // True between a style's "style.load" and the next setStyle. Not map.isStyleLoaded(): that is false while any source is still loading a
@@ -216,7 +218,8 @@ export function TripRouteMap({
   const [chargersLoading, setChargersLoading] = useState(false);
   // No charger source (the signed-out demo, or a server without the archive): the chips would contradict a route that has charging stops.
   const [noChargerSource, setNoChargerSource] = useState(inDemo());
-  const hasWeather = !!legWeather?.some((l) => l);
+  // plan_v2: the map carries the charge pills only; each leg's weather is in the itinerary rows (and the stop's detail).
+  const hasWeather = !planV2 && !!legWeather?.some((l) => l);
   // The caller builds the array afresh each render; redraw only when its content changes.
   const weatherKey = JSON.stringify(legWeather ?? null);
   // Where the pins are on the map right now (the leg badges keep clear of them), and the pills' placement, which the badges call again once they move.
@@ -247,6 +250,8 @@ export function TripRouteMap({
   // A 401/403 on the frame (radar is not served to this visitor) hides the button and says nothing, as if the server had no radar.
   const [radarDenied, setRadarDenied] = useState(false);
   const radarOn = radarEnabled() && !radarDenied;
+  // The weather chip (it shows with the radar too, as before); plan_v2 has none: the weather is in the itinerary.
+  const weatherChip = !planV2 && (hasWeather || radarOn);
   // The map's fit reads the radar row's room through this, so a refused radar stops reserving it.
   const radarOnRef = useRef(radarOn);
   radarOnRef.current = radarOn;
@@ -623,13 +628,15 @@ export function TripRouteMap({
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
         // ...and the radar strip under them (one line, and the label of a pin that sits just under it), when this visitor has radar: reserved whether or not it is on, so turning it on covers no pin.
         // On a phone the strip rides the sheet's edge instead, inside the bottom's room.
-        const top = fill ? Math.max(narrow ? 96 : 64, chipsBottom + (radarOnRef.current && !sheetEdge() ? 52 : 0)) : 24;
+        const top = fill ? Math.max(narrow ? (planV2 ? 72 : 96) : 64, chipsBottom + (radarOnRef.current && !sheetEdge() ? 52 : 0)) : 24;
         // Without a card the strip alone is the bottom's obstacle (22 px high, 8 px up).
         const base = fill ? (narrow ? 40 : radarOnRef.current ? 40 : 24) : 24;
         // The phone's sheet covers the lower part of the map at half: the route clears it and the strip on its edge.
-        const cover = sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 : 0) + 12 : 0;
+        const cover = sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 : 0) + (planV2 ? 6 : 12) : 0;
         const bottom = Math.max(base, Math.min(Math.max(lift, cover), el.clientHeight - top - 60));
-        return { top, bottom, left: 24, right: 24 };
+        // plan_v2 frames the route tighter: a smaller margin at the sides, and under the sheet only what its edge covers.
+        const side = planV2 ? 14 : 24;
+        return { top, bottom, left: side, right: side };
       };
       // How much of the map the phone's sheet covers right now (0 without a sheet): the credits are lifted by as much, so they stay in view.
       const sheetEdge = () => !!fill && !!document.querySelector("[data-plan-sheet]");
@@ -684,7 +691,8 @@ export function TripRouteMap({
       // another is dropped (the origin and destination first).
       const shortName = (n: string) => {
         const part = n.split(",")[0].trim();
-        const max = narrow ? 18 : 30;
+        // plan_v2: a phone has room for the same name a wide screen shows (a pill with no room is dropped, never cut).
+        const max = narrow && !planV2 ? 18 : 30;
         return part.length > max ? part.slice(0, max - 1) + "…" : part;
       };
       // awayPoint is a point of the route about 40 px along from the origin (or back from the destination), on the screen: where the line goes from the pin.
@@ -697,6 +705,8 @@ export function TripRouteMap({
         }
         return null;
       };
+      // plan_v2: a charging stop's place among the charging stops (1, 2, ...): the number its itinerary row carries.
+      const chargeNumber = (origIdx: number) => route.Waypoints.slice(0, origIdx).filter(isChargingWaypoint).length + 1;
       const pillKeyRef = { key: "" };
       const updatePills = (force = false) => {
         if (!styleReadyRef.current) return;
@@ -736,7 +746,8 @@ export function TripRouteMap({
           const w = ws[i];
           const ll: [number, number] = [w.Longitude, w.Latitude];
           const min = Math.round(w.ChargeDurationSec / 60);
-          const text = w.ChargeDurationSec > 0 ? `${min} min · ${Math.round(w.ArrivalSoC)}→${Math.round(w.DepartureSoC)}%` : shortName(w.Name || "Stop");
+          const num = planV2 && isChargingWaypoint(w) ? chargeNumber(wsWithIdx[i].i) : null;
+          const text = w.ChargeDurationSec > 0 ? chargePillText(min, w.ArrivalSoC, w.DepartureSoC, num) : shortName(w.Name || "Stop");
           const size = measurePill(text);
           const usual = pillSide(map, ll);
           const pin = map.project(ll);
@@ -779,7 +790,8 @@ export function TripRouteMap({
         // The marker's own element keeps the library's classes and a fixed box (a steady anchor and a touch target); the dot inside swaps on selection.
         const element = document.createElement("div");
         element.style.cssText = "display:flex;align-items:center;justify-content:center;width:28px;height:28px;";
-        element.appendChild(dotElement(color, size, false, !isEnd && isChargingWaypoint(w)));
+        const bolt: boolean | string = !isEnd && isChargingWaypoint(w) ? (planV2 ? String(chargeNumber(origIdx)) : true) : false;
+        element.appendChild(dotElement(color, size, false, bolt));
         element.style.cursor = "pointer";
         const marker = new ml.Marker({ element }).setLngLat([w.Longitude, w.Latitude]).addTo(map);
         // A tap or click selects the stops-table row and opens the stop's callout (a touch screen has no hover); hovering shows the same words.
@@ -798,7 +810,6 @@ export function TripRouteMap({
         });
         element.addEventListener("mouseenter", () => { if (!callout.isOpen()) tip.setLngLat([w.Longitude, w.Latitude]).setHTML(waypointTooltip(w, i, ws.length, endWp)).addTo(map); });
         element.addEventListener("mouseleave", () => tip.remove());
-        const bolt = !isEnd && isChargingWaypoint(w);
         wpMarkersRef.current.set(origIdx, { marker, color, size, wrap: element, bolt });
         // A stop picked before its marker existed (the map was still starting) or before the markers were drawn again: the marker comes up already selected.
         if (selectedIdxRef.current === origIdx) {
@@ -1287,7 +1298,7 @@ export function TripRouteMap({
       {!noChargerSource && chargerChips(false)}
       </div>
       {!fill && radarStrip}
-      {(hasWeather || radarOn) && (
+      {weatherChip && (
         // Map layers other than chargers sit under the zoom buttons, as the map apps do: the charger row stays one line.
         <div className={fill ? "absolute left-[11px] top-[78px] z-[500] flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
           <button
@@ -1305,7 +1316,7 @@ export function TripRouteMap({
         </div>
       )}
       {radarOn && (
-        <div className={fill ? "absolute left-[11px] top-[118px] z-[500] flex items-center gap-2" : "mb-1 flex items-center gap-2"}>
+        <div className={fill ? `absolute left-[11px] ${weatherChip ? "top-[118px]" : "top-[78px]"} z-[500] flex items-center gap-2` : "mb-1 flex items-center gap-2"}>
           <button
             type="button"
             aria-label="Radar"
