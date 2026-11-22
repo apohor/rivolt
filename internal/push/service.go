@@ -436,21 +436,6 @@ func (s *Service) DeliverTripRecap(ctx context.Context, store *Store, p Payload)
 	return ok, nil
 }
 
-// NotifyAnomaly fires when an anomaly is detected for the user. Scoped
-// to the user via store.
-func (s *Service) NotifyAnomaly(store *Store, title, body, deepLink string) {
-	if s == nil || store == nil {
-		return
-	}
-	go s.broadcast(store, Payload{
-		Title: title,
-		Body:  body,
-		Tag:   "rivolt-anomaly",
-		URL:   deepLink,
-		Kind:  "anomaly",
-	}, selectAnomaly)
-}
-
 // NotifySoftwareUpdate fires when a vehicle is offered a new software
 // version (installed=false) or its installed version changed
 // (installed=true). Scoped to the user via store. The tap opens the app: Rivian's
@@ -516,7 +501,6 @@ type selector func(Subscription) bool
 
 func selectChargingDone(s Subscription) bool   { return s.OnChargingDone }
 func selectPlugInReminder(s Subscription) bool { return s.OnPlugInReminder }
-func selectAnomaly(s Subscription) bool        { return s.OnAnomaly }
 func selectSoftwareUpdate(s Subscription) bool { return s.OnSoftwareUpdate }
 func selectLeftOpen(s Subscription) bool       { return s.OnLeftOpen }
 func selectTireLow(s Subscription) bool        { return s.OnTireLow }
