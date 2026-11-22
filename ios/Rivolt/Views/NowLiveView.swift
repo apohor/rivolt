@@ -85,6 +85,9 @@ struct NowLiveView: View {
     }
 
     private var plugAnim: Bool { appState?.designPreview.contains("plug_anim") == true }
+    private var pulseState: ChargePulse.State {
+        ChargePulse.state(on: appState?.designPreview.contains("charge_pulse") == true, kind: summary.kind, powerKw: summary.chargePowerKw, offline: offline)
+    }
 
     private var energy: some View {
         let detail = ChargingDetail.make(summary: summary, session: session, charge: charge)
@@ -147,7 +150,10 @@ struct NowLiveView: View {
     private func row(_ label: String, _ value: String?, estimated: Bool = false, marked: Bool = true) -> some View {
         let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
         return layout {
-            Text(label).themeText(.value, color: Theme.textSecondary)
+            HStack(spacing: 6) {
+                Text(label).themeText(.value, color: Theme.textSecondary)
+                if label == "Power" || (label == "Battery" && pulseState == .plugged) { PulseBolt(state: pulseState) }
+            }
             if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
             (Text(value ?? "–") + Text(estimated && marked && value != nil ? " est." : "").font(Theme.sans(ThemeTokens.typeCaption, .regular, relativeTo: .caption)).foregroundColor(Theme.textTertiary))
                 .themeText(.value).fixedSize(horizontal: false, vertical: true)
