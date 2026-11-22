@@ -5,6 +5,7 @@ import { ApiError, backend } from "../lib/api";
 import { discoveryStateOf, discoveryView } from "../lib/vehicleDiscovery";
 import { useDemoEnabled, useDesignPreview } from "../lib/config";
 import { AuthorizedDriverNote, NO_VEHICLE_CAUSE, NO_VEHICLE_MAIN_ACCOUNT, RivianAccountPanel } from "./RivianAccountPanel";
+import { useMarkConnectPromptShown } from "../lib/connectPromptShown";
 import { Card } from "./ui";
 import { CONNECT_TRUST_LINE, ConnectTrustLines } from "./ConnectTrustLines";
 
@@ -63,6 +64,8 @@ export default function ConnectRivianPrompt({
   useEffect(() => {
     if (dstate === "found") void owned.refetch();
   }, [dstate]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The connect state under signup_v2 (a truckless, signed-out-of-Rivian account): the banner above says nothing more than this card does.
+  useMarkConnectPromptShown(signupV2 && !!status.data?.enabled && !authenticated);
   if (status.isLoading || !status.data || !status.data.enabled) return null;
   if (authenticated && !noVehicles) return null;
   if (dview) {

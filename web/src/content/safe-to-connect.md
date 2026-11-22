@@ -9,7 +9,7 @@ You don't need an account to see what Rivolt does. The [demo](https://demo.rivol
 ## What Rivolt reads, and what it never does
 
 - Connect a Rivian account and Rivolt reads your truck's data, such as drives, charges, battery and location.
-- It sends no commands to your truck (no locks, climate or charging controls): the only thing it sends Rivian is the sign-in itself. Reading its data can occasionally wake it.
+- It sends no commands to your truck (no locks, climate or charging controls); the only changes it sends Rivian are the sign-in calls. Reading its data can occasionally wake it.
 - Your Rivian password is used once to sign in and is never stored. What Rivolt keeps is your Rivian email, an encrypted session token, and when you signed in (so it can warn you before Rivian ends the session).
 - The drives and charges it records, including location, are described in the [Privacy policy](/privacy): what is recorded, how long it is kept and how to delete it. There are no ads and no third-party analytics.
 
