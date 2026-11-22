@@ -49,7 +49,7 @@ export function TrendsCard({ vehicleID }: { vehicleID: string }) {
   // Only a Pro account gets here with data (the route is Pro-only: a free account's 402 is the notice above), so the control is shown
   // once the first answer is in, and no range is asked for before the account has proved it can read trends.
   const ranges = q.data ? (
-    <div className="inline-flex rounded-md border border-neutral-800 p-0.5 text-xs" role="group" aria-label="Range" data-trends-range>
+    <div className="inline-flex min-w-0 max-w-full flex-wrap rounded-md border border-neutral-800 p-0.5 text-xs" role="group" aria-label="Range" data-trends-range>
       {RANGES.map((r) => (
         <button
           key={r.months}
