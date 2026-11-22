@@ -44,7 +44,7 @@ export function SummaryStrip({
   const gasEquiv = cost?.gas_equivalent ?? 0;
   const totalChargeMin = chargeMinutes;
   const arrSoCNext = adjustment ? adjustment.final_arrival_soc : route.ArrivalSoC;
-  // plan_v2 only (the provider is not there otherwise): an arrival under the person's reserve is tinted amber and said in the label.
+  // plan_v2 only (the provider is not there otherwise): an arrival under the person's target is tinted amber and said in the label.
   const reserve = useReservePct();
   const low = underReserve(arrSoCNext, reserve);
   const arriveAt = (() => {
@@ -55,7 +55,7 @@ export function SummaryStrip({
     }
     return t;
   })();
-  const parts = split ? timeSplit(route.TotalTripDurationSec, route.TotalChargingDurationSec) : null;
+  const parts = split ? timeSplit(route.TotalTripDurationSec, route.TotalChargingDurationSec, route.TotalDriveDurationSec) : null;
   // The result as a hero (cost, arrival arc, time) over the map and a route timeline.
   return (
     // Narrower than 360 CSS px (a phone with Safari's aA text size at 200 % and up) the cost goes under the arc and the four figures stack, so
@@ -63,7 +63,7 @@ export function SummaryStrip({
     <div data-plan-hero className="mb-4 grid grid-cols-1 items-center gap-x-5 gap-y-4 min-[360px]:grid-cols-[auto_1fr]">
       <ArcGauge
         value={arrSoCNext}
-        label={arrSoCNext > 0 ? `Arrival battery ${Math.round(arrSoCNext)} percent${low ? `, under your ${Math.round(reserve ?? 0)} percent reserve` : ""}` : "Arrival battery unknown"}
+        label={arrSoCNext > 0 ? `Arrival battery ${Math.round(arrSoCNext)} percent${low ? `, under your ${Math.round(reserve ?? 0)} percent target` : ""}` : "Arrival battery unknown"}
         tone={arrSoCNext > 0 && arrSoCNext < 15 ? "critical" : low ? "low" : "ok"}
         size={compact ? 104 : 116}
       >
@@ -118,6 +118,7 @@ export function SummaryStrip({
             <dd data-time-split className="mt-0.5 text-[11px] leading-snug text-neutral-500">
               <span className="block">{parts.driving} driving</span>
               <span className="block">{parts.charging} charging</span>
+              {parts.other && <span className="block" data-time-other>{parts.other} other</span>}
             </dd>
           )}
         </div>

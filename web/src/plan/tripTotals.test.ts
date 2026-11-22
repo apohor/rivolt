@@ -10,12 +10,20 @@ describe("tripTotalsText", () => {
 });
 
 describe("timeSplit", () => {
-  it("is driving = total minus charging, so the parts add up", () => {
-    expect(timeSplit(14_700, 1_500)).toEqual({ driving: "3h 40m", charging: "25 min" });
+  it("shows the plan's own driving and charging time", () => {
+    expect(timeSplit(14_700, 1_500, 13_200)).toEqual({ driving: "3h 40m", charging: "25 min", other: null });
   });
-  it("is null without charging or with nonsense", () => {
-    expect(timeSplit(14_700, 0)).toBeNull();
-    expect(timeSplit(0, 100)).toBeNull();
-    expect(timeSplit(1_000, 2_000)).toBeNull();
+  it("names what the total holds beyond them instead of calling it driving", () => {
+    // A day with a 40 min rest: total 4h 45m, driving 3h 40m, charging 25 min.
+    expect(timeSplit(17_100, 1_500, 13_200)).toEqual({ driving: "3h 40m", charging: "25 min", other: "40 min" });
+  });
+  it("treats a gap under 5 minutes as rounding", () => {
+    expect(timeSplit(14_900, 1_500, 13_200)?.other).toBeNull();
+  });
+  it("is null when a part is unknown or the parts overrun the total", () => {
+    expect(timeSplit(14_700, 0, 13_200)).toBeNull();
+    expect(timeSplit(14_700, 1_500, 0)).toBeNull();
+    expect(timeSplit(0, 100, 100)).toBeNull();
+    expect(timeSplit(10_000, 5_000, 9_000)).toBeNull();
   });
 });
