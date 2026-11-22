@@ -14,15 +14,16 @@ import { demoLinksFor } from "../lib/demoLinks";
 //
 // `privacy` keeps the privacy controls in reach on a record the free window hides (they are free on every plan, nothing is deleted):
 // the export, "delete history before a month", and, where the record can be deleted by itself, that button (`extra`).
-export function ProLimitNotice({ limit, privacy = false, extra, feature }: { limit: ProLimit; privacy?: boolean; extra?: ReactNode; feature?: ProFeature }) {
+export function ProLimitNotice({ limit, privacy = false, extra, feature, overnight = false }: { limit: ProLimit; privacy?: boolean; extra?: ReactNode; feature?: ProFeature; overnight?: boolean }) {
   const me = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 });
   const state = planState(me.data);
   const [open, setOpen] = useState(false);
-  // pro_entry (D5 A): the planner note and its button read as the mock says; every other notice is unchanged.
+  // pro_entry (D5 A): the planner note's button reads as the mock says. Its sentence ("remove the overnight") is true only for a refused plan
+  // that had an overnight (`overnight`, set by the plan form); the overnight suggestions and re-plan from the truck keep today's sentence.
   const entryV2 = useDesignPreview("pro_entry") && feature === "planner";
   return (
     <div role="note" data-pro-limit={limit.code} className="rounded-lg border border-sky-800/60 bg-sky-950/40 px-3 py-3 text-sm text-sky-100">
-      <p>{entryV2 ? PLANNER_NOTE_V2 : feature ? proFeatureText(feature, limit.code === "pro_required" ? limit.limit : undefined) : proLimitText(limit)}</p>
+      <p>{entryV2 && overnight ? PLANNER_NOTE_V2 : feature ? proFeatureText(feature, limit.code === "pro_required" ? limit.limit : undefined) : proLimitText(limit)}</p>
       {privacy && (
         <div data-pro-limit-privacy className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
           <Link to="/settings#export" className="underline underline-offset-2">Export everything</Link>

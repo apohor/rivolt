@@ -85,14 +85,14 @@ describe("the planner note under design key pro_entry (D5 A)", () => {
     vi.resetModules();
   });
 
-  async function planError(keyOn: boolean) {
+  async function planError(keyOn: boolean, overnight = true) {
     vi.resetModules();
     vi.doMock("../lib/config", async (orig) => ({ ...(await orig<typeof import("../lib/config")>()), useDesignPreview: (k: string) => keyOn && k === "pro_entry" }));
     const { PlanError } = await import("../pages/TripPlanPage");
     const { ApiError } = await import("../lib/api");
     Element.prototype.scrollIntoView = vi.fn();
     stubFetchRoutes({ "/api/auth/me": { body: free } });
-    wrap(<PlanError error={new ApiError(402, { error: "pro_required" })} />);
+    wrap(<PlanError error={new ApiError(402, { error: "pro_required" })} overnight={overnight} />);
   }
 
   it("key on: the reworded note and See the Pro tier; key off: today's note and See Pro", async () => {
@@ -103,5 +103,22 @@ describe("the planner note under design key pro_entry (D5 A)", () => {
     await planError(false);
     expect(screen.getByText(/Multi-day plans, overnights and re-plan from here are part of Rivolt Pro\. A single-day plan stays free\./)).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "See Pro" })).toBeInTheDocument();
+  });
+
+  it("key on, a refused plan with no overnight (re-plan from the truck, overnight suggestions): today's sentence, the new button", async () => {
+    await planError(true, false);
+    expect(screen.queryByText(/remove the overnight/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Multi-day plans, overnights and re-plan from here are part of Rivolt Pro\. A single-day plan stays free\./)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "See the Pro tier" })).toBeInTheDocument();
+  });
+
+  it("the overnight-suggestions 402 renders ProLimitNotice without the overnight flag: no 'remove the overnight'", async () => {
+    vi.resetModules();
+    vi.doMock("../lib/config", async (orig) => ({ ...(await orig<typeof import("../lib/config")>()), useDesignPreview: (k: string) => k === "pro_entry" }));
+    const { ProLimitNotice } = await import("./ProLimitNotice");
+    stubFetchRoutes({ "/api/auth/me": { body: free } });
+    wrap(<ProLimitNotice limit={{ code: "pro_required" }} feature="planner" />);
+    expect(screen.queryByText(/remove the overnight/)).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "See the Pro tier" })).toBeInTheDocument();
   });
 });
