@@ -49,3 +49,21 @@ func TestConfigDesignPreviewFeature(t *testing.T) {
 		}
 	}
 }
+
+// features.terms_version is the Terms version accepted now, so the sign-up screen can carry which version a ticked box was for.
+func TestConfigTermsVersionFeature(t *testing.T) {
+	h := handleConfig(false, false, false, false, nil, nil, configExtras{})
+	rec := httptest.NewRecorder()
+	h(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	var body struct {
+		Features struct {
+			TermsVersion string `json:"terms_version"`
+		} `json:"features"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Features.TermsVersion != currentTermsVersion {
+		t.Errorf("terms_version = %q, want %q", body.Features.TermsVersion, currentTermsVersion)
+	}
+}

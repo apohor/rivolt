@@ -293,6 +293,8 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		TripShare bool `json:"trip_share"`
 		// DesignPreview lists the design keys the client shows its new look for (RIVOLT_DESIGN_PREVIEW; on in preview, off in prod). Always an array; keys are passed through unchecked, a client ignores keys it does not know.
 		DesignPreview []string `json:"design_preview"`
+		// TermsVersion is the Terms version users accept now (currentTermsVersion), so the sign-up screen can carry which version a ticked box was for.
+		TermsVersion string `json:"terms_version"`
 	}
 	type valhallaCfg struct {
 		// Path is the same-origin URL prefix for Valhalla's HTTP
@@ -399,6 +401,7 @@ func handleConfig(valhallaEnabled, tilesEnabled, aiEnabled, impersonationDisable
 		c := base
 		keys := ex.designKeys()
 		c.Features.DesignPreview = append([]string{}, keys...)
+		c.Features.TermsVersion = currentTermsVersion
 		if ex.Radar && slices.Contains(keys, radar.SmoothKey) {
 			c.Tiles.RadarMaxZoom = radar.SmoothMaxZoom
 		}
