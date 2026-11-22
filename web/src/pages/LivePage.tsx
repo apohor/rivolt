@@ -43,16 +43,12 @@ export default function LivePage() {
       ) : status.isLoading ? (
         <Spinner />
       ) : !status.data?.enabled ? (
-        <Card title="Live client disabled">
+        <Card title="Live isn't available">
           <p className="text-sm text-neutral-400">
-            The Rivian live client is off (
-            <code className="text-neutral-300">RIVIAN_CLIENT=stub</code>). Set{" "}
-            <code className="text-neutral-300">RIVIAN_CLIENT=mock</code> for
-            fixture data, or leave it unset and sign in from{" "}
-            <Link to="/settings" className="text-emerald-400 hover:underline">
-              Settings
-            </Link>
-            .
+            Rivian isn't available right now.{" "}
+            <button type="button" onClick={() => void status.refetch()} className="text-emerald-400 hover:underline">
+              Try again
+            </button>
           </p>
         </Card>
       ) : !status.data.authenticated ? (
