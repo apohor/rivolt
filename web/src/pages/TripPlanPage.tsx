@@ -1,4 +1,5 @@
 import "../styles/next-plan.css";
+import { endpointColor, endpointGlow } from "../plan/endpointColors";
 import { movableVia, moveVia, viaMoveLabel, viaPosition, viaRemoveLabel } from "../plan/reorderVias";
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";
@@ -1402,7 +1403,7 @@ function LocationField({
   // One compact row: a coloured node, the place (or the search), presets below.
   return (
     <div data-plan-field data-heading={heading} role="group" aria-label={heading}>
-      <span data-plan-dot aria-hidden />
+      <span data-plan-dot aria-hidden style={v2 ? { background: endpointColor(heading === "To" ? "end" : "start"), boxShadow: endpointGlow(endpointColor(heading === "To" ? "end" : "start")) } : undefined} />
       <div data-plan-field-main>
         {value ? (
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-0.5">

@@ -3,6 +3,7 @@
 // percentile; a mode shows only when the drive has the values), start and end pins with time pills, the chart-scrub dot and its readout,
 // hover-to-time, a legend card and the GPS staleness badge. MapLibre, its worker and the PMTiles reader load as their own chunk when this mounts (loader.ts). Without WebGL it says
 // the map is unavailable and leaves the rest of the page standing.
+import { END_COLOR, START_COLOR } from "../plan/endpointColors";
 import { useEffect, useMemo, useRef } from "react";
 import type { Map as MLMap, Marker } from "maplibre-gl";
 import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
@@ -255,8 +256,8 @@ export function DriveMap({
       if (!hasSpread && latlngs.length > 0) map.jumpTo({ center: [latlngs[0][1], latlngs[0][0]], zoom: 16 });
 
       const markers: Marker[] = [];
-      if (lineStart) markers.push(new ml.Marker({ element: pinElement("#10b981", sameSpot ? "Start / End" : "Start") }).setLngLat([lineStart.lon, lineStart.lat]).addTo(map));
-      if (lineEnd && !sameSpot) markers.push(new ml.Marker({ element: pinElement("#f43f5e", "End") }).setLngLat([lineEnd.lon, lineEnd.lat]).addTo(map));
+      if (lineStart) markers.push(new ml.Marker({ element: pinElement(START_COLOR, sameSpot ? "Start / End" : "Start") }).setLngLat([lineStart.lon, lineStart.lat]).addTo(map));
+      if (lineEnd && !sameSpot) markers.push(new ml.Marker({ element: pinElement(END_COLOR, "End") }).setLngLat([lineEnd.lon, lineEnd.lat]).addTo(map));
       for (const s of stops ?? []) {
         if (Number.isFinite(s.lat) && Number.isFinite(s.lon) && (s.lat !== 0 || s.lon !== 0)) markers.push(new ml.Marker({ element: stopElement(s.label) }).setLngLat([s.lon, s.lat]).addTo(map));
       }
