@@ -123,6 +123,8 @@ describe("formatResultSummaryParts", () => {
     expect(route("12 Main St, Austin, TX, United States", "Boise, Idaho, United States")).toBe("Austin → Boise");
     expect(route("Denver, Colorado, United States", "Yosemite National Park, California, United States")).toBe("Denver → Yosemite National Park");
     expect(route("St. George, Utah, United States", "St. Louis, Missouri, United States")).toBe("St. George → St. Louis");
+    expect(route("Mt. Shasta, California, United States", "Fort Collins, Colorado, United States")).toBe("Mt. Shasta → Fort Collins");
+    expect(route("Main St & 5th Ave, Austin, TX, United States", "St. Louis, Missouri, USA")).toBe("Austin → St. Louis");
     // A saved place keeps its own label, comma and all; a geocoder locality beats the street.
     expect(route("Denver, Colorado, United States", "Mom's house, Austin", "Mom's house, Austin")).toBe("Denver → Mom's house, Austin");
     expect(route("Denver, Colorado, United States", "12 Main St, Austin, TX, United States", "Austin")).toBe("Denver → Austin");
