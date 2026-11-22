@@ -52,6 +52,7 @@ import mePlanLapsed from "../../../ios/RivoltTests/Fixtures/me_plan_lapsed.json"
 import mePlanCancelled from "../../../ios/RivoltTests/Fixtures/me_plan_cancelled.json";
 import mePlanGrace from "../../../ios/RivoltTests/Fixtures/me_plan_grace.json";
 import mePlanBillingOffManage from "../../../ios/RivoltTests/Fixtures/me_plan_billing_off_manage.json";
+import mePlanFreeBearerBillingOff from "../../../ios/RivoltTests/Fixtures/me_plan_free_bearer_billing_off.json";
 import errOutside from "../../../ios/RivoltTests/Fixtures/err_outside_free_window.json";
 import errProRequired from "../../../ios/RivoltTests/Fixtures/err_pro_required.json";
 import yearNotYet from "../../../ios/RivoltTests/Fixtures/year_in_rivolt_not_yet.json";
@@ -130,6 +131,7 @@ export const _mePlanLapsed: Wide<AuthUser> = mePlanLapsed;
 export const _mePlanCancelled: Wide<AuthUser> = mePlanCancelled;
 export const _mePlanGrace: Wide<AuthUser> = mePlanGrace;
 export const _mePlanBillingOffManage: Wide<AuthUser> = mePlanBillingOffManage;
+export const _mePlanFreeBearerBillingOff: Wide<AuthUser> = mePlanFreeBearerBillingOff;
 export const _errOutsideFreeWindow: Wide<ProLimitBody> = errOutside;
 export const _errProRequired: Wide<ProLimitBody> = errProRequired;
 
