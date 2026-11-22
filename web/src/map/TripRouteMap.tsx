@@ -25,6 +25,7 @@ import { firstLabelLayer, setDriveRoute, type LatLng } from "./route";
 import { RAMPS } from "./metrics";
 import { chargingStopCount, isChargingWaypoint } from "../plan/waypoints";
 import { cumulative, pointAtShare, shareOfPoint } from "../plan/elevation";
+import { tripTotalsText } from "../plan/tripTotals";
 import { measurePill, pillAwayFromLine, pillBox, pillSide, placeStopPill, setPills, type Box, type PillSpec } from "./pills";
 import { watchDrawn } from "./drawn";
 import { localUnits, usePreferences } from "../lib/preferences";
@@ -114,6 +115,7 @@ export function TripRouteMap({
   onSelectStop,
   departureAt,
   dayLabel,
+  planV2 = false,
   startsAtOrigin = true,
   originLabel,
   destLabel,
@@ -138,6 +140,8 @@ export function TripRouteMap({
   onSelectStop?: (idx: number | null) => void;
   // "Day 2" on a multi-day plan's map: the card says which day it is.
   dayLabel?: string;
+  // plan_v2: the card writes its time the way the summary strip and the sheet do (one total, one form).
+  planV2?: boolean;
   // False for a line that does not start at the trip's origin (a later day, a re-plan from the truck): "hide chargers near the start" then does not
   // apply, because a day that starts at an overnight stop did not leave charged.
   startsAtOrigin?: boolean;
@@ -659,7 +663,7 @@ export function TripRouteMap({
       let card: ReturnType<typeof tripCard> | undefined;
       let cardOn = false;
       const cardText = () =>
-        tripCardText({ day: dayLabel, meters: route.TotalDriveDistanceMeters, stops: chargingStopCount(route), seconds: route.TotalTripDurationSec, unit: km });
+        (planV2 ? tripTotalsText : tripCardText)({ day: dayLabel, meters: route.TotalDriveDistanceMeters, stops: chargingStopCount(route), seconds: route.TotalTripDurationSec, unit: km });
       const draw = () => {
         const c = RAMPS[flavor].speed[1];
         setDriveRoute(map, { track, stops: [0, c, 1, c] }, flavor, firstLabelLayer(map));
@@ -953,7 +957,7 @@ export function TripRouteMap({
     })().catch((err) => console.warn("map failed to start:", err instanceof Error ? err.message : err));
 
     return () => { for (const c of cleanups.reverse()) c(); };
-  }, [supported, route, fill, dayLabel, originLabel, destLabel]);
+  }, [supported, route, fill, dayLabel, originLabel, destLabel, planV2]);
 
   // The charger overlay is one GeoJSON source drawn as circles on the map's canvas: hundreds of chargers cost no DOM nodes.
   function addChargerLayer(map: MLMap) {
