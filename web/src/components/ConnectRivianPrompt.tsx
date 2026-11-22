@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ApiError, backend } from "../lib/api";
 import { discoveryStateOf, discoveryView } from "../lib/vehicleDiscovery";
-import { useDemoEnabled } from "../lib/config";
+import { useDemoEnabled, useDesignPreview } from "../lib/config";
 import { AuthorizedDriverNote, NO_VEHICLE_CAUSE, NO_VEHICLE_MAIN_ACCOUNT, RivianAccountPanel } from "./RivianAccountPanel";
 import { Card } from "./ui";
 import { CONNECT_TRUST_LINE, ConnectTrustLines } from "./ConnectTrustLines";
@@ -35,6 +35,9 @@ export default function ConnectRivianPrompt({
   inline?: boolean;
 }) {
   const demoEnabled = useDemoEnabled();
+  const signupV2 = useDesignPreview("signup_v2");
+  const hosted = /(^|\.)rivolt\.dev$/.test(window.location.hostname);
+  const sampleHref = demoEnabled ? "/demo?from=app" : hosted ? "https://demo.rivolt.dev/demo?from=app" : "";
   const status = useQuery({
     queryKey: ["rivian", "status"],
     queryFn: () => backend.rivianStatus(),
@@ -114,6 +117,12 @@ export default function ConnectRivianPrompt({
           )}
           <RivianAccountPanel />
           {!noVehicles && <AuthorizedDriverNote />}
+          {/* signup_v2: the sample truck stays one tap away until a truck is connected. */}
+          {signupV2 && !authenticated && sampleHref && (
+            <a data-sample-truck href={sampleHref} className="inline-block text-sm text-emerald-300 underline underline-offset-2 hover:text-emerald-200">
+              Try it with a sample truck first
+            </a>
+          )}
         </div>
       </Card>
     );
