@@ -128,7 +128,7 @@ func TestAdversarialAFrameWithoutAnOdometerIsResumedOnTimeAlone(t *testing.T) {
 	f.OdometerKm = 0
 	_ = sb.handleDriveLifecycle(f, nil, b, r.ctx)
 	if sb.drive == nil || sb.drive.id != sa.drive.id {
-		t.Skip("not resumed: the time-alone rule changed; update this test with it")
+		t.Errorf("a frame without an odometer 25 minutes after the row's last write must resume the drive: the stale gap (%v) alone decides", liveDriveMaxGap)
 	}
 }
 
