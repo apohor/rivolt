@@ -10,7 +10,7 @@ import { usePlanner } from "../plan/usePlanner";
 import { planErrorCopy, relabelIfHome, type Selection } from "../plan/plannerHelpers";
 import { PlannerNetworks } from "../plan/PlannerNetworks";
 import { RouteBar } from "../plan/RouteBarPanel";
-import { countNonDefaultOptions, useRouteBarCollapse } from "../plan/routeBar";
+import { countNonDefaultOptions, formatResultSummary, useRouteBarCollapse } from "../plan/routeBar";
 import { PlanSelectionProvider } from "../plan/selection";
 import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
@@ -44,6 +44,8 @@ import { proLimitOf, type ProLimit } from "../lib/proLimit";
 export default function TripPlanPage() {
   const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab();
+  // plan_v2 (preview): once a plan is shown the result takes over and the form folds to one summary line.
+  const v2 = useDesignPreview("plan_v2");
   const aiConsent = useAIConsent();
   // When a plan arrives, bring it into view. Phones: the map (or the multi-day result) up under the top bar so
   // it fills the space above the sheet's peek. Wide screens: only when the result starts well below the fold
@@ -301,7 +303,9 @@ export default function TripPlanPage() {
               disabled={planMutation.isPending || multidayMutation.isPending || !origin || !destination}
               className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-500"
             >
-              {hasOvernightStops ? `Plan ${overnightFlags.filter(Boolean).length + 1}-day trip` : "Plan trip"}
+              {v2 && hasResult
+                ? hasOvernightStops ? `Update ${overnightFlags.filter(Boolean).length + 1}-day plan` : "Update plan"
+                : hasOvernightStops ? `Plan ${overnightFlags.filter(Boolean).length + 1}-day trip` : "Plan trip"}
             </button>
   );
   const planSpinnerEl = (planMutation.isPending || multidayMutation.isPending) && <Spinner />;
@@ -329,7 +333,7 @@ export default function TripPlanPage() {
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
-      <FormShell hasResult={hasResult} resultKey={resultKey} summary={routeSummary}>
+      <FormShell hasResult={hasResult} resultKey={resultKey} v2={v2} summary={v2 ? formatResultSummary(routeBar, typeof stateQuery.data?.battery_level_pct === "number" ? stateQuery.data.battery_level_pct : null) : routeSummary}>
         {firstVehicle && (
           <p className="mb-3 text-xs text-neutral-500">
             Vehicle: <span className="font-mono">{firstVehicle.display_name || firstVehicle.rivian_vehicle_id}</span>
@@ -428,7 +432,7 @@ export default function TripPlanPage() {
     ) : null;
   const resultEl = (
     <>
-      {saveBarEl}
+      {!v2 && saveBarEl}
 
       {multiday && (
         <div data-plan-wide data-plan-beside={inDemo() ? "" : undefined} className="space-y-3">
@@ -670,10 +674,13 @@ export default function TripPlanPage() {
               }}
               onAddOvernight={pickOvernightNow}
               departureAt={departureAt}
+              adviceLast={v2}
             />
           </ErrorBoundary>
         );
       })()}
+      {/* plan_v2: Save trip follows the summary and itinerary instead of leading them. */}
+      {v2 && saveBarEl}
     </>
   );
 
@@ -693,7 +700,7 @@ export default function TripPlanPage() {
         {/* One selected stop for the whole result: the itinerary, the map and
             anything that follows the selection. A new plan clears it. */}
         <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null}>
-        <div data-plan-split data-has-result={hasResult ? "true" : undefined}>
+        <div data-plan-split data-has-result={hasResult ? "true" : undefined} data-plan-v2={v2 ? "" : undefined}>
           {formEl}
           {resultEl}
           {!hasResult && (
@@ -783,10 +790,10 @@ function SnapshotBanner({
 // other trip needs the visitor's own Rivian.
 // FormShell: the classic card, or otherwise the compact route bar. On a
 // phone the bar collapses to a one-line summary once there is a plan.
-function FormShell({ hasResult, resultKey, summary, children }: { hasResult: boolean; resultKey: unknown; summary: string; children: React.ReactNode }) {
+function FormShell({ hasResult, resultKey, summary, v2, children }: { hasResult: boolean; resultKey: unknown; summary: string; v2?: boolean; children: React.ReactNode }) {
   const { collapsed, toggle, bodyId } = useRouteBarCollapse(hasResult, resultKey);
   return (
-    <div data-plan-bar data-collapsed={collapsed ? "true" : undefined}>
+    <div data-plan-bar data-collapsed={collapsed ? "true" : undefined} data-plan-bar-v2={v2 ? "" : undefined}>
       {hasResult && (
         <button
           type="button"
@@ -794,10 +801,10 @@ function FormShell({ hasResult, resultKey, summary, children }: { hasResult: boo
           aria-expanded={!collapsed}
           aria-controls={bodyId}
           onClick={toggle}
-          className="flex w-full items-center justify-between gap-3 text-left text-sm lg:hidden"
+          className={`flex w-full items-center justify-between gap-3 text-left text-sm ${v2 ? "" : "lg:hidden"}`}
         >
-          <span className="min-w-0 truncate text-neutral-100">{summary}</span>
-          <span className="shrink-0 text-xs text-emerald-300">{collapsed ? "Edit" : "Done"}</span>
+          <span className={`min-w-0 text-neutral-100 ${v2 ? "line-clamp-2 [overflow-wrap:anywhere]" : "truncate"}`}>{summary}</span>
+          <span className={v2 ? "shrink-0 rounded-md border border-neutral-700 px-2.5 py-1 text-xs text-neutral-200" : "shrink-0 text-xs text-emerald-300"}>{collapsed ? "Edit" : "Done"}</span>
         </button>
       )}
       <div id={bodyId} data-plan-bar-body>{children}</div>

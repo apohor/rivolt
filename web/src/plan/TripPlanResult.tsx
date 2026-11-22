@@ -26,6 +26,7 @@ export function TripPlanResult({
   onAddOvernight,
   onPreviewStop,
   departureAt,
+  adviceLast = false,
 }: {
   plan: TripPlan;
   originLabel: string;
@@ -42,6 +43,8 @@ export function TripPlanResult({
   onAddOvernight?: OvernightAdder;
   onPreviewStop?: StopPreviewer;
   departureAt?: string;
+  // plan_v2: the trip analysis follows the summary and itinerary instead of leading them.
+  adviceLast?: boolean;
 }) {
   const [active, setActive] = useState(0);
   const planKey = plan.Routes.length;
@@ -57,10 +60,11 @@ export function TripPlanResult({
       </Card>
     );
   }
+  // AI analysis costs money: never offered in the public demo.
+  const adviceCard = !inDemo() && (aiEnabled || !!advice) && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={aiEnabled ? onAnalyze : undefined} aiOff={aiOff} error={adviceError} />;
   return (
     <div className="space-y-4" data-plan-contents="">
-      {/* AI analysis costs money: never offered in the public demo. */}
-      {!inDemo() && (aiEnabled || !!advice) && <TripAdviceCard advice={advice} loading={adviceLoading ?? false} onAnalyze={aiEnabled ? onAnalyze : undefined} aiOff={aiOff} error={adviceError} />}
+      {!adviceLast && adviceCard}
       <FarFutureNote show={plan.far_future} />
       <WeatherAdjustmentChip plan={plan} />
       {(() => {
@@ -95,6 +99,7 @@ export function TripPlanResult({
             </>
           );
         })()}
+      {adviceLast && adviceCard}
       {plan.SoCBelowLimit && (
         <ErrorBox
           title="SoC below limit"
