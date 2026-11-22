@@ -16,7 +16,7 @@ const ZERO = { at: "", vehicle_id: VEHICLE_ID, active: false, start_time: "", po
 
 async function open(page: Page, route: "/live" | "/", c: typeof HOME, session: object, homeRate = true) {
   await page.setViewportSize({ width: 393, height: 852 });
-  await stubApi(page, { scenario: "charging", nowEndpoint: true, chargeCase: c, designPreview: ["now_v2", "now_tidy", "now_slot"] });
+  await stubApi(page, { scenario: "charging", nowEndpoint: true, chargeCase: c, designPreview: [] });
   await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...FULL_STATE, charger_power_kw: c.kw(0), battery_level_pct: c.soc(c.elapsedMin) }) }));
   await page.route(`**/api/live-session/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(session) }));
   if (!homeRate) {

@@ -18,7 +18,7 @@ const ALLOW: RegExp[] = [
   /^\/api\/settings\/(charging|charging\/networks|home-location)\/?$/,
   /^\/api\/trips\/saved$/, /^\/api\/trips\/saved\/[^/]+\/actual$/,
   /^\/api\/demo\/trips$/, /^\/api\/demo\/trips\/[a-z0-9-]+\/plan$/,
-  /^\/api\/maps\/tiles\/(us|chargers)\.pmtiles$/,
+  /^\/api\/maps\/tiles\/(us|chargers)\.pmtiles$/, /^\/api\/maps\/dem\/\d+\/\d+\/\d+\.png$/,
 ];
 
 function watch(page: Page) {

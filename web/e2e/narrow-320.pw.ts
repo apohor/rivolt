@@ -11,7 +11,7 @@ for (const [name, opts] of [
   // wide: a wider face than the one the shots use (CI's fonts differ from a laptop's).
   test(`Now at 320 px and 200% text has no overflow (${name}${wide ? ", wide font" : ""})`, async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 700 });
-    await stubApi(page, { nowEndpoint: true, ...opts, designPreview: ["now_v2", "now_tidy", "now_slot", "now_drive_graph"], liveDestination: "trip", driveCase: { elapsedMin: 22, mph: (m: number) => 50 + 5 * Math.sin(m), soc: (m: number) => 71 - m * 0.18 } });
+    await stubApi(page, { nowEndpoint: true, ...opts, designPreview: [], liveDestination: "trip", driveCase: { elapsedMin: 22, mph: (m: number) => 50 + 5 * Math.sin(m), soc: (m: number) => 71 - m * 0.18 } });
     await page.goto("/");
     await page.addStyleTag({ content: "html { font-size: 200% !important; }" + (wide ? " body, body * { font-family: Georgia, serif !important; letter-spacing: 0.04em; }" : "") });
     const month = page.getByTestId("now-month");

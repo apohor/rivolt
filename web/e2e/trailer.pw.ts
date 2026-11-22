@@ -40,17 +40,13 @@ for (const v of [
   { n: "iphone", vp: { width: 390, height: 844 } },
   { n: "desktop", vp: { width: 1280, height: 900 } },
 ] as const) {
-  test(`the list and the Home tile say a trailer, using the effective value · ${v.n}`, async ({ browser }) => {
+  test(`the list says a trailer, using the effective value · ${v.n}`, async ({ browser }) => {
     const ctx = await browser.newContext({ viewport: v.vp, colorScheme: "dark" });
     const page = await ctx.newPage();
     await open(page, "/activity", DRIVES);
     await expect(page.locator("[data-drive-trailer]")).toHaveCount(1);
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(SHOTS, `trailer-list-${v.n}.png`), fullPage: true });
-    await page.goto("/");
-    await expect(page.getByText("excludes 1 drive with a trailer")).toBeVisible();
-    await page.waitForTimeout(400);
-    await page.screenshot({ path: path.join(SHOTS, `trailer-home-${v.n}.png`), fullPage: true });
     await ctx.close();
   });
 

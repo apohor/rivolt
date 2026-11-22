@@ -12,7 +12,9 @@ const images = names.flatMap((placement) =>
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
 
 async function open(page: Page, o: { scenario?: "parked" | "charging"; theme?: "dark" | "light"; withImages?: boolean; model?: string }) {
-  await stubApi(page, { scenario: o.scenario ?? "parked", designPreview: ["now_v2"] });
+  // No position and a paused charge (no power) leave the card without a slot, so the picture shows.
+  const paused = o.scenario === "charging" ? { nowEndpoint: true, chargeCase: { elapsedMin: 60, soc: () => 50, kw: () => 0 } } : {};
+  await stubApi(page, { scenario: o.scenario ?? "parked", noFix: true, ...paused });
   await page.route("**/img.example/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: PNG }));
   await page.route("**/api/vehicles", (r) =>
     r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ id: VEHICLE_ID, vin: "SAMPLE0000000001", name: "Sample R1S", model: o.model ?? "R1S", pack_kwh: 135, images: o.withImages === false ? [] : images }]) }),
@@ -57,7 +59,7 @@ test("no images: no broken picture, the sketch of the model shows (R1T, R1S, any
 });
 
 test("an image that 404s gives way to the sketch on Now, and is dropped on Live; a good one shows on both", async ({ page }) => {
-  const FULL = { ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "..", "ios", "RivoltTests", "Fixtures", "state_full.json"), "utf8")), ...vehicleState("parked") };
+  const FULL = { ...JSON.parse(fs.readFileSync(path.join(process.cwd(), "..", "ios", "RivoltTests", "Fixtures", "state_full.json"), "utf8")), ...vehicleState("parked"), latitude: 0, longitude: 0 };
   await open(page, {});
   await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(FULL) }));
   await page.goto("/live");
@@ -105,16 +107,6 @@ test("charging: the bolt on the sketch stays small", async ({ page }) => {
   const sketch = await page.getByTestId("now-car-sketch").boundingBox();
   const bolt = await page.locator("[data-testid=now-car-sketch] > svg").nth(1).boundingBox();
   expect(bolt!.width).toBeLessThan(sketch!.width / 4);
-});
-
-test("desktop parked: the temps open the right column with no rule above them; on a phone the rule stays", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 800 });
-  await open(page, { scenario: "parked" });
-  const temps = page.getByTestId("now-temps");
-  await expect(page.getByTestId("now-subline")).toHaveCount(0);
-  await expect(temps).toHaveCSS("border-top-width", "0px");
-  await page.setViewportSize({ width: 393, height: 852 });
-  await expect(temps).toHaveCSS("border-top-width", "1px");
 });
 
 test("charging: the bolt scales with the sketch, so it sits on the roof at any width", async ({ page }) => {

@@ -2,8 +2,6 @@
 // in it yet (early in the month). The period picker still picks a month.
 export const EARLY_MONTH_NOTE = "Nothing recorded yet this month, so this shows the last 30 days.";
 
-export const EARLY_MONTH_TAG = "Last 30 days";
-
 // The month was chosen explicitly (the picker stays visible) and is empty; no auto-switch.
 export const emptyMonthLine = (month: string) => `No drives or charges in ${month}.`;
 

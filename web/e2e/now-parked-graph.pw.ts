@@ -7,7 +7,7 @@ import { parkedSeriesFixture, type ParkedCase } from "./parkedSeriesFixture";
 // sleeps and wake-ups, three figures and the projection. Too little data, an older server, or the key off: the card is as it was.
 // SHOTS_DIR makes the image-gate shots.
 const SHOTS = process.env.SHOTS_DIR;
-const KEYS = ["now_v2", "now_tidy", "now_slot", "now_parked_graph"];
+const KEYS = ["now_parked_graph"];
 
 async function open(page: Page, parkedCase: ParkedCase, scenario: "parked" | "asleep" = "parked", keys = KEYS, parkedDelayMs = 0, parkedPlace: "home" | "away" | "unknown" = "home") {
   await stubApi(page, { scenario, nowEndpoint: true, designPreview: keys, parkedCase, parkedDelayMs, parkedPlace });
@@ -329,7 +329,7 @@ test("a truck whose place is not known has no map and no empty row @webkit", asy
 });
 
 test("without the key the parked card keeps its map and has no place line @webkit", async ({ page }) => {
-  await open(page, "overnight", "asleep", ["now_v2", "now_tidy", "now_slot"]);
+  await open(page, "overnight", "asleep", []);
   await expect(page.getByTestId("now-slot")).toBeVisible();
   await expect(page.getByTestId("now-parked-place")).toHaveCount(0);
   await expect(page.getByTestId("now-parked-graph")).toHaveCount(0);

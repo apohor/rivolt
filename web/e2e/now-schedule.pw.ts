@@ -28,7 +28,7 @@ async function open(page: Page, schedules: unknown[] | undefined, charging = fal
   await page.route(`**/api/state/${VEHICLE_ID}`, (r) => r.fulfill({ json: state }));
   await page.clock.setFixedTime(NOW);
   await page.goto("/");
-  await expect(page.getByTestId("now-headline")).toBeVisible();
+  await expect(page.getByTestId("now-live-link")).toBeVisible();
 }
 
 for (const theme of ["dark", "light"] as const) {
@@ -40,9 +40,9 @@ for (const theme of ["dark", "light"] as const) {
         localStorage.setItem("rivolt.theme", t);
       }, [theme]);
       await open(page, [sched()]);
-      const line = page.getByTestId("now-headline");
-      await expect(line).toContainText("Plugged in");
-      await expect(page.getByTestId("now-schedule")).toHaveText(" · charging starts 11:00 PM (schedule)");
+      const line = page.getByTestId("now-schedule");
+      await expect(page.locator("[data-now-chip]").first()).toContainText("Plugged in");
+      await expect(line).toHaveText("charging starts 11:00 PM (schedule)");
       await page.waitForTimeout(500);
       await page.screenshot({ path: path.join(SHOTS, `now-schedule-${w}-${theme}.png`) });
       const lines = await line.evaluate((el) => Math.round(el.getBoundingClientRect().height / (parseFloat(getComputedStyle(el).lineHeight) || 20)));

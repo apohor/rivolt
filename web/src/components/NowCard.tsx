@@ -2,9 +2,6 @@ import { useChargingSettings, useHomeLocation, useVehicleNow } from "../lib/useN
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { displayTimeZone } from "../lib/format";
 import { formatScheduleStart, nextScheduledStartMin } from "../lib/chargingSchedule";
-import { ArcGauge } from "./ArcGauge";
-import { PowerSpark } from "./PowerSpark";
-import { chargePulseState, PulseBolt } from "./ChargePulse";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { useImpersonationTarget } from "../lib/impersonation";
@@ -23,7 +20,6 @@ import {
   type OdoTrack,
 } from "../lib/nowState";
 import { formatMoney } from "../lib/ledger";
-import { AmbientTempLine } from "./AmbientTempLine";
 import NowHeroV2, { nowChip } from "./NowHeroV2";
 import { ChargeSeriesProvider, NowChargeGraph } from "./NowChargeGraph";
 import { DriveGraph, useDriveDestination, useDriveSeriesState } from "./DriveGraph";
@@ -89,15 +85,15 @@ function advance(t: Tracker, s: VehicleState, nowMs: number): Tracker {
 const HOLD_MAX_MS = 8000;
 
 // The card while its data is on the way, as tall as the card was last time (a charging or driving card with its graph is taller than a parked one),
-// else as tall as a parked card (the redesigned hero and the plain card differ), so what is under it does not jump down when it arrives. Before
+// else as tall as a parked card, so what is under it does not jump down when it arrives. Before
 // the vehicle list has answered it is the truck the user last picked.
-export function NowCardSkeleton({ tall, vehicleID }: { tall: boolean; vehicleID?: string }) {
+export function NowCardSkeleton({ vehicleID }: { vehicleID?: string }) {
   const last = placeholderHeight(vehicleID);
   return (
     <section aria-label="Now" data-testid="now-skeleton" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
       <div
         style={last ? { height: last - 42 } : undefined}
-        className={`${last ? "" : tall ? "h-[25rem] lg:h-[16.5rem]" : "h-[17.25rem] md:h-[15.5rem] lg:h-[16.5rem]"} animate-pulse rounded bg-neutral-800/60`}
+        className={`${last ? "" : "h-[25rem] lg:h-[16.5rem]"} animate-pulse rounded bg-neutral-800/60`}
       />
     </section>
   );
@@ -121,14 +117,6 @@ export default function NowCard({
 }) {
   // Live is hidden while impersonating (matches AppLayout).
   const impersonating = useImpersonationTarget() != null;
-  // Design 1 (design_preview "now_v2"): the redesigned hero. Off, the card below is unchanged.
-  const v2 = useDesignPreview("now_v2");
-  // Design "now_slot": charging and driving figures take the picture's place in the hero.
-  const slotOn = useDesignPreview("now_slot");
-  // Design "now_charge_graph" (with now_slot): the open charge's battery and power in the charging slot.
-  const chargeGraphKey = useDesignPreview("now_charge_graph") && slotOn;
-  // Design "now_tidy" (with now_v2): the calmer layout of the hero. Off, the hero is as it was.
-  const tidy = useDesignPreview("now_tidy") && v2;
   const { distanceUnit, temperatureUnit } = usePreferences();
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -158,16 +146,6 @@ export default function NowCard({
   useEffect(() => {
     if (state) setTracker((t) => advance(t, state, Date.now()));
   }, [state]);
-  // Charging power history for the sparkline: one reading per
-  // successful poll while charging, cleared when the session ends.
-  const [powerHist, setPowerHist] = useState<number[]>([]);
-  useEffect(() => {
-    const kw = state?.charger_power_kw;
-    if (typeof kw === "number" && kw > 0) setPowerHist((h) => [...h.slice(-47), kw]);
-    else setPowerHist((h) => (h.length ? [] : h));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateQ.dataUpdatedAt]);
-
   // GET /now: the server's state, freshness inputs and charge baseline.
   // Null when absent (an older server): fall back to the
   // client-derived path below.
@@ -231,25 +209,23 @@ export default function NowCard({
     retry: 0,
   });
 
-  // Design "now_slot": the truck's own session figures while charging (range added, rate, elapsed), the same read the Live page makes.
+  // The truck's own session figures while charging (range added, rate, elapsed), the same read the Live page makes.
   const sessionQ = useQuery({
     queryKey: ["rivian", "live-session", vehicleID],
     queryFn: () => backend.liveSession(vehicleID),
-    enabled: slotOn && view?.kind === "charging",
+    enabled: view?.kind === "charging",
     refetchInterval: 15_000,
     retry: 0,
   });
 
-  // Design "now_parked_graph" (with now_tidy): the last 24 hours of the battery on a parked, plugged or asleep truck, with the sleeps and
+  // Design "now_parked_graph": the last 24 hours of the battery on a parked, plugged or asleep truck, with the sleeps and
   // wake-ups. Without a line to draw (parked a few minutes, no data, an older server) the card is as it was.
   const parkedKind = view != null && (view.kind === "parked" || view.kind === "plugged" || view.kind === "asleep" || (view.kind === "offline" && view.sleeping));
-  // Design "charge_pulse": the bolt beside the kW figure while power flows.
-  const pulse = chargePulseState(useDesignPreview("charge_pulse"), view?.powerKw, false);
-  const parkedKindOn = useDesignPreview("now_parked_graph") && tidy && parkedKind;
+  const parkedKindOn = useDesignPreview("now_parked_graph") && parkedKind;
   const { series: parkedSeries, waiting: parkedWaiting } = useParkedSeries(vehicleID, parkedKindOn);
-  // Design "now_drive_graph" (with now_slot and now_tidy), driving: the speed from the start of the drive to now, the battery as a second line, read from
+  // Driving: the speed from the start of the drive to now, the battery as a second line, read from
   // the stored samples at the card's own pace. Too short a drive: no graph, and the card is as it was.
-  const driveGraphOn = useDesignPreview("now_drive_graph") && slotOn && tidy && view?.kind === "driving";
+  const driveGraphOn = view?.kind === "driving";
   const driveDest = useDriveDestination(vehicleID, driveGraphOn);
   const driveStartedMs = driveQ.data ? Date.parse(driveQ.data.started_at) : NaN;
   const { series: driveSeries, pending: drivePending } = useDriveSeriesState(vehicleID, driveGraphOn, driveStartedMs);
@@ -299,7 +275,7 @@ export default function NowCard({
         const min = parseFloat(box?.style.minHeight ?? "");
         return Number.isFinite(min) && box!.getBoundingClientRect().height <= min + 1;
       };
-      const save = () => { if (!held()) rememberCardHeight(vehicleID, v2, kind, height(), hero()); };
+      const save = () => { if (!held()) rememberCardHeight(vehicleID, true, kind, height(), hero()); };
       const ro = new ResizeObserver(save);
       const watch = () => {
         ro.disconnect();
@@ -315,9 +291,9 @@ export default function NowCard({
         mo.disconnect();
       };
     },
-    [vehicleID, v2, kind],
+    [vehicleID, kind],
   );
-  if (stateQ.isLoading) return <NowCardSkeleton tall={v2} vehicleID={vehicleID} />;
+  if (stateQ.isLoading) return <NowCardSkeleton vehicleID={vehicleID} />;
   if (!state || !view) {
     return (
       <section aria-label="Now" className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5">
@@ -353,17 +329,16 @@ export default function NowCard({
   const installing = update?.key === "installing" ? update : null;
   const critical = view.critical && !offline;
   const tone = offline ? "text-neutral-500" : critical ? "text-rose-300" : "text-neutral-100";
-  // Design "now_slot": the state's figures replace the picture and the rows (shown once, not twice).
+  // The state's figures replace the picture and the rows (shown once, not twice).
   // Parked, the map sits on the state's fix (the demo has none of its own, so the server sends its public sample point).
   // The server's sample point (the demo), then the live state's fix; a sleeping truck may have none (a restart while asleep), so the server's last recorded position comes last.
   const fix = pickFix(server?.location, state.latitude, state.longitude, server?.last_fix);
-  const showSlot = slotOn && slotShown(view, fix);
+  const showSlot = slotShown(view, fix);
   // With the parked graph (or while its answer is awaited) the graph is the card's content: the map gives way to one line.
-  const holdHeight = !holdOver ? cardHeight(vehicleID, v2, kind, true) : null;
+  const holdHeight = !holdOver ? cardHeight(vehicleID, true, kind, true) : null;
   const parkedMapGone = parkedKindOn && (parkedSeries != null || parkedWaiting);
-  // Design "now_charge_graph" (with now_slot and now_tidy), charging: the figures as rows beside the graph, the truck picture and the chip that
-  // says power and finish time, as on the iPhone.
-  const soft = chargeGraphKey && tidy && showSlot && view.kind === "charging";
+  // Charging: the figures as rows beside the graph, the truck picture and the chip that says power and finish time, as on the iPhone.
+  const soft = showSlot && view.kind === "charging";
   const dq = driveQ.data ?? null;
   // The drive so far comes from /now (the recorder's open drive row, the same for a real and a simulated drive); the Live read stands in for
   // a server that does not send it yet. Efficiency is the distance shown over the energy shown.
@@ -389,12 +364,8 @@ export default function NowCard({
       gear={state.gear}
       mode={state.drive_mode}
       fix={fix}
-      tidy={tidy}
       soft={soft}
       half={driveFrame}
-      asleep={view.kind === "asleep" ? { since: server?.asleep_since ?? null, todayS: server?.asleep_today_s ?? null } : null}
-      weather={server?.ambient ?? null}
-      tempUnit={temperatureUnit}
       placeLabel={view.place === "home" ? homeQ.data?.label || "Home" : null}
       noMap={parkedMapGone}
       placeText={parkedPlaceText(view, homeQ.data?.label, distanceUnit)}
@@ -403,7 +374,6 @@ export default function NowCard({
       drive={slotDrive}
     />
   );
-  const liveKind = view.kind === "charging" ? "charging" : view.kind === "driving" ? "driving" : undefined;
 
   const alertList = alerts.map((a) => {
         const cls =
@@ -422,225 +392,64 @@ export default function NowCard({
         );
       });
 
-  if (v2) {
-    return (
-      <section ref={measureRef} aria-label="Now" data-ui-area="hero" className="space-y-2">
-        <ChargeSeriesProvider vehicleId={vehicleID} enabled={soft}>
-        <NowHeroV2
-          view={view}
-          vehicleID={vehicleID}
-          images={images}
-          model={model}
-          stateSlot={showSlot ? slotNode : null}
-          chip={nowChip(chipView ?? view, chipAsleepSince, nowMs, pill.text, tidy && showSlot && !soft)}
-          holdHeight={holdHeight}
-          holdPending={(parkedKindOn && parkedWaiting) || (driveGraphOn && (drivePending || driveQ.isPending))}
-          soft={soft || parkedSeries != null || driveFrame}
-          graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} powerKw={view.powerKw} tempUnit={temperatureUnit} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveFrame ? <DriveGraph series={driveSeries} startedMs={driveStartedMs} nowMs={nowMs} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
-          parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
-          tidy={tidy}
-          nowMs={nowMs}
-          // The graph's figures say the time asleep today.
-          asleepTodayS={parkedSeries ? null : (server?.asleep_today_s ?? null)}
-          pillTone={pill.tone}
-          ambient={server?.ambient}
-          cabin={cabin}
-          tone={tone}
-          critical={critical}
-          // The chip already says power and time left.
-          rows={showSlot ? [] : details(view, tracker, driveQ.data ?? null, nowMs, currency).filter((d) => d.k !== "Power" && d.k !== "Time left")}
-          extra={
-            <>
-              {scheduleText && (
-                <p data-testid="now-schedule" className="mt-2 text-xs text-neutral-400">
-                  {scheduleText}
-                </p>
-              )}
-              {installing && (
-                <p data-testid="now-installing" className="mt-2 text-xs text-neutral-300">
-                  {otaNowLine(installing)}
-                </p>
-              )}
-              {comfort.length > 0 && (
-                <p data-testid="now-comfort" className="mt-2 text-xs text-neutral-300">
-                  {comfort.join(" · ")}
-                </p>
-              )}
-            </>
-          }
-          // Only when the picture is old; a live truck's chip already says the state and since when.
-          footer={
-            offline || view.stale ? (
-              <p data-testid="now-freshness" className="pointer-events-none relative mt-3 text-xs text-neutral-500">
-                {freshnessLine(view)}
-              </p>
-            ) : null
-          }
-          telemetryLink={!impersonating && showTelemetryLink}
-        />
-        </ChargeSeriesProvider>
-        {alertList}
-      </section>
-    );
-  }
-
   return (
     <section ref={measureRef} aria-label="Now" data-ui-area="hero" className="space-y-2">
-      <div
-        data-ui-hero="true"
-        data-live={liveKind}
-        className={`rounded-xl border bg-neutral-900/60 p-5 ${
-          critical ? "border-rose-500/50" : "border-neutral-800"
-        }`}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wide text-neutral-500">{vehicleName}</p>
-            <p className="mt-0.5 text-sm text-neutral-300" data-testid="now-headline">
-              {headline(view, distanceUnit)}
-              {scheduleText && (
-                <span data-testid="now-schedule" className="text-neutral-400">
-                  {" · "}
-                  {scheduleText}
-                </span>
-              )}
+      <ChargeSeriesProvider vehicleId={vehicleID} enabled={soft}>
+      <NowHeroV2
+        view={view}
+        vehicleID={vehicleID}
+        images={images}
+        model={model}
+        stateSlot={showSlot ? slotNode : null}
+        chip={nowChip(chipView ?? view, chipAsleepSince, nowMs, pill.text, showSlot && !soft)}
+        holdHeight={holdHeight}
+        holdPending={(parkedKindOn && parkedWaiting) || (driveGraphOn && (drivePending || driveQ.isPending))}
+        soft={soft || parkedSeries != null || driveFrame}
+        graph={soft ? <NowChargeGraph nowMs={nowMs} nowPct={view.soc} targetPct={view.limitPct} etaHours={view.etaHours} powerKw={view.powerKw} tempUnit={temperatureUnit} /> : parkedSeries ? <ParkedGraph series={parkedSeries} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} /> : driveFrame ? <DriveGraph series={driveSeries} startedMs={driveStartedMs} nowMs={nowMs} unit={distanceUnit} nowPct={view.soc > 0 ? view.soc : null} destination={driveDest} /> : null}
+        parkedRows={parkedSeries ? <ParkedRows series={parkedSeries} unit={distanceUnit} /> : null}
+        nowMs={nowMs}
+        // The graph's figures say the time asleep today.
+        asleepTodayS={parkedSeries ? null : (server?.asleep_today_s ?? null)}
+        pillTone={pill.tone}
+        ambient={server?.ambient}
+        cabin={cabin}
+        tone={tone}
+        critical={critical}
+        // The chip already says power and time left.
+        rows={showSlot ? [] : details(view, tracker, driveQ.data ?? null, nowMs, currency).filter((d) => d.k !== "Power" && d.k !== "Time left")}
+        extra={
+          <>
+            {scheduleText && (
+              <p data-testid="now-schedule" className="mt-2 text-xs text-neutral-400">
+                {scheduleText}
+              </p>
+            )}
+            {installing && (
+              <p data-testid="now-installing" className="mt-2 text-xs text-neutral-300">
+                {otaNowLine(installing)}
+              </p>
+            )}
+            {comfort.length > 0 && (
+              <p data-testid="now-comfort" className="mt-2 text-xs text-neutral-300">
+                {comfort.join(" · ")}
+              </p>
+            )}
+          </>
+        }
+        // Only when the picture is old; a live truck's chip already says the state and since when.
+        footer={
+          offline || view.stale ? (
+            <p data-testid="now-freshness" className="pointer-events-none relative mt-3 text-xs text-neutral-500">
+              {freshnessLine(view)}
             </p>
-          </div>
-          <span
-            data-testid="now-pill"
-            className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${
-              pill.tone === "live"
-                ? "border-emerald-500/30 text-emerald-300"
-                : pill.tone === "warn"
-                  ? "border-amber-500/40 text-amber-300"
-                  : "border-neutral-700 text-neutral-400"
-            }`}
-          >
-            {pill.text}
-          </span>
-        </div>
-
-          <div className="mt-3 flex items-center gap-5">
-            <ArcGauge
-              value={view.soc}
-              label={view.soc > 0 ? `Battery ${Math.round(view.soc)} percent` : "Battery level unknown"}
-              live={view.kind === "charging"}
-              tone={offline ? "idle" : critical ? "critical" : "ok"}
-              limit={view.kind === "charging" || view.kind === "plugged" ? view.limitPct : null}
-            >
-              {(shown) => (
-                <span className={`font-semibold leading-none tabular-nums ${tone}`}>
-                  <span className="text-4xl">{view.soc > 0 ? Math.round(shown) : "—"}</span>
-                  <span className="ml-0.5 text-lg font-normal text-neutral-400">%</span>
-                </span>
-              )}
-            </ArcGauge>
-            <div className="min-w-0 space-y-3">
-              {view.kind === "driving" && view.speedMph != null && (
-                <div>
-                  <p className="ui-label">Speed</p>
-                  <p className={`text-3xl font-semibold leading-none tabular-nums ${tone}`}>
-                    {Math.round(view.speedMph)}
-                    <span className="ml-1 inline-block text-sm font-normal text-neutral-400">mph</span>
-                  </p>
-                </div>
-              )}
-              {(view.kind === "charging" || view.kind === "plugged") && view.limitPct != null && (
-                <div>
-                  <p className="ui-label">Charge limit</p>
-                  <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">
-                    {Math.round(view.limitPct)}
-                    <span className="ml-1 inline-block text-sm font-normal text-neutral-400">%</span>
-                  </p>
-                </div>
-              )}
-              {view.rangeMi != null && (
-                <div>
-                  <p className="ui-label">Range</p>
-                  <p className="text-2xl font-semibold leading-none tabular-nums text-neutral-100">
-                    {Math.round(view.rangeMi)}
-                    <span className="ml-1 inline-block text-sm font-normal text-neutral-400">mi</span>
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-        {view.kind === "charging" && powerHist.length >= 2 && (
-          <div className="mt-3 flex items-center gap-3">
-            <span className="ui-label shrink-0">Power</span>
-            <PowerSpark values={powerHist} />
-            <span className="shrink-0 text-lg font-semibold tabular-nums text-neutral-100">
-              {Math.round(powerHist[powerHist.length - 1])}
-              <span className="ml-1 inline-block text-xs font-normal text-neutral-400">kW</span>
-              <PulseBolt state={pulse} />
-            </span>
-          </div>
-        )}
-
-        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          {details(view, tracker, driveQ.data ?? null, nowMs, currency)
-            // the sparkline row already shows the live power
-            .filter((d) => !(view.kind === "charging" && powerHist.length >= 2 && d.k === "Power"))
-            .map((d) => (
-            <div key={d.k} className="contents">
-              <dt className="text-neutral-500">{d.k}</dt>
-              {/* Mono only for short numeric readouts (a kW, a time left); text stays sans so it can wrap. */}
-              <dd className="text-right tabular-nums text-neutral-200">{d.v}</dd>
-            </div>
-          ))}
-          {cabin && (
-            <div data-testid="now-cabin" className="contents">
-              <dt className="text-neutral-500">Cabin</dt>
-              <dd className="text-right tabular-nums text-neutral-200">{cabin}</dd>
-            </div>
-          )}
-        </dl>
-        <AmbientTempLine ambient={server?.ambient} vehicleID={vehicleID} />
-        {installing && (
-          <p data-testid="now-installing" className="mt-2 text-xs text-neutral-300">
-            {otaNowLine(installing)}
-          </p>
-        )}
-        {comfort.length > 0 && (
-          <p data-testid="now-comfort" className="mt-2 text-xs text-neutral-300">
-            {comfort.join(" · ")}
-          </p>
-        )}
-
-        <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
-          <p data-testid="now-freshness">{freshnessLine(view)}</p>
-          {!impersonating && showTelemetryLink && (
-            <Link to="/live" className="text-neutral-300 hover:text-emerald-300">
-              Full telemetry →
-            </Link>
-          )}
-        </div>
-      </div>
-
+          ) : null
+        }
+        telemetryLink={!impersonating && showTelemetryLink}
+      />
+      </ChargeSeriesProvider>
       {alertList}
     </section>
   );
-}
-
-function headline(v: NowView, unit: DistanceUnit): string {
-  switch (v.kind) {
-    case "offline":
-      return "Not heard from recently";
-    case "driving":
-      return "Driving";
-    case "charging":
-      if (v.starting) return "Starting to charge…";
-      if (v.chargeFlavor === "dcfc") return "Fast charging";
-      if (v.chargeFlavor === "home_l2") return "Charging at home";
-      return "Charging";
-    case "plugged":
-      return v.atLimit ? `Plugged in, holding ${v.limitPct ?? ""}%`.replace(/ %$/, "") : "Plugged in";
-    case "asleep":
-      return "Asleep";
-    default:
-      return placeLine(v, unit) ?? "Parked";
-  }
 }
 
 // How often /state is read: every 2 s while driving (the speed moves, as in the Live panel), 15 s otherwise.
@@ -654,14 +463,6 @@ export function stateRefetchMs(s: VehicleState | undefined, demo: boolean = inDe
 export function parkedPlaceText(v: NowView, homeLabel: string | undefined, unit: DistanceUnit): string | null {
   if (v.place === "home") return `At ${homeLabel || "Home"}`;
   if (v.place === "away" && v.kmFromHome != null) return `Away · ${formatDistance(v.kmFromHome, unit, { fine: true })} from home`;
-  return null;
-}
-
-export function placeLine(v: NowView, unit: DistanceUnit): string | null {
-  if (v.place === "home") return "Parked at home";
-  if (v.place === "away" && v.kmFromHome != null) {
-    return `Parked · ${formatDistance(v.kmFromHome, unit, { fine: true })} from home`;
-  }
   return null;
 }
 

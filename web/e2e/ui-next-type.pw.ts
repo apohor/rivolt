@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 import { stubApi } from "./stub";
 
 // Type scale on Now, Truck, Money and Activity: Geist only, sizes
-// from 11/12/14/24/36 (inputs 16 so iOS doesn't zoom), weights 400-600.
+// from 11/12/14/24/30/36 (inputs 16 so iOS doesn't zoom), weights 400-600.
 const SHOTS = path.join(process.cwd(), "e2e", "__screenshots__");
 test.beforeAll(() => fs.mkdirSync(SHOTS, { recursive: true }));
 
@@ -41,7 +41,7 @@ for (const theme of ["dark", "light"] as const) {
           const size = Math.round(parseFloat(cs.fontSize) * 10) / 10;
           const label = `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)} "${(n.textContent ?? "").trim().slice(0, 24)}"`;
           if (!/Geist UI/.test(cs.fontFamily) || /mono/i.test(cs.fontFamily)) out.push(`family ${cs.fontFamily.slice(0, 24)} · ${label}`);
-          if (![11, 12, 14, 24, 36].includes(size)) out.push(`size ${size} · ${label}`);
+          if (![11, 12, 14, 24, 30, 36].includes(size)) out.push(`size ${size} · ${label}`);
           if (![400, 500, 600].includes(Number(cs.fontWeight))) out.push(`weight ${cs.fontWeight} · ${label}`);
         }
         return out;
