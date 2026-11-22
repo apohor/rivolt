@@ -818,8 +818,12 @@ export function TripRouteMap({
           element.style.width = element.style.height = "34px"; // a touch target above today's 28 px, around the 30 px ring and its halo
           element.setAttribute("role", "button");
           element.setAttribute("aria-label", chargeRingLabel(chargeNumber(origIdx), chargingStopCount(route), w.ArrivalSoC, w.DepartureSoC));
-          element.addEventListener("mouseenter", () => onHoverStopRef.current?.(origIdx));
-          element.addEventListener("mouseleave", () => onHoverStopRef.current?.(null));
+          // A mouse hovers; a tap fires no matching leave, so touch and pen never set the highlight (their tap selects).
+          element.addEventListener("pointerenter", (ev) => { if (ev.pointerType === "mouse") onHoverStopRef.current?.(origIdx); });
+          element.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") onHoverStopRef.current?.(null); });
+          // Reachable and operable from the keyboard: Enter or Space does what a click does.
+          element.tabIndex = 0;
+          element.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); element.click(); } });
         }
         element.style.cursor = "pointer";
         const marker = new ml.Marker({ element }).setLngLat([w.Longitude, w.Latitude]).addTo(map);

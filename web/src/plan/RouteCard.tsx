@@ -180,6 +180,7 @@ export function RouteCard({
   const clearStop = stopSel.clear;
   useLayoutEffect(() => {
     if (next) clearStop();
+    setHoverStop(null); // a highlight from the old route's stop does not carry over
   }, [route, next, clearStop]);
   // Distance helpers. cumulative is route.Waypoints[i].DistanceFromOriginMeters;
   // leg = current - previous. Hidden when Rivian didn't populate the

@@ -944,3 +944,9 @@
   top: 0.4rem;
   pointer-events: none;
 }
+/* The map's charging-stop markers take the keyboard: a visible ring on focus. */
+.maplibregl-marker[aria-label^='Charging stop']:focus-visible {
+  outline: 2px solid var(--cr-arc);
+  outline-offset: 1px;
+  border-radius: 9999px;
+}

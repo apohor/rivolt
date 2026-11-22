@@ -81,7 +81,7 @@ export function StopCard({
     if (detail && cardRef.current && titleRef.current) revealStop(cardRef.current, titleRef.current);
   }, [detail]);
   return (
-    <li ref={cardRef} data-kind={kind} data-selected={selected ? "true" : undefined} data-ring={ring ? "" : undefined} onMouseEnter={ring ? () => onHover?.(true) : undefined} onMouseLeave={ring ? () => onHover?.(false) : undefined}>
+    <li ref={cardRef} data-kind={kind} data-selected={selected ? "true" : undefined} data-ring={ring ? "" : undefined} onPointerEnter={ring ? (e) => { if (e.pointerType === "mouse") onHover?.(true); } : undefined} onPointerLeave={ring ? (e) => { if (e.pointerType === "mouse") onHover?.(false); } : undefined}>
       {ring && (
         <span data-charge-ring-rail aria-hidden="true">
           <ChargeRing size={28} arrival={w.ArrivalSoC} departure={w.DepartureSoC} on={selected || hovered} />

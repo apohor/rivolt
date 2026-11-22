@@ -126,3 +126,38 @@ for (const [name, w, h] of [["393", 393, 852], ["1440", 1440, 900]] as const) {
     await page.screenshot({ path: path.join(SHOTS, `ring-six-${name}.png`) });
   });
 }
+
+// Touch: a tap fires pointerenter with no leave, so a tapped row must not leave its ring highlighted after it is unselected.
+test("key on, touch: tapping a row twice leaves no ring highlighted", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 }, hasTouch: true });
+  const page = await ctx.newPage();
+  await openSaved(page, true);
+  const h = page.locator("[data-plan-sheet-handle]");
+  await h.tap(); await page.waitForTimeout(500); await h.tap(); await page.waitForTimeout(700);
+  const btn = page.locator(ROW).first().locator("button").first();
+  const tapBtn = async () => { const b = (await btn.boundingBox())!; await page.touchscreen.tap(b.x + b.width / 2, b.y + b.height / 2); };
+  await tapBtn();
+  await expect(page.locator(ROW).first()).toHaveAttribute("data-selected", "true");
+  await tapBtn();
+  await expect(page.locator(ROW).first()).not.toHaveAttribute("data-selected", "true");
+  await page.waitForTimeout(800);
+  // read once, after it has settled: an auto-retrying assertion could wait out a late clear and hide the bug
+  expect(await page.locator("[data-charge-ring][data-on]").count()).toBe(0);
+  await ctx.close();
+});
+
+test("key on: a charging-stop marker is reachable by Tab and Enter or Space selects its row", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openSaved(page, true);
+  const mark = page.locator(".maplibregl-marker[aria-label^='Charging stop']").first();
+  expect(await mark.getAttribute("tabindex")).toBe("0");
+  await mark.focus();
+  await expect(mark).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(ROW).first()).toHaveAttribute("data-selected", "true");
+  await page.locator(ROW).first().locator("button").first().click(); // the row toggles it off
+  await expect(page.locator(ROW).first()).not.toHaveAttribute("data-selected", "true");
+  await mark.focus();
+  await page.keyboard.press("Space");
+  await expect(page.locator(ROW).first()).toHaveAttribute("data-selected", "true");
+});
