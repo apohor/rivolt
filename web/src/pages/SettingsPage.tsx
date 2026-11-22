@@ -1,5 +1,5 @@
 import { UNSET_RATE_NOTE, memberSaving, networkRateSet } from "../lib/networkRates";
-import { useAIEnabled, useHistoryImport, useTripPlannerEnabled } from "../lib/config";
+import { useAIEnabled, useDesignPreview, useHistoryImport, useTripPlannerEnabled } from "../lib/config";
 import { HistoryImportCard, ImportsListCard } from "../components/HistoryImport";
 import { usePlannerPrefs, useSavePlannerPrefs } from "../lib/plannerPrefs";
 import { ChargersOnMapCard, MapDefaultsCard } from "../components/TripPlannerSettings";
@@ -138,6 +138,7 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 function SettingsPageInner() {
+  const signupV2 = useDesignPreview("signup_v2");
   const location = useLocation();
   // The Trip planner tab exists only where the planner does. The networks card stays under Charging: it is the price book the charge costs use too.
   const plannerOn = useTripPlannerEnabled();
@@ -245,7 +246,7 @@ function SettingsPageInner() {
           <PlanCard />
           <ServiceNoticesCard />
           <Card title="Rivian account" id="rivian">
-            <RivianAccountPanel />
+            <RivianAccountPanel v2={signupV2} />
           </Card>
           <R2ArrivalControl where="settings" />
           <AIFeaturesCard />

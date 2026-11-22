@@ -3,8 +3,12 @@
 // /demo/drives/:id, which reuse the real detail components in a
 // read-only mode.
 
+export function isDemoPath(pathname: string): boolean {
+  return pathname.startsWith("/demo");
+}
+
 export function inDemo(): boolean {
-  return typeof window !== "undefined" && window.location.pathname.startsWith("/demo");
+  return typeof window !== "undefined" && isDemoPath(window.location.pathname);
 }
 
 // The demo is fixed to the sample truck's home zone so its month totals,

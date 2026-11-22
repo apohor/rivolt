@@ -15,7 +15,7 @@ enum SettingsLogic {
             case .devices: return "Signed-in devices"
             case .passkeys: return "Passkeys"
             case .vehicleProfile: return "Vehicle profile"
-            case .primaryVehicle: return "Vehicle the free plan shows"
+            case .primaryVehicle: return "Vehicle the free tier shows"
             case .homeLocation: return "Home location"
             case .units: return "Units"
             case .chargingRates: return "Charging rates"

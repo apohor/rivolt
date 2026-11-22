@@ -1,5 +1,6 @@
+import { ChargeRing } from "./RingMark";
 import "../styles/next-plan.css";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 import { chargerKindOfKw, chargerLabel } from "../lib/chargerLabels";
 import type { TripCostStop, TripRoute } from "../lib/api";
 import { formatWaypointTime } from "./format";
@@ -31,8 +32,11 @@ export function StopCard({
   showLeg,
   weather,
   weatherNote,
-  number,
+  ring = false,
+  hovered = false,
+  onHover,
   correctedArrival,
+  nodeColor,
 }: {
   kind: "start" | "stop" | "via" | "end";
   name: string;
@@ -47,10 +51,15 @@ export function StopCard({
   // The weather on the leg that arrives here: tags in the row, and (for a charging stop) the estimate and climb lines in its detail.
   weather?: LegWeatherFacts | null;
   weatherNote?: string[];
-  // plan_v2: this charging stop's place among the charging stops, the number its pin and pill on the map carry.
-  number?: number;
+  // plan_v2: this charging stop is drawn as the charge ring (the map's marker too), in place of the rail's dot.
+  ring?: boolean;
+  // plan_v2: the pointer is over this stop's marker on the map (or over this row): both are highlighted.
+  hovered?: boolean;
+  onHover?: (on: boolean) => void;
   // plan_v2: the weather-corrected arrival charge the hero shows; the end row then says that figure (tinted against the target) with Rivian's own beside it.
   correctedArrival?: number;
+  // plan_v2: the colour of this row's dot, for a trip's start and end (the map's pin colours).
+  nodeColor?: string;
 }) {
   const { distanceUnit } = usePreferences();
   const reserve = useReservePct();
@@ -75,7 +84,12 @@ export function StopCard({
     if (detail && cardRef.current && titleRef.current) revealStop(cardRef.current, titleRef.current);
   }, [detail]);
   return (
-    <li ref={cardRef} data-kind={kind} data-selected={selected ? "true" : undefined}>
+    <li ref={cardRef} data-kind={kind} style={nodeColor ? ({ "--node": nodeColor } as CSSProperties) : undefined} data-selected={selected ? "true" : undefined} data-ring={ring ? "" : undefined} onPointerEnter={ring ? (e) => { if (e.pointerType === "mouse") onHover?.(true); } : undefined} onPointerLeave={ring ? (e) => { if (e.pointerType === "mouse") onHover?.(false); } : undefined}>
+      {ring && (
+        <span data-charge-ring-rail aria-hidden="true">
+          <ChargeRing size={28} arrival={w.ArrivalSoC} departure={w.DepartureSoC} on={selected || hovered} />
+        </span>
+      )}
       <button
         ref={titleRef}
         type="button"
@@ -87,9 +101,6 @@ export function StopCard({
         {/* Narrower than 200 CSS px (a phone at Safari's aA 300 %) the leg distance drops under the name rather than squeezing it to nothing. */}
         <span className="flex items-baseline justify-between gap-3 max-[200px]:flex-wrap">
           <span className="pt-value min-w-0 text-neutral-100">
-            {isStop && number != null && (
-              <span data-stop-number aria-label={`Stop ${number}`} className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 align-text-bottom text-[11px] font-bold leading-none text-neutral-950">{number}</span>
-            )}
             {name}
             {/* A place to break before the badges: on a very narrow screen they go to the next line instead of sticking out past the edge. */}
             <wbr />

@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { stubFetchRoutes } from "../test/fetchRoutes";
 
-async function mount(page: "onboarding" | "prompt", opts: { keys: string[]; connected: boolean; demo?: boolean }) {
+async function mount(page: "onboarding" | "prompt", opts: { keys: string[]; connected: boolean; demo?: boolean; inline?: boolean }) {
   vi.resetModules();
   stubFetchRoutes({
     "/api/config": { body: { features: { signup_enabled: true, demo_enabled: !!opts.demo, design_preview: opts.keys } } },
@@ -17,7 +17,7 @@ async function mount(page: "onboarding" | "prompt", opts: { keys: string[]; conn
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <MemoryRouter initialEntries={["/onboarding?connect=1"]}>
-        {page === "onboarding" ? <Page /> : <Page inline />}
+        {page === "onboarding" ? <Page /> : <Page inline={opts.inline ?? true} context="Once connected, drives appear here automatically." />}
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -46,9 +46,23 @@ describe("signup_v2 connected step", () => {
     expect(document.querySelector("[data-what-next]")).toBeNull();
   });
 
-  it("Now prompt: sample truck one tap away until connected, key on only", async () => {
+  it("Now prompt, key on: the one short form, one sample-truck link, none of the long copy", async () => {
     await mount("prompt", { keys: ["signup_v2"], connected: false, demo: true });
-    expect((await screen.findByRole("link", { name: "Try it with a sample truck first" })).getAttribute("href")).toBe("/demo?from=app");
+    expect((await screen.findByRole("link", { name: "Try a sample truck" })).getAttribute("href")).toBe("/demo?from=app");
+    expect(screen.getAllByRole("link", { name: /sample truck/i })).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { name: "Connect your Rivian" })).toHaveLength(1);
+    expect(screen.getByLabelText("Rivian email")).toBeTruthy();
+    expect(document.querySelector("[data-connect-trust]")).toBeNull();
+    expect(document.body.textContent).not.toContain("Once connected, drives, charges");
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("Drives, Charges and Plan prompt, key on: title, one line, button; no trust copy, no sample card", async () => {
+    await mount("prompt", { keys: ["signup_v2"], connected: false, demo: true, inline: false });
+    expect(await screen.findByRole("heading", { name: "Connect your Rivian" })).toBeTruthy();
+    expect(screen.getByText("Once connected, drives appear here automatically.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Connect Rivian" }).getAttribute("href")).toBe("/settings?tab=account#rivian");
+    expect(document.body.textContent).not.toMatch(/sample truck|sends no commands/i);
   });
 
   it("Now prompt: key off has no such link", async () => {

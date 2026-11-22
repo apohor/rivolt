@@ -4,6 +4,9 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { stubFetchRoutes } from "../test/fetchRoutes";
 
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock("../lib/track", () => ({ track: trackMock }));
+
 type Route = { status?: number; body: unknown };
 
 // The onboarding connect step with the key on (or off), the Rivian status and the login/mfa/logout answers chosen per case.
@@ -41,9 +44,9 @@ describe("signup_v2 Rivian sign-in", () => {
     vi.unstubAllGlobals();
   });
 
-  it("one screen: labelled Rivian fields with password-manager hints, the safer option before the password, only true assurances", async () => {
-    await mount();
-    const h = await screen.findByRole("heading", { name: "Sign in to Rivian" });
+  it("the short card: its words, nothing else; labelled fields, the safer option before the password", async () => {
+    await mount({ demo: true });
+    const h = await screen.findByRole("heading", { name: "Connect your Rivian" });
     expect(document.activeElement).toBe(h);
     const email = screen.getByLabelText("Rivian email") as HTMLInputElement;
     const pw = screen.getByLabelText("Rivian password") as HTMLInputElement;
@@ -51,14 +54,38 @@ describe("signup_v2 Rivian sign-in", () => {
     expect(email.type).toBe("email");
     expect(pw.getAttribute("autocomplete")).toBe("current-password");
     const safer = document.querySelector("[data-connect-safer]") as HTMLElement;
-    expect(safer.textContent).toMatch(/Safer option: connect a separate Authorized Driver account/);
+    expect(safer.textContent).toBe("Safer: use a separate driver account. How");
     expect(safer.compareDocumentPosition(pw) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole("link", { name: "How to set one up" }).getAttribute("href")).toBe("/driver-account");
-    expect(document.body.textContent).not.toMatch(/recommend/i);
-    expect(document.body.textContent).toContain("Read-only: Rivolt never sends commands to your truck.");
-    expect(document.body.textContent).toContain("Your password is used once and not stored. Rivolt keeps your Rivian email and an encrypted session token.");
-    expect(screen.getByRole("link", { name: "Is it safe to connect?" }).getAttribute("href")).toBe("/safe-to-connect");
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByRole("link", { name: "How" }).getAttribute("href")).toBe("/driver-account");
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Use your Rivian app login. Read-only, and your password is never stored.");
+    expect(text).toContain("Rivolt records your truck's location and vehicle data.");
+    expect(screen.getByRole("link", { name: "Privacy" }).getAttribute("href")).toBe("/privacy");
+    expect(text).toContain("Unofficial, not affiliated with Rivian.");
+    expect(screen.getByRole("link", { name: "Is it safe?" }).getAttribute("href")).toBe("/safe-to-connect");
+    expect(screen.getAllByRole("link", { name: "Try a sample truck" })).toHaveLength(1);
+    // Gone from the card: the trust paragraph, the bullets and box, the context line, the checkbox and radios, per-field hints.
+    expect(text).not.toMatch(/recommend|Authorized Driver|Disconnect any time|encrypted session token|reads your truck's data/i);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(email.placeholder).toBe("");
+  });
+
+  it("the sign-in event carries no authorized_driver property with the key on; the key-off form still sends it", async () => {
+    trackMock.mockClear();
+    await mount();
+    await screen.findByLabelText("Rivian email");
+    fill();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in to Rivian" }));
+    await waitFor(() => expect(trackMock).toHaveBeenCalledWith("rivian_connect_start", {}));
+    expect(trackMock.mock.calls.some(([, p]) => p && "authorized_driver" in p)).toBe(false);
+    cleanup();
+    trackMock.mockClear();
+    await mount({ keys: [] });
+    fireEvent.change(await screen.findByPlaceholderText("you@example.com"), { target: { value: "me@example.com" } });
+    fireEvent.change(screen.getByPlaceholderText("Password"), { target: { value: "pw-1234" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Sign in/ }));
+    await waitFor(() => expect(trackMock).toHaveBeenCalledWith("rivian_connect_start", { authorized_driver: true }));
   });
 
   it("key off: today's connect form, unchanged", async () => {

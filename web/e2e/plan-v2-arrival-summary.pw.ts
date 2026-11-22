@@ -143,3 +143,32 @@ test("phone, key off: the peek keeps its totals line", async ({ page }) => {
   await open(page, CORRECTED, [], 393);
   await expect(page.locator("[data-plan-sheet-title]")).toContainText(/driving|charging/);
 });
+
+// v1.4.1: the weather warning says temperature and headwind in the account's units, and "feels like" only when the stop row's air temperature differs
+// after rounding. temp_c is the feels-like figure, air_temp_c the plain air temperature (the server's two fields); the worst leg is the one the chip reads.
+const chipFor = (temp_c: number, air_temp_c: number) => ({
+  ...CORRECTED,
+  weather_adjustment: { ...CORRECTED.weather_adjustment, legs: [{ multiplier: 1.05, temp_c: 8, air_temp_c: 8 }, { multiplier: 1.12, temp_c, air_temp_c, headwind_kph: 24 }] },
+});
+for (const u of [
+  { n: "imperial", prefs: { distanceUnit: "mi", temperatureUnit: "f", temperatureUnitSet: true }, feels: "cold (feels like 41°F) + 15 mph headwind", air: "cold (46°F) + 15 mph headwind" },
+  { n: "metric", prefs: { distanceUnit: "km", temperatureUnit: "c", temperatureUnitSet: true }, feels: "cold (feels like 5°C) + 24 km/h headwind", air: "cold (8°C) + 24 km/h headwind" },
+]) {
+  for (const same of [false, true]) {
+    test(`@webkit the weather warning reads in ${u.n} units${same ? ", and says no feels like when the two temperatures are equal" : ", feels like and a headwind"}`, async ({ page }) => {
+      await page.addInitScript((p) => localStorage.setItem("rivolt.preferences.v1", JSON.stringify(p)), u.prefs);
+      await open(page, same ? chipFor(8, 8) : chipFor(5, 8), ["plan_v2"]);
+      const chip = page.getByText("Weather pushes arrival below your target").locator("..");
+      await expect(chip).toBeVisible();
+      if (same) {
+        await expect(chip).toContainText(`Correcting for ${u.air}`);
+        await expect(chip).not.toContainText("feels like");
+      } else {
+        await expect(chip).toContainText(`Correcting for ${u.feels}`);
+      }
+      await expect(chip).toContainText("the realistic arrival is 18%");
+      await chip.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(SHOTS, `weather-chip-${u.n}-${same ? "equal" : "feels"}.png`) });
+    });
+  }
+}

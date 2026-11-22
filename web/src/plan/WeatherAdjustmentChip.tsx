@@ -1,4 +1,6 @@
 import { type TripPlan } from "../lib/api";
+import { usePreferences } from "../lib/preferences";
+import { tempText, windText } from "./legWeather";
 
 // WeatherAdjustmentChip renders a callout when the rivolt-side
 // weather correction predicts the corrected arrival SoC will fall
@@ -7,10 +9,13 @@ import { type TripPlan } from "../lib/api";
 // silently turn comfortable plans into stranded ones; this chip is
 // the user's warning that they should add a stop or pad the target.
 //
+// Temperature and wind read in the account's units (Settings); the thresholds stay metric, as the server's numbers are.
+//
 // Renders nothing when there's no adjustment (toggle off, fetch
 // failed on every leg), or when the adjustment confirms the plan is
 // still above target (cold day with extra margin).
 export function WeatherAdjustmentChip({ plan }: { plan: TripPlan }) {
+  const { temperatureUnit, distanceUnit } = usePreferences();
   const adj = plan.weather_adjustment;
   if (!adj) return null;
   const rivianArrival = plan.Routes[0]?.ArrivalSoC ?? 0;
@@ -33,9 +38,14 @@ export function WeatherAdjustmentChip({ plan }: { plan: TripPlan }) {
       if (leg.multiplier > worst.multiplier) worst = leg;
     });
     const out: string[] = [];
-    if (worst.temp_c != null && worst.temp_c < 10) out.push(`cold (${worst.temp_c.toFixed(0)}°C)`);
-    if (worst.temp_c != null && worst.temp_c > 30) out.push(`heat (${worst.temp_c.toFixed(0)}°C)`);
-    if (worst.headwind_kph != null && worst.headwind_kph > 10) out.push(`${worst.headwind_kph.toFixed(0)} kph headwind`);
+    // temp_c is the feels-like temperature and the threshold stays on it; the stop row prints the air temperature (air_temp_c),
+    // so say "feels like" when the two differ after rounding.
+    const feels = worst.temp_c != null ? tempText(worst.temp_c, temperatureUnit) : "";
+    const air = worst.air_temp_c != null ? tempText(worst.air_temp_c, temperatureUnit) : feels;
+    const temp = feels === air ? feels : `feels like ${feels}`;
+    if (worst.temp_c != null && worst.temp_c < 10) out.push(`cold (${temp})`);
+    if (worst.temp_c != null && worst.temp_c > 30) out.push(`heat (${temp})`);
+    if (worst.headwind_kph != null && worst.headwind_kph > 10) out.push(`${windText(worst.headwind_kph, distanceUnit)} headwind`);
     if (worst.precip_mm != null && worst.precip_mm > 0.5) out.push("rain");
     if (adj.profile_reasons) out.push(...adj.profile_reasons);
     return out;

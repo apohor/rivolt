@@ -62,8 +62,11 @@ function RivianExpiryEmailToggle() {
 }
 
 // `onLater` (onboarding) adds an "I'll do this later" step to a failure that is Rivian's, not the user's.
-// v2 (design key signup_v2, onboarding only): the single "Sign in to Rivian" screen and the code step in RivianSignInV2.
-export function RivianAccountPanel({ onLater, v2 = false }: { onLater?: () => void; v2?: boolean } = {}) {
+// v2 (design key signup_v2): the single "Sign in to Rivian" screen and the code step in RivianSignInV2. `focusOnMount` (onboarding) puts focus on the
+// heading when the card first appears; on Now and Settings it does not, so a status flip never moves the reader. A step the user takes (submit,
+// new code, different account) always moves focus to the new step.
+export function RivianAccountPanel({ onLater, v2 = false, focusOnMount = false }: { onLater?: () => void; v2?: boolean; focusOnMount?: boolean } = {}) {
+  const [stepped, setStepped] = useState(false);
   const qc = useQueryClient();
   const status = useQuery({
     queryKey: ["rivian", "status"],
@@ -91,7 +94,7 @@ export function RivianAccountPanel({ onLater, v2 = false }: { onLater?: () => vo
 
   const login = useMutation({
     mutationFn: () => {
-      track("rivian_connect_start", { authorized_driver: kind === "driver" });
+      track("rivian_connect_start", v2 ? {} : { authorized_driver: kind === "driver" });
       return backend.rivianLogin(email, password);
     },
     onError: (e) => track("rivian_connect_fail", { class: connectFailure(e, "password").track }),
@@ -112,7 +115,15 @@ export function RivianAccountPanel({ onLater, v2 = false }: { onLater?: () => vo
   });
   const logout = useMutation({
     mutationFn: () => backend.rivianLogout(),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      // Leaving the code step: the sign-in that brought us there is over. Without this, holdForm (a finished login plus a typed email) keeps
+      // the code form on screen after the server has dropped the pending code.
+      login.reset();
+      mfa.reset();
+      setOtp("");
+      setPassword("");
+      invalidate();
+    },
   });
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const authenticated = !!status.data?.authenticated;
@@ -315,13 +326,16 @@ export function RivianAccountPanel({ onLater, v2 = false }: { onLater?: () => vo
           setOtp={setOtp}
           pending={mfa.isPending}
           error={mfa.error}
+          focus={focusOnMount || stepped}
           onSubmit={() => mfa.mutate()}
           onNewCode={() => {
+            setStepped(true);
             mfa.reset();
             setOtp("");
             logout.mutate();
           }}
           onDifferent={() => {
+            setStepped(true);
             mfa.reset();
             setOtp("");
             setEmail("");
@@ -388,12 +402,14 @@ export function RivianAccountPanel({ onLater, v2 = false }: { onLater?: () => vo
         setEmail={setEmail}
         password={password}
         setPassword={setPassword}
-        driver={kind === "driver"}
-        setDriver={(d) => setKind(d ? "driver" : "main")}
         pending={login.isPending}
         error={login.error}
-        onSubmit={() => login.mutate()}
+        onSubmit={() => {
+          setStepped(true);
+          login.mutate();
+        }}
         onLater={onLater}
+        focus={focusOnMount || stepped}
       />
     );
   }
