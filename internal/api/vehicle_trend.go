@@ -31,7 +31,7 @@ import (
 
 const (
 	trendDefaultMonths = 12
-	trendMaxMonths     = 24
+	trendMaxMonths     = 120 // "All" on the web asks for this many; only months with driving come back, so it stays small
 	// A month counts toward the trend with at least this much driving.
 	trendMinMonthMi = 50.0
 	// Efficiency needs this many such months before it is a trend.
@@ -144,7 +144,7 @@ func handleVehicleTrends(sqlDB *sql.DB) func(uuid.UUID, http.ResponseWriter, *ht
 		if s := q.Get("months"); s != "" {
 			n, err := strconv.Atoi(s)
 			if err != nil || n < 1 || n > trendMaxMonths {
-				http.Error(w, "months: want 1 to 24", http.StatusBadRequest)
+				http.Error(w, "months: want 1 to 120", http.StatusBadRequest)
 				return
 			}
 			months = n
