@@ -697,11 +697,7 @@ export default function TripPlanPage() {
           {formEl}
           {resultEl}
           {!hasResult && (
-            <div data-plan-area="map" data-empty="true" aria-hidden>
-              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-neutral-500">
-                {planning ? (usingNight ? `Re-planning with ${usingNight} as the night…` : "Planning your route…") : "Your route and charging stops appear here."}
-              </div>
-            </div>
+            <EmptyMap text={planning ? (usingNight ? `Re-planning with ${usingNight} as the night…` : "Planning your route…") : "Your route and charging stops appear here."} />
           )}
           {planning && usingNight && <p role="status" className="sr-only">Re-planning with {usingNight} as the night</p>}
         </div>
@@ -781,6 +777,17 @@ function SnapshotBanner({
 // DemoPresetPicker: the public demo's planner. A handful of stored trips
 // rendered by the real planner UI (route, stops, cost, arrival SoC); any
 // other trip needs the visitor's own Rivian.
+// EmptyMap: the map's place before there is a route. With plan_v2 it is left out on a phone (CSS), where a tall empty box only pushed the form down;
+// the planning message is the spinner by the Plan button.
+function EmptyMap({ text }: { text: string }) {
+  const v2 = useDesignPreview("plan_v2");
+  return (
+    <div data-plan-area="map" data-empty="true" data-plan-empty-v2={v2 ? "" : undefined} aria-hidden>
+      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-neutral-500">{text}</div>
+    </div>
+  );
+}
+
 // FormShell: the classic card, or otherwise the compact route bar. On a
 // phone the bar collapses to a one-line summary once there is a plan.
 function FormShell({ hasResult, resultKey, summary, children }: { hasResult: boolean; resultKey: unknown; summary: string; children: React.ReactNode }) {
