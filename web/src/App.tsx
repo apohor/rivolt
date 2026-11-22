@@ -135,6 +135,7 @@ export default function App() {
       <Route path="terms" element={<TermsPage />} />
       <Route path="terms/2026-10-23" element={<TermsArchivePage version="2026-10-23" />} />
       <Route path="terms/2026-11-17" element={<TermsArchivePage version="2026-11-17" />} />
+      <Route path="terms/2026-11-21" element={<TermsArchivePage version="2026-11-21" />} />
       <Route path="moving-from-electrafi" element={<MovingFromElectraFiPage />} />
       <Route path="safe-to-connect" element={<SafeToConnectPage />} />
       <Route path="driver-account" element={<DriverAccountPage />} />

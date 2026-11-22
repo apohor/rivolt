@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import frozen from "./terms-2026-10-23.md?raw";
 import frozen1117 from "./terms-2026-11-17.md?raw";
+import frozen1121 from "./terms-2026-11-21.md?raw";
 
 // terms-2026-10-23.md is the exact text accounts created before the new Terms accepted, served at /terms/2026-10-23. It must NEVER change
 // when /terms does (existing accounts stay on these Terms until the new ones take effect for them). If this fails, restore the file from
@@ -25,5 +26,16 @@ describe("the November 17, 2026 Terms are frozen", () => {
 
   it("is the Terms of that date", () => {
     expect(frozen1117).toMatch(/^# Rivolt Terms of Service\n\nLast updated: November 17, 2026\n/);
+  });
+});
+
+// terms-2026-11-21.md is the Terms as published from November 21, 2026 (the free tier showing the last 12 months), served at /terms/2026-11-21.
+describe("the November 21, 2026 Terms are frozen", () => {
+  it("has the exact text, byte for byte", () => {
+    expect(createHash("sha256").update(frozen1121).digest("hex")).toBe("7b82842682273a6540fccd4d1af280d09291777a2583f1dd3c4111137d0729b7");
+  });
+
+  it("is the Terms of that date", () => {
+    expect(frozen1121).toMatch(/^# Rivolt Terms of Service\n\nLast updated: November 21, 2026\n/);
   });
 });
