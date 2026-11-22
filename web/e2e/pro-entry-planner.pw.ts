@@ -28,7 +28,7 @@ async function open(page: Page, keys: string[]) {
 }
 
 for (const theme of ["light", "dark"] as const) {
-  for (const w of [393, 1440] as const) {
+  for (const w of [320, 393, 1440] as const) {
     test(`pro_entry planner note @webkit · ${w}px · ${theme}`, async ({ browser }) => {
       const ctx = await browser.newContext({ viewport: { width: w, height: w < 500 ? 852 : 900 }, colorScheme: theme });
       const page = await ctx.newPage();
@@ -40,6 +40,7 @@ for (const theme of ["light", "dark"] as const) {
       await expect(on).not.toContainText("Rivolt Pro");
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
       await on.scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollBy(0, 140)); // clear the fixed tab bar so the whole note and its button are in the still
       await page.screenshot({ path: path.join(SHOTS, `pro-entry-planner-on-${w}-${theme}.png`) });
       await on.getByRole("button", { name: "See the Pro tier" }).click();
       await expect(page.getByRole("dialog")).toBeVisible();
@@ -52,6 +53,7 @@ for (const theme of ["light", "dark"] as const) {
       await expect(off).toContainText("Multi-day plans, overnights and re-plan from here are part of Rivolt Pro. A single-day plan stays free.");
       await expect(off.getByRole("button", { name: "See Pro" })).toBeVisible();
       await off.scrollIntoViewIfNeeded();
+      await page.evaluate(() => window.scrollBy(0, 140));
       await page.screenshot({ path: path.join(SHOTS, `pro-entry-planner-off-${w}-${theme}.png`) });
       await ctx.close();
     });
