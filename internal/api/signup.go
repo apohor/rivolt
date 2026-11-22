@@ -292,6 +292,9 @@ type PlanFields struct {
 	// single drive or charge, with the same two values), and is never deleted. Clients show these, never a number of their own.
 	HistoryDays *int    `json:"history_days"`
 	HistoryFrom *string `json:"history_from"`
+	// HistoryMonths is how many calendar months before the current one the window reaches back (histwin.Months); null where HistoryDays is.
+	// Clients that name the window in words take the number from here and never carry it.
+	HistoryMonths *int `json:"history_months"`
 }
 
 // planFor builds the plan fields for an account; nil when the lookup failed.
@@ -311,7 +314,7 @@ func planFromState(st entitlements.State, billing bool) *PlanFields {
 	if !st.Pro {
 		win := histwin.Free(time.Now())
 		from := win.Since.Format("2006-01-02")
-		pf.HistoryDays, pf.HistoryFrom = &win.Days, &from
+		pf.HistoryDays, pf.HistoryFrom, pf.HistoryMonths = &win.Days, &from, &win.Months
 	}
 	if st.EndedSource != "" {
 		src := st.EndedSource

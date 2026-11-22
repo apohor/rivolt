@@ -1,7 +1,7 @@
 // Package histwin carries the free plan's history window in a request context.
 //
 // A free account (Rivolt Pro, Sprint 14) sees drives, charges and statements from the first day of the calendar month Months back (UTC): one
-// cutoff for all three, so the window is the current month and the twelve before it. The window lives only in the context of a request that a windowed route's middleware has stamped: background jobs
+// cutoff for all three, so the window is the current month and the Months before it (12 unless the deployment sets otherwise). The window lives only in the context of a request that a windowed route's middleware has stamped: background jobs
 // (the recorder, recaps, the statement email), repairs, the export and every other context carry none, so they see everything. The stores
 // (drives, charges) narrow their reads when a window is present; nothing here deletes or hides a row from storage.
 //
@@ -11,11 +11,37 @@ package histwin
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
-// Months is how many calendar months before the current one the free window reaches back.
-const Months = 12
+// Months is how many calendar months before the current one the free window reaches back: the one number every route and client derives
+// from (the cutoff, Money's month list, the 402 body, /api/auth/me history_months). It is a deployment setting (MonthsEnv, read once at
+// start by Configure) and 12 when unset; clients never carry it.
+var Months = 12
+
+// MonthsEnv names the setting that holds Months.
+const MonthsEnv = "RIVOLT_FREE_HISTORY_MONTHS"
+
+// MaxMonths bounds the setting; the Trends route reaches back 24 months at most.
+const MaxMonths = 24
+
+// Configure applies the setting's value: empty keeps 12; otherwise a whole number of months from 1 to MaxMonths.
+func Configure(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		Months = 12
+		return nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > MaxMonths {
+		return fmt.Errorf("%s: %q is not a number of months from 1 to %d", MonthsEnv, raw, MaxMonths)
+	}
+	Months = n
+	return nil
+}
 
 // ErrOutside is returned by a single-row read (a drive or charge by id) of a row older than the window. The row exists; the free plan
 // does not show it.
@@ -28,6 +54,8 @@ type W struct {
 	Since time.Time
 	// MoneyFrom is the same cutoff for the Money statements (a statement month is whole, so it is a month start).
 	MoneyFrom time.Time
+	// Months is how many calendar months back this window reaches.
+	Months int
 	// Days is the window's length in days at the moment it was made (it changes through the month), for clients that show a number.
 	Days int
 }
@@ -37,7 +65,7 @@ func Free(now time.Time) W {
 	now = now.UTC()
 	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	from := first.AddDate(0, -Months, 0)
-	return W{Since: from, MoneyFrom: from, Days: int(now.Sub(from).Hours() / 24)}
+	return W{Since: from, MoneyFrom: from, Months: Months, Days: int(now.Sub(from).Hours() / 24)}
 }
 
 type key struct{}
