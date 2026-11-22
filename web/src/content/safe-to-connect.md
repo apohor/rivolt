@@ -13,6 +13,16 @@ You don't need an account to see what Rivolt does. The [demo](https://demo.rivol
 - Your Rivian password is used once to sign in and is never stored. What Rivolt keeps is your Rivian email, an encrypted session token, and when you signed in (so it can warn you before Rivian ends the session).
 - The drives and charges it records, including location, are described in the [Privacy policy](/privacy): what is recorded, how long it is kept and how to delete it. There are no ads and no third-party analytics.
 
+## What the connect screen says, in full
+
+The connect screen says: "Use your Rivian app login. Read-only, and your password is never stored." Here is what stands behind each part.
+
+- **Read-only.** The only thing Rivolt sends Rivian is the sign-in itself. Everything after that is reading: no locks, climate or charging controls, and no way to send one.
+- **Your password is never stored.** It is used once, to sign in, and dropped. Rivolt keeps your Rivian email, an encrypted session token and when you signed in.
+- **Disconnect any time.** Settings → Account → Rivian account → Sign out of Rivian deletes the stored session (see "How to undo it" below).
+- **Your Rivian app login or a driver account.** Either works. A separate driver account is safer, because you can cut Rivolt off from the Rivian app (next section).
+- **Location and vehicle data.** Rivolt records your truck's location and vehicle data to build your drives and charges. The [Privacy policy](/privacy) says what, for how long, and how to delete it.
+
 ## We recommend a separate Authorized Driver account
 
 You don't have to give Rivolt your main login. Create a second, free Rivian account, add it to your vehicle as an Authorized Driver in the Rivian app, and connect that one.

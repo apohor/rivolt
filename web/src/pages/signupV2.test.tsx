@@ -73,7 +73,8 @@ describe("signup_v2 copy", () => {
     expect(sample.getAttribute("href")).toBe("/demo?from=app");
     expect(screen.queryByRole("heading", { name: "Connect your Rivian" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Add my truck/ }));
-    expect(await screen.findByRole("heading", { name: "Sign in to Rivian" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Connect your Rivian" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in to Rivian" })).toBeTruthy();
     cleanup();
     await mount("OnboardingPage", [], { demo: true });
     expect(await screen.findByRole("heading", { name: "Connect your Rivian" })).toBeTruthy();

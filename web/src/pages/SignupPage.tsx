@@ -463,7 +463,7 @@ export default function SignupPage() {
           </>
         )}
 
-        {tokenStatus !== "checking" && !v2Default && (
+        {tokenStatus !== "checking" && !v2Default && !v2 && (
           <div className="mt-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
             <strong className="text-neutral-200">What's next:</strong> you'll
             connect your Rivian account - the same login you use in the Rivian
@@ -478,6 +478,16 @@ export default function SignupPage() {
             </a>
             ). Used ElectraFi? You can import your past drives + charges
             afterwards so your stats start with real history.
+          </div>
+        )}
+
+        {tokenStatus !== "checking" && v2 && !v2Default && (
+          <div data-signup-next className="mt-5 rounded-md border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-xs leading-relaxed text-neutral-400">
+            <strong className="text-neutral-200">What's next:</strong> you'll connect your Rivian account; a separate driver account is safer (
+            <Link to="/driver-account" target="_blank" className="text-emerald-500 underline underline-offset-2 hover:text-emerald-400">
+              how
+            </Link>
+            ). Used ElectraFi? You can import your past drives and charges afterwards.
           </div>
         )}
 

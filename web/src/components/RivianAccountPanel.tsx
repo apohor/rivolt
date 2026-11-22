@@ -91,7 +91,7 @@ export function RivianAccountPanel({ onLater, v2 = false }: { onLater?: () => vo
 
   const login = useMutation({
     mutationFn: () => {
-      track("rivian_connect_start", { authorized_driver: kind === "driver" });
+      track("rivian_connect_start", v2 ? {} : { authorized_driver: kind === "driver" });
       return backend.rivianLogin(email, password);
     },
     onError: (e) => track("rivian_connect_fail", { class: connectFailure(e, "password").track }),
@@ -388,8 +388,6 @@ export function RivianAccountPanel({ onLater, v2 = false }: { onLater?: () => vo
         setEmail={setEmail}
         password={password}
         setPassword={setPassword}
-        driver={kind === "driver"}
-        setDriver={(d) => setKind(d ? "driver" : "main")}
         pending={login.isPending}
         error={login.error}
         onSubmit={() => login.mutate()}
