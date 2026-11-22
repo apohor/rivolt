@@ -9,7 +9,7 @@ import { useSelectedStop } from "./selection";
 import { formatDistance, usePreferences } from "../lib/preferences";
 import { wholeDistance } from "./units";
 import { type ElevationProfile, type TripCostEstimate, type TripPlan, type TripRoute } from "../lib/api";
-import { useDesignPreview } from "../lib/config";
+import { tilesRadar, useDesignPreview } from "../lib/config";
 import { ElevationChart } from "./ElevationChart";
 import { usableProfile } from "./elevation";
 import { Card } from "../components/ui";
@@ -33,6 +33,14 @@ const TripRouteMap = lazy(() =>
   import("../map/TripRouteMap").then((m) => ({ default: m.TripRouteMap })),
 );
 
+
+// The box shown while the map's chunk loads. In plan_v2 it is the map (320 px) plus the chip row's reserved height (TripRouteMap's FLOW_CHIPS_RESERVE,
+// 104 px on a phone, 64 above it, and its 4 px margin) plus the radar button's row (32 px and 4 px) when the server has radar, so the card is its final
+// height at first paint. The class names are written out for Tailwind.
+function mapFallbackHeight(planV2: boolean): string {
+  if (!planV2) return "h-80";
+  return tilesRadar().url !== "" ? "h-[464px] sm:h-[424px]" : "h-[428px] sm:h-[388px]";
+}
 
 export function RouteCard({
   route,
@@ -458,7 +466,7 @@ export function RouteCard({
       {expanded && (
       <>
       <div className="mb-4">
-        <Suspense fallback={<div className="h-80 animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50" />}>
+        <Suspense fallback={<div className={`${mapFallbackHeight(planV2)} animate-pulse rounded-lg border border-neutral-800 bg-neutral-900/50`} />}>
           <TripRouteMap
             route={route}
             onAddStop={onAddStop}

@@ -118,6 +118,10 @@ function usePreferredSlugs(): string[] {
   return slugs;
 }
 
+// plan_v2, map in the flow (the day cards): the chip row's rows arrive after the map loads (the campground chip, the count, the legend), so the row keeps
+// the height it ends at and nothing below moves. RouteCard's loading box (mapFallbackHeight) reserves the same.
+const FLOW_CHIPS_RESERVE = " min-h-[104px] content-start sm:min-h-[64px]";
+
 export function TripRouteMap({
   route,
   height = 320,
@@ -1285,7 +1289,7 @@ export function TripRouteMap({
   );
   // The charger chips: floating over the map's top (fill), in the flow above it, or in the Layers panel (tight).
   const chargerChips = (panel: boolean) => (
-        <div className={fill && !panel ? "pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm max-[200px]:px-1" : "flex flex-wrap items-center gap-1 mb-1"} data-plan-chips={fill && !panel ? "" : undefined} data-map-chips={panel ? undefined : ""}>
+        <div className={fill && !panel ? "pointer-events-auto flex flex-wrap items-center gap-1 rounded-lg bg-neutral-950/80 px-2 py-1.5 backdrop-blur-sm max-[200px]:px-1" : `flex flex-wrap items-center gap-1 mb-1${planV2 && !fill && !panel ? FLOW_CHIPS_RESERVE : ""}`} data-plan-chips={fill && !panel ? "" : undefined} data-map-chips={panel ? undefined : ""}>
           {!noChargerSource && <>
           <span className="whitespace-nowrap text-xs text-neutral-500 mr-1 max-[200px]:sr-only">Chargers:</span>
           {(["dcfc", "l2", "hotels", "camp"] as const).filter((f) => f !== "camp" || campCount > 0 || layers.has("camp")).map((f) => (
