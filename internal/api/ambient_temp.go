@@ -96,7 +96,7 @@ func ambientCondition(label string) string {
 	return ""
 }
 
-// demoAmbient is the fixed sample weather the demo shows (the Rose Bowl sample point): no lookup, so nothing leaves the server.
+// demoAmbient is the fixed sample weather the demo shows (the sample home point): no lookup, so nothing leaves the server.
 func demoAmbient(now time.Time) *nowAmbient {
 	wind := 11.0
 	return &nowAmbient{TempC: 22.5, Source: ambientSource, AsOf: now.UTC().Truncate(time.Hour),

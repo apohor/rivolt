@@ -86,7 +86,7 @@
                 "Latitude": 34.1613,
                 "Longitude": -118.1676,
                 "MaxPowerKW": 0,
-                "Name": "Rose Bowl parking (sample)",
+                "Name": "Sample home",
                 "WaypointType": "ORIGIN"
               },
               {
@@ -134,7 +134,7 @@
       "start": {
         "latitude": 34.1613,
         "longitude": -118.1676,
-        "label": "Rose Bowl parking (sample)"
+        "label": "Sample home"
       }
     },
     {
@@ -181,7 +181,7 @@
       "end": {
         "latitude": 34.1613,
         "longitude": -118.1676,
-        "label": "Rose Bowl parking (sample)"
+        "label": "Sample home"
       },
       "index": 2,
       "plan": {
@@ -249,7 +249,7 @@
                 "Latitude": 34.1613,
                 "Longitude": -118.1676,
                 "MaxPowerKW": 0,
-                "Name": "Rose Bowl parking (sample)",
+                "Name": "Sample home",
                 "WaypointType": "DESTINATION"
               }
             ],
@@ -286,7 +286,7 @@
       {
         "depart_at": "2026-11-15T17:20:00Z",
         "end": {
-          "label": "Rose Bowl parking (sample)",
+          "label": "Sample home",
           "lat": 34.1613,
           "lon": -118.1676
         }
@@ -296,7 +296,7 @@
     "has_adapter": true,
     "max_overnight_soc_pct": 90,
     "origin": {
-      "label": "Rose Bowl parking (sample)",
+      "label": "Sample home",
       "lat": 34.1613,
       "lon": -118.1676
     },

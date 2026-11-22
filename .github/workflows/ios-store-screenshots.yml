@@ -23,24 +23,26 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  XCODE_APP: /Applications/Xcode_26.3.app
-  SIM_RUNTIME: iOS 26.2
+  XCODE_APP: /Applications/Xcode_27.2.app
+  SIM_RUNTIME: iOS 27.2
   XCODEGEN_VERSION: 2.46.0
   XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 
 jobs:
   shots:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'store-shots')
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
         include:
+          # The 27.2 image has no iPhone 17 Pro Max or 11 Pro Max. 18 Pro Max is the large Dynamic Island size and 17 the medium one
+          # (the pixel sizes are printed by store_shots.py and checked when the shots are opened).
           - size: "6.9"
-            device: "iPhone 17 Pro Max"
-          - size: "6.5"
-            device: "iPhone 11 Pro Max"
+            device: "iPhone 18 Pro Max"
+          - size: "6.3"
+            device: "iPhone 17"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -48,6 +50,7 @@ jobs:
         run: |
           sudo xcode-select -s "$XCODE_APP"
           xcodebuild -version
+          echo "runner image: ${ImageOS:-?} ${ImageVersion:-?}; iphoneos SDK $(xcrun --sdk iphoneos --show-sdk-version)"
 
       - name: Install XcodeGen (pinned, checksum-verified)
         run: |
