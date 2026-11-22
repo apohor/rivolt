@@ -342,7 +342,7 @@ func TestHistoryWindowMiddleware(t *testing.T) {
 // The client-supplied range is clamped to the window; a range inside it is left alone.
 func TestChartWindowIsClampedToTheFreeWindow(t *testing.T) {
 	now := time.Now()
-	win := histwin.Free(now, time.Time{}) // 12 or 6 months, depending on the day; 395 days is outside both
+	win := histwin.Free(now, testNewAccount) // 12 or 6 months, depending on the day; 395 days is outside both
 	ctx := histwin.With(context.Background(), win)
 	ask := func(c context.Context, q string) time.Time {
 		req := httptest.NewRequest(http.MethodGet, "/api/chart-points"+q, nil).WithContext(c)
@@ -366,9 +366,9 @@ func TestChartWindowIsClampedToTheFreeWindow(t *testing.T) {
 }
 
 func TestMoneyWindowStart(t *testing.T) {
-	now := time.Date(2027, 1, 20, 15, 0, 0, 0, time.UTC) // after the notice has run: six months
+	now := time.Date(2027, 1, 20, 15, 0, 0, 0, time.UTC) // a new account: six months
 	chi, _ := time.LoadLocation("America/Chicago")
-	win := histwin.With(context.Background(), histwin.Free(now, time.Time{}))
+	win := histwin.With(context.Background(), histwin.Free(now, testNewAccount))
 	if _, on := moneyWindowStart(context.Background(), now, time.UTC); on {
 		t.Error("no window in the context, but the Money window is on")
 	}

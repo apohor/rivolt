@@ -43,62 +43,54 @@ func Configure(raw string) error {
 	return nil
 }
 
-// LegacyMonths is the window an account keeps until the 30 days' notice (Terms section 11) has run, when the setting is below it: it was
-// told "the last 12 months" when it signed up, and shrinking it takes something away from the tier it is on.
+// LegacyMonths is the window an account created before the cutoff keeps, with no end date: it signed up under "the last 12 months", and
+// shortening the setting takes nothing away from it.
 const LegacyMonths = 12
 
-// NoticeAt is when the notice of the change to a shorter window went out (the new Terms, the email and the in-app notice). An account created
-// at or after it signs up under the new Terms and gets Months at once; one created before it keeps LegacyMonths until EffectiveAt, which is
-// NoticeAt plus the 30 days the Terms promise. Both are UTC instants. Unset (the zero value, the default) means the notice has not gone
-// out, and every account keeps LegacyMonths whatever Months says: the setting is inert until the notice is set (RIVOLT_HISTORY_NOTICE_AT,
-// read at start by ConfigureNotice).
-var (
-	NoticeAt    time.Time
-	EffectiveAt time.Time
-)
+// Cutoff is the instant from which a new account gets Months when the setting is below LegacyMonths: an account created at or after it
+// has the shorter window, one created before it (or of unknown creation time) keeps LegacyMonths. A UTC instant, set in the deployment's
+// values (CutoffEnv, read at start by ConfigureCutoff) together with the length, and the date the Terms name. Unset (the zero value, the
+// default) means no account has the shorter window whatever Months says.
+var Cutoff time.Time
 
-// NoticeEnv names the setting that holds the notice time (RFC 3339).
-const NoticeEnv = "RIVOLT_HISTORY_NOTICE_AT"
+// CutoffEnv names the setting that holds the cutoff (RFC 3339).
+const CutoffEnv = "RIVOLT_FREE_HISTORY_CUTOFF"
 
-// SetNotice sets NoticeAt and derives EffectiveAt; the zero time unsets both.
-func SetNotice(at time.Time) {
+// SetCutoff sets Cutoff (UTC); the zero time unsets it.
+func SetCutoff(at time.Time) {
 	if at.IsZero() {
-		NoticeAt, EffectiveAt = time.Time{}, time.Time{}
+		Cutoff = time.Time{}
 		return
 	}
-	NoticeAt = at.UTC()
-	EffectiveAt = NoticeAt.AddDate(0, 0, 30)
+	Cutoff = at.UTC()
 }
 
-// ConfigureNotice applies the notice setting's value: empty means no notice yet; anything else must be an RFC 3339 time.
-func ConfigureNotice(raw string) error {
+// ConfigureCutoff applies the cutoff setting's value: empty means none; anything else must be an RFC 3339 time.
+func ConfigureCutoff(raw string) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		SetNotice(time.Time{})
+		SetCutoff(time.Time{})
 		return nil
 	}
 	at, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
-		return fmt.Errorf("%s: %q is not an RFC 3339 time", NoticeEnv, raw)
+		return fmt.Errorf("%s: %q is not an RFC 3339 time", CutoffEnv, raw)
 	}
-	SetNotice(at)
+	SetCutoff(at)
 	return nil
 }
 
-// MonthsFor is the window length for an account created at created, at now. A setting of LegacyMonths or more applies to everyone. A shorter
-// one applies only after the notice: until it is set everyone keeps LegacyMonths, and then new accounts get Months at once and the others
-// at EffectiveAt. An unknown creation time (zero) counts as an existing account, so a failed lookup shows more history, never less.
-func MonthsFor(created, now time.Time) int {
+// MonthsFor is the window length for an account created at created. A setting of LegacyMonths or more applies to everyone. A shorter one
+// applies only to an account created at or after Cutoff; every other account keeps LegacyMonths, with no end date. An unknown creation
+// time (zero) counts as an existing account, so a failed lookup shows more history, never less.
+func MonthsFor(created time.Time) int {
 	if Months >= LegacyMonths {
 		return Months
 	}
-	if NoticeAt.IsZero() {
+	if Cutoff.IsZero() || created.IsZero() || created.Before(Cutoff) {
 		return LegacyMonths
 	}
-	if !now.Before(EffectiveAt) || (!created.IsZero() && !created.Before(NoticeAt)) {
-		return Months
-	}
-	return LegacyMonths
+	return Months
 }
 
 // ErrOutside is returned by a single-row read (a drive or charge by id) of a row older than the window. The row exists; the free plan
@@ -121,7 +113,7 @@ type W struct {
 // Free is the free plan's window at now for an account created at created (zero: unknown).
 func Free(now, created time.Time) W {
 	now = now.UTC()
-	n := MonthsFor(created, now)
+	n := MonthsFor(created)
 	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	from := first.AddDate(0, -n, 0)
 	return W{Since: from, MoneyFrom: from, Months: n, Days: int(now.Sub(from).Hours() / 24)}

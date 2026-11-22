@@ -292,8 +292,8 @@ type PlanFields struct {
 	// single drive or charge, with the same two values), and is never deleted. Clients show these, never a number of their own.
 	HistoryDays *int    `json:"history_days"`
 	HistoryFrom *string `json:"history_from"`
-	// HistoryMonths is how many calendar months before the current one the window reaches back (histwin.Months, or 12 for an account still inside the
-	// 30 days' notice); null where HistoryDays is. Clients that name the window in words take the number from here and never carry it.
+	// HistoryMonths is how many calendar months before the current one the window reaches back (histwin.Months, or 12 for an account created before the
+	// cutoff); null where HistoryDays is. Clients that name the window in words take the number from here and never carry it.
 	HistoryMonths *int `json:"history_months"`
 }
 
@@ -312,8 +312,8 @@ func planFor(ctx context.Context, e *entitlements.Service, uid uuid.UUID) *PlanF
 	return pf
 }
 
-// planFromState is the plan fields for a computed state of the account created at created (it decides the free window's length during
-// the notice period; zero: unknown) at now.
+// planFromState is the plan fields for a computed state of the account created at created (it decides the free window's length against the
+// cutoff; zero: unknown) at now.
 func planFromState(st entitlements.State, billing bool, created, now time.Time) *PlanFields {
 	pf := &PlanFields{Plan: "free", BillingEnabled: billing, PlanPeriodEnd: st.PeriodEnd, PlanTrialEnds: st.TrialEnds, PlanCancelsAt: st.CancelsAt, PlanGraceEnds: st.GraceEnds, PlanEndedAt: st.EndedAt}
 	if !st.Pro {

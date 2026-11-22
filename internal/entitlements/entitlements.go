@@ -329,7 +329,7 @@ func (s *Service) Window(ctx context.Context, uid uuid.UUID) (histwin.W, bool) {
 	return histwin.Free(s.now(), created), true
 }
 
-// Created is when the account was created (zero if unknown). The history window's length depends on it during the notice period.
+// Created is when the account was created (zero if unknown). The history window's length depends on it (against the cutoff).
 func (s *Service) Created(ctx context.Context, uid uuid.UUID) time.Time {
 	if s == nil || !s.billing || (s.demo != uuid.Nil && uid == s.demo) {
 		return time.Time{}
@@ -418,7 +418,7 @@ func (s *Service) load(ctx context.Context, uid uuid.UUID) (Rowset, time.Time, e
 	if err := rs.Err(); err != nil {
 		return nil, time.Time{}, err
 	}
-	// The account's age decides which window length applies during the notice period. A missing row or a failed read leaves it zero.
+	// The account's age decides which window length applies (against the cutoff). A missing row or a failed read leaves it zero.
 	var created time.Time
 	var ct sql.NullTime
 	if err := s.db.QueryRowContext(ctx, `SELECT created_at FROM users WHERE id = $1`, uid).Scan(&ct); err == nil && ct.Valid {

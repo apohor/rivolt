@@ -152,7 +152,7 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 		code, body := get(free, p)
 		var pb paywallBody
 		_ = json.Unmarshal(body, &pb)
-		want := histwin.Free(time.Now(), time.Time{})
+		want := histwin.Free(time.Now(), testNewAccount)
 		if code != http.StatusPaymentRequired || pb.Error != "outside_free_window" || pb.FreeFrom != want.Since.Format("2006-01-02") || pb.FreeDays < 181 || pb.FreeDays > 215 {
 			t.Errorf("free %s: %d %s, want 402 outside_free_window with free_from %s and free_days 181-215", p, code, body, want.Since.Format("2006-01-02"))
 		}
@@ -225,7 +225,7 @@ func TestHistoryWindowAgainstPostgres(t *testing.T) {
 		_ = json.Unmarshal(body, &cp)
 		for _, d := range cp.Drives {
 			if s, _ := d["started_at"].(string); s != "" {
-				if ts, err := time.Parse(time.RFC3339, s); err == nil && ts.Before(histwin.Free(now, time.Time{}).Since) {
+				if ts, err := time.Parse(time.RFC3339, s); err == nil && ts.Before(histwin.Free(now, testNewAccount).Since) {
 					t.Errorf("chart-points returned a drive from %v to a free account", ts)
 				}
 			}
@@ -610,7 +610,7 @@ func TestAnalyticsWindowAgainstPostgres(t *testing.T) {
 		return string(b)
 	}
 	freeYear := body(free, "/insights/efficiency?since="+since+"&until="+until)
-	freeWindow := body(free, "/insights/efficiency?since="+ts(histwin.Free(now, time.Time{}).Since)+"&until="+until)
+	freeWindow := body(free, "/insights/efficiency?since="+ts(histwin.Free(now, testNewAccount).Since)+"&until="+until)
 	proYear := body(pro, "/insights/efficiency?since="+since+"&until="+until)
 	if freeYear != freeWindow {
 		t.Errorf("a free account's year of insights differs from its window:\nyear   %s\nwindow %s", freeYear, freeWindow)

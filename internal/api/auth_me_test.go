@@ -232,7 +232,7 @@ func TestAuthMePlanFields(t *testing.T) {
 
 // A free account: plan free, no source, no end, billing on.
 func TestPlanFieldsForAFreeAccount(t *testing.T) {
-	pf := planFromState(entitlements.State{}, true, time.Time{}, time.Date(2027, 2, 10, 0, 0, 0, 0, time.UTC)) // never had Pro
+	pf := planFromState(entitlements.State{}, true, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2027, 2, 10, 0, 0, 0, 0, time.UTC)) // never had Pro
 	b, _ := json.Marshal(pf)
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
