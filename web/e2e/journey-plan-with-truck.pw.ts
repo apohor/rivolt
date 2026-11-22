@@ -90,23 +90,39 @@ for (const theme of ["dark", "light"] as const) {
     });
 
     await test.step("departure: each chip, the date and the time, then back to Now", async () => {
-      await page.getByRole("button", { name: "+1h" }).click();
-      await page.getByRole("button", { name: "Tomorrow 8am" }).click();
+      const now = page.getByRole("button", { name: "Now", exact: true });
       const exact = page.locator("[data-plan-when-exact] button");
+      const whenText = async () => (await exact.allInnerTexts()).join(" / ");
+      await expect(now).toHaveAttribute("aria-pressed", "true");
+      expect(await whenText()).toBe("Select date / Time");
+      await page.getByRole("button", { name: "+1h", exact: true }).click();
+      await expect(now).toHaveAttribute("aria-pressed", "false");
+      const inOneHour = await whenText();
+      expect(inOneHour).not.toBe("Select date / Time");
+      await page.getByRole("button", { name: "Tomorrow 8am", exact: true }).click();
+      const tomorrow = await whenText();
+      expect(tomorrow).not.toBe(inOneHour);
+      expect(tomorrow).toContain("08:00");
       await exact.nth(0).click();
       await expect(page.getByText("Today", { exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Today", exact: true }).click();
       await exact.nth(1).click();
       await expect(page.getByText("Hour", { exact: true })).toBeVisible();
       await exact.nth(1).click();
-      await page.getByRole("button", { name: "Now" }).click();
+      await now.click();
+      await expect(now).toHaveAttribute("aria-pressed", "true");
+      expect(await whenText()).toBe("Select date / Time");
       await shot(page, theme, "03-departure");
     });
 
     await test.step("starting charge and the more options, opened and closed", async () => {
-      await page.getByRole("slider", { name: "Starting SoC" }).fill("85");
+      const soc = page.getByRole("slider", { name: "Starting SoC" });
+      await soc.fill("85");
+      await expect(soc).toHaveValue("85");
       await page.getByRole("button", { name: "Use live" }).click();
-      await page.getByRole("slider", { name: "Starting SoC" }).fill("85");
+      await expect(soc).not.toHaveValue("85");
+      await soc.fill("85");
+      await expect(page.getByRole("status").filter({ hasText: "85%" })).toBeVisible();
       const more = page.getByRole("button", { name: "More options" });
       await more.click();
       await expect(page.getByLabel("Target arrival SoC %")).toBeVisible();
@@ -126,6 +142,7 @@ for (const theme of ["dark", "light"] as const) {
         await page.getByLabel(label).uncheck();
       }
       await page.getByLabel("Target arrival SoC %").fill("15");
+      await expect(page.getByLabel("Target arrival SoC %")).toHaveValue("15");
       await shot(page, theme, "04-more-options");
       await more.click();
       await expect(page.getByLabel("Target arrival SoC %")).toBeHidden();
@@ -135,16 +152,23 @@ for (const theme of ["dark", "light"] as const) {
       await page.getByRole("button", { name: "Plan trip" }).click();
       await expect(page.locator("[data-plan-bar]")).toBeVisible();
       expect(planReqs.length).toBe(1);
+      // What the server is asked, after every button was pressed and undone: charge 85, arrival 15, everyday mode, no adapter, Home then the favorite, no via stop, no departure time.
+      expect(planReqs[0]).toMatchObject({ starting_soc: 85, target_arrival_soc_percent: 15, drive_mode: "EVERYDAY", has_adapter: false });
+      expect(planReqs[0]).not.toHaveProperty("depart_at");
+      const wps = planReqs[0].waypoints as { latitude: number; longitude: number }[];
+      expect(wps).toHaveLength(2);
+      expect(wps[1]).toMatchObject({ latitude: 36.17, longitude: -115.14 });
       await shot(page, theme, "05-result");
     });
 
     await test.step("the result: details open and shut, charger chips, save, edit and update, back to the form", async () => {
       const bar = page.locator("[data-plan-bar]");
-      const details = page.getByRole("button", { name: /Trip details/ });
-      if (await details.count()) {
-        await details.first().click();
-        await details.first().click();
-      }
+      const details = page.getByRole("button", { name: /^Trip details:/ });
+      await expect(details).toHaveAttribute("aria-label", /collapse/);
+      await details.click();
+      await expect(details).toHaveAttribute("aria-label", /expand/);
+      await details.click();
+      await expect(details).toHaveAttribute("aria-label", /collapse/);
       await shot(page, theme, "05b-details-open");
       await page.getByRole("button", { name: "Map", exact: true }).click();
       await expect(page.locator("button[aria-pressed]").filter({ hasText: /^\s*(✓\s*)?Fast\s*$/ })).toBeVisible();
@@ -158,7 +182,7 @@ for (const theme of ["dark", "light"] as const) {
         await chip.click();
         await expect(chip).toHaveAttribute("aria-pressed", before ?? "");
       }
-      await page.getByRole("button", { name: /Trip details/ }).first().click();
+      await details.click();
       const saveBar = page.locator("[data-save-trip]").first();
       await saveBar.getByRole("button", { name: "Save trip" }).click();
       await saveBar.getByRole("button", { name: "Cancel" }).click();
@@ -167,13 +191,14 @@ for (const theme of ["dark", "light"] as const) {
       await saveBar.getByRole("button", { name: "Save", exact: true }).click();
       await expect.poll(() => saves.length).toBe(1);
       await shot(page, theme, "06-saved");
-      await bar.getByRole("button").first().click();
+      await bar.getByRole("button", { name: /Home → Sample destination/ }).click();
       await expect(page.locator("[data-plan-form]")).toBeVisible();
       await page.getByRole("button", { name: "Swap From and To" }).click();
       await page.getByRole("button", { name: "Swap From and To" }).click();
       await shot(page, theme, "07-edit");
       await page.getByRole("button", { name: /Update plan/ }).click();
       await expect.poll(() => planReqs.length).toBe(2);
+      expect(planReqs[1]).toEqual(planReqs[0]);
       await expect(bar).toBeVisible();
     });
 
