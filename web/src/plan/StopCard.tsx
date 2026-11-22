@@ -83,7 +83,7 @@ export function StopCard({
             {/* A place to break before the badges: on a very narrow screen they go to the next line instead of sticking out past the edge. */}
             <wbr />
             {isStop && stopType && (
-              <span data-charger-type className="ml-2 whitespace-nowrap rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[11px] font-normal uppercase tracking-wide text-neutral-300">{chargerLabel(stopType)} · {Math.round(w.MaxPowerKW)} kW</span>
+              <span data-charger-type className="ml-2 inline-block max-w-full rounded-sm bg-neutral-800 px-1.5 py-0.5 text-[11px] font-normal uppercase tracking-wide text-neutral-300 [overflow-wrap:anywhere]">{chargerLabel(stopType)} · {Math.round(w.MaxPowerKW)} kW</span>
             )}
             <wbr />
             {adapter && (

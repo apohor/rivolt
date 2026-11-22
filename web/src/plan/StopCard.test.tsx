@@ -23,6 +23,6 @@ describe("StopCard charger badge", () => {
     const { container } = render(<ol><StopCard kind="stop" name={stop.Name} waypoint={stop} currency="USD" timeShiftMs={0} selected={false} onSelect={() => {}} showLeg={false} /></ol>);
     const badge = container.querySelector("[data-charger-type]");
     expect(badge?.textContent).toMatch(/200 kW/);
-    expect(badge).toHaveClass("whitespace-nowrap");
+    expect(badge).toHaveClass("inline-block", "max-w-full");
   });
 });
