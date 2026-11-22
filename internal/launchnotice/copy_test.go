@@ -72,9 +72,15 @@ func TestLaunchCopyIsPlanV6(t *testing.T) {
 		if strings.Contains(body, "90 days") {
 			t.Errorf("%s email still says 90 days", name)
 		}
-		if !strings.Contains(body, "12 months") || !strings.Contains(body, "small Now widget") || !strings.Contains(body, "charging Live Activity") {
-			t.Errorf("%s email lacks the v6 free window or widgets", name)
+		if !strings.Contains(body, "small Now widget") || !strings.Contains(body, "charging Live Activity") {
+			t.Errorf("%s email lacks the v6 widgets", name)
 		}
+	}
+	if !strings.Contains(launch, "12 months") {
+		t.Error("the launch email lacks the free window")
+	}
+	if strings.Contains(free, "12 months") || strings.Contains(free, "6 months") {
+		t.Error("the founding email names a window length; it differs per account")
 	}
 	if strings.Contains(launch, "forecast radar") {
 		t.Error("the launch email's Pro list names forecast radar, which is not live on prod")

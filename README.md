@@ -39,13 +39,13 @@ the web; iPhone purchase coming soon. Nothing is tracked to sell
 it; counts come from the billing table only.
 
 - **Free:** every drive and charge on every connected vehicle recorded and
-  kept until you delete it; Now, Activity, Money and Truck for the last 12
-  months; the monthly statement and its email, with a CSV for each of the three
+  kept until you delete it; Now, Activity, Money and Truck for the last 6
+  months (12 for accounts created before November 22, 2026); the monthly statement and its email, with a CSV for each of the three
   months it shows; a single-day trip planner with charging stops; three saved
   trips; trip share links and all share cards; the small Now widget and the
   charging Live Activity on iPhone; imports from ElectraFi, TezLab and ABRP;
   every alert; and the **full export of everything, always**, including history
-  older than 12 months. One vehicle shown at a time.
+  older than the free window. One vehicle shown at a time.
 - **Pro:** unlimited history and trends, range near a temperature, multi-day
   plans with hotel and campground overnights, re-plan from where the truck is,
   plan-vs-actual, unlimited saved trips, every vehicle shown, and every iPhone widget
