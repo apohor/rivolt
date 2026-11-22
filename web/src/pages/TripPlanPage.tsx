@@ -1418,13 +1418,13 @@ function LocationField({
         ) : (
           <LocationSearch
             placeholder={`${heading} — city or address`}
-            onSelect={(r) => onChange({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r) })}
+            onSelect={(r) => onChange({ lat: r.latitude, lon: r.longitude, label: formatGeocode(r), place: geocodePlace(r) })}
           />
         )}
         {!value && presets.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {presets.map((p) => (
-              <button key={p.label} type="button" data-plan-chip data-home={p.label === "Home" ? "true" : undefined} onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label })}>
+              <button key={p.label} type="button" data-plan-chip data-home={p.label === "Home" ? "true" : undefined} onClick={() => onChange({ lat: p.lat, lon: p.lon, label: p.label, place: p.label })}>
                 {p.label === "Home" ? (v2 ? <HomeIcon /> : "🏠 ") : ""}{p.label}
               </button>
             ))}
@@ -1531,6 +1531,11 @@ function LocationSearch({
       ) : null)}
     </div>
   );
+}
+
+// The short name of a hit: its locality when it has one, else its name unless that is a street address ("12 Main St").
+function geocodePlace(r: GeocodeResult): string | undefined {
+  return r.locality || (/^\d/.test(r.name) ? undefined : r.name);
 }
 
 function formatGeocode(r: GeocodeResult): string {

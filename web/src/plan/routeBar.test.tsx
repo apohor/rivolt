@@ -117,4 +117,13 @@ describe("formatResultSummaryParts", () => {
     expect(addr.route).toBe("Salt Lake City → Las Vegas");
     expect(p.full).toBe("Current vehicle position → Sacramento, California, United States · Leaves now · 74% charge now");
   });
+  it("names the place: an address by its city, a city, a national park, a saved label as it is", () => {
+    const route = (origin: string, destination: string, place?: string) =>
+      formatResultSummaryParts({ ...base, origin: { lat: 1, lon: 1, label: origin }, destination: { lat: 2, lon: 2, label: destination, place } }, null).route;
+    expect(route("12 Main St, Austin, TX, United States", "Boise, Idaho, United States")).toBe("Austin → Boise");
+    expect(route("Denver, Colorado, United States", "Yosemite National Park, California, United States")).toBe("Denver → Yosemite National Park");
+    // A saved place keeps its own label, comma and all; a geocoder locality beats the street.
+    expect(route("Denver, Colorado, United States", "Mom's house, Austin", "Mom's house, Austin")).toBe("Denver → Mom's house, Austin");
+    expect(route("Denver, Colorado, United States", "12 Main St, Austin, TX, United States", "Austin")).toBe("Denver → Austin");
+  });
 });
