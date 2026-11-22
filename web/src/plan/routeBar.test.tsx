@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { formatRouteSummary, useRouteBarCollapse, useRouteBarState, type RouteEnd } from "./routeBar";
+import { formatResultSummary, formatRouteSummary, useRouteBarCollapse, useRouteBarState, type RouteEnd } from "./routeBar";
 
 afterEach(cleanup);
 
@@ -97,5 +97,15 @@ describe("useRouteBarCollapse", () => {
     expect(result.current.collapsed).toBe(true);
     rerender({ has: false, key: null });
     expect(result.current.collapsed).toBe(false);
+  });
+});
+
+describe("formatResultSummary", () => {
+  const base = { origin: LA, destination: LV, startingSoc: "", departureAt: "" };
+  it("names the departure, 'Leaves now' when none, and the typed or live starting charge", () => {
+    expect(formatResultSummary(base, null)).toBe("Los Angeles → Las Vegas · Leaves now");
+    expect(formatResultSummary(base, 72.4)).toBe("Los Angeles → Las Vegas · Leaves now · 72% charge now");
+    expect(formatResultSummary({ ...base, startingSoc: "85" }, 72)).toBe("Los Angeles → Las Vegas · Leaves now · 85% charge");
+    expect(formatResultSummary({ ...base, departureAt: "2026-11-14T08:00" }, null, "en-US")).toMatch(/^Los Angeles → Las Vegas · Sat,? 8:00 AM$/);
   });
 });
