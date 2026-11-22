@@ -42,7 +42,7 @@ const mdComponents: Components = {
 // before that heading; the markdown on either side is rendered the same way.
 // The text is `source` (a string, for tests and callers that hold it) or `src` (the URL of a src/content/*.md asset, fetched on open: the page
 // shows its header and a loading line meanwhile, and a retry button if the fetch fails).
-export function LegalDoc({ source: given, src, other, between, splitAt, top }: { source?: string; src?: string; other: { to: string; label: string }; between?: React.ReactNode; splitAt?: string; top?: React.ReactNode }) {
+export function LegalDoc({ source: given, src, other, between, splitAt, top, bottom }: { source?: string; src?: string; other: { to: string; label: string }; between?: React.ReactNode; splitAt?: string; top?: React.ReactNode; bottom?: React.ReactNode }) {
   const fetched = useLegalText(given === undefined ? src : undefined);
   const source = given ?? fetched.text;
   // Follow the device theme (light, dark or system) like the demo does.
@@ -80,6 +80,7 @@ export function LegalDoc({ source: given, src, other, between, splitAt, top }: {
           {source !== null && <Markdown components={mdComponents}>{parts[0]}</Markdown>}
           {parts[1] !== undefined && between}
           {parts[1] !== undefined && <Markdown components={mdComponents}>{parts[1]}</Markdown>}
+          {source !== null && bottom}
         </article>
       </main>
       <footer className="border-t border-neutral-900 text-xs text-neutral-500">
