@@ -2651,6 +2651,8 @@ export type AuthUser = {
   // How many days of history this account sees (it changes through the month), null (unlimited) on Pro; history_from is the first day it shows (YYYY-MM-DD, UTC).
   history_days?: number | null;
   history_from?: string | null;
+  // How many calendar months before this one the window reaches (6; 12 for an account still inside the 30 days' notice), null on Pro. Copy that names the window takes the number from here.
+  history_months?: number | null;
 };
 
 // How the account shows distance and temperature (the server always stores km and °C). A source of "unset" means nothing was

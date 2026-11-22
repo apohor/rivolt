@@ -21,7 +21,7 @@ describe("planState from the server's fixtures", () => {
   });
 
   it("tells free, each paid source and a founding year apart", () => {
-    expect(planState(free)).toEqual({ kind: "free" });
+    expect(planState(free)).toEqual({ kind: "free", months: 12 });
     // No new account gets a trial; an old trial row reads as Pro granted to the account, with nothing about a trial.
     expect(planState(trial)).toMatchObject({ kind: "pro", source: "grant" });
     expect(planState(stripe)).toMatchObject({ kind: "pro", source: "stripe", periodEnd: "2026-12-01" });
@@ -31,8 +31,8 @@ describe("planState from the server's fixtures", () => {
   });
 
   it("takes a lapse from plan_ended_at, not from a date in the past", () => {
-    expect(planState(lapsed)).toEqual({ kind: "lapsed", endedOn: "2026-10-01", endedSource: "stripe" });
-    expect(planState({ ...free, plan_period_end: "2020-01-01T00:00:00Z" })).toEqual({ kind: "free" });
+    expect(planState(lapsed)).toEqual({ kind: "lapsed", endedOn: "2026-10-01", endedSource: "stripe", months: 12 });
+    expect(planState({ ...free, plan_period_end: "2020-01-01T00:00:00Z" })).toEqual({ kind: "free", months: 12 });
   });
 
   it("never shows a malformed date", () => {

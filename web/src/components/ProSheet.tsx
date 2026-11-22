@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { backend } from "../lib/api";
 import { DemoLinks } from "./DemoLinks";
 import { DEMO_HISTORY, DEMO_PLANNER, DEMO_TRENDS } from "../lib/demoLinks";
-import { PRO, checkoutLabel, consentText, type Interval } from "../lib/proCopy";
+import { PRO, checkoutLabel, consentText, proIncluded, type Interval } from "../lib/proCopy";
 import { planDate, type PlanState } from "../lib/plan";
 
 const ring = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300";
@@ -109,7 +109,7 @@ export function ProSheet({ state, onClose, opener: given }: { state: PlanState; 
         <div>
           <h3 className="text-sm font-semibold text-neutral-200">What's included</h3>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-neutral-300">
-            {PRO.included.map((x) => <li key={x}>{x}</li>)}
+            {proIncluded(state.kind === "free" || state.kind === "lapsed" ? state.months : undefined).map((x) => <li key={x}>{x}</li>)}
           </ul>
         </div>
 
