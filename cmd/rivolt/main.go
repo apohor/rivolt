@@ -963,6 +963,9 @@ func runServer() {
 		APIKey:  os.Getenv("RIVOLT_RESEND_API_KEY"),
 		From:    os.Getenv("RIVOLT_EMAIL_FROM"),
 		Counter: emailMetricsAdapter{m: appMetrics},
+		// Optional: operator notices go here instead of the From address
+		// (preview sets a test sink so its sign-ups never mail the operator).
+		OperatorNoticeTo: os.Getenv("RIVOLT_EMAIL_OPERATOR_NOTICE_TO"),
 	})
 	if mailer != nil {
 		logger.Info("email sender enabled", "from", os.Getenv("RIVOLT_EMAIL_FROM"))

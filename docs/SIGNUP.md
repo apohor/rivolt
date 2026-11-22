@@ -321,6 +321,22 @@ Still allowed:
 Accounts are matched on the lower-cased, trimmed email, so
 `Alice@Example.com` and `alice@example.com` are the same account.
 
+## Self-hosting: where operator notices go
+
+When someone asks for access, or finishes the Rivian sign-in step, Rivolt
+mails one notice to the operator. By default it goes to the address in
+`RIVOLT_EMAIL_FROM` (`Name <addr>` gives `addr`). To send them somewhere
+else, for example a test environment that must not mail you, set
+
+```
+RIVOLT_EMAIL_OPERATOR_NOTICE_TO=ops@example.org
+```
+
+(default unset: the From address; both `RIVOLT_RESEND_API_KEY` and
+`RIVOLT_EMAIL_FROM` must still be set for any mail to go). Only these two
+notices use it; mail to users (the sign-up link, statements, billing)
+always goes to the user.
+
 ## Identity trust: which emails may key or promote an account
 
 Rivolt keys an account on the email your identity provider verified.

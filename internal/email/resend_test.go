@@ -209,3 +209,27 @@ func TestSend_IdempotencyKeyHeader(t *testing.T) {
 		t.Fatalf("a message without a key sent %q", got)
 	}
 }
+
+// OperatorAddress is where operator notices go: the explicit
+// OperatorNoticeTo when set (trimmed), else the From address.
+func TestOperatorAddress(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{"unset uses From", Config{APIKey: "k", From: "Rivolt <support@rivolt.dev>"}, "support@rivolt.dev"},
+		{"set wins", Config{APIKey: "k", From: "Rivolt <support@rivolt.dev>", OperatorNoticeTo: "ops@example.org"}, "ops@example.org"},
+		{"set is trimmed", Config{APIKey: "k", From: "Rivolt <support@rivolt.dev>", OperatorNoticeTo: " ops@example.org \n"}, "ops@example.org"},
+		{"blank counts as unset", Config{APIKey: "k", From: "Rivolt <support@rivolt.dev>", OperatorNoticeTo: "  "}, "support@rivolt.dev"},
+	}
+	for _, c := range cases {
+		if got := New(c.cfg).OperatorAddress(); got != c.want {
+			t.Errorf("%s: OperatorAddress() = %q, want %q", c.name, got, c.want)
+		}
+	}
+	var nilClient *Client
+	if got := nilClient.OperatorAddress(); got != "" {
+		t.Errorf("nil client: OperatorAddress() = %q, want empty", got)
+	}
+}
