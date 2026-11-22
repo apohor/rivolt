@@ -272,7 +272,7 @@ export default function LandingPage() {
           <div className="grid gap-6 md:grid-cols-2">
             <Claim
               title={v2 ? "Free tier" : "Free"}
-              body="Every drive and charge recorded and kept until you delete it. Now, Activity, Money and Truck for the last 6 months (12 for accounts created before November 22, 2026), the monthly statement with a CSV for each month it shows, a single-day trip planner, three saved trips, trip share links, all share cards, the small Now widget and the charging Live Activity, imports, every alert, and the full export of everything, always. One vehicle shown at a time."
+              body="Every drive and charge recorded and kept until you delete it. Now, Activity, Money and Truck for the last 6 months, the monthly statement with a CSV for each month it shows, a single-day trip planner, three saved trips, trip share links, all share cards, the small Now widget and the charging Live Activity, imports, every alert, and the full export of everything, always. One vehicle shown at a time."
             />
             <Claim
               title={v2 ? "Pro tier: $3.99 a month or $34.99 a year" : "Rivolt Pro: $3.99 a month or $34.99 a year"}
