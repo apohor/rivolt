@@ -50,4 +50,15 @@ echo "We keep B." >> web/src/content/privacy.md
 sed -i.bak 's/^Last updated: .*/Last updated: soon/' web/src/content/privacy.md && rm web/src/content/privacy.md.bak; check "text changed, date unreadable" 1
 echo "We keep B." >> web/src/content/privacy.md
 sed -i.bak '/^Last updated: /d' web/src/content/privacy.md && rm web/src/content/privacy.md.bak; check "text changed, date line removed" 1
+# Undoing an unreleased change: the text at the latest final release tag may come back with its own (earlier) date; nothing else may.
+git reset -q --hard "$base"
+printf '# Rivolt Terms of Service\n\nLast updated: October 23, 2026\n\nTerm A first.\n' > web/src/content/terms.md; git add -A; git commit -qm "first text"; git tag v1.0.0
+cp web/src/content/terms.md "$tmp/first.md"
+printf '# Rivolt Terms of Service\n\nLast updated: November 21, 2026\n\nTerm A approved.\n' > web/src/content/terms.md; git add -A; git commit -qm "approved text"; git tag v1.3.5
+cp web/src/content/terms.md "$tmp/released.md"
+git commit -qm "an rc after the release" --allow-empty; git tag v1.3.6-rc.1
+printf '# Rivolt Terms of Service\n\nLast updated: November 30, 2026\n\nTerm A approved.\n\nSix months.\n' > web/src/content/terms.md; git add -A; git commit -qm "unreleased change"; base=$(git rev-parse HEAD)
+cp "$tmp/released.md" web/src/content/terms.md;                                 check "restore to the latest final tag's text, earlier date" 0
+cp "$tmp/first.md" web/src/content/terms.md;                                    check "restore to an older text that a release superseded" 1
+cp "$tmp/released.md" web/src/content/terms.md; echo "One more word." >> web/src/content/terms.md; check "one changed byte, earlier date" 1
 exit $fails
