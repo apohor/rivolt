@@ -139,9 +139,3 @@
 [data-trip-map] .maplibregl-popup {
   z-index: 1100; /* above the chips (500) and above a selected stop's marker (raised to 1000), which painted over the leg tooltip on rc.2 */
 }
-
-/* The credits' (i) button shows where keyboard focus is (the demo's Now map, shown to a signed-out visitor, has it too). */
-.maplibregl-ctrl-attrib-button:focus-visible {
-  outline: 2px solid #34d399;
-  outline-offset: 1px;
-}

@@ -62,7 +62,8 @@ for (const url of ["/demo", "/demo/trips/plan", "/demo/settings"]) {
       const info = await page.evaluate(() => {
         const el = document.activeElement as HTMLElement | null;
         if (!el || el === document.body) return null;
-        const cs = getComputedStyle(el);
+        // The map's (i) is a <summary> inside the credits box: map.css rings that box (map-credits.pw.ts checks it).
+        const cs = getComputedStyle(el.closest(".maplibregl-ctrl-attrib") ?? el);
         const ring = (parseFloat(cs.outlineWidth) > 0 && cs.outlineStyle !== "none") || (cs.boxShadow && cs.boxShadow !== "none");
         const name = (el.getAttribute("aria-label") || el.textContent || el.getAttribute("title") || "").trim().slice(0, 40);
         return { tag: el.tagName.toLowerCase(), name, ring: !!ring, href: el.getAttribute("href") };
