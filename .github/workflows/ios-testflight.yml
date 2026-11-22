@@ -34,13 +34,13 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  XCODE_APP: /Applications/Xcode_26.3.app
+  XCODE_APP: /Applications/Xcode_27.2.app
   XCODEGEN_VERSION: 2.46.0
   XCODEGEN_SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 
 jobs:
   upload:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 45
     environment: testflight
     steps:
@@ -50,6 +50,7 @@ jobs:
         run: |
           sudo xcode-select -s "$XCODE_APP"
           xcodebuild -version
+          echo "runner image: ${ImageOS:-?} ${ImageVersion:-?}; iphoneos SDK $(xcrun --sdk iphoneos --show-sdk-version)"
 
       - name: Install XcodeGen (pinned, checksum-verified)
         run: |

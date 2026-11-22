@@ -61,7 +61,7 @@ Pricing: the app has no in-app purchase and no purchase button, and links to no 
 A plain test account is also supplied in App Store Connect's private field; it has no truck connected, because a Rivian is needed for your own data.
 
 ## Screenshot captions
-Six shots at 6.9" and 6.5", dark primary, one light Now variant if a slot is free; the caption sits at the top, with a small footer "Sample truck, generated data". Demo only: generated data, no real accounts, no Rivian logo, colours or vehicle photos.
+Six shots at 6.9" and one smaller Dynamic Island size (6.3"), dark primary, one light Now variant if a slot is free; the caption sits at the top, with a small footer "Sample truck, generated data". Demo only: generated data, no real accounts, no Rivian logo, colours or vehicle photos.
 1. Your Rivian at a glance
 2. What charging actually cost
 3. Every drive, route and charts
