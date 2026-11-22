@@ -20,7 +20,7 @@ import (
 //
 // State is one per-user setting, keyPromptState, in the same store as the primary vehicle: a JSON object {where: {dismissed_at, count}}. It
 // is read from Postgres on every request (no process cache), so every replica agrees. The only writer is the person's own POST, which
-// takes a per-account lock so two replicas cannot lose a count. Whether a prompt is hidden is worked out when it is read (no job): a
+// takes a per-account lock, and a dismissal of a prompt that is already hidden changes nothing. Whether a prompt is hidden is worked out when it is read (no job): a
 // dismissal made before the account's latest plan change (the end of a Pro period) no longer counts, so a lapse shows its prompts again.
 // A failed read hides every prompt (it fails closed: no prompt is better than one the person already turned away). Account deletion
 // removes the row with the user (user_settings cascades), and the key is in the export.
@@ -86,7 +86,7 @@ func hiddenPrompts(ctx context.Context, db *sql.DB, uid uuid.UUID, changedAt, no
 	return out
 }
 
-// dismissPrompt records one "Not now" for where, under a per-account lock, and returns the new mark.
+// dismissPrompt records one "Not now" for where, under a per-account lock, and returns the mark. A prompt that is already hidden is left as it is.
 func dismissPrompt(ctx context.Context, db *sql.DB, uid uuid.UUID, where string, changedAt, now time.Time) (promptMark, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -105,9 +105,10 @@ func dismissPrompt(ctx context.Context, db *sql.DB, uid uuid.UUID, where string,
 	if !changedAt.IsZero() && m.DismissedAt.Before(changedAt) {
 		m = promptMark{} // a mark from before the plan change starts over
 	}
-	if m.Count < 2 {
-		m.Count++
+	if promptHidden(m, changedAt, now) {
+		return m, nil // already hidden: a double tap, a second tab or a stale device must not turn the first "Not now" into the second
 	}
+	m.Count++
 	m.DismissedAt = now.UTC()
 	marks[where] = m
 	doc, err := json.Marshal(marks)

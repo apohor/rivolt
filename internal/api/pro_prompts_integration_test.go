@@ -59,7 +59,7 @@ func TestProPromptsAgainstPostgres(t *testing.T) {
 		t.Fatalf("after a lapse the count starts over, got %d", m.Count)
 	}
 
-	// Two writers at once: no lost count.
+	// Two dismissals at the same moment (a double tap, two tabs) are one "Not now": hidden for 90 days, shown again after, not for good.
 	v, _ := db.EnsureUser(ctx, pool, "prompts-c")
 	errs := make(chan error, 2)
 	for i := 0; i < 2; i++ {
@@ -70,8 +70,15 @@ func TestProPromptsAgainstPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if h := hiddenPrompts(ctx, pool, v, none, t0.Add(400*24*time.Hour)); len(h) != 1 {
-		t.Fatalf("two concurrent dismissals must make a second one (hidden for good): %v", h)
+	if h := hiddenPrompts(ctx, pool, v, none, t0.Add(24*time.Hour)); len(h) != 1 {
+		t.Fatalf("hidden the next day: %v", h)
+	}
+	if h := hiddenPrompts(ctx, pool, v, none, t0.Add(91*24*time.Hour)); len(h) != 0 {
+		t.Fatalf("two simultaneous dismissals made it permanent: %v", h)
+	}
+	// A dismissal while it is hidden changes nothing, and does not move the 90 days either.
+	if m, _ := dismissPrompt(ctx, pool, v, "lapse_banner", none, t0.Add(30*24*time.Hour)); m.Count != 1 || !m.DismissedAt.Equal(t0) {
+		t.Fatalf("a dismissal of a hidden prompt changed it: %+v", m)
 	}
 
 	// A failed read hides every place.
