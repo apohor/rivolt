@@ -34,7 +34,7 @@ const Username = db.DemoUsername
 const (
 	HomeLat   = 34.1613
 	HomeLon   = -118.1676
-	HomeLabel = "Rose Bowl parking (sample)"
+	HomeLabel = "Sample home"
 	// HomeRate is the demo's home $/kWh, USD.
 	HomeRate = 0.16
 )

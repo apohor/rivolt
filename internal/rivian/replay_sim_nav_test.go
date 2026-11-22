@@ -48,7 +48,7 @@ func TestSimDriveNavCarriesTheErrandThenHome(t *testing.T) {
 			dests = append(dests, info.Name)
 		}
 	}
-	if seen == 0 || len(dests) != 2 || dests[0] != "Santa Anita Park" || dests[1] != "Rose Bowl Stadium" {
+	if seen == 0 || len(dests) != 2 || dests[0] != "Santa Anita Park" || dests[1] != "Sample home" {
 		t.Fatalf("saw %d frames, destinations in order: %v", seen, dests)
 	}
 	if !lastEnded {
@@ -212,7 +212,7 @@ func TestShortSimDriveNavNamesItsOwnErrand(t *testing.T) {
 			names[fr[0].Info.Name] = true
 		}
 	}
-	if !names["Jackie Robinson Park"] || !names["Rose Bowl Stadium"] || names["Santa Anita Park"] {
+	if !names["Jackie Robinson Park"] || !names["Sample home"] || names["Santa Anita Park"] {
 		t.Fatalf("destinations %v, want the short errand then home", names)
 	}
 }
