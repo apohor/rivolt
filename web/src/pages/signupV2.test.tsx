@@ -83,7 +83,8 @@ describe("signup_v2 copy", () => {
   it("demo banner: the way back shows only with the key on and ?from=app, and survives navigation", async () => {
     window.history.pushState({}, "", "/demo?from=app");
     await mount("DemoBanner", ["signup_v2"], { demo: true });
-    expect(await screen.findByRole("link", { name: "Back to my account" })).toBeTruthy();
+    // A plain anchor (full page load), so the demo's cached "Rivian disabled" status is gone on the sign-in screen.
+    expect((await screen.findByRole("link", { name: "Back to my account" })).getAttribute("href")).toBe("/onboarding");
     cleanup();
     window.history.pushState({}, "", "/demo/drives");
     await mount("DemoBanner", ["signup_v2"], { demo: true });
