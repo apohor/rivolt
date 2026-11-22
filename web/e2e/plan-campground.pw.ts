@@ -187,8 +187,18 @@ test("on a phone, a Use tap whose re-plan fails says why", async ({ browser }) =
   // The tap must reach the planner before the failure can be shown: wait for that request, so a tap that did nothing fails here and says so,
   // and a slow render of the answer (a loaded CI runner) gets its time below instead of the 5 s of an ordinary expect.
   const replanned = page.waitForResponse((r) => r.url().includes("/api/trips/plan-multiday") && r.status() === 500, { timeout: 20_000 });
-  await page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" }).click();
+  const use = page.getByRole("button", { name: "Use Convict Lake Campground (campground) as the overnight stop" });
+  // The results are still laying out after the planner opens (the Use button moves hundreds of px in the first half second): a tap on a
+  // button that is still moving can land on the tab bar. Tap only once its box holds still, and it must be clear of the tab bar.
+  let last = "";
+  await expect.poll(async () => { const b = JSON.stringify(await use.boundingBox()); const same = b === last; last = b; return same; }, { intervals: [150, 150, 300] }).toBe(true);
+  await use.scrollIntoViewIfNeeded();
+  const tabs = (await page.locator("nav[aria-label=Primary]").last().boundingBox())!;
+  await expect.poll(async () => { const b = (await use.boundingBox())!; return b.y + b.height <= tabs.y; }).toBe(true);
+  await use.click();
   await replanned;
+  // The tap stayed on the planner: it did not land on the tab bar's Now link.
+  await expect(page).toHaveURL(/\/trips\/plan/);
   const why = page.locator("[data-plan-bar] [role=alert]");
   await expect(why).toBeVisible({ timeout: 15_000 });
   await expect(why).toBeInViewport();
