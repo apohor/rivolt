@@ -71,6 +71,12 @@ enum NowReads {
         fresh ?? (lastID == id ? last : nil)
     }
 
+    /// The `/now` to show after a read: the fresh one, else the last one for this same truck. A failed read must not turn a known state into a
+    /// guess from `/state` alone.
+    static func nowToShow(fresh: NowSnapshot?, last: NowSnapshot?, lastID: String?, id: String) -> NowSnapshot? {
+        fresh ?? (lastID == id ? last : nil)
+    }
+
     /// The state's own pack size is often not in the live push (zero); the vehicle's recorded one (`pack_kwh`) stands in, as the web's Now card and Live
     /// page use it, so the time left in a charge (and the graph's estimate line) can be worked out.
     static func withPack(_ s: VehicleState?, pack: Double?) -> VehicleState? {

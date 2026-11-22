@@ -419,9 +419,9 @@ struct HomeView: View {
         async let ch = try? client.recentCharges(vehicleID: id)
         async let dr = try? client.latestDrive(vehicleID: id)
         let (s, n, c, d) = await (st, nw, ch, dr)
+        now = NowReads.nowToShow(fresh: n ?? nil, last: now, lastID: stateVehicleID, id: id)
         vehicleState = withPack(NowReads.stateToShow(fresh: s, last: vehicleState, lastID: stateVehicleID, id: id))
         stateVehicleID = vehicleState == nil ? nil : id
-        now = n ?? nil
         if v2, let t = now?.ambient?.tempC { coldRange = try? await client.coldRange(vehicleID: id, tempC: t.rounded(), grid: [], metric: NowFormat.usesMetric) } else { coldRange = nil }
         if s != nil || n != nil { freshness.fetched(at: .now) }
         publishConnection()
