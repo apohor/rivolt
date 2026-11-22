@@ -1472,6 +1472,7 @@ func New(d Deps) http.Handler {
 			r.Put("/settings/ambient-temp", withUser(handleAmbientTempPut(d.Settings)))
 			r.Get("/settings/primary-vehicle", withUser(handlePrimaryVehicle(pv)))
 			r.Put("/settings/primary-vehicle", withUser(handlePrimaryVehicle(pv)))
+			r.With(ls.user("pro-prompt-dismiss", 30).Middleware).Post("/pro/prompts/{where}/dismiss", withUser(handleProPromptDismiss(d)))
 			r.Get("/settings/ai-consent", withUser(handleAIConsentGet(d.Settings)))
 			r.Put("/settings/ai-consent", withUser(handleAIConsentPut(d.Settings)))
 
