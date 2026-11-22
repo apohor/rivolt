@@ -74,6 +74,7 @@ jobs:
         run: |
           sudo xcode-select -s "$XCODE_APP"
           xcodebuild -version
+          echo "runner image: ${ImageOS:-?} ${ImageVersion:-?}; iphoneos SDK $(xcrun --sdk iphoneos --show-sdk-version)"
 
       - name: Install XcodeGen (pinned, checksum-verified)
         run: |
@@ -196,6 +197,7 @@ jobs:
         run: |
           sudo xcode-select -s "$XCODE_APP"
           xcodebuild -version
+          echo "runner image: ${ImageOS:-?} ${ImageVersion:-?}; iphoneos SDK $(xcrun --sdk iphoneos --show-sdk-version)"
 
       - name: Install XcodeGen (pinned, checksum-verified)
         run: |
@@ -296,6 +298,7 @@ jobs:
         run: |
           sudo xcode-select -s "$XCODE_APP"
           xcodebuild -version
+          echo "runner image: ${ImageOS:-?} ${ImageVersion:-?}; iphoneos SDK $(xcrun --sdk iphoneos --show-sdk-version)"
 
       - name: Install XcodeGen (pinned, checksum-verified)
         run: |
@@ -446,6 +449,7 @@ jobs:
         run: |
           sudo xcode-select -s "$XCODE_APP"
           xcodebuild -version
+          echo "runner image: ${ImageOS:-?} ${ImageVersion:-?}; iphoneos SDK $(xcrun --sdk iphoneos --show-sdk-version)"
 
       - name: Install XcodeGen (pinned, checksum-verified)
         run: |
