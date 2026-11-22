@@ -76,10 +76,11 @@ var routeClasses = map[string]windowClass{
 	"POST /api/push/apns/activity/test":           {"exempt", "sends fixed figures to the caller's own Live Activities; Live Activities are free"},
 
 	// The free account's delete-by-range (a privacy control for rows outside its window): a gate item for billing.
-	"POST /api/billing/checkout":       {"exempt", "creates a Stripe Checkout session for the signed-in account; returns no history"},
-	"POST /api/billing/portal":         {"exempt", "creates a Stripe Customer Portal session for the signed-in account; returns no history"},
-	"POST /api/billing/stripe/webhook": {"exempt", "Stripe calls it with a signed event: it writes the entitlement table, returns no history"},
-	"POST /api/data/delete-range":      {"exempt", "delete everything before a month, for rows outside the free window: " + always},
+	"POST /api/pro/prompts/{where}/dismiss": {"exempt", "records the caller's own Not now on a Pro prompt; reads and returns no history"},
+	"POST /api/billing/checkout":            {"exempt", "creates a Stripe Checkout session for the signed-in account; returns no history"},
+	"POST /api/billing/portal":              {"exempt", "creates a Stripe Customer Portal session for the signed-in account; returns no history"},
+	"POST /api/billing/stripe/webhook":      {"exempt", "Stripe calls it with a signed event: it writes the entitlement table, returns no history"},
+	"POST /api/data/delete-range":           {"exempt", "delete everything before a month, for rows outside the free window: " + always},
 
 	// Exempt, with reasons.
 	"GET /api/export":                             {"exempt", always + ": the complete account export"},

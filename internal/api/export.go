@@ -78,6 +78,8 @@ var exportedSettingKeys = map[string]bool{
 	"privacy.ambient_temp":          true,
 	"privacy.ai_advice":             true,
 	"recap.weather_enabled":         true,
+	// Pro prompts the person dismissed ("Not now"): their own choice, exported with the rest.
+	"pro.prompts": true,
 	// The account's display units (settings/units): the user's own choice, exported with the rest.
 	"display.distance_unit":    true,
 	"display.temperature_unit": true,
