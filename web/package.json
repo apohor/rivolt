@@ -63,6 +63,6 @@
     "edge >= 111"
   ],
   "overrides": {
-    "minimatch": "11.0.8"
+    "minimatch": "11.0.9"
   }
 }
