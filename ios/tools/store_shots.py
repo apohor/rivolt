@@ -16,7 +16,7 @@ CAPTIONS = [
     ("money", "What charging actually cost"),
     ("drive", "Every drive, route and charts"),
     ("charge", "Every charge, with its cost and where it came from"),
-    ("truck", "Tires, sleep and health, from your truck"),
+    ("truck", "Parked drain, from your truck"),
     ("trust", "Sends no commands to your truck. Your Rivian password is never stored."),
 ]
 FOOTER = "Sample truck, generated data"
