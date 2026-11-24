@@ -88,6 +88,8 @@ type StateMonitor struct {
 	// release → re-acquire removes only its own entry, not its
 	// successor's (see releaseActive).
 	activeCtx map[string]context.Context
+	// authParked[vehicleID] is when its run began waiting for the client to sign in (waitAuthReady). Guarded by mu.
+	authParked map[string]time.Time
 	// subCancel exposes the *current* SubscribeVehicleState ctx-cancel
 	// to non-owning goroutines (notably periodicRefresh) so a REST
 	// observation that the car just woke up can poke the WS to
@@ -567,6 +569,7 @@ func NewStateMonitor(client *LiveClient, logger *slog.Logger) *StateMonitor {
 		wsSeen:                make(map[string]bool),
 		active:                make(map[string]context.CancelFunc),
 		activeCtx:             make(map[string]context.Context),
+		authParked:            make(map[string]time.Time),
 		subCancel:             make(map[string]context.CancelCauseFunc),
 		shortSubEnds:          make(map[string][]time.Time),
 		lastFlapWarnAt:        make(map[string]time.Time),
@@ -1529,6 +1532,25 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 	m.mu.Unlock()
 
 	go m.run(ctx, vehicleID)
+}
+
+// ParkedForAuth reports whether the vehicle's run has waited for the client to sign in for at least atLeast: it holds the
+// subscription slot but records nothing. An account flagged needs_reauth is not counted: it is correctly not streaming and only its owner
+// can fix that.
+func (m *StateMonitor) ParkedForAuth(vehicleID string, atLeast time.Duration) bool {
+	m.mu.RLock()
+	since, ok := m.authParked[vehicleID]
+	now := m.clock()
+	m.mu.RUnlock()
+	if !ok || now.Sub(since) < atLeast {
+		return false
+	}
+	if m.client != nil {
+		if needs, _ := m.client.NeedsReauth(); needs {
+			return false
+		}
+	}
+	return true
 }
 
 // Subscribed reports whether a subscription goroutine is running for
@@ -4737,6 +4759,14 @@ func (m *StateMonitor) waitAuthReady(ctx context.Context, vehicleID string) bool
 	}
 	ready := m.client.AuthReady()
 	m.logger.Info("rivian ws subscribe blocked: awaiting auth", "vehicle", vehicleID)
+	m.mu.Lock()
+	m.authParked[vehicleID] = m.clock()
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		delete(m.authParked, vehicleID)
+		m.mu.Unlock()
+	}()
 	select {
 	case <-ctx.Done():
 		m.releaseActive(ctx, vehicleID)
