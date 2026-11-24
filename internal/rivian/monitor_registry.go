@@ -651,7 +651,20 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 			"rivian_vehicle_id", rivianVehicleID, "err", err.Error())
 		return
 	}
+	r.ensureOwned(rivianVehicleID, uid)
+}
+
+// ensureOwned subscribes the vehicle on uid's monitor, starting the monitor from the stored session when there is none.
+func (r *MonitorRegistry) ensureOwned(rivianVehicleID string, uid uuid.UUID) {
 	mon := r.For(uid)
+	if mon != nil && r.clientReplaced(uid, mon) {
+		// The account registry dropped this user's client (a lost group wipes it, single-owner M4-5) and built a new one since the monitor
+		// started. The monitor still holds the wiped client, which nothing ever signs in again: every subscription on it parks at "awaiting
+		// auth" for good (Nov 24: 10 of 11 vehicles recorded nothing for 6 h). Stop it and start one on the current client below.
+		r.logger.Warn("monitor registry: monitor holds a replaced client; restarting it", "user_id", uid.String())
+		r.Stop(uid)
+		mon = nil
+	}
 	if mon == nil {
 		// We were handed this vehicle's lease but have no monitor for
 		// its owner — they signed in on a peer pod, so our cached
@@ -679,6 +692,16 @@ func (r *MonitorRegistry) EnsureSubscribed(rivianVehicleID string) {
 			"rivian_vehicle_id", rivianVehicleID, "user_id", uid.String())
 	}
 	mon.EnsureSubscribed(rivianVehicleID)
+}
+
+// clientReplaced reports whether the account registry now holds a different live client for uid than the one mon was built on. A user
+// this pod does not hold, or an account that is not a live client, is not a replacement.
+func (r *MonitorRegistry) clientReplaced(uid uuid.UUID, mon *StateMonitor) bool {
+	if r.accounts == nil || mon == nil || mon.client == nil {
+		return false
+	}
+	cur := liveClientFromAccount(r.accounts.For(uid))
+	return cur != nil && cur != mon.client
 }
 
 // SetScheduleObserver wires the schedule-read outcome counter into every monitor the registry builds, those already running
