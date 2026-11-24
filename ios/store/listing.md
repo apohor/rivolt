@@ -51,10 +51,10 @@ https://rivolt.dev
 https://rivolt.dev/privacy
 
 ## What's New
-First App Store release. Now shows what your Rivian is doing: a 24-hour battery graph while parked, a drive graph while driving, and a charge graph with time left while charging. Activity and Money list every drive and charge with its cost and where the price came from, and a drive or charge can be shared as a card. Plan a trip with charging stops, save it, and see each leg on the map. Truck shows tire pressures, parked drain and sleep health. No account? Try the demo truck on the sign-in screen.
+First App Store release. Now shows what your Rivian is doing: a 24-hour battery graph while parked, a drive graph while driving, and a charge graph with time left while charging. Activity and Money list every drive and charge with its cost and where the price came from, and a drive can be shared as a card. Plan a trip with charging stops, save it, and see each leg on the map. Truck shows tire pressures and parked drain. No account? Try the demo truck on the sign-in screen.
 
 ## Review notes
-Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo truck" on the sign-in screen; no account needed (a sample truck with generated data), and it shows Now, Activity, Money, trip plans (sample trips) and Truck, including the Pro ones that need no real vehicle. Widgets, push notifications and the charging Live Activity are not in the demo: they need a real account and a charging truck. The app sends no commands to vehicles. Sign-in for real owners opens a browser sheet to rivolt.dev.
+Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo truck" on the sign-in screen; no account needed (a sample truck with generated data), and it shows Now, Activity, Money, sample trip plans (multi-day plans with overnights are a Pro-tier feature) and Truck. Widgets and push notifications are not in the demo, because they need a real account; the charging Live Activity is not in it either, because it needs a charging truck. The app sends no commands to vehicles. Sign-in for real owners opens a browser sheet to rivolt.dev.
 
 Pricing: the app has no in-app purchase and no purchase button, and links to no payment page. Rivolt has a free tier and a Pro tier; Pro is a subscription bought on rivolt.dev (the web), and the app applies it to the signed-in Rivolt account. Account deletion starts in Settings and finishes on rivolt.dev, where the person confirms. We are available in the United States storefront only, matching our Terms (adults in the United States).
 
