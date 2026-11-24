@@ -153,7 +153,7 @@ final class PlanSheetUITests: XCTestCase {
     /// #1886: at AX3 half Edit and the day chips sat under the tab bar: the header's height never reached the screen (it was sent back as 0), so half
     /// fell to its floor. This drives the real screen, so it covers the wiring as well as SheetLayout's sums.
     func testAtAX3HalfEditAndTheDayChipsSitWholeAboveTheTabBar() throws {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
         let grabber = open("Two days to Spokane", in: app)
         expect(grabber, "peek", "at accessibility sizes it opens at the peek")
         grabber.tap()
@@ -170,7 +170,7 @@ final class PlanSheetUITests: XCTestCase {
     /// At the largest sizes the trip's name is cut to two lines above the full detent and wraps in whole at it (#2136). The runner is not at AX3
     /// itself, so the check is the title's own height at half against full: with `lineLimit(2)` at both, the two are equal.
     func testAtAX3TheTripTitleIsTallerAtFullThanAtHalf() throws {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
         let grabber = open("Two days to Spokane", in: app)
         grabber.tap()
         expect(grabber, "half", "the grabber raises it to half")
@@ -275,7 +275,7 @@ final class PlanSheetUITests: XCTestCase {
 
     /// At accessibility text the chart is still whole: on the screen's width, with its words.
     func testTheElevationChartFitsAtAX3() throws {
-        let app = launch(["-uitest-ios-elevation", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let app = launch(["-uitest-ios-elevation", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
         let grabber = open("Seattle to Spokane", in: app)
         let chart = chart(in: app, grabber: grabber)
         let window = app.windows.firstMatch.frame
@@ -285,10 +285,15 @@ final class PlanSheetUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Elevation shown for context; Rivian's estimate decides the energy."].firstMatch.exists, "the context line is there")
     }
 
-    /// At accessibility size 3 (AX3) on a small phone the sheet's top (title, summary, Edit, the day chips) fills the screen: a person opens the details and scrolls,
+    /// At the largest accessibility sizes on a small phone the sheet's top (title, summary, Edit, the day chips) fills the screen: a person opens the details and scrolls,
     /// and every day chip has to come wholly above the tab bar and take a tap (QA found Day 2 never did on the iPhone SE).
-    func testEveryDayChipIsReachableAtAX3() throws {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+    func testEveryDayChipIsReachableAtAX3() throws { try everyDayChipIsReachable(category: "UICTContentSizeCategoryAccessibilityXL") }
+
+    /// The same at AX5, the largest size.
+    func testEveryDayChipIsReachableAtAX5() throws { try everyDayChipIsReachable(category: "UICTContentSizeCategoryAccessibilityXXXL") }
+
+    private func everyDayChipIsReachable(category: String) throws {
+        let app = launch(["-UIPreferredContentSizeCategoryName", category])
         let grabber = open("Two days, apart", in: app)
         grabber.tap()
         if grabber.value as? String != "full" { grabber.tap() }
