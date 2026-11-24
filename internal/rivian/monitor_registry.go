@@ -825,6 +825,10 @@ func (r *MonitorRegistry) FirstFrameAt(vehicleID string) time.Time {
 	return first
 }
 
+// authParkedGrace is how long a run may wait for its client to sign in before it stops counting as streaming (one reconcile pass is 5 s,
+// plus the jitter): the lease heal and the unstreamed gauge then see it.
+const authParkedGrace = 10 * time.Second
+
 // Streaming reports whether this pod runs a subscription for the
 // vehicle on any of its monitors (including one parked waiting for
 // auth or re-auth). The lease coordinator re-subscribes a leased
@@ -841,7 +845,7 @@ func (r *MonitorRegistry) Streaming(rivianVehicleID string) bool {
 	}
 	r.mu.RUnlock()
 	for _, m := range mons {
-		if m != nil && m.Subscribed(rivianVehicleID) {
+		if m != nil && m.Subscribed(rivianVehicleID) && !m.ParkedForAuth(rivianVehicleID, authParkedGrace) {
 			return true
 		}
 	}

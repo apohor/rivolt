@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -53,5 +54,48 @@ func TestEnsureOwnedRestartsAMonitorWhoseClientWasReplaced(t *testing.T) {
 	reg.ensureOwned("v1", uid)
 	if reg.For(uid) != cur || rehydrated != 1 {
 		t.Error("a monitor on the current client was restarted")
+	}
+}
+
+// A run parked at "awaiting auth" past one reconcile is not streaming: the lease heal and the unstreamed gauge must see it.
+func TestStreamingIsFalseForARunParkedAwaitingAuth(t *testing.T) {
+	r := &MonitorRegistry{monitors: map[uuid.UUID]*monitorEntry{}}
+	mon := NewStateMonitor(NewLive(), nil)
+	r.monitors[uuid.New()] = &monitorEntry{monitor: mon}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mon.mu.Lock()
+	mon.active["v1"] = cancel
+	mon.mu.Unlock()
+
+	now := time.Unix(1_000_000, 0)
+	mon.now = func() time.Time { return now }
+	done := make(chan bool)
+	go func() { done <- mon.waitAuthReady(ctx, "v1") }() // the client is not signed in: it parks
+	for i := 0; ; i++ {
+		mon.mu.RLock()
+		_, parked := mon.authParked["v1"]
+		mon.mu.RUnlock()
+		if parked {
+			break
+		}
+		if i > 2000 {
+			t.Fatal("run never parked")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !r.Streaming("v1") {
+		t.Error("a run that just began waiting already reads as not streaming")
+	}
+	mon.mu.Lock()
+	now = now.Add(authParkedGrace + time.Second)
+	mon.mu.Unlock()
+	if r.Streaming("v1") {
+		t.Error("a run parked at awaiting auth past one reconcile still reads as streaming (the gauge stays 0)")
+	}
+	cancel()
+	<-done
+	if mon.ParkedForAuth("v1", 0) {
+		t.Error("parked mark left behind after the run gave up")
 	}
 }
