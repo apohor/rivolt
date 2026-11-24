@@ -540,7 +540,7 @@ func (s *Service) Providers() []ProviderListing {
 	return out
 }
 
-// providerRank is the order the sign-in buttons show in: Email, Google, GitHub, then any other by name. The registry is a map, so
+// providerRank is the order the sign-in buttons show in: Email, Apple, Google, GitHub, then any other by name (Apple's button must be at least as prominent as the others, App Store 4.8). The registry is a map, so
 // without this the order changed from one request to the next (qa saw /onboarding and /login disagree). The Email button is the
 // "hydra" provider (registry name "hydra", display name "Email"), so it is recognised by either name or its display name.
 func providerRank(p ProviderListing) int {
@@ -548,12 +548,14 @@ func providerRank(p ProviderListing) int {
 	switch {
 	case name == "hydra" || name == "email" || display == "email":
 		return 0
-	case name == "google" || display == "google":
+	case name == "apple" || display == "apple":
 		return 1
-	case name == "github" || display == "github":
+	case name == "google" || display == "google":
 		return 2
+	case name == "github" || display == "github":
+		return 3
 	}
-	return 3
+	return 4
 }
 
 func sortProviderListings(l []ProviderListing) {
