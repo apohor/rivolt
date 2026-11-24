@@ -1535,12 +1535,22 @@ func (m *StateMonitor) EnsureSubscribed(vehicleID string) {
 }
 
 // ParkedForAuth reports whether the vehicle's run has waited for the client to sign in for at least atLeast: it holds the
-// subscription slot but records nothing.
+// subscription slot but records nothing. An account flagged needs_reauth is not counted: it is correctly not streaming and only its owner
+// can fix that.
 func (m *StateMonitor) ParkedForAuth(vehicleID string, atLeast time.Duration) bool {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	since, ok := m.authParked[vehicleID]
-	return ok && m.clock().Sub(since) >= atLeast
+	now := m.clock()
+	m.mu.RUnlock()
+	if !ok || now.Sub(since) < atLeast {
+		return false
+	}
+	if m.client != nil {
+		if needs, _ := m.client.NeedsReauth(); needs {
+			return false
+		}
+	}
+	return true
 }
 
 // Subscribed reports whether a subscription goroutine is running for

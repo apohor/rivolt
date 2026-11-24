@@ -93,6 +93,15 @@ func TestStreamingIsFalseForARunParkedAwaitingAuth(t *testing.T) {
 	if r.Streaming("v1") {
 		t.Error("a run parked at awaiting auth past one reconcile still reads as streaming (the gauge stays 0)")
 	}
+	// A user flagged needs_reauth is correctly not streaming and must not count as unstreamed (no gauge, no heal re-fire).
+	mon.client.SetNeedsReauth(true, "expired")
+	if !r.Streaming("v1") {
+		t.Error("a needs_reauth account reads as unstreamed: the 5-minute alert would page for it")
+	}
+	mon.client.SetNeedsReauth(false, "")
+	if r.Streaming("v1") {
+		t.Error("clearing needs_reauth did not bring the parked run back into the count")
+	}
 	cancel()
 	<-done
 	if mon.ParkedForAuth("v1", 0) {
