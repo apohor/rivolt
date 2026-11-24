@@ -170,7 +170,7 @@ final class PlanSheetUITests: XCTestCase {
     /// At the largest sizes the trip's name is cut to two lines above the full detent and wraps in whole at it (#2136). The runner is not at AX3
     /// itself, so the check is the title's own height at half against full: with `lineLimit(2)` at both, the two are equal.
     func testAtAX3TheTripTitleIsTallerAtFullThanAtHalf() throws {
-        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"])
+        let app = launch(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         let grabber = open("Two days to Spokane", in: app)
         grabber.tap()
         expect(grabber, "half", "the grabber raises it to half")
