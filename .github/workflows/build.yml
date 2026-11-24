@@ -428,6 +428,12 @@ jobs:
             [ "$r" = "Prune=false,Delete=false" ] || { echo "::error::$kind lacks sync-options Prune=false,Delete=false (got: '$r')"; exit 1; }
           done
           echo "CNPG Cluster and data PVC: Prune=false,Delete=false"
+          # cnpg.probes passes through to the Cluster's spec.probes, and renders nothing when empty (the operator keeps its defaults).
+          r=$(helm template rivolt "$CHART" -f "$CHART/ci/cnpg-pair-values.yaml" | yq 'select(.kind == "Cluster") | .spec.probes.liveness.isolationCheck | [.enabled, .connectionTimeout, .requestTimeout] | join(",")')
+          [ "$r" = "true,5000,5000" ] || { echo "::error::cnpg.probes did not reach spec.probes (got: '$r')"; exit 1; }
+          r=$(helm template rivolt "$CHART" -f "$CHART/ci/cnpg-values.yaml" | yq 'select(.kind == "Cluster") | .spec | has("probes")')
+          [ "$r" = "false" ] || { echo "::error::an empty cnpg.probes still renders spec.probes"; exit 1; }
+          echo "cnpg.probes: passed through, absent when empty"
           # The Job's name is per release and spec (so it runs once per new image or spec): stable
           # for the same input, new when the spec changes, a DNS-1123 subdomain of at most 63
           # characters even for a long tag.

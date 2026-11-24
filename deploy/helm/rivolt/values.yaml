@@ -588,6 +588,14 @@ cnpg:
   primaryUpdateStrategy: ""
   primaryUpdateMethod: ""
 
+  # CNPG probe settings, rendered as the Cluster's spec.probes. Empty keeps the operator's defaults. The one to know is
+  # liveness.isolationCheck: the primary asks the API server and its peers whether it is cut off, and shuts itself down if not (default on, both
+  # timeouts 1000 ms). On a cluster whose API server can answer slowly or fail some calls, raise the timeouts:
+  # probes:
+  #   liveness:
+  #     isolationCheck: { enabled: true, connectionTimeout: 5000, requestTimeout: 5000 }
+  probes: {}
+
   # Postgres tuning. CNPG passes these straight through to
   # postgresql.conf. Defaults below match CNPG's own defaults +
   # a couple of sensible knobs for a small instance.

@@ -8,6 +8,12 @@ cnpg:
   priorityClassName: rivolt-critical
   primaryUpdateStrategy: unsupervised
   primaryUpdateMethod: switchover
+  probes:
+    liveness:
+      isolationCheck:
+        enabled: true
+        connectionTimeout: 5000
+        requestTimeout: 5000
   affinity:
     enablePodAntiAffinity: true
     podAntiAffinityType: required

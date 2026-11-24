@@ -61,6 +61,13 @@ spec:
   primaryUpdateMethod: {{ . | quote }}
   {{- end }}
 
+  {{- with .Values.cnpg.probes }}
+  # Probe settings, passed through as the Cluster's spec.probes (liveness.isolationCheck, startup, readiness). Empty renders nothing, so
+  # the operator keeps its defaults.
+  probes:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
   {{- with .Values.cnpg.affinity }}
   # Pod placement, passed through as the Cluster's spec.affinity:
   # enablePodAntiAffinity / podAntiAffinityType / topologyKey (one instance
