@@ -71,7 +71,7 @@ struct PlanMapScreen: View {
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 }
                 DetentSheet(detent: $detent, container: geo.size.height, peekNeed: peekNeed, headerNeed: headerNeed, contentLead: ax ? axLead : 0, bottomSafe: geo.safeAreaInsets.bottom, scrollsAtEveryDetent: ax,
-                            onPeekNeed: { peekNeed = $0 }, onHeaderNeed: { headerNeed = $0 }, onAboveHeight: { aboveHeight = $0 }) {
+                            onPeekNeed: { if !(ax && detent == .full) { peekNeed = $0 } }, onHeaderNeed: { if !(ax && detent == .full) { headerNeed = $0 } }, onAboveHeight: { aboveHeight = $0 }) {
                     peek
                 } header: {
                     headerExtras
@@ -177,7 +177,9 @@ struct PlanMapScreen: View {
     private var peek: some View {
         let title = PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line)
         if ax {
-            PlanSheetCompactHeader(title: title, wraps: detent == .full)
+            // At the full detent the whole name is the first thing of the details (axControls), so it scrolls away with them: pinned, a long name
+            // at the largest size fills the small phone's sheet and leaves the day chips no room to scroll into view.
+            if detent == .full { Color.clear.frame(height: 0) } else { PlanSheetCompactHeader(title: title, wraps: false) }
         } else {
             PlanSheetHeader(title: title, summary: model.plan?.best.map { TripPlanLogic.summary($0, metric: metric) }, onEdit: onEdit)
         }
@@ -198,6 +200,9 @@ struct PlanMapScreen: View {
     /// The trip's summary, Edit, the day chips and Networks, at the top of the sheet's content at accessibility sizes.
     private var axControls: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if detent == .full {
+                PlanSheetCompactHeader(title: PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line), wraps: true)
+            }
             VStack(alignment: .leading, spacing: 8) {
                 if let summary = model.plan?.best.map({ TripPlanLogic.summary($0, metric: metric) }) {
                     Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)

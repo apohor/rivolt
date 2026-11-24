@@ -284,4 +284,38 @@ final class PlanSheetUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(chart.frame.height, 100, "the plot keeps its height")
         XCTAssertTrue(app.staticTexts["Elevation shown for context; Rivian's estimate decides the energy."].firstMatch.exists, "the context line is there")
     }
+
+    /// At the largest accessibility sizes on a small phone the sheet's top (title, summary, Edit, the day chips) fills the screen: a person opens the details and scrolls,
+    /// and every day chip has to come wholly above the tab bar and take a tap (QA found Day 2 never did on the iPhone SE).
+    func testEveryDayChipIsReachableAtAX3() throws { try everyDayChipIsReachable(category: "UICTContentSizeCategoryAccessibilityXL") }
+
+    /// The same at AX5, the largest size.
+    func testEveryDayChipIsReachableAtAX5() throws { try everyDayChipIsReachable(category: "UICTContentSizeCategoryAccessibilityXXXL") }
+
+    private func everyDayChipIsReachable(category: String) throws {
+        let app = launch(["-UIPreferredContentSizeCategoryName", category])
+        let grabber = open("Two days, apart", in: app)
+        grabber.tap()
+        if grabber.value as? String != "full" { grabber.tap() }
+        expect(grabber, "full", "the details are open")
+        let window = app.windows.firstMatch
+        let tabTop = app.buttons["Plan"].firstMatch.frame.minY
+        for chip in ["Whole trip", "Day 1", "Day 2"] {
+            let button = app.buttons[chip].firstMatch
+            var seen = ""
+            var reached = false
+            for step in 0..<8 {
+                let f = button.exists ? button.frame : .zero
+                seen += "step \(step): exists=\(button.exists) frame=\(f) tabTop=\(tabTop)\n"
+                if button.exists, button.isHittable, f.maxY <= tabTop { reached = true; break }
+                // A person's drag up from the lower part of the screen, which is the details' to scroll (not the title's: that would close the sheet).
+                let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                let by: CGFloat = -110
+                from.press(forDuration: 0.1, thenDragTo: from.withOffset(CGVector(dx: 0, dy: by)), withVelocity: .slow, thenHoldForDuration: 0.2)
+            }
+            XCTAssertTrue(reached, "\(chip) never wholly above the tab bar and tappable:\n\(seen)")
+        }
+        app.buttons["Day 2"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["Day 2"].firstMatch.isSelected, "a tap on Day 2 picks it")
+    }
 }
