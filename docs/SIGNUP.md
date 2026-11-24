@@ -289,6 +289,27 @@ For deeper architecture questions see
 [`docs/ARCHITECTURE.md`](ARCHITECTURE.md); for what's coming see
 [`docs/ROADMAP.md`](ROADMAP.md).
 
+## Self-hosting: Sign in with Apple
+
+To offer Apple on your own install, add a provider named `apple` to
+`RIVOLT_OIDC_PROVIDERS` (the button order is Email, Apple, Google, GitHub)
+and set:
+
+```
+RIVOLT_OIDC_APPLE_KIND=apple
+RIVOLT_OIDC_APPLE_CLIENT_ID=...       # your Services ID
+RIVOLT_OIDC_APPLE_TEAM_ID=...         # the Apple developer team
+RIVOLT_OIDC_APPLE_KEY_ID=...          # the Sign in with Apple key's ID
+RIVOLT_OIDC_APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----..."   # that key's .p8 text
+```
+
+In your Apple developer account, create a Services ID with Sign in with
+Apple enabled, make a key for it, and register your site's domain and the
+return URL `https://<your host>/api/auth/oidc/apple/callback` (the host is
+`RIVOLT_BASE_URL`). Apple sends its answer to that URL as a form POST, so it
+must be served over HTTPS. There is no stored client secret: Rivolt signs a
+short-lived one from the key for each sign-in.
+
 ## Self-hosting: closing sign-ups
 
 A self-hosted install that signs in through its own identity provider
