@@ -2653,6 +2653,8 @@ export type AuthUser = {
   billing_enabled?: boolean;
   // true only with billing off while the account holds a Stripe subscription that is not over: show Manage subscription (the portal).
   manage_subscription?: boolean;
+  /** True when a Stripe subscription is live now, whatever else grants Pro; an app that sells Pro hides its purchase button then. */
+  paid_via_stripe?: boolean;
   // How many days of history this account sees (it changes through the month), null (unlimited) on Pro; history_from is the first day it shows (YYYY-MM-DD, UTC).
   history_days?: number | null;
   history_from?: string | null;

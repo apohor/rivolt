@@ -702,6 +702,7 @@ func runServer() {
 					appMetrics.Entitlements.WithLabelValues(k[0], k[1]).Set(float64(n))
 				}
 				appMetrics.Accounts.Set(float64(st.Accounts))
+				appMetrics.PayingTwice.Set(float64(st.PayingTwice))
 			})
 		})
 	}

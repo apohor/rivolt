@@ -291,6 +291,9 @@ type PlanFields struct {
 	// so the client shows "Manage subscription" (POST /api/billing/portal, which works with billing off) and nothing else about plans.
 	// Absent otherwise.
 	ManageSubscription bool `json:"manage_subscription,omitempty"`
+	// PaidViaStripe is true when the account has a Stripe subscription that is live now, whatever else grants Pro. A client that sells Pro
+	// in the app hides its purchase button then (a second purchase would pay twice); absent otherwise. The server still records both.
+	PaidViaStripe bool `json:"paid_via_stripe,omitempty"`
 	// HistoryDays is the free window's length in days on a free account (it changes through the month), null on a Pro one and where billing
 	// is off; HistoryFrom is the first day (YYYY-MM-DD, UTC) it shows. History older than that is not shown (402 outside_free_window for a
 	// single drive or charge, with the same two values), and is never deleted. Clients show these, never a number of their own.
@@ -313,6 +316,7 @@ func planFor(ctx context.Context, e *entitlements.Service, uid uuid.UUID) *PlanF
 	}
 	pf := planFromState(st, e.Billing(), created, time.Now())
 	pf.ManageSubscription = e.ManageSubscription(ctx, uid)
+	pf.PaidViaStripe = e.LivePaid(ctx, uid, entitlements.SourceStripe)
 	return pf
 }
 
