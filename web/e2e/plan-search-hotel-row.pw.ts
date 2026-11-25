@@ -31,6 +31,15 @@ for (const w of [390, 1280] as const) {
     await expect(page.getByRole("button", { name: /Hampton Inn, Amarillo/ })).not.toContainText("EV charging");
     expect(seen).toContain("q=hampton%20inn%20dalhart");
     await page.screenshot({ path: path.join(SHOTS, `plan-search-hotel-row-${w}.png`) });
+    // With a start chosen near Dalhart, the next search carries that point (rounded to two decimals).
+    await page.getByPlaceholder("To — city or address").fill("");
+    await page.getByPlaceholder("From — city or address").fill("hampton inn dalhart");
+    await page.getByRole("button", { name: /Hampton Inn Dalhart/ }).first().click();
+    await page.getByPlaceholder("To — city or address").fill("hampton inn");
+    await expect(page.locator("ul button", { hasText: "Hampton Inn Dalhart" })).toContainText("EV charging");
+    expect(seen).toContain("q=hampton%20inn&");
+    expect(seen).toContain("lat=36.06&lon=-102.51");
+    await page.screenshot({ path: path.join(SHOTS, `plan-search-hotel-row-near-${w}.png`) });
     await ctx.close();
   });
 }
