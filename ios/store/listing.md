@@ -22,7 +22,7 @@ Rivolt is an open-source companion for Rivian owners. It records your truck's dr
 ON YOUR IPHONE
 • Now: charge level, range, what the truck is doing and how fresh that reading is, with a switcher if you have more than one truck.
 • Activity and Money: every drive with its route and charts, every charge with kWh, cost and the source of the price, and a monthly statement.
-• Truck: tire pressures with a plain "Low" below 32 psi or when the truck says so, parked drain and pack capacity.
+• Truck: tire pressures with a plain "Low" below 32 psi or when the truck says so, and parked drain.
 
 HOW IT WORKS
 Sign in with your Rivolt account through a browser sheet. The app never sees your Rivian password. It keeps only a Rivolt sign-in token, which you can revoke from Signed-in devices. We recommend connecting a second Rivian account added as an Authorized Driver, so you can remove Rivolt from the Rivian app at any time. Rivolt sends no commands to your truck (no locks, climate or charging controls). Reading its data can occasionally wake it.
