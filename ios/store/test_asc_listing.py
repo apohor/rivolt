@@ -18,15 +18,32 @@ def read(name):
         return f.read()
 
 
-class FakeApi:
-    """Answers the GETs a run makes; records every write. versions: list of version strings already on the app."""
+SPEC = _spec_mod = None
 
-    def __init__(self, versions=(), build_state="VALID", loc=True):
-        self.versions, self.build_state, self.loc, self.calls = list(versions), build_state, loc, []
+
+def _load_spec():
+    global SPEC
+    if SPEC is None:
+        SPEC = al._load("asc_spec").load(os.path.join(HERE, "asc-openapi-subset.json"))
+    return SPEC
+
+
+def fake_png(w, h):
+    return b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + w.to_bytes(4, "big") + h.to_bytes(4, "big") + b"\x08\x06\x00\x00\x00"
+
+
+class FakeApi:
+    """Answers the GETs a run makes; records every call. versions: {versionString: state} already on the app."""
+
+    def __init__(self, versions=(), build_state="VALID", loc=True, usa_only=False, free_price=False, put_status=200,
+                 shot_state="COMPLETE"):
+        self.versions = dict(versions) if isinstance(versions, dict) else {v: "PREPARE_FOR_SUBMISSION" for v in versions}
+        self.build_state, self.loc, self.usa_only, self.free_price = build_state, loc, usa_only, free_price
+        self.put_status, self.shot_state, self.calls = put_status, shot_state, []
 
     def put_bytes(self, url, headers, chunk):
         self.calls.append(("PUT", url, len(chunk)))
-        return 200
+        return self.put_status
 
     def request(self, method, path, body=None):
         self.calls.append((method, path, body))
@@ -39,14 +56,23 @@ class FakeApi:
             return 200, {"data": [{"id": "APP"}]}
         if "/appPricePoints" in path:
             return 200, {"data": [{"id": "pp0", "attributes": {"customerPrice": "0.0"}}, {"id": "pp1", "attributes": {"customerPrice": "0.99"}}]}
+        if path.endswith("/appAvailabilityV2"):
+            return (200, {"data": {"id": "AV1"}}) if self.usa_only is not None else (404, {})
+        if path.startswith("/v2/appAvailabilities/AV1/territoryAvailabilities"):
+            on = ["USA"] if self.usa_only else ["USA", "DEU"]
+            return 200, {"data": [{"id": "t" + x, "attributes": {"available": True}, "relationships": {"territory": {"data": {"id": x}}}} for x in on]}
+        if path.endswith("/appPriceSchedule"):
+            return (200, {"data": {"id": "PS1"}}) if self.free_price else (404, {})
+        if path.startswith("/v1/appPriceSchedules/PS1/manualPrices"):
+            return 200, {"data": [], "included": [{"type": "appPricePoints", "id": "pp0", "attributes": {"customerPrice": "0.0"}}]}
         if path.endswith("/appStoreVersions?filter[platform]=IOS&limit=200"):
-            return 200, {"data": [{"id": "V" + v, "attributes": {"versionString": v}} for v in self.versions]}
+            return 200, {"data": [{"id": "V" + v, "attributes": {"versionString": v, "appVersionState": s}} for v, s in self.versions.items()]}
         if path.startswith("/v1/builds"):
             return 200, {"data": [{"id": "B1", "attributes": {"processingState": self.build_state}}]}
         if path.endswith("/appStoreVersionLocalizations"):
             return 200, {"data": [{"id": "L1", "attributes": {"locale": "en-US"}}] if self.loc else []}
         if path.endswith("/appInfos"):
-            return 200, {"data": [{"id": "I1", "attributes": {"appStoreState": "PREPARE_FOR_SUBMISSION"}}]}
+            return 200, {"data": [{"id": "I1", "attributes": {"state": "PREPARE_FOR_SUBMISSION"}}]}
         if path.endswith("/appInfoLocalizations"):
             return 200, {"data": [{"id": "IL1", "attributes": {"locale": "en-US"}}]}
         if path.endswith("/ageRatingDeclaration"):
@@ -54,7 +80,9 @@ class FakeApi:
         if path.endswith("/appStoreReviewDetail"):
             return 200, {"data": None}
         if path.endswith("/appScreenshotSets"):
-            return 200, {"data": [{"id": "S69", "attributes": {"screenshotDisplayType": "APP_IPHONE_69"}}]}
+            return 200, {"data": [{"id": "S67", "attributes": {"screenshotDisplayType": "APP_IPHONE_67"}}]}
+        if path == "/v1/appScreenshots/shot1":
+            return 200, {"data": {"id": "shot1", "attributes": {"assetDeliveryState": {"state": self.shot_state, "errors": []}}}}
         if path.endswith("/appScreenshots"):
             return 200, {"data": [{"id": "old1"}, {"id": "old2"}]}
         raise AssertionError("unexpected GET " + path)
@@ -63,19 +91,19 @@ class FakeApi:
         return [c for c in self.calls if c[0] in ("POST", "PATCH", "DELETE", "PUT")]
 
 
-def shots_dir():
+def shots_dir(px=None):
     d = tempfile.mkdtemp()
     for size in al.DISPLAY_TYPES:
         os.makedirs(os.path.join(d, size))
         for n in al.SHOT_ORDER:
             with open(os.path.join(d, size, f"{n}-dark.png"), "wb") as f:
-                f.write(b"\x89PNG")
+                f.write(fake_png(*(px or al.SHOT_PIXELS[size])))
     return d
 
 
-def do(mode, api, env=ENV, shots=None):
-    lines = []
-    al.run(api, mode, read("listing.md"), read("privacy-label.md"), "1.4.3", shots or shots_dir(), env, out=lines.append)
+def do(mode, api, env=ENV, shots=None, lines=None):
+    lines = [] if lines is None else lines
+    al.run(api, mode, read("listing.md"), read("privacy-label.md"), "1.4.3", shots or shots_dir(), env, out=lines.append, spec=_load_spec())
     return lines
 
 
@@ -126,7 +154,7 @@ class BuilderTests(unittest.TestCase):
 
     def test_missing_shots_fail_by_name(self):
         d = shots_dir()
-        os.unlink(os.path.join(d, "6.3", "truck-dark.png"))
+        os.unlink(os.path.join(d, "6.9", "truck-dark.png"))
         with self.assertRaises(SystemExit) as c:
             al.screenshot_files(d)
         self.assertIn("truck-dark.png", str(c.exception))
@@ -162,14 +190,87 @@ class RunTests(unittest.TestCase):
         d = next(c for c in api.writes() if c[1] == "/v1/appStoreReviewDetails")
         self.assertEqual(d[2]["data"]["attributes"]["demoAccountPassword"], "s3cret-pass")
 
-    def test_apply_replaces_screenshots_and_commits_each_upload(self):
+    def test_apply_uploads_the_new_shots_before_it_removes_the_old(self):
         api = FakeApi(versions=["1.4.3"])
         do("apply", api)
         w = api.writes()
         self.assertEqual([c[1] for c in w if c[0] == "DELETE"], ["/v1/appScreenshots/old1", "/v1/appScreenshots/old2"])
-        self.assertEqual(len([c for c in w if c[:2] == ("POST", "/v1/appScreenshots")]), 12)
-        self.assertEqual(len([c for c in w if c[0] == "PUT"]), 12)
-        self.assertEqual(len([c for c in w if c[0] == "PATCH" and c[1] == "/v1/appScreenshots/shot1"]), 12)
+        self.assertEqual(len([c for c in w if c[:2] == ("POST", "/v1/appScreenshots")]), 6)
+        self.assertEqual(len([c for c in w if c[0] == "PUT"]), 6)
+        self.assertEqual(len([c for c in w if c[0] == "PATCH" and c[1] == "/v1/appScreenshots/shot1"]), 6)
+        first_delete = next(i for i, c in enumerate(w) if c[0] == "DELETE")
+        last_commit = max(i for i, c in enumerate(w) if c[0] == "PATCH" and c[1] == "/v1/appScreenshots/shot1")
+        self.assertLess(last_commit, first_delete)
+
+    def test_a_failed_upload_leaves_the_old_shots(self):
+        api = FakeApi(versions=["1.4.3"], put_status=403)
+        with self.assertRaises(SystemExit):
+            do("apply", api)
+        self.assertFalse([c for c in api.writes() if c[0] == "DELETE"])
+
+    def test_a_shot_apple_rejects_leaves_the_old_shots(self):
+        api = FakeApi(versions=["1.4.3"], shot_state="FAILED")
+        with self.assertRaises(SystemExit) as c:
+            do("apply", api)
+        self.assertIn("rejected", str(c.exception))
+        self.assertFalse([c for c in api.writes() if c[0] == "DELETE"])
+
+    def test_the_plan_prints_each_shot_size_and_sha256(self):
+        lines = "\n".join(do("plan", FakeApi(versions=["1.4.3"])))
+        self.assertIn("shot 6.9/truck-dark.png 1320x2868 sha256 ", lines)
+
+    def test_a_shot_of_the_wrong_size_stops_before_any_write(self):
+        api = FakeApi(versions=["1.4.3"])
+        with self.assertRaises(SystemExit) as c:
+            do("apply", api, shots=shots_dir(px=(1206, 2622)))
+        self.assertIn("1206x2622", str(c.exception))
+        self.assertEqual(api.writes(), [])
+
+    def test_a_missing_secret_or_shot_stops_the_apply_before_the_first_write(self):
+        for kwargs in ({"env": {}}, {"shots": tempfile.mkdtemp()}):
+            api = FakeApi(versions=[])
+            with self.assertRaises(SystemExit):
+                do("apply", api, **kwargs)
+            self.assertEqual(api.writes(), [], kwargs.keys())
+
+    def test_availability_and_price_are_skipped_when_already_set(self):
+        api = FakeApi(versions=["1.4.3"], usa_only=True, free_price=True)
+        do("apply", api)
+        paths = [c[1] for c in api.writes()]
+        self.assertNotIn("/v2/appAvailabilities", paths)
+        self.assertNotIn("/v1/appPriceSchedules", paths)
+
+    def test_availability_is_posted_when_other_territories_are_on(self):
+        api = FakeApi(versions=["1.4.3"], usa_only=False)
+        do("apply", api)
+        self.assertEqual([c[1] for c in api.writes()].count("/v2/appAvailabilities"), 1)
+
+    def test_another_editable_version_stops_the_run_before_any_write(self):
+        api = FakeApi(versions={"1.4.0": "PREPARE_FOR_SUBMISSION"})
+        with self.assertRaises(SystemExit) as c:
+            do("apply", api)
+        self.assertIn("1.4.0", str(c.exception))
+        self.assertEqual(api.writes(), [])
+
+    def test_whats_new_goes_out_only_when_an_earlier_version_exists(self):
+        api = FakeApi(versions={"1.4.0": "READY_FOR_DISTRIBUTION"})
+        do("apply", api)
+        attrs = next(c for c in api.writes() if c[1].startswith("/v1/appStoreVersionLocalizations"))[2]["data"]["attributes"]
+        self.assertIn("whatsNew", attrs)
+
+    def test_every_call_matches_the_spec_and_a_wrong_body_is_caught(self):
+        sp = _load_spec()
+        v = al._load("asc_spec").validate_call
+        self.assertIn("APP_IPHONE_69", v(sp, "POST", "/v1/appScreenshotSets", {"data": {"type": "appScreenshotSets", "attributes": {"screenshotDisplayType": "APP_IPHONE_69"},
+                         "relationships": {"appStoreVersionLocalization": al.rel("appStoreVersionLocalizations", "L")}}})[0])
+        self.assertTrue(v(sp, "PATCH", "/v1/ageRatingDeclarations/AG1", {"data": {"type": "ageRatingDeclarations", "id": "AG1", "attributes": {"madeUp": True}}}))
+        self.assertTrue(v(sp, "GET", "/v1/apps?filter[nope]=1"))
+
+    def test_age_rating_answers_every_questionnaire_field(self):
+        props = _load_spec()["components"]["schemas"]["AgeRatingDeclarationUpdateRequest"]["properties"]["data"]["properties"]["attributes"]["properties"]
+        skip = {"kidsAgeBand", "ageRatingOverride", "ageRatingOverrideV2", "koreaAgeRatingOverride", "gracRatingClassificationNumber",
+                "developerAgeRatingInfoUrl", "socialMediaAgeRestricted"}
+        self.assertEqual(sorted(set(props) - skip - set(al.AGE_NONE)), [])
 
     def test_export_compliance_and_build_attach(self):
         api = FakeApi(versions=["1.4.3"])

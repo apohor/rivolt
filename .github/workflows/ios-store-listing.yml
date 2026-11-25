@@ -4,7 +4,7 @@ name: ios-store-listing
 # (version text, URLs, copyright, build, categories, content rights, age rating, US-only availability, free price,
 # review details, screenshots, export compliance). By hand only, inside the `testflight` environment (the owner approves
 # the run and only that environment holds the App Store Connect key). dry_run is on by default and writes nothing: it
-# prints the planned changes. It never submits the version for review; that stays a separate, explicit action.
+# prints the planned changes, each call checked against Apple's OpenAPI spec. It never submits the version for review; that stays a separate, explicit action.
 # App Privacy has no public API: both modes print the click list from privacy-label.md for the owner.
 
 on:
@@ -41,18 +41,28 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Fetch the screenshots from the named run
+      - name: Check the screenshots run, then fetch its artifact
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ inputs.shots_run }}
         run: |
           set -euo pipefail
           [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "shots_run must be a run id"; exit 1; }
-          for size in 6.9 6.3; do
-            gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -n "store-screenshots-$size" -D "$RUNNER_TEMP/shots-$size"
-            mkdir -p "$RUNNER_TEMP/shots"
-            cp -R "$RUNNER_TEMP/shots-$size/store/$size" "$RUNNER_TEMP/shots/$size"
-          done
+          read -r name branch conclusion < <(gh run view "$RUN_ID" -R "$GITHUB_REPOSITORY" --json workflowName,headBranch,conclusion \
+            --jq '[.workflowName, .headBranch, .conclusion] | @tsv')
+          echo "shots_run $RUN_ID: workflow=$name branch=$branch conclusion=$conclusion"
+          [ "$name" = "ios-store-screenshots" ] && [ "$branch" = "main" ] && [ "$conclusion" = "success" ] \
+            || { echo "shots_run must be a successful ios-store-screenshots run on main"; exit 1; }
+          # Only the 6.9 inch set is uploaded (Apple's required size); the 6.3 inch shots stay in the run.
+          gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -n "store-screenshots-6.9" -D "$RUNNER_TEMP/shots-6.9"
+          mkdir -p "$RUNNER_TEMP/shots"
+          cp -R "$RUNNER_TEMP/shots-6.9/store/6.9" "$RUNNER_TEMP/shots/6.9"
+
+      - name: Download Apple's App Store Connect OpenAPI spec
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/spec.zip" https://developer.apple.com/sample-code/app-store-connect/app-store-connect-openapi-specification.zip
+          unzip -q -o "$RUNNER_TEMP/spec.zip" openapi.oas.json -d "$RUNNER_TEMP/spec"
 
       - name: Listing text checks
         run: python3 -I ios/store/check_listing.py ios/store/listing.md
@@ -75,4 +85,4 @@ jobs:
           for n in ASC_REVIEW_PASSWORD ASC_REVIEW_USER ASC_REVIEW_CONTACT_PHONE ASC_REVIEW_CONTACT_EMAIL; do
             [ -n "${!n}" ] && echo "::add-mask::${!n}"
           done
-          python3 -I ios/store/asc_listing.py "$MODE" --version "$VERSION" --shots-dir "$RUNNER_TEMP/shots"
+          python3 -I ios/store/asc_listing.py "$MODE" --version "$VERSION" --shots-dir "$RUNNER_TEMP/shots" --spec "$RUNNER_TEMP/spec/openapi.oas.json"
