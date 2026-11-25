@@ -47,6 +47,23 @@ final class TruckLogicTests: XCTestCase {
         if case .ok(let text, _, _, _)? = TruckLogic.split(d, .month) { XCTAssertTrue(text.contains("this week")) } else { XCTFail("expected the week's split") }
     }
 
+    func testASmallAwakeShareSaysLessThanOnePercentNotZero() throws {
+        // Real awake loss whose share of the total rounds to 0: the sentence must not say "about 0%".
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("drain")) as? [String: Any])
+        var windows = try XCTUnwrap(json["windows"] as? [String: Any])
+        var week = try XCTUnwrap(windows["7d"] as? [String: Any])
+        var split = try XCTUnwrap(week["split"] as? [String: Any])
+        split["awake_points_lost"] = 0.1
+        split["awake_share_of_loss"] = 0.003
+        week["split"] = split
+        windows["7d"] = week
+        json["windows"] = windows
+        let d = try JSON.decoder().decode(DrainSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+        guard case .ok(let text, _, _, _)? = TruckLogic.split(d, .week) else { return XCTFail("expected a split") }
+        XCTAssertTrue(text.contains("less than 1% of it was while it was awake"), text)
+        XCTAssertFalse(text.contains("about 0%"), text)
+    }
+
     func testThinDrainDataNeverGivesANumber() throws {
         let thin = DrainWindow(drainPctPerDay: 2, drainKwhPerDay: nil, sleeps: 1, quickRewakes: 0, medianSleepSeconds: nil, parkedHours: 9.5, daysWithData: 1,
                                daysExcluded: nil, sufficient: false, split: nil)

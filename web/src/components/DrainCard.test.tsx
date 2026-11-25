@@ -85,6 +85,13 @@ describe("DrainCard", () => {
     sufficient: true, asleep_hours: 120, awake_hours: 14, asleep_points_lost: 1, awake_points_lost: 5, awake_share_of_loss: 5 / 6, awake_share_of_time: 0.1, min_hours: 48, min_points_lost: 3, ...o,
   });
 
+  it("says less than 1% when some loss was awake but its share rounds to 0", async () => {
+    stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: split({ asleep_points_lost: 30, awake_points_lost: 0.1, awake_share_of_loss: 0.003 }) })) } });
+    const { container } = renderCard();
+    expect(await screen.findByText(/Of the 30% your truck lost while parked this week, less than 1% of it was while it was awake/)).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/about 0%/);
+  });
+
   it("says when the loss happened, as an estimate, with a two-part bar and no cause", async () => {
     stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: split() })) } });
     const { container } = renderCard();
