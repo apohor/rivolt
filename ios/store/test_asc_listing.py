@@ -10,7 +10,7 @@ _spec.loader.exec_module(al)
 _cl = al._load("check_listing")
 
 ENV = {"ASC_REVIEW_USER": "reviewer-user", "ASC_REVIEW_PASSWORD": "s3cret-pass", "ASC_REVIEW_CONTACT_FIRST_NAME": "Rae",
-       "ASC_REVIEW_CONTACT_LAST_NAME": "Viewer", "ASC_REVIEW_CONTACT_PHONE": "+15550100", "ASC_REVIEW_CONTACT_EMAIL": "rv@example.invalid"}
+       "ASC_REVIEW_CONTACT_LAST_NAME": "Viewer", "ASC_REVIEW_CONTACT_PHONE": "+15550100", "ASC_REVIEW_CONTACT_EMAIL": "rv@example.invalid", "EXPECT_BUILD_NUMBER": "109"}
 
 
 def read(name):
@@ -36,10 +36,12 @@ class FakeApi:
     """Answers the GETs a run makes; records every call. versions: {versionString: state} already on the app."""
 
     def __init__(self, versions=(), build_state="VALID", loc=True, usa_only=False, free_price=False, put_status=200,
-                 shot_state="COMPLETE", old_shots=None):
+                 shot_state="COMPLETE", old_shots=None, encryption=None, attached=False, rights=None, build_number="109", build_marketing="1.4.3"):
         self.versions = dict(versions) if isinstance(versions, dict) else {v: "PREPARE_FOR_SUBMISSION" for v in versions}
         self.build_state, self.loc, self.usa_only, self.free_price = build_state, loc, usa_only, free_price
         self.put_status, self.shot_state, self.calls = put_status, shot_state, []
+        self.encryption, self.attached, self.rights = encryption, attached, rights
+        self.build_number, self.build_marketing = build_number, build_marketing
         self.old_shots = old_shots if old_shots is not None else [("old1", "x1"), ("old2", "x2")]
 
     def put_bytes(self, url, headers, chunk):
@@ -54,7 +56,7 @@ class FakeApi:
                     {"offset": 0, "length": 4, "url": "https://up.example.invalid/x", "requestHeaders": [{"name": "Content-Type", "value": "image/png"}]}]}}}
             return 200, {"data": {"id": "new-" + path.split("/")[-1], "attributes": {}}}
         if path.startswith("/v1/apps?filter"):
-            return 200, {"data": [{"id": "APP"}]}
+            return 200, {"data": [{"id": "APP", "attributes": ({} if self.rights is None else {"contentRightsDeclaration": self.rights})}]}
         if "/appPricePoints" in path:
             return 200, {"data": [{"id": "pp0", "attributes": {"customerPrice": "0.0"}}, {"id": "pp1", "attributes": {"customerPrice": "0.99"}}]}
         if path.endswith("/appAvailabilityV2"):
@@ -66,10 +68,11 @@ class FakeApi:
             return (200, {"data": {"id": "PS1"}}) if self.free_price else (404, {})
         if path.startswith("/v1/appPriceSchedules/PS1/manualPrices"):
             return 200, {"data": [], "included": [{"type": "appPricePoints", "id": "pp0", "attributes": {"customerPrice": "0.0"}}]}
-        if path.endswith("/appStoreVersions?filter[platform]=IOS&limit=200"):
-            return 200, {"data": [{"id": "V" + v, "attributes": {"versionString": v, "appVersionState": s}} for v, s in self.versions.items()]}
+        if path.endswith("/appStoreVersions?filter[platform]=IOS&limit=200&include=build"):
+            rel_build = {"build": {"data": {"type": "builds", "id": "B1"}}} if self.attached else {"build": {"data": None}}
+            return 200, {"data": [{"id": "V" + v, "attributes": {"versionString": v, "appVersionState": s}, "relationships": rel_build} for v, s in self.versions.items()]}
         if path.startswith("/v1/builds"):
-            return 200, {"data": [{"id": "B1", "attributes": {"processingState": self.build_state}}]}
+            return 200, {"included": [{"type": "preReleaseVersions", "id": "P1", "attributes": {"version": self.build_marketing}}], "data": [{"id": "B1", "attributes": dict({"processingState": self.build_state, "version": self.build_number}, **({} if self.encryption is None else {"usesNonExemptEncryption": self.encryption}))}]}
         if path.endswith("/appStoreVersionLocalizations"):
             return 200, {"data": [{"id": "L1", "attributes": {"locale": "en-US"}}] if self.loc else []}
         if path.endswith("/appInfos"):
@@ -323,6 +326,44 @@ class RunTests(unittest.TestCase):
         lines = []
         do("plan", FakeApi(versions=["1.4.3"]), lines=lines)
         self.assertTrue(any("light shots are not uploaded" in x for x in lines))
+
+    def test_export_compliance_already_set_is_skipped_and_said(self):
+        api, lines = FakeApi(versions=["1.4.3"], encryption=False), []
+        do("apply", api, lines=lines)
+        self.assertNotIn("/v1/builds/B1", [c[1] for c in api.writes()])
+        self.assertTrue(any("export compliance is already answered" in x for x in lines))
+
+    def test_the_plan_prints_the_build_and_a_different_build_number_stops(self):
+        lines = []
+        do("plan", FakeApi(versions=["1.4.3"]), lines=lines)
+        self.assertTrue(any("version 1.4.3, build number 109" in x for x in lines))
+        for kw in ({"build_number": "110"}, {"build_marketing": "1.4.2"}):
+            api = FakeApi(versions=["1.4.3"], **kw)
+            with self.assertRaises(SystemExit) as c:
+                do("apply", api)
+            self.assertIn("stopping", str(c.exception))
+            self.assertEqual(api.writes(), [])
+        with self.assertRaises(SystemExit):
+            do("plan", FakeApi(versions=["1.4.3"]), env=dict(ENV, EXPECT_BUILD_NUMBER=""))
+
+    def test_a_build_that_uses_encryption_stops_before_any_write(self):
+        api = FakeApi(versions=["1.4.3"], encryption=True)
+        with self.assertRaises(SystemExit) as c:
+            do("apply", api)
+        self.assertIn("usesNonExemptEncryption is true", str(c.exception))
+        self.assertEqual(api.writes(), [])
+
+    def test_a_rerun_after_a_partial_apply_repeats_nothing_that_was_done(self):
+        # Rights set, price free, US only, version already 1.4.3 with the build attached and the export answer set.
+        api, lines = FakeApi(versions=["1.4.3"], encryption=False, attached=True, rights="USES_THIRD_PARTY_CONTENT", usa_only=True, free_price=True), []
+        do("apply", api, lines=lines)
+        done = [(c[0], c[1]) for c in api.writes()]
+        self.assertNotIn(("PATCH", "/v1/apps/APP"), done)
+        self.assertNotIn(("PATCH", "/v1/builds/B1"), done)
+        self.assertNotIn("/v1/appPriceSchedules", [c[1] for c in api.writes()])
+        self.assertNotIn("/v2/appAvailabilities", [c[1] for c in api.writes()])
+        self.assertFalse([c for c in api.writes() if c[1] == "/v1/appStoreVersions/V1.4.3" and "relationships" in c[2]["data"]])
+        self.assertTrue(any("already attached" in x for x in lines))
 
     def test_whats_new_goes_out_only_when_an_earlier_version_exists(self):
         api = FakeApi(versions={"1.4.0": "READY_FOR_DISTRIBUTION"})
