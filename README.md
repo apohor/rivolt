@@ -40,7 +40,7 @@ it; counts come from the billing table only.
 
 - **Free:** every drive and charge on every connected vehicle recorded and
   kept until you delete it; Now, Activity, Money and Truck for the last 3
-  months (12 for accounts created before November 26, 2026); the monthly statement and its email, with a CSV for each of the three
+  months (12 for accounts created before 12:00 pm Central on November 25, 2026); the monthly statement and its email, with a CSV for each of the three
   months it shows; a single-day trip planner with charging stops; three saved
   trips; trip share links and all share cards; the small Now widget and the
   charging Live Activity on iPhone; imports from ElectraFi, TezLab and ABRP;

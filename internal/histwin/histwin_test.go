@@ -180,12 +180,12 @@ func TestSettingNeedsNoticeOnlyBelowLegacy(t *testing.T) {
 	}
 }
 
-// The 3-month rule: the cutoff moved from November 22 to November 26, 2026, so an account created in between (6 months under the old
+// The 3-month rule: the cutoff moved from November 22 to November 25, 2026, so an account created in between (6 months under the old
 // cutoff) keeps 12, and only one created at or after the new cutoff gets 3.
 func TestThreeMonthsFromNewCutoff(t *testing.T) {
 	old := Months
 	Months = 3
-	SetCutoff(time.Date(2026, 11, 26, 0, 0, 0, 0, time.UTC))
+	SetCutoff(time.Date(2026, 11, 25, 18, 0, 0, 0, time.UTC))
 	t.Cleanup(func() { SetCutoff(time.Time{}); Months = old })
 	now := time.Date(2026, 12, 15, 0, 0, 0, 0, time.UTC)
 	for _, c := range []struct {
