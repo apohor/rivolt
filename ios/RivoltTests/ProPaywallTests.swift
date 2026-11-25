@@ -96,6 +96,23 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertNil(ProCopy.card(.off))
     }
 
+    func testAStripePlanIsManagedOnTheWebAndAnAppleOneThatStripeAlsoBillsSaysSo() throws {
+        // The server's flag: a live Stripe row on the account. Absent means false.
+        XCTAssertEqual(try me("me_plan_apple_and_stripe").paidViaStripe, true)
+        XCTAssertNil(try me("me_plan_apple").paidViaStripe)
+        XCTAssertEqual(PlanLogic.state(try me("me_plan_apple_and_stripe")), .pro(source: "apple", periodEnd: d("2026-12-01T00:00:00Z")))
+        XCTAssertTrue(ProCopy.stripeBilled.hasPrefix("Billed through Stripe."))
+        XCTAssertTrue(ProCopy.stripeBilled.contains("Cancelling keeps Pro until the paid period ends"))
+        XCTAssertTrue(ProCopy.alsoStripe.contains("also billed through Stripe"))
+        XCTAssertTrue(ProCopy.alsoStripe.contains("charged twice"))
+        // Facts only: no price, no purchase wording, no link in either sentence.
+        for t in [ProCopy.stripeBilled, ProCopy.alsoStripe] {
+            XCTAssertFalse(t.contains("$"), t)
+            XCTAssertFalse(t.lowercased().contains("subscribe"), t)
+            XCTAssertFalse(t.contains("http"), t)
+        }
+    }
+
     func testManageSubscriptionOpensTheAppStoresOwnPage() {
         XCTAssertEqual(PlanLogic.manageSubscriptionsURL.host, "apps.apple.com")
         XCTAssertEqual(ProCopy.restore, "Restore purchases")

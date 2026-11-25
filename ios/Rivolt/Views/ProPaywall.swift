@@ -142,6 +142,10 @@ enum ProCopy {
     static let restoreHelp = "Bought Pro on this Apple ID before? Restore it here. A subscription bought on rivolt.dev is already on your account; sign in and it applies."
     static let manage = "Manage subscription"
     static let manageHelp = "Opens your Apple subscriptions, where you change or cancel the plan. Cancelling keeps Pro until the paid period ends."
+    /// A plan billed through Stripe is managed on the web: facts only here, no purchase and no button (Apple's page cannot cancel it).
+    static let stripeBilled = "Billed through Stripe. Manage or cancel on rivolt.dev. Cancelling keeps Pro until the paid period ends."
+    /// An Apple subscription on an account that Stripe also bills: say so, so the person can stop one.
+    static let alsoStripe = "This account is also billed through Stripe. Manage that on rivolt.dev so you aren't charged twice."
     static let unofficial = "Unofficial, not affiliated with Rivian."
     static let unavailable = "Purchases aren't available yet. Nothing was charged."
     static let purchased = "Thanks, Pro is on."
@@ -338,6 +342,9 @@ struct ProPaywallView: View {
     let plan: PlanState
     /// The free window the server reports, for the words that name it.
     var window: FreeWindow = .unknown
+    /// A Stripe subscription still grants Pro on this account (`paid_via_stripe`); read again from the server when the sheet opens.
+    var paidViaStripe: Bool = false
+    @State private var readStripe: Bool?
     var purchasing: ProPurchasing = UnavailablePurchasing()
     /// What the server sets up, found when the sheet opens; `purchasing` stands until then, and always when it was given.
     @State private var live: ProPurchasing?
@@ -348,6 +355,16 @@ struct ProPaywallView: View {
     @State private var yearly: Bool?
     @State private var busy = false
     @State private var message: String?
+
+    private var billedOnStripe: Bool { paidViaStripe || readStripe == true }
+
+    /// The plan's own source: only an Apple plan has an Apple page to manage it on.
+    private var planSource: String? {
+        switch plan {
+        case .pro(let source, _), .cancelled(let source, _), .paymentFailed(let source, _): return source
+        default: return nil
+        }
+    }
 
     private var subscribed: Bool {
         switch plan {
@@ -376,6 +393,7 @@ struct ProPaywallView: View {
             // Where the server has purchases set up the sheet buys through StoreKit; elsewhere it says they aren't available.
             guard !snapshotOnly else { return }
             live = await state.makePurchasing()
+            if let me = try? await state.readMe() { readStripe = me.paidViaStripe == true }
         }
     }
 
@@ -393,7 +411,7 @@ struct ProPaywallView: View {
                         }
                     }
                     if !subscribed && !state.isDemo { DemoLinksView(items: DemoLinks.all) }
-                    if !subscribed {
+                    if !subscribed && !billedOnStripe {
                         // Side by side, or one above the other at accessibility text sizes, where two columns would squeeze the price.
                         let choices = Group {
                             choice(ProCopy.yearly.label, ProCopy.yearly.price, ProCopy.yearly.unit, ProCopy.yearly.extra, selected: yearly == true) { yearly = true }
@@ -414,17 +432,22 @@ struct ProPaywallView: View {
                     Button { Task { await restore() } } label: { Text(ProCopy.restore).frame(maxWidth: .infinity) }
                         .buttonStyle(ThemeSecondaryButtonStyle()).disabled(busy)
                     Text(ProCopy.restoreHelp).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
-                    if subscribed {
+                    if planSource == "apple" {
                         Button { openURL(PlanLogic.manageSubscriptionsURL) } label: { Text(ProCopy.manage).frame(maxWidth: .infinity) }
                             .buttonStyle(ThemeSecondaryButtonStyle())
                         Text(ProCopy.manageHelp).themeText(.subline, color: Theme.textTertiary).fixedSize(horizontal: false, vertical: true)
+                    }
+                    if planSource == "stripe" || billedOnStripe {
+                        Text(planSource == "apple" ? ProCopy.alsoStripe : ProCopy.stripeBilled)
+                            .themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("billed-on-stripe")
                     }
                     if let message {
                         Text(message).themeText(.subline, color: Theme.estimate).accessibilityAddTraits(.updatesFrequently)
                             // A result that appears below the button is said aloud, not left for a screen reader to find.
                             .onAppear { UIAccessibility.post(notification: .announcement, argument: message) }
                     }
-                    if subscribed {
+                    if subscribed || billedOnStripe {
                         HStack(spacing: 8) {
                             Link("Terms", destination: state.serverURL.appending(path: "terms"))
                             Text("·").foregroundStyle(Theme.textTertiary).accessibilityHidden(true)
