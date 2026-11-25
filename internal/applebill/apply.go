@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/apohor/rivolt/internal/entitlements"
 )
 
 // applyDecision writes one decision for the linked account and subscription, inside the caller's transaction (the subscription's link row is
@@ -54,6 +56,10 @@ func applyDecision(ctx context.Context, tx *sql.Tx, uid uuid.UUID, ti Transactio
 			end = sql.NullTime{Time: limit, Valid: true}
 		}
 	}
+	status := d.Status
+	if sandbox && status != entitlements.StatusActive {
+		status = entitlements.StatusEnded // no past_due: its grace would outlive the cap
+	}
 	var cancel sql.NullBool
 	if d.CancelAtPeriodEnd != nil {
 		cancel = sql.NullBool{Bool: *d.CancelAtPeriodEnd, Valid: true}
@@ -65,7 +71,7 @@ func applyDecision(ctx context.Context, tx *sql.Tx, uid uuid.UUID, ti Transactio
 		    current_period_end = COALESCE(EXCLUDED.current_period_end, entitlements.current_period_end),
 		    external_id = EXCLUDED.external_id, sandbox = EXCLUDED.sandbox,
 		    cancel_at_period_end = COALESCE($5, entitlements.cancel_at_period_end), updated_at = now()`,
-		uid, d.Status, end, ti.OriginalTransactionID, cancel, sandbox)
+		uid, status, end, ti.OriginalTransactionID, cancel, sandbox)
 	if err != nil {
 		return false, err
 	}

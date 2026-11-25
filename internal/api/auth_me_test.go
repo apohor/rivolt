@@ -146,7 +146,7 @@ func meAs(t *testing.T, uid uuid.UUID, e *entitlements.Service) map[string]any {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil).WithContext(auth.WithUser(context.Background(), uid))
 	rec := httptest.NewRecorder()
-	handleMeEnrichedPlan(newMeAuth(t), nil, false, nil, false, e, false, 0)(rec, req)
+	handleMeEnrichedPlan(newMeAuth(t), nil, false, nil, false, e, false, nil)(rec, req)
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("%v: %s", err, rec.Body.String())
@@ -168,7 +168,7 @@ func TestAuthMeBillingEnabledForTheApp(t *testing.T) {
 		}
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil).WithContext(ctx)
 		rec := httptest.NewRecorder()
-		handleMeEnrichedPlan(newMeAuth(t), nil, false, nil, false, on, iosBilling, 0)(rec, req)
+		handleMeEnrichedPlan(newMeAuth(t), nil, false, nil, false, on, iosBilling, nil)(rec, req)
 		var body map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 			t.Fatalf("%v: %s", err, rec.Body.String())

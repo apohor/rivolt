@@ -77,13 +77,7 @@ func (t *Transaction) Serve(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 	}
 	sandbox := t.Config.Sandbox(ti.Environment)
 	if sandbox {
-		ok, err := SandboxAllowed(r.Context(), t.DB, uid)
-		if err != nil {
-			t.warn("apple transaction: allowlist lookup failed", "err", err.Error())
-			writeErr(w, http.StatusInternalServerError, "unavailable")
-			return
-		}
-		if !ok {
+		if !t.Config.SandboxAllowed(uid) {
 			// A TestFlight build buys in the Sandbox too: without the allowlist every tester would get Pro. The app shows this as a message.
 			if t.SandboxRefused != nil {
 				t.SandboxRefused()

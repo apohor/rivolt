@@ -3,6 +3,8 @@ package applebill
 import (
 	"errors"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -75,9 +77,22 @@ func TestConfigAcceptSandbox(t *testing.T) {
 		m[k] = v
 		return m
 	}
-	withMin := func(m map[string]string) map[string]string { m["RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD"] = "100"; return m }
+	withMin := func(m map[string]string) map[string]string {
+		m["RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD"] = "100"
+		m["RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS"] = "11111111-1111-1111-1111-111111111111"
+		return m
+	}
 	if _, err := ConfigFromEnv(env(with("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX", "true")), true); err == nil {
 		t.Error("the flag without the first purchase build was accepted")
+	}
+	noAcct := withMin(with("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX", "true"))
+	noAcct["RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS"] = " "
+	if _, err := ConfigFromEnv(env(noAcct), true); err == nil {
+		t.Error("the flag without a review account was accepted")
+	}
+	noAcct["RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS"] = "not-a-uuid"
+	if _, err := ConfigFromEnv(env(noAcct), true); err == nil {
+		t.Error("a malformed review account id was accepted")
 	}
 	off, _ := ConfigFromEnv(env(base), true)
 	if off.AcceptSandbox || off.Sandbox(EnvSandbox) {
@@ -95,6 +110,9 @@ func TestConfigAcceptSandbox(t *testing.T) {
 	}
 	if err := on.Check("dev.example.test", EnvSandbox, "p"); !errors.Is(err, ErrRejected) {
 		t.Errorf("the notification route took a Sandbox notification: %v", err)
+	}
+	if !on.SandboxAllowed(uuid.MustParse("11111111-1111-1111-1111-111111111111")) || on.SandboxAllowed(uuid.New()) || off.SandboxAllowed(uuid.MustParse("11111111-1111-1111-1111-111111111111")) {
+		t.Error("the review account list is not honoured")
 	}
 	if on.Sandbox(EnvProduction) {
 		t.Error("a Production transaction counted as Sandbox")

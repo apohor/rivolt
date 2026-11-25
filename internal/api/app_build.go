@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/sessions"
 )
@@ -86,10 +87,10 @@ func appBuildAtLeast(r *http.Request, min int) bool {
 	return err == nil && n >= min
 }
 
-// reviewMinBuild is the first app build that may see the purchase UI while Apple's Sandbox is accepted (0 when it is not).
-func (d Deps) reviewMinBuild() int {
+// reviewConfig is the StoreKit config while Apple's Sandbox is accepted (App Review window), else nil.
+func (d Deps) reviewConfig() *applebill.Config {
 	if t := d.AppleIAPTransaction; t != nil && t.Config != nil && t.Config.AcceptSandbox {
-		return t.Config.SandboxMinBuild
+		return t.Config
 	}
-	return 0
+	return nil
 }

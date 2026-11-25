@@ -33,15 +33,10 @@ func TestAppleSandboxReview(t *testing.T) {
 	reviewer, _ := db.EnsureUser(ctx, pool, "sbx-reviewer")
 	tester, _ := db.EnsureUser(ctx, pool, "sbx-tester")
 	payer, _ := db.EnsureUser(ctx, pool, "sbx-payer")
-	if _, err := pool.ExecContext(ctx, `INSERT INTO apple_sandbox_accounts (user_id) VALUES ($1)`, reviewer); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.ExecContext(ctx, `INSERT INTO apple_sandbox_accounts (user_id) VALUES ($1)`, payer); err != nil { // allowlisted AND really paying
-		t.Fatal(err)
-	}
 	chain := newChain(t, chainOpts{})
 	cfg := testConfig()
 	cfg.AcceptSandbox, cfg.SandboxMinBuild = true, 100
+	cfg.SandboxAccounts = map[uuid.UUID]bool{reviewer: true, payer: true} // payer is allowlisted AND really paying
 	refused := 0
 	notif := &Handler{DB: pool, Verifier: chain.verifier, Config: cfg}
 	txn := &Transaction{DB: pool, Verifier: chain.verifier, Config: cfg, SandboxRefused: func() { refused++ }}

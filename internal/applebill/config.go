@@ -1,8 +1,6 @@
 package applebill
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
@@ -24,9 +22,12 @@ type Config struct {
 	Products    map[string]bool // the product ids Rivolt Pro is sold as
 	Environment string
 	// AcceptSandbox (RIVOLT_APPLE_IAP_ACCEPT_SANDBOX, production only, on only while a version is in App Review): an Apple-signed Sandbox
-	// transaction is accepted for the accounts in apple_sandbox_accounts and for no one else. TestFlight purchases are Sandbox too, so
+	// transaction is accepted for the accounts in SandboxAccounts and for no one else. TestFlight purchases are Sandbox too, so
 	// without the allowlist every tester would get Pro.
 	AcceptSandbox bool
+	// SandboxAccounts (RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS, required with AcceptSandbox): the account ids whose Sandbox purchases count, the review
+	// account only. Set in the deployment's values (Git), not in a table, so it moves with the flag.
+	SandboxAccounts map[uuid.UUID]bool
 	// SandboxMinBuild (RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD, required with AcceptSandbox): the first app build that can buy. Builds before it (1.4.3
 	// shows a paywall whenever billing_enabled and the products are present) are told neither, review or not.
 	SandboxMinBuild int
@@ -65,7 +66,24 @@ func ConfigFromEnv(getenv func(string) string, billingOn bool) (*Config, error) 
 		}
 		minBuild = n
 	}
-	return &Config{BundleID: bundle, Products: products, Environment: env, AcceptSandbox: accept, SandboxMinBuild: minBuild}, nil
+	var accounts map[uuid.UUID]bool
+	if accept {
+		accounts = map[uuid.UUID]bool{}
+		for _, f := range strings.Split(getenv("RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS"), ",") {
+			if f = strings.TrimSpace(f); f == "" {
+				continue
+			}
+			u, err := uuid.Parse(f)
+			if err != nil {
+				return nil, errors.New("RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS holds an id that is not a UUID")
+			}
+			accounts[u] = true
+		}
+		if len(accounts) == 0 {
+			return nil, errors.New("RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS (the review account) is required with RIVOLT_APPLE_IAP_ACCEPT_SANDBOX")
+		}
+	}
+	return &Config{BundleID: bundle, Products: products, Environment: env, AcceptSandbox: accept, SandboxMinBuild: minBuild, SandboxAccounts: accounts}, nil
 }
 
 // ErrRejected is a signed value that is genuine but is not for this deployment: another app, another environment, another product.
@@ -112,14 +130,5 @@ func parseBool(s string) bool {
 // SandboxCap is how long a Sandbox entitlement can last from now, whatever Apple's sandbox expiry says.
 const SandboxCap = 24 * time.Hour
 
-// Querier is the one read the allowlist needs.
-type Querier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-// SandboxAllowed reports whether the account is on the operator's allowlist (the review account).
-func SandboxAllowed(ctx context.Context, q Querier, uid uuid.UUID) (bool, error) {
-	var ok bool
-	err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM apple_sandbox_accounts WHERE user_id = $1)`, uid).Scan(&ok)
-	return ok, err
-}
+// SandboxAllowed reports whether the account is one of the review accounts named in the deployment's values.
+func (c *Config) SandboxAllowed(uid uuid.UUID) bool { return c.AcceptSandbox && c.SandboxAccounts[uid] }

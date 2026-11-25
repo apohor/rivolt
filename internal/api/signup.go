@@ -357,13 +357,13 @@ type meSignedOut struct {
 
 // handleMeEnrichedWith is handleMeEnriched plus `units`, the account's resolved display units, when unitsFor is set, and `passkeys`.
 func handleMeEnrichedWith(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units, passkeys bool) http.HandlerFunc {
-	return handleMeEnrichedPlan(svc, d, hideAdmin, unitsFor, passkeys, nil, false, 0)
+	return handleMeEnrichedPlan(svc, d, hideAdmin, unitsFor, passkeys, nil, false, nil)
 }
 
 // handleMeEnrichedPlan is handleMeEnrichedWith plus the plan fields, from e (nil: none). The iPhone app (a bearer token) is told
 // billing_enabled false unless iosBilling (RIVOLT_BILLING_IOS) is on: its purchase UI stays hidden while the web sells, and the
 // plan and history fields still say what the account has, so the limits are unchanged. The app reads the field it already reads.
-func handleMeEnrichedPlan(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units, passkeys bool, e *entitlements.Service, iosBilling bool, reviewMinBuild int) http.HandlerFunc {
+func handleMeEnrichedPlan(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor func(ctx context.Context, uid uuid.UUID) *settings.Units, passkeys bool, e *entitlements.Service, iosBilling bool, review *applebill.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		uid, ok := auth.UserFromContext(r.Context())
 		if !ok {
@@ -413,7 +413,7 @@ func handleMeEnrichedPlan(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor
 		}
 		if e != nil {
 			me.PlanFields = planFor(r.Context(), e, uid)
-			if me.PlanFields != nil && !iosBilling && auth.ViaBearer(r.Context()) && !sandboxReviewer(r.Context(), d, uid, r, reviewMinBuild) {
+			if me.PlanFields != nil && !iosBilling && auth.ViaBearer(r.Context()) && !sandboxReviewer(uid, r, review) {
 				me.PlanFields.BillingEnabled = false
 				me.PlanFields.ManageSubscription = false
 			}
@@ -463,10 +463,6 @@ func signupSessionIssuer(a *auth.Service) func(http.ResponseWriter, *http.Reques
 
 // sandboxReviewer: the account is on the operator's App Review allowlist and the app is a build with the purchase UI (older builds, 1.4.3, would show a paywall they cannot fill), so its app sees the purchase UI while the global switch
 // (RIVOLT_BILLING_IOS) is still off. A lookup that fails is "no": the paywall stays hidden.
-func sandboxReviewer(ctx context.Context, d *sql.DB, uid uuid.UUID, r *http.Request, minBuild int) bool {
-	if d == nil || !appBuildAtLeast(r, minBuild) {
-		return false
-	}
-	ok, err := applebill.SandboxAllowed(ctx, d, uid)
-	return err == nil && ok
+func sandboxReviewer(uid uuid.UUID, r *http.Request, c *applebill.Config) bool {
+	return c != nil && c.AcceptSandbox && appBuildAtLeast(r, c.SandboxMinBuild) && c.SandboxAllowed(uid)
 }
