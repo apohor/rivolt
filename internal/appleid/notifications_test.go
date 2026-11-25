@@ -248,6 +248,18 @@ func TestValidlySignedButNotActedOnIsA200(t *testing.T) {
 // The shape Apple's server sends: a JSON body {"payload": jwt} with a charset on the content type; `events` a JSON string holding the type, the
 // team-scoped sub, an event_time in milliseconds and (for the email events) is_private_email as the string "true". A user we no longer hold
 // (deleted in Rivolt a few seconds earlier, which is what makes Apple send consent-revoked) is a 200 with nothing logged.
+func TestEmptyClientIDActsOnNothing(t *testing.T) {
+	r := newRig(t)
+	r.n.ClientID = ""
+	tok := r.sign(t, testIssuer, testClient, r.now, EventAccountDelete, testSub)
+	if w := post(r.n, form(tok), "application/x-www-form-urlencoded"); w.Code != 200 {
+		t.Fatalf("code %d", w.Code)
+	}
+	if len(r.ss.revoked)+len(r.ml.sent)+len(r.st.seen) != 0 || !strings.Contains(r.logs.String(), "ignored") {
+		t.Fatalf("must ignore and say so: %q", r.logs.String())
+	}
+}
+
 func TestRealShapedAppleEventForADeletedUserIs200(t *testing.T) {
 	r := newRig(t)
 	tok := r.sign(t, testIssuer, testClient, r.now, EventConsentRevoked, "001234.0123456789abcdef0123456789abcdef.0412")

@@ -165,7 +165,8 @@ func (n *Notifier) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// From here the payload is validly signed by Apple: always a 200, or Apple retries.
-	if n.ClientID != "" && !slices.Contains(claims.Audience, n.ClientID) {
+	// An empty ClientID is never "ours": without a Services ID to match, nothing is acted on.
+	if n.ClientID == "" || !slices.Contains(claims.Audience, n.ClientID) {
 		n.log().Warn("apple notification ignored: audience is not the Services ID", "event", claims.Event.Type, "aud", claims.Audience)
 		w.WriteHeader(http.StatusOK)
 		return
@@ -270,7 +271,7 @@ func (n *Notifier) sendAccountDeleteNotice(ctx context.Context, uid uuid.UUID) {
 	}
 }
 
-// readPayload returns the JWT from the request: a form field "payload", or a JSON body {"payload": "..."}, or a bare JWT as the body. The body
+// readPayload returns the JWT from the request: a form field "payload", or a JSON body {"payload": "..."}. The body
 // is read through the caller's cap, and at most MaxNotificationBody here too. The second value is why there is no payload ("" if there is one).
 func readPayload(w http.ResponseWriter, r *http.Request) (string, string) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxNotificationBody))
