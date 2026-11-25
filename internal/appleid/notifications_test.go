@@ -227,9 +227,9 @@ func TestRefusedPayloads(t *testing.T) {
 func TestValidlySignedButNotActedOnIsA200(t *testing.T) {
 	r := newRig(t)
 	cases := map[string]string{
-		"other audience (e.g. the app's bundle id)": r.sign(t, testIssuer, "dev.rivolt.app", r.now, EventAccountDelete, testSub),
-		"stale iat":  r.sign(t, testIssuer, testClient, r.now.Add(-2*time.Hour), EventAccountDelete, testSub),
-		"future iat": r.sign(t, testIssuer, testClient, r.now.Add(time.Hour), EventAccountDelete, testSub),
+		"someone else's audience": r.sign(t, testIssuer, "dev.someone.else", r.now, EventAccountDelete, testSub),
+		"stale iat":               r.sign(t, testIssuer, testClient, r.now.Add(-2*time.Hour), EventAccountDelete, testSub),
+		"future iat":              r.sign(t, testIssuer, testClient, r.now.Add(time.Hour), EventAccountDelete, testSub),
 	}
 	for name, tok := range cases {
 		r.logs.Reset()
@@ -248,6 +248,29 @@ func TestValidlySignedButNotActedOnIsA200(t *testing.T) {
 // The shape Apple's server sends: a JSON body {"payload": jwt} with a charset on the content type; `events` a JSON string holding the type, the
 // team-scoped sub, an event_time in milliseconds and (for the email events) is_private_email as the string "true". A user we no longer hold
 // (deleted in Rivolt a few seconds earlier, which is what makes Apple send consent-revoked) is a 200 with nothing logged.
+func TestAppBundleIDAudienceIsActedOn(t *testing.T) {
+	r := newRig(t)
+	r.n.AppAudiences = []string{"dev.rivolt.app"}
+	tok := r.sign(t, testIssuer, "dev.rivolt.app", r.now, EventAccountDelete, testSub)
+	if w := post(r.n, form(tok), "application/x-www-form-urlencoded"); w.Code != 200 {
+		t.Fatalf("code %d", w.Code)
+	}
+	if len(r.ss.revoked) != 1 {
+		t.Fatal("an event whose audience is the app's bundle id must be acted on like the Services ID's")
+	}
+}
+
+func TestAppBundleIDsFromConfig(t *testing.T) {
+	env := map[string]string{"RIVOLT_APPLE_IAP_BUNDLE_ID": " dev.rivolt.app ", "RIVOLT_IOS_APP_IDS": "ABCDE12345.dev.rivolt.app, ABCDE12345.dev.rivolt.beta,bad"}
+	got := AppBundleIDs(func(k string) string { return env[k] })
+	if strings.Join(got, ",") != "dev.rivolt.app,dev.rivolt.beta" {
+		t.Fatalf("got %v", got)
+	}
+	if len(AppBundleIDs(func(string) string { return "" })) != 0 {
+		t.Fatal("no config, no audiences")
+	}
+}
+
 func TestEmptyClientIDActsOnNothing(t *testing.T) {
 	r := newRig(t)
 	r.n.ClientID = ""

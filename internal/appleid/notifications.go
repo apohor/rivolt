@@ -134,13 +134,16 @@ type NotificationStore interface {
 
 // Notifier serves the notifications endpoint. Wrap it with a body cap and a rate limit where it is mounted.
 type Notifier struct {
-	ClientID string // the Services ID: the audience of a notification meant for this deployment
-	Verify   Verifier
-	Store    NotificationStore
-	Sessions SessionRevoker
-	Mail     Mailer // nil: no email is sent
-	Logger   *slog.Logger
-	Now      func() time.Time
+	ClientID string // the Services ID: the audience of a notification for an account made on the web
+	// AppAudiences are the iPhone app's bundle ids: Apple's events for an account made in the app carry the app's id as the audience, not the
+	// Services ID.
+	AppAudiences []string
+	Verify       Verifier
+	Store        NotificationStore
+	Sessions     SessionRevoker
+	Mail         Mailer // nil: no email is sent
+	Logger       *slog.Logger
+	Now          func() time.Time
 }
 
 func (n *Notifier) now() time.Time {
@@ -165,9 +168,8 @@ func (n *Notifier) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// From here the payload is validly signed by Apple: always a 200, or Apple retries.
-	// An empty ClientID is never "ours": without a Services ID to match, nothing is acted on.
-	if n.ClientID == "" || !slices.Contains(claims.Audience, n.ClientID) {
-		n.log().Warn("apple notification ignored: audience is not the Services ID", "event", claims.Event.Type, "aud", claims.Audience)
+	if !n.ours(claims.Audience) {
+		n.log().Warn("apple notification ignored: audience is not ours", "event", claims.Event.Type, "aud", claims.Audience)
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -194,6 +196,20 @@ func (n *Notifier) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// ours reports whether an audience is this deployment's: the Services ID or an app bundle id. An empty id never matches, so a deployment with
+// neither acts on nothing.
+func (n *Notifier) ours(aud []string) bool {
+	for _, a := range aud {
+		if a == "" {
+			continue
+		}
+		if a == n.ClientID || slices.Contains(n.AppAudiences, a) {
+			return true
+		}
+	}
+	return false
 }
 
 // refuse answers a non-2xx and logs why: Apple retries these, so a silent one cannot be diagnosed.
