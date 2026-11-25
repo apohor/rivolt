@@ -15,6 +15,19 @@ final class ActivityRefreshUITests: XCTestCase {
         return reads(trace, "/api/drives")
     }
 
+    /// The drives read count once it has stopped moving for `quiet` seconds (20 s at most). A read is async, so a fixed sleep either cuts one off on
+    /// a slow runner or waits for nothing on a fast one; this ends when the trace is quiet, however long that takes.
+    private func settledReads(_ trace: URL, quiet: TimeInterval = 1.5) -> Int {
+        let end = Date().addingTimeInterval(20)
+        var last = reads(trace, "/api/drives"), since = Date()
+        while Date() < end {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            let now = reads(trace, "/api/drives")
+            if now != last { last = now; since = Date() } else if Date().timeIntervalSince(since) >= quiet { break }
+        }
+        return last
+    }
+
     private func pick(_ name: String, in app: XCUIApplication) {
         let button = app.buttons["View, \(name)"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 20), "\(name) is in the view switch")
@@ -34,18 +47,17 @@ final class ActivityRefreshUITests: XCTestCase {
         tab.tap()
         pick("Map", in: app)
         _ = waitForReads(trace, 1)
-        Thread.sleep(forTimeInterval: 3)
-        let opened = reads(trace, "/api/drives")
+        let opened = settledReads(trace)
         XCTAssertGreaterThanOrEqual(opened, 1, "opening the map reads its drives")
         pick("List", in: app)
         pick("Map", in: app)
-        Thread.sleep(forTimeInterval: 2)
-        XCTAssertEqual(reads(trace, "/api/drives"), opened, "back on the map with no pull in between, it keeps what it has")
+        // The negative check waits longer than the positive ones (3 s, was a fixed 2 s): a wrong refetch that starts late must still be seen.
+        XCTAssertEqual(settledReads(trace, quiet: 3), opened, "back on the map with no pull in between, it keeps what it has")
         pick("List", in: app)
         let window = app.windows.firstMatch
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
             .press(forDuration: 0.1, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)), withVelocity: .slow, thenHoldForDuration: 0.3)
-        Thread.sleep(forTimeInterval: 2)
+        _ = settledReads(trace)
         pick("Map", in: app)
         XCTAssertEqual(waitForReads(trace, opened + 1), opened + 1, "after a pull in the list the map reads its drives again")
     }
