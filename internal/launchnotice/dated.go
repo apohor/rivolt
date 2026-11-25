@@ -305,10 +305,10 @@ func (s PGDated) FoundingCandidates(ctx context.Context, now time.Time) ([]Found
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT e.user_id, COALESCE(u.email, ''), u.email_verified, e.current_period_end,
 		       EXISTS (SELECT 1 FROM entitlements p
-		                WHERE p.user_id = e.user_id AND p.source IN ('stripe', 'apple') AND p.status IN ('active', 'past_due')
+		                WHERE p.user_id = e.user_id AND p.source IN ('stripe', 'apple') AND NOT p.sandbox AND p.status IN ('active', 'past_due')
 		                  AND (p.current_period_end IS NULL OR p.current_period_end > e.current_period_end)),
 		       (SELECT MAX(p.current_period_end) FROM entitlements p
-		         WHERE p.user_id = e.user_id AND p.source IN ('stripe', 'apple') AND p.status IN ('active', 'past_due')
+		         WHERE p.user_id = e.user_id AND p.source IN ('stripe', 'apple') AND NOT p.sandbox AND p.status IN ('active', 'past_due')
 		           AND p.current_period_end > e.current_period_end)
 		  FROM entitlements e
 		  JOIN users u ON u.id = e.user_id

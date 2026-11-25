@@ -37,7 +37,7 @@ func fillKnown(m map[[2]string]int) {
 // ReadStats reads the counts (two read-only queries).
 func ReadStats(ctx context.Context, db *sql.DB, demo uuid.UUID) (Stats, error) {
 	st := Stats{ByKind: map[[2]string]int{}}
-	rows, err := db.QueryContext(ctx, `SELECT source, status, count(*) FROM entitlements WHERE user_id <> $1 GROUP BY source, status`, demo)
+	rows, err := db.QueryContext(ctx, `SELECT source, status, count(*) FROM entitlements WHERE user_id <> $1 AND NOT sandbox GROUP BY source, status`, demo)
 	if err != nil {
 		return st, err
 	}

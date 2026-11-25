@@ -1,9 +1,14 @@
 package applebill
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 // Environments an App Store deployment can accept: exactly one per deployment.
@@ -17,6 +22,10 @@ type Config struct {
 	BundleID    string
 	Products    map[string]bool // the product ids Rivolt Pro is sold as
 	Environment string
+	// AcceptSandbox (RIVOLT_APPLE_IAP_ACCEPT_SANDBOX, production only, on only while a version is in App Review): an Apple-signed Sandbox
+	// transaction is accepted for the accounts in apple_sandbox_accounts and for no one else. TestFlight purchases are Sandbox too, so
+	// without the allowlist every tester would get Pro.
+	AcceptSandbox bool
 }
 
 // ConfigFromEnv reads RIVOLT_APPLE_IAP_BUNDLE_ID, RIVOLT_APPLE_IAP_PRODUCTS (a comma list, REQUIRED when billing is on, so "any product under
@@ -43,7 +52,8 @@ func ConfigFromEnv(getenv func(string) string, billingOn bool) (*Config, error) 
 	if billingOn && len(products) == 0 {
 		return nil, errors.New("RIVOLT_APPLE_IAP_PRODUCTS is required when billing is on (the product ids Rivolt Pro is sold as)")
 	}
-	return &Config{BundleID: bundle, Products: products, Environment: env}, nil
+	accept := env == EnvProduction && parseBool(getenv("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX"))
+	return &Config{BundleID: bundle, Products: products, Environment: env, AcceptSandbox: accept}, nil
 }
 
 // ErrRejected is a signed value that is genuine but is not for this deployment: another app, another environment, another product.
@@ -55,11 +65,40 @@ func (c *Config) Check(bundle, env, product string) error {
 	if bundle != c.BundleID {
 		return fmt.Errorf("%w: bundle", ErrRejected)
 	}
-	if env != c.Environment {
+	if env != c.Environment && !c.Sandbox(env) {
 		return fmt.Errorf("%w: environment", ErrRejected)
 	}
 	if product != "" && len(c.Products) > 0 && !c.Products[product] {
 		return fmt.Errorf("%w: product", ErrRejected)
 	}
 	return nil
+}
+
+// Sandbox reports whether env is a Sandbox transaction this deployment accepts as such: a production deployment with AcceptSandbox on. The
+// caller must then check the account against the allowlist (SandboxAllowed) before it records anything.
+func (c *Config) Sandbox(env string) bool {
+	return c.AcceptSandbox && c.Environment == EnvProduction && env == EnvSandbox
+}
+
+func parseBool(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+// SandboxCap is how long a Sandbox entitlement can last from now, whatever Apple's sandbox expiry says.
+const SandboxCap = 24 * time.Hour
+
+// Querier is the one read the allowlist needs.
+type Querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// SandboxAllowed reports whether the account is on the operator's allowlist (the review account).
+func SandboxAllowed(ctx context.Context, q Querier, uid uuid.UUID) (bool, error) {
+	var ok bool
+	err := q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM apple_sandbox_accounts WHERE user_id = $1)`, uid).Scan(&ok)
+	return ok, err
 }

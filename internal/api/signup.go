@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/apohor/rivolt/internal/applebill"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -412,7 +413,7 @@ func handleMeEnrichedPlan(svc *auth.Service, d *sql.DB, hideAdmin bool, unitsFor
 		}
 		if e != nil {
 			me.PlanFields = planFor(r.Context(), e, uid)
-			if me.PlanFields != nil && !iosBilling && auth.ViaBearer(r.Context()) {
+			if me.PlanFields != nil && !iosBilling && auth.ViaBearer(r.Context()) && !sandboxReviewer(r.Context(), d, uid) {
 				me.PlanFields.BillingEnabled = false
 				me.PlanFields.ManageSubscription = false
 			}
@@ -458,4 +459,14 @@ func signupSessionIssuer(a *auth.Service) func(http.ResponseWriter, *http.Reques
 		return nil
 	}
 	return a.IssueSession
+}
+
+// sandboxReviewer: the account is on the operator's App Review allowlist, so its app sees the purchase UI while the global switch
+// (RIVOLT_BILLING_IOS) is still off. A lookup that fails is "no": the paywall stays hidden.
+func sandboxReviewer(ctx context.Context, d *sql.DB, uid uuid.UUID) bool {
+	if d == nil {
+		return false
+	}
+	ok, err := applebill.SandboxAllowed(ctx, d, uid)
+	return err == nil && ok
 }

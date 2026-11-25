@@ -62,3 +62,47 @@ func TestConfigFromEnvBundleWithoutProductsNeedsBillingOff(t *testing.T) {
 		t.Fatalf("billing off: %v %v", c, err)
 	}
 }
+
+// The Sandbox switch (App Review buys in the Sandbox against production): only a production deployment with the flag on accepts a
+// Sandbox-signed transaction, and only as Sandbox; a Sandbox deployment is unchanged.
+func TestConfigAcceptSandbox(t *testing.T) {
+	base := map[string]string{"RIVOLT_APPLE_IAP_BUNDLE_ID": "dev.example.test", "RIVOLT_APPLE_IAP_PRODUCTS": "p"}
+	with := func(k, v string) map[string]string {
+		m := map[string]string{}
+		for a, b := range base {
+			m[a] = b
+		}
+		m[k] = v
+		return m
+	}
+	off, _ := ConfigFromEnv(env(base), true)
+	if off.AcceptSandbox || off.Sandbox(EnvSandbox) {
+		t.Error("Sandbox accepted with the flag off")
+	}
+	if err := off.Check("dev.example.test", EnvSandbox, "p"); !errors.Is(err, ErrRejected) {
+		t.Errorf("flag off, Sandbox transaction: %v", err)
+	}
+	on, err := ConfigFromEnv(env(with("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX", "true")), true)
+	if err != nil || !on.AcceptSandbox {
+		t.Fatalf("%+v %v", on, err)
+	}
+	if err := on.Check("dev.example.test", EnvSandbox, "p"); err != nil {
+		t.Errorf("flag on, Sandbox transaction: %v", err)
+	}
+	if on.Sandbox(EnvProduction) {
+		t.Error("a Production transaction counted as Sandbox")
+	}
+	if err := on.Check("dev.example.test", EnvProduction, "p"); err != nil {
+		t.Errorf("flag on must still accept Production: %v", err)
+	}
+	// The flag means nothing on a Sandbox deployment (preview): everything there is Sandbox already and keeps its real expiry.
+	pv := with("RIVOLT_APPLE_IAP_ENV", "Sandbox")
+	pv["RIVOLT_APPLE_IAP_ACCEPT_SANDBOX"] = "true"
+	sb, _ := ConfigFromEnv(env(pv), true)
+	if sb.AcceptSandbox || sb.Sandbox(EnvSandbox) {
+		t.Error("the flag must not turn a Sandbox deployment's transactions into review purchases")
+	}
+	if err := sb.Check("dev.example.test", EnvProduction, "p"); !errors.Is(err, ErrRejected) {
+		t.Errorf("sandbox deployment accepted production: %v", err)
+	}
+}
