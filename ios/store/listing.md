@@ -14,23 +14,21 @@ Rivolt: EV drives and charging
 Drives, charging cost, truck
 
 ## Promotional text
-Free tier and Pro tier. See your Rivian's drives, each charge's cost and its source, tire pressures and sleep health. Open source. Unofficial.
+Free tier and Pro tier. See your Rivian's drives, each charge's cost and its source, tire pressures and parked drain. Open source. Unofficial.
 
 ## Description
 Rivolt is an open-source companion for Rivian owners. It records your truck's drives and charges, prices each charge, using what Rivian billed where it billed, otherwise your rate or a labelled estimate, and shows where each figure came from.
 
 ON YOUR IPHONE
 • Now: charge level, range, what the truck is doing and how fresh that reading is, with a switcher if you have more than one truck.
-• Widgets: the small Now widget (charge, range and charging status) is free; other widgets, on the Home Screen and the Lock Screen, are Rivolt Pro. A widget that can't refresh says how old its numbers are instead of looking current.
-• Notifications: charging complete, software updates, and, if you turn them on, a plug-in reminder, milestones and an alert when a door, the frunk, the liftgate, the tailgate or the tonneau has been left open for 15 minutes after parking.
 • Activity and Money: every drive with its route and charts, every charge with kWh, cost and the source of the price, and a monthly statement.
-• Truck: tire pressures with a plain "Low" below 32 psi or when the truck says so, parked drain, pack capacity, and sleep health compared only with your own truck's last 30 days.
+• Truck: tire pressures with a plain "Low" below 32 psi or when the truck says so, and parked drain.
 
 HOW IT WORKS
 Sign in with your Rivolt account through a browser sheet. The app never sees your Rivian password. It keeps only a Rivolt sign-in token, which you can revoke from Signed-in devices. We recommend connecting a second Rivian account added as an Authorized Driver, so you can remove Rivolt from the Rivian app at any time. Rivolt sends no commands to your truck (no locks, climate or charging controls). Reading its data can occasionally wake it.
 
 FREE AND PRO
-Rivolt has a free tier and a Pro tier. The free tier records every drive and charge, sends every alert, and always includes the full export of your data. Rivolt Pro adds unlimited history and trends, multi-day trip plans with overnights, plan-vs-actual, every vehicle, and the other widgets (the small Now widget is free). Pro belongs to your Rivolt account: sign in to the app with an account that has Pro and it applies. The app itself sells nothing. If a Pro subscription ends, nothing is deleted and your export stays free.
+Rivolt has a free tier and a Pro tier. The free tier records every drive and charge and always includes the full export of your data. Rivolt Pro adds unlimited history and trends, multi-day trip plans with overnights, plan-vs-actual, every vehicle. Pro belongs to your Rivolt account: sign in to the app with an account that has Pro and it applies. The app itself sells nothing. If a Pro subscription ends, nothing is deleted and your export stays free.
 
 Estimates are labelled as estimates. Nothing compares your truck with other owners'. There are no ads and no third-party analytics; you can export or delete your data from Settings. The code is open source (MIT) and you can run your own server.
 
@@ -39,7 +37,7 @@ Rivolt is an independent project. It is not affiliated with, endorsed by or spon
 Terms: https://rivolt.dev/terms · Privacy: https://rivolt.dev/privacy
 
 ## Keywords
-EV,electric truck,charging cost,trip,efficiency,lease,R1T,R1S,R2,range,widget,open source
+EV,electric truck,charging cost,trip,efficiency,lease,R1T,R1S,R2,range,open source
 
 ## Support URL
 https://rivolt.dev/support
@@ -54,7 +52,7 @@ https://rivolt.dev/privacy
 First App Store release. Now shows what your Rivian is doing: a 24-hour battery graph while parked, a drive graph while driving, and a charge graph with time left while charging. Activity and Money list every drive and charge with its cost and where the price came from, and a drive can be shared as a card. Plan a trip with charging stops, save it, and see each leg on the map. Truck shows tire pressures and parked drain. No account? Try the demo truck on the sign-in screen.
 
 ## Review notes
-Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo truck" on the sign-in screen; no account needed (a sample truck with generated data), and it shows Now, Activity, Money, sample trip plans (multi-day plans with overnights are a Pro-tier feature) and Truck. Widgets and push notifications are not in the demo, because they need a real account; the charging Live Activity is not in it either, because it needs a charging truck. The app sends no commands to vehicles. Sign-in for real owners opens a browser sheet to rivolt.dev.
+Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo truck" on the sign-in screen; no account needed (a sample truck with generated data), and it shows Now, Activity, Money, sample trip plans (multi-day plans with overnights are a Pro-tier feature) and Truck. Widgets, push notifications and the charging Live Activity need a real account and a truck, so they are not in the demo. The app sends no commands to vehicles. Sign-in for real owners opens a browser sheet to rivolt.dev.
 
 Pricing: the app has no in-app purchase and no purchase button, and links to no payment page. Rivolt has a free tier and a Pro tier; Pro is a subscription bought on rivolt.dev (the web), and the app applies it to the signed-in Rivolt account. Account deletion starts in Settings and finishes on rivolt.dev, where the person confirms. We are available in the United States storefront only, matching our Terms (adults in the United States).
 
