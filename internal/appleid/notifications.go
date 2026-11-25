@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,9 +25,11 @@ import (
 // URL registered on the Services ID when a user withdraws consent, deletes their Apple account, or turns the
 // private-relay forwarding off or on.
 //
-// What the endpoint refuses or ignores, in order: a body over MaxNotificationBody; a payload not signed by Apple's
-// keys for our Services ID; an `iat` more than an hour old; a payload already seen; a `sub` we don't hold. The last
-// two are a silent 200: Apple should not retry them, and a caller learns nothing about who has an account.
+// What the endpoint refuses: a body over MaxNotificationBody, no payload, or a payload not signed by Apple's keys
+// for Apple's issuer (4xx, and the reason is logged). Everything validly signed gets a 200, because Apple retries
+// every non-2xx: an `iat` more than an hour old or in the future, an audience that is not our Services ID, a payload
+// already seen, a `sub` we don't hold. The first three are ignored with a log line (no `sub`, no token); the last
+// two are silent: a caller learns nothing about who has an account.
 //
 // What it does: consent-revoked and account-delete sign the user out everywhere and forget the Apple token (the
 // account and its data stay: no deletion on a third party's signal; the inactive-account purge is the only
@@ -62,22 +65,24 @@ type Event struct {
 // Claims are the fields of a verified notification the handler uses.
 type Claims struct {
 	IssuedAt time.Time
+	Audience []string
 	Event    Event
 }
 
-// Verifier checks a notification JWT's signature, issuer and audience and returns its claims.
+// Verifier checks a notification JWT's signature and issuer and returns its claims, audience included: the handler decides what an audience
+// that is not ours means (it is acknowledged and ignored, with a log line, not refused).
 type Verifier interface {
 	Verify(ctx context.Context, rawJWT string) (Claims, error)
 }
 
 // NewVerifier verifies against keys at issuer+"/auth/keys" (cached, refetched on an unknown key id) for the
-// Services ID clientID. Apple's notifications carry an `exp` that we don't rely on: freshness is the `iat` rule.
-func NewVerifier(ctx context.Context, issuer, clientID string) Verifier {
-	return newVerifier(oidc.NewRemoteKeySet(ctx, strings.TrimRight(issuer, "/")+"/auth/keys"), issuer, clientID)
+// Apple's issuer; the audience is returned for the handler to check against clientID. Apple's notifications carry an `exp` that we don't rely on: freshness is the `iat` rule.
+func NewVerifier(ctx context.Context, issuer string) Verifier {
+	return newVerifier(oidc.NewRemoteKeySet(ctx, strings.TrimRight(issuer, "/")+"/auth/keys"), issuer)
 }
 
-func newVerifier(ks oidc.KeySet, issuer, clientID string) Verifier {
-	return &jwtVerifier{v: oidc.NewVerifier(issuer, ks, &oidc.Config{ClientID: clientID, SkipExpiryCheck: true})}
+func newVerifier(ks oidc.KeySet, issuer string) Verifier {
+	return &jwtVerifier{v: oidc.NewVerifier(issuer, ks, &oidc.Config{SkipClientIDCheck: true, SkipExpiryCheck: true})}
 }
 
 type jwtVerifier struct{ v *oidc.IDTokenVerifier }
@@ -104,7 +109,7 @@ func (j *jwtVerifier) Verify(ctx context.Context, raw string) (Claims, error) {
 	if err := json.Unmarshal(evJSON, &ev); err != nil {
 		return Claims{}, errors.New("appleid: unreadable events claim")
 	}
-	return Claims{IssuedAt: time.Unix(c.IAT, 0), Event: ev}, nil
+	return Claims{IssuedAt: time.Unix(c.IAT, 0), Audience: tok.Audience, Event: ev}, nil
 }
 
 // SessionRevoker signs a user out everywhere (sessions.Store).
@@ -129,6 +134,7 @@ type NotificationStore interface {
 
 // Notifier serves the notifications endpoint. Wrap it with a body cap and a rate limit where it is mounted.
 type Notifier struct {
+	ClientID string // the Services ID: the audience of a notification meant for this deployment
 	Verify   Verifier
 	Store    NotificationStore
 	Sessions SessionRevoker
@@ -146,26 +152,34 @@ func (n *Notifier) now() time.Time {
 
 // ServeHTTP handles POST /api/auth/apple/notifications.
 func (n *Notifier) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	jwt, ok := readPayload(w, r)
-	if !ok {
-		http.Error(w, "bad request", http.StatusBadRequest)
+	jwt, why := readPayload(w, r)
+	if why != "" {
+		n.refuse(w, r, http.StatusBadRequest, why)
 		return
 	}
 	ctx := r.Context()
 	claims, err := n.Verify.Verify(ctx, jwt)
 	if err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		// The reason carries issuer and audience values (public) and never the token or the sub.
+		n.refuse(w, r, http.StatusBadRequest, "not verified: "+err.Error())
+		return
+	}
+	// From here the payload is validly signed by Apple: always a 200, or Apple retries.
+	if n.ClientID != "" && !slices.Contains(claims.Audience, n.ClientID) {
+		n.log().Warn("apple notification ignored: audience is not the Services ID", "event", claims.Event.Type, "aud", claims.Audience)
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	age := n.now().Sub(claims.IssuedAt)
 	if age > NotificationFreshness || age < -notificationClockSkew {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		n.log().Warn("apple notification ignored: iat outside the accepted window", "event", claims.Event.Type, "age_s", int64(age.Seconds()))
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	hash := sha256.Sum256([]byte(jwt))
 	fresh, err := n.Store.MarkSeen(ctx, hash[:])
 	if err != nil {
-		http.Error(w, "try again", http.StatusInternalServerError)
+		n.refuse(w, r, http.StatusInternalServerError, "replay guard: "+err.Error())
 		return
 	}
 	if !fresh {
@@ -175,10 +189,20 @@ func (n *Notifier) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := n.handle(ctx, claims.Event); err != nil {
 		// Let Apple's retry through: forget we saw it.
 		_ = n.Store.Unsee(ctx, hash[:])
-		http.Error(w, "try again", http.StatusInternalServerError)
+		n.refuse(w, r, http.StatusInternalServerError, "handling "+claims.Event.Type+": "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// refuse answers a non-2xx and logs why: Apple retries these, so a silent one cannot be diagnosed.
+func (n *Notifier) refuse(w http.ResponseWriter, r *http.Request, code int, reason string) {
+	n.log().Warn("apple notification refused", "status", code, "reason", reason, "content_type", r.Header.Get("Content-Type"), "len", r.ContentLength)
+	if code >= 500 {
+		http.Error(w, "try again", code)
+		return
+	}
+	http.Error(w, "bad request", code)
 }
 
 func (n *Notifier) handle(ctx context.Context, ev Event) error {
@@ -246,27 +270,30 @@ func (n *Notifier) sendAccountDeleteNotice(ctx context.Context, uid uuid.UUID) {
 	}
 }
 
-// readPayload returns the JWT from the request: a form field "payload", or a JSON body {"payload": "..."}. The body
-// is read through the caller's cap, and at most MaxNotificationBody here too.
-func readPayload(w http.ResponseWriter, r *http.Request) (string, bool) {
+// readPayload returns the JWT from the request: a form field "payload", or a JSON body {"payload": "..."}, or a bare JWT as the body. The body
+// is read through the caller's cap, and at most MaxNotificationBody here too. The second value is why there is no payload ("" if there is one).
+func readPayload(w http.ResponseWriter, r *http.Request) (string, string) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxNotificationBody))
 	if err != nil {
-		return "", false
+		return "", "body unreadable or over the cap"
 	}
-	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "application/json") {
 		var b struct {
 			Payload string `json:"payload"`
 		}
-		if json.Unmarshal(body, &b) != nil || b.Payload == "" {
-			return "", false
+		if err := json.Unmarshal(body, &b); err != nil {
+			return "", "json body unreadable"
 		}
-		return b.Payload, true
+		if b.Payload == "" {
+			return "", "json body has no payload field"
+		}
+		return b.Payload, ""
 	}
-	form, err := parseForm(string(body))
-	if err != nil || form == "" {
-		return "", false
+	if form, err := parseForm(string(body)); err == nil && form != "" {
+		return form, ""
 	}
-	return form, true
+	return "", "no payload field in the body"
 }
 
 // MarkSeen records a notification hash and reports whether it was new.

@@ -102,7 +102,7 @@ func newRig(t *testing.T) *rig {
 	r := &rig{key: key, uid: uid, now: time.Now(), logs: &bytes.Buffer{},
 		st: &fakeStore{users: map[string]uuid.UUID{testSub: uid}, seen: map[string]bool{}, undeliv: map[uuid.UUID]bool{}, mail: "me@example.com"},
 		ss: &fakeSessions{}, ml: &fakeMail{}}
-	r.n = &Notifier{Verify: newVerifier(ks, testIssuer, testClient), Store: r.st, Sessions: r.ss, Mail: r.ml,
+	r.n = &Notifier{ClientID: testClient, Verify: newVerifier(ks, testIssuer), Store: r.st, Sessions: r.ss, Mail: r.ml,
 		Logger: slog.New(slog.NewTextHandler(r.logs, nil)), Now: func() time.Time { return r.now }}
 	return r
 }
@@ -199,23 +199,64 @@ func TestRefusedPayloads(t *testing.T) {
 	other, _ := rsa.GenerateKey(rand.Reader, 2048)
 	forged := &rig{key: other}
 	cases := map[string]string{
-		"wrong issuer":   r.sign(t, "https://evil.example", testClient, r.now, EventAccountDelete, testSub),
-		"wrong audience": r.sign(t, testIssuer, "someone.else", r.now, EventAccountDelete, testSub),
-		"stale iat":      r.sign(t, testIssuer, testClient, r.now.Add(-2*time.Hour), EventAccountDelete, testSub),
-		"future iat":     r.sign(t, testIssuer, testClient, r.now.Add(time.Hour), EventAccountDelete, testSub),
-		"wrong key":      forged.sign(t, testIssuer, testClient, r.now, EventAccountDelete, testSub),
-		"not a jwt":      "garbage",
+		"wrong issuer": r.sign(t, "https://evil.example", testClient, r.now, EventAccountDelete, testSub),
+		"wrong key":    forged.sign(t, testIssuer, testClient, r.now, EventAccountDelete, testSub),
+		"not a jwt":    "garbage",
 	}
 	for name, tok := range cases {
+		r.logs.Reset()
 		if w := post(r.n, form(tok), "application/x-www-form-urlencoded"); w.Code != 400 {
 			t.Errorf("%s: code %d, want 400", name, w.Code)
 		}
+		if !strings.Contains(r.logs.String(), "apple notification refused") || !strings.Contains(r.logs.String(), "reason=") {
+			t.Errorf("%s: a 400 must log its reason, got %q", name, r.logs.String())
+		}
 	}
-	if w := post(r.n, "", "application/x-www-form-urlencoded"); w.Code != 400 {
-		t.Errorf("empty body: %d", w.Code)
+	for name, c := range map[string][2]string{"empty body": {"", "application/x-www-form-urlencoded"}, "json without payload": {`{}`, "application/json"}, "bad json": {`nope`, "application/json"}} {
+		r.logs.Reset()
+		if w := post(r.n, c[0], c[1]); w.Code != 400 || !strings.Contains(r.logs.String(), "reason=") {
+			t.Errorf("%s: code %d, logs %q", name, w.Code, r.logs.String())
+		}
 	}
 	if len(r.ss.revoked)+len(r.ml.sent)+len(r.st.seen) != 0 {
 		t.Fatal("a refused payload must change nothing, not even the replay table")
+	}
+}
+
+// A payload Apple signed is always a 200 (Apple retries anything else), but one that is not for this deployment acts on nothing and says why.
+func TestValidlySignedButNotActedOnIsA200(t *testing.T) {
+	r := newRig(t)
+	cases := map[string]string{
+		"other audience (e.g. the app's bundle id)": r.sign(t, testIssuer, "dev.rivolt.app", r.now, EventAccountDelete, testSub),
+		"stale iat":  r.sign(t, testIssuer, testClient, r.now.Add(-2*time.Hour), EventAccountDelete, testSub),
+		"future iat": r.sign(t, testIssuer, testClient, r.now.Add(time.Hour), EventAccountDelete, testSub),
+	}
+	for name, tok := range cases {
+		r.logs.Reset()
+		if w := post(r.n, form(tok), "application/x-www-form-urlencoded"); w.Code != 200 {
+			t.Errorf("%s: code %d, want 200", name, w.Code)
+		}
+		if !strings.Contains(r.logs.String(), "ignored") || strings.Contains(r.logs.String(), testSub) {
+			t.Errorf("%s: want an ignored line without the sub, got %q", name, r.logs.String())
+		}
+	}
+	if len(r.ss.revoked)+len(r.ml.sent)+len(r.st.seen) != 0 {
+		t.Fatal("an ignored payload must change nothing")
+	}
+}
+
+// The shape Apple's server sends: a JSON body {"payload": jwt} with a charset on the content type; `events` a JSON string holding the type, the
+// team-scoped sub, an event_time in milliseconds and (for the email events) is_private_email as the string "true". A user we no longer hold
+// (deleted in Rivolt a few seconds earlier, which is what makes Apple send consent-revoked) is a 200 with nothing logged.
+func TestRealShapedAppleEventForADeletedUserIs200(t *testing.T) {
+	r := newRig(t)
+	tok := r.sign(t, testIssuer, testClient, r.now, EventConsentRevoked, "001234.0123456789abcdef0123456789abcdef.0412")
+	body, _ := json.Marshal(map[string]string{"payload": tok})
+	if w := post(r.n, string(body), "application/json; charset=utf-8"); w.Code != 200 {
+		t.Fatalf("code %d, want 200", w.Code)
+	}
+	if r.logs.Len() != 0 || len(r.ss.revoked) != 0 {
+		t.Fatalf("an unknown sub must be silent: %q", r.logs.String())
 	}
 }
 

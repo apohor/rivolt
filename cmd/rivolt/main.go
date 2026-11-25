@@ -2855,7 +2855,8 @@ func runServer() {
 					issuer = "https://appleid.apple.com"
 				}
 				appleNotifier = &appleid.Notifier{
-					Verify:   appleid.NewVerifier(ctx, issuer, p.ClientID),
+					ClientID: p.ClientID,
+					Verify:   appleid.NewVerifier(ctx, issuer),
 					Store:    appleid.New(pgPool, secretsStore),
 					Sessions: sessionStore,
 					Mail:     mailer,
