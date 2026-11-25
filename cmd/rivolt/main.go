@@ -760,7 +760,9 @@ func runServer() {
 			Observe: func(outcome string) { appMetrics.AppleNotificationsTotal.WithLabelValues(outcome).Inc() }}
 		appleTransaction = &applebill.Transaction{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger,
 			SandboxRefused: func() { appMetrics.AppleSandboxRefusedTotal.Inc() }}
-		if !appleIAP.AcceptSandbox {
+		if appleIAP.AcceptSandbox {
+			appMetrics.AppleSandboxAccepting.Set(1)
+		} else {
 			// The flag is on only while a version is in review: when it goes off, what the review account bought ends with it.
 			if n, err := applebill.EndSandbox(ctx, pgPool); err != nil {
 				logger.Warn("StoreKit: could not end Sandbox entitlements", "err", err.Error())

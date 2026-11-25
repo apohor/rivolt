@@ -75,3 +75,21 @@ func appBuildMW(c *AppBuildCounter) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// appBuildAtLeast: the request carries X-Rivolt-App-Build and it is at least min (min <= 0 means "no build qualifies"). A request without the
+// header, or with a malformed one, never qualifies.
+func appBuildAtLeast(r *http.Request, min int) bool {
+	if min <= 0 || r == nil {
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(r.Header.Get(appBuildHeader)))
+	return err == nil && n >= min
+}
+
+// reviewMinBuild is the first app build that may see the purchase UI while Apple's Sandbox is accepted (0 when it is not).
+func (d Deps) reviewMinBuild() int {
+	if t := d.AppleIAPTransaction; t != nil && t.Config != nil && t.Config.AcceptSandbox {
+		return t.Config.SandboxMinBuild
+	}
+	return 0
+}

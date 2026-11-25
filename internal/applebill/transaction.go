@@ -64,7 +64,7 @@ func (t *Transaction) Serve(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "invalid")
 		return
 	}
-	if err := t.Config.Check(ti.BundleID, ti.Environment, ti.ProductID); err != nil || ti.ProductID == "" || !ti.Subscription() || ti.OriginalTransactionID == "" {
+	if err := t.Config.CheckTransaction(ti.BundleID, ti.Environment, ti.ProductID); err != nil || ti.ProductID == "" || !ti.Subscription() || ti.OriginalTransactionID == "" {
 		t.warn("apple transaction: not for this deployment")
 		writeErr(w, http.StatusBadRequest, "invalid")
 		return

@@ -154,30 +154,16 @@ func (h *Handler) apply(ctx context.Context, p NotificationPayload, ti Transacti
 	var uid uuid.UUID
 	err = tx.QueryRowContext(ctx, `SELECT user_id FROM billing_apple_subs WHERE original_transaction_id = $1 FOR UPDATE`, ti.OriginalTransactionID).Scan(&uid)
 	if errors.Is(err, sql.ErrNoRows) {
-		if h.Config.Sandbox(ti.Environment) {
-			return OutcomeIgnored, uuid.Nil, tx.Commit() // a Sandbox purchase nobody linked: not ours, and Apple's retries would only fill the log
-		}
 		return "", uuid.Nil, ErrUnmapped // rolls back, the claim with it
 	}
 	if err != nil {
 		return "", uuid.Nil, err
 	}
-	sandbox := h.Config.Sandbox(ti.Environment)
-	if sandbox {
-		// Only the review account's Sandbox purchases count; any other Sandbox event (a TestFlight tester's) is dropped, not retried.
-		ok, err := SandboxAllowed(ctx, tx, uid)
-		if err != nil {
-			return "", uuid.Nil, err
-		}
-		if !ok {
-			return OutcomeIgnored, uuid.Nil, tx.Commit()
-		}
-	}
 	signed := p.SignedDate
 	if signed == 0 {
 		signed = ti.SignedDate
 	}
-	applied, err := applyDecision(ctx, tx, uid, ti, d, signed, p.NotificationType == "REFUND_REVERSED", sandbox)
+	applied, err := applyDecision(ctx, tx, uid, ti, d, signed, p.NotificationType == "REFUND_REVERSED", false)
 	if err != nil {
 		return "", uuid.Nil, err
 	}

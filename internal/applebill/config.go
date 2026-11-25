@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,9 @@ type Config struct {
 	// transaction is accepted for the accounts in apple_sandbox_accounts and for no one else. TestFlight purchases are Sandbox too, so
 	// without the allowlist every tester would get Pro.
 	AcceptSandbox bool
+	// SandboxMinBuild (RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD, required with AcceptSandbox): the first app build that can buy. Builds before it (1.4.3
+	// shows a paywall whenever billing_enabled and the products are present) are told neither, review or not.
+	SandboxMinBuild int
 }
 
 // ConfigFromEnv reads RIVOLT_APPLE_IAP_BUNDLE_ID, RIVOLT_APPLE_IAP_PRODUCTS (a comma list, REQUIRED when billing is on, so "any product under
@@ -53,15 +57,32 @@ func ConfigFromEnv(getenv func(string) string, billingOn bool) (*Config, error) 
 		return nil, errors.New("RIVOLT_APPLE_IAP_PRODUCTS is required when billing is on (the product ids Rivolt Pro is sold as)")
 	}
 	accept := env == EnvProduction && parseBool(getenv("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX"))
-	return &Config{BundleID: bundle, Products: products, Environment: env, AcceptSandbox: accept}, nil
+	minBuild := 0
+	if accept {
+		n, err := strconv.Atoi(strings.TrimSpace(getenv("RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD")))
+		if err != nil || n <= 0 {
+			return nil, errors.New("RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD (the first app build with the purchase UI) is required with RIVOLT_APPLE_IAP_ACCEPT_SANDBOX")
+		}
+		minBuild = n
+	}
+	return &Config{BundleID: bundle, Products: products, Environment: env, AcceptSandbox: accept, SandboxMinBuild: minBuild}, nil
 }
 
 // ErrRejected is a signed value that is genuine but is not for this deployment: another app, another environment, another product.
 var ErrRejected = errors.New("applebill: not for this deployment")
 
 // Check refuses a bundle, environment or product that is not this deployment's. An empty product (a notification with no transaction)
-// is not checked here; product is checked only when a transaction is present.
+// is not checked here; product is checked only when a transaction is present. The notification route uses this: production never takes
+// Sandbox notifications (the review account's purchase is reported by the app, and App Store Connect's Sandbox URL points at preview).
 func (c *Config) Check(bundle, env, product string) error {
+	if env != c.Environment {
+		return fmt.Errorf("%w: environment", ErrRejected)
+	}
+	return c.CheckTransaction(bundle, env, product)
+}
+
+// CheckTransaction is Check for the app's own report, which also takes a Sandbox transaction when AcceptSandbox is on.
+func (c *Config) CheckTransaction(bundle, env, product string) error {
 	if bundle != c.BundleID {
 		return fmt.Errorf("%w: bundle", ErrRejected)
 	}

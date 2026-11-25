@@ -75,19 +75,26 @@ func TestConfigAcceptSandbox(t *testing.T) {
 		m[k] = v
 		return m
 	}
+	withMin := func(m map[string]string) map[string]string { m["RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD"] = "100"; return m }
+	if _, err := ConfigFromEnv(env(with("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX", "true")), true); err == nil {
+		t.Error("the flag without the first purchase build was accepted")
+	}
 	off, _ := ConfigFromEnv(env(base), true)
 	if off.AcceptSandbox || off.Sandbox(EnvSandbox) {
 		t.Error("Sandbox accepted with the flag off")
 	}
-	if err := off.Check("dev.example.test", EnvSandbox, "p"); !errors.Is(err, ErrRejected) {
+	if err := off.CheckTransaction("dev.example.test", EnvSandbox, "p"); !errors.Is(err, ErrRejected) {
 		t.Errorf("flag off, Sandbox transaction: %v", err)
 	}
-	on, err := ConfigFromEnv(env(with("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX", "true")), true)
+	on, err := ConfigFromEnv(env(withMin(with("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX", "true"))), true)
 	if err != nil || !on.AcceptSandbox {
 		t.Fatalf("%+v %v", on, err)
 	}
-	if err := on.Check("dev.example.test", EnvSandbox, "p"); err != nil {
-		t.Errorf("flag on, Sandbox transaction: %v", err)
+	if err := on.CheckTransaction("dev.example.test", EnvSandbox, "p"); err != nil || on.SandboxMinBuild != 100 {
+		t.Errorf("flag on, Sandbox transaction: %v (min build %d)", err, on.SandboxMinBuild)
+	}
+	if err := on.Check("dev.example.test", EnvSandbox, "p"); !errors.Is(err, ErrRejected) {
+		t.Errorf("the notification route took a Sandbox notification: %v", err)
 	}
 	if on.Sandbox(EnvProduction) {
 		t.Error("a Production transaction counted as Sandbox")
@@ -98,6 +105,7 @@ func TestConfigAcceptSandbox(t *testing.T) {
 	// The flag means nothing on a Sandbox deployment (preview): everything there is Sandbox already and keeps its real expiry.
 	pv := with("RIVOLT_APPLE_IAP_ENV", "Sandbox")
 	pv["RIVOLT_APPLE_IAP_ACCEPT_SANDBOX"] = "true"
+	pv["RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD"] = "100"
 	sb, _ := ConfigFromEnv(env(pv), true)
 	if sb.AcceptSandbox || sb.Sandbox(EnvSandbox) {
 		t.Error("the flag must not turn a Sandbox deployment's transactions into review purchases")

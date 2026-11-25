@@ -147,7 +147,7 @@ func TestProPromptsThroughMeAndRoute(t *testing.T) {
 	me := func(u uuid.UUID) map[string]any {
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil).WithContext(auth.WithUser(ctx, u))
 		rec := httptest.NewRecorder()
-		handleMeEnrichedPlan(newMeAuth(t), pool, false, nil, false, ent, false)(rec, req)
+		handleMeEnrichedPlan(newMeAuth(t), pool, false, nil, false, ent, false, 0)(rec, req)
 		var body map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 			t.Fatalf("%v: %s", err, rec.Body.String())

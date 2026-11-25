@@ -41,10 +41,9 @@ func TestAppleSandboxReview(t *testing.T) {
 	}
 	chain := newChain(t, chainOpts{})
 	cfg := testConfig()
-	cfg.AcceptSandbox = true
+	cfg.AcceptSandbox, cfg.SandboxMinBuild = true, 100
 	refused := 0
-	var outcomes []string
-	notif := &Handler{DB: pool, Verifier: chain.verifier, Config: cfg, Observe: func(o string) { outcomes = append(outcomes, o) }}
+	notif := &Handler{DB: pool, Verifier: chain.verifier, Config: cfg}
 	txn := &Transaction{DB: pool, Verifier: chain.verifier, Config: cfg, SandboxRefused: func() { refused++ }}
 	report := func(u uuid.UUID, x TransactionInfo) (int, string) {
 		b, _ := json.Marshal(map[string]string{"signedTransaction": chain.sign(t, x)})
@@ -91,27 +90,13 @@ func TestAppleSandboxReview(t *testing.T) {
 		t.Errorf("reviewer row: %s %v sandbox=%v", st, end, sandbox)
 	}
 
-	// A notification for it applies; for an unlinked or off-allowlist Sandbox subscription it is dropped (200, not retried).
+	// Production takes no Sandbox notification: rejected whoever the account is (App Store Connect's Sandbox URL points at preview).
 	renew := sbx("sbx-orig-reviewer", reviewer)
-	renew.SignedDate = time.Now().UnixMilli()
-	outcomes = nil
-	if rec := post(notif, notification(chain, t, "DID_RENEW", "", uuid.NewString(), time.Now(), renew)); rec.Code != http.StatusOK || outcomes[len(outcomes)-1] != OutcomeApplied {
-		t.Errorf("reviewer renew: %d %v", rec.Code, outcomes)
+	if rec := post(notif, notification(chain, t, "DID_RENEW", "", uuid.NewString(), time.Now(), renew)); rec.Code != http.StatusBadRequest {
+		t.Errorf("a Sandbox notification on production: %d", rec.Code)
 	}
 	if _, end, _, _ := row(reviewer); end.After(time.Now().Add(SandboxCap + time.Minute)) {
-		t.Errorf("a renewal lifted the cap: %v", end)
-	}
-	outcomes = nil
-	if rec := post(notif, notification(chain, t, "SUBSCRIBED", "INITIAL_BUY", uuid.NewString(), time.Now(), sbx("sbx-orig-nobody", tester))); rec.Code != http.StatusOK || outcomes[len(outcomes)-1] != OutcomeIgnored {
-		t.Errorf("unlinked sandbox notification: %d %v", rec.Code, outcomes)
-	}
-	if _, err := pool.ExecContext(ctx, `DELETE FROM apple_sandbox_accounts WHERE user_id = $1`, reviewer); err != nil {
-		t.Fatal(err)
-	}
-	outcomes = nil
-	renew.SignedDate = time.Now().UnixMilli() + 1000
-	if rec := post(notif, notification(chain, t, "DID_RENEW", "", uuid.NewString(), time.Now().Add(time.Second), renew)); rec.Code != http.StatusOK || outcomes[len(outcomes)-1] != OutcomeIgnored {
-		t.Errorf("notification after the allowlist entry was removed: %d %v", rec.Code, outcomes)
+		t.Errorf("cap lifted: %v", end)
 	}
 
 	// A real paid Apple row is never replaced or extended by a Sandbox purchase on the same account.

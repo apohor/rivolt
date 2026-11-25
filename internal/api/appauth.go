@@ -80,7 +80,7 @@ type appConfigPush struct {
 // handleAppConfig tells the app whether this is a Rivolt server it can sign
 // in to. Unauthenticated; a UX check, not a security boundary.
 func handleAppConfig(d Deps) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		resp := appConfigResponse{Server: "rivolt", APIVersion: 1}
 		if d.AppAuth != nil {
 			resp.AppLogin = d.OIDC != nil && len(d.OIDC.Providers()) > 0
@@ -88,7 +88,7 @@ func handleAppConfig(d Deps) http.HandlerFunc {
 		}
 		// Only a server that is selling: StoreKit products can be configured while RIVOLT_BILLING is off (during setup, after a rollback),
 		// and a Subscribe button there would let a user pay Apple for Pro that everyone already has.
-		if t := d.AppleIAPTransaction; t != nil && t.Config != nil && len(t.Config.Products) > 0 && d.Entitlements.Billing() && (d.BillingIOS || t.Config.AcceptSandbox) {
+		if t := d.AppleIAPTransaction; t != nil && t.Config != nil && len(t.Config.Products) > 0 && d.Entitlements.Billing() && (d.BillingIOS || appBuildAtLeast(r, t.Config.SandboxMinBuild)) {
 			ids := make([]string, 0, len(t.Config.Products))
 			for id := range t.Config.Products {
 				ids = append(ids, id)

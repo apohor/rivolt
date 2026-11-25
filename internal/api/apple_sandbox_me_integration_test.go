@@ -37,13 +37,16 @@ func TestAuthMeBillingEnabledForAllowlistedReviewer(t *testing.T) {
 		name       string
 		uid        string
 		bearer     bool
+		build      string
 		iosBilling bool
 		want       bool
 	}{
-		{"reviewer in the app, switch off", reviewer.String(), true, false, true},
-		{"other account in the app, switch off", other.String(), true, false, false},
-		{"other account in the app, switch on", other.String(), true, true, true},
-		{"other account on the web", other.String(), false, false, true},
+		{"reviewer, new build, switch off", reviewer.String(), true, "100", false, true},
+		{"reviewer, build 1.4.3 (older than the purchase UI)", reviewer.String(), true, "99", false, false},
+		{"reviewer, no build header", reviewer.String(), true, "", false, false},
+		{"other account, new build, switch off", other.String(), true, "100", false, false},
+		{"other account, new build, switch on", other.String(), true, "100", true, true},
+		{"other account on the web", other.String(), false, "", false, true},
 	} {
 		uid := reviewer
 		if c.uid == other.String() {
@@ -54,8 +57,11 @@ func TestAuthMeBillingEnabledForAllowlistedReviewer(t *testing.T) {
 			rctx = logging.WithAuthMethod(rctx, logging.AuthBearer)
 		}
 		req := httptest.NewRequest(http.MethodGet, "/api/auth/me", nil).WithContext(rctx)
+		if c.build != "" {
+			req.Header.Set("X-Rivolt-App-Build", c.build)
+		}
 		rec := httptest.NewRecorder()
-		handleMeEnrichedPlan(newMeAuth(t), pool, false, nil, false, ent, c.iosBilling)(rec, req)
+		handleMeEnrichedPlan(newMeAuth(t), pool, false, nil, false, ent, c.iosBilling, 100)(rec, req)
 		var body map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 			t.Fatalf("%s: %v: %s", c.name, err, rec.Body.String())

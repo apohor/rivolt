@@ -464,6 +464,9 @@ type Metrics struct {
 	AppleNotificationsTotal *prometheus.CounterVec
 	// AppleSandboxRefusedTotal counts Sandbox purchases refused because the account is not on the review allowlist (TestFlight testers, mostly).
 	AppleSandboxRefusedTotal prometheus.Counter
+	// AppleSandboxAccepting is 1 while this deployment accepts Apple Sandbox purchases (RIVOLT_APPLE_IAP_ACCEPT_SANDBOX): on only during App Review; an
+	// alert fires when it stays on for 14 days.
+	AppleSandboxAccepting prometheus.Gauge
 	// AppleLinkTotal counts Link Apple to my account requests by outcome (see appleLinkOutcomes in internal/api).
 	AppleLinkTotal *prometheus.CounterVec
 	// RoutePointRefusedTotal counts route points kept out of a stored drive route, by where (see RoutePointRefusals).
@@ -989,6 +992,10 @@ func New() *Metrics {
 			Name: "rivolt_billing_non_us_total",
 			Help: "Stripe customers with a billing address outside the US, once per customer and country per process.",
 		}),
+		AppleSandboxAccepting: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_apple_sandbox_accepting",
+			Help: "1 while this deployment accepts Apple Sandbox purchases for allowlisted accounts (App Review window).",
+		}),
 		AppleSandboxRefusedTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "rivolt_apple_sandbox_refused_total",
 			Help: "Apple Sandbox purchases refused: the account is not on the App Review allowlist.",
@@ -1332,6 +1339,7 @@ func New() *Metrics {
 		m.TripShareTotal,
 		m.AppleNotificationsTotal,
 		m.AppleSandboxRefusedTotal,
+		m.AppleSandboxAccepting,
 		m.AppleLinkTotal,
 		m.RoutePointRefusedTotal,
 		m.PlanGeometryRoutesTotal,
