@@ -179,3 +179,30 @@ func TestSettingNeedsNoticeOnlyBelowLegacy(t *testing.T) {
 		}
 	}
 }
+
+// The 3-month rule: the cutoff moved from November 22 to November 27, 2026, so an account created in between (6 months under the old
+// cutoff) keeps 12, and only one created at or after the new cutoff gets 3.
+func TestThreeMonthsFromNewCutoff(t *testing.T) {
+	old := Months
+	Months = 3
+	SetCutoff(time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC))
+	t.Cleanup(func() { SetCutoff(time.Time{}); Months = old })
+	now := time.Date(2026, 12, 15, 0, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name    string
+		created time.Time
+		want    int
+		since   time.Time
+	}{
+		{"before November 22", time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC), 12, time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)},
+		{"between November 22 and the cutoff", time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC), 12, time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)},
+		{"just before the cutoff", Cutoff.Add(-time.Second), 12, time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)},
+		{"at the cutoff", Cutoff, 3, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)},
+		{"after the cutoff", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), 3, time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)},
+	} {
+		w := Free(now, c.created)
+		if w.Months != c.want || !w.Since.Equal(c.since) {
+			t.Errorf("%s: %+v, want %d months from %v", c.name, w, c.want, c.since)
+		}
+	}
+}

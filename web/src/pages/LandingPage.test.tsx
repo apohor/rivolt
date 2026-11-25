@@ -102,7 +102,7 @@ describe("LandingPage", () => {
       "What is free, what Pro costs, what happens if you stop",
       "Self-hosting is complete and free.",
       "$3.99 a month or $34.99 a year",
-      "the last 6 months",
+      "the last 3 months (12 for accounts created before November 27, 2026)",
     ].sort((a, b) => b.length - a.length);
     // The Free plan tile heading is the one bare "Free" allowed on the page.
     const freeHeadings = screen.getAllByRole("heading", { name: "Free" });
