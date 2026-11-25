@@ -345,7 +345,7 @@ def lookups(r, s, version, env, shots_dir, out):
         # A never-released app has one untouched first version (1.0): use it and set its number, rather than stop.
         # Anything else (a released version, or two editable ones) is not this script's to guess at: stop.
         (v, st), = others[:1]
-        if len(versions) == 1 and not L["mine"]:
+        if len(versions) == 1 and not L["mine"] and st == "PREPARE_FOR_SUBMISSION":  # not one already submitted or rejected
             L["rename"] = v["id"]
             L["mine"] = v["id"]
             out(f"  the app has no released version and one editable version ({v['attributes']['versionString']}, {st}): it becomes {version}")

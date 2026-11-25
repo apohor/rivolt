@@ -312,7 +312,8 @@ class RunTests(unittest.TestCase):
         self.assertNotIn("whatsNew", attrs)
 
     def test_a_released_version_next_to_an_editable_one_still_stops(self):
-        for vs in ({"1.0": "PREPARE_FOR_SUBMISSION", "1.1": "READY_FOR_DISTRIBUTION"}, {"1.0": "PREPARE_FOR_SUBMISSION", "1.1": "PREPARE_FOR_SUBMISSION"}):
+        for vs in ({"1.0": "PREPARE_FOR_SUBMISSION", "1.1": "READY_FOR_DISTRIBUTION"}, {"1.0": "PREPARE_FOR_SUBMISSION", "1.1": "PREPARE_FOR_SUBMISSION"},
+                   {"1.0": "WAITING_FOR_REVIEW"}, {"1.0": "IN_REVIEW"}, {"1.0": "REJECTED"}, {"1.0": "READY_FOR_REVIEW"}):
             api = FakeApi(versions=vs)
             with self.assertRaises(SystemExit):
                 do("apply", api)
