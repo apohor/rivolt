@@ -63,7 +63,7 @@ Six shots at 6.9" and one smaller Dynamic Island size (6.3"), dark primary, one 
 1. Your Rivian at a glance
 2. What charging actually cost
 3. Every drive, route and charts
-4. Every charge, with its cost and where it came from
+4. Every charge, with its cost
 5. Parked drain, from your truck
 6. Sends no commands to your truck. Your Rivian password is never stored.
 
