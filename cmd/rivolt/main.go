@@ -758,8 +758,19 @@ func runServer() {
 		}
 		appleNotifications = &applebill.Handler{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger,
 			Observe: func(outcome string) { appMetrics.AppleNotificationsTotal.WithLabelValues(outcome).Inc() }}
-		appleTransaction = &applebill.Transaction{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger}
-		logger.Info("StoreKit enabled", "environment", appleIAP.Environment)
+		appleTransaction = &applebill.Transaction{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger,
+			SandboxRefused: func() { appMetrics.AppleSandboxRefusedTotal.Inc() }}
+		if appleIAP.AcceptSandbox {
+			appMetrics.AppleSandboxAccepting.Set(1)
+		} else {
+			// The flag is on only while a version is in review: when it goes off, what the review account bought ends with it.
+			if n, err := applebill.EndSandbox(ctx, pgPool); err != nil {
+				logger.Warn("StoreKit: could not end Sandbox entitlements", "err", err.Error())
+			} else if n > 0 {
+				logger.Info("StoreKit: ended Sandbox entitlements", "count", n)
+			}
+		}
+		logger.Info("StoreKit enabled", "environment", appleIAP.Environment, "accept_sandbox", appleIAP.AcceptSandbox)
 	}
 
 	// Row-level security, stage 2: the pool request handling uses. Unset (the default) it is pgPool itself; see requestpool.go.

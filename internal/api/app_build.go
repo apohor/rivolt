@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/apohor/rivolt/internal/applebill"
 	"github.com/apohor/rivolt/internal/auth"
 	"github.com/apohor/rivolt/internal/sessions"
 )
@@ -74,4 +75,22 @@ func appBuildMW(c *AppBuildCounter) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// appBuildAtLeast: the request carries X-Rivolt-App-Build and it is at least min (min <= 0 means "no build qualifies"). A request without the
+// header, or with a malformed one, never qualifies.
+func appBuildAtLeast(r *http.Request, min int) bool {
+	if min <= 0 || r == nil {
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(r.Header.Get(appBuildHeader)))
+	return err == nil && n >= min
+}
+
+// reviewConfig is the StoreKit config while Apple's Sandbox is accepted (App Review window), else nil.
+func (d Deps) reviewConfig() *applebill.Config {
+	if t := d.AppleIAPTransaction; t != nil && t.Config != nil && t.Config.AcceptSandbox {
+		return t.Config
+	}
+	return nil
 }

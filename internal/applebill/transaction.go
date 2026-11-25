@@ -30,6 +30,8 @@ type Transaction struct {
 	Invalidate func(uuid.UUID)
 	Now        func() time.Time
 	Log        *slog.Logger
+	// SandboxRefused is told when a Sandbox purchase from an account off the allowlist is refused (a counter; no ids).
+	SandboxRefused func()
 }
 
 func (t *Transaction) now() time.Time {
@@ -62,7 +64,7 @@ func (t *Transaction) Serve(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "invalid")
 		return
 	}
-	if err := t.Config.Check(ti.BundleID, ti.Environment, ti.ProductID); err != nil || ti.ProductID == "" || !ti.Subscription() || ti.OriginalTransactionID == "" {
+	if err := t.Config.CheckTransaction(ti.BundleID, ti.Environment, ti.ProductID); err != nil || ti.ProductID == "" || !ti.Subscription() || ti.OriginalTransactionID == "" {
 		t.warn("apple transaction: not for this deployment")
 		writeErr(w, http.StatusBadRequest, "invalid")
 		return
@@ -73,7 +75,19 @@ func (t *Transaction) Serve(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "invalid")
 		return
 	}
-	resp, status, err := t.link(r.Context(), uid, ti)
+	sandbox := t.Config.Sandbox(ti.Environment)
+	if sandbox {
+		if !t.Config.SandboxAllowed(uid) {
+			// A TestFlight build buys in the Sandbox too: without the allowlist every tester would get Pro. The app shows this as a message.
+			if t.SandboxRefused != nil {
+				t.SandboxRefused()
+			}
+			t.warn("apple transaction: sandbox purchase from an account off the allowlist")
+			writeErr(w, http.StatusForbidden, "sandbox_not_allowed")
+			return
+		}
+	}
+	resp, status, err := t.link(r.Context(), uid, ti, sandbox)
 	if err != nil {
 		t.warn("apple transaction: could not record it", "err", err.Error())
 		writeErr(w, http.StatusInternalServerError, "unavailable")
@@ -91,7 +105,7 @@ func (t *Transaction) Serve(uid uuid.UUID, w http.ResponseWriter, r *http.Reques
 }
 
 // link records the subscription's link to the account and grants Pro for a live, unrevoked transaction, in one transaction.
-func (t *Transaction) link(ctx context.Context, uid uuid.UUID, ti TransactionInfo) (transactionResponse, int, error) {
+func (t *Transaction) link(ctx context.Context, uid uuid.UUID, ti TransactionInfo, sandbox bool) (transactionResponse, int, error) {
 	tx, err := t.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return transactionResponse{}, 0, err
@@ -139,7 +153,7 @@ func (t *Transaction) link(ctx context.Context, uid uuid.UUID, ti TransactionInf
 	resp := transactionResponse{}
 	if d.Change {
 		signed := ti.SignedDate
-		if _, err := applyDecision(ctx, tx, uid, ti, d, signed, false); err != nil {
+		if _, err := applyDecision(ctx, tx, uid, ti, d, signed, false, sandbox); err != nil {
 			return transactionResponse{}, 0, err
 		}
 	}
