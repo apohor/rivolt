@@ -71,3 +71,47 @@ func TestReadStatsEmptyTableExportsZeros(t *testing.T) {
 		t.Errorf("no founding/active entry after a successful read: %v", got.ByKind)
 	}
 }
+
+// Accounts paying twice: a live Stripe row and a live Apple row on one account, counted once; not one of them alone, not an ended or
+// sandbox Apple row, not the demo account.
+func TestReadStatsPayingTwice(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	pool, err := db.Open(ctx, testpg.DSN(ctx, t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	demoID := db.UserIDFor(db.DemoUsername)
+	base, err := entitlements.ReadStats(ctx, pool, demoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, _ := db.EnsureUser(ctx, pool, "twice-both")
+	one, _ := db.EnsureUser(ctx, pool, "twice-stripe-only")
+	ended, _ := db.EnsureUser(ctx, pool, "twice-apple-ended")
+	sbx, _ := db.EnsureUser(ctx, pool, "twice-apple-sandbox")
+	demo, _ := db.EnsureUserFull(ctx, pool, db.DemoUsername, "", "Demo")
+	for _, e := range []struct {
+		uid                 interface{}
+		source, status, end string
+		sandbox             bool
+	}{
+		{both, "stripe", "active", "now() + interval '20 days'", false}, {both, "apple", "active", "now() + interval '20 days'", false},
+		{one, "stripe", "active", "now() + interval '20 days'", false},
+		{ended, "stripe", "active", "now() + interval '20 days'", false}, {ended, "apple", "ended", "now() - interval '1 day'", false},
+		{sbx, "stripe", "active", "now() + interval '20 days'", false}, {sbx, "apple", "active", "now() + interval '1 hour'", true},
+		{demo, "stripe", "active", "now() + interval '20 days'", false}, {demo, "apple", "active", "now() + interval '20 days'", false},
+	} {
+		if _, err := pool.ExecContext(ctx, `INSERT INTO entitlements (user_id, source, status, current_period_end, sandbox) VALUES ($1, $2, $3, `+e.end+`, $4)`, e.uid, e.source, e.status, e.sandbox); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := entitlements.ReadStats(ctx, pool, demoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := got.PayingTwice - base.PayingTwice; d != 1 {
+		t.Errorf("paying twice grew by %d, want 1", d)
+	}
+}

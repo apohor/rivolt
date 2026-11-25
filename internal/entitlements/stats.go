@@ -13,6 +13,9 @@ import (
 type Stats struct {
 	ByKind   map[[2]string]int // [source, status] -> rows
 	Accounts int
+	// PayingTwice is the number of accounts with a live Stripe row and a live Apple row at once (sandbox rows and the demo account left out):
+	// both are recorded and neither is cancelled for the user, so the operator refunds one by hand. A count, never an id.
+	PayingTwice int
 }
 
 // knownSources and knownStatuses are the (source, status) pairs a row can have. A successful read reports every pair, 0 for the ones with no
@@ -54,6 +57,12 @@ func ReadStats(ctx context.Context, db *sql.DB, demo uuid.UUID) (Stats, error) {
 		return st, err
 	}
 	fillKnown(st.ByKind)
+	const live = `((status = 'active' AND (current_period_end IS NULL OR current_period_end > now())) OR (status = 'past_due' AND current_period_end > now() - interval '7 days'))`
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM (
+SELECT user_id FROM entitlements WHERE user_id <> $1 AND NOT sandbox AND source IN ('stripe','apple') AND `+live+`
+GROUP BY user_id HAVING count(DISTINCT source) = 2) t`, demo).Scan(&st.PayingTwice); err != nil {
+		return st, err
+	}
 	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM users WHERE id <> $1`, demo).Scan(&st.Accounts); err != nil {
 		return st, err
 	}

@@ -45,3 +45,39 @@ func TestManageSubscription(t *testing.T) {
 		t.Error("a nil service reported a subscription")
 	}
 }
+
+// LivePaid says whether a purchase would pay twice: a live row of that source, active within its period or past due within the grace; not
+// an ended or lapsed one, not another source, not with billing off, not the demo account.
+func TestLivePaid(t *testing.T) {
+	uid := uuid.New()
+	svc := func(billing bool, rows ...Row) *Service {
+		s := New(&sql.DB{}, Config{Billing: false})
+		s.billing = billing
+		s.cache[uid] = cached{st: rows, at: time.Now().Add(time.Hour)}
+		return s
+	}
+	future, past := time.Now().Add(30*24*time.Hour), time.Now().Add(-30*24*time.Hour)
+	recent := time.Now().Add(-24 * time.Hour)
+	for name, c := range map[string]struct {
+		s    *Service
+		want bool
+	}{
+		"live stripe":                  {svc(true, Row{Source: SourceStripe, Status: StatusActive, PeriodEnd: &future}), true},
+		"live stripe next to apple":    {svc(true, Row{Source: SourceApple, Status: StatusActive, PeriodEnd: &future}, Row{Source: SourceStripe, Status: StatusActive, PeriodEnd: &future}), true},
+		"cancelling stripe still pays": {svc(true, Row{Source: SourceStripe, Status: StatusActive, PeriodEnd: &future, CancelAtPeriodEnd: true}), true},
+		"past due within grace":        {svc(true, Row{Source: SourceStripe, Status: StatusPastDue, PeriodEnd: &recent}), true},
+		"past due beyond grace":        {svc(true, Row{Source: SourceStripe, Status: StatusPastDue, PeriodEnd: &past}), false},
+		"ended":                        {svc(true, Row{Source: SourceStripe, Status: StatusEnded, PeriodEnd: &future}), false},
+		"period over":                  {svc(true, Row{Source: SourceStripe, Status: StatusActive, PeriodEnd: &past}), false},
+		"only apple":                   {svc(true, Row{Source: SourceApple, Status: StatusActive, PeriodEnd: &future}), false},
+		"billing off":                  {svc(false, Row{Source: SourceStripe, Status: StatusActive, PeriodEnd: &future}), false},
+	} {
+		if got := c.s.LivePaid(context.Background(), uid, SourceStripe); got != c.want {
+			t.Errorf("%s: %v, want %v", name, got, c.want)
+		}
+	}
+	var nilSvc *Service
+	if nilSvc.LivePaid(context.Background(), uid, SourceStripe) {
+		t.Error("a nil service reported a subscription")
+	}
+}

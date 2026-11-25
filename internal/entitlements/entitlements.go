@@ -433,6 +433,28 @@ func (s *Service) load(ctx context.Context, uid uuid.UUID) (Rowset, time.Time, e
 	return out, created, nil
 }
 
+// LivePaid is whether the account has a row of that paid source (stripe or apple) that still grants Pro now (active within its period, or
+// past due within the grace). False for the demo, with billing off, and on a failed lookup. It is what tells a client that a purchase
+// would pay twice: the strongest source reported by State hides a second one.
+func (s *Service) LivePaid(ctx context.Context, uid uuid.UUID, source string) bool {
+	if s == nil || !s.billing || s.db == nil || (s.demo != uuid.Nil && uid == s.demo) {
+		return false
+	}
+	rows, err := s.rows(ctx, uid)
+	if err != nil {
+		return false
+	}
+	now := s.now()
+	for _, r := range rows {
+		if r.Source == source {
+			if _, ok := grantEnd(r, now); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // ManageSubscription is true when billing is off but the account has a Stripe subscription that is not over: it keeps renewing whatever
 // the flag says, so the client keeps showing the way to manage and cancel it (the Customer Portal, which works with billing off). With
 // billing on the plan state says it all, so this is false then, and false for the demo and on a failed lookup.
