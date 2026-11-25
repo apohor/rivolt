@@ -36,9 +36,10 @@ class FakeApi:
     """Answers the GETs a run makes; records every call. versions: {versionString: state} already on the app."""
 
     def __init__(self, versions=(), build_state="VALID", loc=True, usa_only=False, free_price=False, put_status=200,
-                 shot_state="COMPLETE", old_shots=None, encryption=None, attached=False, rights=None, build_number="109", build_marketing="1.4.3"):
+                 shot_state="COMPLETE", old_shots=None, encryption=None, attached=False, rights=None, build_number="109", build_marketing="1.4.3", app_name="Rivolt"):
         self.versions = dict(versions) if isinstance(versions, dict) else {v: "PREPARE_FOR_SUBMISSION" for v in versions}
         self.build_state, self.loc, self.usa_only, self.free_price = build_state, loc, usa_only, free_price
+        self.app_name = app_name
         self.put_status, self.shot_state, self.calls = put_status, shot_state, []
         self.encryption, self.attached, self.rights = encryption, attached, rights
         self.build_number, self.build_marketing = build_number, build_marketing
@@ -78,7 +79,7 @@ class FakeApi:
         if path.endswith("/appInfos"):
             return 200, {"data": [{"id": "I1", "attributes": {"state": "PREPARE_FOR_SUBMISSION"}}]}
         if path.endswith("/appInfoLocalizations"):
-            return 200, {"data": [{"id": "IL1", "attributes": {"locale": "en-US"}}]}
+            return 200, {"data": [{"id": "IL1", "attributes": {"locale": "en-US", "name": self.app_name}}]}
         if path.endswith("/ageRatingDeclaration"):
             return 200, {"data": {"id": "AG1"}}
         if path.endswith("/appStoreReviewDetail"):
@@ -123,7 +124,8 @@ class BuilderTests(unittest.TestCase):
         a = al.version_localization_attrs(self.s, True)
         self.assertEqual(a["keywords"], self.s["Keywords"])
         self.assertEqual(a["supportUrl"], "https://rivolt.dev/support")
-        self.assertEqual(al.app_info_localization_attrs(self.s), {"subtitle": self.s["Subtitle"], "privacyPolicyUrl": "https://rivolt.dev/privacy"})
+        self.assertEqual(al.app_info_localization_attrs(self.s), {"subtitle": self.s["Subtitle"], "privacyPolicyUrl": "https://rivolt.dev/privacy", "name": "Rivolt for Rivian owners"})
+        self.assertNotIn("name", al.app_info_localization_attrs(self.s, "Rivolt for Rivian owners"))
 
     def test_version_is_manual_release_with_the_llc_copyright(self):
         self.assertEqual(al.version_attrs(), {"copyright": "2026 ZERODOWNTIME LLC", "releaseType": "MANUAL"})
@@ -321,6 +323,19 @@ class RunTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 do("apply", api)
             self.assertEqual(api.writes(), [])
+
+    def test_the_app_name_is_set_from_listing_md_and_skipped_when_it_matches(self):
+        lines = []
+        api = FakeApi(versions=["1.4.3"])
+        do("apply", api, lines=lines)
+        patch = next(c for c in api.writes() if c[1] == "/v1/appInfoLocalizations/IL1")
+        self.assertEqual(patch[2]["data"]["attributes"]["name"], "Rivolt for Rivian owners")
+        self.assertTrue(any('"Rivolt" becomes "Rivolt for Rivian owners"' in x for x in lines))
+        lines, api = [], FakeApi(versions=["1.4.3"], app_name="Rivolt for Rivian owners")
+        do("apply", api, lines=lines)
+        patch = next(c for c in api.writes() if c[1] == "/v1/appInfoLocalizations/IL1")
+        self.assertNotIn("name", patch[2]["data"]["attributes"])
+        self.assertTrue(any("app name is already" in x for x in lines))
 
     def test_the_plan_says_the_light_shots_are_not_uploaded(self):
         lines = []
