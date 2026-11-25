@@ -59,6 +59,7 @@ jobs:
         run: |
           python3 -I ios/store/test_check_listing.py -v
           python3 -I ios/store/test_asc_listing.py -v
+          python3 -I ios/store/test_asc_subscriptions.py -v
           python3 -I ios/store/check_listing.py ios/store/listing.md
 
   # Compatibility run: the unit tests on the older toolchain and iOS 26.2 simulator,
