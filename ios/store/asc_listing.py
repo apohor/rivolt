@@ -102,8 +102,11 @@ def version_attrs():
     return {"copyright": COPYRIGHT, "releaseType": "MANUAL"}
 
 
-def app_info_localization_attrs(s):
-    return {"subtitle": s["Subtitle"], "privacyPolicyUrl": s["Privacy Policy URL"]}
+def app_info_localization_attrs(s, current_name=None):
+    a = {"subtitle": s["Subtitle"], "privacyPolicyUrl": s["Privacy Policy URL"]}
+    if current_name != s["Name"]:
+        a["name"] = s["Name"]  # the app name; editable while the version is in PREPARE_FOR_SUBMISSION
+    return a
 
 
 def app_info_rel():
@@ -371,7 +374,9 @@ def lookups(r, s, version, env, shots_dir, out):
     infos = r.get(f"/v1/apps/{app}/appInfos")["data"]
     editable = [i for i in infos if (i["attributes"].get("state") or i["attributes"].get("appStoreState")) in EDITABLE] or infos
     L["info"] = editable[0]["id"]
-    L["info_loc"] = next((x["id"] for x in r.get(f"/v1/appInfos/{L['info']}/appInfoLocalizations")["data"] if x["attributes"]["locale"] == LOCALE), None)
+    cur = next((x for x in r.get(f"/v1/appInfos/{L['info']}/appInfoLocalizations")["data"] if x["attributes"]["locale"] == LOCALE), None)
+    L["info_loc"] = cur["id"] if cur else None
+    L["name_now"] = cur["attributes"].get("name") if cur else None
     L["age"] = r.get(f"/v1/appInfos/{L['info']}/ageRatingDeclaration")["data"]["id"]
     return L
 
@@ -428,13 +433,17 @@ def run_pass(api, dry, s, privacy_md, version, shots_dir, env, out, spec):
         loc, _ = r.write("POST", "/v1/appStoreVersionLocalizations", {"data": {"type": "appStoreVersionLocalizations", "attributes": dict(attrs, locale=LOCALE),
                                                                                 "relationships": {"appStoreVersion": rel("appStoreVersions", ver)}}})
 
-    out("app info: subtitle, privacy URL, categories, age rating")
+    out("app info: name, subtitle, privacy URL, categories, age rating")
+    if L["name_now"] == s["Name"]:
+        out(f"  app name is already \"{s['Name']}\": skipped")
+    else:
+        out(f"  app name: \"{L['name_now']}\" becomes \"{s['Name']}\"")
     info = L["info"]
     r.write("PATCH", f"/v1/appInfos/{info}", {"data": {"type": "appInfos", "id": info, "relationships": app_info_rel()}})
     if L["info_loc"]:
-        r.write("PATCH", f"/v1/appInfoLocalizations/{L['info_loc']}", {"data": {"type": "appInfoLocalizations", "id": L["info_loc"], "attributes": app_info_localization_attrs(s)}})
+        r.write("PATCH", f"/v1/appInfoLocalizations/{L['info_loc']}", {"data": {"type": "appInfoLocalizations", "id": L["info_loc"], "attributes": app_info_localization_attrs(s, L["name_now"])}})
     else:
-        r.write("POST", "/v1/appInfoLocalizations", {"data": {"type": "appInfoLocalizations", "attributes": dict(app_info_localization_attrs(s), locale=LOCALE),
+        r.write("POST", "/v1/appInfoLocalizations", {"data": {"type": "appInfoLocalizations", "attributes": dict(app_info_localization_attrs(s, L["name_now"]), locale=LOCALE),
                                                               "relationships": {"appInfo": rel("appInfos", info)}}})
     r.write("PATCH", f"/v1/ageRatingDeclarations/{L['age']}", {"data": {"type": "ageRatingDeclarations", "id": L["age"], "attributes": AGE_NONE}}, "all none (4+)")
 
