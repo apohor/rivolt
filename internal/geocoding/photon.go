@@ -44,6 +44,27 @@ func (c *PhotonClient) Enabled() bool {
 // at zero so the SPA's "highest-population first" sort still works
 // for Open-Meteo fallbacks.
 func (c *PhotonClient) Search(ctx context.Context, name string, count int) ([]Result, error) {
+	return c.SearchNear(ctx, name, count, nil)
+}
+
+// Near is a point the search ranks nearer places higher around (a map centre or the truck).
+type Near struct{ Lat, Lon float64 }
+
+// Photon's location bias: a weak pull (scale) that reaches far (zoom 9 is a couple of hundred kilometres), so the nearest match of a
+// name outranks the same name far away, whether a hotel chain or a street. It also pushes a faraway famous city below nearby
+// namesakes, so with a point SearchNear also asks without it and keeps the top unbiasedKept of those in the list.
+const (
+	biasZoom      = "9"
+	biasScale     = "0.1"
+	unbiasedKept  = 2
+	biasedFirst   = 3
+	maxPhotonRows = 10
+)
+
+// SearchNear is Search with an optional point to rank around. With one it makes two Photon requests at once, one biased and one
+// plain, and shows the biased list with the plain list's best unbiasedKept places worked in, so a far exact match ("Boston" from
+// Texas) still comes back. A failed plain request is ignored: the biased list stands alone.
+func (c *PhotonClient) SearchNear(ctx context.Context, name string, count int, near *Near) ([]Result, error) {
 	if !c.Enabled() {
 		return nil, nil
 	}
@@ -57,12 +78,73 @@ func (c *PhotonClient) Search(ctx context.Context, name string, count int) ([]Re
 	if count > 10 {
 		count = 10
 	}
+	if near == nil {
+		return c.searchRows(ctx, name, count, nil)
+	}
+	type answer struct {
+		res []Result
+		err error
+	}
+	plainCh := make(chan answer, 1)
+	go func() {
+		r, err := c.searchRows(ctx, name, count, nil)
+		plainCh <- answer{r, err}
+	}()
+	biased, err := c.searchRows(ctx, name, count, near)
+	plain := <-plainCh
+	if err != nil {
+		return nil, err
+	}
+	if plain.err != nil || len(plain.res) == 0 {
+		return biased, nil
+	}
+	return mergeBiased(biased, plain.res, count), nil
+}
 
+// mergeBiased keeps the first biasedFirst biased results, then the plain list's best places not already there, then the
+// rest of the biased list, up to count.
+func mergeBiased(biased, plain []Result, count int) []Result {
+	keep := max(min(biasedFirst, count-unbiasedKept), 0)
+	out := make([]Result, 0, count)
+	for _, r := range biased {
+		if len(out) == keep {
+			break
+		}
+		out = append(out, r)
+	}
+	added := 0
+	for _, r := range plain {
+		if added == unbiasedKept || len(out) == count {
+			break
+		}
+		if !duplicateOf(out, r) {
+			out = append(out, r)
+			added++
+		}
+	}
+	for _, r := range biased {
+		if len(out) == count {
+			break
+		}
+		if !duplicateOf(out, r) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (c *PhotonClient) searchRows(ctx context.Context, name string, count int, near *Near) ([]Result, error) {
 	// Ask for a few more than shown: duplicates are dropped below.
 	q := url.Values{}
 	q.Set("q", name)
-	q.Set("limit", strconv.Itoa(min(count+3, 10)))
+	q.Set("limit", strconv.Itoa(min(count+3, maxPhotonRows)))
 	q.Set("lang", "en")
+	if near != nil {
+		q.Set("lat", strconv.FormatFloat(near.Lat, 'f', 4, 64))
+		q.Set("lon", strconv.FormatFloat(near.Lon, 'f', 4, 64))
+		q.Set("zoom", biasZoom)
+		q.Set("location_bias_scale", biasScale)
+	}
 
 	u := c.BaseURL + "/api/?" + q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -95,7 +177,7 @@ func (c *PhotonClient) Search(ctx context.Context, name string, count int) ([]Re
 		if len(out) == count {
 			break
 		}
-		r := resultFromProps(f.Properties, f.Geometry.Coordinates[1], f.Geometry.Coordinates[0])
+		r := searchResultFromProps(f.Properties, f.Geometry.Coordinates[1], f.Geometry.Coordinates[0])
 		if duplicateOf(out, r) {
 			continue
 		}
@@ -115,6 +197,7 @@ type photonProps struct {
 	CountryCode string `json:"countrycode"`
 	Postcode    string `json:"postcode"`
 	Type        string `json:"type"`
+	OSMKey      string `json:"osm_key"`
 	OSMValue    string `json:"osm_value"`
 }
 
@@ -144,6 +227,37 @@ func resultFromProps(p photonProps, lat, lon float64) Result {
 	return Result{
 		Name:        label,
 		Locality:    locality,
+		Latitude:    lat,
+		Longitude:   lon,
+		Country:     p.Country,
+		CountryCode: strings.ToUpper(p.CountryCode),
+		Admin1:      p.State,
+	}
+}
+
+// isPOI reports a named place that is neither an address, a street nor a settlement or boundary: a hotel, a charger, a park.
+// Photon gives such a place its street and house number too, which would hide its name behind an address.
+func isPOI(p photonProps) bool {
+	if p.Name == "" || p.OSMKey == "" || p.OSMKey == "place" || p.OSMKey == "boundary" {
+		return false
+	}
+	return !(p.OSMKey == "highway" && p.Type == "street")
+}
+
+// searchResultFromProps is resultFromProps for a text search: a POI keeps its own name and gains its town ("Hampton Inn & Suites,
+// Dumas"; no repeat when the name already holds the town), and the town is its Locality. Reverse lookups keep resultFromProps
+// (an address, never a business name).
+func searchResultFromProps(p photonProps, lat, lon float64) Result {
+	if !isPOI(p) {
+		return resultFromProps(p, lat, lon)
+	}
+	label := p.Name
+	if p.City != "" && !strings.Contains(strings.ToLower(label), strings.ToLower(p.City)) {
+		label += ", " + p.City
+	}
+	return Result{
+		Name:        label,
+		Locality:    p.City,
 		Latitude:    lat,
 		Longitude:   lon,
 		Country:     p.Country,

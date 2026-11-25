@@ -25,8 +25,9 @@ private final class FakeTrips: TripSource, @unchecked Sendable {
     var counts: [Int] = []
     var delay: Duration?
     var failure: Error?
-    func geocode(_ q: String, count: Int) async throws -> [PlaceMatch] {
-        searches.append(q); counts.append(count)
+    var nears: [(latitude: Double, longitude: Double)?] = []
+    func geocode(_ q: String, count: Int, near: (latitude: Double, longitude: Double)?) async throws -> [PlaceMatch] {
+        searches.append(q); counts.append(count); nears.append(near)
         if let failure { throw failure }
         let answer = matches
         if let d = delay { try? await Task.sleep(for: d) }
@@ -240,6 +241,21 @@ final class TripPlanModelTests: XCTestCase {
         XCTAssertEqual(m.results.count, 1)
         m.clearSearch()
         XCTAssertTrue(m.results.isEmpty)
+    }
+
+    func testASearchRanksAroundTheChosenStartElseTheTruckElseNothing() async {
+        let src = FakeTrips()
+        src.matches = [seattle]
+        let m = TripPlanModel()
+        await m.search(source: src, query: "hampton")
+        XCTAssertNil(src.nears.last!, "no truck, no start: no point")
+        let v = try! JSON.decoder().decode(Vehicle.self, from: Data(#"{"id":"v1","vin":"TESTVIN0000000001","name":"R1S","model":"R1S"}"#.utf8))
+        await m.loadTruck(source: src, vehicles: [v])
+        await m.search(source: src, query: "hampton")
+        XCTAssertEqual(src.nears.last!?.latitude, 47.62, "the truck")
+        m.origin = spokane
+        await m.search(source: src, query: "hampton")
+        XCTAssertEqual(src.nears.last!?.longitude, -117.43, "the chosen start")
     }
 
     func testTypeAheadWaitsTheWebsPauseAndAsksForEightFromTwoCharacters() async {

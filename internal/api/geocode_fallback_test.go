@@ -121,3 +121,35 @@ func TestGeocodeDeadlineIsNotCanceled(t *testing.T) {
 		t.Errorf("code=%d canceled=%d log=%s", w.Code, canceled, logs.String())
 	}
 }
+
+// lat and lon reach Photon as the bias when both are valid, and are ignored when absent, out of range, lone or not numbers.
+func TestGeocodeNearParams(t *testing.T) {
+	for _, c := range []struct {
+		qs      string
+		biased  bool
+		wantLat string
+	}{
+		{"&lat=36.06&lon=-102.51", true, "36.0600"},
+		{"", false, ""},
+		{"&lat=36.06", false, ""},
+		{"&lat=95&lon=10", false, ""},
+		{"&lat=10&lon=-181", false, ""},
+		{"&lat=abc&lon=1", false, ""},
+		{"&lat=NaN&lon=1", false, ""},
+		{"&lat=0&lon=0", false, ""},
+	} {
+		var sawLat string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if l := r.URL.Query().Get("lat"); l != "" {
+				sawLat = l
+			}
+			_, _ = w.Write([]byte(`{"features":[{"geometry":{"coordinates":[-101.9,35.8]},"properties":{"name":"Dumas","osm_key":"place","osm_value":"city"}}]}`))
+		}))
+		w := httptest.NewRecorder()
+		handleGeocode(geocoding.NewPhotonClient(srv.URL), false, nil)(w, httptest.NewRequest(http.MethodGet, "/api/geocode?q=dumas"+c.qs, nil))
+		srv.Close()
+		if w.Code != http.StatusOK || sawLat != c.wantLat {
+			t.Errorf("%q: status %d, photon saw lat %q, want %q", c.qs, w.Code, sawLat, c.wantLat)
+		}
+	}
+}

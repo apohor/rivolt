@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -48,10 +49,11 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCan
 				count = n
 			}
 		}
+		near := nearFromQuery(r.URL.Query())
 		var results []geocoding.Result
 		photonFailed := false
 		if photon.Enabled() {
-			r1, err := photon.Search(r.Context(), q, count)
+			r1, err := photon.SearchNear(r.Context(), q, count, near)
 			if err == nil && len(r1) > 0 {
 				results = r1
 			}
@@ -83,6 +85,17 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCan
 		}
 		writeJSON(w, http.StatusOK, results)
 	}
+}
+
+// nearFromQuery reads the optional lat and lon of a place search (where to rank nearer places first). Both must be present and in
+// range, and not (0,0); otherwise the search runs without a point.
+func nearFromQuery(v url.Values) *geocoding.Near {
+	lat, err1 := strconv.ParseFloat(v.Get("lat"), 64)
+	lon, err2 := strconv.ParseFloat(v.Get("lon"), 64)
+	if err1 != nil || err2 != nil || math.IsNaN(lat) || math.IsNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 || (lat == 0 && lon == 0) {
+		return nil
+	}
+	return &geocoding.Near{Lat: lat, Lon: lon}
 }
 
 // withoutURL drops the request URL (and with it the typed query) that a net/http error carries.

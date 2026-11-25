@@ -4,7 +4,7 @@ import { movableVia, moveVia, viaMoveLabel, viaPosition, viaRemoveLabel } from "
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";
 import { DEFAULT_OVERNIGHT_KW, HOOKUPS, type HookupId, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw, hookupNote } from "../plan/hookups";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { usePlanner } from "../plan/usePlanner";
@@ -43,6 +43,10 @@ import { proLimitOf, type ProLimit } from "../lib/proLimit";
 // (settings.planner.favorites) now; the planner used to ship a
 // hardcoded Texas list but that's wrong as soon as a user lives
 // anywhere else.
+
+// SearchNearContext is where the place searches look first: the chosen start when there is one, else the truck. It only ranks
+// nearer places higher; a far exact name still comes back.
+const SearchNearContext = createContext<{ lat: number; lon: number } | null>(null);
 
 export default function TripPlanPage() {
   const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, plannedTargetRef, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
@@ -341,7 +345,7 @@ export default function TripPlanPage() {
     avoidCount: [routePrefs.avoidTolls, routePrefs.avoidFerries, routePrefs.avoidHighways].filter(Boolean).length,
   });
   const formEl = (
-    <>
+    <SearchNearContext.Provider value={origin ? { lat: origin.lat, lon: origin.lon } : currentPosition}>
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
@@ -391,7 +395,7 @@ export default function TripPlanPage() {
         </form>
       </FormShell>
       )}
-    </>
+    </SearchNearContext.Provider>
   );
   const pvaEl = (
     <>
@@ -1464,9 +1468,12 @@ function LocationSearch({
     return () => clearTimeout(t);
   }, [query]);
 
+  const near = useContext(SearchNearContext);
+  // Rounded to ~1 km so the cache key doesn't change with every GPS fix.
+  const nearKey = near ? `${near.lat.toFixed(2)},${near.lon.toFixed(2)}` : "";
   const results = useQuery({
-    queryKey: ["geocode", debounced],
-    queryFn: () => backend.geocode(debounced, 8),
+    queryKey: ["geocode", debounced, nearKey],
+    queryFn: () => backend.geocode(debounced, 8, near ?? undefined),
     enabled: debounced.trim().length >= 2,
     staleTime: 5 * 60 * 1000,
   });

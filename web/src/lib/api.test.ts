@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { api, ApiError, isReconnecting, retryAfterSeconds } from "./api";
+import { api, backend, ApiError, isReconnecting, retryAfterSeconds } from "./api";
 
 // The global 401 handler must distinguish a Rivolt-session failure
 // (bounce to /login) from a Rivian-upstream needs_reauth 401 (carries
@@ -262,5 +262,21 @@ describe("Retry-After on an error answer", () => {
   it("ignores a Retry-After that is not whole seconds", () => {
     expect(retryAfterSeconds("Wed, 21 Oct 2026 07:28:00 GMT")).toBeNull();
     expect(retryAfterSeconds(" 5 ")).toBe(5);
+  });
+});
+
+describe("backend.geocode", () => {
+  afterEach(() => vi.restoreAllMocks());
+  const urls = () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, headers: { get: () => "application/json" }, text: async () => "[]" });
+    vi.stubGlobal("fetch", f);
+    return f;
+  };
+  it("sends the point to rank around only when there is one", async () => {
+    const f = urls();
+    await backend.geocode("hampton inn", 8, { lat: 36.0612, lon: -102.5149 });
+    await backend.geocode("hampton inn", 8);
+    expect(f.mock.calls[0][0]).toBe("/api/geocode?q=hampton%20inn&count=8&lat=36.06&lon=-102.51");
+    expect(f.mock.calls[1][0]).toBe("/api/geocode?q=hampton%20inn&count=8");
   });
 });

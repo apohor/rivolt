@@ -144,3 +144,83 @@ func TestPhotonReverseAreaIsCityOrCountyOnly(t *testing.T) {
 		}
 	}
 }
+
+// A search with a point asks Photon for a weak, wide location bias and, in a second plain request, for the unbiased order, then
+// shows the biased list with the plain list's best two worked in after the first three biased: a far exact name still comes back. Synthetic data.
+func TestPhotonSearchNearBiasesAndKeepsFarExactMatch(t *testing.T) {
+	feat := func(name, city, state string, lat, lon float64) string {
+		return fmt.Sprintf(`{"geometry":{"coordinates":[%v,%v]},"properties":{"name":%q,"city":%q,"state":%q,"osm_key":"tourism","osm_value":"hotel","type":"house","street":"Main St"}}`, lon, lat, name, city, state)
+	}
+	var biased, plain int
+	var got map[string][]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("lat") == "" {
+			plain++
+			_, _ = w.Write([]byte(`{"features":[` + feat("Hampton Inn", "Farville", "Utah", 37, -113) + `,` + feat("Hampton Inn", "Elsewhere", "Ohio", 40, -83) + `]}`))
+			return
+		}
+		biased++
+		got = q
+		_, _ = w.Write([]byte(`{"features":[` +
+			feat("Hampton Inn & Suites Dumas", "Dumas", "Texas", 35.8, -101.9) + `,` +
+			feat("Hampton Inn & Suites", "Borger", "Texas", 35.6, -101.4) + `,` +
+			feat("Hampton Inn & Suites", "Amarillo", "Texas", 35.2, -101.8) + `,` +
+			feat("Hampton Inn & Suites", "Guymon", "Oklahoma", 36.7, -101.5) + `]}`))
+	}))
+	defer srv.Close()
+
+	res, err := NewPhotonClient(srv.URL).SearchNear(context.Background(), "hampton inn", 4, &Near{Lat: 36.06, Lon: -102.51})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if biased != 1 || plain != 1 {
+		t.Errorf("requests biased %d plain %d, want 1 and 1", biased, plain)
+	}
+	for k, want := range map[string]string{"lat": "36.0600", "lon": "-102.5100", "zoom": "9", "location_bias_scale": "0.1"} {
+		if got[k][0] != want {
+			t.Errorf("%s = %v, want %s", k, got[k], want)
+		}
+	}
+	var names []string
+	for _, r := range res {
+		names = append(names, r.Name)
+	}
+	want := "Hampton Inn & Suites Dumas|Hampton Inn & Suites, Borger|Hampton Inn, Farville|Hampton Inn, Elsewhere"
+	if strings.Join(names, "|") != want {
+		t.Errorf("results %q, want %q", strings.Join(names, "|"), want)
+	}
+
+	// Without a point: one plain request, no bias parameters.
+	biased, plain = 0, 0
+	if _, err := NewPhotonClient(srv.URL).Search(context.Background(), "hampton inn", 4); err != nil {
+		t.Fatal(err)
+	}
+	if biased != 0 || plain != 1 {
+		t.Errorf("no point: biased %d plain %d, want 0 and 1", biased, plain)
+	}
+}
+
+// A failed plain request leaves the biased list alone; a failed biased request is the search's error.
+func TestPhotonSearchNearFailures(t *testing.T) {
+	ok := `{"features":[{"geometry":{"coordinates":[-101.9,35.8]},"properties":{"name":"Dumas","osm_key":"place","osm_value":"city"}}]}`
+	for _, c := range []struct {
+		name       string
+		failBiased bool
+		wantErr    bool
+	}{{"plain fails", false, false}, {"biased fails", true, true}} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			isBiased := r.URL.Query().Get("lat") != ""
+			if isBiased == c.failBiased {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(ok))
+		}))
+		res, err := NewPhotonClient(srv.URL).SearchNear(context.Background(), "dumas", 3, &Near{Lat: 36, Lon: -102})
+		srv.Close()
+		if (err != nil) != c.wantErr || (!c.wantErr && len(res) != 1) {
+			t.Errorf("%s: res %v err %v", c.name, res, err)
+		}
+	}
+}
