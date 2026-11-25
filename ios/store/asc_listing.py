@@ -41,6 +41,7 @@ SHOT_MODE = "dark"  # dark is the primary set (listing.md)
 # that takes the 6.9" 1320x2868 shots, and the 6.9" set is the one Apple requires. The 6.3" shots are not uploaded.
 DISPLAY_TYPES = {"6.9": "APP_IPHONE_67"}
 SHOT_PIXELS = {"6.9": (1320, 2868)}
+MAX_SHOTS = 10  # App Store Connect holds at most ten screenshots in a set
 EDITABLE = {"PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED", "WAITING_FOR_REVIEW", "IN_REVIEW",
             "READY_FOR_REVIEW", "INVALID_BINARY", "WAITING_FOR_EXPORT_COMPLIANCE"}
 # Every answer of Apple's age-rating questionnaire (spec 4.6.1): no content, no social, ads or purchases features.
@@ -409,7 +410,7 @@ def run_pass(api, dry, s, privacy_md, version, shots_dir, env, out, spec):
         r.write("POST", "/v1/appStoreReviewDetails", {"data": {"type": "appStoreReviewDetails", "attributes": L["review"],
                                                                "relationships": {"appStoreVersion": rel("appStoreVersions", ver)}}})
 
-    out("screenshots (upload the new set first, then remove the old shots)")
+    out("screenshots (upload the new set, removing old shots only as the ten-shot cap needs; the rest after)")
     for size, shots in L["shots"].items():
         dtype = DISPLAY_TYPES[size]
         set_id, old = None, []
@@ -418,13 +419,25 @@ def run_pass(api, dry, s, privacy_md, version, shots_dir, env, out, spec):
                 if st["attributes"]["screenshotDisplayType"] == dtype:
                     set_id = st["id"]
             if set_id:
-                old = [x["id"] for x in r.get(f"/v1/appScreenshotSets/{set_id}/appScreenshots")["data"]]
+                old = [(x["id"], (x.get("attributes") or {}).get("sourceFileChecksum")) for x in r.get(f"/v1/appScreenshotSets/{set_id}/appScreenshots")["data"]]
+        if old and [c for _, c in old] == [hashlib.md5(d).hexdigest() for _, d in shots]:
+            out(f"  {size} set already holds exactly these {len(old)} shots: skipped")
+            continue
         if not set_id:
             set_id, _ = r.write("POST", "/v1/appScreenshotSets", {"data": {"type": "appScreenshotSets", "attributes": {"screenshotDisplayType": dtype},
                                                                             "relationships": {"appStoreVersionLocalization": rel("appStoreVersionLocalizations", loc)}}}, f"{size} set")
+        old_ids = [i for i, _ in old]
+        done = 0
         for path, data in shots:
-            upload_shot(r, set_id, path, data)
-        for sid in old:
+            # A set holds at most MAX_SHOTS: remove only as many old shots as the next upload needs.
+            while old_ids and len(old_ids) + done + 1 > MAX_SHOTS:
+                r.write("DELETE", f"/v1/appScreenshots/{old_ids.pop(0)}", None, "remove an old shot (the set is full)")
+            try:
+                upload_shot(r, set_id, path, data)
+            except SystemExit as e:
+                raise SystemExit(f"{e}. The {size} set now holds {len(old_ids)} old and {done} new shots (old ids: {', '.join(old_ids) or 'none'}); run again to finish") from None
+            done += 1
+        for sid in old_ids:
             r.write("DELETE", f"/v1/appScreenshots/{sid}", None, "remove an old shot (the new set is uploaded)")
 
     out("")

@@ -36,10 +36,11 @@ class FakeApi:
     """Answers the GETs a run makes; records every call. versions: {versionString: state} already on the app."""
 
     def __init__(self, versions=(), build_state="VALID", loc=True, usa_only=False, free_price=False, put_status=200,
-                 shot_state="COMPLETE"):
+                 shot_state="COMPLETE", old_shots=None):
         self.versions = dict(versions) if isinstance(versions, dict) else {v: "PREPARE_FOR_SUBMISSION" for v in versions}
         self.build_state, self.loc, self.usa_only, self.free_price = build_state, loc, usa_only, free_price
         self.put_status, self.shot_state, self.calls = put_status, shot_state, []
+        self.old_shots = old_shots if old_shots is not None else [("old1", "x1"), ("old2", "x2")]
 
     def put_bytes(self, url, headers, chunk):
         self.calls.append(("PUT", url, len(chunk)))
@@ -84,7 +85,7 @@ class FakeApi:
         if path == "/v1/appScreenshots/shot1":
             return 200, {"data": {"id": "shot1", "attributes": {"assetDeliveryState": {"state": self.shot_state, "errors": []}}}}
         if path.endswith("/appScreenshots"):
-            return 200, {"data": [{"id": "old1"}, {"id": "old2"}]}
+            return 200, {"data": [{"id": i, "attributes": {"sourceFileChecksum": c}} for i, c in self.old_shots]}
         raise AssertionError("unexpected GET " + path)
 
     def writes(self):
@@ -201,6 +202,38 @@ class RunTests(unittest.TestCase):
         first_delete = next(i for i, c in enumerate(w) if c[0] == "DELETE")
         last_commit = max(i for i, c in enumerate(w) if c[0] == "PATCH" and c[1] == "/v1/appScreenshots/shot1")
         self.assertLess(last_commit, first_delete)
+
+    def test_a_full_set_never_goes_over_ten_shots(self):
+        api = FakeApi(versions=["1.4.3"], old_shots=[(f"old{i}", f"x{i}") for i in range(6)])
+        do("apply", api)
+        size, peak = 6, 6
+        for c in api.writes():
+            if c[:2] == ("POST", "/v1/appScreenshots"):
+                size += 1
+            elif c[0] == "DELETE":
+                size -= 1
+            peak = max(peak, size)
+        self.assertEqual(size, 6)
+        self.assertLessEqual(peak, 10)
+        self.assertEqual(len([c for c in api.writes() if c[0] == "DELETE"]), 6)
+
+    def test_a_set_that_already_holds_these_shots_is_left_alone(self):
+        d = shots_dir()
+        import hashlib
+        same = []
+        for n in al.SHOT_ORDER:
+            with open(os.path.join(d, "6.9", f"{n}-dark.png"), "rb") as f:
+                same.append((f"s-{n}", hashlib.md5(f.read()).hexdigest()))
+        api = FakeApi(versions=["1.4.3"], old_shots=same)
+        lines = do("apply", api, shots=d)
+        self.assertFalse([c for c in api.writes() if c[1].startswith("/v1/appScreenshots") or c[0] == "PUT"])
+        self.assertTrue(any("already holds exactly" in l for l in lines))
+
+    def test_a_failure_says_what_is_left_in_the_set(self):
+        api = FakeApi(versions=["1.4.3"], old_shots=[(f"old{i}", f"x{i}") for i in range(6)], put_status=500)
+        with self.assertRaises(SystemExit) as c:
+            do("apply", api)
+        self.assertIn("now holds 6 old and 0 new", str(c.exception))
 
     def test_a_failed_upload_leaves_the_old_shots(self):
         api = FakeApi(versions=["1.4.3"], put_status=403)
