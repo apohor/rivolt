@@ -49,10 +49,10 @@ struct TruckView: View {
                 .padding(.vertical, 4 * Theme.unit)
             }
             .task {
-                // App Store screenshots only: bring the parked drain card to the top once the screen has loaded.
+                // App Store screenshots only: bring the sleep and tires cards to the top once the screen has loaded.
                 guard StoreShots.name == "truck" else { return }
                 try? await Task.sleep(nanoseconds: 25_000_000_000)
-                proxy.scrollTo("drain", anchor: .top)
+                proxy.scrollTo("sleep", anchor: .top)
             }
             }
             .background(ThemePageBackground().ignoresSafeArea())
