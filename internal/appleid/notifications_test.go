@@ -271,6 +271,26 @@ func TestAppBundleIDsFromConfig(t *testing.T) {
 	}
 }
 
+// Prod's configuration: no RIVOLT_APPLE_IAP_BUNDLE_ID, and RIVOLT_IOS_APP_IDS in the app-links form TEAMID.bundle. Apple's audience is the bare bundle id.
+func TestProdAppIDsFormMatchesTheBareBundleAudience(t *testing.T) {
+	env := map[string]string{"RIVOLT_IOS_APP_IDS": "CK383X39S5.dev.rivolt.app"}
+	r := newRig(t)
+	r.n.AppAudiences = AppBundleIDs(func(k string) string { return env[k] })
+	if strings.Join(r.n.AppAudiences, ",") != "dev.rivolt.app" {
+		t.Fatalf("audiences %v", r.n.AppAudiences)
+	}
+	if w := post(r.n, form(r.sign(t, testIssuer, "dev.rivolt.app", r.now, EventAccountDelete, testSub)), "application/x-www-form-urlencoded"); w.Code != 200 || len(r.ss.revoked) != 1 {
+		t.Fatalf("code %d, revoked %d", w.Code, len(r.ss.revoked))
+	}
+	// The team-prefixed form is not an audience Apple sends.
+	r2 := newRig(t)
+	r2.n.AppAudiences = r.n.AppAudiences
+	post(r2.n, form(r2.sign(t, testIssuer, "CK383X39S5.dev.rivolt.app", r2.now, EventAccountDelete, testSub)), "application/x-www-form-urlencoded")
+	if len(r2.ss.revoked) != 0 {
+		t.Fatal("the TEAMID.bundle form must not match")
+	}
+}
+
 func TestEmptyClientIDActsOnNothing(t *testing.T) {
 	r := newRig(t)
 	r.n.ClientID = ""
