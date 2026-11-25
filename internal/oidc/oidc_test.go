@@ -248,7 +248,7 @@ func TestResolveIdentityKey_HydraLocalPartTwinsGetSeparateAccounts(t *testing.T)
 	}
 }
 
-// The sign-in buttons keep one order (Email, Google, GitHub, then others by name), however the registry map happens to iterate. The Email
+// The sign-in buttons keep one order (Email, Apple, Google, GitHub, then others by name), however the registry map happens to iterate. The Email
 // button's registry name is "hydra" (display name "Email"): qa found the first version ranked it last because it only knew "email".
 func TestProvidersAreInAFixedOrder(t *testing.T) {
 	names := func(l []ProviderListing) string {
@@ -259,14 +259,14 @@ func TestProvidersAreInAFixedOrder(t *testing.T) {
 		return strings.Join(out, ",")
 	}
 	real := []ProviderListing{
-		{Name: "google", DisplayName: "Google"}, {Name: "github", DisplayName: "GitHub"}, {Name: "hydra", DisplayName: "Email"},
+		{Name: "google", DisplayName: "Google"}, {Name: "github", DisplayName: "GitHub"}, {Name: "apple", DisplayName: "Apple"}, {Name: "hydra", DisplayName: "Email"},
 	}
 	for i := 0; i < 30; i++ {
 		l := append([]ProviderListing(nil), real...)
 		k := i % len(l)
 		l = append(l[k:], l[:k]...)
 		sortProviderListings(l)
-		if got := names(l); got != "hydra,google,github" {
+		if got := names(l); got != "hydra,apple,google,github" {
 			t.Fatalf("real names: order %q", got)
 		}
 	}
@@ -279,11 +279,12 @@ func TestProvidersAreInAFixedOrder(t *testing.T) {
 	// The registry itself lists them in that order on every call.
 	s := &Service{providers: map[string]*provider{
 		"github": {cfg: ProviderConfig{Name: "github", DisplayName: "GitHub"}},
+		"apple":  {cfg: ProviderConfig{Name: "apple", DisplayName: "Apple"}},
 		"google": {cfg: ProviderConfig{Name: "google", DisplayName: "Google"}},
 		"hydra":  {cfg: ProviderConfig{Name: "hydra", DisplayName: "Email"}},
 	}}
 	for i := 0; i < 50; i++ {
-		if got := names(s.Providers()); got != "hydra,google,github" {
+		if got := names(s.Providers()); got != "hydra,apple,google,github" {
 			t.Fatalf("Providers() order %q on call %d", got, i)
 		}
 	}
