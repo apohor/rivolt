@@ -47,7 +47,7 @@ func RenderPurchase(p PurchaseParams) string {
 		"The plan is " + p.Price + " and renews automatically every " + p.Interval + " until you cancel.\n\n" +
 		"To cancel, open your Plan card (sign in first): " + launchnotice.PlanURL + "\n" +
 		cancel + "Nothing is deleted when a plan ends, and the full export is always free.\n" +
-		"First charge not what you wanted? Email support@rivolt.dev within 7 days of it for a full refund, no questions.\n" +
+		"Changed your mind? Within 14 days of a payment you can refund it yourself in one step: Refund and cancel, on your Plan card. Or email support@rivolt.dev. Full refund, no questions.\n" +
 		footer
 }
 

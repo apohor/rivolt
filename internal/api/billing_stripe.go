@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -44,6 +45,39 @@ func handleBillingPortal(svc *stripebill.Service) func(uuid.UUID, http.ResponseW
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"url": url})
+	}
+}
+
+// handleBillingRefundOffer is GET /api/billing/refund -> whether the signed-in account can refund itself now:
+// {"eligible":true,"until":"<RFC 3339>","amount_cents":N,"currency":"usd"}, or {"eligible":false,"reason":"no_billing_account|no_payment|window_closed|used"}.
+func handleBillingRefundOffer(svc *stripebill.Service) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+		o, err := svc.RefundOffer(r.Context(), uid)
+		if !billingAnswer(w, r, err, "refund offer") {
+			return
+		}
+		if !o.Eligible {
+			writeJSON(w, http.StatusOK, map[string]any{"eligible": false, "reason": o.Reason})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"eligible": true, "until": o.Until.Format(time.RFC3339), "amount_cents": o.AmountCents, "currency": o.Currency})
+	}
+}
+
+// handleBillingRefund is POST /api/billing/refund: refunds the account's newest payment in full (within 14 days of it, once per account),
+// ends Pro at once. The account is the signed-in one; the request carries nothing. 200 {"refunded":true,"amount_cents":N,"currency":"usd"}, or
+// 409 {"error":"refund_unavailable","reason":...} when none is on offer.
+func handleBillingRefund(svc *stripebill.Service) func(uuid.UUID, http.ResponseWriter, *http.Request) {
+	return func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+		o, err := svc.SelfRefund(r.Context(), uid)
+		if errors.Is(err, stripebill.ErrRefundUnavailable) {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "refund_unavailable", "reason": o.Reason})
+			return
+		}
+		if !billingAnswer(w, r, err, "refund") {
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"refunded": true, "amount_cents": o.AmountCents, "currency": o.Currency})
 	}
 }
 

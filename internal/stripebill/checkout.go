@@ -24,7 +24,7 @@ var (
 	ErrNoCustomer        = errors.New("stripe: the account has no Stripe customer")
 	// ErrNoPaymentConfig: Checkout is refused when no payment method configuration is set, rather than creating a session that offers
 	// whatever the Dashboard's default configuration says (bank debits, buy-now-pay-later and other methods whose refund and dispute flows do
-	// not match our 7-day refund copy).
+	// not match our 14-day refund copy).
 	ErrNoPaymentConfig = errors.New("stripe: RIVOLT_STRIPE_PAYMENT_METHOD_CONFIG is not set to a payment method configuration (pmc_...)")
 )
 

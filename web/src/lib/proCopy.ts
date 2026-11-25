@@ -45,6 +45,25 @@ export const PRO = {
   billingUnavailable: "Billing isn't available yet. Nothing was charged.",
 } as const;
 
+// Self-serve refund (web Pro, within 14 days of a payment, once per account). Facts only; no promises about when the bank shows it.
+export function money(cents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+  }
+}
+export const REFUND = {
+  action: "Refund and cancel",
+  offer: (amount: string, until: string) => `You can refund your latest payment of ${amount} until ${until}. Pro ends right away and the account goes back to the free tier. Nothing is deleted.`,
+  confirm: (amount: string) => `Refund ${amount} and end Pro now? This can be done once per account.`,
+  yes: "Yes, refund and cancel",
+  keep: "Keep Pro",
+  done: (amount: string) => `Refunded ${amount} to the card you paid with. Pro has ended and the account is on the free tier. Nothing was deleted.`,
+  gone: "A refund is no longer available for this account.",
+  failed: "We couldn't refund right now. Try again, or email support@rivolt.dev.",
+} as const;
+
 export function checkoutLabel(i: Interval): string {
   const o = PRO.options[i === "year" ? "year" : "month"];
   return `Subscribe: ${o.price} ${o.unit}, renews ${o.renews}`;
@@ -64,7 +83,7 @@ export function firstCharge(state: PlanState): string {
 // The renewal sentence for the choice, directly above the button next to an unticked box (compliance B1/B2).
 export function consentText(i: Interval, state: PlanState): string {
   const o = PRO.options[i === "year" ? "year" : "month"];
-  return `I understand that Rivolt Pro renews automatically at ${o.price} ${o.unit} until I cancel, that the first charge is ${firstCharge(state)}, and that I can cancel in one step from Settings → Account → Plan. 7-day refund on the first charge, no questions.`;
+  return `I understand that Rivolt Pro renews automatically at ${o.price} ${o.unit} until I cancel, that the first charge is ${firstCharge(state)}, and that I can cancel in one step from Settings → Account → Plan. 14-day refund on any payment, no questions.`;
 }
 
 // The Settings plan card, one state at a time: [title, line, action | null].

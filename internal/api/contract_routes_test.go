@@ -254,6 +254,8 @@ var webCallsOptionalByConfig = map[string]string{
 	"POST /api/auth/apple-link/unlink":      "as above",
 	"POST /api/billing/checkout":            "mounted only where Stripe billing is configured (Deps.StripeBilling, and not on the admin-only host); the Plan card hides the buttons when it is off",
 	"POST /api/billing/portal":              "as above",
+	"GET /api/billing/refund":               "as above",
+	"POST /api/billing/refund":              "as above",
 	"POST /api/import/preview":              "mounted only where history import is on (Deps.HistoryImport: RIVOLT_HISTORY_IMPORT=1); the Settings wizard shows only when /api/config says features.history_import",
 	"POST /api/import/commit":               "as above",
 	"GET /api/imports":                      "as above",
