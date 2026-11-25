@@ -51,7 +51,8 @@ final class ActivityRefreshUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(opened, 1, "opening the map reads its drives")
         pick("List", in: app)
         pick("Map", in: app)
-        XCTAssertEqual(settledReads(trace), opened, "back on the map with no pull in between, it keeps what it has")
+        // The negative check waits longer than the positive ones (3 s, was a fixed 2 s): a wrong refetch that starts late must still be seen.
+        XCTAssertEqual(settledReads(trace, quiet: 3), opened, "back on the map with no pull in between, it keeps what it has")
         pick("List", in: app)
         let window = app.windows.firstMatch
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
