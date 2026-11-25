@@ -119,7 +119,10 @@ enum TruckLogic {
         let awake = s.awakePointsLost ?? 0
         let total = asleep + awake
         guard total > 0 else { return nil }
-        var text = "Of the \(Int(total.rounded()))% your truck lost while parked \(span), about \(Int(awake.rounded()))% was while it was awake"
+        // The share of the loss, the number the bar shows; points would round a small awake loss to 0%.
+        let awakePct = Int(((s.awakeShareOfLoss ?? 0) * 100).rounded())
+        let awakeText = awake > 0 && awakePct < 1 ? "less than 1%" : "about \(awakePct)%"
+        var text = "Of the \(Int(total.rounded()))% your truck lost while parked \(span), \(awakeText) of it was while it was awake"
         if let h = s.awakeHours { text += " (\(hours(h)))" }
         return .ok(text: text + ".", awakeShare: s.awakeShareOfLoss ?? 0, awake: awake > 0, asleep: asleep > 0)
     }

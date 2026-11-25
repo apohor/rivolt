@@ -42,7 +42,7 @@ final class TruckLogicTests: XCTestCase {
         XCTAssertEqual(TruckLogic.drainBasis(daysUsed: 7, daysExcluded: 3, other: .month, otherView: TruckLogic.drainView(d.windows.month, .month)),
                        "Based on 7 days (3 left out: too little parked data). 30 days: 1.5% / day.")
         XCTAssertEqual(TruckLogic.split(d, .week),
-                       .ok(text: "Of the 3% your truck lost while parked this week, about 0% was while it was awake (6.0 h).", awakeShare: 0.06, awake: true, asleep: true))
+                       .ok(text: "Of the 3% your truck lost while parked this week, about 6% of it was while it was awake (6.0 h).", awakeShare: 0.06, awake: true, asleep: true))
         // 30 days is too thin for the split, so the week's is shown, said as such.
         if case .ok(let text, _, _, _)? = TruckLogic.split(d, .month) { XCTAssertTrue(text.contains("this week")) } else { XCTFail("expected the week's split") }
     }

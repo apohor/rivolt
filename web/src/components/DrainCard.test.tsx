@@ -66,6 +66,14 @@ describe("DrainCard", () => {
     expect(container.textContent).toBe("");
   });
 
+  it("says the awake share of the loss, matching the bar, when the awake points round to 0 (demo truck: 3% lost, 7.1 h awake)", async () => {
+    stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: split({ asleep_points_lost: 2.6, awake_points_lost: 0.4, awake_share_of_loss: 0.13, awake_hours: 7.1 }) })) } });
+    const { container } = renderCard();
+    expect(await screen.findByText(/Of the 3% your truck lost while parked this week, about 13% of it was while it was awake \(7\.1 h\)/)).toBeInTheDocument();
+    expect(container.querySelector('[data-drain-split="ok"] [role="img"]')?.getAttribute("aria-label")).toMatch(/13% of the loss was while awake/);
+    expect(container.textContent).not.toMatch(/about 0%/);
+  });
+
   it("shows a titled skeleton while the request is pending", async () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     const { container } = renderCard();
@@ -80,7 +88,7 @@ describe("DrainCard", () => {
   it("says when the loss happened, as an estimate, with a two-part bar and no cause", async () => {
     stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: split() })) } });
     const { container } = renderCard();
-    expect(await screen.findByText(/Of the 6% your truck lost while parked this week, about 5% was while it was awake/)).toBeInTheDocument();
+    expect(await screen.findByText(/Of the 6% your truck lost while parked this week, about 83% of it was while it was awake/)).toBeInTheDocument();
     expect(screen.getByText(/whole percents/)).toBeInTheDocument();
     expect(container.querySelector('[data-drain-split="ok"] [role="img"]')?.getAttribute("aria-label")).toMatch(/83% of the loss was while awake, 17% while asleep/);
     expect(container.textContent ?? "").not.toMatch(/because|caused|sleep-safe/i);
@@ -119,7 +127,7 @@ describe("DrainCard", () => {
     const off = { sufficient: false, reason: "not_enough_data", asleep_hours: 10, awake_hours: 1, asleep_points_lost: null, awake_points_lost: null, awake_share_of_loss: null, awake_share_of_time: null, min_hours: 48, min_points_lost: 3 };
     stubFetchRoutes({ "/api/vehicles/v1/drain": { body: snap(win({ split: off }), win({ drain_pct_per_day: 1.1, split: split({ asleep_points_lost: 10, awake_points_lost: 2, awake_share_of_loss: 2 / 12 }) })) } });
     renderCard();
-    expect(await screen.findByText(/Of the 12% your truck lost while parked over 30 days, about 2% was while it was awake/)).toBeInTheDocument();
+    expect(await screen.findByText(/Of the 12% your truck lost while parked over 30 days, about 17% of it was while it was awake/)).toBeInTheDocument();
     expect(screen.queryByText(/needs about two days of parked history/)).toBeNull();
   });
 });
