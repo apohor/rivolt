@@ -143,9 +143,24 @@ class BuilderTests(unittest.TestCase):
     def test_review_details_need_every_secret_by_name(self):
         with self.assertRaises(SystemExit) as c:
             al.review_detail_attrs(self.s, {})
-        self.assertIn("ASC_REVIEW_PASSWORD", str(c.exception))
+        self.assertIn("ASC_REVIEW_CONTACT_PHONE", str(c.exception))
         a = al.review_detail_attrs(self.s, ENV)
         self.assertEqual((a["demoAccountName"], a["notes"]), ("reviewer-user", self.s["Review notes"]))
+
+    def test_no_review_account_means_demo_only_and_no_credentials(self):
+        env = {k: v for k, v in ENV.items() if k not in ("ASC_REVIEW_USER", "ASC_REVIEW_PASSWORD")}
+        a = al.review_detail_attrs(self.s, env)
+        self.assertIs(a["demoAccountRequired"], False)
+        self.assertFalse({"demoAccountName", "demoAccountPassword"} & set(a))
+        self.assertEqual(a["contactEmail"], "rv@example.invalid")
+        with self.assertRaises(SystemExit):
+            al.review_detail_attrs(self.s, dict(env, ASC_REVIEW_USER="u"))
+        with self.assertRaises(SystemExit):
+            al.review_detail_attrs(self.s, {k: v for k, v in env.items() if k != "ASC_REVIEW_CONTACT_PHONE"})
+
+    def test_review_notes_lead_with_the_demo_truck(self):
+        self.assertTrue(self.s["Review notes"].split("Tap ")[1].startswith('"Try the demo truck"'))
+        self.assertNotIn("test account", self.s["Review notes"])
 
     def test_click_list_has_the_seven_types_and_no_tracking(self):
         text = "\n".join(al.click_list(read("privacy-label.md")))

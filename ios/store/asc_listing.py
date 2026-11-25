@@ -8,8 +8,9 @@
 App Privacy has no public API, so both modes print the click list for the owner from privacy-label.md.
 
 Secrets come from the environment and are never printed: ASC_KEY_P8 (key text), ASC_KEY_ID, ASC_ISSUER_ID, and for the
-review details ASC_REVIEW_USER, ASC_REVIEW_PASSWORD, ASC_REVIEW_CONTACT_FIRST_NAME, ASC_REVIEW_CONTACT_LAST_NAME,
-ASC_REVIEW_CONTACT_PHONE, ASC_REVIEW_CONTACT_EMAIL. The password is masked in the plan.
+review details ASC_REVIEW_CONTACT_FIRST_NAME, ASC_REVIEW_CONTACT_LAST_NAME, ASC_REVIEW_CONTACT_PHONE,
+ASC_REVIEW_CONTACT_EMAIL, and optionally ASC_REVIEW_USER with ASC_REVIEW_PASSWORD (without them the reviewer uses the demo
+truck and no credentials are sent). The account, password and contact are masked in the plan.
 
 Standard library plus the openssl command-line tool. Every request, query and body is checked against Apple's published
 OpenAPI spec (asc_spec.py) before it is sent, in plan and in apply (apply runs a full dry pass first). Not seen: a run
@@ -110,15 +111,21 @@ def app_info_rel():
 
 
 def review_detail_attrs(s, env):
-    need = ["ASC_REVIEW_USER", "ASC_REVIEW_PASSWORD", "ASC_REVIEW_CONTACT_FIRST_NAME", "ASC_REVIEW_CONTACT_LAST_NAME",
-            "ASC_REVIEW_CONTACT_PHONE", "ASC_REVIEW_CONTACT_EMAIL"]
+    """Contact from secrets (all four required). A review sign-in account is optional: with none, the reviewer uses the demo
+    truck on the sign-in screen, and no credentials are sent."""
+    need = ["ASC_REVIEW_CONTACT_FIRST_NAME", "ASC_REVIEW_CONTACT_LAST_NAME", "ASC_REVIEW_CONTACT_PHONE", "ASC_REVIEW_CONTACT_EMAIL"]
     missing = [n for n in need if not env.get(n)]
     if missing:
         raise SystemExit("missing secrets (by name): " + ", ".join(missing))
-    return {"contactFirstName": env["ASC_REVIEW_CONTACT_FIRST_NAME"], "contactLastName": env["ASC_REVIEW_CONTACT_LAST_NAME"],
-            "contactPhone": env["ASC_REVIEW_CONTACT_PHONE"], "contactEmail": env["ASC_REVIEW_CONTACT_EMAIL"],
-            "demoAccountRequired": True, "demoAccountName": env["ASC_REVIEW_USER"],
-            "demoAccountPassword": env["ASC_REVIEW_PASSWORD"], "notes": s["Review notes"]}
+    user, password = env.get("ASC_REVIEW_USER"), env.get("ASC_REVIEW_PASSWORD")
+    if bool(user) != bool(password):
+        raise SystemExit("ASC_REVIEW_USER and ASC_REVIEW_PASSWORD must be set together or both left out")
+    a = {"contactFirstName": env["ASC_REVIEW_CONTACT_FIRST_NAME"], "contactLastName": env["ASC_REVIEW_CONTACT_LAST_NAME"],
+         "contactPhone": env["ASC_REVIEW_CONTACT_PHONE"], "contactEmail": env["ASC_REVIEW_CONTACT_EMAIL"],
+         "demoAccountRequired": bool(user), "notes": s["Review notes"]}
+    if user:
+        a.update(demoAccountName=user, demoAccountPassword=password)
+    return a
 
 
 def availability_payload(app_id):
