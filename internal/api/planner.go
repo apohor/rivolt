@@ -32,7 +32,7 @@ import (
 // A search the client gave up on (r.Context() canceled, not a deadline: the app's type-ahead cancels the older request when the next
 // keystroke lands) gets no response and bumps onCanceled; only a real Photon failure answers 503, with the error
 // logged at WARN (no query text), so "unavailable" keeps meaning an outage.
-func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCanceled func()) http.HandlerFunc {
+func handleGeocode(photon *geocoding.PhotonClient, hotels HotelNameSearcher, openMeteoFallback bool, onCanceled func()) http.HandlerFunc {
 	var gc *geocoding.Client
 	if openMeteoFallback {
 		gc = geocoding.NewClient()
@@ -68,11 +68,12 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCan
 				slog.WarnContext(r.Context(), "geocode: photon failed", "err", withoutURL(err))
 			}
 		}
-		if gc == nil && len(results) == 0 && (photonFailed || !photon.Enabled()) {
+		hits := hotelResults(hotels, q, near, hotelHitsKept)
+		if gc == nil && len(results) == 0 && len(hits) == 0 && (photonFailed || !photon.Enabled()) {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "place search unavailable"})
 			return
 		}
-		if len(results) == 0 && gc != nil {
+		if len(results) == 0 && len(hits) == 0 && gc != nil {
 			r2, err := gc.Search(r.Context(), q, count)
 			if err != nil {
 				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
@@ -80,6 +81,7 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCan
 			}
 			results = r2
 		}
+		results = mergeHotelResults(hits, results, count)
 		if results == nil {
 			results = []geocoding.Result{}
 		}

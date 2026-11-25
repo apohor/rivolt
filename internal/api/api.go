@@ -48,6 +48,7 @@ import (
 	"github.com/apohor/rivolt/internal/metrics"
 	"github.com/apohor/rivolt/internal/milestones"
 	"github.com/apohor/rivolt/internal/oidc"
+	"github.com/apohor/rivolt/internal/overnight"
 	"github.com/apohor/rivolt/internal/packhealth"
 	"github.com/apohor/rivolt/internal/passkeys"
 	"github.com/apohor/rivolt/internal/planleg"
@@ -1908,6 +1909,11 @@ func New(d Deps) http.Handler {
 			r.Delete("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripDelete(d.Trips.For(uid))(w, r)
 			}))
+			// Hotels by name from the charger archive (nil on an install without one), added to the place search rows.
+			var hotelNames HotelNameSearcher
+			if d.ChargersArchive != nil {
+				hotelNames = overnight.NewHotelSearch(d.ChargersArchive)
+			}
 			// Geocoding for the trip planner. Forwards a free-text
 			// query to Open-Meteo's geocoding endpoint (same
 			// provider as weather; privacy trade-off is identical).
@@ -1918,7 +1924,7 @@ func New(d Deps) http.Handler {
 				if d.Metrics != nil {
 					onCanceled = d.Metrics.GeocodeCanceledTotal.Inc
 				}
-				handleGeocode(d.Photon, d.GeocodeOpenMeteo, onCanceled)(w, r)
+				handleGeocode(d.Photon, hotelNames, d.GeocodeOpenMeteo, onCanceled)(w, r)
 			}))
 		}) // end of timed authenticated /api group
 

@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -59,6 +60,9 @@ type Archive struct {
 	// tiles lists the tiles that hold data, sorted by x then y, so a query visits those near the route instead of every
 	// tile in the route's box (a coast-to-coast box is 860,000 tiles, of which about 11,000 have data). Nil: walk the box.
 	tiles []tileXY
+	// hotels is every hotel-type station with a Level 2 stall (the "hotels" filter's rule) of the loaded copy, one per station, built when the
+	// archive loads so the place search never walks the tiles.
+	hotels []POI
 }
 
 // tileXY is one tile of the chargers zoom.
@@ -160,7 +164,7 @@ func (a *Archive) fetch(ctx context.Context, conditional bool) (bool, error) {
 	// Shrink guard: a half-written or wrong file at the URL must not replace a
 	// good archive. The candidate is counted before anything is swapped.
 	cand := &Archive{raw: raw, header: header, rootDir: rootDir}
-	n := cand.featureCount()
+	n, hotels := cand.scan()
 	tiles := cand.listTiles()
 	a.mu.RLock()
 	had := a.stations
@@ -186,6 +190,7 @@ func (a *Archive) fetch(ctx context.Context, conditional bool) (bool, error) {
 	a.stations = n
 	a.rejectedETag = ""
 	a.tiles = tiles
+	a.hotels = hotels
 	a.mu.Unlock()
 	return true, nil
 }
@@ -214,7 +219,27 @@ const shrinkGuardRatio = 0.8
 // featureCount is the number of charger features in the archive (a station on a
 // tile edge counts per tile; only the ratio between two archives matters).
 func (a *Archive) featureCount() int {
+	n, _ := a.scan()
+	return n
+}
+
+// Hotels returns the hotel-type stations with a Level 2 stall of the loaded copy, and the time that copy was loaded (a caller that keeps
+// something built from them rebuilds it when that time changes). The slice is shared: do not modify it.
+func (a *Archive) Hotels() ([]POI, time.Time) {
+	if a == nil {
+		return nil, time.Time{}
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.hotels, a.loadedAt
+}
+
+// scan decodes every tile once: it returns the feature count (see featureCount) and the hotel stations, one per station (a station on a tile
+// edge sits in several tiles).
+func (a *Archive) scan() (int, []POI) {
 	n := 0
+	var hotels []POI
+	seen := map[string]bool{}
 	var walk func(es []pm.EntryV3)
 	walk = func(es []pm.EntryV3) {
 		for _, e := range es {
@@ -225,14 +250,28 @@ func (a *Archive) featureCount() int {
 			for i := uint32(0); i < e.RunLength; i++ {
 				z, x, y := pm.IDToZxy(e.TileID + uint64(i))
 				pois, err := a.tilePOIs(z, x, y)
-				if err == nil {
-					n += len(pois)
+				if err != nil {
+					continue
+				}
+				n += len(pois)
+				for _, p := range pois {
+					if !p.matches(FilterHotels) || strings.TrimSpace(p.Name) == "" {
+						continue
+					}
+					key := p.EntityID
+					if key == "" {
+						key = fmt.Sprintf("%s|%.4f|%.4f", p.Name, p.Lat, p.Lon)
+					}
+					if !seen[key] {
+						seen[key] = true
+						hotels = append(hotels, p)
+					}
 				}
 			}
 		}
 	}
 	walk(a.rootDir)
-	return n
+	return n, hotels
 }
 
 // listTiles walks the directories (no tile is decoded) and returns the tiles that hold data at the chargers zoom, sorted by
@@ -358,6 +397,11 @@ type POI struct {
 	// station that came from, or was merged with, a RIDB record.
 	RIDBID string `json:"ridbID,omitempty"`
 	AsOf   string `json:"asof,omitempty"`
+	// City, State and Country are the listing's address (NREL's city, state and country; two-letter state and country codes). Only the place
+	// search reads them, so they are not on the wire; the archive builds before this field was added carry none.
+	City    string `json:"-"`
+	State   string `json:"-"`
+	Country string `json:"-"`
 }
 
 // Filter matches the SPA's ChargerFilter strings.
@@ -812,6 +856,9 @@ func (a *Archive) tilePOIs(z uint8, x, y uint32) ([]POI, error) {
 			poi.Source = stringProp(props, "source")
 			poi.RIDBID = firstStringProp(props, "ridb_id")
 			poi.AsOf = stringProp(props, "asof")
+			poi.City = stringProp(props, "city")
+			poi.State = stringProp(props, "state")
+			poi.Country = stringProp(props, "country")
 
 			// DCFC/L2 inference: prefer explicit counts when emitted,
 			// otherwise infer from unambiguous DC connectors or

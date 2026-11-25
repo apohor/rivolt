@@ -127,6 +127,17 @@ final class TripPlanLogicTests: XCTestCase {
     }
 }
 
+final class PlaceMatchDecodeTests: XCTestCase {
+    /// A hotel the server took from the charger list carries `ev_charging`; a plain place does not.
+    func testEVChargingFlagDecodes() throws {
+        let hotel = try JSON.decoder().decode(PlaceMatch.self, from: Data(#"{"name":"Hampton Inn Dalhart","latitude":36.06,"longitude":-102.51,"admin1":"TX","country":"United States","ev_charging":true}"#.utf8))
+        XCTAssertEqual(hotel.evCharging, true)
+        XCTAssertEqual(hotel.line, "Hampton Inn Dalhart, TX, United States")
+        let city = try JSON.decoder().decode(PlaceMatch.self, from: Data(#"{"name":"Dalhart","latitude":36.06,"longitude":-102.51}"#.utf8))
+        XCTAssertNil(city.evCharging)
+    }
+}
+
 @MainActor
 final class TripPlanModelTests: XCTestCase {
     private func planned(_ src: FakeTrips, _ m: TripPlanModel) async {

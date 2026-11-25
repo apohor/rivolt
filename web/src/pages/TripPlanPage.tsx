@@ -1531,6 +1531,7 @@ function LocationSearch({
                 <div className="text-neutral-100">{r.name}</div>
                 <div className="text-xs text-neutral-500">
                   {[r.admin1, r.country].filter(Boolean).join(", ")}
+                  {r.ev_charging && <> · EV charging</>}
                   {typeof r.population === "number" && r.population > 0 && (
                     <> · pop. {r.population.toLocaleString()}</>
                   )}

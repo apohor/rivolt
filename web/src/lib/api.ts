@@ -2936,6 +2936,8 @@ export type GeocodeResult = {
   locality?: string;
   population?: number;
   timezone?: string;
+  // A hotel taken from the charger list: it has a Level 2 charger, and the search row says so.
+  ev_charging?: boolean;
 };
 
 // TripPlanRequest is the body for POST /api/trips/plan. vehicle_id
