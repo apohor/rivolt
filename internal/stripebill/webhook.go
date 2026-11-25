@@ -451,6 +451,10 @@ func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event, refu
 	if err := endProForRefund(ctx, tx, uid, ch.Customer, ev.Created); err != nil {
 		return "", uuid.Nil, err
 	}
+	// A refund of the charge the account's self-serve refund reserved (a lost answer, or a Dashboard refund) spends that refund.
+	if _, err := tx.ExecContext(ctx, `UPDATE billing_self_refunds SET state = 'done', done_at = now() WHERE user_id = $1 AND charge_id = $2 AND state = 'pending'`, uid, ch.ID); err != nil {
+		return "", uuid.Nil, err
+	}
 	*refunded = ch.Customer
 	return OutcomeApplied, uid, nil
 }

@@ -59,7 +59,7 @@ export const REFUND = {
   confirm: (amount: string) => `Refund ${amount} and end Pro now? This can be done once per account.`,
   yes: "Yes, refund and cancel",
   keep: "Keep Pro",
-  done: (amount: string) => `Refunded ${amount} to the card you paid with. Pro has ended and the account is on the free tier. Nothing was deleted.`,
+  done: (amount: string) => `Refunded ${amount} to your payment method. Pro has ended and the account is on the free tier. Nothing was deleted.`,
   gone: "A refund is no longer available for this account.",
   failed: "We couldn't refund right now. Try again, or email support@rivolt.dev.",
 } as const;

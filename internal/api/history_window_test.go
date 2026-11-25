@@ -79,6 +79,8 @@ var routeClasses = map[string]windowClass{
 	"POST /api/pro/prompts/{where}/dismiss": {"exempt", "records the caller's own Not now on a Pro prompt; reads and returns no history"},
 	"POST /api/billing/checkout":            {"exempt", "creates a Stripe Checkout session for the signed-in account; returns no history"},
 	"POST /api/billing/portal":              {"exempt", "creates a Stripe Customer Portal session for the signed-in account; returns no history"},
+	"GET /api/billing/refund":               {"exempt", "the signed-in account's own refund offer (amount, date); returns no history"},
+	"POST /api/billing/refund":              {"exempt", "refunds the signed-in account's latest payment through Stripe and ends Pro; returns no history"},
 	"POST /api/billing/stripe/webhook":      {"exempt", "Stripe calls it with a signed event: it writes the entitlement table, returns no history"},
 	"POST /api/data/delete-range":           {"exempt", "delete everything before a month, for rows outside the free window: " + always},
 
@@ -183,7 +185,7 @@ var prefixClasses = []struct{ prefix, why string }{
 var optionalRoutes = map[string]bool{
 	"GET /api/state/{vehicleID}/debug": true, "GET /api/battery-temp/{vehicleID}": true, "GET /api/parallax-raw/{vehicleID}": true,
 	"GET /api/charging-schema": true, "GET /api/charging-field/{field}": true, "GET /api/charging-frames": true,
-	"GET /api/trips/plan/diag": true, "POST /api/billing/stripe/webhook": true, "POST /api/billing/apple/notifications": true, "POST /api/billing/apple/transaction": true, "POST /api/billing/checkout": true, "POST /api/billing/portal": true}
+	"GET /api/trips/plan/diag": true, "POST /api/billing/stripe/webhook": true, "POST /api/billing/apple/notifications": true, "POST /api/billing/apple/transaction": true, "POST /api/billing/checkout": true, "POST /api/billing/portal": true, "GET /api/billing/refund": true, "POST /api/billing/refund": true}
 
 func classify(method, route string) (windowClass, bool) {
 	if c, ok := routeClasses[method+" "+route]; ok {

@@ -193,6 +193,8 @@ var notOwnerSide = map[string]string{
 	"db.DeleteUserHistoryBefore":              "user action (delete history before a month)",
 	"histfloor.Raise":                         "user action (delete history: raises the floor before the deletes)",
 	"stripebill.Handler.apply":                "Stripe webhook (internal/stripebill), an HTTP handler applying Stripe's signed events: not an owner-side recorder write",
+	"stripebill.Handler.chargeRefunded":       "Stripe webhook (internal/stripebill), an HTTP handler applying Stripe's signed events: not an owner-side recorder write",
+	"stripebill.Service.finishRefund":         "self-serve refund (internal/stripebill): an HTTP request of the signed-in account, not an owner-side recorder write",
 	"stripebill.endProForRefund":              "Stripe refund (webhook or the account's own self-serve refund, internal/stripebill): an HTTP request of the signed-in account or a signed Stripe event, not an owner-side recorder write",
 	"stripebill.Service.SelfRefund":           "self-serve refund (internal/stripebill): an HTTP request of the signed-in account, not an owner-side recorder write",
 	"stripebill.Handler.subscriptionChanged":  "Stripe webhook (internal/stripebill), an HTTP handler applying Stripe's signed events: not an owner-side recorder write",

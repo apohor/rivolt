@@ -20,6 +20,7 @@ type refundStripe struct {
 	charges     []Payment
 	refundPosts []string // Idempotency-Key of every POST /v1/refunds
 	refundCode  int      // answer to POST /v1/refunds (0 = 200)
+	refundError string   // Stripe error code in that answer (default: a plain refusal)
 }
 
 func newRefundStripe(t *testing.T) *refundStripe {
@@ -34,7 +35,11 @@ func newRefundStripe(t *testing.T) *refundStripe {
 			f.refundPosts = append(f.refundPosts, r.Header.Get("Idempotency-Key"))
 			if f.refundCode != 0 {
 				w.WriteHeader(f.refundCode)
-				_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"charge_already_refunded"}}`))
+				code := f.refundError
+				if code == "" {
+					code = "amount_too_large"
+				}
+				_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"` + code + `"}}`))
 				return
 			}
 			_, _ = w.Write([]byte(`{"id":"re_TEST1","status":"succeeded"}`))
@@ -249,5 +254,39 @@ func TestSelfRefundFailuresAndRetries(t *testing.T) {
 	}
 	if r3.state(t0).Pro {
 		t.Error("Pro is still on after the double tap")
+	}
+}
+
+// Stripe says the charge is already refunded (the first answer was lost and its key expired, or a Dashboard refund): that spends the account's
+// refund, Pro ends, and the offer does not come back. A charge.refunded for a still-pending reservation settles it the same way.
+func TestSelfRefundAlreadyRefundedSpendsIt(t *testing.T) {
+	r, svc, f := refundRig(t, "refund-already")
+	f.set(paid("ch_TEST001", t0.Add(-time.Hour)))
+	f.refundCode, f.refundError = http.StatusBadRequest, "charge_already_refunded"
+	if _, err := svc.SelfRefund(t.Context(), r.uid); !errors.Is(err, ErrRefundUnavailable) {
+		t.Fatalf("already refunded: %v", err)
+	}
+	var state string
+	if err := r.pool.QueryRow(`SELECT state FROM billing_self_refunds WHERE user_id = $1`, r.uid).Scan(&state); err != nil || state != "done" {
+		t.Errorf("the record: state=%q err=%v, want done", state, err)
+	}
+	if r.state(t0).Pro {
+		t.Error("Pro is still on though the charge is refunded")
+	}
+	f.set(paid("ch_NEWER", t0.Add(-time.Minute)))
+	if o, _ := svc.RefundOffer(t.Context(), r.uid); o.Eligible || o.Reason != RefundUsed {
+		t.Errorf("the offer is %+v, want used", o)
+	}
+
+	// A lost answer leaves a pending reservation; the webhook for that charge settles it.
+	r2, svc2, f2 := refundRig(t, "refund-webhook-settles")
+	f2.set(paid("ch_TEST001", t0.Add(-time.Hour)))
+	f2.refundCode = http.StatusInternalServerError
+	_, _ = svc2.SelfRefund(t.Context(), r2.uid)
+	if code := r2.deliver("charge_refunded_full.json", nil); code != 200 {
+		t.Fatalf("webhook: %d", code)
+	}
+	if err := r2.pool.QueryRow(`SELECT state FROM billing_self_refunds WHERE user_id = $1`, r2.uid).Scan(&state); err != nil || state != "done" {
+		t.Errorf("after the webhook: state=%q err=%v, want done", state, err)
 	}
 }

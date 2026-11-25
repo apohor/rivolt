@@ -180,6 +180,14 @@ func (s *Service) SelfRefund(ctx context.Context, uid uuid.UUID) (RefundOffer, e
 	refundID, err := s.Client.RefundPayment(ctx, charge, refundKey(uid))
 	if err != nil {
 		var se *Error
+		if errors.As(err, &se) && se.Code == "charge_already_refunded" {
+			// The charge was refunded already (the first answer was lost and Stripe's key expired, or a refund from the Dashboard): that
+			// is this account's refund. Record it as spent and end Pro; the account does not get a second one.
+			if ferr := s.finishRefund(ctx, uid, cust, ""); ferr != nil {
+				return RefundOffer{}, ferr
+			}
+			return RefundOffer{Reason: RefundUsed}, ErrRefundUnavailable
+		}
 		if errors.As(err, &se) && se.Status >= 400 && se.Status < 500 && se.Status != http.StatusTooManyRequests && se.Status != http.StatusConflict {
 			// Stripe refuses this refund for good (for example the charge is already refunded; a 409 is another tap's call still in flight, and a 429 a limit: both retry): free the account's one refund.
 			if _, derr := s.DB.ExecContext(ctx, `DELETE FROM billing_self_refunds WHERE user_id = $1 AND state = 'pending'`, uid); derr != nil {
@@ -189,21 +197,9 @@ func (s *Service) SelfRefund(ctx context.Context, uid uuid.UUID) (RefundOffer, e
 		}
 		return RefundOffer{}, err // Stripe or the network failed: the reservation stays, a retry sends the same key
 	}
-	tx, err := s.DB.BeginTx(ctx, nil)
-	if err != nil {
+	if err := s.finishRefund(ctx, uid, cust, refundID); err != nil {
 		return RefundOffer{}, err
 	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `UPDATE billing_self_refunds SET state = 'done', refund_id = $2, done_at = now() WHERE user_id = $1`, uid, refundID); err != nil {
-		return RefundOffer{}, err
-	}
-	if err := endProForRefund(ctx, tx, uid, cust, s.now().Unix()); err != nil {
-		return RefundOffer{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return RefundOffer{}, err
-	}
-	s.cancelAfterRefund(ctx, cust)
 	return RefundOffer{AmountCents: amount, Currency: currency}, nil
 }
 
@@ -219,4 +215,25 @@ func (s *Service) cancelAfterRefund(ctx context.Context, customer string) {
 	if err := db.ResolveStripeRefundCancel(cctx, s.DB, customer); err != nil {
 		slog.Warn("self-serve refund: clearing the queued cancel failed", "err", err.Error())
 	}
+}
+
+// finishRefund marks the account's reservation done (refundID is empty when Stripe reported the charge already refunded), ends Pro in the
+// same transaction, then cancels the subscriptions.
+func (s *Service) finishRefund(ctx context.Context, uid uuid.UUID, cust, refundID string) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `UPDATE billing_self_refunds SET state = 'done', refund_id = NULLIF($2, ''), done_at = now() WHERE user_id = $1`, uid, refundID); err != nil {
+		return err
+	}
+	if err := endProForRefund(ctx, tx, uid, cust, s.now().Unix()); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.cancelAfterRefund(ctx, cust)
+	return nil
 }
