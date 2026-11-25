@@ -56,7 +56,7 @@ Rivolt is an unofficial companion for Rivian vehicle owners. Tap "Try the demo t
 
 Pricing: the app has no in-app purchase and no purchase button, and links to no payment page. Rivolt has a free tier and a Pro tier; Pro is a subscription bought on rivolt.dev (the web), and the app applies it to the signed-in Rivolt account. Account deletion starts in Settings and finishes on rivolt.dev, where the person confirms. We are available in the United States storefront only, matching our Terms (adults in the United States).
 
-No sign-in account is needed for review: a new account without a Rivian only shows "Connect your Rivian", so the demo truck is the review path.
+No sign-in account is needed for review: a new account without a Rivian only shows "Connect your Rivian", so the demo truck is the review path. To try the account flows, tap "Sign in", then "Create an account" on the page that opens in the browser sheet; the account can be deleted in the app under Settings, Data, Delete account, which opens the page where the deletion is confirmed.
 
 ## Screenshot captions
 Six shots at 6.9" and one smaller Dynamic Island size (6.3"), dark primary, one light Now variant if a slot is free; the caption sits at the top, with a small footer "Sample truck, generated data". Demo only: generated data, no real accounts, no Rivian logo, colours or vehicle photos.
@@ -64,7 +64,7 @@ Six shots at 6.9" and one smaller Dynamic Island size (6.3"), dark primary, one 
 2. What charging actually cost
 3. Every drive, route and charts
 4. Every charge, with its cost and where it came from
-5. Tires, sleep and health, from your truck
+5. Parked drain, from your truck
 6. Sends no commands to your truck. Your Rivian password is never stored.
 
 ## Other settings
