@@ -294,11 +294,34 @@ class RunTests(unittest.TestCase):
         self.assertEqual([c[1] for c in api.writes()].count("/v2/appAvailabilities"), 1)
 
     def test_another_editable_version_stops_the_run_before_any_write(self):
-        api = FakeApi(versions={"1.4.0": "PREPARE_FOR_SUBMISSION"})
+        api = FakeApi(versions={"1.3.0": "READY_FOR_DISTRIBUTION", "1.4.0": "PREPARE_FOR_SUBMISSION"})
         with self.assertRaises(SystemExit) as c:
             do("apply", api)
         self.assertIn("1.4.0", str(c.exception))
         self.assertEqual(api.writes(), [])
+
+    def test_a_never_released_apps_only_editable_version_is_renumbered(self):
+        api = FakeApi(versions={"1.0": "PREPARE_FOR_SUBMISSION"})
+        lines = []
+        do("apply", api, lines=lines)
+        patch = next(c for c in api.writes() if c[0] == "PATCH" and c[1] == "/v1/appStoreVersions/V1.0" and "attributes" in c[2]["data"])
+        self.assertEqual(patch[2]["data"]["attributes"]["versionString"], "1.4.3")
+        self.assertNotIn("/v1/appStoreVersions", [c[1] for c in api.writes() if c[0] == "POST"])
+        self.assertTrue(any("becomes 1.4.3" in x for x in lines))
+        attrs = next(c for c in api.writes() if c[1].startswith("/v1/appStoreVersionLocalizations"))[2]["data"]["attributes"]
+        self.assertNotIn("whatsNew", attrs)
+
+    def test_a_released_version_next_to_an_editable_one_still_stops(self):
+        for vs in ({"1.0": "PREPARE_FOR_SUBMISSION", "1.1": "READY_FOR_DISTRIBUTION"}, {"1.0": "PREPARE_FOR_SUBMISSION", "1.1": "PREPARE_FOR_SUBMISSION"}):
+            api = FakeApi(versions=vs)
+            with self.assertRaises(SystemExit):
+                do("apply", api)
+            self.assertEqual(api.writes(), [])
+
+    def test_the_plan_says_the_light_shots_are_not_uploaded(self):
+        lines = []
+        do("plan", FakeApi(versions=["1.4.3"]), lines=lines)
+        self.assertTrue(any("light shots are not uploaded" in x for x in lines))
 
     def test_whats_new_goes_out_only_when_an_earlier_version_exists(self):
         api = FakeApi(versions={"1.4.0": "READY_FOR_DISTRIBUTION"})

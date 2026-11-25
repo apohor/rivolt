@@ -337,13 +337,21 @@ def lookups(r, s, version, env, shots_dir, out):
         L["free_price"] = bool(pts) and all(v in ("0", "0.0", "0.00") for v in pts.values())
 
     versions = r.get(f"/v1/apps/{app}/appStoreVersions?filter[platform]=IOS&limit=200")["data"]
-    for v in versions:
-        a = v["attributes"]
-        state = a.get("appVersionState") or a.get("appStoreState")
-        if a["versionString"] != version and state in EDITABLE:
-            raise SystemExit(f"another editable version exists ({a['versionString']}, {state}): finish or remove it first")
+    states = [(v, v["attributes"].get("appVersionState") or v["attributes"].get("appStoreState")) for v in versions]
     L["mine"] = next((v["id"] for v in versions if v["attributes"]["versionString"] == version), None)
-    L["first"] = all(v["attributes"]["versionString"] == version for v in versions)
+    L["rename"] = None
+    others = [(v, st) for v, st in states if v["attributes"]["versionString"] != version and st in EDITABLE]
+    if others:
+        # A never-released app has one untouched first version (1.0): use it and set its number, rather than stop.
+        # Anything else (a released version, or two editable ones) is not this script's to guess at: stop.
+        (v, st), = others[:1]
+        if len(versions) == 1 and not L["mine"]:
+            L["rename"] = v["id"]
+            L["mine"] = v["id"]
+            out(f"  the app has no released version and one editable version ({v['attributes']['versionString']}, {st}): it becomes {version}")
+        else:
+            raise SystemExit(f"another editable version exists ({v['attributes']['versionString']}, {st}): finish or remove it first")
+    L["first"] = L["rename"] is not None or all(v["attributes"]["versionString"] == version for v in versions)
 
     infos = r.get(f"/v1/apps/{app}/appInfos")["data"]
     editable = [i for i in infos if (i["attributes"].get("state") or i["attributes"].get("appStoreState")) in EDITABLE] or infos
@@ -372,7 +380,8 @@ def run_pass(api, dry, s, privacy_md, version, shots_dir, env, out, spec):
     out("version")
     ver = L["mine"]
     if ver:
-        r.write("PATCH", f"/v1/appStoreVersions/{ver}", {"data": {"type": "appStoreVersions", "id": ver, "attributes": version_attrs()}})
+        attrs = dict(version_attrs(), versionString=version) if L["rename"] else version_attrs()
+        r.write("PATCH", f"/v1/appStoreVersions/{ver}", {"data": {"type": "appStoreVersions", "id": ver, "attributes": attrs}}, f"set the number to {version}" if L["rename"] else "")
     else:
         ver, _ = r.write("POST", "/v1/appStoreVersions", {"data": {"type": "appStoreVersions", "attributes": dict(version_attrs(), versionString=version, platform="IOS"),
                                                                   "relationships": {"app": rel("apps", app)}}}, "create the version")
@@ -418,6 +427,7 @@ def run_pass(api, dry, s, privacy_md, version, shots_dir, env, out, spec):
                                                                "relationships": {"appStoreVersion": rel("appStoreVersions", ver)}}})
 
     out("screenshots (upload the new set, removing old shots only as the ten-shot cap needs; the rest after)")
+    out(f"  uploading the {SHOT_MODE} set only; the {'light' if SHOT_MODE == 'dark' else 'dark'} shots are not uploaded (listing.md: {SHOT_MODE} is the primary set)")
     for size, shots in L["shots"].items():
         dtype = DISPLAY_TYPES[size]
         set_id, old = None, []
