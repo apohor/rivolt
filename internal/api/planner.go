@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -31,7 +32,7 @@ import (
 // A search the client gave up on (r.Context() canceled, not a deadline: the app's type-ahead cancels the older request when the next
 // keystroke lands) gets no response and bumps onCanceled; only a real Photon failure answers 503, with the error
 // logged at WARN (no query text), so "unavailable" keeps meaning an outage.
-func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCanceled func()) http.HandlerFunc {
+func handleGeocode(photon *geocoding.PhotonClient, hotels HotelNameSearcher, openMeteoFallback bool, onCanceled func()) http.HandlerFunc {
 	var gc *geocoding.Client
 	if openMeteoFallback {
 		gc = geocoding.NewClient()
@@ -48,10 +49,11 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCan
 				count = n
 			}
 		}
+		near := nearFromQuery(r.URL.Query())
 		var results []geocoding.Result
 		photonFailed := false
 		if photon.Enabled() {
-			r1, err := photon.Search(r.Context(), q, count)
+			r1, err := photon.SearchNear(r.Context(), q, count, near)
 			if err == nil && len(r1) > 0 {
 				results = r1
 			}
@@ -66,11 +68,12 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCan
 				slog.WarnContext(r.Context(), "geocode: photon failed", "err", withoutURL(err))
 			}
 		}
-		if gc == nil && len(results) == 0 && (photonFailed || !photon.Enabled()) {
+		hits := hotelResults(hotels, q, near, hotelHitsKept)
+		if gc == nil && len(results) == 0 && len(hits) == 0 && (photonFailed || !photon.Enabled()) {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "place search unavailable"})
 			return
 		}
-		if len(results) == 0 && gc != nil {
+		if len(results) == 0 && len(hits) == 0 && gc != nil {
 			r2, err := gc.Search(r.Context(), q, count)
 			if err != nil {
 				writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
@@ -78,11 +81,23 @@ func handleGeocode(photon *geocoding.PhotonClient, openMeteoFallback bool, onCan
 			}
 			results = r2
 		}
+		results = mergeHotelResults(hits, results)
 		if results == nil {
 			results = []geocoding.Result{}
 		}
 		writeJSON(w, http.StatusOK, results)
 	}
+}
+
+// nearFromQuery reads the optional lat and lon of a place search (where to rank nearer places first). Both must be present and in
+// range, and not (0,0); otherwise the search runs without a point.
+func nearFromQuery(v url.Values) *geocoding.Near {
+	lat, err1 := strconv.ParseFloat(v.Get("lat"), 64)
+	lon, err2 := strconv.ParseFloat(v.Get("lon"), 64)
+	if err1 != nil || err2 != nil || math.IsNaN(lat) || math.IsNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180 || (lat == 0 && lon == 0) {
+		return nil
+	}
+	return &geocoding.Near{Lat: lat, Lon: lon}
 }
 
 // withoutURL drops the request URL (and with it the typed query) that a net/http error carries.

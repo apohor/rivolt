@@ -2217,9 +2217,11 @@ export const backend = {
   // Geocoding for the trip planner: free-text → city/town
   // suggestions with lat/lon. Backed by Open-Meteo, sorted by
   // population. Empty array when no match.
-  geocode: (q: string, count = 5) =>
+  // near ranks closer places higher (a far exact name still comes back).
+  geocode: (q: string, count = 5, near?: { lat: number; lon: number }, signal?: AbortSignal) =>
     api.get<GeocodeResult[]>(
-      `/api/geocode?q=${encodeURIComponent(q)}&count=${count}`,
+      `/api/geocode?q=${encodeURIComponent(q)}&count=${count}${near ? `&lat=${near.lat.toFixed(2)}&lon=${near.lon.toFixed(2)}` : ""}`,
+      signal,
     ),
   // Trip planner — pass-through to Rivian's planTripWithMultiStop.
   // Slice 1: read-only, no AI, no save. The caller supplies origin
@@ -2942,6 +2944,8 @@ export type GeocodeResult = {
   locality?: string;
   population?: number;
   timezone?: string;
+  // A hotel taken from the charger list: it has a Level 2 charger, and the search row says so.
+  ev_charging?: boolean;
 };
 
 // TripPlanRequest is the body for POST /api/trips/plan. vehicle_id

@@ -256,8 +256,11 @@ struct PlaceSearchSheet: View {
                             model.clearSearch()
                             dismiss()
                         } label: {
-                            Text(place.line).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(place.line).themeText(.value, color: Theme.textPrimary).multilineTextAlignment(.leading)
+                                if place.evCharging == true { Text("EV charging").themeText(.subline, color: Theme.textSecondary) }
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         }
                         .buttonStyle(.plain)
                         Divider().overlay(Theme.border)
