@@ -1,4 +1,4 @@
--- 0125_self_refunds.sql
+-- 0127_self_refunds.sql
 --
 -- Self-serve refunds of web Pro (Settings, Account, Plan, "Refund and cancel"): within 14 days of a payment, one tap refunds that payment in
 -- full through the Stripe API and ends Pro at once. One row per account is the whole limit: the primary key on user_id is "one self-serve
