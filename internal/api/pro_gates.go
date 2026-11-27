@@ -85,6 +85,24 @@ func multidayProMiddleware(e *entitlements.Service) func(http.Handler) http.Hand
 	}
 }
 
+// plannerProMiddleware answers 402 pro_required to a free account that is not grandfathered (entitlements.PlannerOpen), before any routing,
+// Rivian or model call. With no cutoff set (RIVOLT_PLANNER_PRO_FROM unset) it passes everything. Reading and deleting saved trips are never
+// behind it.
+func plannerProMiddleware(e *entitlements.Service) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if e == nil {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if uid, ok := auth.UserFromContext(r.Context()); ok && !e.PlannerOpen(r.Context(), uid) {
+				writeProRequired(w)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // savedTripCreateGate refuses a free account's save once it keeps FreeSavedTrips trips.
 func savedTripCreateGate(ctx context.Context, e *entitlements.Service, uid uuid.UUID, store *trips.Store) (allowed bool, err error) {
 	if store == nil || isPro(ctx, e, uid) {
@@ -121,6 +139,12 @@ func savedTripEditable(ctx context.Context, e *entitlements.Service, uid uuid.UU
 // markReadOnlyTrips flags, for a free account, the trips past the cap. out is newest-updated first, as Store.List returns it.
 func markReadOnlyTrips(ctx context.Context, e *entitlements.Service, uid uuid.UUID, out []trips.SavedTrip) {
 	if isPro(ctx, e, uid) {
+		return
+	}
+	if !e.PlannerOpen(ctx, uid) { // planning is Pro for this account: every trip it holds is kept, readable and deletable, none editable
+		for i := range out {
+			out[i].ReadOnly = true
+		}
 		return
 	}
 	for i := FreeSavedTrips; i < len(out); i++ {

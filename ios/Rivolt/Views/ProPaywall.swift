@@ -119,14 +119,13 @@ enum ProCopy {
     static let primaryVehicleIntro = "The free tier shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
     static func primaryVehicleSaved(_ name: String) -> String { "Done. The free tier now shows \(name)." }
     static let title = "Rivolt Pro"
-    static let subtitle = "Full history, multi-day trips and more widgets, from $3.99 a month."
+    static let subtitle = "Full history, trip planning and more widgets, from $3.99 a month."
     static func included(_ window: FreeWindow = .unknown) -> [String] { [
         "Unlimited history and trends (free tier: \(window.short))",
         "Range near a temperature",
-        "Multi-day trip plans with hotel and campground overnights",
+        "Trip planning, including multi-day plans and overnight stops",
         "Rain or snow likely at your stops on arrival (contiguous US, NOAA RRFS forecast radar)",
         "Re-plan from where the truck is, and plan-vs-actual after the trip",
-        "Unlimited saved trips (free: 3)",
         "Every vehicle shown (free: 1)",
         "iPhone: every widget except the small Now widget (the charging Live Activity is free)",
         "Always free, on every plan: recording, every alert, imports, share cards, trip share links, the charging Live Activity, the small Now widget, the full export, deletion",
@@ -167,6 +166,12 @@ enum ProCopy {
     static let deletionNote = "If you subscribed through the App Store, cancel in Settings → your name → Subscriptions first: deleting your Rivolt account doesn't cancel it."
 
     // What each free-plan limit says (the web's `proFeatureText`): why, what stays free, and that nothing is lost.
+    /// A single-day plan refused with 402: only an account for which all trip planning is Pro (made after the planner cutoff) is refused one.
+    /// Facts only (iPhone Pro wording D7): no price, no way to buy.
+    static let plannerAllPro = "Trip planning is part of the Pro tier."
+    static let plannerSavedTrips = "Trips you saved earlier stay saved: you can open and delete them."
+    /// The gated Plan card's text: the tier fact, and the saved-trips line only when the account has saved trips.
+    static func plannerGated(hasSavedTrips: Bool) -> String { hasSavedTrips ? "\(plannerAllPro) \(plannerSavedTrips)" : plannerAllPro }
     static let plannerLimit = "Multi-day plans, overnights and re-plan from here are part of Rivolt Pro. A single-day plan stays free."
     static let planVsActualLimit = "Plan vs actual is part of Rivolt Pro. Your saved trips and drives are kept either way."
     static func savedTripsLimit(_ n: Int = 3) -> String {
@@ -208,7 +213,7 @@ enum ProCopy {
 enum DemoLinks {
     struct Item: Equatable { let label: String; let url: URL }
 
-    static let planner = Item(label: "See the multi-day planner in the demo", url: URL(string: "https://demo.rivolt.dev/demo/trips/plan")!)
+    static let planner = Item(label: "See the trip planner in the demo", url: URL(string: "https://demo.rivolt.dev/demo/trips/plan")!)
     static let history = Item(label: "See full history in the demo", url: URL(string: "https://demo.rivolt.dev/demo/activity")!)
     static let trends = Item(label: "See trends in the demo", url: URL(string: "https://demo.rivolt.dev/demo/truck")!)
 
@@ -476,7 +481,7 @@ struct ProPaywallView: View {
                 Text("\(price) \(unit)").themeText(.value, color: Theme.textPrimary).fontWeight(.semibold)
                 if !extra.isEmpty { Text(extra).themeText(.caption, color: Theme.textTertiary) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(3 * Theme.unit)
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(selected ? Theme.accent : Theme.border, lineWidth: selected ? 2 : 1))
         }
@@ -493,6 +498,7 @@ struct ProPaywallView: View {
         do {
             try await buyer.purchase(yearly: yearly)
             message = ProCopy.purchased
+            _ = try? await state.readMe()  // the plan now includes Pro: the screens that gate on it (Plan) follow at once
         } catch { message = ProCopy.purchaseMessage(error) }
     }
 
@@ -503,6 +509,7 @@ struct ProPaywallView: View {
         do {
             try await buyer.restore()
             message = ProCopy.restored
+            _ = try? await state.readMe()
         } catch { message = ProCopy.purchaseMessage(error) }
     }
 }

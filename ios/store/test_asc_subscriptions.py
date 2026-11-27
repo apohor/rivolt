@@ -3,6 +3,7 @@ import importlib.util
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -72,7 +73,7 @@ class FakeApi:
             raise AssertionError("unexpected GET " + path)
         p = self.products[pid]
         if path.endswith("/subscriptionLocalizations"):
-            return 200, {"data": [{"id": "SL", "attributes": {"locale": "en-US", "name": "Rivolt Pro " + pid.rsplit(".", 1)[1].capitalize(), "description": "Full history, trends and multi-day trips"}}] if p.get("loc") else []}
+            return 200, {"data": [{"id": "SL", "attributes": {"locale": "en-US", "name": "Rivolt Pro " + pid.rsplit(".", 1)[1].capitalize(), "description": "Full history, trip planning and every vehicle"}}] if p.get("loc") else []}
         if path.endswith("/planAvailabilities"):
             return 200, {"data": [{"id": "PA-" + pid.rsplit(".", 1)[1], "attributes": {"planType": "UPFRONT"}}] if p.get("avail") else []}
         if path.startswith("/v1/subscriptionPlanAvailabilities/PA/availableTerritories"):
@@ -152,9 +153,13 @@ class PlanTests(unittest.TestCase):
         self.assertIn("subscriptionStatusUrlForSandbox", text)
         self.assertIn("price point can be looked up only once the product exists", text)
 
-    def test_apply_is_not_on_the_command_line(self):
-        with self.assertRaises(SystemExit):
+    def test_apply_is_on_the_command_line_and_stops_without_the_secrets(self):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("ASC_")}
+        with mock.patch.dict(os.environ, env, clear=True), self.assertRaises(SystemExit) as e:
             sub.main(["apply", "--spec", "x"])
+        self.assertIn("missing secret", str(e.exception))
+        with self.assertRaises(SystemExit):
+            sub.main(["delete", "--spec", "x"])
 
     def test_a_plan_with_no_screenshot_says_it_is_still_to_do(self):
         text = "\n".join(do("plan", FakeApi()))

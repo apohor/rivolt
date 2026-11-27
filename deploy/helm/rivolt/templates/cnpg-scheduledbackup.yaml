@@ -22,6 +22,11 @@ spec:
   schedule: {{ .Values.cnpg.backup.scheduled.schedule | quote }}
   immediate: {{ .Values.cnpg.backup.scheduled.immediate }}
   backupOwnerReference: self
+  {{- if eq (.Values.cnpg.backup.method | default "barmanObjectStore") "plugin" }}
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  {{- end }}
   cluster:
     name: {{ include "rivolt.cnpgClusterName" . }}
 {{- end }}

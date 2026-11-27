@@ -53,6 +53,12 @@ final class FixtureURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
+    /// With `-uitest-planner-gated`: the account "buys Pro" when the test creates the file named by RIVOLT_UITEST_BOUGHT_PRO_FILE.
+    static var boughtPro: Bool {
+        guard let path = ProcessInfo.processInfo.environment["RIVOLT_UITEST_BOUGHT_PRO_FILE"] else { return false }
+        return FileManager.default.fileExists(atPath: path)
+    }
+
     /// The answer's file for a path, or nil (a 404).
     static func file(method: String, path: String) -> String? {
         switch (method, path) {
@@ -63,7 +69,7 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/config") where ProcessInfo.processInfo.arguments.contains("-uitest-forecast"): return "config_forecast"
         case ("GET", "/api/maps/radar/frame") where ProcessInfo.processInfo.arguments.contains("-uitest-forecast"): return "radar_frame"
         case ("GET", "/api/maps/forecast-radar/hours") where ProcessInfo.processInfo.arguments.contains("-uitest-forecast"): return "forecast_hours"
-        case ("GET", "/api/auth/me"): return "me"
+        case ("GET", "/api/auth/me"): return ProcessInfo.processInfo.arguments.contains("-uitest-planner-gated") ? (Self.boughtPro ? "me_plan_subscriber" : "me_plan_free_planner_pro") : "me"
         case ("GET", "/api/vehicles"): return "vehicles"
         case ("GET", "/api/trips/saved"): return "trip_saved_list"
         // The place search: a charger-list hotel (EV charging) and a plain Photon row.

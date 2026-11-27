@@ -1,0 +1,21 @@
+{{- if and .Values.cnpg.enabled .Values.cnpg.backup.enabled (eq (.Values.cnpg.backup.method | default "barmanObjectStore") "plugin") }}
+# Where the Barman Cloud plugin keeps this cluster's WAL and base backups (an S3-compatible bucket). The plugin itself and the
+# credentials Secret are installed outside this chart. retentionPolicy is the recovery window (window + base interval must stay
+# inside what privacy.md promises).
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: {{ required "cnpg.backup.objectStore.name is required for method plugin" .Values.cnpg.backup.objectStore.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rivolt.labels" . | nindent 4 }}
+  annotations:
+    # Argo prune and app deletion must never remove the backup configuration the restore path needs.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  {{- with .Values.cnpg.backup.objectStore.retentionPolicy }}
+  retentionPolicy: {{ . | quote }}
+  {{- end }}
+  configuration:
+    {{- required "cnpg.backup.objectStore.configuration is required for method plugin" .Values.cnpg.backup.objectStore.configuration | toYaml | nindent 4 }}
+{{- end }}

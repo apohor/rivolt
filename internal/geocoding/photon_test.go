@@ -224,3 +224,75 @@ func TestPhotonSearchNearFailures(t *testing.T) {
 		}
 	}
 }
+
+// "boston" typed near Pasadena: the biased list is hotels and a small Boston, the plain list has the city. The city typed in full comes first
+// and is marked, the list keeps its length, and a search with no such city is left as the merge made it.
+func TestPhotonSearchNearPutsTheCityTypedInFullFirst(t *testing.T) {
+	row := func(name, key, value, city, state string, lat, lon float64) string {
+		return fmt.Sprintf(`{"geometry":{"coordinates":[%v,%v]},"properties":{"name":%q,"city":%q,"state":%q,"osm_key":%q,"osm_value":%q}}`, lon, lat, name, city, state, key, value)
+	}
+	hotel := func(n string, lat float64) string {
+		return row(n, "tourism", "hotel", "Pasadena", "California", lat, -118.1)
+	}
+	var plainRows, biasedRows string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("lat") == "" {
+			_, _ = w.Write([]byte(`{"features":[` + plainRows + `]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"features":[` + biasedRows + `]}`))
+	}))
+	defer srv.Close()
+	near := &Near{Lat: 34.15, Lon: -118.14}
+	names := func(rs []Result) string {
+		var n []string
+		for _, r := range rs {
+			n = append(n, r.Name)
+		}
+		return strings.Join(n, "|")
+	}
+
+	biasedRows = hotel("Boston Inn", 34.1) + "," + hotel("Boston Suites", 34.2) + "," + row("Boston", "place", "village", "", "California", 36, -119) + "," + hotel("Boston Lodge", 34.3) + "," + row("Bostonia", "place", "suburb", "", "California", 32.8, -116.9)
+	plainRows = row("Boston", "place", "city", "", "Massachusetts", 42.36, -71.06) + "," + row("Boston", "place", "town", "", "Lincolnshire", 52.97, -0.02)
+	res, err := NewPhotonClient(srv.URL).SearchNear(context.Background(), "boston", 5, near)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 5 || res[1].Admin1 != "Massachusetts" || !res[1].Exact {
+		t.Fatalf("results %q, want Boston, Massachusetts second and marked, 5 rows", names(res))
+	}
+	for i, r := range res {
+		if i != 1 && (r.Exact || (r.Admin1 == "Massachusetts" && r.Name == "Boston")) {
+			t.Errorf("%q: one exact city only, no repeat", r.Name)
+		}
+	}
+
+	// No city or town of that exact name in the plain list (a village, a hotel): nothing moves.
+	plainRows = row("Boston", "place", "village", "", "Georgia", 30.8, -83.8)
+	res, _ = NewPhotonClient(srv.URL).SearchNear(context.Background(), "boston", 5, near)
+	if !strings.HasPrefix(res[0].Name, "Boston Inn") || res[0].Exact {
+		t.Errorf("no exact city: results %q, want the merge as it was", names(res))
+	}
+}
+
+// "springfield" near Springfield, MO: the nearby namesake stays first, and the most important one (Illinois) is third, in view.
+func TestPhotonSearchNearKeepsANearbyNamesakeFirst(t *testing.T) {
+	row := func(name, value, state string, lat, lon float64) string {
+		return fmt.Sprintf(`{"geometry":{"coordinates":[%v,%v]},"properties":{"name":%q,"state":%q,"osm_key":"place","osm_value":%q}}`, lon, lat, name, state, value)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("lat") == "" {
+			_, _ = w.Write([]byte(`{"features":[` + row("Springfield", "city", "Illinois", 39.8, -89.6) + `,` + row("Springfield", "city", "Missouri", 37.2, -93.3) + `]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"features":[` + row("Springfield", "city", "Missouri", 37.2, -93.3) + `,` + row("Springfield Township", "town", "Missouri", 37.3, -93.4) + `,` + row("Springfield", "village", "Arkansas", 35.4, -92.5) + `,` + row("Springfield", "village", "Texas", 31.9, -96.5) + `]}`))
+	}))
+	defer srv.Close()
+	res, err := NewPhotonClient(srv.URL).SearchNear(context.Background(), "springfield", 4, &Near{Lat: 37.2, Lon: -93.3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 4 || res[0].Admin1 != "Missouri" || res[0].Exact || res[2].Admin1 != "Illinois" || !res[2].Exact {
+		t.Errorf("results %+v, want Missouri first and Illinois third (marked)", res)
+	}
+}

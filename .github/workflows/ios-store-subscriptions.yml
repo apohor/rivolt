@@ -1,0 +1,51 @@
+name: ios-store-subscriptions
+
+# GitOps for the Rivolt Pro in-app subscriptions: applies ios/store/subscriptions.md to App Store Connect (subscription group,
+# the monthly and yearly products, their prices, US availability, review note, and the App Store Server Notification URLs).
+# By hand only, inside the `testflight` environment (the owner approves the run and only that environment holds the App Store
+# Connect key). dry_run is on by default and writes nothing: it prints the planned changes, each call checked against Apple's
+# OpenAPI spec. Apply stops if a price point does not match exactly. It never submits anything for review.
+# The review screenshot is not part of this run yet: the plan lists it as still to do.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "true prints the plan and writes nothing; false applies it"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-store-subscriptions
+  cancel-in-progress: false
+
+jobs:
+  subscriptions:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: testflight
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Download Apple's App Store Connect OpenAPI spec
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/spec.zip" https://developer.apple.com/sample-code/app-store-connect/app-store-connect-openapi-specification.zip
+          unzip -q -o "$RUNNER_TEMP/spec.zip" openapi.oas.json -d "$RUNNER_TEMP/spec"
+
+      - name: Subscription tests
+        run: python3 -I -m unittest discover -s ios/store -p 'test_asc_subscriptions.py'
+
+      - name: Plan or apply the subscriptions
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          MODE: ${{ inputs.dry_run && 'plan' || 'apply' }}
+        run: |
+          set -euo pipefail
+          python3 -I ios/store/asc_subscriptions.py "$MODE" --spec "$RUNNER_TEMP/spec/openapi.oas.json" --review-shot ios/store/review-subscription.png

@@ -399,7 +399,8 @@ enum TripPlanLogic {
     }
 
     /// What to tell the person when planning failed. Never the server's own text.
-    static func failure(_ error: Error) -> String {
+    /// `singleDay` is a plan with no overnight and no re-plan from the truck: the server refuses one only to an account for which all planning is Pro.
+    static func failure(_ error: Error, singleDay: Bool = false) -> String {
         switch error {
         case APIError.rivianReauth:
             return "Rivian needs to be reconnected. Do that in Rivolt on the web, then plan again."
@@ -408,7 +409,7 @@ enum TripPlanLogic {
             return "You've used this hour's planning allowance. Try again in a while."
         case APIError.server(let status, let message, let retryAfter):
             switch status {
-            case 402: return ProCopy.plannerLimit
+            case 402: return singleDay ? ProCopy.plannerAllPro : ProCopy.plannerLimit
             // The server that holds this account's Rivian connection did not answer (a 503 that says when to retry): seconds, not an outage.
             case 503 where retryAfter != nil: return "Reconnecting to Rivian. Nothing is wrong with your trip. Try again in a moment."
             // No truck linked to the account: the server cannot plan with Rivian, whatever starting charge was set.

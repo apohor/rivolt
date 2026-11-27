@@ -57,6 +57,9 @@ type Service struct {
 	// on a Checkout Session: the methods are managed from the Dashboard, and a configuration is how a session is held to a set of them.
 	PaymentMethodConfig string
 	Now                 func() time.Time
+	// Invalidate drops the account's cached plan on this pod; SelfRefund calls it once Pro has ended, so the answer to the next /api/auth/me
+	// from this pod is the free tier at once (the other pods see it within the plan cache's TTL).
+	Invalidate func(uuid.UUID)
 }
 
 func (s *Service) now() time.Time {

@@ -66,6 +66,7 @@ func iosFixtureTargets() map[string]any {
 		"me_unaccepted.json": &meResponse{},
 		// The Pro plan fields of /api/auth/me (Sprint 14): free, a running trial, the founding year, a subscriber.
 		"me_plan_free.json":             &meResponse{},
+		"me_plan_free_planner_pro.json": &meResponse{},
 		"me_plan_trial.json":            &meResponse{},
 		"me_plan_founding.json":         &meResponse{},
 		"me_plan_subscriber.json":       &meResponse{},

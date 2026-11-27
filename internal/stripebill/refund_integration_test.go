@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // refundStripe is the three calls the self-serve refund makes (charges, refunds, subscriptions), in Stripe's shapes.
@@ -144,9 +146,14 @@ func TestSelfRefundOnceThenWebhookReplay(t *testing.T) {
 	if !r.state(t0).Pro {
 		t.Fatal("the account is not Pro to start with")
 	}
+	var dropped []uuid.UUID
+	svc.Invalidate = func(u uuid.UUID) { dropped = append(dropped, u) }
 	got, err := svc.SelfRefund(t.Context(), r.uid)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(dropped) != 1 || dropped[0] != r.uid {
+		t.Errorf("the plan cache was dropped for %v, want the account once (the next /me must say free)", dropped)
 	}
 	if got.AmountCents != 3499 || got.Currency != "usd" {
 		t.Errorf("refunded %+v, want the whole 3499 usd payment", got)

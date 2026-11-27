@@ -10,7 +10,9 @@ package entitlements
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -237,6 +239,8 @@ type Service struct {
 	// stripeManage is set when Stripe is configured (Config.StripeManage): only then does a billing-off server look at the rows to tell
 	// which accounts still hold a Stripe subscription.
 	stripeManage atomic.Bool
+	// plannerFrom is RIVOLT_PLANNER_PRO_FROM: trip planning is Pro for an account created at or after it. Zero: planning is not gated.
+	plannerFrom time.Time
 }
 
 type cached struct {
@@ -257,7 +261,10 @@ type Config struct {
 	Demo uuid.UUID
 	// TTL is how long an account's rows are cached; 0 means DefaultTTL. A grant written on another replica is seen within it.
 	TTL time.Duration
-	Log *slog.Logger
+	// PlannerProFrom makes trip planning Pro for accounts created at or after it (RIVOLT_PLANNER_PRO_FROM); an account created before it keeps
+	// the free single-day planner and 3 saved trips. The zero value is no gate.
+	PlannerProFrom time.Time
+	Log            *slog.Logger
 	// StripeManage is true when Stripe is configured: only then does a billing-off server look at the rows to tell which accounts still
 	// hold a Stripe subscription (ManageSubscription). Every self-hosted install that sells nothing leaves it false and reads no row.
 	StripeManage bool
@@ -273,6 +280,7 @@ func New(db *sql.DB, cfg Config) *Service {
 	s := &Service{db: db, billing: cfg.Billing && db != nil, demo: cfg.Demo, ttl: cfg.TTL, now: time.Now, log: cfg.Log, onErr: cfg.OnLookupError,
 		cache: map[uuid.UUID]cached{}, maxCache: 4096}
 	s.stripeManage.Store(cfg.StripeManage)
+	s.plannerFrom = cfg.PlannerProFrom.UTC()
 	if s.ttl <= 0 {
 		s.ttl = DefaultTTL
 	}
@@ -280,6 +288,22 @@ func New(db *sql.DB, cfg Config) *Service {
 		s.log = slog.Default()
 	}
 	return s
+}
+
+// PlannerProFromEnv names the setting that holds the planner cutoff (RFC 3339); unset means trip planning is not gated.
+const PlannerProFromEnv = "RIVOLT_PLANNER_PRO_FROM"
+
+// ParsePlannerProFrom reads PlannerProFromEnv's value: empty is no gate (the zero time); anything else must be an RFC 3339 time.
+func ParsePlannerProFrom(raw string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	at, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s: %q is not an RFC 3339 time", PlannerProFromEnv, raw)
+	}
+	return at.UTC(), nil
 }
 
 // Billing reports whether billing is on; clients hide every paywall control when it is not.
@@ -327,6 +351,17 @@ func (s *Service) Window(ctx context.Context, uid uuid.UUID) (histwin.W, bool) {
 	}
 	_, created := s.account(ctx, uid)
 	return histwin.Free(s.now(), created), true
+}
+
+// PlannerOpen is whether the account may use the trip planner: Pro (which is every account with billing off, the demo and a failed
+// lookup), any account while no cutoff is set, and an account created before the cutoff (or whose creation time is unknown), which keeps the
+// free single-day planner. False only for a free account created at or after PlannerProFrom.
+func (s *Service) PlannerOpen(ctx context.Context, uid uuid.UUID) bool {
+	if s == nil || s.plannerFrom.IsZero() || s.Pro(ctx, uid) {
+		return true
+	}
+	_, created := s.account(ctx, uid)
+	return created.IsZero() || created.Before(s.plannerFrom)
 }
 
 // Created is when the account was created (zero if unknown). The history window's length depends on it (against the cutoff).
