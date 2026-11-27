@@ -23,7 +23,9 @@ struct TripPlanView: View {
     @Environment(\.scenePhase) private var scenePhase
     /// All trip planning is Pro for this account (/api/auth/me planner_pro_only, kept on AppState by every read of /me): the gated card replaces
     /// the form. nil until the first read: neither is shown then.
-    private var plannerGated: Bool? { state.isDemo ? false : state.plannerProOnly }
+    private var plannerGated: Bool? { state.isDemo ? false : (state.plannerProOnly ?? (gateRead ? false : nil)) }
+    /// The first read of /me has finished (even a failed one): without an answer the form shows, and the server's 402 says the rest.
+    @State private var gateRead = false
 
     /// A signed-in plan to look at: the full-height map and the itinerary sheet.
     private var showsMapScreen: Bool {
@@ -44,7 +46,7 @@ struct TripPlanView: View {
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    ThemeTopBar { AccountMenu(vehicleID: model.vehicleID) }
+                    ThemeTopBar { AccountMenu(vehicleID: model.vehicleID, onSettingsClosed: { Task { _ = try? await state.readMe() } }) }
                     ThemeTitleRow(title: "Plan") {}
                 }
             }
@@ -56,7 +58,7 @@ struct TripPlanView: View {
             }
             // The tab stays alive once visited: read /me again each time it is shown and each time the app comes back, so an account that
             // bought Pro (here or on the web) gets the form without a restart.
-            .task(id: "\(tabActive)|\(scenePhase == .active)") { if tabActive, scenePhase == .active, !state.isDemo { _ = try? await state.readMe() } }
+            .task(id: "\(tabActive)|\(scenePhase == .active)") { if tabActive, scenePhase == .active, !state.isDemo { _ = try? await state.readMe(); gateRead = true } }
             .task {
                 if state.isDemo { await demoTrips.load(source: state.client); return }
                 let vehicles = (try? await state.client.vehicles()) ?? []

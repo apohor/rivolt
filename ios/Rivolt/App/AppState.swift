@@ -466,6 +466,7 @@ final class AppState {
     }
 
     func logout() async {
+        plannerProOnly = nil
         // The demo has no session to end: "Sign in" there just leaves it.
         if isDemo { leaveDemo(); return }
         // Best effort on the server; locally the token always goes, so the UI

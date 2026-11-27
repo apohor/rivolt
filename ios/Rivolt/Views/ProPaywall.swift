@@ -476,6 +476,7 @@ struct ProPaywallView: View {
         do {
             try await buyer.purchase(yearly: yearly)
             message = ProCopy.purchased
+            _ = try? await state.readMe()  // the plan now includes Pro: the screens that gate on it (Plan) follow at once
         } catch { message = ProCopy.purchaseMessage(error) }
     }
 
@@ -486,6 +487,7 @@ struct ProPaywallView: View {
         do {
             try await buyer.restore()
             message = ProCopy.restored
+            _ = try? await state.readMe()
         } catch { message = ProCopy.purchaseMessage(error) }
     }
 }

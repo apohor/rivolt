@@ -31,4 +31,27 @@ final class PlannerGatedUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Plan the trip"].firstMatch.waitForExistence(timeout: 20), "the form is back without a restart")
         XCTAssertFalse(card.exists, "the tier fact is gone")
     }
+
+    /// Buying Pro from Plan > Settings keeps the tab active: closing the Settings sheet reads /me again, so the form returns without leaving Plan.
+    func testClosingSettingsAfterBuyingProBringsTheFormBackWithoutLeavingPlan() throws {
+        let app = XCUIApplication()
+        let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let ios = here.deletingLastPathComponent()
+        let bought = NSTemporaryDirectory() + "rivolt-uitest-bought-pro-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: bought) }
+        app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = [here.appendingPathComponent("Fixtures").path, ios.appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
+        app.launchEnvironment["RIVOLT_UITEST_BOUGHT_PRO_FILE"] = bought
+        app.launchArguments += ["-uitest-planner-gated"]
+        app.launch()
+        app.buttons["Plan"].firstMatch.tap()
+        let card = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "part of the Pro tier")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20))
+        XCTAssertTrue(FileManager.default.createFile(atPath: bought, contents: Data()))
+        app.buttons["settings-button"].firstMatch.tap()
+        let done = app.buttons["Done"].firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        done.tap()
+        XCTAssertTrue(app.buttons["Plan the trip"].firstMatch.waitForExistence(timeout: 20), "the form is back without leaving Plan")
+        XCTAssertFalse(card.exists)
+    }
 }
