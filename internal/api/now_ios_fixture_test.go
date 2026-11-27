@@ -71,6 +71,7 @@ func iosFixtureTargets() map[string]any {
 		"me_plan_founding.json":         &meResponse{},
 		"me_plan_subscriber.json":       &meResponse{},
 		"me_plan_apple.json":            &meResponse{},
+		"me_plan_apple_and_stripe.json": &meResponse{},
 		"me_plan_lapsed.json":           &meResponse{},
 		"me_plan_cancelled.json":        &meResponse{}, // a subscription set to not renew: Pro until plan_cancels_at
 		"me_plan_grace.json":            &meResponse{}, // a failed renewal inside the 7-day grace: plan_grace_ends

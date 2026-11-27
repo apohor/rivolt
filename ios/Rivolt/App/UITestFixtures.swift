@@ -8,6 +8,8 @@ enum UITestLaunch {
     static let variable = "RIVOLT_UITEST_FIXTURES"
     /// An account with no vehicle yet: the vehicles list is empty and the discovery answer is this state (looking, none, reauth), for the connect screen.
     static let noTruckVariable = "RIVOLT_UITEST_NO_TRUCK"
+    /// With the no-truck fixture: the account is on the free tier of a server that bills (me_plan_free), so the Rivolt Pro entry shows.
+    static let billingVariable = "RIVOLT_UITEST_BILLING"
     /// Every truck's status read fails (a 503, as when Rivian is down), for Home's failed-read screen.
     static let stateFailsVariable = "RIVOLT_UITEST_STATE_FAILS"
     /// With the no-truck fixture: Check again lands on a server that does not hold the account (503, Retry-After 1), for "checking".
@@ -367,6 +369,8 @@ final class FixtureURLProtocol: URLProtocol {
                 body = out
             }
             answer = corridorLayers(body: body)
+        } else if ProcessInfo.processInfo.environment[UITestLaunch.billingVariable] != nil, method == "GET", url.path == "/api/auth/me" {
+            answer = data(named: "me_plan_free")
         } else if let state = ProcessInfo.processInfo.environment[UITestLaunch.noTruckVariable], method == "GET", url.path == "/api/vehicles" || url.lastPathComponent == "discovery" {
             let shown = Self.refreshed && ProcessInfo.processInfo.environment[UITestLaunch.refreshLimitedVariable] != nil ? "looking" : state
             answer = Data((url.lastPathComponent == "discovery" ? #"{"state":"\#(shown)"}"# : "[]").utf8)

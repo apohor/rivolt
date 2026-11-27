@@ -6,7 +6,7 @@
 > costs. Free tier and Pro tier; self-hosting is complete and free. Charging cost from what Rivian billed, your rate, or a labelled estimate, trips, efficiency and lease miles.
 
 **[Try the demo](https://demo.rivolt.dev)** (sample truck, no sign-in)
- · **[Use it at rivolt.dev](https://rivolt.dev)** (sign in with Google or GitHub)
+ · **[Use it at rivolt.dev](https://rivolt.dev)** (sign in with Apple, Google or GitHub)
  · **Self-host:** [docker compose](docker-compose.yml), [Helm chart](deploy/helm)
  · [Sign-up guide](docs/SIGNUP.md) · [MIT license](LICENSE)
 
@@ -83,7 +83,7 @@ tab](https://demo.rivolt.dev/demo/trips/plan) has sample trips, including Los An
   [rivolt.dev/charging-cost](https://rivolt.dev/charging-cost). Every
   figure on it is an example.
 - To use it with your own truck, sign up at [rivolt.dev](https://rivolt.dev)
-  with Google, GitHub or your email (the hosted service caps the number of accounts); see
+  with Apple, Google, GitHub or your email (the hosted service caps the number of accounts); see
   [`docs/SIGNUP.md`](docs/SIGNUP.md). We recommend connecting an Authorized
   Driver account, so Rivolt never holds your primary Rivian login and you
   can revoke access from the Rivian app at any time.

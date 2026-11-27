@@ -12,14 +12,21 @@ the OIDC steps and use the docker-compose login instead.
 No invite is needed; the total number of accounts is capped. There are two
 ways in, and both are instant while there is room:
 
-### Option A — Continue with Google or GitHub (fastest)
+### Option A — Continue with Apple, Google or GitHub (fastest)
 
 1. Open <https://rivolt.dev/signup> and click **Continue with
-   Google** or **Continue with GitHub**.
+   Apple**, **Continue with Google** or **Continue with GitHub**.
 2. Approve the OAuth consent on the provider's screen
    (scopes: email + basic profile).
 3. You're dropped straight into Rivolt with a session cookie.
    No password to set, no approval email to wait for.
+
+If you use Apple's Hide My Email, Apple gives Rivolt a relay address, so
+a first Apple sign-in makes a new account instead of joining one you
+already have with your real address. The two can't be merged, so use
+the same sign-in method you used before (or connect Apple from
+Settings → Security once you're signed in); see the
+[support page](https://rivolt.dev/support).
 
 If sign-up is at capacity, the OAuth callback bounces you to a
 "we're at capacity" page with your email pre-filled — leave the
@@ -28,7 +35,7 @@ request and we'll let you know when a seat opens up.
 ### Option B — Sign up with your email
 
 If you'd rather not link a third-party account, use your email. Like
-Google or GitHub, it works straight away while there is room (the
+Apple, Google or GitHub, it works straight away while there is room (the
 total number of accounts is capped); the one extra step is proving
 you own the address, which the emailed link does:
 
@@ -281,6 +288,27 @@ you can re-import cleanly.
 For deeper architecture questions see
 [`docs/ARCHITECTURE.md`](ARCHITECTURE.md); for what's coming see
 [`docs/ROADMAP.md`](ROADMAP.md).
+
+## Self-hosting: Sign in with Apple
+
+To offer Apple on your own install, add a provider named `apple` to
+`RIVOLT_OIDC_PROVIDERS` (the button order is Email, Apple, Google, GitHub)
+and set:
+
+```
+RIVOLT_OIDC_APPLE_KIND=apple
+RIVOLT_OIDC_APPLE_CLIENT_ID=...       # your Services ID
+RIVOLT_OIDC_APPLE_TEAM_ID=...         # the Apple developer team
+RIVOLT_OIDC_APPLE_KEY_ID=...          # the Sign in with Apple key's ID
+RIVOLT_OIDC_APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----..."   # that key's .p8 text
+```
+
+In your Apple developer account, create a Services ID with Sign in with
+Apple enabled, make a key for it, and register your site's domain and the
+return URL `https://<your host>/api/auth/oidc/apple/callback` (the host is
+`RIVOLT_BASE_URL`). Apple sends its answer to that URL as a form POST, so it
+must be served over HTTPS. There is no stored client secret: Rivolt signs a
+short-lived one from the key for each sign-in.
 
 ## Self-hosting: closing sign-ups
 

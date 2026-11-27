@@ -48,6 +48,7 @@ import mePlanFreePlannerPro from "../../../ios/RivoltTests/Fixtures/me_plan_free
 import mePlanTrial from "../../../ios/RivoltTests/Fixtures/me_plan_trial.json";
 import mePlanStripe from "../../../ios/RivoltTests/Fixtures/me_plan_subscriber.json";
 import mePlanApple from "../../../ios/RivoltTests/Fixtures/me_plan_apple.json";
+import mePlanAppleAndStripe from "../../../ios/RivoltTests/Fixtures/me_plan_apple_and_stripe.json";
 import mePlanFounding from "../../../ios/RivoltTests/Fixtures/me_plan_founding.json";
 import mePlanLapsed from "../../../ios/RivoltTests/Fixtures/me_plan_lapsed.json";
 import mePlanCancelled from "../../../ios/RivoltTests/Fixtures/me_plan_cancelled.json";
@@ -128,6 +129,7 @@ export const _mePlanFreePlannerPro: Wide<AuthUser> = mePlanFreePlannerPro;
 export const _mePlanTrial: Wide<AuthUser> = mePlanTrial;
 export const _mePlanStripe: Wide<AuthUser> = mePlanStripe;
 export const _mePlanApple: Wide<AuthUser> = mePlanApple;
+export const _mePlanAppleAndStripe: Wide<AuthUser> = mePlanAppleAndStripe;
 export const _mePlanFounding: Wide<AuthUser> = mePlanFounding;
 export const _mePlanLapsed: Wide<AuthUser> = mePlanLapsed;
 export const _mePlanCancelled: Wide<AuthUser> = mePlanCancelled;
