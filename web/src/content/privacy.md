@@ -25,7 +25,7 @@ Last updated: November 27, 2026
 **Who we share it with.** Only these, and only for the service:
 - **Your sign-in provider (Google, GitHub or Apple)**, if you use it to sign in to Rivolt.
 - **Rivian**, to read your vehicle's data. Rivolt's requests present themselves as Rivian's own mobile app (see the [Terms](/terms#2), section 2).
-- **Cloudflare**, which every request to rivolt.dev passes through (including your IP address).
+- **Cloudflare**, which every request to rivolt.dev passes through (including your IP address), and which stores our encrypted database backups (R2).
 - **Resend**, which sends our emails (your email address, and your statement summary if you turn on the monthly statement email).
 - **Your browser's push service**, if you turn on notifications.
 - **Apple**, if you sign in with Apple or connect it (Apple learns that you signed in to Rivolt and nothing else), or if you turn on notifications in the Rivolt iPhone app. For notifications, Apple's push service gets your phone's push address and a random notification number with the generic line "Rivolt update". The words of the notification, which can mention your charge or your truck, never go through Apple; your phone fetches them from Rivolt. If you turn on live charging on the lock screen, Apple also receives the push address of that lock-screen display and, while your truck charges and once when it finishes, your charge level, charging power and minutes to your charge limit. It never receives your truck's location, name or VIN, or your Rivolt account.
