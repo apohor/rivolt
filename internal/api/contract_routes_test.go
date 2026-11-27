@@ -252,6 +252,7 @@ var webCallsOptionalByConfig = map[string]string{
 	"GET /api/auth/apple-link":              "mounted only where Sign in with Apple is configured and its link store is wired (Deps.AppleLinkAccounts with the OIDC service); the Settings card hides on a 404",
 	"POST /api/auth/apple-link/start":       "as above",
 	"POST /api/auth/apple-link/unlink":      "as above",
+	"GET /api/maps/forecast-radar/hours":    "mounted only where the install reads the in-cluster radar service (Deps.PlanRadar with forecast tiles: RIVOLT_RADAR_BASE_URL); the planner's forecast scrubber stays off when it answers 404",
 	"POST /api/billing/checkout":            "mounted only where Stripe billing is configured (Deps.StripeBilling, and not on the admin-only host); the Plan card hides the buttons when it is off",
 	"POST /api/billing/portal":              "as above",
 	"POST /api/import/preview":              "mounted only where history import is on (Deps.HistoryImport: RIVOLT_HISTORY_IMPORT=1); the Settings wizard shows only when /api/config says features.history_import",
@@ -326,6 +327,7 @@ func contractRouterWith(t *testing.T, gates bool, mut func(*Deps)) chi.Routes {
 		d.ReplaySim = fakeSim{}                       // the simulated drive and charge routes exist only where the preview admin controls are on
 		d.SampleHistory = &demo.SampleHistoryWriter{} // as does the sample truck's older history; mounted here, never called
 		d.StripeBilling = new(stripebill.Service)     // the billing routes exist only where Stripe is configured; mounted here, never called
+		d.PlanRadar = &fakeForecast{}                 // the forecast radar routes exist only where the install reads the in-cluster radar service
 	}
 	if mut != nil {
 		mut(&d)
