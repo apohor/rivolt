@@ -19,8 +19,11 @@ struct TripPlanView: View {
 
     /// The person asked to edit the trip: the form and the saved trips, in place of the map screen.
     @State private var editing = false
-    /// All trip planning is Pro for this account (/api/auth/me planner_pro_only): the gated card replaces the form.
-    @State private var plannerGated = false
+    @Environment(\.tabActive) private var tabActive
+    @Environment(\.scenePhase) private var scenePhase
+    /// All trip planning is Pro for this account (/api/auth/me planner_pro_only, kept on AppState by every read of /me): the gated card replaces
+    /// the form. nil until the first read: neither is shown then.
+    private var plannerGated: Bool? { state.isDemo ? false : state.plannerProOnly }
 
     /// A signed-in plan to look at: the full-height map and the itinerary sheet.
     private var showsMapScreen: Bool {
@@ -51,12 +54,14 @@ struct TripPlanView: View {
                 }
                 .followsAppearance()
             }
+            // The tab stays alive once visited: read /me again each time it is shown and each time the app comes back, so an account that
+            // bought Pro (here or on the web) gets the form without a restart.
+            .task(id: "\(tabActive)|\(scenePhase == .active)") { if tabActive, scenePhase == .active, !state.isDemo { _ = try? await state.readMe() } }
             .task {
                 if state.isDemo { await demoTrips.load(source: state.client); return }
                 let vehicles = (try? await state.client.vehicles()) ?? []
                 await model.loadTruck(source: state.client, vehicles: vehicles)
                 await saved.load(source: state.client)
-                plannerGated = (try? await state.readMe())?.plannerProOnly == true
             }
         }
     }
@@ -73,8 +78,10 @@ struct TripPlanView: View {
                             if editing, model.plan != nil {
                                 Button { editing = false } label: { Label("Back to the map", systemImage: "map") }.buttonStyle(ThemeSecondaryButtonStyle())
                             }
-                            if plannerGated {
+                            if plannerGated == true {
                                 PlannerGatedCard(hasSavedTrips: !saved.trips.isEmpty)
+                            } else if plannerGated == nil {
+                                ThemeSection(title: "Plan a trip") { ProgressView().frame(maxWidth: .infinity, minHeight: 44) }
                             } else {
                                 TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { editing = false; Task { await model.plan(source: state.client) } })
                             }
