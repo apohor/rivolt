@@ -139,13 +139,13 @@ enum ProCopy {
     static let terms = "$34.99 a year (or $3.99 a month). Renews automatically until cancelled. Cancel at least 24 hours before the end of any period in Settings → Apple ID → Subscriptions. Payment is charged to your Apple ID."
     static let underButton = "Payment is charged to your Apple ID. Stop paying and nothing is deleted."
     static let restore = "Restore purchases"
-    static let restoreHelp = "Bought Pro on this Apple ID before? Restore it here. A subscription bought on rivolt.dev is already on your account; sign in and it applies."
+    static let restoreHelp = "Bought Pro on this Apple ID before? Restore it here."
     static let manage = "Manage subscription"
     static let manageHelp = "Opens your Apple subscriptions, where you change or cancel the plan. Cancelling keeps Pro until the paid period ends."
-    /// A plan billed through Stripe is managed on the web: facts only here, no purchase and no button (Apple's page cannot cancel it).
-    static let stripeBilled = "Billed through Stripe. Manage or cancel on rivolt.dev. Cancelling keeps Pro until the paid period ends."
+    /// A plan billed through Stripe: facts only here (D7: no "on rivolt.dev", no link, no price), no purchase and no button (Apple's page cannot cancel it).
+    static let stripeBilled = "Billed through Stripe. Cancelling keeps Pro until the paid period ends."
     /// An Apple subscription on an account that Stripe also bills: say so, so the person can stop one.
-    static let alsoStripe = "This account is also billed through Stripe. Manage that on rivolt.dev so you aren't charged twice."
+    static let alsoStripe = "This account is also billed through Stripe, so Pro is paid for twice."
     static let unofficial = "Unofficial, not affiliated with Rivian."
     static let unavailable = "Purchases aren't available yet. Nothing was charged."
     static let purchased = "Thanks, Pro is on."

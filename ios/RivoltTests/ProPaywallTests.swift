@@ -104,9 +104,10 @@ final class ProPaywallTests: XCTestCase {
         XCTAssertTrue(ProCopy.stripeBilled.hasPrefix("Billed through Stripe."))
         XCTAssertTrue(ProCopy.stripeBilled.contains("Cancelling keeps Pro until the paid period ends"))
         XCTAssertTrue(ProCopy.alsoStripe.contains("also billed through Stripe"))
-        XCTAssertTrue(ProCopy.alsoStripe.contains("charged twice"))
+        XCTAssertTrue(ProCopy.alsoStripe.contains("paid for twice"))
         // Facts only: no price, no purchase wording, no link in either sentence.
-        for t in [ProCopy.stripeBilled, ProCopy.alsoStripe] {
+        for t in [ProCopy.stripeBilled, ProCopy.alsoStripe, ProCopy.restoreHelp] {
+            XCTAssertFalse(t.contains("rivolt.dev"), t)
             XCTAssertFalse(t.contains("$"), t)
             XCTAssertFalse(t.lowercased().contains("subscribe"), t)
             XCTAssertFalse(t.contains("http"), t)

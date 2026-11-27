@@ -171,7 +171,10 @@ Checkout button: "Subscribe: $34.99 a year, renews yearly" / "Subscribe: $3.99 a
 Under the button: "Payment through Stripe. Rivolt never sees your card. Stop paying and nothing is deleted. Web purchases need a US billing address for now."
 iPhone, under the Subscribe button: "Terms · Privacy" (links to rivolt.dev/terms and rivolt.dev/privacy; Apple row A4), then "Payment is charged to your Apple ID. Stop paying and nothing is deleted."
 
-Restore purchases (iPhone): label "Restore purchases"; helper "Bought Pro on this Apple ID before? Restore it here. A subscription bought on rivolt.dev is already on your account; sign in and it applies."
+Restore purchases (iPhone): label "Restore purchases"; helper "Bought Pro on this Apple ID before? Restore it here."
+iPhone, Pro sheet, account billed through Stripe (facts only, no link, no "on rivolt.dev"): "Billed through Stripe. Cancelling keeps Pro until the paid period ends."
+iPhone, Pro sheet, Apple plan that Stripe also bills: "This account is also billed through Stripe, so Pro is paid for twice."
+
 Manage subscription: label "Manage subscription"; helper, iPhone: "Opens your Apple subscriptions, where you change or cancel the plan. Cancelling keeps Pro until the paid period ends."; web: "Opens Stripe's portal, where you change the plan, update the card or cancel in one step. Cancelling keeps Pro until the paid period ends."
 
 Lapse banner (dismissable, Now and Settings): "Your Pro ended on {date}. Showing the last {N} months. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data)." Buttons: "Keep Pro" · "Export everything" · "Dismiss"
