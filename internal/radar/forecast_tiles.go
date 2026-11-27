@@ -27,6 +27,10 @@ const (
 	DefaultTileCacheBytes = 16 << 20
 )
 
+// ErrFeedDown is a forecast that may exist but could not be read now (the radar service or its manifest did not answer): try again, do not
+// tell the user the hour is out of reach.
+var ErrFeedDown = errors.New("radar: forecast feed unavailable")
+
 // ErrNoForecast is a forecast that cannot be shown: radar off, no usable cycle, or the cycle/hour asked for is not in the manifest (past the
 // horizon, or aged out). It is never "dry".
 var ErrNoForecast = errors.New("radar: no forecast")
@@ -77,11 +81,11 @@ func (s *Store) ForecastHours(ctx context.Context) (ForecastHours, error) {
 	return ForecastHours{}, ErrNoForecast
 }
 
-// usable reports whether cycle and hour are in the manifest and the cycle is young enough.
-func (s *Store) usable(ctx context.Context, cycle string, fh int) bool {
+// usable reports whether cycle and hour are in the manifest and the cycle is young enough; err is ErrFeedDown when the manifest cannot be read.
+func (s *Store) usable(ctx context.Context, cycle string, fh int) (bool, error) {
 	m, err := s.manifest(ctx)
 	if err != nil {
-		return false
+		return false, ErrFeedDown
 	}
 	now := s.now()
 	for _, c := range m.Cycles {
@@ -89,19 +93,19 @@ func (s *Store) usable(ctx context.Context, cycle string, fh int) bool {
 			continue
 		}
 		if c.CycleTime.IsZero() || now.Sub(c.CycleTime) > MaxCycleAge {
-			return false
+			return false, nil
 		}
 		for _, h := range c.Hours {
 			if h == fh {
-				return true
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
 }
 
 // Tile is the PNG of one forecast hour: transparent under the light class edge and wherever the grid has no value (outside it, or no data),
-// NOAA's colours above. ErrNoForecast when the cycle or hour is not available; a bad address is the caller's to refuse (ParseTilePath-like).
+// NOAA's colours above. ErrNoForecast when the cycle or hour is not offered, ErrFeedDown when the grid could not be read; a bad address is the caller's to refuse (ParseTilePath-like).
 func (s *Store) Tile(ctx context.Context, cycle string, fh, z, x, y int) ([]byte, error) {
 	if s == nil {
 		return nil, ErrNoForecast
@@ -109,7 +113,9 @@ func (s *Store) Tile(ctx context.Context, cycle string, fh, z, x, y int) ([]byte
 	if z < ForecastMinZoom || z > ForecastMaxZoom || x < 0 || y < 0 || x >= 1<<z || y >= 1<<z {
 		return nil, errors.New("radar: bad tile")
 	}
-	if !s.usable(ctx, cycle, fh) {
+	if ok, err := s.usable(ctx, cycle, fh); err != nil {
+		return nil, err
+	} else if !ok {
 		return nil, ErrNoForecast
 	}
 	key := fmt.Sprintf("%s/%03d/%d/%d/%d", cycle, fh, z, x, y)
@@ -118,9 +124,10 @@ func (s *Store) Tile(ctx context.Context, cycle string, fh, z, x, y int) ([]byte
 		return b, nil
 	}
 	v, err, _ := s.tileFlight.Do(key, func() (any, error) {
-		g, err := s.grid(ctx, cycle, fh)
+		// The render is shared by every caller of this tile: it does not die with the first caller's request.
+		g, err := s.grid(context.WithoutCancel(ctx), cycle, fh)
 		if err != nil {
-			return nil, ErrNoForecast
+			return nil, ErrFeedDown
 		}
 		b, opaque := g.renderTile(z, x, y)
 		if opaque {

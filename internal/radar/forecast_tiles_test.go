@@ -219,3 +219,67 @@ func BenchmarkRenderTile(b *testing.B) {
 		g.renderTile(7, x, y)
 	}
 }
+
+// A map cancels its tile requests on every pan, and every tile of an hour shares one grid load: the request that started the load going away must
+// not fail the tiles still waiting on it.
+func TestCancelledLeaderDoesNotFailTheOtherTiles(t *testing.T) {
+	ct := time.Date(2026, 11, 8, 18, 0, 0, 0, time.UTC)
+	file := synthFile(t, func(d, s []byte) { d[10*20+10] = enc(40) })
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/latest.json" {
+			fmt.Fprintf(w, `{"v":1,"cycles":[{"cycle":"2026110818","cycle_time":%q,"hours":[3]}]}`, ct.Format(time.RFC3339))
+			return
+		}
+		once.Do(func() { close(started) })
+		<-release
+		_, _ = w.Write(file)
+	}))
+	defer srv.Close()
+	s := NewStore(srv.URL, nil)
+	s.now = func() time.Time { return ct.Add(3 * time.Hour) }
+	x, y, _, _ := tileOf(38.5, -97.5, 7)
+
+	leaderCtx, cancel := context.WithCancel(context.Background())
+	leaderErr := make(chan error, 1)
+	go func() { _, err := s.Tile(leaderCtx, "2026110818", 3, 7, x, y); leaderErr <- err }()
+	<-started
+	type res struct {
+		b   []byte
+		err error
+	}
+	second := make(chan res, 1)
+	go func() { b, err := s.Tile(context.Background(), "2026110818", 3, 7, x+1, y); second <- res{b, err} }()
+	time.Sleep(50 * time.Millisecond) // the second tile is now waiting on the shared grid load
+	cancel()
+	close(release)
+	r := <-second
+	if r.err != nil || len(r.b) == 0 {
+		t.Fatalf("the second tile failed with the leader's cancellation: %v", r.err)
+	}
+	<-leaderErr
+}
+
+// A grid that cannot be read is "try again" (ErrFeedDown), not "the hour is out of reach" (ErrNoForecast).
+func TestUnreadableGridIsFeedDownNotNoForecast(t *testing.T) {
+	ct := time.Date(2026, 11, 8, 18, 0, 0, 0, time.UTC)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/latest.json" {
+			fmt.Fprintf(w, `{"v":1,"cycles":[{"cycle":"2026110818","cycle_time":%q,"hours":[3]}]}`, ct.Format(time.RFC3339))
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	s := NewStore(srv.URL, nil)
+	s.now = func() time.Time { return ct.Add(3 * time.Hour) }
+	if _, err := s.Tile(context.Background(), "2026110818", 3, 7, 20, 45); !errors.Is(err, ErrFeedDown) || errors.Is(err, ErrNoForecast) {
+		t.Fatalf("grid 500: %v", err)
+	}
+	srv.Close()
+	s2 := NewStore(srv.URL, nil)
+	if _, err := s2.Tile(context.Background(), "2026110818", 3, 7, 20, 45); !errors.Is(err, ErrFeedDown) {
+		t.Fatalf("service down: %v", err)
+	}
+}

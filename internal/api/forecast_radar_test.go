@@ -27,6 +27,9 @@ func (f *fakeForecast) ForecastHours(context.Context) (radar.ForecastHours, erro
 }
 
 func (f *fakeForecast) Tile(_ context.Context, cycle string, fh, z, x, y int) ([]byte, error) {
+	if fh == 6 {
+		return nil, radar.ErrFeedDown
+	}
 	if cycle != "2026112712" || fh > 6 {
 		return nil, radar.ErrNoForecast
 	}
@@ -56,6 +59,13 @@ func TestForecastRadarThroughTheRouter(t *testing.T) {
 	rec = send(router, http.MethodGet, "/api/maps/forecast-radar/2026112712/3/7/20/45.png")
 	if rec.Code != 200 || rec.Header().Get("Content-Type") != "image/png" || rec.Header().Get("Cache-Control") != "private, max-age=86400, immutable" {
 		t.Fatalf("tile: %d %v", rec.Code, rec.Header())
+	}
+	// An hour not offered is 404, a feed that did not answer is 503 with Retry-After; neither may be cached.
+	if rec = send(router, http.MethodGet, "/api/maps/forecast-radar/2026112712/9/7/20/45.png"); rec.Code != 404 || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("404: %d %v", rec.Code, rec.Header())
+	}
+	if rec = send(router, http.MethodGet, "/api/maps/forecast-radar/2026112712/6/7/20/45.png"); rec.Code != 503 || rec.Header().Get("Retry-After") == "" || rec.Header().Get("Cache-Control") != "no-store" {
+		t.Errorf("503: %d %v", rec.Code, rec.Header())
 	}
 	if rec = send(router, http.MethodHead, "/api/maps/forecast-radar/2026112712/3/7/20/45.png"); rec.Code != 200 || rec.Body.Len() != 0 {
 		t.Errorf("HEAD: %d %d", rec.Code, rec.Body.Len())

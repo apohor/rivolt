@@ -35,6 +35,7 @@ func forecastRadarMount(ls *limiterSet, ft ForecastTiles, ent *entitlements.Serv
 		if r.URL.Path == "/hours" {
 			hs, err := ft.ForecastHours(r.Context())
 			if err != nil {
+				w.Header().Set("Cache-Control", "no-store")
 				w.Header().Set("Retry-After", "300")
 				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"reason": "no_forecast"})
 				return
@@ -45,13 +46,21 @@ func forecastRadarMount(ls *limiterSet, ft ForecastTiles, ent *entitlements.Serv
 		}
 		cycle, fh, z, x, y, ok := parseForecastTilePath(r.URL.Path)
 		if !ok {
+			w.Header().Set("Cache-Control", "no-store")
 			http.NotFound(w, r)
 			return
 		}
 		b, err := ft.Tile(r.Context(), cycle, fh, z, x, y)
 		if err != nil {
+			// Neither answer is cached by a CDN or the browser: a 404 for an hour not offered yet may be offered next cycle, and a 503 is a blip.
+			w.Header().Set("Cache-Control", "no-store")
 			if errors.Is(err, radar.ErrNoForecast) {
 				http.NotFound(w, r)
+				return
+			}
+			if errors.Is(err, radar.ErrFeedDown) {
+				w.Header().Set("Retry-After", "30")
+				http.Error(w, "forecast is not available right now", http.StatusServiceUnavailable)
 				return
 			}
 			http.Error(w, "bad tile", http.StatusBadRequest)
