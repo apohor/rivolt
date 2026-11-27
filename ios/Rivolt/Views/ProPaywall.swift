@@ -165,7 +165,7 @@ enum ProCopy {
     // What each free-plan limit says (the web's `proFeatureText`): why, what stays free, and that nothing is lost.
     /// A single-day plan refused with 402: only an account for which all trip planning is Pro (made after the planner cutoff) is refused one.
     /// Facts only (iPhone Pro wording D7): no price, no way to buy.
-    static let plannerAllPro = "Trip planning is part of the Pro tier. Trips you saved earlier stay saved: you can open and delete them."
+    static let plannerAllPro = "Trip planning is part of the Pro tier."
     static let plannerLimit = "Multi-day plans, overnights and re-plan from here are part of Rivolt Pro. A single-day plan stays free."
     static let planVsActualLimit = "Plan vs actual is part of Rivolt Pro. Your saved trips and drives are kept either way."
     static func savedTripsLimit(_ n: Int = 3) -> String {

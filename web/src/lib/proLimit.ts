@@ -41,7 +41,9 @@ export function proFeatureText(f: ProFeature, limit?: number): string {
 
 // A free account created after the planner cutoff: all trip planning is Pro (the server answers 402 pro_required to every plan). Trips it saved
 // earlier stay readable, exportable and deletable.
-export const PLANNER_ALL_PRO = "Trip planning is part of the Pro tier. Trips you saved earlier stay saved: you can open, export and delete them.";
+export const PLANNER_ALL_PRO = "Trip planning is part of the Pro tier.";
+// Added only when the account holds saved trips.
+export const PLANNER_ALL_PRO_SAVED = `${PLANNER_ALL_PRO} Trips you saved earlier stay saved: you can open, export and delete them.`;
 
 // Design key pro_entry (D5 A, mock m23a): the planner's note after Plan trip or Re-plan is pressed, saying what needs the Pro tier and how to
 // keep the plan free. Key off, proFeatureText("planner") is unchanged.

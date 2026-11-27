@@ -382,6 +382,12 @@ final class FixtureURLProtocol: URLProtocol {
             answer = live
         } else if ProcessInfo.processInfo.arguments.contains("-uitest-parked"), method == "GET", let live = parkedAnswer(path: url.path) {
             answer = live
+        } else if ProcessInfo.processInfo.arguments.contains("-uitest-planner-gated"), method == "GET", url.path == "/api/geocode" {
+            answer = Data(#"[{"name":"Example Destination","latitude":47.6588,"longitude":-117.426,"admin1":"Washington","country":"United States"},{"name":"Example Origin","latitude":47.6205,"longitude":-122.3493,"admin1":"Washington","country":"United States"}]"#.utf8)
+        } else if ProcessInfo.processInfo.arguments.contains("-uitest-planner-gated"), method == "POST", url.path == "/api/trips/plan" {
+            // A new free account: the planner answers 402 pro_required.
+            failed = 402
+            answer = Data(#"{"error":"pro_required"}"#.utf8)
         } else if let name = Self.file(method: method, path: url.path) {
             answer = data(named: name)
         }

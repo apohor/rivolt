@@ -5,7 +5,7 @@ import { backend } from "../lib/api";
 import { useDesignPreview } from "../lib/config";
 import { planState } from "../lib/plan";
 import { useProPrompt } from "../lib/proPrompts";
-import { PLANNER_ALL_PRO, PLANNER_NOTE_V2, proFeatureText, proLimitText, type ProFeature, type ProLimit } from "../lib/proLimit";
+import { PLANNER_ALL_PRO, PLANNER_ALL_PRO_SAVED, PLANNER_NOTE_V2, proFeatureText, proLimitText, type ProFeature, type ProLimit } from "../lib/proLimit";
 import { ProSheet, ProSheetPreload } from "./ProSheetLazy";
 import { proFromFeature } from "../lib/proFrom";
 import { DemoLinks } from "./DemoLinks";
@@ -16,7 +16,7 @@ import { demoLinksFor } from "../lib/demoLinks";
 //
 // `privacy` keeps the privacy controls in reach on a record the free window hides (they are free on every plan, nothing is deleted):
 // the export, "delete history before a month", and, where the record can be deleted by itself, that button (`extra`).
-export function ProLimitNotice({ limit, privacy = false, extra, feature, overnight = false }: { limit: ProLimit; privacy?: boolean; extra?: ReactNode; feature?: ProFeature; overnight?: boolean }) {
+export function ProLimitNotice({ limit, privacy = false, extra, feature, overnight = false, hasSavedTrips = false }: { hasSavedTrips?: boolean; limit: ProLimit; privacy?: boolean; extra?: ReactNode; feature?: ProFeature; overnight?: boolean }) {
   const me = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 });
   const state = planState(me.data);
   const [open, setOpen] = useState(false);
@@ -29,7 +29,7 @@ export function ProLimitNotice({ limit, privacy = false, extra, feature, overnig
   const notNow = useProPrompt("planner", entryV2 ? me.data : undefined);
   return (
     <div role="note" data-pro-limit={limit.code} className="rounded-lg border border-sky-800/60 bg-sky-950/40 px-3 py-3 text-sm text-sky-100">
-      <p>{plannerAll ? PLANNER_ALL_PRO : entryV2 && overnight ? PLANNER_NOTE_V2 : feature ? proFeatureText(feature, limit.code === "pro_required" ? limit.limit : undefined) : proLimitText(limit)}</p>
+      <p>{plannerAll ? (hasSavedTrips ? PLANNER_ALL_PRO_SAVED : PLANNER_ALL_PRO) : entryV2 && overnight ? PLANNER_NOTE_V2 : feature ? proFeatureText(feature, limit.code === "pro_required" ? limit.limit : undefined) : proLimitText(limit)}</p>
       {privacy && (
         <div data-pro-limit-privacy className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
           <Link to="/settings#export" className="underline underline-offset-2">Export everything</Link>

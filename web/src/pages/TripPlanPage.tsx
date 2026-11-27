@@ -720,7 +720,7 @@ export default function TripPlanPage() {
         <ReserveProvider value={v2 ? plannedReserve : null}>
         {plannerGated && !hasResult ? (
           <div data-planner-gated className="mx-auto max-w-xl py-6">
-            <ProLimitNotice limit={{ code: "pro_required" }} feature="planner" />
+            <ProLimitNotice limit={{ code: "pro_required" }} feature="planner" hasSavedTrips={(savedTripsQuery.data?.length ?? 0) > 0} />
           </div>
         ) : (
         <div data-plan-split data-has-result={hasResult ? "true" : undefined} data-plan-v2={v2 ? "" : undefined}>
