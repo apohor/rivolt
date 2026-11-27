@@ -258,7 +258,9 @@ func TestCancelledLeaderDoesNotFailTheOtherTiles(t *testing.T) {
 	if r.err != nil || len(r.b) == 0 {
 		t.Fatalf("the second tile failed with the leader's cancellation: %v", r.err)
 	}
-	_ = <-leaderErr
+	if err := <-leaderErr; err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, ErrFeedDown) {
+		t.Errorf("leader: %v", err)
+	}
 }
 
 // A grid that cannot be read is "try again" (ErrFeedDown), not "the hour is out of reach" (ErrNoForecast).
