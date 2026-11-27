@@ -72,7 +72,7 @@ class FakeApi:
             raise AssertionError("unexpected GET " + path)
         p = self.products[pid]
         if path.endswith("/subscriptionLocalizations"):
-            return 200, {"data": [{"id": "SL", "attributes": {"locale": "en-US", "name": "Rivolt Pro " + pid.rsplit(".", 1)[1].capitalize(), "description": "Full history, trends and multi-day trips"}}] if p.get("loc") else []}
+            return 200, {"data": [{"id": "SL", "attributes": {"locale": "en-US", "name": "Rivolt Pro " + pid.rsplit(".", 1)[1].capitalize(), "description": "Full history, trip planning and every vehicle"}}] if p.get("loc") else []}
         if path.endswith("/planAvailabilities"):
             return 200, {"data": [{"id": "PA-" + pid.rsplit(".", 1)[1], "attributes": {"planType": "UPFRONT"}}] if p.get("avail") else []}
         if path.startswith("/v1/subscriptionPlanAvailabilities/PA/availableTerritories"):
