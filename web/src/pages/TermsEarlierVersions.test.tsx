@@ -20,7 +20,7 @@ describe("earlier versions of the Terms", () => {
     for (const v of TERMS_VERSIONS) {
       expect(screen.getByRole("link", { name: v.label })).toHaveAttribute("href", `/terms/${v.key}`);
     }
-    expect(TERMS_VERSIONS.map((v) => v.key)).toEqual(["2026-11-22", "2026-11-21", "2026-11-17", "2026-10-23"]);
+    expect(TERMS_VERSIONS.map((v) => v.key)).toEqual(["2026-11-25", "2026-11-22", "2026-11-21", "2026-11-17", "2026-10-23"]);
   });
 
   // Through the app's own router: a version in the list without a route in App.tsx would be a dead link and fail here.
