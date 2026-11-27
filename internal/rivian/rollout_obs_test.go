@@ -88,8 +88,8 @@ func TestRolloutDriveLostIsASplit(t *testing.T) {
 	ctx := context.Background()
 	ev := &rolloutEvents{}
 	m := rolloutMonitor(newMemLiveStateStore(), ev, func() (time.Time, bool) { return rolloutAt.Add(4 * time.Minute), true })
+	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(5)) // the first frame after the acquire
 	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(6))
-	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(7))
 	got := ev.waitFor(t, 2)
 	if len(got) != 2 || got[0] != "rehydrate/drive/fresh" || got[1] != "split/drive/" {
 		t.Fatalf("events %v, want rehydrate/drive/fresh then split/drive/", got)
@@ -130,7 +130,7 @@ func TestRolloutCharge(t *testing.T) {
 
 	ev2 := &rolloutEvents{}
 	lost := rolloutMonitor(newMemLiveStateStore(), ev2, func() (time.Time, bool) { return rolloutAt.Add(3 * time.Minute), true })
-	lost.applyVehicleStatePush(ctx, rolloutVID, chargeFrame(6))
+	lost.applyVehicleStatePush(ctx, rolloutVID, chargeFrame(5))
 	if got := ev2.waitFor(t, 2); len(got) != 2 || got[1] != "split/charge/" {
 		t.Fatalf("lost: events %v", got)
 	}
@@ -172,7 +172,7 @@ func TestRolloutVehicleReturnsToTheSamePod(t *testing.T) {
 	m.mu.Lock()
 	m.noteAcquiredLocked(rolloutVID)
 	m.mu.Unlock()
-	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(16))
+	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(15))
 	if got := ev.waitFor(t, 2); len(got) != 2 || got[1] != "split/drive/" {
 		t.Fatalf("events %v, want a fresh rehydrate and a split on the second ownership", got)
 	}
@@ -188,6 +188,20 @@ func TestRolloutStopEndedLongBeforeTheAcquireIsANewDrive(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if got := ev.list(); len(got) != 0 {
 		t.Fatalf("events %v, want none: the stop ended before the hand-off", got)
+	}
+}
+
+// The Nov 27 false alarm: a rebalance hands the vehicle over just as the drive ends (the old pod closes the row at the acquire), the truck
+// parks for two minutes and drives again. The new drive opens long after the acquire and the previous row ended at it: a real stop, no split.
+func TestRolloutShortStopAfterTheHandOffIsNotASplit(t *testing.T) {
+	ctx := context.Background()
+	ev := &rolloutEvents{}
+	m := rolloutMonitor(newMemLiveStateStore(), ev, func() (time.Time, bool) { return rolloutAt.Add(5 * time.Minute), true })
+	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(7)) // acquire at minute 5, the drive resumes at minute 7
+	m.applyVehicleStatePush(ctx, rolloutVID, driveFrame(8))
+	time.Sleep(100 * time.Millisecond)
+	if got := ev.list(); len(got) != 0 {
+		t.Fatalf("events %v, want none: the drive opened 2 minutes after the acquire", got)
 	}
 }
 

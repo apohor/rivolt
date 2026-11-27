@@ -14,7 +14,7 @@ import (
 //	rehydrate fresh + split: the vehicle was mid-session at takeover, nothing was found, and the previous row of that kind ended less than
 //	                         splitGap before the new one began and no more than acquireSlack before the acquire (so it is the same trip or charge).
 //
-// A drive or charge that genuinely starts right after a takeover, with no previous row nearby or one that ended well before the hand-off, counts as nothing.
+// A session that opens more than openSlack after the acquire is not a split either. A drive or charge that genuinely starts right after a takeover, with no previous row nearby or one that ended well before the hand-off, counts as nothing.
 const (
 	// takeoverWindow is how long after this pod acquired the vehicle's group a fresh session opening still counts as a takeover.
 	takeoverWindow = 3 * time.Minute
@@ -23,6 +23,9 @@ const (
 	// acquireSlack: the previous row must also have ended no earlier than this before the acquire. A stop that ended well before the
 	// hand-off (a coffee stop, then the roll) is a new drive, not a lost one.
 	acquireSlack = 2 * time.Minute
+	// openSlack: a session cut by the hand-off reopens on the first frame the new pod sees. One that opens later than this after the acquire
+	// began after a real stop (the old pod closed the row at the hand-off, then the vehicle parked and drove again): a new drive, not a split.
+	openSlack = 30 * time.Second
 )
 
 // Rollout events and sources, the label values of the counters.
@@ -129,6 +132,9 @@ func (m *StateMonitor) classifyFresh(vehicleID, kind, id string, startedAt, acqu
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	end, ok := m.previousSessionEnd(ctx, vehicleID, kind, id)
+	if startedAt.Sub(acquired) > openSlack {
+		return
+	}
 	if !ok || startedAt.Sub(end) > splitGap || end.Sub(startedAt) > splitGap || end.Before(acquired.Add(-acquireSlack)) {
 		return
 	}
