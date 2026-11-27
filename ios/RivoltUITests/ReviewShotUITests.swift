@@ -12,7 +12,7 @@ final class ReviewShotUITests: XCTestCase {
                                                           here.deletingLastPathComponent().appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
         app.launchEnvironment["RIVOLT_UITEST_NO_TRUCK"] = "none"
         app.launchEnvironment["RIVOLT_UITEST_BILLING"] = "1"
-        app.launchArguments += ["-rivolt.appearance", "light"]
+        app.launchArguments += ["-rivolt.appearance", "light", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"]
         app.launch()
         let pro = app.buttons["Rivolt Pro"].firstMatch
         XCTAssertTrue(pro.waitForExistence(timeout: 30), "the Pro entry is on the no-vehicle screen")
