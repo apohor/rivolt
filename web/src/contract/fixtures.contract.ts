@@ -44,6 +44,7 @@ import sleepActivity from "../../../ios/RivoltTests/Fixtures/sleep_activity.json
 import trendsSpread from "../../../ios/RivoltTests/Fixtures/trends_capacity_spread.json";
 import yearInRivolt from "../../../ios/RivoltTests/Fixtures/year_in_rivolt.json";
 import mePlanFree from "../../../ios/RivoltTests/Fixtures/me_plan_free.json";
+import mePlanFreePlannerPro from "../../../ios/RivoltTests/Fixtures/me_plan_free_planner_pro.json";
 import mePlanTrial from "../../../ios/RivoltTests/Fixtures/me_plan_trial.json";
 import mePlanStripe from "../../../ios/RivoltTests/Fixtures/me_plan_subscriber.json";
 import mePlanApple from "../../../ios/RivoltTests/Fixtures/me_plan_apple.json";
@@ -123,6 +124,7 @@ export const _trendsSpread: Wide<TruckTrends> = trendsSpread;
 export const _yearInRivolt: Wide<YearInRivolt> = yearInRivolt;
 export const _yearNotYet: Wide<YearInRivolt> = yearNotYet;
 export const _mePlanFree: Wide<AuthUser> = mePlanFree;
+export const _mePlanFreePlannerPro: Wide<AuthUser> = mePlanFreePlannerPro;
 export const _mePlanTrial: Wide<AuthUser> = mePlanTrial;
 export const _mePlanStripe: Wide<AuthUser> = mePlanStripe;
 export const _mePlanApple: Wide<AuthUser> = mePlanApple;

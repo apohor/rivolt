@@ -5,12 +5,15 @@ const DEMO = "https://demo.rivolt.dev/demo";
 export type DemoLink = { label: string; href: string };
 
 export const DEMO_PLANNER: DemoLink = { label: "See the multi-day planner in the demo", href: `${DEMO}/trips/plan` };
+// The same page, named for an account for which every plan is Pro (the sample planner is the whole planner, not only its multi-day part).
+export const DEMO_PLANNER_ALL: DemoLink = { label: "See the trip planner in the demo", href: `${DEMO}/trips/plan` };
 export const DEMO_HISTORY: DemoLink = { label: "See full history in the demo", href: `${DEMO}/activity` };
 export const DEMO_TRENDS: DemoLink = { label: "See trends in the demo", href: `${DEMO}/truck` };
 
 // The links that fit a limit note: the planner's for a planner, plan-vs-actual or saved-trips limit; history and trends for data
 // outside the free window. None for the others.
-export function demoLinksFor(o: { feature?: string; code: string }): DemoLink[] {
+export function demoLinksFor(o: { feature?: string; code: string; plannerAll?: boolean }): DemoLink[] {
+  if (o.feature === "planner" && o.plannerAll) return [DEMO_PLANNER_ALL];
   if (o.feature === "planner" || o.feature === "plan-vs-actual" || o.feature === "saved-trips") return [DEMO_PLANNER];
   if (!o.feature && o.code === "outside_free_window") return [DEMO_HISTORY, DEMO_TRENDS];
   return [];

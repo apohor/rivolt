@@ -1858,8 +1858,8 @@ func New(d Deps) http.Handler {
 				r.With(requireTripPlannerEnabledMW(d.Flags), proOnlyMiddleware(d.Entitlements), ls.user("trips-overnight", tripsOvernightPerMin).Middleware).Post("/trips/overnight-candidates", handleOvernightCandidates(d.ChargersArchive, d.pathRouter(), d.lodgingSource()))
 			}
 			// The no-commit "what if" preview of a via edit: our own Valhalla only, no Rivian call, nothing stored (trip_whatif.go).
-			r.With(requireTripPlannerEnabledMW(d.Flags), ls.user("trips-what-if", tripsWhatIfPerMin).Middleware).Post("/trips/what-if", handleTripWhatIf(d.geometryRouter(), d.Metrics))
-			r.With(requireTripPlannerEnabledMW(d.Flags)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(requireTripPlannerEnabledMW(d.Flags), plannerProMiddleware(d.Entitlements), ls.user("trips-what-if", tripsWhatIfPerMin).Middleware).Post("/trips/what-if", handleTripWhatIf(d.geometryRouter(), d.Metrics))
+			r.With(requireTripPlannerEnabledMW(d.Flags), plannerProMiddleware(d.Entitlements)).Post("/trips/plan", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlan(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanRadar(withPlanRadarPlan(withPlanElevation(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics), d.PlanElevation), d.Entitlements.Pro(r.Context(), uid)), d.PlanRadar)))
 			}))
 			// Multi-day plan is mounted in the AI-bound group below
@@ -1899,10 +1899,10 @@ func New(d Deps) http.Handler {
 			r.Get("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripsList(d.Trips.For(uid), d.Entitlements, uid)(w, r)
 			}))
-			r.With(savedTripWriteLimiter.Middleware).Post("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(plannerProMiddleware(d.Entitlements), savedTripWriteLimiter.Middleware).Post("/trips/saved", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripCreate(d.Trips.For(uid), d.Entitlements, uid)(w, r)
 			}))
-			r.With(savedTripWriteLimiter.Middleware).Put("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(plannerProMiddleware(d.Entitlements), savedTripWriteLimiter.Middleware).Put("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleSavedTripUpdate(d.Trips.For(uid), d.Entitlements, uid)(w, r)
 			}))
 			r.Delete("/trips/saved/{id}", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
@@ -1949,13 +1949,13 @@ func New(d Deps) http.Handler {
 			r.With(historyWindowMiddleware(d.Entitlements), rowVehicleMiddleware(pv, "drives"), aiGate, aiBudgetMW, aiTaste).Post("/drives/{id}/efficiency", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleDriveEfficiencyPost(d, uid)(w, r)
 			}))
-			r.With(aiGate, aiBudgetMW, aiTaste).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(plannerProMiddleware(d.Entitlements), aiGate, aiBudgetMW, aiTaste).Post("/trips/plan/advice", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanAdvice(d.SettingsMgr, d.Settings.For(uid), d.WeatherClient)(w, r)
 			}))
 			// Multi-day orchestrator: N sequential planTrip2 calls.
 			// Lives here so it inherits the 5-minute timeout — three
 			// legs at ~10s each blow the timed-group's 30s budget.
-			r.With(requireTripPlannerEnabledMW(d.Flags), multidayProMiddleware(d.Entitlements)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
+			r.With(requireTripPlannerEnabledMW(d.Flags), plannerProMiddleware(d.Entitlements), multidayProMiddleware(d.Entitlements)).Post("/trips/plan-multiday", withUser(func(uid uuid.UUID, w http.ResponseWriter, r *http.Request) {
 				handleTripPlanMultiday(withLegCache(d, uid, clientFor(d, uid)), monitorFor(d, uid), d.DB, uid, d.SettingsMgr, d.Settings.For(uid), d.WeatherClient, d.WeatherCache)(w, r.WithContext(withPlanRadar(withPlanRadarPlan(withPlanElevation(withPlanGeometry(withPlanOwnRates(r.Context(), ownRatesFor(d, uid)), d.geometryRouter(), d.Metrics), d.PlanElevation), d.Entitlements.Pro(r.Context(), uid)), d.PlanRadar)))
 			}))
 		})

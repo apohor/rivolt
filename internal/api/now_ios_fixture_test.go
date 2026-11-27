@@ -65,14 +65,15 @@ func iosFixtureTargets() map[string]any {
 		"me.json":            &meResponse{},
 		"me_unaccepted.json": &meResponse{},
 		// The Pro plan fields of /api/auth/me (Sprint 14): free, a running trial, the founding year, a subscriber.
-		"me_plan_free.json":       &meResponse{},
-		"me_plan_trial.json":      &meResponse{},
-		"me_plan_founding.json":   &meResponse{},
-		"me_plan_subscriber.json": &meResponse{},
-		"me_plan_apple.json":      &meResponse{},
-		"me_plan_lapsed.json":     &meResponse{},
-		"me_plan_cancelled.json":  &meResponse{}, // a subscription set to not renew: Pro until plan_cancels_at
-		"me_plan_grace.json":      &meResponse{}, // a failed renewal inside the 7-day grace: plan_grace_ends
+		"me_plan_free.json":             &meResponse{},
+		"me_plan_free_planner_pro.json": &meResponse{},
+		"me_plan_trial.json":            &meResponse{},
+		"me_plan_founding.json":         &meResponse{},
+		"me_plan_subscriber.json":       &meResponse{},
+		"me_plan_apple.json":            &meResponse{},
+		"me_plan_lapsed.json":           &meResponse{},
+		"me_plan_cancelled.json":        &meResponse{}, // a subscription set to not renew: Pro until plan_cancels_at
+		"me_plan_grace.json":            &meResponse{}, // a failed renewal inside the 7-day grace: plan_grace_ends
 		// Billing off after a rollback, but this account still holds a Stripe subscription: manage_subscription (Manage -> the portal).
 		"me_plan_billing_off_manage.json": &meResponse{},
 		// What the iPhone token gets today for a free account: billing_enabled false because RIVOLT_BILLING_IOS is off.

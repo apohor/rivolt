@@ -28,7 +28,7 @@ HOW IT WORKS
 Sign in with your Rivolt account through a browser sheet. The app never sees your Rivian password. It keeps only a Rivolt sign-in token, which you can revoke from Signed-in devices. We recommend connecting a second Rivian account added as an Authorized Driver, so you can remove Rivolt from the Rivian app at any time. Rivolt sends no commands to your truck (no locks, climate or charging controls). Reading its data can occasionally wake it.
 
 FREE AND PRO
-Rivolt has a free tier and a Pro tier. The free tier records every drive and charge and always includes the full export of your data. Rivolt Pro adds unlimited history and trends, multi-day trip plans with overnights, plan-vs-actual, every vehicle. Pro belongs to your Rivolt account: sign in to the app with an account that has Pro and it applies. The app itself sells nothing. If a Pro subscription ends, nothing is deleted and your export stays free.
+Rivolt has a free tier and a Pro tier. The free tier records every drive and charge and always includes the full export of your data. Rivolt Pro adds unlimited history and trends, the trip planner with multi-day plans and overnights, plan-vs-actual, every vehicle. Pro belongs to your Rivolt account: sign in to the app with an account that has Pro and it applies. The app itself sells nothing. If a Pro subscription ends, nothing is deleted and your export stays free.
 
 Estimates are labelled as estimates. Nothing compares your truck with other owners'. There are no ads and no third-party analytics; you can export or delete your data from Settings. The code is open source (MIT) and you can run your own server.
 

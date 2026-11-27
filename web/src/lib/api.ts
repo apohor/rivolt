@@ -2660,6 +2660,8 @@ export type AuthUser = {
   history_from?: string | null;
   // How many calendar months before this one the window reaches (6; 12 for an account still inside the 30 days' notice), null on Pro. Copy that names the window takes the number from here.
   history_months?: number | null;
+  // True on a free account for which trip planning is Pro (it was created after the planner cutoff). Absent from an older server: planning is open.
+  planner_pro_only?: boolean;
 };
 
 // How the account shows distance and temperature (the server always stores km and °C). A source of "unset" means nothing was
