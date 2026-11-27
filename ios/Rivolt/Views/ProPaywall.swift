@@ -167,6 +167,12 @@ enum ProCopy {
     static let deletionNote = "If you subscribed through the App Store, cancel in Settings → your name → Subscriptions first: deleting your Rivolt account doesn't cancel it."
 
     // What each free-plan limit says (the web's `proFeatureText`): why, what stays free, and that nothing is lost.
+    /// A single-day plan refused with 402: only an account for which all trip planning is Pro (made after the planner cutoff) is refused one.
+    /// Facts only (iPhone Pro wording D7): no price, no way to buy.
+    static let plannerAllPro = "Trip planning is part of the Pro tier."
+    static let plannerSavedTrips = "Trips you saved earlier stay saved: you can open and delete them."
+    /// The gated Plan card's text: the tier fact, and the saved-trips line only when the account has saved trips.
+    static func plannerGated(hasSavedTrips: Bool) -> String { hasSavedTrips ? "\(plannerAllPro) \(plannerSavedTrips)" : plannerAllPro }
     static let plannerLimit = "Multi-day plans, overnights and re-plan from here are part of Rivolt Pro. A single-day plan stays free."
     static let planVsActualLimit = "Plan vs actual is part of Rivolt Pro. Your saved trips and drives are kept either way."
     static func savedTripsLimit(_ n: Int = 3) -> String {
@@ -493,6 +499,7 @@ struct ProPaywallView: View {
         do {
             try await buyer.purchase(yearly: yearly)
             message = ProCopy.purchased
+            _ = try? await state.readMe()  // the plan now includes Pro: the screens that gate on it (Plan) follow at once
         } catch { message = ProCopy.purchaseMessage(error) }
     }
 
@@ -503,6 +510,7 @@ struct ProPaywallView: View {
         do {
             try await buyer.restore()
             message = ProCopy.restored
+            _ = try? await state.readMe()
         } catch { message = ProCopy.purchaseMessage(error) }
     }
 }

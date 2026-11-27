@@ -302,6 +302,9 @@ type PlanFields struct {
 	// HistoryMonths is how many calendar months before the current one the window reaches back (histwin.Months, or 12 for an account created before the
 	// cutoff); null where HistoryDays is. Clients that name the window in words take the number from here and never carry it.
 	HistoryMonths *int `json:"history_months"`
+	// PlannerProOnly is true on a free account for which trip planning is Pro (created at or after RIVOLT_PLANNER_PRO_FROM): its plan, what-if,
+	// advice, multi-day and saved-trip writes answer 402 pro_required. Absent otherwise (an older server never sends it: clients treat that as open).
+	PlannerProOnly bool `json:"planner_pro_only,omitempty"`
 }
 
 // planFor builds the plan fields for an account; nil when the lookup failed.
@@ -317,6 +320,7 @@ func planFor(ctx context.Context, e *entitlements.Service, uid uuid.UUID) *PlanF
 	pf := planFromState(st, e.Billing(), created, time.Now())
 	pf.ManageSubscription = e.ManageSubscription(ctx, uid)
 	pf.PaidViaStripe = e.LivePaid(ctx, uid, entitlements.SourceStripe)
+	pf.PlannerProOnly = !st.Pro && !e.PlannerOpen(ctx, uid)
 	return pf
 }
 

@@ -51,6 +51,8 @@ const SearchNearContext = createContext<{ lat: number; lon: number } | null>(nul
 export default function TripPlanPage() {
   const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, plannedTargetRef, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
   const [planTab, setPlanTab] = usePlanTab();
+  // A free account for which all trip planning is Pro: the Planner tab says so in place of the form (Saved still lists and deletes its trips).
+  const plannerGated = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 }).data?.planner_pro_only === true;
   // plan_v2 (preview): once a plan is shown the result takes over and the form folds to one summary line.
   const v2 = useDesignPreview("plan_v2");
   // plan_v2: the result is judged against the target it was planned with, so editing the field does not retint it before planning again.
@@ -720,6 +722,11 @@ export default function TripPlanPage() {
             anything that follows the selection. A new plan clears it. */}
         <PlanSelectionProvider routeKey={loadedSnapshot?.plan ?? planMutation.data ?? multiday ?? null}>
         <ReserveProvider value={v2 ? plannedReserve : null}>
+        {plannerGated && !hasResult ? (
+          <div data-planner-gated className="mx-auto max-w-xl py-6">
+            <ProLimitNotice limit={{ code: "pro_required" }} feature="planner" hasSavedTrips={(savedTripsQuery.data?.length ?? 0) > 0} />
+          </div>
+        ) : (
         <div data-plan-split data-has-result={hasResult ? "true" : undefined} data-plan-v2={v2 ? "" : undefined}>
           {formEl}
           {resultEl}
@@ -728,6 +735,7 @@ export default function TripPlanPage() {
           )}
           {planning && usingNight && <p role="status" className="sr-only">Re-planning with {usingNight} as the night</p>}
         </div>
+        )}
         </ReserveProvider>
         </PlanSelectionProvider>
       </PlanTabPanel>

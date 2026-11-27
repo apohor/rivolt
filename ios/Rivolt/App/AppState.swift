@@ -406,6 +406,9 @@ final class AppState {
 
     /// Bumped when the units shown change, so the screens read them again.
     private(set) var unitsRevision = 0
+    /// Whether all trip planning is Pro for this account, from the last read of /me (planner_pro_only); nil until it is read. Every read goes
+    /// through `readMe`, so a purchase or a restore that reads /me flips it and the Plan tab follows at once.
+    private(set) var plannerProOnly: Bool?
 
     /// The account's units become the phone's. An account that has none yet is seeded once from the phone's region (a server that
     /// has no such setting leaves the phone's region in charge).
@@ -445,6 +448,7 @@ final class AppState {
     /// plan is written whenever it is read (sign-in, a purchase, a restore, the Settings and Money screens), not only at launch.
     func readMe() async throws -> AuthUser {
         let me = try await client.me()
+        plannerProOnly = me.plannerProOnly == true
         if !isDemo, WidgetGate.record(me) { reloadWidgets() }
         return me
     }
@@ -462,6 +466,7 @@ final class AppState {
     }
 
     func logout() async {
+        plannerProOnly = nil
         // The demo has no session to end: "Sign in" there just leaves it.
         if isDemo { leaveDemo(); return }
         // Best effort on the server; locally the token always goes, so the UI

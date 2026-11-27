@@ -79,6 +79,14 @@ func TestProGateRoutesCarryTheirMiddleware(t *testing.T) {
 		"GET /api/state/{vehicleID}":        "vehicleGateMiddleware",
 		"GET /api/live-drive/{vehicleID}":   "vehicleGateMiddleware",
 	}
+	// Every trip-planning route is also behind the planner cutoff gate (Pro for an account created at or after RIVOLT_PLANNER_PRO_FROM).
+	planner := map[string]bool{"POST /api/trips/plan": true, "POST /api/trips/plan-multiday": true, "POST /api/trips/what-if": true,
+		"POST /api/trips/plan/advice": true, "POST /api/trips/saved": true, "PUT /api/trips/saved/{id}": true}
+	for key := range planner {
+		if _, ok := want[key]; !ok {
+			want[key] = "plannerProMiddleware"
+		}
+	}
 	found := map[string]bool{}
 	err := chi.Walk(contractRouter(t), func(method, route string, _ http.Handler, mws ...func(http.Handler) http.Handler) error {
 		key := method + " " + strings.TrimSuffix(route, "/")
@@ -87,6 +95,9 @@ func TestProGateRoutesCarryTheirMiddleware(t *testing.T) {
 			if !hasMiddlewareNamed(mws, name) {
 				t.Errorf("%s is not behind %s", key, name)
 			}
+		}
+		if planner[key] && !hasMiddlewareNamed(mws, "plannerProMiddleware") {
+			t.Errorf("%s is not behind plannerProMiddleware", key)
 		}
 		return nil
 	})

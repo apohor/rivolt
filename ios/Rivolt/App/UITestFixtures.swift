@@ -53,13 +53,19 @@ final class FixtureURLProtocol: URLProtocol {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
+    /// With `-uitest-planner-gated`: the account "buys Pro" when the test creates the file named by RIVOLT_UITEST_BOUGHT_PRO_FILE.
+    static var boughtPro: Bool {
+        guard let path = ProcessInfo.processInfo.environment["RIVOLT_UITEST_BOUGHT_PRO_FILE"] else { return false }
+        return FileManager.default.fileExists(atPath: path)
+    }
+
     /// The answer's file for a path, or nil (a 404).
     static func file(method: String, path: String) -> String? {
         switch (method, path) {
         // The iPhone elevation chart is a preview-only design (design_preview key ios_elevation): on only when the UI test asks.
         case ("GET", "/api/config") where ProcessInfo.processInfo.arguments.contains("-uitest-ios-elevation"):
             return ProcessInfo.processInfo.arguments.contains("-uitest-now-v2") ? "config_now_v2_elevation" : "config_ios_elevation"
-        case ("GET", "/api/auth/me"): return "me"
+        case ("GET", "/api/auth/me"): return ProcessInfo.processInfo.arguments.contains("-uitest-planner-gated") ? (Self.boughtPro ? "me_plan_subscriber" : "me_plan_free_planner_pro") : "me"
         case ("GET", "/api/vehicles"): return "vehicles"
         case ("GET", "/api/trips/saved"): return "trip_saved_list"
         // The place search: a charger-list hotel (EV charging) and a plain Photon row.

@@ -562,7 +562,7 @@ final class TripPlanModel {
             state = plan.best == nil ? .failed("The planner found no route for that trip.") : .planned(plan)
         } catch {
             if Task.isCancelled { state = .idle; return }
-            state = .failed(TripPlanLogic.failure(error))
+            state = .failed(TripPlanLogic.failure(error, singleDay: true))
         }
     }
 
