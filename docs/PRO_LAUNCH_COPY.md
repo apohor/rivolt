@@ -26,7 +26,7 @@ Rivolt has been free during its public beta. From November 17, 2026 the hosted s
 
 Your account has Pro at no charge until November 17, 2027. There is no card on file and nothing will be charged. We will email you and show a notice in the app at least 30 days before that date. After it, your account is on the free tier unless you choose to subscribe.
 
-What the free tier keeps: every drive and charge keeps being recorded; Now, Activity, Money and Truck for the last 6 months (12 for accounts created before November 22, 2026); the monthly statement; a single-day trip planner; three saved trips; trip share links and all share cards; the charging Live Activity and the small Now widget on iPhone; imports; every alert; and the full export of everything Rivolt holds, always, including history older than the free window. Nothing is ever deleted when a plan ends.
+What the free tier keeps: every drive and charge keeps being recorded; Now, Activity, Money and Truck for the last 3 months (12 for accounts created before 12:00 pm Central on November 25, 2026); the monthly statement; a single-day trip planner; three saved trips; trip share links and all share cards; the charging Live Activity and the small Now widget on iPhone; imports; every alert; and the full export of everything Rivolt holds, always, including history older than the free window. Nothing is ever deleted when a plan ends.
 
 If you have more than one vehicle: on the free plan, Rivolt keeps recording every drive and charge on all your vehicles, but shows one vehicle at a time (you choose which). Every vehicle stays in your full export, and Pro shows them all.
 
@@ -71,7 +71,7 @@ Your account has had Rivolt Pro at no charge since Pro launched. That ends on No
 
 [If the date was moved to give 30 days' notice: "We moved this date from {old date} to November 17, 2027 so that you have at least 30 days' notice."]
 
-What changes on that date: Activity, Money and Truck show the free window (the last 6 months, or 12 for accounts created before November 22, 2026); the planner plans single-day trips; three saved trips stay editable and the rest stay read-only; one vehicle is shown at a time; trends and range near a temperature are not shown; the other iPhone widgets are Pro-only; the small Now widget and the charging Live Activity stay free.
+What changes on that date: Activity, Money and Truck show the free window (the last 3 months, or 12 for accounts created before 12:00 pm Central on November 25, 2026); the planner plans single-day trips; three saved trips stay editable and the rest stay read-only; one vehicle is shown at a time; trends and range near a temperature are not shown; the other iPhone widgets are Pro-only; the small Now widget and the charging Live Activity stay free.
 
 What does not change: every drive and charge keeps being recorded on every connected vehicle, every alert keeps working, and the full export of everything, including history older than the free window, stays free.
 
@@ -150,7 +150,7 @@ Title: **Rivolt Pro**
 Subtitle: Full history, multi-day trips and more widgets, from $3.99 a month.
 
 What's included (one list, as shown):
-- Unlimited history and trends (free tier: the last 6 months, or 12 for older accounts)
+- Unlimited history and trends (free tier: the last 3 months, or 12 for older accounts)
 - Range near a temperature
 - Multi-day trip plans with hotel and campground overnights
 - Re-plan from where the truck is, and plan-vs-actual after the trip

@@ -25,6 +25,19 @@ func newPlanRadar(getenv func(string) string, m *metrics.Metrics) (api.RadarSour
 	}
 	st := radar.NewStore(base, nil)
 	if m != nil {
+		tiles := prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rivolt_radar_tiles_total",
+			Help: "Forecast radar tiles served for the planner map by outcome: hit (cached), render (drawn) or absent (nothing to draw there).",
+		}, []string{"outcome"})
+		for _, o := range []string{"hit", "render", "absent"} {
+			tiles.WithLabelValues(o)
+		}
+		m.Registry().MustRegister(tiles)
+		st.OnTile = func(o string) { tiles.WithLabelValues(o).Inc() }
+		m.Registry().MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "rivolt_radar_tile_cache_bytes",
+			Help: "Forecast radar PNG tiles held in this pod's memory.",
+		}, func() float64 { return float64(st.TileCachedBytes()) }))
 		// The decoded grids a pod holds, to read against its memory limit (the cache is capped at radar.DefaultCacheBytes).
 		m.Registry().MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 			Name: "rivolt_radar_cache_bytes",

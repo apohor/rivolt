@@ -15,7 +15,7 @@ CAPTIONS = [
     ("now", "Your Rivian at a glance"),
     ("money", "What charging actually cost"),
     ("drive", "Every drive, route and charts"),
-    ("charge", "Every charge, with its cost and where it came from"),
+    ("charge", "Every charge, with its cost"),
     ("truck", "Parked drain, from your truck"),
     ("trust", "Sends no commands to your truck. Your Rivian password is never stored."),
 ]

@@ -702,6 +702,7 @@ func runServer() {
 					appMetrics.Entitlements.WithLabelValues(k[0], k[1]).Set(float64(n))
 				}
 				appMetrics.Accounts.Set(float64(st.Accounts))
+				appMetrics.PayingTwice.Set(float64(st.PayingTwice))
 			})
 		})
 	}
@@ -758,8 +759,19 @@ func runServer() {
 		}
 		appleNotifications = &applebill.Handler{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger,
 			Observe: func(outcome string) { appMetrics.AppleNotificationsTotal.WithLabelValues(outcome).Inc() }}
-		appleTransaction = &applebill.Transaction{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger}
-		logger.Info("StoreKit enabled", "environment", appleIAP.Environment)
+		appleTransaction = &applebill.Transaction{DB: pgPool, Verifier: verifier, Config: appleIAP, Invalidate: entitlementsSvc.Invalidate, Log: logger,
+			SandboxRefused: func() { appMetrics.AppleSandboxRefusedTotal.Inc() }}
+		if appleIAP.AcceptSandbox {
+			appMetrics.AppleSandboxAccepting.Set(1)
+		} else {
+			// The flag is on only while a version is in review: when it goes off, what the review account bought ends with it.
+			if n, err := applebill.EndSandbox(ctx, pgPool); err != nil {
+				logger.Warn("StoreKit: could not end Sandbox entitlements", "err", err.Error())
+			} else if n > 0 {
+				logger.Info("StoreKit: ended Sandbox entitlements", "count", n)
+			}
+		}
+		logger.Info("StoreKit enabled", "environment", appleIAP.Environment, "accept_sandbox", appleIAP.AcceptSandbox)
 	}
 
 	// Row-level security, stage 2: the pool request handling uses. Unset (the default) it is pgPool itself; see requestpool.go.
@@ -2843,11 +2855,13 @@ func runServer() {
 					issuer = "https://appleid.apple.com"
 				}
 				appleNotifier = &appleid.Notifier{
-					Verify:   appleid.NewVerifier(ctx, issuer, p.ClientID),
-					Store:    appleid.New(pgPool, secretsStore),
-					Sessions: sessionStore,
-					Mail:     mailer,
-					Logger:   logger,
+					ClientID:     p.ClientID,
+					AppAudiences: appleid.AppBundleIDs(os.Getenv),
+					Verify:       appleid.NewVerifier(ctx, issuer),
+					Store:        appleid.New(pgPool, secretsStore),
+					Sessions:     sessionStore,
+					Mail:         mailer,
+					Logger:       logger,
 				}
 			}
 		}

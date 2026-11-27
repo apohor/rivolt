@@ -163,10 +163,13 @@ function DrainSplitView({ split, win }: { split: DrainSplit; win: "7d" | "30d" }
   const total = asleep + awake;
   const share = split.awake_share_of_loss ?? 0;
   if (total <= 0) return null;
+  // The share of the loss, the same number the bar shows (not points, which round a small awake loss to 0%).
+  const awakePct = Math.round(share * 100);
+  const awakeText = awake > 0 && awakePct < 1 ? "less than 1%" : `about ${awakePct}%`;
   return (
     <div data-drain-split="ok" className="mt-3 space-y-1.5">
       <p className="text-sm text-neutral-300">
-        Of the {Math.round(total)}% your truck lost while parked {span}, about {Math.round(awake)}% was while it was awake
+        Of the {Math.round(total)}% your truck lost while parked {span}, {awakeText} of it was while it was awake
         {split.awake_hours != null ? ` (${formatHours(split.awake_hours)})` : ""}.
       </p>
       <div role="img" aria-label={`${Math.round(share * 100)}% of the loss was while awake, ${Math.round((1 - share) * 100)}% while asleep`} className="flex h-2 w-full overflow-hidden rounded-full bg-neutral-800">

@@ -18,7 +18,7 @@ for (const v of [
     await stubApi(page, { drain: "ok" });
     await page.goto("/truck");
     const split = page.locator("[data-drain-split='ok']");
-    await expect(split).toContainText("Of the 5% your truck lost while parked this week, about 4% was while it was awake");
+    await expect(split).toContainText("Of the 5% your truck lost while parked this week, about 80% of it was while it was awake");
     await expect(split).toContainText("Estimate: the battery reports whole percents.");
     await expect(split.getByRole("img")).toHaveAttribute("aria-label", /% of the loss was while awake/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

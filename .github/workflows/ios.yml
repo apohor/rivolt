@@ -59,6 +59,7 @@ jobs:
         run: |
           python3 -I ios/store/test_check_listing.py -v
           python3 -I ios/store/test_asc_listing.py -v
+          python3 -I ios/store/test_asc_subscriptions.py -v
           python3 -I ios/store/check_listing.py ios/store/listing.md
 
   # Compatibility run: the unit tests on the older toolchain and iOS 26.2 simulator,
@@ -311,6 +312,8 @@ jobs:
             -test-timeouts-enabled YES \
             -default-test-execution-time-allowance 240 \
             -maximum-test-execution-time-allowance 240 \
+            -retry-tests-on-failure \
+            -test-iterations 2 \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath "$RUNNER_TEMP/ui.xcresult" \
             -derivedDataPath "$RUNNER_TEMP/dd" \
@@ -340,9 +343,16 @@ jobs:
             | jq -r '(.errors[]?, (.warnings[]? | select(.message | test("crash|timed out|Timed out|failed to launch|Failed to launch|Lost connection")))) | "runner: \(.message)"' || true
           total=$(jq -r '.totalTestCount' "$RUNNER_TEMP/summary.json")
           if [ "${total:-0}" -lt 1 ]; then echo "no UI tests ran"; exit 1; fi
+          # A test that failed its first run and passed the retry (-retry-tests-on-failure: one retry, no more) is a pass for the job and a flake for
+          # us: name it here and in the job summary so the flaky list can be counted run by run.
+          xcrun xcresulttool get test-results tests --path "$bundle" --compact \
+            | jq -r '.. | objects | select(.nodeType? == "Test Case" and .result? == "Passed" and ([.. | objects | select(.nodeType? == "Repetition" and .result? == "Failed")] | length) > 0) | .nodeIdentifier // .name' \
+            > "$RUNNER_TEMP/retried.txt" || true
+          if [ -s "$RUNNER_TEMP/retried.txt" ]; then echo "passed on retry: $(paste -sd, "$RUNNER_TEMP/retried.txt")"; fi
           {
             echo "### iOS UI tests (${{ matrix.shard }})"
             jq -r '"\(.passedTests) passed, \(.failedTests) failed, \(.skippedTests) skipped (\(.totalTestCount) total)"' "$RUNNER_TEMP/summary.json"
+            if [ -s "$RUNNER_TEMP/retried.txt" ]; then echo; echo "Passed on retry (flaky):"; sed 's/^/- /' "$RUNNER_TEMP/retried.txt"; fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the result bundle

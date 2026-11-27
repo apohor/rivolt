@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -20,6 +22,7 @@ const (
 	DefaultCacheBytes = 48 << 20
 
 	manifestTTL = time.Minute
+	loadTimeout = 15 * time.Second // one shared grid load, whoever started it
 )
 
 type manifest struct {
@@ -45,6 +48,11 @@ type Store struct {
 	lru     *list.List // of *entry, front = most recent
 	entries map[string]*list.Element
 	loading map[string]*load
+
+	tileState
+	tileFlight singleflight.Group
+	// OnTile, when set, is told the outcome of each forecast tile: hit (cached), render (drawn) or absent (nothing to draw).
+	OnTile func(outcome string)
 }
 
 type entry struct {
@@ -132,7 +140,11 @@ func (s *Store) grid(ctx context.Context, cycle string, fh int) (*Grid, error) {
 	s.loading[key] = l
 	s.mu.Unlock()
 
-	l.g, l.err = s.fetch(ctx, cycle, fh)
+	// The load is shared by everyone waiting on this key, so it must not die with the first caller (a map cancels its tile requests on every pan):
+	// it keeps the caller's values, drops the cancellation and has its own deadline. Each waiter still leaves on its own ctx.
+	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), loadTimeout)
+	l.g, l.err = s.fetch(lctx, cycle, fh)
+	cancel()
 
 	s.mu.Lock()
 	delete(s.loading, key)

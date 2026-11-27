@@ -163,7 +163,7 @@ func (h *Handler) apply(ctx context.Context, p NotificationPayload, ti Transacti
 	if signed == 0 {
 		signed = ti.SignedDate
 	}
-	applied, err := applyDecision(ctx, tx, uid, ti, d, signed, p.NotificationType == "REFUND_REVERSED")
+	applied, err := applyDecision(ctx, tx, uid, ti, d, signed, p.NotificationType == "REFUND_REVERSED", false)
 	if err != nil {
 		return "", uuid.Nil, err
 	}

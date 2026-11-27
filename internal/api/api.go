@@ -807,7 +807,7 @@ func New(d Deps) http.Handler {
 		if d.Auth != nil {
 			r.Route("/auth", func(r chi.Router) {
 				r.Post("/logout", d.logoutHandler())
-				r.Get("/me", handleMeEnrichedPlan(d.Auth, d.DB, d.AdminDisabled, d.unitsFor(), d.passkeyAPI() != nil && !d.AdminOnly, d.Entitlements, d.BillingIOS))
+				r.Get("/me", handleMeEnrichedPlan(d.Auth, d.DB, d.AdminDisabled, d.unitsFor(), d.passkeyAPI() != nil && !d.AdminOnly, d.Entitlements, d.BillingIOS, d.reviewConfig()))
 				if d.Sessions != nil && !d.AdminOnly {
 					r.Get("/sessions", d.Sessions.List)
 					r.Post("/sessions/revoke-others", d.Sessions.RevokeOthers)
@@ -1037,6 +1037,10 @@ func New(d Deps) http.Handler {
 			}
 			if d.Radar != nil {
 				r.Mount("/maps/radar", radarMount(ls, d.Radar))
+			}
+			// The planner map's forecast radar for a chosen hour: Pro only, drawn from the grids the plan's leg tags read.
+			if ft, ok := d.PlanRadar.(ForecastTiles); ok && ft != nil {
+				r.Mount("/maps/forecast-radar", forecastRadarMount(ls, ft, d.Entitlements))
 			}
 			// Server-side chargers-along-corridor query. Replaces the
 			// SPA's PMTiles per-tile fan-out (hundreds of HTTP range

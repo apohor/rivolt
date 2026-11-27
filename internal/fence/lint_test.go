@@ -54,6 +54,7 @@ var notOwnerSide = map[string]string{
 	"launchnotice.Store.ClaimEmailAny":     "singleton maintenance job (the hourly dated-notice sweep): the email claim of a renewal reminder",
 	"applebill.Handler.apply":              "Apple's signed notification, applied once (a database row) to the entitlement table: a billing event, not a vehicle group's owner state",
 	"applebill.PurgeEvents":                "retention job (the daily sweep of old notification ids)",
+	"applebill.EndSandbox":                 "start-up sweep when the deployment stops accepting Apple Sandbox purchases (App Review is over): ends the review account's Sandbox entitlements, idempotent",
 	"applebill.Transaction.link":           "user action (api: the signed-in account reports its own purchase)",
 	"applebill.applyDecision":              "Apple's notification or the account's own report applied to the entitlement table (see Handler.apply and Transaction.link)",
 	"launchnotice.Store.Ensure":            "operator command (rivolt launch-notice): a one-shot run by an operator, not by a group's owner",

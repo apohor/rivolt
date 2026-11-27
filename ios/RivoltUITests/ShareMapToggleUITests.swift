@@ -24,7 +24,9 @@ final class ShareMapToggleUITests: XCTestCase {
         XCTAssertTrue(map.waitForExistence(timeout: 20), "the map switch is offered once the route is in")
         XCTAssertEqual(map.value as? String, "0", "off on the first open")
         map.tap()
-        XCTAssertTrue(map.becomesValue("1"), "turned on: \(map.value as? String ?? "?")")
+        // Wait on a query that includes the value, not on a predicate over one resolved element: the query is re-resolved on every poll, so a
+        // switch the sheet re-created while its card redraws (the map is drawn after the tap) is found, where a held element read it stale.
+        XCTAssertTrue(mapSwitch(app, value: "1").waitForExistence(timeout: 20), "turned on; switches now: \(switches(app))")
         app.buttons["Cancel"].firstMatch.tap()
         // The sheet is gone before the Share button is tapped again: during the dismissal the button is in the tree but the tap is lost,
         // and the old sheet's switch (still on) would be read as the reopened one's.
@@ -36,6 +38,15 @@ final class ShareMapToggleUITests: XCTestCase {
         // switch never came in 20 s, while the same test passed 10 of 10 here and on the next main run). One more tap if the sheet is not up.
         if !map.waitForExistence(timeout: 8) { share.tap() }
         XCTAssertTrue(map.waitForExistence(timeout: 20), "the map switch is offered again on the second open")
-        XCTAssertEqual(map.value as? String, "0", "off again on every open")
+        XCTAssertTrue(mapSwitch(app, value: "0").waitForExistence(timeout: 20), "off again on every open; switches now: \(switches(app))")
+    }
+
+    private func mapSwitch(_ app: XCUIApplication, value: String) -> XCUIElement {
+        app.switches.matching(NSPredicate(format: "label BEGINSWITH %@ AND value == %@", "Include map", value)).firstMatch
+    }
+
+    /// For a failure message: every switch on screen with its value.
+    private func switches(_ app: XCUIApplication) -> String {
+        app.switches.allElementsBoundByIndex.map { "\($0.label.prefix(30)) = \($0.value as? String ?? "?")" }.joined(separator: "; ")
     }
 }

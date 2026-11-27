@@ -3,6 +3,8 @@ package applebill
 import (
 	"errors"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -60,5 +62,73 @@ func TestConfigFromEnvBundleWithoutProductsNeedsBillingOff(t *testing.T) {
 	}
 	if c, err := ConfigFromEnv(e, false); err != nil || c == nil {
 		t.Fatalf("billing off: %v %v", c, err)
+	}
+}
+
+// The Sandbox switch (App Review buys in the Sandbox against production): only a production deployment with the flag on accepts a
+// Sandbox-signed transaction, and only as Sandbox; a Sandbox deployment is unchanged.
+func TestConfigAcceptSandbox(t *testing.T) {
+	base := map[string]string{"RIVOLT_APPLE_IAP_BUNDLE_ID": "dev.example.test", "RIVOLT_APPLE_IAP_PRODUCTS": "p"}
+	with := func(k, v string) map[string]string {
+		m := map[string]string{}
+		for a, b := range base {
+			m[a] = b
+		}
+		m[k] = v
+		return m
+	}
+	withMin := func(m map[string]string) map[string]string {
+		m["RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD"] = "100"
+		m["RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS"] = "11111111-1111-1111-1111-111111111111"
+		return m
+	}
+	if _, err := ConfigFromEnv(env(with("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX", "true")), true); err == nil {
+		t.Error("the flag without the first purchase build was accepted")
+	}
+	noAcct := withMin(with("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX", "true"))
+	noAcct["RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS"] = " "
+	if _, err := ConfigFromEnv(env(noAcct), true); err == nil {
+		t.Error("the flag without a review account was accepted")
+	}
+	noAcct["RIVOLT_APPLE_IAP_SANDBOX_ACCOUNTS"] = "not-a-uuid"
+	if _, err := ConfigFromEnv(env(noAcct), true); err == nil {
+		t.Error("a malformed review account id was accepted")
+	}
+	off, _ := ConfigFromEnv(env(base), true)
+	if off.AcceptSandbox || off.Sandbox(EnvSandbox) {
+		t.Error("Sandbox accepted with the flag off")
+	}
+	if err := off.CheckTransaction("dev.example.test", EnvSandbox, "p"); !errors.Is(err, ErrRejected) {
+		t.Errorf("flag off, Sandbox transaction: %v", err)
+	}
+	on, err := ConfigFromEnv(env(withMin(with("RIVOLT_APPLE_IAP_ACCEPT_SANDBOX", "true"))), true)
+	if err != nil || !on.AcceptSandbox {
+		t.Fatalf("%+v %v", on, err)
+	}
+	if err := on.CheckTransaction("dev.example.test", EnvSandbox, "p"); err != nil || on.SandboxMinBuild != 100 {
+		t.Errorf("flag on, Sandbox transaction: %v (min build %d)", err, on.SandboxMinBuild)
+	}
+	if err := on.Check("dev.example.test", EnvSandbox, "p"); !errors.Is(err, ErrRejected) {
+		t.Errorf("the notification route took a Sandbox notification: %v", err)
+	}
+	if !on.SandboxAllowed(uuid.MustParse("11111111-1111-1111-1111-111111111111")) || on.SandboxAllowed(uuid.New()) || off.SandboxAllowed(uuid.MustParse("11111111-1111-1111-1111-111111111111")) {
+		t.Error("the review account list is not honoured")
+	}
+	if on.Sandbox(EnvProduction) {
+		t.Error("a Production transaction counted as Sandbox")
+	}
+	if err := on.Check("dev.example.test", EnvProduction, "p"); err != nil {
+		t.Errorf("flag on must still accept Production: %v", err)
+	}
+	// The flag means nothing on a Sandbox deployment (preview): everything there is Sandbox already and keeps its real expiry.
+	pv := with("RIVOLT_APPLE_IAP_ENV", "Sandbox")
+	pv["RIVOLT_APPLE_IAP_ACCEPT_SANDBOX"] = "true"
+	pv["RIVOLT_APPLE_IAP_SANDBOX_MIN_BUILD"] = "100"
+	sb, _ := ConfigFromEnv(env(pv), true)
+	if sb.AcceptSandbox || sb.Sandbox(EnvSandbox) {
+		t.Error("the flag must not turn a Sandbox deployment's transactions into review purchases")
+	}
+	if err := sb.Check("dev.example.test", EnvProduction, "p"); !errors.Is(err, ErrRejected) {
+		t.Errorf("sandbox deployment accepted production: %v", err)
 	}
 }
