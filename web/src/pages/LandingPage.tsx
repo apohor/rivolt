@@ -186,11 +186,11 @@ export default function LandingPage() {
             <HeroTrip />
             <p className="fine">
               {v2 ? (
-                <>Free tier to start; Pro tier is $3.99 a month or $34.99 a year. Sign up with Google, GitHub or your email.</>
+                <>Free tier to start; Pro tier is $3.99 a month or $34.99 a year. Sign up with Apple, Google, GitHub or your email.</>
               ) : (
                 <>
                   {demo ? "The demo uses a generated sample truck: no sign-in, no Rivian account. " : ""}
-                  Free to start; Rivolt Pro is $3.99 a month or $34.99 a year. Sign up with Google or GitHub; no invite needed while there is room.
+                  Free to start; Rivolt Pro is $3.99 a month or $34.99 a year. Sign up with Apple, Google or GitHub; no invite needed while there is room.
                 </>
               )}
             </p>

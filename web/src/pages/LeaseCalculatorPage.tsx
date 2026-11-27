@@ -156,7 +156,7 @@ export default function LeaseCalculatorPage() {
               {signupEnabled ? "Create an account" : "Sign in"}
             </Link>
           </div>
-          <p className="mt-3 text-xs text-neutral-500">Sign up with Google or GitHub; the hosted service caps the number of accounts.</p>
+          <p className="mt-3 text-xs text-neutral-500">Sign up with Apple, Google or GitHub; the hosted service caps the number of accounts.</p>
         </section>
         <p className="text-xs text-neutral-500">
           Rivolt is unofficial and not affiliated with, endorsed by or sponsored by Rivian. Rivian is a trademark of
