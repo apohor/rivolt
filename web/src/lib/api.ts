@@ -1310,11 +1310,18 @@ export type YearInRivolt = {
   cost_per_mile?: number;
 };
 
+export type RefundOffer =
+  | { eligible: true; until: string; amount_cents: number; currency: string }
+  | { eligible: false; reason: "no_billing_account" | "no_payment" | "window_closed" | "used" };
+
 export const backend = {
   // MOCKED until the billing API merges (paid-tier-plan.md section 3): hosted Stripe Checkout and the Customer Portal each answer a
   // URL to open. Nothing calls them while billing is off, because no screen offers them.
   billingCheckout: (interval: "month" | "year", from?: string) => api.post<{ url: string }>("/api/billing/checkout", { interval, from }),
   billingPortal: () => api.post<{ url: string }>("/api/billing/portal"),
+  // Self-serve refund of web Pro: the offer (within 14 days of a payment, once per account) and the refund itself (the whole payment, Pro ends at once).
+  billingRefundOffer: () => api.get<RefundOffer>("/api/billing/refund"),
+  billingRefund: () => api.post<{ refunded: true; amount_cents: number; currency: string }>("/api/billing/refund"),
   // Service notices (the Pro launch notice, the founding-member end): shown on Now until dismissed and in Settings until shows_until.
   notices: () => api.get<ServiceNotice[]>("/api/notices"),
   // "Not now" on a Pro prompt (pro_entry): kept per account; 204.
@@ -2210,9 +2217,11 @@ export const backend = {
   // Geocoding for the trip planner: free-text → city/town
   // suggestions with lat/lon. Backed by Open-Meteo, sorted by
   // population. Empty array when no match.
-  geocode: (q: string, count = 5) =>
+  // near ranks closer places higher (a far exact name still comes back).
+  geocode: (q: string, count = 5, near?: { lat: number; lon: number }, signal?: AbortSignal) =>
     api.get<GeocodeResult[]>(
-      `/api/geocode?q=${encodeURIComponent(q)}&count=${count}`,
+      `/api/geocode?q=${encodeURIComponent(q)}&count=${count}${near ? `&lat=${near.lat.toFixed(2)}&lon=${near.lon.toFixed(2)}` : ""}`,
+      signal,
     ),
   // Trip planner — pass-through to Rivian's planTripWithMultiStop.
   // Slice 1: read-only, no AI, no save. The caller supplies origin
@@ -2935,6 +2944,8 @@ export type GeocodeResult = {
   locality?: string;
   population?: number;
   timezone?: string;
+  // A hotel taken from the charger list: it has a Level 2 charger, and the search row says so.
+  ev_charging?: boolean;
 };
 
 // TripPlanRequest is the body for POST /api/trips/plan. vehicle_id

@@ -33,6 +33,8 @@ struct AuthUser: Decodable, Equatable {
     var planEndedDate: String? = nil
     /// False on a self-hosted or billing-off server: no paywall, price or Manage control.
     var billingEnabled: Bool? = nil
+    /// True while a Stripe subscription of this account still grants Pro. The app never offers a purchase then, and tells an Apple payer who is also on Stripe.
+    var paidViaStripe: Bool? = nil
     /// The free window's length in days (it changes through the month), nil (unlimited) on Pro.
     var historyDays: Int? = nil
     /// The first day the free window shows, "YYYY-MM-DD" (UTC); nil on Pro.

@@ -4,7 +4,7 @@ import { movableVia, moveVia, viaMoveLabel, viaPosition, viaRemoveLabel } from "
 import { comparableSpend } from "../lib/planCost";
 import { type OvernightOptions } from "../plan/days";
 import { DEFAULT_OVERNIGHT_KW, HOOKUPS, type HookupId, KW_MAX, KW_MIN, clampKw, hookupById, hookupForKw, hookupNote } from "../plan/hookups";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { PlanTabPanel, PlanTabs, usePlanTab, type PlanTabSpec } from "../plan/PlanTabs";
 import { usePlanner } from "../plan/usePlanner";
@@ -18,7 +18,7 @@ import { ConnectHint } from "../components/DemoBanner";
 import { appPath, inDemo } from "../lib/demo";
 import { useQuery } from "@tanstack/react-query";
 import { PlanVsActualSection } from "../components/PlanVsActual";
-import { backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type SavedMultidayPlan, type SavedTrip, type TripPlan } from "../lib/api";
+import { ApiError, backend, vehicleNeedsTeslaAdapter, type DemoTripPreset, type GeocodeResult, type SavedMultidayPlan, type SavedTrip, type TripPlan } from "../lib/api";
 import { Card, ErrorBoundary, ErrorBox, Spinner } from "../components/ui";
 import ConnectRivianPrompt from "../components/ConnectRivianPrompt";
 
@@ -43,6 +43,10 @@ import { proLimitOf, type ProLimit } from "../lib/proLimit";
 // (settings.planner.favorites) now; the planner used to ship a
 // hardcoded Texas list but that's wrong as soon as a user lives
 // anywhere else.
+
+// SearchNearContext is where the place searches look first: the chosen start when there is one, else the truck. It only ranks
+// nearer places higher; a far exact name still comes back.
+const SearchNearContext = createContext<{ lat: number; lon: number } | null>(null);
 
 export default function TripPlanPage() {
   const { routeBar, origin, destination, setOrigin, setDestination, extraStops, setExtraStops, overnightFlags, setOvernightFlags, optsFor, updateOvernight, targetSoc, setTargetSoc, plannedTargetRef, startingSoc, setStartingSoc, driveMode, setDriveMode, hasAdapter, setHasAdapter, routePrefs, setRoutePrefs, departureAt, setDepartureAt, firstVehicle, stateQuery, profileQuery, currentPosition, home, favorites, saveAsFavorite, autoReplanAfterAddRef, replanAfterEdit, planMutation, adviceMutation, hasOvernightStops, multidayMutation, savedTripsQuery, loadedSnapshot, setLoadedSnapshot, multiday, multidaySnapshot, setMultidaySnapshot, replanBase, activeTripId, saveTripMutation, deleteTripMutation, loadSavedTrip, fireAdvice, aiEnabled, onSubmit, hasResult, routeSummary, resultKey } = usePlanner();
@@ -341,7 +345,7 @@ export default function TripPlanPage() {
     avoidCount: [routePrefs.avoidTolls, routePrefs.avoidFerries, routePrefs.avoidHighways].filter(Boolean).length,
   });
   const formEl = (
-    <>
+    <SearchNearContext.Provider value={origin ? { lat: origin.lat, lon: origin.lon } : currentPosition}>
       {inDemo() ? (
         <DemoPresetPicker activeId={activeTripId} onOpen={loadSavedTrip} />
       ) : (
@@ -391,7 +395,7 @@ export default function TripPlanPage() {
         </form>
       </FormShell>
       )}
-    </>
+    </SearchNearContext.Provider>
   );
   const pvaEl = (
     <>
@@ -1443,6 +1447,14 @@ function LocationField({
   );
 }
 
+// The search box waits for a pause in typing and for three characters before it asks the server (20 searches a minute per person).
+const GEOCODE_DEBOUNCE_MS = 300;
+const GEOCODE_MIN_CHARS = 3;
+
+export function geocodeErrorText(error: unknown): string {
+  return error instanceof ApiError && error.status === 429 ? "Too many searches, wait a moment" : "Place search is unavailable right now";
+}
+
 // LocationSearch is a debounced typeahead over /api/geocode. Emits
 // the selected GeocodeResult upward; the parent decides what to do
 // with it. Internal text state is kept here so the parent doesn't
@@ -1460,15 +1472,20 @@ function LocationSearch({
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(query), 150);
+    const t = setTimeout(() => setDebounced(query), GEOCODE_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [query]);
 
+  const near = useContext(SearchNearContext);
+  // Rounded to ~1 km so the cache key doesn't change with every GPS fix.
+  const nearKey = near ? `${near.lat.toFixed(2)},${near.lon.toFixed(2)}` : "";
   const results = useQuery({
-    queryKey: ["geocode", debounced],
-    queryFn: () => backend.geocode(debounced, 8),
-    enabled: debounced.trim().length >= 2,
+    queryKey: ["geocode", debounced, nearKey],
+    queryFn: ({ signal }) => backend.geocode(debounced, 8, near ?? undefined, signal),
+    enabled: debounced.trim().length >= GEOCODE_MIN_CHARS,
     staleTime: 5 * 60 * 1000,
+    // A 429 is the server's answer, not a blip: asking again only spends more of the limit. Other failures get one retry.
+    retry: (failureCount, error) => !(error instanceof ApiError && error.status === 429) && failureCount < 1,
   });
 
   // Pending: either debounce hasn't fired yet or query is in flight.
@@ -1486,7 +1503,7 @@ function LocationSearch({
   }, [open]);
 
   const items = results.data ?? [];
-  const showDropdown = open && query.trim().length >= 2;
+  const showDropdown = open && query.trim().length >= GEOCODE_MIN_CHARS;
 
   return (
     <div className="relative" ref={containerRef}>
@@ -1502,7 +1519,7 @@ function LocationSearch({
           placeholder={placeholder}
           className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 pr-8 text-neutral-100 focus:border-neutral-500 focus:outline-hidden"
         />
-        {pending && query.trim().length >= 2 && (
+        {pending && query.trim().length >= GEOCODE_MIN_CHARS && (
           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
             <Spinner />
           </span>
@@ -1524,6 +1541,7 @@ function LocationSearch({
                 <div className="text-neutral-100">{r.name}</div>
                 <div className="text-xs text-neutral-500">
                   {[r.admin1, r.country].filter(Boolean).join(", ")}
+                  {r.ev_charging && <> · EV charging</>}
                   {typeof r.population === "number" && r.population > 0 && (
                     <> · pop. {r.population.toLocaleString()}</>
                   )}
@@ -1534,7 +1552,7 @@ function LocationSearch({
         </ul>
       ) : !pending && results.isFetched ? (
         <div className="absolute left-0 right-0 top-[calc(100%+2px)] z-10 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-xs text-neutral-500 shadow-lg">
-          {results.isError ? "Place search is unavailable right now" : "No results"}
+          {results.isError ? geocodeErrorText(results.error) : "No results"}
         </div>
       ) : null)}
     </div>

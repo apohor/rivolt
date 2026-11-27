@@ -7,7 +7,7 @@ Rivolt is an open-source companion for Rivian owners. Importing is free on every
 ## Before you start
 
 - **Try it first, with no account.** The [demo](https://demo.rivolt.dev) uses a generated sample truck.
-- **Sign up** at [rivolt.dev/signup](/signup). Continue with Google or GitHub; it is immediate while there is room, because the hosted service caps the number of accounts.
+- **Sign up** at [rivolt.dev/signup](/signup). Continue with Apple, Google or GitHub; it is immediate while there is room, because the hosted service caps the number of accounts.
 - **Connect your truck.** We recommend an Authorized Driver account, so Rivolt never holds your primary login and you can revoke it from the Rivian app at any time.
 - **Set your timezone.** Settings → Vehicle → Display → Timezone must match the timezone the ElectraFi CSVs were exported under, or session IDs won't line up.
 

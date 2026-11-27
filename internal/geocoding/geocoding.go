@@ -45,6 +45,8 @@ type Result struct {
 	// already applies (top result is highest-population match).
 	Population int    `json:"population,omitempty"`
 	Timezone   string `json:"timezone,omitempty"`
+	// EVCharging marks a hotel taken from the charger archive: it has a Level 2 charger, and the search row says so.
+	EVCharging bool `json:"ev_charging,omitempty"`
 }
 
 // Client is a thin wrapper around the geocoding endpoint.

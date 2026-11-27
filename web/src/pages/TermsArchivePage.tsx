@@ -7,8 +7,8 @@ import terms1122 from "../content/terms-2026-11-22.md?url&no-inline";
 import terms1125 from "../content/terms-2026-11-25.md?url&no-inline";
 import { TERMS_VERSIONS, type TermsVersion } from "../lib/termsVersions";
 
-// /terms/2026-10-23, /terms/2026-11-17 and /terms/2026-11-21, /terms/2026-11-22: the Terms of Service as of those dates, word for word what accounts accepted.
-// The texts are src/content/terms-2026-10-23.md, terms-2026-11-17.md , terms-2026-11-21.md and terms-2026-11-22.md and are FROZEN (terms-frozen.test.ts pins their hashes): they
+// /terms/2026-10-23, /terms/2026-11-17 and /terms/2026-11-21, /terms/2026-11-22, /terms/2026-11-25: the Terms of Service as of those dates, word for word what accounts accepted.
+// The texts are src/content/terms-2026-10-23.md, terms-2026-11-17.md , terms-2026-11-21.md and terms-2026-11-22.md and terms-2026-11-25.md and are FROZEN (terms-frozen.test.ts pins their hashes): they
 // must not change when the current Terms do. Public like /terms, and kept at stable addresses so the current Terms and the launch notice
 // can link to them. Both live in one chunk so the shared text compresses once.
 // The versions and their labels are in lib/termsVersions.ts (the list /terms shows); a version listed there without a text here does not compile.

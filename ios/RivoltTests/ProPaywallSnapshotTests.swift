@@ -14,9 +14,23 @@ final class ProPaywallSnapshotTests: XCTestCase {
         try render(size: .accessibility3, suffix: "-ax3")
     }
 
-    private func render(size: DynamicTypeSize, suffix: String) throws {
+    /// An account Stripe bills: no price, no Subscribe button, no Apple Manage button, and the line that says where to manage it.
+    func testRenderAStripePlansSheet() throws {
+        try render(size: .large, suffix: "", plan: .pro(source: "stripe", periodEnd: nil), name: "pro-sheet-stripe", stripe: true)
+    }
+
+    /// An Apple subscription on an account Stripe also bills: Manage opens Apple's page, and the sheet says Stripe bills it too.
+    func testRenderAnAppleSubscribersSheetThatStripeAlsoBills() throws {
+        try render(size: .large, suffix: "", plan: .pro(source: "apple", periodEnd: nil), name: "pro-sheet-apple-and-stripe", stripe: true)
+    }
+
+    func testRenderAnApplePlansSheet() throws {
+        try render(size: .large, suffix: "", plan: .pro(source: "apple", periodEnd: nil), name: "pro-sheet-apple", stripe: false)
+    }
+
+    private func render(size: DynamicTypeSize, suffix: String, plan: PlanState = .free, name: String = "pro-sheet-free", stripe: Bool = false) throws {
         Theme.registerFonts()
-        let page = ProPaywallView(plan: .free, snapshotOnly: true)
+        let page = ProPaywallView(plan: plan, paidViaStripe: stripe, snapshotOnly: true)
             .environment(AppState())
             .environment(\.dynamicTypeSize, size)
             .frame(width: 390)
@@ -27,7 +41,7 @@ final class ProPaywallSnapshotTests: XCTestCase {
             renderer.scale = 2
             let image = try XCTUnwrap(renderer.uiImage, "the sheet did not render")
             let png = try XCTUnwrap(image.pngData())
-            let file = "pro-sheet-free-\(scheme == .dark ? "dark" : "light")\(suffix).png"
+            let file = "\(name)-\(scheme == .dark ? "dark" : "light")\(suffix).png"
             let attachment = XCTAttachment(data: png, uniformTypeIdentifier: "public.png")
             attachment.name = file
             attachment.lifetime = .keepAlways

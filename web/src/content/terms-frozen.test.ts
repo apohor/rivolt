@@ -53,7 +53,7 @@ describe("the November 22, 2026 Terms are frozen", () => {
   });
 });
 
-// terms-2026-11-25.md is the Terms as published from November 25, 2026 (before trip planning became Pro), served at /terms/2026-11-25.
+// terms-2026-11-25.md is the Terms as published on November 25, 2026 (the free tier showing the last 3 months for new accounts; refunds by email within 7 days of the first charge), served at /terms/2026-11-25.
 describe("the November 25, 2026 Terms are frozen", () => {
   it("has the exact text, byte for byte", () => {
     expect(createHash("sha256").update(frozen1125).digest("hex")).toBe("ac9c4a03e17b93e81ec6e819af50645352b29e7e524a94fe07215866abe9be75");

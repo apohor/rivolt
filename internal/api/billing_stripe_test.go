@@ -146,9 +146,24 @@ func TestPortalWithoutACustomerIsRefused(t *testing.T) {
 	}
 }
 
+func TestRefundWithoutACustomerIsNotOnOffer(t *testing.T) {
+	_, srv := newStripeRecorder(t)
+	svc := billingSvc(srv, billingPlans{on: true})
+	rec := httptest.NewRecorder()
+	handleBillingRefundOffer(svc)(uuid.New(), rec, httptest.NewRequest(http.MethodGet, "/api/billing/refund", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"eligible":false`) || !strings.Contains(rec.Body.String(), "no_billing_account") {
+		t.Errorf("offer with no customer: %d %s", rec.Code, rec.Body)
+	}
+	rec = httptest.NewRecorder()
+	handleBillingRefund(svc)(uuid.New(), rec, httptest.NewRequest(http.MethodPost, "/api/billing/refund", nil))
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "refund_unavailable") {
+		t.Errorf("refund with no customer: %d %s", rec.Code, rec.Body)
+	}
+}
+
 // The iPhone app sells through StoreKit and may not open a web checkout or portal: its sessions cannot write to these routes.
 func TestAppSessionsCannotUseWebBilling(t *testing.T) {
-	for _, p := range []string{"/api/billing/checkout", "/api/billing/portal", "/api/billing/stripe/webhook"} {
+	for _, p := range []string{"/api/billing/checkout", "/api/billing/portal", "/api/billing/refund", "/api/billing/stripe/webhook"} {
 		if appWriteAllowed(http.MethodPost, p) {
 			t.Errorf("an app session may POST %s", p)
 		}
