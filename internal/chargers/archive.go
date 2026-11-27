@@ -216,13 +216,6 @@ func (a *Archive) headETag(ctx context.Context) (string, error) {
 // the loaded one's stations, before it is refused.
 const shrinkGuardRatio = 0.8
 
-// featureCount is the number of charger features in the archive (a station on a
-// tile edge counts per tile; only the ratio between two archives matters).
-func (a *Archive) featureCount() int {
-	n, _ := a.scan()
-	return n
-}
-
 // Hotels returns the hotel-type stations with a Level 2 stall of the loaded copy, and the time that copy was loaded (a caller that keeps
 // something built from them rebuilds it when that time changes). The slice is shared: do not modify it.
 func (a *Archive) Hotels() ([]POI, time.Time) {
@@ -234,7 +227,7 @@ func (a *Archive) Hotels() ([]POI, time.Time) {
 	return a.hotels, a.loadedAt
 }
 
-// scan decodes every tile once: it returns the feature count (see featureCount) and the hotel stations, one per station (a station on a tile
+// scan decodes every tile once: it returns the charger feature count (a station on a tile edge counts per tile; only the ratio between two archives matters) and the hotel stations, one per station (a station on a tile
 // edge sits in several tiles).
 func (a *Archive) scan() (int, []POI) {
 	n := 0
