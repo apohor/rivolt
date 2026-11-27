@@ -2004,6 +2004,8 @@ func New(d Deps) http.Handler {
 				billingLimiter := ls.user("billing", 10)
 				r.With(billingLimiter.Middleware).Post("/billing/checkout", withUser(handleBillingCheckout(d.StripeBilling, d.Metrics)))
 				r.With(billingLimiter.Middleware).Post("/billing/portal", withUser(handleBillingPortal(d.StripeBilling)))
+				r.With(billingLimiter.Middleware).Get("/billing/refund", withUser(handleBillingRefundOffer(d.StripeBilling)))
+				r.With(billingLimiter.Middleware).Post("/billing/refund", withUser(handleBillingRefund(d.StripeBilling)))
 			}
 		}) // end of bulk-data authenticated /api group
 	})

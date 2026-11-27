@@ -1310,11 +1310,18 @@ export type YearInRivolt = {
   cost_per_mile?: number;
 };
 
+export type RefundOffer =
+  | { eligible: true; until: string; amount_cents: number; currency: string }
+  | { eligible: false; reason: "no_billing_account" | "no_payment" | "window_closed" | "used" };
+
 export const backend = {
   // MOCKED until the billing API merges (paid-tier-plan.md section 3): hosted Stripe Checkout and the Customer Portal each answer a
   // URL to open. Nothing calls them while billing is off, because no screen offers them.
   billingCheckout: (interval: "month" | "year", from?: string) => api.post<{ url: string }>("/api/billing/checkout", { interval, from }),
   billingPortal: () => api.post<{ url: string }>("/api/billing/portal"),
+  // Self-serve refund of web Pro: the offer (within 14 days of a payment, once per account) and the refund itself (the whole payment, Pro ends at once).
+  billingRefundOffer: () => api.get<RefundOffer>("/api/billing/refund"),
+  billingRefund: () => api.post<{ refunded: true; amount_cents: number; currency: string }>("/api/billing/refund"),
   // Service notices (the Pro launch notice, the founding-member end): shown on Now until dismissed and in Settings until shows_until.
   notices: () => api.get<ServiceNotice[]>("/api/notices"),
   // "Not now" on a Pro prompt (pro_entry): kept per account; 204.
