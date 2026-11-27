@@ -3,12 +3,13 @@ import "../styles/next-plan.css";
 // then Valhalla, else straight legs), markers for the origin (green), each charging stop (amber) and the destination (rose), and a
 // charger overlay along the route with add / preview popups. MapLibre loads as its own chunk when this mounts (loader.ts); without WebGL it
 // says the map is unavailable and the itinerary beside it stands.
+import { fetchForecastHours, forecastLabel, forecastSlots, hideForecast, inBounds, LINE_DOWN, showForecast, slotLine, FORECAST_CREDIT, FORECAST_DEBOUNCE_MS, type HoursResult } from "./forecastRadar";
 import { fetchRadarFrame, hideRadar, RADAR_DENIED, radarAsOf, radarEnabled, radarSpoken, RADAR_REFRESH_MS, showRadar as addRadar } from "./radar";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { GeoJSONSource, Map as MLMap, Marker, Popup } from "maplibre-gl";
 import { inDemo } from "../lib/demo";
-import { ensureConfig, tilesPMTilesURL, valhallaBase } from "../lib/config";
+import { ensureConfig, tilesPMTilesURL, useDesignPreview, valhallaBase } from "../lib/config";
 import { appMapFlavor, onAppMapFlavor } from "../lib/mapTheme";
 import { findChargersOfNetworks, findLayersAlongPath, HOTEL_FACILITY_TYPES } from "../lib/poi";
 import { layerFiltersOf, usePlannerPrefs, useSavePlannerPrefs } from "../lib/plannerPrefs";
@@ -42,6 +43,8 @@ import { MapUnavailable, TILES_UNAVAILABLE_TEXT } from "./Unavailable";
 import {
   bookingDeepLink, campPopupHTML, chargerCircleStyle, chargerPopupHTML, chargerPreviewBodyHTML, DROPPED_PIN_LABEL, droppedPinPopupHTML, hotelKw, offRouteLine, sameSpot, valhallaMultiRoute, waypointTooltip,
   decodePolyline6, tripCardText, type PreviewResult,
+  positionAt,
+  tripTimes,
 } from "./tripPure";
 
 type AddStop = (stop: { lat: number; lon: number; label: string }) => void;
@@ -276,6 +279,8 @@ export function TripRouteMap({
   // The map's fit reads the radar row's room through this, so a refused radar stops reserving it.
   const radarOnRef = useRef(radarOn);
   radarOnRef.current = radarOn;
+  // The forecast scrubber stacks a row over the strip: its room (44 px) is reserved wherever the strip's is, whether or not the hours have loaded yet.
+  const scrubRoomRef = useRef(0);
   // Reframes the route with the current padding (null until the map is up); called once the radar row goes away.
   const reframeRef = useRef<(() => void) | null>(null);
   useEffect(() => { if (radarDenied) reframeRef.current?.(); }, [radarDenied]);
@@ -304,10 +309,16 @@ export function TripRouteMap({
     touchedRef.current.radar = true;
     setShowRadar(!showRadar);
   };
+  // Forecast radar (design key plan_forecast_map): the hours are loaded below; until they answer, and while they are on offer, the live radar is not drawn.
+  const forecastKey = useDesignPreview("plan_forecast_map") && !inDemo();
+  const [forecast, setForecast] = useState<HoursResult | null>(null);
+  scrubRoomRef.current = forecastKey && radarOn ? 44 : 0;
+  const forecastWaiting = forecastKey && radarOn && showRadar && forecast === null;
+  const forecastMode = forecastKey && radarOn && showRadar && forecast !== null && forecast.kind !== "hidden";
   // Effect: while the radar button is on, draw the newest frame under the route and look for a newer one every few minutes.
   useEffect(() => {
     const map = mapReady;
-    if (!map || !radarOn || !showRadar) return;
+    if (!map || !radarOn || !showRadar || forecastWaiting || forecastMode) return;
     let alive = true;
     const ac = new AbortController();
     const refresh = async () => {
@@ -333,7 +344,78 @@ export function TripRouteMap({
     void refresh();
     const timer = window.setInterval(() => void refresh(), RADAR_REFRESH_MS);
     return () => { alive = false; ac.abort(); window.clearInterval(timer); hideRadar(map); setRadarLabel(""); setRadarSpokenLabel(""); };
-  }, [mapReady, radarOn, showRadar]);
+  }, [mapReady, radarOn, showRadar, forecastWaiting, forecastMode]);
+  // The forecast radar: for a Pro account the radar button shows the forecast for an hour of the trip instead of the live
+  // picture. The server decides who has it (402 for a free account, 404 where there is no forecast): then it stays the live radar, nothing said.
+  const times = useMemo(() => tripTimes(route), [route]);
+  const slots = useMemo(() => (forecast?.kind === "ok" ? forecastSlots(forecast.data.hours, times.depart, times.arrive) : []), [forecast, times]);
+  const [slotIdx, setSlotIdx] = useState(0);
+  const [drawnIdx, setDrawnIdx] = useState(0); // the scrubber's value once it has been still for FORECAST_DEBOUNCE_MS: what tiles are asked for
+  const slot = slots[Math.min(slotIdx, slots.length - 1)];
+  const centre = useMemo(() => {
+    const w = route.Waypoints;
+    return w.length ? { lat: w.reduce((a, x) => a + x.Latitude, 0) / w.length, lon: w.reduce((a, x) => a + x.Longitude, 0) / w.length } : null;
+  }, [route]);
+  const inside = forecast?.kind === "ok" && centre ? inBounds(forecast.data.bounds, centre.lat, centre.lon) : true;
+  const forecastLine = forecast?.kind === "down" ? LINE_DOWN : forecast?.kind === "ok" ? slotLine(slot, inside) : "";
+  const fcLabel = forecastMode && forecast?.kind === "ok" && slot ? `${forecast.data.credit || FORECAST_CREDIT} · ${forecastLabel(slot.t)}` : "";
+  const stripLabel = forecastMode ? fcLabel : radarLabel;
+  const stripSpoken = forecastMode ? (fcLabel ? `light, moderate, heavy, ${fcLabel.replace(" · ", " radar, ")}` : "") : radarSpokenLabel;
+  useEffect(() => { setSlotIdx(0); setDrawnIdx(0); }, [route]);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDrawnIdx(slotIdx), FORECAST_DEBOUNCE_MS);
+    return () => window.clearTimeout(id);
+  }, [slotIdx]);
+  // Effect: while the radar is on, ask for the hours (again every 10 minutes: a new cycle lands hourly).
+  useEffect(() => {
+    if (!forecastKey || !radarOn || !showRadar) { setForecast(null); return; }
+    let alive = true;
+    const ac = new AbortController();
+    const load = async () => { const r = await fetchForecastHours(ac.signal); if (alive) setForecast(r); };
+    void load();
+    const timer = window.setInterval(() => void load(), 10 * 60 * 1000);
+    return () => { alive = false; ac.abort(); window.clearInterval(timer); };
+  }, [forecastKey, radarOn, showRadar]);
+  // Effect: draw the hour the scrubber has settled on; nothing where the forecast has none or the trip is outside its grid.
+  const drawnSlot = slots[Math.min(drawnIdx, slots.length - 1)];
+  const drawnFh = forecastMode && forecast?.kind === "ok" && inside ? (drawnSlot?.fh ?? null) : null;
+  const forecastCycle = forecast?.kind === "ok" ? forecast.data.cycle : "";
+  useEffect(() => {
+    const map = mapReady;
+    if (!map) return;
+    if (drawnFh == null) { hideForecast(map); return; }
+    let alive = true;
+    const draw = () => { if (alive) showForecast(map, forecastCycle, drawnFh); };
+    if (styleReadyRef.current) draw(); else map.once("style.load", draw);
+    return () => { alive = false; };
+  }, [mapReady, drawnFh, forecastCycle]);
+  useEffect(() => {
+    const map = mapReady;
+    return () => { if (map) hideForecast(map); };
+  }, [mapReady, forecastMode]);
+  // Effect: the truck at the scrubber's hour, a dot on the route (the first step is the hour the trip leaves in: the truck is at the start then).
+  const truckAt = useMemo(() => (forecastMode && slot ? positionAt(route, Math.max(slot.t, times.depart)) : null), [forecastMode, route, slot, times]);
+  const truckRef = useRef<Marker | null>(null);
+  const truckOn = truckAt != null;
+  const truckAtRef = useRef(truckAt);
+  truckAtRef.current = truckAt;
+  useEffect(() => {
+    const map = mapReady;
+    if (!map || !truckOn) return;
+    let alive = true;
+    void loadMapLibre().then((ml) => {
+      if (!alive || mapRef.current !== map) return;
+      const el = document.createElement("span");
+      el.setAttribute("data-forecast-truck", "");
+      el.style.cssText = "display:block;width:16px;height:16px;border-radius:9999px;background:#22d3ee;border:3px solid #0a0a0a;box-shadow:0 0 0 2px #fafafa;pointer-events:none;";
+      const at = truckAtRef.current;
+      truckRef.current = new ml.Marker({ element: el }).setLngLat(at ? [at[1], at[0]] : [0, 0]).addTo(map);
+    });
+    return () => { alive = false; truckRef.current?.remove(); truckRef.current = null; };
+  }, [mapReady, truckOn]);
+  useEffect(() => {
+    if (truckAt) truckRef.current?.setLngLat([truckAt[1], truckAt[0]]);
+  }, [truckAt]);
   // Effect: once the settings are in, they set the starting state of every switch the person has not flipped yet.
   const [started, setStarted] = useState(false);
   const startedRef = useRef(false);
@@ -369,7 +451,7 @@ export function TripRouteMap({
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
-  }, [radarLabel]);
+  }, [stripLabel]);
   useEffect(() => {
     // ...or when the numbers change (a new departure time, other units): the card would show the old ones under new badges.
     legPopupRef.current?.remove(); legPopupRef.current = null;
@@ -468,7 +550,7 @@ export function TripRouteMap({
   const mapRoomBottom = (map: MLMap) => {
     const top = map.getContainer().getBoundingClientRect?.().top ?? 0;
     const sheet = document.querySelector("[data-plan-sheet]")?.getBoundingClientRect().top;
-    const strip = radarOnRef.current ? 28 : 0;
+    const strip = (radarOnRef.current ? 28 : 0) + scrubRoomRef.current;
     return sheet != null && sheet > top ? Math.min(map.getContainer().clientHeight, sheet - top - strip) : map.getContainer().clientHeight;
   };
   // A pinned vertical side (top = below the point, bottom = above it) must still lean left or right near the map's edges, as MapLibre's own pick would,
@@ -647,17 +729,17 @@ export function TripRouteMap({
         const tripCardEl = el.querySelector<HTMLElement>(".rivolt-trip-card");
         const card = tripCardEl?.getClientRects().length ? tripCardEl : null;
         // The card rides above the radar strip at the map's bottom (on a phone, on the sheet's edge): room reserved whether or not the radar is on, as at the top.
-        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() : 0) + (fill && radarOnRef.current ? 28 : 0) : 0;
+        const lift = card ? card.offsetHeight + (parseFloat(getComputedStyle(card).marginBottom) || 0) + 28 + (sheetEdge() ? sheetCover() : 0) + (fill && radarOnRef.current ? 28 + scrubRoomRef.current : 0) : 0;
         // In the fill layout the charger chips float over the map's top: clear their real height (they wrap to several rows on a phone).
         const chips = fill ? el.parentElement?.querySelector<HTMLElement>("[data-map-chips]") : null;
         const chipsBottom = chips ? chips.getBoundingClientRect().bottom - el.getBoundingClientRect().top + 12 : 0;
         // ...and the radar strip under them (one line, and the label of a pin that sits just under it), when this visitor has radar: reserved whether or not it is on, so turning it on covers no pin.
         // On a phone the strip rides the sheet's edge instead, inside the bottom's room.
-        const top = fill ? Math.max(narrow ? (planV2 ? 72 : 96) : 64, chipsBottom + (radarOnRef.current && !sheetEdge() ? 52 : 0)) : 24;
+        const top = fill ? Math.max(narrow ? (planV2 ? 72 : 96) : 64, chipsBottom + (radarOnRef.current && !sheetEdge() ? 52 + scrubRoomRef.current : 0)) : 24;
         // Without a card the strip alone is the bottom's obstacle (22 px high, 8 px up).
         const base = fill ? (narrow ? 40 : radarOnRef.current ? 40 : 24) : 24;
         // The phone's sheet covers the lower part of the map at half: the route clears it and the strip on its edge.
-        const cover = sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 : 0) + (planV2 ? 6 : 12) : 0;
+        const cover = sheetEdge() ? sheetCover() + (radarOnRef.current ? 28 + scrubRoomRef.current : 0) + (planV2 ? 6 : 12) : 0;
         const bottom = Math.max(base, Math.min(Math.max(lift, cover), el.clientHeight - top - 60));
         // plan_v2 frames the route tighter: a smaller margin at the sides, and under the sheet only what its edge covers.
         const side = planV2 ? 14 : 24;
@@ -1260,17 +1342,18 @@ export function TripRouteMap({
 
   // The radar legend: on the map it sits at the very bottom, inside it (bottom left, under the trip card; on a phone CSS puts it on the sheet's edge);
   // in the flow layout it sits above the map.
-  const radarStrip = showRadar && radarLabel ? (
+  const scrub = forecastMode && forecast?.kind === "ok" && slots.length > 1;
+  const radarPill = showRadar && stripLabel ? (
         // One line, as on the iPhone: a short gradient named light, moderate, heavy, then the credit and the picture's time ("NOAA/NWS · 6:42 PM").
         // NOAA's colours as they are drawn. A feed that is down or stale says "Radar unavailable" and draws nothing, so nothing reads as "no rain".
         <span
           ref={stripRef}
           role="status"
-          aria-label={radarSpokenLabel}
+          aria-label={stripSpoken}
           data-radar-label
-          className={`pointer-events-auto flex w-fit ${fill ? "max-w-[min(20rem,100%)]" : "max-w-full"} items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-neutral-950/85 px-2 py-0.5 text-[10px] text-neutral-200 ${fill ? "" : "mb-1"}`}
+          className={`pointer-events-auto flex w-fit ${fill ? "max-w-[min(20rem,100%)]" : "max-w-full"} items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-neutral-950/85 px-2 py-0.5 text-[10px] text-neutral-200`}
         >
-          {radarLabel.startsWith("NOAA") && (
+          {stripLabel.startsWith("NOAA") && (
             <span aria-hidden="true" className="flex items-center gap-1 text-neutral-400">
               light
               <i data-strip-bar="low" className="inline-block h-1.5 w-5 rounded-full" />
@@ -1278,8 +1361,36 @@ export function TripRouteMap({
               heavy
             </span>
           )}
-          <span aria-hidden="true">{radarLabel}</span>
+          <span aria-hidden="true">{stripLabel}</span>
         </span>
+  ) : null;
+  // The forecast's scrubber (one step an hour, from the hour the trip leaves to the hour it arrives in) and its one plain line, over the strip.
+  const radarStrip = radarPill || (forecastMode && forecastLine) ? (
+    <div className={`flex flex-col items-start gap-1 ${fill ? "" : "mb-1"}`} data-forecast-strip={forecastMode ? "" : undefined}>
+      {(scrub || (forecastMode && forecastLine)) && (
+        <div data-forecast-row className={`pointer-events-auto flex w-full ${fill ? "max-w-[min(20rem,100%)]" : "max-w-full"} flex-col gap-0.5 rounded-2xl bg-neutral-950/85 px-3 py-1 text-[10px] text-neutral-200`}>
+          {scrub && (
+            <label className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-neutral-400">Hour</span>
+              <input
+                type="range"
+                data-forecast-slider
+                min={0}
+                max={slots.length - 1}
+                step={1}
+                value={Math.min(slotIdx, slots.length - 1)}
+                aria-label="Forecast hour"
+                aria-valuetext={slot ? forecastLabel(slot.t) : undefined}
+                onChange={(e) => setSlotIdx(Number(e.target.value))}
+                className="h-4 min-w-0 flex-1 accent-cyan-400"
+              />
+            </label>
+          )}
+          {forecastMode && forecastLine && <span role="status" data-forecast-line>{forecastLine}</span>}
+        </div>
+      )}
+      {radarPill}
+    </div>
   ) : null;
   // plan_v2: on = filled with a check and a border; off = outlined and clear. Both have a border, so a chip keeps its size when toggled.
   const chipV2 = (on: boolean) =>

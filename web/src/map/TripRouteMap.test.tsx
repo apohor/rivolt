@@ -13,6 +13,7 @@ vi.mock("../lib/config", () => ({
   tilesRadar: () => radarCfg,
   valhallaBase: () => (globalThis as { __valhalla?: string }).__valhalla ?? "",
   bookingAffiliateID: () => "",
+  useDesignPreview: () => false,
 }));
 const radarCfg = vi.hoisted(() => ({ url: "", frameUrl: "", minZoom: 3, maxZoom: 9 }));
 const findLayers = vi.hoisted(() => vi.fn());

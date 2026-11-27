@@ -818,6 +818,13 @@
   }
 }
 
+@media (min-width: 1024px) {
+  /* The forecast radar's scrubber row stacks over the legend: the card rides above both. */
+  :root [data-trip-map-fill]:has([data-forecast-row]) .maplibregl-ctrl-bottom-left {
+    bottom: 4.75rem;
+  }
+}
+
 /* The Layers button is only for a tight map (below). */
 :root [data-map-layers-button] {
   display: none;
@@ -843,12 +850,28 @@
     max-width: calc(100vw - 4.5rem);
     transition: bottom 0.22s ease;
   }
-  :root[data-plan-sheet-dragging] [data-radar-label] {
+  /* The forecast scrubber row rides the same edge, one strip higher. */
+  :root:has([data-plan-sheet]) [data-trip-map] [data-forecast-row] {
+    position: fixed;
+    left: 1.25rem;
+    bottom: calc(var(--plan-sheet-bottom) + var(--plan-sheet-h, 240px) + 32px);
+    width: calc(100vw - 4.5rem);
+    max-width: 20rem;
+    transition: bottom 0.22s ease;
+  }
+  :root[data-plan-sheet-dragging] [data-radar-label],
+  :root[data-plan-sheet-dragging] [data-forecast-row] {
     transition: none;
+  }
+  :root:has([data-plan-sheet][data-snap='full']:not([data-dragging])) [data-forecast-row] {
+    visibility: hidden;
   }
   /* The trip card in the map's bottom left sits above the strip, not under it. */
   :root:has([data-plan-sheet]):has([data-radar-label]) [data-plan-area='map'] .maplibregl-ctrl-bottom-left {
     bottom: calc(var(--plan-map-cover, 0px) + 28px);
+  }
+  :root:has([data-plan-sheet]):has([data-forecast-row]) [data-plan-area='map'] .maplibregl-ctrl-bottom-left {
+    bottom: calc(var(--plan-map-cover, 0px) + 72px);
   }
   /* A strip of map too short for its controls (Safari's 300% text: some 60 px above the peek): the route alone, framed in it (TripRouteMap,
      data-map-tight). The credits stay. */
@@ -868,7 +891,8 @@
 @media (prefers-reduced-motion: reduce) {
   :root [data-plan-area='map'] .maplibregl-ctrl-bottom-right,
   :root [data-plan-area='map'] .maplibregl-ctrl-bottom-left,
-  :root [data-radar-label] {
+  :root [data-radar-label],
+  :root [data-forecast-row] {
     transition: none;
   }
 }
