@@ -231,7 +231,9 @@ func TestPhotonSearchNearPutsTheCityTypedInFullFirst(t *testing.T) {
 	row := func(name, key, value, city, state string, lat, lon float64) string {
 		return fmt.Sprintf(`{"geometry":{"coordinates":[%v,%v]},"properties":{"name":%q,"city":%q,"state":%q,"osm_key":%q,"osm_value":%q}}`, lon, lat, name, city, state, key, value)
 	}
-	hotel := func(n string, lat float64) string { return row(n, "tourism", "hotel", "Pasadena", "California", lat, -118.1) }
+	hotel := func(n string, lat float64) string {
+		return row(n, "tourism", "hotel", "Pasadena", "California", lat, -118.1)
+	}
 	var plainRows, biasedRows string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("lat") == "" {
