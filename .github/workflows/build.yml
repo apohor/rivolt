@@ -258,7 +258,9 @@ jobs:
   # version bump for any chart change), helm lint --strict and a render of every
   # deploy/helm/rivolt/ci/*-values.yaml case (defaults, CNPG, existingSecret,
   # prod-like) through kubeconform -strict, with CRD schemas (CNPG,
-  # Prometheus operator) from the datree catalog. A render with no KEK must
+  # Prometheus operator) from the datree catalog, except those committed under
+  # deploy/helm/rivolt/ci/schemas (generated from the plugin chart's own CRD,
+  # which the catalog lags), tried first. A render with no KEK must
   # fail, as the chart promises. PRs that touch deploy/helm (or .github) only.
   chart:
     name: chart
@@ -320,6 +322,7 @@ jobs:
             helm template rivolt "$CHART" -f "$f" \
               | kubeconform -strict -summary -kubernetes-version "$KUBE_VERSION" \
                   -schema-location default \
+                  -schema-location "$CHART/ci/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
                   -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
             echo "::endgroup::"
           done
