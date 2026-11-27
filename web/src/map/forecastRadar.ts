@@ -14,7 +14,8 @@ export const FORECAST_MAX_SLOTS = 48;
 // The scrubber settles this long before tiles are asked for: one hour at z7 is dozens of tiles, and the server allows 600 a minute.
 export const FORECAST_DEBOUNCE_MS = 300;
 
-export const FORECAST_BASE = "/api/maps/forecast-radar";
+// The tile route has path parameters, so its URL is built from the origin (the server contract test reads the "/api/..." literals as calls).
+export const FORECAST_HOURS_URL = "/api/maps/forecast-radar/hours";
 export const FORECAST_CREDIT = "NOAA RRFS";
 export const LINE_PAST_HORIZON = "The forecast doesn't reach this hour.";
 export const LINE_OUTSIDE_US = "The forecast covers the contiguous US.";
@@ -35,7 +36,7 @@ export type HoursResult = { kind: "ok"; data: ForecastHours } | { kind: "hidden"
 
 export async function fetchForecastHours(signal?: AbortSignal): Promise<HoursResult> {
   try {
-    const r = await fetch(`${FORECAST_BASE}/hours`, { signal, credentials: "same-origin" });
+    const r = await fetch(FORECAST_HOURS_URL, { signal, credentials: "same-origin" });
     if (r.status === 401 || r.status === 402 || r.status === 403 || r.status === 404 || r.status === 429) return { kind: "hidden" };
     if (!r.ok) return { kind: "down" };
     const j = (await r.json()) as Partial<ForecastHours>;
@@ -61,7 +62,7 @@ export function forecastSlots(hours: ForecastHour[], departUnix: number, arriveU
 
 // forecastTileURL is the tile template for one cycle and hour; both are in the path, so the browser and Cloudflare cache each hour for good.
 export function forecastTileURL(origin: string, cycle: string, fh: number): string {
-  return `${origin}${FORECAST_BASE}/${encodeURIComponent(cycle)}/${fh}/{z}/{x}/{y}.png`;
+  return `${origin}/api/maps/forecast-radar/${encodeURIComponent(cycle)}/${fh}/{z}/{x}/{y}.png`;
 }
 
 // inBounds: the point lies inside the grid's box (the route's middle decides whether this trip is in the forecast's reach).
