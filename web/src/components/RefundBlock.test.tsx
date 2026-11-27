@@ -49,6 +49,17 @@ describe("Refund and cancel on the Plan card (web Pro)", () => {
     expect(String(posts[0][0])).toContain("/api/billing/refund");
   });
 
+  it("replaces the thanks line from the return from Stripe once the refund is made", async () => {
+    window.history.replaceState(null, "", "/settings?checkout=success#plan");
+    const { container } = show({ "/api/auth/me": { body: stripe }, "/api/billing/refund": { body: offer } });
+    expect(await screen.findByText("Thanks, Pro is on.")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: REFUND.action }));
+    fireEvent.click(screen.getByRole("button", { name: REFUND.yes }));
+    await waitFor(() => expect(container.querySelector("[data-refund-done]")?.textContent).toContain("Refunded $34.99"));
+    expect(container.querySelector("[data-checkout-return]")).toBeNull();
+    window.history.replaceState(null, "", "/");
+  });
+
   it("says so when the refund is no longer available, and keeps Pro as it was", async () => {
     const { container } = show({ "/api/auth/me": { body: stripe }, "/api/billing/refund": { body: offer } });
     fireEvent.click(await screen.findByRole("button", { name: REFUND.action }));
