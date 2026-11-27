@@ -213,7 +213,7 @@ enum ProCopy {
 enum DemoLinks {
     struct Item: Equatable { let label: String; let url: URL }
 
-    static let planner = Item(label: "See the multi-day planner in the demo", url: URL(string: "https://demo.rivolt.dev/demo/trips/plan")!)
+    static let planner = Item(label: "See the trip planner in the demo", url: URL(string: "https://demo.rivolt.dev/demo/trips/plan")!)
     static let history = Item(label: "See full history in the demo", url: URL(string: "https://demo.rivolt.dev/demo/activity")!)
     static let trends = Item(label: "See trends in the demo", url: URL(string: "https://demo.rivolt.dev/demo/truck")!)
 
@@ -481,7 +481,7 @@ struct ProPaywallView: View {
                 Text("\(price) \(unit)").themeText(.value, color: Theme.textPrimary).fontWeight(.semibold)
                 if !extra.isEmpty { Text(extra).themeText(.caption, color: Theme.textTertiary) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(3 * Theme.unit)
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(selected ? Theme.accent : Theme.border, lineWidth: selected ? 2 : 1))
         }
