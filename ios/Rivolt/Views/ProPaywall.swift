@@ -119,14 +119,13 @@ enum ProCopy {
     static let primaryVehicleIntro = "The free tier shows one vehicle. The others keep recording and alerting, stay in your export, and Pro shows them all. Nothing is deleted."
     static func primaryVehicleSaved(_ name: String) -> String { "Done. The free tier now shows \(name)." }
     static let title = "Rivolt Pro"
-    static let subtitle = "Full history, multi-day trips and more widgets, from $3.99 a month."
+    static let subtitle = "Full history, trip planning and more widgets, from $3.99 a month."
     static func included(_ window: FreeWindow = .unknown) -> [String] { [
         "Unlimited history and trends (free tier: \(window.short))",
         "Range near a temperature",
-        "Multi-day trip plans with hotel and campground overnights",
+        "Trip planning, including multi-day plans and overnight stops",
         "Rain or snow likely at your stops on arrival (contiguous US, NOAA RRFS forecast radar)",
         "Re-plan from where the truck is, and plan-vs-actual after the trip",
-        "Unlimited saved trips (free: 3)",
         "Every vehicle shown (free: 1)",
         "iPhone: every widget except the small Now widget (the charging Live Activity is free)",
         "Always free, on every plan: recording, every alert, imports, share cards, trip share links, the charging Live Activity, the small Now widget, the full export, deletion",
