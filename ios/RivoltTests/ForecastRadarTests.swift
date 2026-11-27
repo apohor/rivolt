@@ -144,7 +144,25 @@ final class ForecastRadarTests: XCTestCase {
         await m.fetch(source: s)
         XCTAssertEqual(m.hours?.cycle, "c1")
         await m.fetch(source: s)
-        XCTAssertEqual(m.hours?.cycle, "c1", "a refresh that fails keeps the hours on show")
+        XCTAssertEqual(m.load, .down, "a refresh that fails says so: tiles answer 503 too, an old hour label over no rain would look dry")
+        XCTAssertNil(m.hours)
+        XCTAssertNil(m.layer(server: server, slots: [Logic.Slot(t: 3600, fh: 1)], inside: true), "no layer while down")
+        XCTAssertEqual(Logic.lineDown, "Forecast unavailable")
+        s.answers = [.success(forecastHours(cycle: "c2"))]
+        await m.fetch(source: s)
+        XCTAssertEqual(m.hours?.cycle, "c2", "it recovers on the next ask")
+    }
+
+    func testWhileDownItAsksAgainSoonerThanWhenReady() async throws {
+        let m = ForecastRadarModel(), s = Source()
+        m.refreshEvery = .seconds(60)
+        m.retryDown = .milliseconds(20)
+        s.answers = [.failure(URLError(.timedOut)), .success(forecastHours())]
+        let t = Task { await m.keepFresh(source: s) }
+        try await Task.sleep(for: .milliseconds(300))
+        t.cancel()
+        XCTAssertEqual(s.calls, 2)
+        XCTAssertNotNil(m.hours)
     }
 
     func testTheForecastReplacesTheLiveRadarOnlyWhereItIsOffered() {

@@ -138,11 +138,13 @@ final class ForecastRadarModel {
     private(set) var drawnIndex = 0
     var debounce: Duration = ForecastRadarLogic.debounce
     var refreshEvery: Duration = .seconds(600)
+    /// While the feed is down it is asked again sooner, as on web.
+    var retryDown: Duration = .seconds(30)
     private var settle: Task<Void, Never>?
 
     var hours: ForecastHours? { if case .ready(let h) = load { h } else { nil } }
 
-    /// Asks for the hours (once per session until something resets it; a refresh keeps the hours on show when it fails).
+    /// Asks for the hours (once per session until something resets it; any failure that is not "not for you" is .down, so tiles that answer 503 never sit under an old hour label as dry).
     func fetch(source: some ForecastSource) async {
         if case .idle = load { load = .loading }
         do {
@@ -150,14 +152,14 @@ final class ForecastRadarModel {
         } catch APIError.server(let status, _, _) where [401, 402, 403, 404, 429].contains(status) {
             load = .hidden
         } catch {
-            if hours == nil { load = .down }
+            load = .down
         }
     }
 
     /// While on, the hours are asked for again every ten minutes (a new cycle lands about hourly).
     func keepFresh(source: some ForecastSource) async {
         while !Task.isCancelled {
-            try? await Task.sleep(for: refreshEvery)
+            if case .down = load { try? await Task.sleep(for: retryDown) } else { try? await Task.sleep(for: refreshEvery) }
             if Task.isCancelled { return }
             await fetch(source: source)
         }
