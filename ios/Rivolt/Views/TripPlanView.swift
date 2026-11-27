@@ -19,6 +19,8 @@ struct TripPlanView: View {
 
     /// The person asked to edit the trip: the form and the saved trips, in place of the map screen.
     @State private var editing = false
+    /// All trip planning is Pro for this account (/api/auth/me planner_pro_only): the gated card replaces the form.
+    @State private var plannerGated = false
 
     /// A signed-in plan to look at: the full-height map and the itinerary sheet.
     private var showsMapScreen: Bool {
@@ -54,6 +56,7 @@ struct TripPlanView: View {
                 let vehicles = (try? await state.client.vehicles()) ?? []
                 await model.loadTruck(source: state.client, vehicles: vehicles)
                 await saved.load(source: state.client)
+                plannerGated = (try? await state.readMe())?.plannerProOnly == true
             }
         }
     }
@@ -70,7 +73,11 @@ struct TripPlanView: View {
                             if editing, model.plan != nil {
                                 Button { editing = false } label: { Label("Back to the map", systemImage: "map") }.buttonStyle(ThemeSecondaryButtonStyle())
                             }
-                            TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { editing = false; Task { await model.plan(source: state.client) } })
+                            if plannerGated {
+                                PlannerGatedCard(hasSavedTrips: !saved.trips.isEmpty)
+                            } else {
+                                TripPlanForm(model: model, onPick: { picking = $0 }, onPlan: { editing = false; Task { await model.plan(source: state.client) } })
+                            }
                             TripPlanResult(model: model, metric: NowFormat.usesMetric)
                             if model.plan != nil { SaveTripSection(model: model, saved: saved) }
                             if let active = saved.active { PlanVsActualSection(saved: active) }
@@ -86,6 +93,20 @@ struct TripPlanView: View {
                 // A plan that arrives (planned, or a saved trip opened) goes back to the map.
                 .onChange(of: model.state) { _, new in if case .planned = new { editing = false } }
             }
+    }
+}
+
+/// A new free account: all trip planning is Pro. Facts only (iPhone Pro wording D7): no price, no way to buy, no link.
+struct PlannerGatedCard: View {
+    let hasSavedTrips: Bool
+
+    var body: some View {
+        ThemeSection(title: "Plan a trip") {
+            Text(ProCopy.plannerGated(hasSavedTrips: hasSavedTrips))
+                .themeText(.value, color: Theme.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("planner-gated")
+        }
     }
 }
 

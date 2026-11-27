@@ -1,9 +1,9 @@
 import XCTest
 
-/// A new free account on the Plan tab: planning is Pro, the planner answers 402, and the screen says so in the app's own words (no price, no link).
-/// Every call is answered from fixtures (Rivolt/App/UITestFixtures.swift, `-uitest-planner-gated`).
+/// A new free account on the Plan tab: planning is Pro, so a card with the tier fact takes the place of the form (no price, no link, no button
+/// that can only fail), and the saved trips stay below. Every call is answered from fixtures (Rivolt/App/UITestFixtures.swift, `-uitest-planner-gated`).
 final class PlannerGatedUITests: XCTestCase {
-    func testGatedPlanShowsTheTierFact() throws {
+    func testGatedPlanShowsTheTierFactInsteadOfTheForm() throws {
         let app = XCUIApplication()
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         let ios = here.deletingLastPathComponent()
@@ -13,31 +13,14 @@ final class PlannerGatedUITests: XCTestCase {
         let plan = app.buttons["Plan"].firstMatch
         XCTAssertTrue(plan.waitForExistence(timeout: 20), "the Plan tab is there")
         plan.tap()
-        // The fixture truck has no position, so pick a starting place too.
-        func pick(_ row: String, _ place: String) {
-            let r = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", row)).firstMatch
-            XCTAssertTrue(r.waitForExistence(timeout: 20), "\(row) row")
-            r.tap()
-            let f = app.textFields["A city, or a street and a city"].firstMatch
-            XCTAssertTrue(f.waitForExistence(timeout: 10))
-            f.tap(); f.typeText("Spokane")
-            let m = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '\(place)'")).firstMatch
-            XCTAssertTrue(m.waitForExistence(timeout: 20), "the place is listed")
-            m.tap()
-            if !f.waitForNonExistence(timeout: 4), m.exists { m.tap() }  // a tap while the list settles can miss
-            XCTAssertTrue(f.waitForNonExistence(timeout: 10), "the picker closes")
-        }
-        pick("Where the truck is", "Example Origin")
-        pick("Choose a place", "Example Destination")
-        let go = app.buttons["Plan the trip"].firstMatch
-        XCTAssertTrue(go.waitForExistence(timeout: 10))
-        go.tap()
-        let said = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "part of the Pro tier")).firstMatch
-        _ = said.waitForExistence(timeout: 20)
+        let card = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "part of the Pro tier")).firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "the tier fact is shown")
+        XCTAssertTrue(card.label.contains("saved earlier"), "this account has saved trips, so the saved-trips line is there")
+        XCTAssertFalse(app.buttons["Plan the trip"].exists, "no button that can only fail")
+        XCTAssertTrue(app.buttons["Seattle to Spokane"].firstMatch.waitForExistence(timeout: 10), "the saved trips stay listed")
         let shot = app.screenshot()
         let a = XCTAttachment(screenshot: shot); a.name = "plan-gated"; a.lifetime = .keepAlways; add(a)
         try? FileManager.default.createDirectory(atPath: "/tmp/claude-501/shots", withIntermediateDirectories: true)
         try? shot.pngRepresentation.write(to: URL(fileURLWithPath: "/tmp/claude-501/shots/plan-gated.png"))
-        XCTAssertTrue(said.exists, "the 402 reads as a tier fact")
     }
 }

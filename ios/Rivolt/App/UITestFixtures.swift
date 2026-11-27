@@ -57,7 +57,7 @@ final class FixtureURLProtocol: URLProtocol {
         // The iPhone elevation chart is a preview-only design (design_preview key ios_elevation): on only when the UI test asks.
         case ("GET", "/api/config") where ProcessInfo.processInfo.arguments.contains("-uitest-ios-elevation"):
             return ProcessInfo.processInfo.arguments.contains("-uitest-now-v2") ? "config_now_v2_elevation" : "config_ios_elevation"
-        case ("GET", "/api/auth/me"): return "me"
+        case ("GET", "/api/auth/me"): return ProcessInfo.processInfo.arguments.contains("-uitest-planner-gated") ? "me_plan_free_planner_pro" : "me"
         case ("GET", "/api/vehicles"): return "vehicles"
         case ("GET", "/api/trips/saved"): return "trip_saved_list"
         case ("POST", _) where path.hasPrefix("/api/trips/saved/") && path.hasSuffix("/receipt"): return "trip_receipt"
@@ -382,12 +382,6 @@ final class FixtureURLProtocol: URLProtocol {
             answer = live
         } else if ProcessInfo.processInfo.arguments.contains("-uitest-parked"), method == "GET", let live = parkedAnswer(path: url.path) {
             answer = live
-        } else if ProcessInfo.processInfo.arguments.contains("-uitest-planner-gated"), method == "GET", url.path == "/api/geocode" {
-            answer = Data(#"[{"name":"Example Destination","latitude":47.6588,"longitude":-117.426,"admin1":"Washington","country":"United States"},{"name":"Example Origin","latitude":47.6205,"longitude":-122.3493,"admin1":"Washington","country":"United States"}]"#.utf8)
-        } else if ProcessInfo.processInfo.arguments.contains("-uitest-planner-gated"), method == "POST", url.path == "/api/trips/plan" {
-            // A new free account: the planner answers 402 pro_required.
-            failed = 402
-            answer = Data(#"{"error":"pro_required"}"#.utf8)
         } else if let name = Self.file(method: method, path: url.path) {
             answer = data(named: name)
         }

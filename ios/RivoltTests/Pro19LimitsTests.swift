@@ -69,6 +69,9 @@ final class Pro19LimitsTests: XCTestCase {
         let refused = APIError.server(status: 402, message: "pro_required", retryAfter: nil)
         XCTAssertEqual(TripPlanLogic.failure(refused, singleDay: true), ProCopy.plannerAllPro)
         XCTAssertEqual(TripPlanLogic.failure(refused), ProCopy.plannerLimit)
+        XCTAssertEqual(ProCopy.plannerGated(hasSavedTrips: false), "Trip planning is part of the Pro tier.")
+        XCTAssertTrue(ProCopy.plannerGated(hasSavedTrips: true).hasSuffix("you can open and delete them."))
+        for word in ["$", "rivolt.dev", "http", "Upgrade", "Buy"] { XCTAssertFalse(ProCopy.plannerGated(hasSavedTrips: true).contains(word), word) }
         XCTAssertTrue(DemoLinks.forNote(limit: .proRequired, message: ProCopy.plannerAllPro).isEmpty)
         for word in ["$", "rivolt.dev", "http", "Upgrade", "Buy"] { XCTAssertFalse(ProCopy.plannerAllPro.contains(word), word) }
         XCTAssertTrue(ProCopy.primaryVehicleIntro.contains("Nothing is deleted"))

@@ -37,6 +37,8 @@ struct AuthUser: Decodable, Equatable {
     var historyDays: Int? = nil
     /// The first day the free window shows, "YYYY-MM-DD" (UTC); nil on Pro.
     var historyFrom: String? = nil
+    /// True when all trip planning is Pro for this account (made after the planner cutoff); absent otherwise.
+    var plannerProOnly: Bool? = nil
     /// The Terms the server wants accepted; absent on a server without the gate.
     var terms: Terms? = nil
 
