@@ -2,6 +2,7 @@ package rivian
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -41,9 +42,9 @@ type takeoverTrack struct {
 	at                       time.Time // when this pod acquired the vehicle (EnsureSubscribed), else its first frame
 	driveSrc, chargeSrc      string    // set at rehydrate when the snapshot held the session
 	driveDecided, chargeDone bool
-	seenFirst                bool // the first lifecycle pass after the acquire has been looked at
-	driveIdleFirst           bool // that pass found no drive: whatever opens later began after the hand-off
-	chargeIdleFirst          bool // likewise for a charge
+	driveRead, chargeRead    bool // the first frame that says what the vehicle is doing (a known gear / charger state) has been read
+	driveIdleFirst           bool // it read parked: whatever drive opens later began after the hand-off
+	chargeIdleFirst          bool // it read not charging: likewise for a charge
 }
 
 // SetRolloutObserver wires the takeover counters: fn(event, kind, source) with event RolloutRehydrate (source snapshot, db or fresh) or
@@ -93,7 +94,7 @@ func (m *StateMonitor) beginTakeover(vehicleID string, sess *liveSessions) {
 
 // noteTakeover runs after each lifecycle pass (caller holds sessMu) with the drive and charge as they were before it. At the first active
 // pass of each kind in the takeover window it counts how the session came back, or hands a fresh opening to the split check.
-func (m *StateMonitor) noteTakeover(vehicleID string, sess *liveSessions, driveBefore *liveDrive, chargeBefore *liveCharge) {
+func (m *StateMonitor) noteTakeover(vehicleID string, sess *liveSessions, curr *State, driveBefore *liveDrive, chargeBefore *liveCharge) {
 	t := sess.takeover
 	if t == nil {
 		return
@@ -102,12 +103,17 @@ func (m *StateMonitor) noteTakeover(vehicleID string, sess *liveSessions, driveB
 		sess.takeover = nil
 		return
 	}
-	if !t.seenFirst {
-		// A session cut by the hand-off is already running on the first frame the new pod sees. A vehicle that was parked then (no drive, no
-		// charge) and starts one later is a new drive or charge, however soon after the acquire: that is not a split.
-		t.seenFirst = true
-		t.driveIdleFirst = sess.drive == nil
-		t.chargeIdleFirst = sess.charge == nil
+	// A session cut by the hand-off is already running on the first frame that says what the vehicle is doing. A vehicle read as parked
+	// (gear P) or not charging then, that starts one later, began a new drive or charge, however soon after the acquire: not a split. A
+	// frame with no gear or charger state yet (a push merged into an empty State) reads as nothing and waits for the next one. A stale
+	// seed replaying P mid-drive can still hide a split; that costs the metric only.
+	if !t.driveRead && (sess.drive != nil || strings.TrimSpace(curr.Gear) != "") {
+		t.driveRead = true
+		t.driveIdleFirst = sess.drive == nil && strings.EqualFold(strings.TrimSpace(curr.Gear), "P")
+	}
+	if !t.chargeRead && (sess.charge != nil || strings.TrimSpace(curr.ChargerState) != "") {
+		t.chargeRead = true
+		t.chargeIdleFirst = sess.charge == nil && !isChargingCS(curr.ChargerState)
 	}
 	if !t.driveDecided && sess.drive != nil {
 		t.driveDecided = true
