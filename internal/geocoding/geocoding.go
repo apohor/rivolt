@@ -47,7 +47,7 @@ type Result struct {
 	Timezone   string `json:"timezone,omitempty"`
 	// EVCharging marks a hotel taken from the charger archive: it has a Level 2 charger, and the search row says so.
 	EVCharging bool `json:"ev_charging,omitempty"`
-	// Exact marks the city or town a search typed in full ("boston"), set by SearchNear on the one it moved to the top; it never leaves the server.
+	// Exact marks the most important city or town a search typed in full ("boston"), which SearchNear keeps among the first three rows; it never leaves the server.
 	Exact bool `json:"-"`
 	// settlement is set while reading Photon rows: a place=city or place=town whose name is the whole query.
 	settlement bool

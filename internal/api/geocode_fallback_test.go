@@ -261,12 +261,13 @@ func TestHotelWithNoTownSkipsAOneWordSearch(t *testing.T) {
 	}
 }
 
-func TestMergeHotelResultsKeepsAnExactCityAheadOfTheHotels(t *testing.T) {
+func TestMergeHotelResultsKeepsAnExactCityInTheFirstThree(t *testing.T) {
 	city := geocoding.Result{Name: "Boston", Admin1: "Massachusetts", Exact: true}
-	hotels := []geocoding.Result{{Name: "Boston Inn", EVCharging: true}, {Name: "Boston Suites", EVCharging: true}}
-	got := mergeHotelResults(hotels, []geocoding.Result{city, {Name: "Boston, CA"}})
-	if got[0].Name != "Boston" || got[1].Name != "Boston Inn" || len(got) != 4 {
-		t.Errorf("got %+v, want the city first, then the hotels, then the rest", got)
+	hotels := []geocoding.Result{{Name: "Boston Inn", EVCharging: true}, {Name: "Boston Suites", EVCharging: true}, {Name: "Boston Lodge", EVCharging: true}}
+	// The city is the second Photon row; three hotels in front push it to the third row, no further.
+	got := mergeHotelResults(hotels, []geocoding.Result{{Name: "Boston, CA"}, city, {Name: "Bostonia"}})
+	if got[2].Name != "Boston" || len(got) != 6 {
+		t.Errorf("got %+v, want Boston in the third row and every row kept", got)
 	}
 	plain := mergeHotelResults(hotels, []geocoding.Result{{Name: "Boston, CA"}})
 	if plain[0].Name != "Boston Inn" {
