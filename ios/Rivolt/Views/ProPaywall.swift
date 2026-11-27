@@ -481,7 +481,7 @@ struct ProPaywallView: View {
                 Text("\(price) \(unit)").themeText(.value, color: Theme.textPrimary).fontWeight(.semibold)
                 if !extra.isEmpty { Text(extra).themeText(.caption, color: Theme.textTertiary) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(3 * Theme.unit)
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusInner, style: .continuous).strokeBorder(selected ? Theme.accent : Theme.border, lineWidth: selected ? 2 : 1))
         }

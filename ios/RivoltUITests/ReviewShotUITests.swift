@@ -34,5 +34,10 @@ final class ReviewShotUITests: XCTestCase {
         if let out = ProcessInfo.processInfo.environment["RIVOLT_REVIEW_SHOT_OUT"] {
             try screenshot.pngRepresentation.write(to: URL(fileURLWithPath: out))
         }
+        // App Review needs Restore reachable on the purchase sheet (after the picture, so it does not change it).
+        let restore = app.buttons["Restore purchases"].firstMatch
+        var more = 0
+        while !restore.isHittable && more < 8 { app.swipeUp(velocity: .slow); more += 1 }
+        XCTAssertTrue(restore.exists && restore.isHittable, "Restore purchases is reachable on the purchase sheet")
     }
 }
