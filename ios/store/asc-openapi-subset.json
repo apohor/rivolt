@@ -1927,12 +1927,1468 @@
 ],
 "type": "string"
 },
+"SubscriptionAppStoreReviewScreenshotCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"fileName": {
+"type": "string"
+},
+"fileSize": {
+"type": "integer"
+}
+},
+"required": [
+"fileName",
+"fileSize"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"subscription"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionAppStoreReviewScreenshots"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionAppStoreReviewScreenshotCreateRequest",
+"type": "object"
+},
+"SubscriptionAppStoreReviewScreenshotUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"sourceFileChecksum": {
+"nullable": true,
+"type": "string"
+},
+"uploaded": {
+"nullable": true,
+"type": "boolean"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionAppStoreReviewScreenshots"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionAppStoreReviewScreenshotUpdateRequest",
+"type": "object"
+},
+"SubscriptionCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"familySharable": {
+"nullable": true,
+"type": "boolean"
+},
+"groupLevel": {
+"nullable": true,
+"type": "integer"
+},
+"name": {
+"type": "string"
+},
+"productId": {
+"type": "string"
+},
+"reviewNote": {
+"nullable": true,
+"type": "string"
+},
+"subscriptionPeriod": {
+"enum": [
+"ONE_WEEK",
+"ONE_MONTH",
+"TWO_MONTHS",
+"THREE_MONTHS",
+"SIX_MONTHS",
+"ONE_YEAR"
+],
+"nullable": true,
+"type": "string"
+}
+},
+"required": [
+"productId",
+"name"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"group": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionGroups"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"group"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionCreateRequest",
+"type": "object"
+},
+"SubscriptionGroupCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"referenceName": {
+"type": "string"
+}
+},
+"required": [
+"referenceName"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"app": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"apps"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"app"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionGroups"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionGroupCreateRequest",
+"type": "object"
+},
+"SubscriptionGroupLocalizationCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"customAppName": {
+"nullable": true,
+"type": "string"
+},
+"locale": {
+"type": "string"
+},
+"name": {
+"type": "string"
+}
+},
+"required": [
+"name",
+"locale"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"subscriptionGroup": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionGroups"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"subscriptionGroup"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionGroupLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionGroupLocalizationCreateRequest",
+"type": "object"
+},
+"SubscriptionGroupLocalizationUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"customAppName": {
+"nullable": true,
+"type": "string"
+},
+"name": {
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionGroupLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionGroupLocalizationUpdateRequest",
+"type": "object"
+},
+"SubscriptionIntroductoryOfferInlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"duration": {
+"$ref": "#/components/schemas/SubscriptionOfferDuration"
+},
+"endDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+},
+"numberOfPeriods": {
+"type": "integer"
+},
+"offerMode": {
+"$ref": "#/components/schemas/SubscriptionOfferMode"
+},
+"startDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+},
+"targetSubscriptionPlanType": {
+"$ref": "#/components/schemas/SubscriptionPlanType",
+"nullable": true
+}
+},
+"required": [
+"duration",
+"numberOfPeriods",
+"offerMode"
+],
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"subscriptionPricePoint": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPricePoints"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"territory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionIntroductoryOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"attributes",
+"type"
+],
+"type": "object"
+},
+"SubscriptionLocalizationCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"description": {
+"nullable": true,
+"type": "string"
+},
+"locale": {
+"type": "string"
+},
+"name": {
+"type": "string"
+}
+},
+"required": [
+"name",
+"locale"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"subscription"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionLocalizationCreateRequest",
+"type": "object"
+},
+"SubscriptionLocalizationUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"description": {
+"nullable": true,
+"type": "string"
+},
+"name": {
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionLocalizationUpdateRequest",
+"type": "object"
+},
+"SubscriptionOfferDuration": {
+"enum": [
+"THREE_DAYS",
+"ONE_WEEK",
+"TWO_WEEKS",
+"ONE_MONTH",
+"TWO_MONTHS",
+"THREE_MONTHS",
+"SIX_MONTHS",
+"ONE_YEAR"
+],
+"type": "string"
+},
+"SubscriptionOfferMode": {
+"enum": [
+"PAY_AS_YOU_GO",
+"PAY_UP_FRONT",
+"FREE_TRIAL"
+],
+"type": "string"
+},
+"SubscriptionPlanAvailabilityCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"availableInNewTerritories": {
+"nullable": true,
+"type": "boolean"
+},
+"planType": {
+"$ref": "#/components/schemas/SubscriptionPlanType"
+}
+},
+"required": [
+"planType"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"availableTerritories": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"availableTerritories",
+"subscription"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPlanAvailabilities"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionPlanAvailabilityCreateRequest",
+"type": "object"
+},
+"SubscriptionPlanType": {
+"enum": [
+"MONTHLY",
+"UPFRONT"
+],
+"type": "string"
+},
+"SubscriptionPriceCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"planType": {
+"$ref": "#/components/schemas/SubscriptionPlanType",
+"nullable": true
+},
+"preserveCurrentPrice": {
+"nullable": true,
+"type": "boolean"
+},
+"startDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"relationships": {
+"properties": {
+"additionalPriceTiers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPriceTiers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"subscriptionPricePoint": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPricePoints"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"territory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"required": [
+"subscription",
+"subscriptionPricePoint"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"type"
+],
+"type": "object"
+},
+"included": {
+"items": {
+"$ref": "#/components/schemas/SubscriptionPriceTierInlineCreate"
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionPriceCreateRequest",
+"type": "object"
+},
+"SubscriptionPriceInlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"planType": {
+"$ref": "#/components/schemas/SubscriptionPlanType",
+"nullable": true
+},
+"preserveCurrentPrice": {
+"nullable": true,
+"type": "boolean"
+},
+"startDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"additionalPriceTiers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPriceTiers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"subscriptionPricePoint": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPricePoints"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"territory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"type"
+],
+"type": "object"
+},
+"SubscriptionPriceTierInlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"minQuantity": {
+"nullable": true,
+"type": "integer"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"subscriptionPricePoint": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPricePoints"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPriceTiers"
+],
+"type": "string"
+}
+},
+"required": [
+"type"
+],
+"type": "object"
+},
+"SubscriptionPromotionalOfferInlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"duration": {
+"$ref": "#/components/schemas/SubscriptionOfferDuration"
+},
+"name": {
+"type": "string"
+},
+"numberOfPeriods": {
+"type": "integer"
+},
+"offerCode": {
+"type": "string"
+},
+"offerMode": {
+"$ref": "#/components/schemas/SubscriptionOfferMode"
+},
+"targetSubscriptionPlanType": {
+"$ref": "#/components/schemas/SubscriptionPlanType",
+"nullable": true
+}
+},
+"required": [
+"duration",
+"offerCode",
+"name",
+"numberOfPeriods",
+"offerMode"
+],
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"prices": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPromotionalOfferPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPromotionalOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"attributes",
+"type"
+],
+"type": "object"
+},
 "SubscriptionStatusUrlVersion": {
 "enum": [
 "V1",
 "V2"
 ],
 "type": "string"
+},
+"SubscriptionUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"familySharable": {
+"nullable": true,
+"type": "boolean"
+},
+"groupLevel": {
+"nullable": true,
+"type": "integer"
+},
+"marketSettings": {
+"items": {
+"enum": [
+"APPLE_SCHOOL",
+"APP_STORE",
+"APPLE_BUSINESS"
+],
+"type": "string"
+},
+"nullable": true,
+"type": "array"
+},
+"multiSeatStatus": {
+"enum": [
+"ENABLED",
+"DISABLED"
+],
+"nullable": true,
+"type": "string"
+},
+"name": {
+"nullable": true,
+"type": "string"
+},
+"reviewNote": {
+"nullable": true,
+"type": "string"
+},
+"subscriptionPeriod": {
+"enum": [
+"ONE_WEEK",
+"ONE_MONTH",
+"TWO_MONTHS",
+"THREE_MONTHS",
+"SIX_MONTHS",
+"ONE_YEAR"
+],
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"introductoryOffers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionIntroductoryOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"prices": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"promotionalOffers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPromotionalOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"retentionMessage": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"retentionMessages"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"retentionMessageOffers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"retentionOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"included": {
+"items": {
+"oneOf": [
+{
+"$ref": "#/components/schemas/SubscriptionPriceTierInlineCreate"
+},
+{
+"$ref": "#/components/schemas/SubscriptionPromotionalOfferInlineCreate"
+},
+{
+"$ref": "#/components/schemas/SubscriptionPriceInlineCreate"
+},
+{
+"$ref": "#/components/schemas/SubscriptionIntroductoryOfferInlineCreate"
+}
+]
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionUpdateRequest",
+"type": "object"
 },
 "TerritoryAvailabilityInlineCreate": {
 "properties": {
@@ -2943,6 +4399,60 @@
 ]
 }
 },
+"/v1/apps/{id}/subscriptionGroups": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[referenceName]"
+},
+{
+"in": "query",
+"name": "filter[subscriptions.state]"
+},
+{
+"in": "query",
+"name": "sort"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroups]"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroupLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroupVersions]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[subscriptions]"
+},
+{
+"in": "query",
+"name": "limit[subscriptionGroupLocalizations]"
+},
+{
+"in": "query",
+"name": "limit[versions]"
+}
+]
+}
+},
 "/v1/builds": {
 "get": {
 "parameters": [
@@ -3101,6 +4611,499 @@
 }
 }
 }
+}
+},
+"/v1/subscriptionAppStoreReviewScreenshots": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionAppStoreReviewScreenshotCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionAppStoreReviewScreenshots/{id}": {
+"delete": {
+"parameters": []
+},
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionAppStoreReviewScreenshots]"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+},
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionAppStoreReviewScreenshotUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionGroupLocalizations": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionGroupLocalizationCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionGroupLocalizations/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionGroupLocalizationUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionGroups": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionGroupCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionGroups/{id}/subscriptionGroupLocalizations": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionGroupLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroups]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/subscriptionGroups/{id}/subscriptions": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[productId]"
+},
+{
+"in": "query",
+"name": "filter[name]"
+},
+{
+"in": "query",
+"name": "filter[state]"
+},
+{
+"in": "query",
+"name": "sort"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionAppStoreReviewScreenshots]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroups]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionIntroductoryOffers]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPromotionalOffers]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionOfferCodes]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPrices]"
+},
+{
+"in": "query",
+"name": "fields[promotedPurchases]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionAvailabilities]"
+},
+{
+"in": "query",
+"name": "fields[winBackOffers]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionImages]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPlanAvailabilities]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionVersions]"
+},
+{
+"in": "query",
+"name": "fields[retentionOffers]"
+},
+{
+"in": "query",
+"name": "fields[retentionMessages]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[subscriptionLocalizations]"
+},
+{
+"in": "query",
+"name": "limit[introductoryOffers]"
+},
+{
+"in": "query",
+"name": "limit[promotionalOffers]"
+},
+{
+"in": "query",
+"name": "limit[offerCodes]"
+},
+{
+"in": "query",
+"name": "limit[prices]"
+},
+{
+"in": "query",
+"name": "limit[winBackOffers]"
+},
+{
+"in": "query",
+"name": "limit[images]"
+},
+{
+"in": "query",
+"name": "limit[planAvailabilities]"
+},
+{
+"in": "query",
+"name": "limit[versions]"
+},
+{
+"in": "query",
+"name": "limit[retentionOffers]"
+},
+{
+"in": "query",
+"name": "limit[retentionMessageOffers]"
+}
+]
+}
+},
+"/v1/subscriptionLocalizations": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionLocalizationCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionLocalizations/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionLocalizationUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionPlanAvailabilities": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionPlanAvailabilityCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionPlanAvailabilities/{id}/availableTerritories": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "limit"
+}
+]
+}
+},
+"/v1/subscriptionPrices": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionPriceCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptions": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptions/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptions/{id}/appStoreReviewScreenshot": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionAppStoreReviewScreenshots]"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/subscriptions/{id}/planAvailabilities": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionPlanAvailabilities]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[availableTerritories]"
+}
+]
+}
+},
+"/v1/subscriptions/{id}/pricePoints": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[territory]"
+},
+{
+"in": "query",
+"name": "filter[upfrontPricePointId]"
+},
+{
+"in": "query",
+"name": "filter[planType]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPricePoints]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/subscriptions/{id}/prices": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[planType]"
+},
+{
+"in": "query",
+"name": "filter[subscriptionPricePoint]"
+},
+{
+"in": "query",
+"name": "filter[territory]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPrices]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPricePoints]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPriceTiers]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[additionalPriceTiers]"
+}
+]
+}
+},
+"/v1/subscriptions/{id}/subscriptionLocalizations": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
 }
 },
 "/v2/appAvailabilities": {

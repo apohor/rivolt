@@ -2,7 +2,7 @@
 """Checks App Store Connect API calls against Apple's published OpenAPI spec (the JSON in Apple's
 app-store-connect-openapi-specification.zip, https://developer.apple.com/sample-code/app-store-connect/).
 
-  asc_spec.py extract FULL.json OUT.json     keep only the operations asc_listing.py uses (a small file for tests)
+  asc_spec.py extract FULL.json OUT.json     keep only the operations asc_listing.py and asc_subscriptions.py use (a small file for tests)
 
 validate_call(spec, method, url, body) returns a list of problems: unknown path or method, unknown query parameter,
 unknown or mistyped body attribute, value outside an enum, missing required field. A body is checked strictly:
@@ -151,7 +151,8 @@ def main(argv):
     if len(argv) == 3 and argv[0] == "extract":
         sys.path.insert(0, HERE)
         import asc_listing
-        slim = extract(load(argv[1]), asc_listing.USED_OPS)
+        import asc_subscriptions
+        slim = extract(load(argv[1]), asc_listing.USED_OPS + asc_subscriptions.USED_OPS)
         with open(argv[2], "w", encoding="utf-8") as f:
             json.dump(slim, f, indent=0, sort_keys=True)
         print(f"spec {version(slim)}: {len(slim['paths'])} paths, {len(slim['components']['schemas'])} schemas")
