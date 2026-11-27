@@ -158,6 +158,8 @@ final class ForecastRadarTests: XCTestCase {
         m.refreshEvery = .seconds(60)
         m.retryDown = .milliseconds(20)
         s.answers = [.failure(URLError(.timedOut)), .success(forecastHours())]
+        await m.fetch(source: s)
+        XCTAssertEqual(m.load, .down)
         let t = Task { await m.keepFresh(source: s) }
         try await Task.sleep(for: .milliseconds(300))
         t.cancel()
