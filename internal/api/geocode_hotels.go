@@ -67,7 +67,13 @@ func mergeHotelResults(hotels, photon []geocoding.Result) []geocoding.Result {
 	if len(hotels) == 0 {
 		return photon
 	}
-	out := append([]geocoding.Result{}, hotels...)
+	out := make([]geocoding.Result, 0, len(hotels)+len(photon))
+	// A city typed in full comes before the hotels: "boston" lists Boston, MA first, not three hotels named for it.
+	if len(photon) > 0 && photon[0].Exact {
+		out = append(out, photon[0])
+		photon = photon[1:]
+	}
+	out = append(out, hotels...)
 	for _, p := range photon {
 		if sameHotelRow(hotels, p) {
 			continue

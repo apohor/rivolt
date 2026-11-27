@@ -260,3 +260,16 @@ func TestHotelWithNoTownSkipsAOneWordSearch(t *testing.T) {
 		t.Errorf("three words, no city: %d rows", len(rows))
 	}
 }
+
+func TestMergeHotelResultsKeepsAnExactCityAheadOfTheHotels(t *testing.T) {
+	city := geocoding.Result{Name: "Boston", Admin1: "Massachusetts", Exact: true}
+	hotels := []geocoding.Result{{Name: "Boston Inn", EVCharging: true}, {Name: "Boston Suites", EVCharging: true}}
+	got := mergeHotelResults(hotels, []geocoding.Result{city, {Name: "Boston, CA"}})
+	if got[0].Name != "Boston" || got[1].Name != "Boston Inn" || len(got) != 4 {
+		t.Errorf("got %+v, want the city first, then the hotels, then the rest", got)
+	}
+	plain := mergeHotelResults(hotels, []geocoding.Result{{Name: "Boston, CA"}})
+	if plain[0].Name != "Boston Inn" {
+		t.Errorf("without an exact city the hotels stay first: %+v", plain)
+	}
+}

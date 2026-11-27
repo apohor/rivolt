@@ -98,7 +98,41 @@ func (c *PhotonClient) SearchNear(ctx context.Context, name string, count int, n
 	if plain.err != nil || len(plain.res) == 0 {
 		return biased, nil
 	}
-	return mergeBiased(biased, plain.res, count), nil
+	return cityFirst(mergeBiased(biased, plain.res, count), plain.res), nil
+}
+
+// isTypedSettlement reports a city or town (place=city or place=town) whose name is the whole query, "Boston" for "boston".
+func isTypedSettlement(p photonProps, query string) bool {
+	return p.OSMKey == "place" && (p.OSMValue == "city" || p.OSMValue == "town") && p.Name != "" && strings.EqualFold(strings.TrimSpace(p.Name), strings.TrimSpace(query))
+}
+
+// cityFirst puts the city or town typed in full at the top, whatever the bias said: the plain list's first such row (Photon ranks by
+// importance, so "boston" is Boston, Massachusetts and not a nearby namesake) moves to the front, or is added there when the merge
+// left it out. A search with no such place is left as it was.
+func cityFirst(out, plain []Result) []Result {
+	var top *Result
+	for i := range plain {
+		if plain[i].settlement {
+			top = &plain[i]
+			break
+		}
+	}
+	if top == nil {
+		return out
+	}
+	first := *top
+	first.Exact = true
+	res := make([]Result, 0, len(out)+1)
+	res = append(res, first)
+	for _, r := range out {
+		if !duplicateOf([]Result{first}, r) {
+			res = append(res, r)
+		}
+	}
+	if len(res) > len(out) {
+		res = res[:max(len(out), 1)]
+	}
+	return res
 }
 
 // mergeBiased keeps the first biasedFirst biased results, then the plain list's best places not already there, then the
@@ -178,6 +212,7 @@ func (c *PhotonClient) searchRows(ctx context.Context, name string, count int, n
 			break
 		}
 		r := searchResultFromProps(f.Properties, f.Geometry.Coordinates[1], f.Geometry.Coordinates[0])
+		r.settlement = isTypedSettlement(f.Properties, name)
 		if duplicateOf(out, r) {
 			continue
 		}
