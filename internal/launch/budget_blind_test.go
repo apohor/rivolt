@@ -116,10 +116,10 @@ func TestMainHandsThePlanOnlyToTheKnownConsumers(t *testing.T) {
 	}
 	allowed := []*regexp.Regexp{
 		regexp.MustCompile(`^\s*entitlementsSvc := entitlements\.New\(`),
-		regexp.MustCompile(`Invalidate: entitlementsSvc\.Invalidate`),       // the Stripe and Apple webhooks drop a cached plan
-		regexp.MustCompile(`Plans: entitlementsSvc`),                        // Stripe Checkout refuses a double subscription
-		regexp.MustCompile(`^\s*Entitlements:\s+entitlementsSvc,`),          // the API's plan fields, window and feature gates
-		regexp.MustCompile(`^\s*//`),                                        // a comment
+		regexp.MustCompile(`Invalidate:\s+entitlementsSvc\.Invalidate`), // the Stripe and Apple webhooks and the self-serve refund drop a cached plan
+		regexp.MustCompile(`Plans: entitlementsSvc`),                    // Stripe Checkout refuses a double subscription
+		regexp.MustCompile(`^\s*Entitlements:\s+entitlementsSvc,`),      // the API's plan fields, window and feature gates
+		regexp.MustCompile(`^\s*//`),                                    // a comment
 	}
 	refs := 0
 	for i, line := range strings.Split(string(src), "\n") {

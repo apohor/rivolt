@@ -71,3 +71,39 @@ test("no refund offer: the card shows no Refund and cancel button", async ({ bro
   await expect(page.getByRole("button", { name: "Refund and cancel" })).toHaveCount(0);
   await ctx.close();
 });
+
+// QA on v1.5.0-rc.1: right after the refund the pod that answers /me may still hold the old plan for a moment. The card must not stay on
+// "Rivolt Pro, renews ... Manage subscription" until a reload: it asks again and lands on the free tier by itself.
+test("refund: a /me that is stale for the first answers still ends on the free tier without a reload", async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 393, height: 852 } });
+  const page = await ctx.newPage();
+  await stubApi(page);
+  let posted = false;
+  let staleLeft = 2; // answers after the POST that still say pro
+  let meAfterPost = 0;
+  await page.route("**/api/auth/me", (r) => {
+    if (!posted) return r.fulfill(json(pro));
+    meAfterPost++;
+    if (staleLeft > 0) {
+      staleLeft--;
+      return r.fulfill(json(pro));
+    }
+    return r.fulfill(json(free));
+  });
+  await page.route("**/api/billing/refund", (r) => {
+    if (r.request().method() === "POST") {
+      posted = true;
+      return r.fulfill(json({ refunded: true, amount_cents: 3499, currency: "usd" }));
+    }
+    return r.fulfill(json(posted ? { eligible: false, reason: "used" } : { eligible: true, until: "2026-12-05T10:00:00Z", amount_cents: 3499, currency: "usd" }));
+  });
+  await page.goto("/settings#plan");
+  const card = page.locator("[data-plan-card]");
+  await card.getByRole("button", { name: "Refund and cancel" }).click();
+  await card.getByRole("button", { name: "Yes, refund and cancel" }).click();
+  await expect(card.locator("[data-refund-done]")).toContainText("Refunded $34.99");
+  await expect(card).toHaveAttribute("data-plan-card", "lapsed", { timeout: 15_000 });
+  await expect(card).not.toContainText("Manage subscription");
+  expect(meAfterPost).toBeGreaterThanOrEqual(3);
+  await ctx.close();
+});

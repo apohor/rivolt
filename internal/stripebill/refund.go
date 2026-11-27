@@ -234,6 +234,9 @@ func (s *Service) finishRefund(ctx context.Context, uid uuid.UUID, cust, refundI
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	if s.Invalidate != nil {
+		s.Invalidate(uid)
+	}
 	s.cancelAfterRefund(ctx, cust)
 	return nil
 }
