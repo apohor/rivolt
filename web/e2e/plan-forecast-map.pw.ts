@@ -83,9 +83,17 @@ test("@webkit moving the scrubber asks for that hour once it settles, and a quic
   const seen = await open(page);
   await expect(radarButton(page)).toHaveAttribute("aria-pressed", "true"); // the Trip planner settings start it on
   await expect.poll(() => seen.tiles.some((t) => t.includes("/2026120112/0/"))).toBe(true);
-  await setStep(page, 1);
-  await page.waitForTimeout(250); // a sweep: the next step comes before the scrubber has been still for 300 ms
-  await setStep(page, 2);
+  // A sweep: both steps move inside the page 50 ms apart, so the next one comes before the scrubber has been still for 300 ms on any runner
+  // (a gap measured from the test process was longer than that on a slow WebKit job).
+  await slider(page).evaluate(async (el) => {
+    const i = el as HTMLInputElement;
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    for (const n of [1, 2]) {
+      set.call(i, String(n));
+      i.dispatchEvent(new Event("input", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  });
   await expect.poll(() => seen.tiles.some((t) => t.includes("/2026120112/2/"))).toBe(true);
   expect(seen.tiles.some((t) => t.includes("/2026120112/1/"))).toBe(false);
 });
