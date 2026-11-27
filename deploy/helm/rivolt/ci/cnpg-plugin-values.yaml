@@ -17,6 +17,5 @@ cnpg:
           accessKeyId: {name: example-creds, key: ACCESS_KEY_ID}
           secretAccessKey: {name: example-creds, key: ACCESS_SECRET_KEY}
           region: {name: example-creds, key: REGION}
-          sseCustomerKey: {name: example-sse, key: key}
         wal: {compression: gzip}
         data: {compression: gzip}
