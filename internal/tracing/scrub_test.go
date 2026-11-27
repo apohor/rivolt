@@ -83,3 +83,41 @@ func TestServerSpansCarryThemWithoutTheWrapper(t *testing.T) {
 		t.Error("control failed: otelhttp no longer sets any personal attribute on a server span (update personalServerAttrs, or drop the scrub)")
 	}
 }
+
+// A map tile address (where a signed-in user is looking) reaches the exporter as the route, for the forecast radar as for the live radar and
+// terrain; an ordinary path is kept. The control span, without the wrapper, does carry the address, so this can fail.
+func TestServerSpansLoseTheTileAddress(t *testing.T) {
+	for _, tc := range []struct{ path, want string }{
+		{"/api/maps/forecast-radar/2026112712/6/7/20/45.png", "/api/maps/forecast-radar/:tile"},
+		{"/api/maps/radar/7/20/45.png", "/api/maps/radar/:tile"},
+		{"/api/maps/forecast-radar/hours", "/api/maps/forecast-radar/hours"},
+		{"/api/state", "/api/state"},
+	} {
+		for _, wrap := range []bool{true, false} {
+			mem := tracetest.NewInMemoryExporter()
+			var exp sdktrace.SpanExporter = mem
+			if wrap {
+				exp = scrubServerSpans{mem}
+			}
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exp))
+			h := otelhttp.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }), "http.server", otelhttp.WithTracerProvider(tp))
+			h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://rivolt.example"+tc.path, nil))
+			got := ""
+			for _, sp := range mem.GetSpans() {
+				for _, a := range sp.Attributes {
+					if pathAttrs[a.Key] {
+						got = a.Value.AsString()
+					}
+				}
+			}
+			_ = tp.Shutdown(context.Background())
+			want := tc.want
+			if !wrap {
+				want = tc.path
+			}
+			if got != want {
+				t.Errorf("wrap=%v %s: span path %q, want %q", wrap, tc.path, got, want)
+			}
+		}
+	}
+}

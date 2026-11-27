@@ -24,3 +24,11 @@ domain, free for any lawful purpose provided we do not claim it as our own, impl
 official. So wherever radar is drawn the map credit says "Radar: NOAA/NWS" and the credits page says Rivolt is not endorsed by or affiliated with
 NOAA/NWS; the picture is NOAA's own colouring (we reproject, we do not recolour). Clients never call NOAA: this server does, with no user, viewport
 or account in the request, one fetch per tile per frame across replicas.
+
+### Forecast radar for the planner map (Pro)
+
+With `RIVOLT_RADAR_BASE_URL` set (the in-cluster radar service the trip planner's leg tags read), `GET /api/maps/forecast-radar/hours` lists the hours
+of the newest usable cycle and `GET /api/maps/forecast-radar/{cycle}/{fh}/{z}/{x}/{y}.png` (z 3 to 7) draws one hour as a tile, in the radar legend's
+colours, from the same grids. No new job and no storage: a tile is rendered on request and cached by address (`private, max-age=86400, immutable`;
+16 MB of PNGs per pod). Pro accounts only (402 `pro_required` otherwise). Where the forecast has no value (outside the grid, no data) the tile is
+transparent, never a "dry" colour. Credit: NOAA RRFS. Like the live tiles, the address is logged and traced as the route only.
