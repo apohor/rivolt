@@ -60,6 +60,8 @@ final class FixtureURLProtocol: URLProtocol {
         case ("GET", "/api/auth/me"): return "me"
         case ("GET", "/api/vehicles"): return "vehicles"
         case ("GET", "/api/trips/saved"): return "trip_saved_list"
+        // The place search: a charger-list hotel (EV charging) and a plain Photon row.
+        case ("GET", "/api/geocode"): return "geocode_hotel"
         case ("POST", _) where path.hasPrefix("/api/trips/saved/") && path.hasSuffix("/receipt"): return "trip_receipt"
         case ("GET", "/api/settings/planner"): return "settings_planner"
         case ("GET", "/api/app/config"): return "app_config"

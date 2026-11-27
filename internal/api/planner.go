@@ -81,7 +81,7 @@ func handleGeocode(photon *geocoding.PhotonClient, hotels HotelNameSearcher, ope
 			}
 			results = r2
 		}
-		results = mergeHotelResults(hits, results, count)
+		results = mergeHotelResults(hits, results)
 		if results == nil {
 			results = []geocoding.Result{}
 		}

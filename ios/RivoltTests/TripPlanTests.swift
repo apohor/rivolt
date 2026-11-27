@@ -269,22 +269,22 @@ final class TripPlanModelTests: XCTestCase {
         XCTAssertEqual(src.nears.last!?.longitude, -117.43, "the chosen start")
     }
 
-    func testTypeAheadWaitsTheWebsPauseAndAsksForEightFromTwoCharacters() async {
-        XCTAssertEqual(TripPlanLogic.typeAheadMinChars, 2)
-        XCTAssertEqual(TripPlanLogic.typeAheadDebounce, .milliseconds(150))
+    func testTypeAheadWaitsTheWebsPauseAndAsksForEightFromThreeCharacters() async {
+        XCTAssertEqual(TripPlanLogic.typeAheadMinChars, 3)
+        XCTAssertEqual(TripPlanLogic.typeAheadDebounce, .milliseconds(300))
         XCTAssertEqual(TripPlanLogic.typeAheadCount, 8)
         let src = FakeTrips()
         src.matches = [seattle]
         let m = TripPlanModel()
-        await m.typeAhead(source: src, query: "d", debounce: .milliseconds(1))
-        XCTAssertTrue(src.searches.isEmpty, "one character asks nothing")
-        await m.typeAhead(source: src, query: "  de ", debounce: .milliseconds(1))
-        XCTAssertEqual(src.searches, ["de"])
+        await m.typeAhead(source: src, query: "de", debounce: .milliseconds(1))
+        XCTAssertTrue(src.searches.isEmpty, "two characters ask nothing")
+        await m.typeAhead(source: src, query: "  den ", debounce: .milliseconds(1))
+        XCTAssertEqual(src.searches, ["den"])
         XCTAssertEqual(src.counts, [8])
         XCTAssertEqual(m.results.count, 1)
         XCTAssertFalse(m.searching)
-        await m.typeAhead(source: src, query: "d", debounce: .milliseconds(1))
-        XCTAssertTrue(m.results.isEmpty, "back under 2 characters clears the list")
+        await m.typeAhead(source: src, query: "de", debounce: .milliseconds(1))
+        XCTAssertTrue(m.results.isEmpty, "back under 3 characters clears the list")
     }
 
     func testTheNextKeystrokeCancelsTheWaitingSearch() async {

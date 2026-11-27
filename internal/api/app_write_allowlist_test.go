@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -394,6 +395,32 @@ func TestGeocodeIsLimitedPerUser(t *testing.T) {
 	// The bucket allows its ceiling plus at most a couple of calls of burst; what matters is that it closes well before 2x.
 	if answered < geocodePerMin || answered > geocodePerMin+2 || limited == 0 {
 		t.Errorf("%d answered and %d limited of %d, want about %d answered then limited", answered, limited, 2*geocodePerMin, geocodePerMin)
+	}
+}
+
+// A search the client cancels still counts against the limit: the request had already reached the server (the upstream call may have started), and
+// refunding it would let a client that cancels each request run the geocoder unmetered. The web and the phone cut the calls at the source instead
+// (a 300 ms pause, three characters).
+func TestGeocodeCancelledRequestsStillCount(t *testing.T) {
+	svc, err := auth.New(auth.Config{UserIDFor: db.UserIDFor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := asSession(New(Deps{Auth: svc}), sessions.KindApp)
+	limited := 0
+	for i := 0; i < 2*geocodePerMin; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "https://rivolt.dev/api/geocode?q=", nil).WithContext(ctx)
+		req.RemoteAddr = "203.0.113.10:4000"
+		h.ServeHTTP(rec, req)
+		if rec.Code == http.StatusTooManyRequests {
+			limited++
+		}
+	}
+	if limited == 0 {
+		t.Errorf("no cancelled request was limited out of %d", 2*geocodePerMin)
 	}
 }
 

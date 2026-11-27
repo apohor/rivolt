@@ -279,4 +279,10 @@ describe("backend.geocode", () => {
     expect(f.mock.calls[0][0]).toBe("/api/geocode?q=hampton%20inn&count=8&lat=36.06&lon=-102.51");
     expect(f.mock.calls[1][0]).toBe("/api/geocode?q=hampton%20inn&count=8");
   });
+  it("hands the abort signal to fetch so a stale search can be cancelled", async () => {
+    const f = urls();
+    const ac = new AbortController();
+    await backend.geocode("den", 8, undefined, ac.signal);
+    expect(f.mock.calls[0][1].signal).toBe(ac.signal);
+  });
 });

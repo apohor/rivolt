@@ -164,7 +164,7 @@ func (f fakeHotelNames) Search(string, float64, float64, bool, int) []overnight.
 
 var dalhartHampton = overnight.HotelHit{Name: "Hampton Inn Dalhart", City: "Dalhart", State: "TX", Country: "US", Lat: 36.0600, Lon: -102.5100}
 
-// The owner's search: the hotel from the charger archive comes first, labelled with its cleaned name and "TX, United States", marked as an EV
+// The owner's search: the hotel from the charger archive comes first, labelled with its cleaned name and "Texas, United States", marked as an EV
 // charging stop; the same hotel in Photon's rows (same name, a few metres away) is dropped, a different one stays.
 func TestGeocodeAddsChargerArchiveHotels(t *testing.T) {
 	photon := photonStub(t, 200, `{"features":[
@@ -182,11 +182,29 @@ func TestGeocodeAddsChargerArchiveHotels(t *testing.T) {
 		t.Fatalf("%d rows, want the charger row and Amarillo: %+v", len(got), got)
 	}
 	f := got[0]
-	if f.Name != "Hampton Inn Dalhart" || f.Admin1 != "TX" || f.Locality != "Dalhart" || f.Country != "United States" || !f.EVCharging {
+	if f.Name != "Hampton Inn Dalhart" || f.Admin1 != "Texas" || f.Locality != "Dalhart" || f.Country != "United States" || !f.EVCharging {
 		t.Errorf("first row = %+v", f)
 	}
 	if got[1].Locality != "Amarillo" || got[1].EVCharging {
 		t.Errorf("second row = %+v, want the Amarillo Photon row", got[1])
+	}
+}
+
+// A charger hotel whose name lacks the town gets it appended, and a US state code is spelled out, so the row reads "Dalhart, Texas, United States"
+// like the Photon rows; a state that is not a code, or a Canadian one, is left as it is.
+func TestHotelRowNamesTheTownAndSpellsTheState(t *testing.T) {
+	rows := hotelResults(fakeHotelNames{[]overnight.HotelHit{
+		{Name: "Super 8", City: "Dalhart", State: "TX", Country: "US", Lat: 36.06, Lon: -102.51},
+		{Name: "Best Western", City: "Banff", State: "AB", Country: "CA", Lat: 51.17, Lon: -115.57},
+	}}, "super", nil, 5)
+	if len(rows) != 2 {
+		t.Fatalf("%d rows", len(rows))
+	}
+	if r := rows[0]; r.Name != "Super 8, Dalhart" || r.Admin1 != "Texas" || r.Country != "United States" {
+		t.Errorf("US row = %+v", r)
+	}
+	if r := rows[1]; r.Name != "Best Western, Banff" || r.Admin1 != "AB" || r.Country != "Canada" {
+		t.Errorf("CA row = %+v", r)
 	}
 }
 
@@ -206,8 +224,39 @@ func TestMergeHotelResultsKeepsCountAndOtherNames(t *testing.T) {
 	h := geocoding.Result{Name: "Hampton Inn Dalhart", Latitude: 36.06, Longitude: -102.51, Locality: "Dalhart", EVCharging: true}
 	far := geocoding.Result{Name: "Hampton Inn, Dalhart", Latitude: 36.2, Longitude: -102.51, Locality: "Dalhart"} // 15 km away: another hotel
 	other := geocoding.Result{Name: "Best Western", Latitude: 36.06, Longitude: -102.51}
-	got := mergeHotelResults([]geocoding.Result{h}, []geocoding.Result{far, other}, 2)
-	if len(got) != 2 || !got[0].EVCharging || got[1].Name != "Hampton Inn, Dalhart" {
+	got := mergeHotelResults([]geocoding.Result{h}, []geocoding.Result{far, other})
+	if len(got) != 3 || !got[0].EVCharging || got[1].Name != "Hampton Inn, Dalhart" {
 		t.Errorf("merge = %+v", got)
+	}
+}
+
+// Two hotel hits must not push the plain rows off the end: the far namesake a biased search works in ("Boston, MA" from Texas) stays.
+func TestMergeHotelResultsKeepsEveryPlainRow(t *testing.T) {
+	hotels := []geocoding.Result{
+		{Name: "Hampton Inn Boston/Natick", Latitude: 42.28, Longitude: -71.35, Locality: "Natick", EVCharging: true},
+		{Name: "Holiday Inn Boston", Latitude: 42.4, Longitude: -71.1, Locality: "Somerville", EVCharging: true},
+	}
+	var plain []geocoding.Result
+	for i, n := range []string{"Boston, Texas", "Boston, Georgia", "Boston, Kentucky", "Boston, Massachusetts", "Boston, Lincolnshire"} {
+		plain = append(plain, geocoding.Result{Name: n, Latitude: float64(30 + i), Longitude: -90})
+	}
+	got := mergeHotelResults(hotels, plain)
+	if len(got) != 7 {
+		t.Fatalf("%d rows, want 2 hotels and all 5 plain rows", len(got))
+	}
+	if got[5].Name != "Boston, Massachusetts" {
+		t.Errorf("rows = %+v", got)
+	}
+}
+
+// Before the charger archive carries towns, a hotel with no city is left out of a one-word search (the town itself is what is wanted) and
+// still answers a longer one.
+func TestHotelWithNoTownSkipsAOneWordSearch(t *testing.T) {
+	hs := fakeHotelNames{[]overnight.HotelHit{{Name: "Hampton Inn Dumas", Country: "US", Lat: 35.86, Lon: -101.97}}}
+	if rows := hotelResults(hs, "dumas", nil, 3); len(rows) != 0 {
+		t.Errorf("one word, no city: %+v", rows)
+	}
+	if rows := hotelResults(hs, "hampton inn dumas", nil, 3); len(rows) != 1 {
+		t.Errorf("three words, no city: %d rows", len(rows))
 	}
 }
