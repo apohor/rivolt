@@ -15,6 +15,11 @@ on:
         required: true
         default: "1.4.3"
         type: string
+      build_number:
+        description: "Build number the ios-vX.Y.Z TestFlight run uploaded (its Version and build number step; 1.4.3 is 109)"
+        required: true
+        default: "109"
+        type: string
       shots_run:
         description: "Run id of an ios-store-screenshots run on main (its two artifacts are the screenshots)"
         required: true
@@ -79,6 +84,7 @@ jobs:
           ASC_REVIEW_CONTACT_PHONE: ${{ secrets.ASC_REVIEW_CONTACT_PHONE }}
           ASC_REVIEW_CONTACT_EMAIL: ${{ secrets.ASC_REVIEW_CONTACT_EMAIL }}
           VERSION: ${{ inputs.version }}
+          EXPECT_BUILD_NUMBER: ${{ inputs.build_number }}
           MODE: ${{ inputs.dry_run && 'plan' || 'apply' }}
         run: |
           set -euo pipefail

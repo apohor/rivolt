@@ -37,7 +37,7 @@ Rivolt is an independent project. It is not affiliated with, endorsed by or spon
 Terms: https://rivolt.dev/terms · Privacy: https://rivolt.dev/privacy
 
 ## Keywords
-EV,electric truck,charging cost,trip,efficiency,lease,R1T,R1S,R2,range,open source
+EV,electric truck,charging cost,trip planner,efficiency,lease,range,open source,battery,drive
 
 ## Support URL
 https://rivolt.dev/support

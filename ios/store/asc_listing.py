@@ -102,8 +102,11 @@ def version_attrs():
     return {"copyright": COPYRIGHT, "releaseType": "MANUAL"}
 
 
-def app_info_localization_attrs(s):
-    return {"subtitle": s["Subtitle"], "privacyPolicyUrl": s["Privacy Policy URL"]}
+def app_info_localization_attrs(s, current_name=None):
+    a = {"subtitle": s["Subtitle"], "privacyPolicyUrl": s["Privacy Policy URL"]}
+    if current_name != s["Name"]:
+        a["name"] = s["Name"]  # the app name; editable while the version is in PREPARE_FOR_SUBMISSION
+    return a
 
 
 def app_info_rel():
@@ -309,10 +312,24 @@ def lookups(r, s, version, env, shots_dir, out):
     if len(docs) != 1:
         raise SystemExit(f"expected one app for {BUNDLE_ID}, found {len(docs)}")
     app = docs[0]["id"]
-    builds = r.get(f"/v1/builds?filter[app]={app}&filter[preReleaseVersion.version]={version}&sort=-uploadedDate&limit=1")["data"]
+    builds = r.get(f"/v1/builds?filter[app]={app}&filter[preReleaseVersion.version]={version}&sort=-uploadedDate&limit=1&include=preReleaseVersion")
+    inc = builds.get("included") or []
+    builds = builds["data"]
     if not builds or builds[0]["attributes"].get("processingState") != "VALID":
         raise SystemExit(f"no processed (VALID) build for {version}: upload it first")
+    number = builds[0]["attributes"].get("version")
+    marketing = next((i["attributes"].get("version") for i in inc if i.get("type") == "preReleaseVersions"), None)
+    expect = env.get("EXPECT_BUILD_NUMBER", "")
+    out(f"  build {builds[0]['id']}: version {marketing}, build number {number}")
+    if marketing != version or not expect or number != expect:
+        raise SystemExit(f"the newest build is version {marketing} number {number}, but the TestFlight upload for {version} is number {expect or '(not given)'}: stopping")
     L = {"app": app, "build": builds[0]["id"]}
+    # Export compliance can be set once: a build that already carries it (Info.plist) must not be PATCHed again.
+    enc = builds[0]["attributes"].get("usesNonExemptEncryption")
+    if enc is True:
+        raise SystemExit("the build says it uses non-exempt encryption (usesNonExemptEncryption is true): that needs an export-compliance answer by hand")
+    L["encryption_set"] = enc is False
+    L["rights_set"] = (docs[0].get("attributes") or {}).get("contentRightsDeclaration") == "USES_THIRD_PARTY_CONTENT"
     L["review"] = review_detail_attrs(s, env)
     out("store shots")
     L["shots"] = read_shots(shots_dir, out)
@@ -336,19 +353,30 @@ def lookups(r, s, version, env, shots_dir, out):
         pts = {i["id"]: i["attributes"].get("customerPrice") for i in prices.get("included", []) if i["type"] == "appPricePoints"}
         L["free_price"] = bool(pts) and all(v in ("0", "0.0", "0.00") for v in pts.values())
 
-    versions = r.get(f"/v1/apps/{app}/appStoreVersions?filter[platform]=IOS&limit=200")["data"]
-    for v in versions:
-        a = v["attributes"]
-        state = a.get("appVersionState") or a.get("appStoreState")
-        if a["versionString"] != version and state in EDITABLE:
-            raise SystemExit(f"another editable version exists ({a['versionString']}, {state}): finish or remove it first")
+    versions = r.get(f"/v1/apps/{app}/appStoreVersions?filter[platform]=IOS&limit=200&include=build")["data"]
+    states = [(v, v["attributes"].get("appVersionState") or v["attributes"].get("appStoreState")) for v in versions]
     L["mine"] = next((v["id"] for v in versions if v["attributes"]["versionString"] == version), None)
-    L["first"] = all(v["attributes"]["versionString"] == version for v in versions)
+    L["attached"] = any(v["id"] == L["mine"] and (((v.get("relationships") or {}).get("build") or {}).get("data") or {}).get("id") == L["build"] for v in versions)
+    L["rename"] = None
+    others = [(v, st) for v, st in states if v["attributes"]["versionString"] != version and st in EDITABLE]
+    if others:
+        # A never-released app has one untouched first version (1.0): use it and set its number, rather than stop.
+        # Anything else (a released version, or two editable ones) is not this script's to guess at: stop.
+        (v, st), = others[:1]
+        if len(versions) == 1 and not L["mine"] and st == "PREPARE_FOR_SUBMISSION":  # not one already submitted or rejected
+            L["rename"] = v["id"]
+            L["mine"] = v["id"]
+            out(f"  the app has no released version and one editable version ({v['attributes']['versionString']}, {st}): it becomes {version}")
+        else:
+            raise SystemExit(f"another editable version exists ({v['attributes']['versionString']}, {st}): finish or remove it first")
+    L["first"] = L["rename"] is not None or all(v["attributes"]["versionString"] == version for v in versions)
 
     infos = r.get(f"/v1/apps/{app}/appInfos")["data"]
     editable = [i for i in infos if (i["attributes"].get("state") or i["attributes"].get("appStoreState")) in EDITABLE] or infos
     L["info"] = editable[0]["id"]
-    L["info_loc"] = next((x["id"] for x in r.get(f"/v1/appInfos/{L['info']}/appInfoLocalizations")["data"] if x["attributes"]["locale"] == LOCALE), None)
+    cur = next((x for x in r.get(f"/v1/appInfos/{L['info']}/appInfoLocalizations")["data"] if x["attributes"]["locale"] == LOCALE), None)
+    L["info_loc"] = cur["id"] if cur else None
+    L["name_now"] = cur["attributes"].get("name") if cur else None
     L["age"] = r.get(f"/v1/appInfos/{L['info']}/ageRatingDeclaration")["data"]["id"]
     return L
 
@@ -359,7 +387,10 @@ def run_pass(api, dry, s, privacy_md, version, shots_dir, env, out, spec):
     app, build = L["app"], L["build"]
 
     out("content rights, availability, price")
-    r.write("PATCH", f"/v1/apps/{app}", {"data": {"type": "apps", "id": app, "attributes": {"contentRightsDeclaration": "USES_THIRD_PARTY_CONTENT"}}})
+    if L["rights_set"]:
+        out("  content rights are already 'uses third-party content': skipped")
+    else:
+        r.write("PATCH", f"/v1/apps/{app}", {"data": {"type": "apps", "id": app, "attributes": {"contentRightsDeclaration": "USES_THIRD_PARTY_CONTENT"}}})
     if L["usa_only"]:
         out("  availability is already United States only: skipped")
     else:
@@ -372,15 +403,21 @@ def run_pass(api, dry, s, privacy_md, version, shots_dir, env, out, spec):
     out("version")
     ver = L["mine"]
     if ver:
-        r.write("PATCH", f"/v1/appStoreVersions/{ver}", {"data": {"type": "appStoreVersions", "id": ver, "attributes": version_attrs()}})
+        attrs = dict(version_attrs(), versionString=version) if L["rename"] else version_attrs()
+        r.write("PATCH", f"/v1/appStoreVersions/{ver}", {"data": {"type": "appStoreVersions", "id": ver, "attributes": attrs}}, f"set the number to {version}" if L["rename"] else "")
     else:
         ver, _ = r.write("POST", "/v1/appStoreVersions", {"data": {"type": "appStoreVersions", "attributes": dict(version_attrs(), versionString=version, platform="IOS"),
                                                                   "relationships": {"app": rel("apps", app)}}}, "create the version")
-    if ver != NEW:
+    if L["attached"] and ver == L["mine"] and not L["rename"]:
+        out(f"  build {build} is already attached to {version}: skipped")
+    elif ver != NEW:
         r.write("PATCH", f"/v1/appStoreVersions/{ver}", {"data": {"type": "appStoreVersions", "id": ver, "relationships": {"build": rel("builds", build)}}}, "attach the build")
     else:
         out(f"  WOULD attach build {build} to the new version")
-    r.write("PATCH", f"/v1/builds/{build}", {"data": {"type": "builds", "id": build, "attributes": {"usesNonExemptEncryption": False}}}, "export compliance")
+    if L["encryption_set"]:
+        out("  export compliance is already answered (no non-exempt encryption): skipped")
+    else:
+        r.write("PATCH", f"/v1/builds/{build}", {"data": {"type": "builds", "id": build, "attributes": {"usesNonExemptEncryption": False}}}, "export compliance")
 
     out("version text (en-US)")
     loc = None
@@ -396,13 +433,17 @@ def run_pass(api, dry, s, privacy_md, version, shots_dir, env, out, spec):
         loc, _ = r.write("POST", "/v1/appStoreVersionLocalizations", {"data": {"type": "appStoreVersionLocalizations", "attributes": dict(attrs, locale=LOCALE),
                                                                                 "relationships": {"appStoreVersion": rel("appStoreVersions", ver)}}})
 
-    out("app info: subtitle, privacy URL, categories, age rating")
+    out("app info: name, subtitle, privacy URL, categories, age rating")
+    if L["name_now"] == s["Name"]:
+        out(f"  app name is already \"{s['Name']}\": skipped")
+    else:
+        out(f"  app name: \"{L['name_now']}\" becomes \"{s['Name']}\"")
     info = L["info"]
     r.write("PATCH", f"/v1/appInfos/{info}", {"data": {"type": "appInfos", "id": info, "relationships": app_info_rel()}})
     if L["info_loc"]:
-        r.write("PATCH", f"/v1/appInfoLocalizations/{L['info_loc']}", {"data": {"type": "appInfoLocalizations", "id": L["info_loc"], "attributes": app_info_localization_attrs(s)}})
+        r.write("PATCH", f"/v1/appInfoLocalizations/{L['info_loc']}", {"data": {"type": "appInfoLocalizations", "id": L["info_loc"], "attributes": app_info_localization_attrs(s, L["name_now"])}})
     else:
-        r.write("POST", "/v1/appInfoLocalizations", {"data": {"type": "appInfoLocalizations", "attributes": dict(app_info_localization_attrs(s), locale=LOCALE),
+        r.write("POST", "/v1/appInfoLocalizations", {"data": {"type": "appInfoLocalizations", "attributes": dict(app_info_localization_attrs(s, L["name_now"]), locale=LOCALE),
                                                               "relationships": {"appInfo": rel("appInfos", info)}}})
     r.write("PATCH", f"/v1/ageRatingDeclarations/{L['age']}", {"data": {"type": "ageRatingDeclarations", "id": L["age"], "attributes": AGE_NONE}}, "all none (4+)")
 
@@ -418,6 +459,7 @@ def run_pass(api, dry, s, privacy_md, version, shots_dir, env, out, spec):
                                                                "relationships": {"appStoreVersion": rel("appStoreVersions", ver)}}})
 
     out("screenshots (upload the new set, removing old shots only as the ten-shot cap needs; the rest after)")
+    out(f"  uploading the {SHOT_MODE} set only; the {'light' if SHOT_MODE == 'dark' else 'dark'} shots are not uploaded (listing.md: {SHOT_MODE} is the primary set)")
     for size, shots in L["shots"].items():
         dtype = DISPLAY_TYPES[size]
         set_id, old = None, []
@@ -503,7 +545,7 @@ def main(argv):
     a = ap.parse_args(argv)
     if not re.fullmatch(r"\d+\.\d+\.\d+", a.version):
         raise SystemExit("version must look like 1.4.3")
-    for n in ("ASC_KEY_P8", "ASC_KEY_ID", "ASC_ISSUER_ID"):
+    for n in ("ASC_KEY_P8", "ASC_KEY_ID", "ASC_ISSUER_ID", "EXPECT_BUILD_NUMBER"):
         if not os.environ.get(n):
             raise SystemExit(f"missing secret {n}")
     api = Api(os.environ["ASC_KEY_P8"], os.environ["ASC_KEY_ID"], os.environ["ASC_ISSUER_ID"])

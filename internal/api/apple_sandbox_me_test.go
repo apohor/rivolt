@@ -67,3 +67,20 @@ func TestAuthMeBillingEnabledForReviewAccount(t *testing.T) {
 		}
 	}
 }
+
+// paid_via_stripe is how the app learns not to offer a second purchase: present and true for a live Stripe subscription, absent otherwise
+// (the field is omitted, so an older client and every other account read exactly what they read before).
+func TestPlanFieldsPaidViaStripeIsOmittedWhenFalse(t *testing.T) {
+	for want, pf := range map[bool]PlanFields{false: {Plan: "pro"}, true: {Plan: "pro", PaidViaStripe: true}} {
+		b, err := json.Marshal(pf)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		_ = json.Unmarshal(b, &m)
+		v, present := m["paid_via_stripe"]
+		if present != want || (present && v != true) {
+			t.Errorf("paid_via_stripe=%v: present %v value %v", want, present, v)
+		}
+	}
+}

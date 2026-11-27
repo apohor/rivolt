@@ -702,6 +702,7 @@ func runServer() {
 					appMetrics.Entitlements.WithLabelValues(k[0], k[1]).Set(float64(n))
 				}
 				appMetrics.Accounts.Set(float64(st.Accounts))
+				appMetrics.PayingTwice.Set(float64(st.PayingTwice))
 			})
 		})
 	}
@@ -2854,11 +2855,13 @@ func runServer() {
 					issuer = "https://appleid.apple.com"
 				}
 				appleNotifier = &appleid.Notifier{
-					Verify:   appleid.NewVerifier(ctx, issuer, p.ClientID),
-					Store:    appleid.New(pgPool, secretsStore),
-					Sessions: sessionStore,
-					Mail:     mailer,
-					Logger:   logger,
+					ClientID:     p.ClientID,
+					AppAudiences: appleid.AppBundleIDs(os.Getenv),
+					Verify:       appleid.NewVerifier(ctx, issuer),
+					Store:        appleid.New(pgPool, secretsStore),
+					Sessions:     sessionStore,
+					Mail:         mailer,
+					Logger:       logger,
 				}
 			}
 		}

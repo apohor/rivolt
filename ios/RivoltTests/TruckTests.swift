@@ -42,9 +42,26 @@ final class TruckLogicTests: XCTestCase {
         XCTAssertEqual(TruckLogic.drainBasis(daysUsed: 7, daysExcluded: 3, other: .month, otherView: TruckLogic.drainView(d.windows.month, .month)),
                        "Based on 7 days (3 left out: too little parked data). 30 days: 1.5% / day.")
         XCTAssertEqual(TruckLogic.split(d, .week),
-                       .ok(text: "Of the 3% your truck lost while parked this week, about 0% was while it was awake (6.0 h).", awakeShare: 0.06, awake: true, asleep: true))
+                       .ok(text: "Of the 3% your truck lost while parked this week, about 6% of it was while it was awake (6.0 h).", awakeShare: 0.06, awake: true, asleep: true))
         // 30 days is too thin for the split, so the week's is shown, said as such.
         if case .ok(let text, _, _, _)? = TruckLogic.split(d, .month) { XCTAssertTrue(text.contains("this week")) } else { XCTFail("expected the week's split") }
+    }
+
+    func testASmallAwakeShareSaysLessThanOnePercentNotZero() throws {
+        // Real awake loss whose share of the total rounds to 0: the sentence must not say "about 0%".
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Fixture.data("drain")) as? [String: Any])
+        var windows = try XCTUnwrap(json["windows"] as? [String: Any])
+        var week = try XCTUnwrap(windows["7d"] as? [String: Any])
+        var split = try XCTUnwrap(week["split"] as? [String: Any])
+        split["awake_points_lost"] = 0.1
+        split["awake_share_of_loss"] = 0.003
+        week["split"] = split
+        windows["7d"] = week
+        json["windows"] = windows
+        let d = try JSON.decoder().decode(DrainSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+        guard case .ok(let text, _, _, _)? = TruckLogic.split(d, .week) else { return XCTFail("expected a split") }
+        XCTAssertTrue(text.contains("less than 1% of it was while it was awake"), text)
+        XCTAssertFalse(text.contains("about 0%"), text)
     }
 
     func testThinDrainDataNeverGivesANumber() throws {

@@ -167,8 +167,10 @@ type Metrics struct {
 	BillingCheckoutsStarted *prometheus.CounterVec
 	// Entitlements is the count of entitlement rows by source and status and Accounts the number of accounts, both without the demo account and
 	// without any user label, refreshed every few minutes; BillingEnabled is 1 when RIVOLT_BILLING is on.
-	Entitlements   *prometheus.GaugeVec
-	Accounts       prometheus.Gauge
+	Entitlements *prometheus.GaugeVec
+	Accounts     prometheus.Gauge
+	// PayingTwice is the number of accounts with a live Stripe and a live Apple subscription at once (a count, no label).
+	PayingTwice    prometheus.Gauge
 	BillingEnabled prometheus.Gauge
 	// OpenCharges is the open live charge rows now by state (charging: the vehicle's latest frame still reads plugged in and charging, by the
 	// stale-charge janitor's own rule; not_charging: it does not; no_frame: the vehicle sent nothing in 2 days, a dormant account's leftover row), and OpenChargesOldestSeconds the age of the oldest of each since its last
@@ -728,6 +730,10 @@ func New() *Metrics {
 			Name: "rivolt_accounts",
 			Help: "Accounts, without the demo account.",
 		}),
+		PayingTwice: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_accounts_paying_twice",
+			Help: "Accounts with a live Stripe subscription and a live Apple subscription at once, without sandbox rows and the demo account; no user labels.",
+		}),
 		BillingEnabled: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "rivolt_billing_enabled",
 			Help: "1 when RIVOLT_BILLING is on, else 0.",
@@ -1277,6 +1283,7 @@ func New() *Metrics {
 		m.SessionSplitTotal,
 		m.CloseHooksFiredTotal,
 		m.Accounts,
+		m.PayingTwice,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
 		m.TakeoverWaitSeconds,

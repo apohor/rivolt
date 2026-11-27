@@ -43,3 +43,13 @@ func (l lccProjector) forward(lat, lon float64) (x, y float64) {
 	theta := l.n * (lon*rad - l.lon0)
 	return rho * math.Sin(theta), l.rho0 - rho*math.Cos(theta)
 }
+
+// inverse is the latitude and longitude in degrees of a projected (x, y) in metres.
+func (l lccProjector) inverse(x, y float64) (lat, lon float64) {
+	dy := l.rho0 - y
+	rho := math.Copysign(math.Hypot(x, dy), l.n)
+	theta := math.Atan2(math.Copysign(1, l.n)*x, math.Copysign(1, l.n)*dy)
+	lat = (2*math.Atan(math.Pow(l.r*l.f/rho, 1/l.n)) - math.Pi/2) * 180 / math.Pi
+	lon = (theta/l.n + l.lon0) * 180 / math.Pi
+	return lat, lon
+}
