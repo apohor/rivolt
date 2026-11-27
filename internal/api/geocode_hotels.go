@@ -78,9 +78,23 @@ func mergeHotelResults(hotels, photon []geocoding.Result) []geocoding.Result {
 		}
 	}
 	out := make([]geocoding.Result, 0, len(hotels)+len(photon))
+	// A nearby namesake ahead of it in the Photon list (Springfield, MO before Springfield, IL) keeps its place above the hotels, so the far
+	// city never lands above the near one.
+	lifted := 0
+	if exact != nil {
+		for i := 0; i < at; i++ {
+			if photon[i].Settlement && !sameHotelRow(hotels, photon[i]) {
+				out = append(out, photon[i])
+				lifted++
+			}
+		}
+	}
 	out = append(out, hotels...)
 	for i := range photon {
 		if exact != nil && i == at {
+			continue
+		}
+		if exact != nil && i < at && photon[i].Settlement && !sameHotelRow(hotels, photon[i]) {
 			continue
 		}
 		if sameHotelRow(hotels, photon[i]) {
@@ -89,7 +103,7 @@ func mergeHotelResults(hotels, photon []geocoding.Result) []geocoding.Result {
 		out = append(out, photon[i])
 	}
 	if exact != nil {
-		pos := min(at+len(hotels), 2, len(out))
+		pos := min(max(at+len(hotels), lifted), 2, len(out))
 		out = append(out[:pos], append([]geocoding.Result{*exact}, out[pos:]...)...)
 	}
 	return out

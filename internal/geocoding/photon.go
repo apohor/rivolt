@@ -113,7 +113,7 @@ func isTypedSettlement(p photonProps, query string) bool {
 func cityFirst(out, plain []Result) []Result {
 	var top *Result
 	for i := range plain {
-		if plain[i].settlement {
+		if plain[i].Settlement {
 			top = &plain[i]
 			break
 		}
@@ -128,7 +128,7 @@ func cityFirst(out, plain []Result) []Result {
 		}
 	}
 	at := 1
-	if out[0].settlement {
+	if out[0].Settlement {
 		at = 2
 	}
 	at = min(at, len(out)-1)
@@ -221,7 +221,7 @@ func (c *PhotonClient) searchRows(ctx context.Context, name string, count int, n
 			break
 		}
 		r := searchResultFromProps(f.Properties, f.Geometry.Coordinates[1], f.Geometry.Coordinates[0])
-		r.settlement = isTypedSettlement(f.Properties, name)
+		r.Settlement = isTypedSettlement(f.Properties, name)
 		if duplicateOf(out, r) {
 			continue
 		}

@@ -274,3 +274,22 @@ func TestMergeHotelResultsKeepsAnExactCityInTheFirstThree(t *testing.T) {
 		t.Errorf("without an exact city the hotels stay first: %+v", plain)
 	}
 }
+
+func TestMergeHotelResultsKeepsANearbyNamesakeAheadOfTheFarCity(t *testing.T) {
+	hotels := []geocoding.Result{{Name: "Springfield Inn", EVCharging: true}, {Name: "Springfield Suites", EVCharging: true}, {Name: "Springfield Lodge", EVCharging: true}}
+	mo := geocoding.Result{Name: "Springfield", Admin1: "Missouri", Settlement: true}
+	il := geocoding.Result{Name: "Springfield", Admin1: "Illinois", Settlement: true, Exact: true}
+	got := mergeHotelResults(hotels, []geocoding.Result{mo, {Name: "Springfield Township"}, il})
+	if got[0].Admin1 != "Missouri" {
+		t.Fatalf("got %+v, want the nearby Springfield first", got)
+	}
+	ilAt := -1
+	for i, r := range got {
+		if r.Admin1 == "Illinois" {
+			ilAt = i
+		}
+	}
+	if ilAt < 1 || ilAt > 2 || len(got) != 6 {
+		t.Errorf("got %+v, want Illinois in row 2 or 3 and every row kept", got)
+	}
+}
