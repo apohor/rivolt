@@ -26,7 +26,9 @@ final class RoundTripUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Leg 1"].firstMatch.exists, "collapsed until tapped")
         toggle.tap()
         for n in 1...3 {
-            XCTAssertTrue(app.otherElements["leg-\(n)"].firstMatch.waitForExistence(timeout: 20) || app.staticTexts["Leg \(n)"].firstMatch.exists, "leg \(n) is listed")
+            // Wait on the text the row shows. The leg-N identifier is not an "other" element (each poll of a missing element dumps the whole
+            // hierarchy, and three legs cost 20 s each before the fallback passed), so the wait is on what is there.
+            XCTAssertTrue(app.staticTexts["Leg \(n)"].firstMatch.waitForExistence(timeout: 20), "leg \(n) is listed")
         }
         XCTAssertFalse(app.staticTexts["Leg 4"].firstMatch.exists, "the stub is not a leg")
         XCTAssertTrue(app.staticTexts["Parked 13 min"].firstMatch.exists, "the first stop")
