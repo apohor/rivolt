@@ -601,7 +601,7 @@ func (m *StateMonitor) recordFrame(ctx context.Context, vehicleID string, prev, 
 		// right drive_number / charge_number for this frame.
 		driveNum = sess.handleDriveLifecycle(lc, prev, m, wctx)
 		chargeNum = sess.handleChargeLifecycle(lc, prev, m, wctx)
-		m.noteTakeover(vehicleID, sess, driveBefore, chargeBefore)
+		m.noteTakeover(vehicleID, sess, curr, driveBefore, chargeBefore)
 
 		// Snapshot the post-lifecycle accumulator while we still
 		// hold sessMu; the actual Redis write happens after unlock

@@ -4,12 +4,13 @@ import XCTest
 /// answered from fixtures (Rivolt/App/UITestFixtures.swift, RIVOLT_UITEST_NO_TRUCK): each says its own words, and only the ones with something to do have the
 /// way to do it.
 final class MyVehiclesUITests: XCTestCase {
-    private func launch(_ state: String, refreshUnheld: Bool = false, refreshLimited: Bool = false) -> XCUIApplication {
+    private func launch(_ state: String, refreshUnheld: Bool = false, refreshLimited: Bool = false, billing: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         let here = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = [here.appendingPathComponent("Fixtures").path,
                                                           here.deletingLastPathComponent().appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
         app.launchEnvironment["RIVOLT_UITEST_NO_TRUCK"] = state
+        if billing { app.launchEnvironment["RIVOLT_UITEST_BILLING"] = "1" }
         if refreshUnheld { app.launchEnvironment["RIVOLT_UITEST_REFRESH_UNHELD"] = "1" }
         if refreshLimited { app.launchEnvironment["RIVOLT_UITEST_REFRESH_LIMITED"] = "1" }
         app.launch()
@@ -60,5 +61,19 @@ final class MyVehiclesUITests: XCTestCase {
         XCTAssertTrue(text("Rivian needs you to sign in again before Rivolt can look for your vehicles.", in: app).exists)
         XCTAssertTrue(app.links["Reconnect Rivian"].exists || app.buttons["Reconnect Rivian"].exists, "reauth: the way to sign in again")
         XCTAssertFalse(text("Looking for your vehicles", in: app).exists)
+    }
+
+    // App Review's account has no Rivian: the Pro sheet (the one in Settings) must be reachable from this screen, and closing it returns here.
+    func testAnAccountWithNoTruckCanOpenTheProSheetAndComeBack() {
+        let app = launch("none", billing: true)
+        XCTAssertTrue(text("No vehicles on this Rivian account yet", in: app).waitForExistence(timeout: 20))
+        let pro = app.buttons["Rivolt Pro"].firstMatch
+        XCTAssertTrue(pro.waitForExistence(timeout: 20), "the Pro entry is on the no-truck screen")
+        pro.tap()
+        XCTAssertTrue(text("Rivolt Pro", in: app).waitForExistence(timeout: 10), "the Pro sheet opened")
+        XCTAssertFalse(text("No vehicles on this Rivian account yet", in: app).isHittable, "the sheet covers the screen")
+        app.swipeDown(velocity: .fast)
+        XCTAssertTrue(text("No vehicles on this Rivian account yet", in: app).waitForExistence(timeout: 10), "closing the sheet returns to the screen")
+        XCTAssertTrue(app.buttons["Rivolt Pro"].firstMatch.exists)
     }
 }

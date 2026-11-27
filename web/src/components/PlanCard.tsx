@@ -6,6 +6,7 @@ import { checkoutMessage, checkoutReturn, POLL_EVERY_MS, POLL_TIMES, withoutChec
 import { planCardCopy, PRO } from "../lib/proCopy";
 import { Card } from "./ui";
 import { ProSheet, ProSheetPreload } from "./ProSheetLazy";
+import { RefundBlock } from "./RefundBlock";
 
 const btn = "rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:border-neutral-500";
 
@@ -15,6 +16,7 @@ export function PlanCard() {
   const me = useQuery({ queryKey: ["auth", "me"], queryFn: () => backend.whoami(), staleTime: 5 * 60_000 });
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [refunded, setRefunded] = useState<string | null>(null);
   // Back from Stripe: read ?checkout= once, drop it from the address, and ask for the plan a few times (the webhook sets it).
   const [back, setBack] = useState<CheckoutReturn>(null);
   const [tries, setTries] = useState(0);
@@ -46,6 +48,11 @@ export function PlanCard() {
             {checkoutMessage(back, proIsOn, tries >= POLL_TIMES)}
           </p>
         )}
+        {refunded && (
+          <p role="status" data-refund-done className="text-sm text-emerald-300">
+            {refunded}
+          </p>
+        )}
         <p className="text-sm font-medium text-neutral-100">{copy.title}</p>
         <p className="text-sm text-neutral-300">{copy.line}</p>
         {copy.action && (
@@ -54,6 +61,7 @@ export function PlanCard() {
             <button type="button" className={btn} onClick={() => setOpen(true)}>{copy.action}</button>
           </>
         )}
+        {state.kind === "pro" && state.source === "stripe" && <RefundBlock onDone={setRefunded} />}
       </div>
       {open && <ProSheet from="settings" state={state} onClose={() => setOpen(false)} />}
     </Card>
@@ -66,6 +74,7 @@ export const MANAGE_FAILED = "We couldn't open subscription management. Try agai
 
 function ManageOnlyCard() {
   const [busy, setBusy] = useState(false);
+  const [refunded, setRefunded] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   return (
     <Card title="Plan" id="plan">
@@ -89,6 +98,8 @@ function ManageOnlyCard() {
           {PRO.manageStripe}
         </button>
         {problem && <p role="status" className="text-xs text-amber-300">{problem}</p>}
+        {refunded && <p role="status" data-refund-done className="text-sm text-emerald-300">{refunded}</p>}
+        <RefundBlock onDone={setRefunded} />
       </div>
     </Card>
   );

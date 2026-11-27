@@ -635,8 +635,11 @@ actor APIClient {
     }
 
     /// Places matching a typed name, for an origin or a destination (the server's own geocoder).
-    func geocode(_ q: String, count: Int = 5) async throws -> [PlaceMatch] {
-        try await request("GET", "/api/geocode?q=\(queryValue(q))&count=\(count)")
+    /// `near` ranks closer places higher (a far exact name still comes back): the chosen start, else the truck.
+    func geocode(_ q: String, count: Int = 5, near: (latitude: Double, longitude: Double)? = nil) async throws -> [PlaceMatch] {
+        var path = "/api/geocode?q=\(queryValue(q))&count=\(count)"
+        if let near { path += "&lat=\(String(format: "%.2f", near.latitude))&lon=\(String(format: "%.2f", near.longitude))" }
+        return try await request("GET", path)
     }
 
     func savedTrips() async throws -> [SavedTrip] {

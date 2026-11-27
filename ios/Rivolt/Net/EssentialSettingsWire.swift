@@ -36,6 +36,8 @@ struct PlaceMatch: Decodable, Equatable, Identifiable {
     let longitude: Double
     var admin1: String?
     var country: String?
+    /// A hotel from the charger list: it has a Level 2 charger, and the search row says so.
+    var evCharging: Bool?
 
     var id: String { "\(latitude),\(longitude),\(name)" }
     /// "123 Main St, Oregon, United States".

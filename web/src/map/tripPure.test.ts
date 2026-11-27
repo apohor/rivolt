@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { campPopupHTML, chargerPopupHTML, decodePolyline6, DROPPED_PIN_LABEL, droppedPinPopupHTML, sameSpot, tripCardText, waypointTooltip } from "./tripPure";
+import vectors from "./testdata/position-at.json";
+import type { PlannedWaypoint } from "../lib/api";
+import { positionAt, tripTimes, campPopupHTML, chargerPopupHTML, decodePolyline6, DROPPED_PIN_LABEL, droppedPinPopupHTML, sameSpot, tripCardText, waypointTooltip } from "./tripPure";
 import { campgroundOfPoi } from "../plan/stays";
 import type { POI } from "../lib/poi";
 
@@ -140,3 +142,58 @@ describe("round trip callout", () => {
     expect(html).toContain("31%");
   });
 });
+
+describe("positionAt", () => {
+  const iso = (s: number) => new Date(s * 1000).toISOString();
+  const route = (extra: Partial<Parameters<typeof positionAt>[0]> = {}) => ({
+    Waypoints: vectors.plan.waypoints.map((w) => ({ Latitude: w.lat, Longitude: w.lon, ArrivalTimeUTC: iso(w.arrive), DepartureTimeUTC: iso(w.depart), DistanceFromOriginMeters: w.distance })) as PlannedWaypoint[],
+    TotalDriveDistanceMeters: 200000,
+    ...extra,
+  });
+  for (const c of vectors.cases) {
+    it(c.name, () => {
+      const got = positionAt(route(), c.t);
+      if (c.want === null) expect(got).toBeNull();
+      else {
+        expect(got).not.toBeNull();
+        expect(got![0]).toBeCloseTo(c.want[0], 6);
+        expect(got![1]).toBeCloseTo(c.want[1], 6);
+      }
+    });
+  }
+  it("follows the stored road line between stops by distance, not the straight chord", () => {
+    // The first leg bends east and back: a line from (40,-100) out to (40.5,-99) and on to (41,-100). Half way by time is the bend.
+    const line = encodePolyline6([[40, -100], [40.5, -99], [41, -100], [41, -98]]);
+    const got = positionAt(route({ Geometry: line, GeometryPrecision: 6 }), 1500);
+    expect(got).not.toBeNull();
+    expect(got![1]).toBeGreaterThan(-99.5);
+  });
+  it("is null for a plan without times or with one stop", () => {
+    expect(positionAt({ Waypoints: [], TotalDriveDistanceMeters: 0 }, 1)).toBeNull();
+    expect(positionAt({ Waypoints: [{ Latitude: 1, Longitude: 2 } as PlannedWaypoint, { Latitude: 3, Longitude: 4 } as PlannedWaypoint], TotalDriveDistanceMeters: 0 }, 1)).toBeNull();
+  });
+  it("tripTimes reads the origin's departure and the destination's arrival", () => {
+    expect(tripTimes(route())).toEqual({ depart: 1000, arrive: 4600 });
+    expect(tripTimes({ Waypoints: [] })).toEqual({ depart: 0, arrive: 0 });
+  });
+});
+
+function encodePolyline6(pts: [number, number][]): string {
+  let out = "";
+  let pl = 0;
+  let po = 0;
+  const enc = (v: number) => {
+    let n = v < 0 ? ~(v << 1) : v << 1;
+    let s = "";
+    while (n >= 0x20) { s += String.fromCharCode((0x20 | (n & 0x1f)) + 63); n >>= 5; }
+    return s + String.fromCharCode(n + 63);
+  };
+  for (const [la, lo] of pts) {
+    const a = Math.round(la * 1e6);
+    const o = Math.round(lo * 1e6);
+    out += enc(a - pl) + enc(o - po);
+    pl = a;
+    po = o;
+  }
+  return out;
+}

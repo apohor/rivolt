@@ -448,19 +448,30 @@ func (h *Handler) chargeRefunded(ctx context.Context, tx *sql.Tx, ev Event, refu
 		outcome, err := h.unmapped(ev)
 		return outcome, uuid.Nil, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE billing_customers SET revoked_at = GREATEST(COALESCE(revoked_at, 0), $2), updated_at = now() WHERE user_id = $1`, uid, ev.Created); err != nil {
+	if err := endProForRefund(ctx, tx, uid, ch.Customer, ev.Created); err != nil {
 		return "", uuid.Nil, err
 	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE entitlements SET status = 'ended', cancel_at_period_end = FALSE, updated_at = now()
-		 WHERE user_id = $1 AND source = 'stripe'`, uid); err != nil {
-		return "", uuid.Nil, err
-	}
-	if err := db.EnqueueStripeRefundCancel(ctx, tx, ch.Customer); err != nil {
+	// A refund of the charge the account's self-serve refund reserved (a lost answer, or a Dashboard refund) spends that refund.
+	if _, err := tx.ExecContext(ctx, `UPDATE billing_self_refunds SET state = 'done', done_at = now() WHERE user_id = $1 AND charge_id = $2 AND state = 'pending'`, uid, ch.ID); err != nil {
 		return "", uuid.Nil, err
 	}
 	*refunded = ch.Customer
 	return OutcomeApplied, uid, nil
+}
+
+// endProForRefund ends an account's Stripe Pro after a full refund and queues the cancellation of its Stripe subscriptions, in the caller's
+// transaction. at is the event time (unix seconds) after which nothing older may bring Pro back. Repeatable: the webhook for a self-serve
+// refund runs it again after the refund flow already did, and changes nothing.
+func endProForRefund(ctx context.Context, tx *sql.Tx, uid uuid.UUID, customer string, at int64) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE billing_customers SET revoked_at = GREATEST(COALESCE(revoked_at, 0), $2), updated_at = now() WHERE user_id = $1`, uid, at); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE entitlements SET status = 'ended', cancel_at_period_end = FALSE, updated_at = now()
+		 WHERE user_id = $1 AND source = 'stripe'`, uid); err != nil {
+		return err
+	}
+	return db.EnqueueStripeRefundCancel(ctx, tx, customer)
 }
 
 // cancelRefunded cancels a refunded customer's subscriptions now (immediately, no proration, no invoice) and clears the queued cancel. Already

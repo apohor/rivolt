@@ -25,8 +25,9 @@ private final class FakeTrips: TripSource, @unchecked Sendable {
     var counts: [Int] = []
     var delay: Duration?
     var failure: Error?
-    func geocode(_ q: String, count: Int) async throws -> [PlaceMatch] {
-        searches.append(q); counts.append(count)
+    var nears: [(latitude: Double, longitude: Double)?] = []
+    func geocode(_ q: String, count: Int, near: (latitude: Double, longitude: Double)?) async throws -> [PlaceMatch] {
+        searches.append(q); counts.append(count); nears.append(near)
         if let failure { throw failure }
         let answer = matches
         if let d = delay { try? await Task.sleep(for: d) }
@@ -123,6 +124,17 @@ final class TripPlanLogicTests: XCTestCase {
         for (e, want) in cases { XCTAssertEqual(TripPlanLogic.failure(e), want) }
         let all = cases.map { TripPlanLogic.failure($0.0) }.joined(separator: " ")
         for banned in ["OK", "Normal", "safe", "secure", "towing", "metered", "exact", "measured", "exploded", "https"] { XCTAssertFalse(all.contains(banned), banned) }
+    }
+}
+
+final class PlaceMatchDecodeTests: XCTestCase {
+    /// A hotel the server took from the charger list carries `ev_charging`; a plain place does not.
+    func testEVChargingFlagDecodes() throws {
+        let hotel = try JSON.decoder().decode(PlaceMatch.self, from: Data(#"{"name":"Hampton Inn Dalhart","latitude":36.06,"longitude":-102.51,"admin1":"TX","country":"United States","ev_charging":true}"#.utf8))
+        XCTAssertEqual(hotel.evCharging, true)
+        XCTAssertEqual(hotel.line, "Hampton Inn Dalhart, TX, United States")
+        let city = try JSON.decoder().decode(PlaceMatch.self, from: Data(#"{"name":"Dalhart","latitude":36.06,"longitude":-102.51}"#.utf8))
+        XCTAssertNil(city.evCharging)
     }
 }
 
@@ -242,22 +254,37 @@ final class TripPlanModelTests: XCTestCase {
         XCTAssertTrue(m.results.isEmpty)
     }
 
-    func testTypeAheadWaitsTheWebsPauseAndAsksForEightFromTwoCharacters() async {
-        XCTAssertEqual(TripPlanLogic.typeAheadMinChars, 2)
-        XCTAssertEqual(TripPlanLogic.typeAheadDebounce, .milliseconds(150))
+    func testASearchRanksAroundTheChosenStartElseTheTruckElseNothing() async {
+        let src = FakeTrips()
+        src.matches = [seattle]
+        let m = TripPlanModel()
+        await m.search(source: src, query: "hampton")
+        XCTAssertNil(src.nears.last!, "no truck, no start: no point")
+        let v = try! JSON.decoder().decode(Vehicle.self, from: Data(#"{"id":"v1","vin":"TESTVIN0000000001","name":"R1S","model":"R1S"}"#.utf8))
+        await m.loadTruck(source: src, vehicles: [v])
+        await m.search(source: src, query: "hampton")
+        XCTAssertEqual(src.nears.last!?.latitude, 47.62, "the truck")
+        m.origin = spokane
+        await m.search(source: src, query: "hampton")
+        XCTAssertEqual(src.nears.last!?.longitude, -117.43, "the chosen start")
+    }
+
+    func testTypeAheadWaitsTheWebsPauseAndAsksForEightFromThreeCharacters() async {
+        XCTAssertEqual(TripPlanLogic.typeAheadMinChars, 3)
+        XCTAssertEqual(TripPlanLogic.typeAheadDebounce, .milliseconds(300))
         XCTAssertEqual(TripPlanLogic.typeAheadCount, 8)
         let src = FakeTrips()
         src.matches = [seattle]
         let m = TripPlanModel()
-        await m.typeAhead(source: src, query: "d", debounce: .milliseconds(1))
-        XCTAssertTrue(src.searches.isEmpty, "one character asks nothing")
-        await m.typeAhead(source: src, query: "  de ", debounce: .milliseconds(1))
-        XCTAssertEqual(src.searches, ["de"])
+        await m.typeAhead(source: src, query: "de", debounce: .milliseconds(1))
+        XCTAssertTrue(src.searches.isEmpty, "two characters ask nothing")
+        await m.typeAhead(source: src, query: "  den ", debounce: .milliseconds(1))
+        XCTAssertEqual(src.searches, ["den"])
         XCTAssertEqual(src.counts, [8])
         XCTAssertEqual(m.results.count, 1)
         XCTAssertFalse(m.searching)
-        await m.typeAhead(source: src, query: "d", debounce: .milliseconds(1))
-        XCTAssertTrue(m.results.isEmpty, "back under 2 characters clears the list")
+        await m.typeAhead(source: src, query: "de", debounce: .milliseconds(1))
+        XCTAssertTrue(m.results.isEmpty, "back under 3 characters clears the list")
     }
 
     func testTheNextKeystrokeCancelsTheWaitingSearch() async {

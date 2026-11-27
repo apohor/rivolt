@@ -101,13 +101,24 @@ struct NoTruckView: View {
     var notice: String?
     var onCheck: () async -> Void
     @State private var checking = false
+    /// The plan this account carries, read once: `.off` (billing off, a self-hosted server, a failed read) shows no Pro entry.
+    @State private var plan: PlanState = .off
+    @State private var freeWindow: FreeWindow = .unknown
+    @State private var showPro = false
 
     var body: some View {
         ScrollView {
             NoTruckContent(connect: Onboarding.connectURL(server: state.serverURL), discovery: discovery, notice: notice, checking: checking,
                            onCheck: { Task { checking = true; await onCheck(); checking = false } },
-                           onSample: { state.enterDemoFromAccount() })
+                           onSample: { state.enterDemoFromAccount() },
+                           onPro: plan == .off ? nil : { showPro = true })
         }
+        .task {
+            let me = try? await state.readMe()
+            plan = PlanLogic.state(me)
+            freeWindow = FreeWindow(me)
+        }
+        .sheet(isPresented: $showPro) { ProPaywallView(plan: plan, window: freeWindow).followsAppearance() }
         .themePage()
         .safeAreaInset(edge: .top, spacing: 0) { ThemeTopBar { AccountMenu() } }
     }
@@ -121,6 +132,9 @@ struct NoTruckContent: View {
     var checking = false
     var onCheck: () -> Void
     var onSample: () -> Void
+    /// Opens the Rivolt Pro sheet (the one in Settings). nil where the server does not bill: an account without a Rivian can still see its plan,
+    /// and App Review, whose account has no Rivian, reaches the purchase from here.
+    var onPro: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4 * Theme.unit) {
@@ -146,6 +160,12 @@ struct NoTruckContent: View {
                 Text("See the sample truck").frame(maxWidth: .infinity)
             }
             .buttonStyle(ThemeSecondaryButtonStyle())
+            if let onPro {
+                Button(action: onPro) {
+                    Text("Rivolt Pro").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ThemeSecondaryButtonStyle())
+            }
         }
         .padding(6 * Theme.unit)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -52,7 +52,7 @@ enum MapLayer: String, CaseIterable, Equatable {
 
 protocol TripSource: Sendable {
     func planTrip(_ body: TripPlanRequest) async throws -> TripPlan
-    func geocode(_ q: String, count: Int) async throws -> [PlaceMatch]
+    func geocode(_ q: String, count: Int, near: (latitude: Double, longitude: Double)?) async throws -> [PlaceMatch]
     func vehicleState(id: String) async throws -> VehicleState
     func truckPosition(id: String) async throws -> TruckPosition
     func planMultiday(_ body: TripMultidayRequest) async throws -> TripMultiday
@@ -99,6 +99,8 @@ final class TripPlanModel {
     private(set) var searching = false
     /// Which search owns `results`: a late answer from an older one is dropped.
     private var searchGeneration = 0
+    /// Where the truck was when a search first needed it: places near it rank first until a start is chosen.
+    private var truckNear: (latitude: Double, longitude: Double)?
 
     /// The two-day version of a long drive: choosing where to sleep, then the days.
     enum NightState: Equatable {
@@ -503,7 +505,12 @@ final class TripPlanModel {
         searching = true
         searchMessage = nil
         do {
-            let found = try await source.geocode(q, count: TripPlanLogic.typeAheadCount)
+            var near: (latitude: Double, longitude: Double)?
+            if let origin { near = (origin.latitude, origin.longitude) } else {
+                if truckNear == nil, let id = vehicleID, let p = try? await source.truckPosition(id: id) { truckNear = p.coordinate }
+                near = truckNear
+            }
+            let found = try await source.geocode(q, count: TripPlanLogic.typeAheadCount, near: near)
             guard mine == searchGeneration, !Task.isCancelled else { return }
             results = found
             if found.isEmpty { searchMessage = "No match for that. Try a city, or a street and a city." }
