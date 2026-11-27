@@ -67,7 +67,7 @@ final class WidgetGateTests: XCTestCase {
         XCTAssertTrue(all.contains("every widget except the small Now widget"))
         XCTAssertTrue(all.contains("the small Now widget"))
         XCTAssertFalse(all.contains("Lock Screen and Home Screen widgets"))
-        XCTAssertEqual(ProCopy.subtitle, "Full history, multi-day trips and more widgets, from $3.99 a month.")
+        XCTAssertEqual(ProCopy.subtitle, "Full history, trip planning and more widgets, from $3.99 a month.")
     }
 
     /// The view itself: a locked free account sees the same small widget, and a different (Pro) card in every other family.
