@@ -14,7 +14,7 @@ import (
 //	rehydrate fresh + split: the vehicle was mid-session at takeover, nothing was found, and the previous row of that kind ended less than
 //	                         splitGap before the new one began and no more than acquireSlack before the acquire (so it is the same trip or charge).
 //
-// A session that opens more than openSlack after the acquire is not a split either. A drive or charge that genuinely starts right after a takeover, with no previous row nearby or one that ended well before the hand-off, counts as nothing.
+// A drive or charge that genuinely starts right after a takeover, with no previous row nearby or one that ended well before the hand-off, counts as nothing.
 const (
 	// takeoverWindow is how long after this pod acquired the vehicle's group a fresh session opening still counts as a takeover.
 	takeoverWindow = 3 * time.Minute
@@ -23,9 +23,6 @@ const (
 	// acquireSlack: the previous row must also have ended no earlier than this before the acquire. A stop that ended well before the
 	// hand-off (a coffee stop, then the roll) is a new drive, not a lost one.
 	acquireSlack = 2 * time.Minute
-	// openSlack: a session cut by the hand-off reopens on the first frame the new pod sees. One that opens later than this after the acquire
-	// began after a real stop (the old pod closed the row at the hand-off, then the vehicle parked and drove again): a new drive, not a split.
-	openSlack = 30 * time.Second
 )
 
 // Rollout events and sources, the label values of the counters.
@@ -44,6 +41,9 @@ type takeoverTrack struct {
 	at                       time.Time // when this pod acquired the vehicle (EnsureSubscribed), else its first frame
 	driveSrc, chargeSrc      string    // set at rehydrate when the snapshot held the session
 	driveDecided, chargeDone bool
+	seenFirst                bool // the first lifecycle pass after the acquire has been looked at
+	driveIdleFirst           bool // that pass found no drive: whatever opens later began after the hand-off
+	chargeIdleFirst          bool // likewise for a charge
 }
 
 // SetRolloutObserver wires the takeover counters: fn(event, kind, source) with event RolloutRehydrate (source snapshot, db or fresh) or
@@ -102,6 +102,13 @@ func (m *StateMonitor) noteTakeover(vehicleID string, sess *liveSessions, driveB
 		sess.takeover = nil
 		return
 	}
+	if !t.seenFirst {
+		// A session cut by the hand-off is already running on the first frame the new pod sees. A vehicle that was parked then (no drive, no
+		// charge) and starts one later is a new drive or charge, however soon after the acquire: that is not a split.
+		t.seenFirst = true
+		t.driveIdleFirst = sess.drive == nil
+		t.chargeIdleFirst = sess.charge == nil
+	}
 	if !t.driveDecided && sess.drive != nil {
 		t.driveDecided = true
 		switch {
@@ -109,7 +116,7 @@ func (m *StateMonitor) noteTakeover(vehicleID string, sess *liveSessions, driveB
 			m.noteRollout(RolloutRehydrate, KindDrive, t.driveSrc)
 		case sess.drive != driveBefore && sess.drive.resumedFromDB:
 			m.noteRollout(RolloutRehydrate, KindDrive, SourceDB) // G2a: the open drive row, no snapshot needed
-		case sess.drive != driveBefore:
+		case sess.drive != driveBefore && !t.driveIdleFirst:
 			go m.classifyFresh(vehicleID, KindDrive, sess.drive.id, sess.drive.startedAt, t.at)
 		}
 	}
@@ -120,7 +127,7 @@ func (m *StateMonitor) noteTakeover(vehicleID string, sess *liveSessions, driveB
 			m.noteRollout(RolloutRehydrate, KindCharge, t.chargeSrc)
 		case sess.charge != chargeBefore && sess.charge.resumes > 0:
 			m.noteRollout(RolloutRehydrate, KindCharge, SourceDB)
-		case sess.charge != chargeBefore:
+		case sess.charge != chargeBefore && !t.chargeIdleFirst:
 			go m.classifyFresh(vehicleID, KindCharge, sess.charge.id, sess.charge.startedAt, t.at)
 		}
 	}
@@ -132,9 +139,6 @@ func (m *StateMonitor) classifyFresh(vehicleID, kind, id string, startedAt, acqu
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	end, ok := m.previousSessionEnd(ctx, vehicleID, kind, id)
-	if startedAt.Sub(acquired) > openSlack {
-		return
-	}
 	if !ok || startedAt.Sub(end) > splitGap || end.Sub(startedAt) > splitGap || end.Before(acquired.Add(-acquireSlack)) {
 		return
 	}
