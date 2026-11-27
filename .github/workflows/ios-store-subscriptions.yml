@@ -48,4 +48,4 @@ jobs:
           MODE: ${{ inputs.dry_run && 'plan' || 'apply' }}
         run: |
           set -euo pipefail
-          python3 -I ios/store/asc_subscriptions.py "$MODE" --spec "$RUNNER_TEMP/spec/openapi.oas.json"
+          python3 -I ios/store/asc_subscriptions.py "$MODE" --spec "$RUNNER_TEMP/spec/openapi.oas.json" --review-shot ios/store/review-subscription.png
