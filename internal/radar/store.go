@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -45,6 +47,11 @@ type Store struct {
 	lru     *list.List // of *entry, front = most recent
 	entries map[string]*list.Element
 	loading map[string]*load
+
+	tileState
+	tileFlight singleflight.Group
+	// OnTile, when set, is told the outcome of each forecast tile: hit (cached), render (drawn) or absent (nothing to draw).
+	OnTile func(outcome string)
 }
 
 type entry struct {
