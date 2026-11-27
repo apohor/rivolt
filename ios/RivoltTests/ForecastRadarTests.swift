@@ -60,6 +60,7 @@ final class ForecastRadarTests: XCTestCase {
         let utc = TimeZone(identifier: "UTC")!, us = Locale(identifier: "en_US")
         // 2026-11-27 15:00 UTC.
         XCTAssertEqual(Logic.label(unix: 1_795_791_600, zone: utc, locale: us), "Forecast for 3 pm")
+        XCTAssertEqual(Logic.hour(unix: 1_795_791_600, zone: utc, locale: us), "3 pm")
         XCTAssertEqual(Logic.caption(credit: nil, unix: 1_795_791_600, zone: utc, locale: us), "NOAA RRFS · Forecast for 3 pm")
         XCTAssertTrue(Logic.spoken(credit: "NOAA RRFS", unix: 1_795_791_600, zone: utc, locale: us).hasPrefix("light, moderate, heavy, NOAA RRFS radar, "))
     }

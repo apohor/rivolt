@@ -10,10 +10,11 @@ final class ForecastRadarUITests: XCTestCase {
         return [here.appendingPathComponent("Fixtures").path, ios.appendingPathComponent("RivoltTests/Fixtures").path].joined(separator: ":")
     }
 
-    private func launch(forecast: Bool) -> XCUIApplication {
+    private func launch(forecast: Bool, dark: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["RIVOLT_UITEST_FIXTURES"] = Self.fixtureDirectories
         if forecast { app.launchArguments += ["-uitest-forecast"] }
+        app.launchArguments += ["-rivolt.appearance", dark ? "dark" : "light"]
         app.launch()
         let plan = app.buttons["Plan"].firstMatch
         XCTAssertTrue(plan.waitForExistence(timeout: 20), "the Plan tab is there")
@@ -36,21 +37,31 @@ final class ForecastRadarUITests: XCTestCase {
         }
     }
 
-    func testTheScrubberStepsThroughTheTripsHoursAndSaysWhenTheForecastEnds() throws {
-        let app = launch(forecast: true)
+    func testTheScrubberStepsThroughTheTripsHoursAndSaysWhenTheForecastEnds() throws { try scrub(dark: false) }
+    func testTheScrubberInDark() throws { try scrub(dark: true) }
+
+    private func scrub(dark: Bool) throws {
+        let tag = dark ? "-dark" : ""
+        let app = launch(forecast: true, dark: dark)
         let strip = app.descendants(matching: .any).matching(identifier: "radar-strip").firstMatch
         XCTAssertTrue(strip.waitForExistence(timeout: 20), "the strip is there")
         XCTAssertTrue(strip.label.contains("NOAA RRFS radar, Forecast for"), "it is the forecast's strip: \(strip.label)")
         let slider = app.sliders["Forecast hour"].firstMatch
         XCTAssertTrue(slider.waitForExistence(timeout: 10), "the scrubber is there")
         XCTAssertFalse(app.staticTexts["The forecast doesn't reach this hour."].exists, "the departure hour is inside the forecast")
-        still(app, "forecast-ios-first-hour")
+        still(app, "forecast-ios-first-hour\(tag)")
         let first = strip.label
+        // A middle hour: the truck is on the route, clear of the weather buttons at its start.
+        slider.adjust(toNormalizedSliderPosition: 0.5)
+        sleep(2)
+        still(app, "forecast-ios-mid-trip\(tag)")
         // To the last hour: past the horizon, so the one line and no layer.
         slider.adjust(toNormalizedSliderPosition: 1)
         XCTAssertTrue(app.staticTexts["The forecast doesn't reach this hour."].waitForExistence(timeout: 10), "past the horizon the map says so")
         XCTAssertNotEqual(strip.label, first, "the label follows the thumb")
-        still(app, "forecast-ios-past-horizon")
+        // No picture for the hour: the strip says only the hour, never the credit or "Forecast for" over a map that shows none.
+        XCTAssertFalse(strip.label.contains("NOAA") || strip.label.contains("Forecast for") || strip.label.contains("light"), "no legend or credit past the horizon: \(strip.label)")
+        still(app, "forecast-ios-past-horizon\(tag)")
         slider.adjust(toNormalizedSliderPosition: 0)
         XCTAssertTrue(app.staticTexts["The forecast doesn't reach this hour."].waitForNonExistence(timeout: 10), "back at the departure hour the line goes")
     }

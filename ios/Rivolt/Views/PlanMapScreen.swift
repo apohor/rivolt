@@ -81,6 +81,10 @@ struct PlanMapScreen: View {
         }
         let scrubber: AnyView? = forecastSlots.count > 1 || line != nil
             ? AnyView(ForecastScrubber(model: forecast, slotCount: forecastSlots.count, valueText: ForecastRadarLogic.label(unix: slot.t), line: line)) : nil
+        // No picture for this hour (past the forecast, outside its grid): only the hour, no legend, credit or "Forecast for" over a map that shows none.
+        guard forecastInside, slot.fh != nil else {
+            return PlanSheetEdge.Forecast(caption: ForecastRadarLogic.hour(unix: slot.t), spoken: ForecastRadarLogic.hour(unix: slot.t), legend: false, scrubber: scrubber)
+        }
         return PlanSheetEdge.Forecast(caption: ForecastRadarLogic.caption(credit: h.credit, unix: slot.t), spoken: ForecastRadarLogic.spoken(credit: h.credit, unix: slot.t), scrubber: scrubber)
     }
 
@@ -699,17 +703,26 @@ struct RadarStrip: View {
     }
 
     /// The forecast's strip: the same gradient, "NOAA RRFS · Forecast for 3 pm".
-    init(forecast caption: String, spoken: String) {
+    init(forecast caption: String, spoken: String, legend: Bool = true) {
         self.caption = caption
         stale = false
         self.spoken = spoken
+        self.legend = legend
     }
+    /// False: just the caption (the hour), no gradient.
+    var legend = true
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            line(words: RadarLogic.legendWords[0])
-            line(words: RadarLogic.legendWords[1])
-            line(words: [])
+        Group {
+            if legend {
+                ViewThatFits(in: .horizontal) {
+                    line(words: RadarLogic.legendWords[0])
+                    line(words: RadarLogic.legendWords[1])
+                    line(words: [])
+                }
+            } else {
+                Text(caption).foregroundStyle(Theme.textSecondary).lineLimit(1).fixedSize()
+            }
         }
         .mapCaption()
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -760,12 +773,14 @@ struct PlanSheetEdge: View {
     struct Forecast {
         var caption: String
         var spoken: String
+        /// False where there is no picture for the hour: the strip says only the hour.
+        var legend = true
         var scrubber: AnyView?
     }
 
     var body: some View {
         let strip = Group {
-            if let forecast { RadarStrip(forecast: forecast.caption, spoken: forecast.spoken) } else if let frameUnix { RadarStrip(frameUnix: frameUnix) }
+            if let forecast { RadarStrip(forecast: forecast.caption, spoken: forecast.spoken, legend: forecast.legend) } else if let frameUnix { RadarStrip(frameUnix: frameUnix) }
         }
         VStack(alignment: .leading, spacing: 4) {
             if let scrubber = forecast?.scrubber { scrubber }

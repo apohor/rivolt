@@ -49,13 +49,18 @@ enum ForecastRadarLogic {
 
     /// "Forecast for 3 pm", in the zone of the phone.
     static func label(unix: Int, zone: TimeZone = .current, locale: Locale = .current) -> String {
+        "Forecast for " + hour(unix: unix, zone: zone, locale: locale)
+    }
+
+    /// "3 pm": the hour alone (what the strip says when there is no picture for it).
+    static func hour(unix: Int, zone: TimeZone = .current, locale: Locale = .current) -> String {
         let f = DateFormatter()
         f.locale = locale
         f.timeZone = zone
         f.setLocalizedDateFormatFromTemplate("j")
         // The system puts a narrow no-break space before "PM"; the label is plain words.
         let hour = f.string(from: Date(timeIntervalSince1970: TimeInterval(unix))).replacingOccurrences(of: "\u{202F}", with: " ").replacingOccurrences(of: "\u{00A0}", with: " ")
-        return "Forecast for " + hour.lowercased()
+        return hour.lowercased()
     }
 
     /// "NOAA RRFS · Forecast for 3 pm".
