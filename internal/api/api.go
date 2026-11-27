@@ -1038,6 +1038,10 @@ func New(d Deps) http.Handler {
 			if d.Radar != nil {
 				r.Mount("/maps/radar", radarMount(ls, d.Radar))
 			}
+			// The planner map's forecast radar for a chosen hour: Pro only, drawn from the grids the plan's leg tags read.
+			if ft, ok := d.PlanRadar.(ForecastTiles); ok && ft != nil {
+				r.Mount("/maps/forecast-radar", forecastRadarMount(ls, ft, d.Entitlements))
+			}
 			// Server-side chargers-along-corridor query. Replaces the
 			// SPA's PMTiles per-tile fan-out (hundreds of HTTP range
 			// reads per planner re-render) with one POST that returns

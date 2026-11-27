@@ -3,6 +3,8 @@ package tracing
 import (
 	"context"
 
+	"github.com/apohor/rivolt/internal/logging"
+
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -42,13 +44,18 @@ func scrubbed(spans []sdktrace.ReadOnlySpan) []sdktrace.ReadOnlySpan {
 	out := make([]sdktrace.ReadOnlySpan, len(spans))
 	for i, sp := range spans {
 		out[i] = sp
-		if sp.SpanKind() != trace.SpanKindServer || !hasPersonal(sp.Attributes()) {
+		if sp.SpanKind() != trace.SpanKindServer || !(hasPersonal(sp.Attributes()) || hasAddress(sp.Attributes())) {
 			continue
 		}
 		stub := tracetest.SpanStubFromReadOnlySpan(sp)
 		kept := stub.Attributes[:0:0]
 		for _, a := range stub.Attributes {
-			if !personalServerAttrs[a.Key] {
+			switch {
+			case personalServerAttrs[a.Key]:
+			case pathAttrs[a.Key]:
+				// Where a user is looking (a map tile address) is not for a trace either: the route, not the tile.
+				kept = append(kept, attribute.String(string(a.Key), logging.RedactedPath(a.Value.AsString())))
+			default:
 				kept = append(kept, a)
 			}
 		}
@@ -62,6 +69,19 @@ func scrubbed(spans []sdktrace.ReadOnlySpan) []sdktrace.ReadOnlySpan {
 func hasPersonal(attrs []attribute.KeyValue) bool {
 	for _, a := range attrs {
 		if personalServerAttrs[a.Key] {
+			return true
+		}
+	}
+	return false
+}
+
+// pathAttrs are the span attributes that carry the request path.
+var pathAttrs = map[attribute.Key]bool{"url.path": true, "http.target": true}
+
+// hasAddress reports whether a path attribute holds a map tile address (or another redacted path).
+func hasAddress(attrs []attribute.KeyValue) bool {
+	for _, a := range attrs {
+		if pathAttrs[a.Key] && logging.RedactedPath(a.Value.AsString()) != a.Value.AsString() {
 			return true
 		}
 	}

@@ -50,13 +50,15 @@ func TestAccessLogRedactsTheSignupToken(t *testing.T) {
 // file name, and the byte range is not logged, so it says nothing about location; the radar frame route carries no address.)
 func TestAccessLogRedactsTileAddresses(t *testing.T) {
 	for in, want := range map[string]string{
-		"/api/maps/radar/7/20/45.png":     "/api/maps/radar/:tile",
-		"/api/maps/radar/frame":           "/api/maps/radar/frame",
-		"/api/maps/dem/7/20/45.png":       "/api/maps/dem/:tile",
-		"/api/demo/radar/7/20/45.png":     "/api/demo/radar/:tile",
-		"/api/demo/radar/frame":           "/api/demo/radar/frame",
-		"/api/maps/tiles/basemap.pmtiles": "/api/maps/tiles/basemap.pmtiles",
-		"/api/vehicles":                   "/api/vehicles",
+		"/api/maps/radar/7/20/45.png":                       "/api/maps/radar/:tile",
+		"/api/maps/radar/frame":                             "/api/maps/radar/frame",
+		"/api/maps/forecast-radar/2026112712/6/7/20/45.png": "/api/maps/forecast-radar/:tile",
+		"/api/maps/forecast-radar/hours":                    "/api/maps/forecast-radar/hours",
+		"/api/maps/dem/7/20/45.png":                         "/api/maps/dem/:tile",
+		"/api/demo/radar/7/20/45.png":                       "/api/demo/radar/:tile",
+		"/api/demo/radar/frame":                             "/api/demo/radar/frame",
+		"/api/maps/tiles/basemap.pmtiles":                   "/api/maps/tiles/basemap.pmtiles",
+		"/api/vehicles":                                     "/api/vehicles",
 	} {
 		if got := loggedPath(in); got != want {
 			t.Errorf("loggedPath(%q) = %q, want %q", in, got, want)
