@@ -140,6 +140,8 @@ final class StorePurchasingTests: XCTestCase {
         XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: false, iapAvailable: true), "billing off: never sell what everyone has free")
         XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: nil, iapAvailable: true))
         XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: true, iapAvailable: false))
+        XCTAssertFalse(StoreLogic.mayOffer(billingEnabled: true, iapAvailable: true, paidViaStripe: true), "Stripe already bills this account: no second subscription")
+        XCTAssertTrue(StoreLogic.mayOffer(billingEnabled: true, iapAvailable: true, paidViaStripe: false))
     }
 
     func testWithBillingOffNoPurchaseOrRestoreUIAppearsAnywhere() {
