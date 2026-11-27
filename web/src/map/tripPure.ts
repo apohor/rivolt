@@ -6,7 +6,8 @@ import { bookingAffiliateID, valhallaBase } from "../lib/config";
 import type { POI } from "../lib/poi";
 import type { HookupId } from "../plan/hookups";
 import { CAMP_WARNING, RIDB_CREDIT, outletLabel, sitesLine, campPowerLine } from "../plan/stays";
-import type { PlannedWaypoint } from "../lib/api";
+import type { PlannedWaypoint, TripRoute } from "../lib/api";
+import { cumulative, pointAtShare } from "../plan/elevation";
 import { formatDuration } from "../lib/format";
 import { wholeDistance } from "../plan/units";
 import type { DistanceUnit } from "../lib/preferences";
@@ -453,4 +454,50 @@ export function tripCardText(p: { day?: string; meters: number; stops: number; s
   if (p.stops > 0) parts.push(`${p.stops} charging stop${p.stops === 1 ? "" : "s"}`);
   if (p.seconds > 0) parts.push(formatDuration(p.seconds));
   return parts.join(" · ");
+}
+
+// tripTimes is when the trip leaves (the origin's departure) and arrives (the destination's arrival), as unix seconds; 0 for a plan without times.
+export function tripTimes(route: Pick<TripRoute, "Waypoints">): { depart: number; arrive: number } {
+  const w = route.Waypoints;
+  if (w.length === 0) return { depart: 0, arrive: 0 };
+  const ms = (s?: string) => { const v = s ? Date.parse(s) : NaN; return Number.isFinite(v) ? v / 1000 : 0; };
+  const first = w[0];
+  const last = w[w.length - 1];
+  return { depart: ms(first.DepartureTimeUTC) || ms(first.ArrivalTimeUTC), arrive: ms(last.ArrivalTimeUTC) || ms(last.DepartureTimeUTC) };
+}
+
+// positionAt is where the truck is at unix time t on a plan, as [lat, lon]: at a stop during its dwell (arrival to departure), on the road between
+// two stops by time (linear, as the server samples the weather), and null before the trip leaves or after it arrives. Between stops it follows the
+// stored road line when there is one and the stops' distances are known, else the straight line between them.
+export function positionAt(route: Pick<TripRoute, "Waypoints" | "Geometry" | "GeometryPrecision" | "TotalDriveDistanceMeters">, t: number): [number, number] | null {
+  const w = route.Waypoints;
+  if (w.length < 2 || !Number.isFinite(t)) return null;
+  const ms = (s?: string) => { const v = s ? Date.parse(s) : NaN; return Number.isFinite(v) ? v / 1000 : NaN; };
+  const arr = (p: PlannedWaypoint) => { const a = ms(p.ArrivalTimeUTC); return Number.isFinite(a) ? a : ms(p.DepartureTimeUTC); };
+  const dep = (p: PlannedWaypoint) => { const d = ms(p.DepartureTimeUTC); return Number.isFinite(d) ? d : ms(p.ArrivalTimeUTC); };
+  const line = route.Geometry && (route.GeometryPrecision ?? 6) === 6 ? decodePolyline6(route.Geometry) : [];
+  const cum = line.length > 1 ? cumulative(line) : [];
+  const total = route.TotalDriveDistanceMeters;
+  for (let i = 0; i < w.length; i++) {
+    const a = arr(w[i]);
+    const d = dep(w[i]);
+    if (!Number.isFinite(a) || !Number.isFinite(d)) return null;
+    if (t >= a && t <= d) return [w[i].Latitude, w[i].Longitude];
+    if (i === w.length - 1) break;
+    const na = arr(w[i + 1]);
+    if (!Number.isFinite(na)) return null;
+    if (t > d && t < na) {
+      const f = (t - d) / (na - d);
+      const d0 = w[i].DistanceFromOriginMeters ?? 0;
+      const d1 = w[i + 1].DistanceFromOriginMeters ?? 0;
+      // 0 means missing on legacy plans; the origin's own 0 is real, so only the later stop's must be set.
+      if (cum.length > 0 && total > 0 && d1 > d0) {
+        const at = pointAtShare(line, (d0 + f * (d1 - d0)) / total, cum);
+        if (at) return at;
+      }
+      return [w[i].Latitude + (w[i + 1].Latitude - w[i].Latitude) * f, w[i].Longitude + (w[i + 1].Longitude - w[i].Longitude) * f];
+    }
+    if (t < a) return null;
+  }
+  return null;
 }

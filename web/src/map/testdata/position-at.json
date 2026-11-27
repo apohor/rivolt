@@ -1,0 +1,21 @@
+{
+  "note": "Shared by the web (tripPure.test.ts) and iPhone tests: a plan with two stops on a straight line, t as unix seconds, want = [lat, lon] or null. Times: leave 1000, arrive stop 2000, leave stop 2600, arrive 4600.",
+  "plan": {
+    "waypoints": [
+      { "lat": 40.0, "lon": -100.0, "arrive": 1000, "depart": 1000, "distance": 0 },
+      { "lat": 41.0, "lon": -100.0, "arrive": 2000, "depart": 2600, "distance": 100000 },
+      { "lat": 41.0, "lon": -98.0, "arrive": 4600, "depart": 4600, "distance": 200000 }
+    ]
+  },
+  "cases": [
+    { "name": "before the trip leaves", "t": 999, "want": null },
+    { "name": "at the origin when it leaves", "t": 1000, "want": [40.0, -100.0] },
+    { "name": "half way to the first stop", "t": 1500, "want": [40.5, -100.0] },
+    { "name": "at the stop on arrival", "t": 2000, "want": [41.0, -100.0] },
+    { "name": "at the stop while it charges", "t": 2300, "want": [41.0, -100.0] },
+    { "name": "at the stop as it leaves", "t": 2600, "want": [41.0, -100.0] },
+    { "name": "half way on the last leg", "t": 3600, "want": [41.0, -99.0] },
+    { "name": "at the destination", "t": 4600, "want": [41.0, -98.0] },
+    { "name": "after the trip arrives", "t": 4601, "want": null }
+  ]
+}
