@@ -605,6 +605,16 @@ cnpg:
   # See https://cloudnative-pg.io/documentation/current/backup_recovery/
   backup:
     enabled: false
+    # How backups are taken. "barmanObjectStore" (default): the in-tree spec.backup.barmanObjectStore below (deprecated in CNPG 1.26+).
+    # "plugin": the Barman Cloud plugin (installed separately, cnpg-system) with the ObjectStore below; the Cluster then archives WAL
+    # to that one store and the instances roll once when the plugin sidecar is added.
+    method: barmanObjectStore
+    # Used when method is "plugin": rendered as an ObjectStore (barmancloud.cnpg.io/v1) in this namespace.
+    #   name: rivolt-pg-r2
+    #   serverName: rivolt-pg-r2        # the path under destinationPath; a fresh name keeps it empty (Barman refuses a non-empty one)
+    #   retentionPolicy: "364d"
+    #   configuration: { destinationPath: "s3://bucket/prefix/", endpointURL: "...", s3Credentials: {...}, wal: {...}, data: {...} }
+    objectStore: {}
     # barmanObjectStore: { destinationPath: "s3://bucket/path", endpointURL: "...", s3Credentials: {...}, wal: {...}, data: {...} }
     # retentionPolicy: "30d"
     scheduled:

@@ -120,7 +120,18 @@ spec:
       {{- end }}
   {{- end }}
 
-  {{- if .Values.cnpg.backup.enabled }}
+  {{- if and .Values.cnpg.backup.enabled (eq (.Values.cnpg.backup.method | default "barmanObjectStore") "plugin") }}
+  # Barman Cloud plugin: WAL archiving and base backups go to the ObjectStore (cnpg-objectstore.yaml). A Cluster archives WAL to ONE
+  # store, so this replaces spec.backup.barmanObjectStore; adding it adds the plugin sidecar, which rolls the instances once.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: {{ .Values.cnpg.backup.objectStore.name | quote }}
+        {{- with .Values.cnpg.backup.objectStore.serverName }}
+        serverName: {{ . | quote }}
+        {{- end }}
+  {{- else if .Values.cnpg.backup.enabled }}
   backup:
     {{- with .Values.cnpg.backup.barmanObjectStore }}
     barmanObjectStore:
