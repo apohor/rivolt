@@ -35,6 +35,17 @@ export function PlanCard() {
     }, POLL_EVERY_MS);
     return () => window.clearTimeout(t);
   }, [back, proIsOn, tries, qc]);
+  // After a refund Pro has ended on the server, but the pod that answers the next /me may still hold the old plan for a few seconds: ask
+  // again until the card shows the free tier (same cadence as the return from Stripe).
+  const [refundTries, setRefundTries] = useState(0);
+  useEffect(() => {
+    if (!refunded || !proIsOn || refundTries >= POLL_TIMES) return;
+    const t = window.setTimeout(() => {
+      setRefundTries((n) => n + 1);
+      void qc.invalidateQueries({ queryKey: ["auth", "me"] });
+    }, POLL_EVERY_MS);
+    return () => window.clearTimeout(t);
+  }, [refunded, proIsOn, refundTries, qc]);
   const state = planState(me.data);
   const copy = planCardCopy(state);
   // Billing switched off (a rollback) while a Stripe subscription is live: the person can still change or cancel it, and nothing else about
