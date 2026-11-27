@@ -55,6 +55,7 @@ struct ActivityDetailView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(when).themeText(.subline)
@@ -76,6 +77,7 @@ struct ActivityDetailView: View {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(tiles) { KpiTileView(tile: $0) }
                 }
+                .id("tiles")
                 if case .drive(let d) = item, let legs = d.legs, legs.count > 1 { RoundTripLegsCard(legs: legs, calendar: calendar) }
                 if case .drive(let d) = item {
                     DriveTimelineCard(drive: d, phase: driveDetail.phase, data: driveDetail.timeline, calendar: calendar, onCursor: { scrub = $0 })
@@ -83,6 +85,13 @@ struct ActivityDetailView: View {
                 if case .charge(let c) = item { ChargeDetailSections(charge: c, row: chargeRow.phase.row, calendar: calendar) }
             }
             .padding(.horizontal, 4 * Theme.unit).padding(.vertical, 4 * Theme.unit)
+        }
+        .task {
+            // App Store screenshots only: bring the cost tiles and the charge curve to the top once the page has loaded.
+            guard StoreShots.name == "charge" else { return }
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            proxy.scrollTo("tiles", anchor: .top)
+        }
         }
         .background(ThemePageBackground().ignoresSafeArea())
         .task(id: item.id) {

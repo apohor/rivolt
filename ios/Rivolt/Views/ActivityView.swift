@@ -86,8 +86,10 @@ struct ActivityView: View {
                     picked = items.compactMap { item -> (ActivityItem, Double)? in if case .drive(let d) = item { return (item, d.distanceMi) }; return nil }
                         .max { $0.1 < $1.1 }?.0
                 default:
-                    picked = items.compactMap { item -> (ActivityItem, Double)? in if case .charge(let c) = item { return (item, c.energyAddedKwh) }; return nil }
-                        .max { $0.1 < $1.1 }?.0
+                    // One with a price, so the page shows what it cost ("with its cost"); the biggest one without if none has.
+                    let charges = items.compactMap { item -> (ActivityItem, ActivityCharge)? in if case .charge(let c) = item { return (item, c) }; return nil }
+                    let priced = charges.filter { ActivityLogic.costLine($0.1).tone != .missing }
+                    picked = (priced.isEmpty ? charges : priced).max { $0.1.energyAddedKwh < $1.1.energyAddedKwh }?.0
                 }
             }
             // App Store screenshots only: the demo server limits heavy reads a minute, so if the first read lost out, read again once it has refilled.

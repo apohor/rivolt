@@ -127,3 +127,28 @@ func TestAppConfigCarriesTheStoreKitProducts(t *testing.T) {
 		}
 	}
 }
+
+// While App Review's Sandbox is accepted, the products are listed only to builds with the purchase UI (X-Rivolt-App-Build at or above the
+// configured first build): 1.4.3 shows a paywall whenever the products are present, and StoreKit cannot load them before approval.
+func TestAppConfigReviewWindowListsProductsOnlyToNewBuilds(t *testing.T) {
+	cfg := &applebill.Transaction{Config: &applebill.Config{BundleID: "dev.rivolt.test", Environment: applebill.EnvProduction,
+		Products: map[string]bool{"test.pro.year": true}, AcceptSandbox: true, SandboxMinBuild: 100}}
+	d := Deps{Entitlements: entitlements.New(new(sql.DB), entitlements.Config{Billing: true}), AppleIAPTransaction: cfg}
+	get := func(build string) string {
+		req := httptest.NewRequest(http.MethodGet, "/api/app/config", nil)
+		if build != "" {
+			req.Header.Set("X-Rivolt-App-Build", build)
+		}
+		w := httptest.NewRecorder()
+		handleAppConfig(d)(w, req)
+		return w.Body.String()
+	}
+	if b := get("100"); !strings.Contains(b, `"iap"`) {
+		t.Errorf("a new build was not told the products: %s", b)
+	}
+	for _, build := range []string{"", "99", "abc", "-1"} {
+		if b := get(build); strings.Contains(b, `"iap"`) {
+			t.Errorf("build %q was told the products: %s", build, b)
+		}
+	}
+}

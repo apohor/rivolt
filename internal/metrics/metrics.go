@@ -167,8 +167,10 @@ type Metrics struct {
 	BillingCheckoutsStarted *prometheus.CounterVec
 	// Entitlements is the count of entitlement rows by source and status and Accounts the number of accounts, both without the demo account and
 	// without any user label, refreshed every few minutes; BillingEnabled is 1 when RIVOLT_BILLING is on.
-	Entitlements   *prometheus.GaugeVec
-	Accounts       prometheus.Gauge
+	Entitlements *prometheus.GaugeVec
+	Accounts     prometheus.Gauge
+	// PayingTwice is the number of accounts with a live Stripe and a live Apple subscription at once (a count, no label).
+	PayingTwice    prometheus.Gauge
 	BillingEnabled prometheus.Gauge
 	// OpenCharges is the open live charge rows now by state (charging: the vehicle's latest frame still reads plugged in and charging, by the
 	// stale-charge janitor's own rule; not_charging: it does not; no_frame: the vehicle sent nothing in 2 days, a dormant account's leftover row), and OpenChargesOldestSeconds the age of the oldest of each since its last
@@ -462,6 +464,11 @@ type Metrics struct {
 	// App Store Server Notifications by outcome (applied, duplicate, ignored, unmapped, stale, rejected); a rejected one is a bad signature or
 	// a bundle, environment or product that is not this deployment's. Pre-created at 0.
 	AppleNotificationsTotal *prometheus.CounterVec
+	// AppleSandboxRefusedTotal counts Sandbox purchases refused because the account is not on the review allowlist (TestFlight testers, mostly).
+	AppleSandboxRefusedTotal prometheus.Counter
+	// AppleSandboxAccepting is 1 while this deployment accepts Apple Sandbox purchases (RIVOLT_APPLE_IAP_ACCEPT_SANDBOX): on only during App Review; an
+	// alert fires when it stays on for 14 days.
+	AppleSandboxAccepting prometheus.Gauge
 	// AppleLinkTotal counts Link Apple to my account requests by outcome (see appleLinkOutcomes in internal/api).
 	AppleLinkTotal *prometheus.CounterVec
 	// RoutePointRefusedTotal counts route points kept out of a stored drive route, by where (see RoutePointRefusals).
@@ -722,6 +729,10 @@ func New() *Metrics {
 		Accounts: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "rivolt_accounts",
 			Help: "Accounts, without the demo account.",
+		}),
+		PayingTwice: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_accounts_paying_twice",
+			Help: "Accounts with a live Stripe subscription and a live Apple subscription at once, without sandbox rows and the demo account; no user labels.",
 		}),
 		BillingEnabled: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "rivolt_billing_enabled",
@@ -986,6 +997,14 @@ func New() *Metrics {
 		BillingNonUSTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "rivolt_billing_non_us_total",
 			Help: "Stripe customers with a billing address outside the US, once per customer and country per process.",
+		}),
+		AppleSandboxAccepting: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rivolt_apple_sandbox_accepting",
+			Help: "1 while this deployment accepts Apple Sandbox purchases for allowlisted accounts (App Review window).",
+		}),
+		AppleSandboxRefusedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "rivolt_apple_sandbox_refused_total",
+			Help: "Apple Sandbox purchases refused: the account is not on the App Review allowlist.",
 		}),
 		AppleNotificationsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -1264,6 +1283,7 @@ func New() *Metrics {
 		m.SessionSplitTotal,
 		m.CloseHooksFiredTotal,
 		m.Accounts,
+		m.PayingTwice,
 		m.BillingEnabled,
 		m.LeaseAcquireToFrame,
 		m.TakeoverWaitSeconds,
@@ -1325,6 +1345,8 @@ func New() *Metrics {
 		m.DatedNoticesTotal,
 		m.TripShareTotal,
 		m.AppleNotificationsTotal,
+		m.AppleSandboxRefusedTotal,
+		m.AppleSandboxAccepting,
 		m.AppleLinkTotal,
 		m.RoutePointRefusedTotal,
 		m.PlanGeometryRoutesTotal,

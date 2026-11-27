@@ -1,0 +1,5146 @@
+{
+"components": {
+"schemas": {
+"AgeRatingDeclarationUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"advertising": {
+"nullable": true,
+"type": "boolean"
+},
+"ageAssurance": {
+"nullable": true,
+"type": "boolean"
+},
+"ageRatingOverride": {
+"deprecated": true,
+"enum": [
+"NONE",
+"NINE_PLUS",
+"THIRTEEN_PLUS",
+"SIXTEEN_PLUS",
+"SEVENTEEN_PLUS",
+"UNRATED"
+],
+"nullable": true,
+"type": "string"
+},
+"ageRatingOverrideV2": {
+"enum": [
+"NONE",
+"NINE_PLUS",
+"THIRTEEN_PLUS",
+"SIXTEEN_PLUS",
+"EIGHTEEN_PLUS",
+"UNRATED"
+],
+"nullable": true,
+"type": "string"
+},
+"alcoholTobaccoOrDrugUseOrReferences": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"contests": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"datingAndRelationships": {
+"nullable": true,
+"type": "boolean"
+},
+"developerAgeRatingInfoUrl": {
+"format": "uri",
+"nullable": true,
+"type": "string"
+},
+"gambling": {
+"nullable": true,
+"type": "boolean"
+},
+"gamblingSimulated": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"gracRatingClassificationNumber": {
+"nullable": true,
+"type": "string"
+},
+"gunsOrOtherWeapons": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"healthOrWellnessTopics": {
+"nullable": true,
+"type": "boolean"
+},
+"horrorOrFearThemes": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"kidsAgeBand": {
+"$ref": "#/components/schemas/KidsAgeBand",
+"nullable": true
+},
+"koreaAgeRatingOverride": {
+"enum": [
+"NONE",
+"ALL",
+"TWELVE_PLUS",
+"FIFTEEN_PLUS",
+"NINETEEN_PLUS"
+],
+"nullable": true,
+"type": "string"
+},
+"lootBox": {
+"nullable": true,
+"type": "boolean"
+},
+"matureOrSuggestiveThemes": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"medicalOrTreatmentInformation": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"messagingAndChat": {
+"nullable": true,
+"type": "boolean"
+},
+"parentalControls": {
+"nullable": true,
+"type": "boolean"
+},
+"profanityOrCrudeHumor": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"sexualContentGraphicAndNudity": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"sexualContentOrNudity": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"sharedLocation": {
+"nullable": true,
+"type": "boolean"
+},
+"socialMedia": {
+"nullable": true,
+"type": "boolean"
+},
+"socialMediaAgeRestricted": {
+"nullable": true,
+"type": "boolean"
+},
+"unrestrictedWebAccess": {
+"nullable": true,
+"type": "boolean"
+},
+"userGeneratedContent": {
+"nullable": true,
+"type": "boolean"
+},
+"violenceCartoonOrFantasy": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"violenceRealistic": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+},
+"violenceRealisticProlongedGraphicOrSadistic": {
+"enum": [
+"NONE",
+"INFREQUENT_OR_MILD",
+"FREQUENT_OR_INTENSE",
+"INFREQUENT",
+"FREQUENT"
+],
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"ageRatingDeclarations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AgeRatingDeclarationUpdateRequest",
+"type": "object"
+},
+"AppAvailabilityV2CreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"availableInNewTerritories": {
+"type": "boolean"
+}
+},
+"required": [
+"availableInNewTerritories"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"app": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"apps"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"territoryAvailabilities": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territoryAvailabilities"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"app",
+"territoryAvailabilities"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"appAvailabilities"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+},
+"included": {
+"items": {
+"$ref": "#/components/schemas/TerritoryAvailabilityInlineCreate"
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"title": "AppAvailabilityV2CreateRequest",
+"type": "object"
+},
+"AppInfoLocalizationCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"locale": {
+"type": "string"
+},
+"name": {
+"type": "string"
+},
+"privacyChoicesUrl": {
+"nullable": true,
+"type": "string"
+},
+"privacyPolicyText": {
+"nullable": true,
+"type": "string"
+},
+"privacyPolicyUrl": {
+"nullable": true,
+"type": "string"
+},
+"subtitle": {
+"nullable": true,
+"type": "string"
+}
+},
+"required": [
+"name",
+"locale"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"appInfo": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appInfos"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"appInfo"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"appInfoLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppInfoLocalizationCreateRequest",
+"type": "object"
+},
+"AppInfoLocalizationUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"name": {
+"nullable": true,
+"type": "string"
+},
+"privacyChoicesUrl": {
+"nullable": true,
+"type": "string"
+},
+"privacyPolicyText": {
+"nullable": true,
+"type": "string"
+},
+"privacyPolicyUrl": {
+"nullable": true,
+"type": "string"
+},
+"subtitle": {
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appInfoLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppInfoLocalizationUpdateRequest",
+"type": "object"
+},
+"AppInfoUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"primaryCategory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appCategories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"primarySubcategoryOne": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appCategories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"primarySubcategoryTwo": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appCategories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"secondaryCategory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appCategories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"secondarySubcategoryOne": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appCategories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"secondarySubcategoryTwo": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appCategories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"appInfos"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppInfoUpdateRequest",
+"type": "object"
+},
+"AppPriceScheduleCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"relationships": {
+"properties": {
+"app": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"apps"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"baseTerritory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"manualPrices": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"app",
+"manualPrices",
+"baseTerritory"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"appPriceSchedules"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"type"
+],
+"type": "object"
+},
+"included": {
+"items": {
+"oneOf": [
+{
+"$ref": "#/components/schemas/AppPriceV2InlineCreate"
+},
+{
+"$ref": "#/components/schemas/TerritoryInlineCreate"
+}
+]
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"title": "AppPriceScheduleCreateRequest",
+"type": "object"
+},
+"AppPriceV2InlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"endDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+},
+"startDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"appPricePoint": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appPricePoints"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"appPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"type"
+],
+"type": "object"
+},
+"AppScreenshotCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"fileName": {
+"type": "string"
+},
+"fileSize": {
+"type": "integer"
+}
+},
+"required": [
+"fileName",
+"fileSize"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"appScreenshotSet": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appScreenshotSets"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"appScreenshotSet"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"appScreenshots"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppScreenshotCreateRequest",
+"type": "object"
+},
+"AppScreenshotSetCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"screenshotDisplayType": {
+"$ref": "#/components/schemas/ScreenshotDisplayType"
+}
+},
+"required": [
+"screenshotDisplayType"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"appCustomProductPageLocalization": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appCustomProductPageLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"appStoreVersionExperimentTreatmentLocalization": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appStoreVersionExperimentTreatmentLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"appStoreVersionLocalization": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appStoreVersionLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"appScreenshotSets"
+],
+"type": "string"
+}
+},
+"required": [
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppScreenshotSetCreateRequest",
+"type": "object"
+},
+"AppScreenshotUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"sourceFileChecksum": {
+"nullable": true,
+"type": "string"
+},
+"uploaded": {
+"nullable": true,
+"type": "boolean"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appScreenshots"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppScreenshotUpdateRequest",
+"type": "object"
+},
+"AppStoreReviewDetailCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"contactEmail": {
+"nullable": true,
+"type": "string"
+},
+"contactFirstName": {
+"nullable": true,
+"type": "string"
+},
+"contactLastName": {
+"nullable": true,
+"type": "string"
+},
+"contactPhone": {
+"nullable": true,
+"type": "string"
+},
+"demoAccountName": {
+"nullable": true,
+"type": "string"
+},
+"demoAccountPassword": {
+"nullable": true,
+"type": "string"
+},
+"demoAccountRequired": {
+"nullable": true,
+"type": "boolean"
+},
+"notes": {
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"relationships": {
+"properties": {
+"appStoreVersion": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appStoreVersions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"appStoreVersion"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"appStoreReviewDetails"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppStoreReviewDetailCreateRequest",
+"type": "object"
+},
+"AppStoreReviewDetailUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"contactEmail": {
+"nullable": true,
+"type": "string"
+},
+"contactFirstName": {
+"nullable": true,
+"type": "string"
+},
+"contactLastName": {
+"nullable": true,
+"type": "string"
+},
+"contactPhone": {
+"nullable": true,
+"type": "string"
+},
+"demoAccountName": {
+"nullable": true,
+"type": "string"
+},
+"demoAccountPassword": {
+"nullable": true,
+"type": "string"
+},
+"demoAccountRequired": {
+"nullable": true,
+"type": "boolean"
+},
+"notes": {
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appStoreReviewDetails"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppStoreReviewDetailUpdateRequest",
+"type": "object"
+},
+"AppStoreVersionCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"copyright": {
+"nullable": true,
+"type": "string"
+},
+"earliestReleaseDate": {
+"format": "date-time",
+"nullable": true,
+"type": "string"
+},
+"platform": {
+"$ref": "#/components/schemas/Platform"
+},
+"releaseType": {
+"enum": [
+"MANUAL",
+"AFTER_APPROVAL",
+"SCHEDULED"
+],
+"nullable": true,
+"type": "string"
+},
+"reviewType": {
+"enum": [
+"APP_STORE",
+"NOTARIZATION"
+],
+"nullable": true,
+"type": "string"
+},
+"usesIdfa": {
+"deprecated": true,
+"nullable": true,
+"type": "boolean"
+},
+"versionString": {
+"type": "string"
+}
+},
+"required": [
+"versionString",
+"platform"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"app": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"apps"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"appStoreVersionLocalizations": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appStoreVersionLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"build": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"builds"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"required": [
+"app"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"appStoreVersions"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppStoreVersionCreateRequest",
+"type": "object"
+},
+"AppStoreVersionLocalizationCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"description": {
+"nullable": true,
+"type": "string"
+},
+"keywords": {
+"nullable": true,
+"type": "string"
+},
+"locale": {
+"type": "string"
+},
+"marketingUrl": {
+"format": "uri",
+"nullable": true,
+"type": "string"
+},
+"promotionalText": {
+"nullable": true,
+"type": "string"
+},
+"supportUrl": {
+"format": "uri",
+"nullable": true,
+"type": "string"
+},
+"whatsNew": {
+"nullable": true,
+"type": "string"
+}
+},
+"required": [
+"locale"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"appStoreVersion": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appStoreVersions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"placements": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appAssetLibraryPlacements"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+}
+},
+"required": [
+"appStoreVersion"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"appStoreVersionLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppStoreVersionLocalizationCreateRequest",
+"type": "object"
+},
+"AppStoreVersionLocalizationUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"description": {
+"nullable": true,
+"type": "string"
+},
+"keywords": {
+"nullable": true,
+"type": "string"
+},
+"marketingUrl": {
+"format": "uri",
+"nullable": true,
+"type": "string"
+},
+"promotionalText": {
+"nullable": true,
+"type": "string"
+},
+"supportUrl": {
+"format": "uri",
+"nullable": true,
+"type": "string"
+},
+"whatsNew": {
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appStoreVersionLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppStoreVersionLocalizationUpdateRequest",
+"type": "object"
+},
+"AppStoreVersionUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"copyright": {
+"nullable": true,
+"type": "string"
+},
+"downloadable": {
+"nullable": true,
+"type": "boolean"
+},
+"earliestReleaseDate": {
+"format": "date-time",
+"nullable": true,
+"type": "string"
+},
+"releaseType": {
+"enum": [
+"MANUAL",
+"AFTER_APPROVAL",
+"SCHEDULED"
+],
+"nullable": true,
+"type": "string"
+},
+"reviewType": {
+"enum": [
+"APP_STORE",
+"NOTARIZATION"
+],
+"nullable": true,
+"type": "string"
+},
+"usesIdfa": {
+"deprecated": true,
+"nullable": true,
+"type": "boolean"
+},
+"versionString": {
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"appClipDefaultExperience": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appClipDefaultExperiences"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"build": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"builds"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"appStoreVersions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppStoreVersionUpdateRequest",
+"type": "object"
+},
+"AppUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"accessibilityUrl": {
+"format": "uri",
+"nullable": true,
+"type": "string"
+},
+"bundleId": {
+"nullable": true,
+"type": "string"
+},
+"contentRightsDeclaration": {
+"enum": [
+"DOES_NOT_USE_THIRD_PARTY_CONTENT",
+"USES_THIRD_PARTY_CONTENT"
+],
+"nullable": true,
+"type": "string"
+},
+"groupPurchaseInvitationMode": {
+"enum": [
+"APPLE_HOSTED",
+"DEVELOPER_HOSTED"
+],
+"nullable": true,
+"type": "string"
+},
+"primaryLocale": {
+"nullable": true,
+"type": "string"
+},
+"streamlinedPurchasingEnabled": {
+"nullable": true,
+"type": "boolean"
+},
+"subscriptionStatusUrl": {
+"format": "uri",
+"nullable": true,
+"type": "string"
+},
+"subscriptionStatusUrlForSandbox": {
+"format": "uri",
+"nullable": true,
+"type": "string"
+},
+"subscriptionStatusUrlVersion": {
+"$ref": "#/components/schemas/SubscriptionStatusUrlVersion",
+"nullable": true
+},
+"subscriptionStatusUrlVersionForSandbox": {
+"$ref": "#/components/schemas/SubscriptionStatusUrlVersion",
+"nullable": true
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"apps"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "AppUpdateRequest",
+"type": "object"
+},
+"BuildUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"expired": {
+"nullable": true,
+"type": "boolean"
+},
+"usesNonExemptEncryption": {
+"nullable": true,
+"type": "boolean"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"appEncryptionDeclaration": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"appEncryptionDeclarations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"builds"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "BuildUpdateRequest",
+"type": "object"
+},
+"KidsAgeBand": {
+"enum": [
+"FIVE_AND_UNDER",
+"SIX_TO_EIGHT",
+"NINE_TO_ELEVEN"
+],
+"type": "string"
+},
+"Platform": {
+"enum": [
+"IOS",
+"MAC_OS",
+"TV_OS",
+"VISION_OS"
+],
+"type": "string"
+},
+"ScreenshotDisplayType": {
+"enum": [
+"APP_IPHONE_67",
+"APP_IPHONE_61",
+"APP_IPHONE_65",
+"APP_IPHONE_58",
+"APP_IPHONE_55",
+"APP_IPHONE_47",
+"APP_IPHONE_40",
+"APP_IPHONE_35",
+"APP_IPAD_PRO_3GEN_129",
+"APP_IPAD_PRO_3GEN_11",
+"APP_IPAD_PRO_129",
+"APP_IPAD_105",
+"APP_IPAD_97",
+"APP_DESKTOP",
+"APP_WATCH_ULTRA",
+"APP_WATCH_SERIES_10",
+"APP_WATCH_SERIES_7",
+"APP_WATCH_SERIES_4",
+"APP_WATCH_SERIES_3",
+"APP_APPLE_TV",
+"APP_APPLE_VISION_PRO",
+"IMESSAGE_APP_IPHONE_67",
+"IMESSAGE_APP_IPHONE_61",
+"IMESSAGE_APP_IPHONE_65",
+"IMESSAGE_APP_IPHONE_58",
+"IMESSAGE_APP_IPHONE_55",
+"IMESSAGE_APP_IPHONE_47",
+"IMESSAGE_APP_IPHONE_40",
+"IMESSAGE_APP_IPAD_PRO_3GEN_129",
+"IMESSAGE_APP_IPAD_PRO_3GEN_11",
+"IMESSAGE_APP_IPAD_PRO_129",
+"IMESSAGE_APP_IPAD_105",
+"IMESSAGE_APP_IPAD_97"
+],
+"type": "string"
+},
+"SubscriptionAppStoreReviewScreenshotCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"fileName": {
+"type": "string"
+},
+"fileSize": {
+"type": "integer"
+}
+},
+"required": [
+"fileName",
+"fileSize"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"subscription"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionAppStoreReviewScreenshots"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionAppStoreReviewScreenshotCreateRequest",
+"type": "object"
+},
+"SubscriptionAppStoreReviewScreenshotUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"sourceFileChecksum": {
+"nullable": true,
+"type": "string"
+},
+"uploaded": {
+"nullable": true,
+"type": "boolean"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionAppStoreReviewScreenshots"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionAppStoreReviewScreenshotUpdateRequest",
+"type": "object"
+},
+"SubscriptionCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"familySharable": {
+"nullable": true,
+"type": "boolean"
+},
+"groupLevel": {
+"nullable": true,
+"type": "integer"
+},
+"name": {
+"type": "string"
+},
+"productId": {
+"type": "string"
+},
+"reviewNote": {
+"nullable": true,
+"type": "string"
+},
+"subscriptionPeriod": {
+"enum": [
+"ONE_WEEK",
+"ONE_MONTH",
+"TWO_MONTHS",
+"THREE_MONTHS",
+"SIX_MONTHS",
+"ONE_YEAR"
+],
+"nullable": true,
+"type": "string"
+}
+},
+"required": [
+"productId",
+"name"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"group": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionGroups"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"group"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionCreateRequest",
+"type": "object"
+},
+"SubscriptionGroupCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"referenceName": {
+"type": "string"
+}
+},
+"required": [
+"referenceName"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"app": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"apps"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"app"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionGroups"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionGroupCreateRequest",
+"type": "object"
+},
+"SubscriptionGroupLocalizationCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"customAppName": {
+"nullable": true,
+"type": "string"
+},
+"locale": {
+"type": "string"
+},
+"name": {
+"type": "string"
+}
+},
+"required": [
+"name",
+"locale"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"subscriptionGroup": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionGroups"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"subscriptionGroup"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionGroupLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionGroupLocalizationCreateRequest",
+"type": "object"
+},
+"SubscriptionGroupLocalizationUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"customAppName": {
+"nullable": true,
+"type": "string"
+},
+"name": {
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionGroupLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionGroupLocalizationUpdateRequest",
+"type": "object"
+},
+"SubscriptionIntroductoryOfferInlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"duration": {
+"$ref": "#/components/schemas/SubscriptionOfferDuration"
+},
+"endDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+},
+"numberOfPeriods": {
+"type": "integer"
+},
+"offerMode": {
+"$ref": "#/components/schemas/SubscriptionOfferMode"
+},
+"startDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+},
+"targetSubscriptionPlanType": {
+"$ref": "#/components/schemas/SubscriptionPlanType",
+"nullable": true
+}
+},
+"required": [
+"duration",
+"numberOfPeriods",
+"offerMode"
+],
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"subscriptionPricePoint": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPricePoints"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"territory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionIntroductoryOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"attributes",
+"type"
+],
+"type": "object"
+},
+"SubscriptionLocalizationCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"description": {
+"nullable": true,
+"type": "string"
+},
+"locale": {
+"type": "string"
+},
+"name": {
+"type": "string"
+}
+},
+"required": [
+"name",
+"locale"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"subscription"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionLocalizationCreateRequest",
+"type": "object"
+},
+"SubscriptionLocalizationUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"description": {
+"nullable": true,
+"type": "string"
+},
+"name": {
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionLocalizations"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionLocalizationUpdateRequest",
+"type": "object"
+},
+"SubscriptionOfferDuration": {
+"enum": [
+"THREE_DAYS",
+"ONE_WEEK",
+"TWO_WEEKS",
+"ONE_MONTH",
+"TWO_MONTHS",
+"THREE_MONTHS",
+"SIX_MONTHS",
+"ONE_YEAR"
+],
+"type": "string"
+},
+"SubscriptionOfferMode": {
+"enum": [
+"PAY_AS_YOU_GO",
+"PAY_UP_FRONT",
+"FREE_TRIAL"
+],
+"type": "string"
+},
+"SubscriptionPlanAvailabilityCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"availableInNewTerritories": {
+"nullable": true,
+"type": "boolean"
+},
+"planType": {
+"$ref": "#/components/schemas/SubscriptionPlanType"
+}
+},
+"required": [
+"planType"
+],
+"type": "object"
+},
+"relationships": {
+"properties": {
+"availableTerritories": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+}
+},
+"required": [
+"availableTerritories",
+"subscription"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPlanAvailabilities"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"attributes",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionPlanAvailabilityCreateRequest",
+"type": "object"
+},
+"SubscriptionPlanType": {
+"enum": [
+"MONTHLY",
+"UPFRONT"
+],
+"type": "string"
+},
+"SubscriptionPriceCreateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"planType": {
+"$ref": "#/components/schemas/SubscriptionPlanType",
+"nullable": true
+},
+"preserveCurrentPrice": {
+"nullable": true,
+"type": "boolean"
+},
+"startDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"relationships": {
+"properties": {
+"additionalPriceTiers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPriceTiers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"subscriptionPricePoint": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPricePoints"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"required": [
+"data"
+],
+"type": "object"
+},
+"territory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"required": [
+"subscription",
+"subscriptionPricePoint"
+],
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"relationships",
+"type"
+],
+"type": "object"
+},
+"included": {
+"items": {
+"$ref": "#/components/schemas/SubscriptionPriceTierInlineCreate"
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionPriceCreateRequest",
+"type": "object"
+},
+"SubscriptionPriceInlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"planType": {
+"$ref": "#/components/schemas/SubscriptionPlanType",
+"nullable": true
+},
+"preserveCurrentPrice": {
+"nullable": true,
+"type": "boolean"
+},
+"startDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"additionalPriceTiers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPriceTiers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"subscriptionPricePoint": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPricePoints"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"territory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"type"
+],
+"type": "object"
+},
+"SubscriptionPriceTierInlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"minQuantity": {
+"nullable": true,
+"type": "integer"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"subscriptionPricePoint": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPricePoints"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPriceTiers"
+],
+"type": "string"
+}
+},
+"required": [
+"type"
+],
+"type": "object"
+},
+"SubscriptionPromotionalOfferInlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"duration": {
+"$ref": "#/components/schemas/SubscriptionOfferDuration"
+},
+"name": {
+"type": "string"
+},
+"numberOfPeriods": {
+"type": "integer"
+},
+"offerCode": {
+"type": "string"
+},
+"offerMode": {
+"$ref": "#/components/schemas/SubscriptionOfferMode"
+},
+"targetSubscriptionPlanType": {
+"$ref": "#/components/schemas/SubscriptionPlanType",
+"nullable": true
+}
+},
+"required": [
+"duration",
+"offerCode",
+"name",
+"numberOfPeriods",
+"offerMode"
+],
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"prices": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPromotionalOfferPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"subscription": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptionPromotionalOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"attributes",
+"type"
+],
+"type": "object"
+},
+"SubscriptionStatusUrlVersion": {
+"enum": [
+"V1",
+"V2"
+],
+"type": "string"
+},
+"SubscriptionUpdateRequest": {
+"properties": {
+"data": {
+"properties": {
+"attributes": {
+"properties": {
+"familySharable": {
+"nullable": true,
+"type": "boolean"
+},
+"groupLevel": {
+"nullable": true,
+"type": "integer"
+},
+"marketSettings": {
+"items": {
+"enum": [
+"APPLE_SCHOOL",
+"APP_STORE",
+"APPLE_BUSINESS"
+],
+"type": "string"
+},
+"nullable": true,
+"type": "array"
+},
+"multiSeatStatus": {
+"enum": [
+"ENABLED",
+"DISABLED"
+],
+"nullable": true,
+"type": "string"
+},
+"name": {
+"nullable": true,
+"type": "string"
+},
+"reviewNote": {
+"nullable": true,
+"type": "string"
+},
+"subscriptionPeriod": {
+"enum": [
+"ONE_WEEK",
+"ONE_MONTH",
+"TWO_MONTHS",
+"THREE_MONTHS",
+"SIX_MONTHS",
+"ONE_YEAR"
+],
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"introductoryOffers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionIntroductoryOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"prices": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPrices"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"promotionalOffers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"subscriptionPromotionalOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+},
+"retentionMessage": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"retentionMessages"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+},
+"retentionMessageOffers": {
+"properties": {
+"data": {
+"items": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"retentionOffers"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"type": "array"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"subscriptions"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+},
+"included": {
+"items": {
+"oneOf": [
+{
+"$ref": "#/components/schemas/SubscriptionPriceTierInlineCreate"
+},
+{
+"$ref": "#/components/schemas/SubscriptionPromotionalOfferInlineCreate"
+},
+{
+"$ref": "#/components/schemas/SubscriptionPriceInlineCreate"
+},
+{
+"$ref": "#/components/schemas/SubscriptionIntroductoryOfferInlineCreate"
+}
+]
+},
+"type": "array"
+}
+},
+"required": [
+"data"
+],
+"title": "SubscriptionUpdateRequest",
+"type": "object"
+},
+"TerritoryAvailabilityInlineCreate": {
+"properties": {
+"attributes": {
+"properties": {
+"available": {
+"nullable": true,
+"type": "boolean"
+},
+"preOrderEnabled": {
+"nullable": true,
+"type": "boolean"
+},
+"releaseDate": {
+"format": "date",
+"nullable": true,
+"type": "string"
+}
+},
+"type": "object"
+},
+"id": {
+"type": "string"
+},
+"relationships": {
+"properties": {
+"territory": {
+"properties": {
+"data": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"id",
+"type"
+],
+"type": "object"
+}
+},
+"type": "object"
+}
+},
+"type": "object"
+},
+"type": {
+"enum": [
+"territoryAvailabilities"
+],
+"type": "string"
+}
+},
+"required": [
+"type"
+],
+"type": "object"
+},
+"TerritoryInlineCreate": {
+"properties": {
+"id": {
+"type": "string"
+},
+"type": {
+"enum": [
+"territories"
+],
+"type": "string"
+}
+},
+"required": [
+"type"
+],
+"type": "object"
+}
+}
+},
+"info": {
+"title": "App Store Connect API",
+"version": "4.6.1",
+"x-platforms": {
+"app_store_connect_api": "App Store Connect API"
+}
+},
+"paths": {
+"/v1/ageRatingDeclarations/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AgeRatingDeclarationUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appInfoLocalizations": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppInfoLocalizationCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appInfoLocalizations/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppInfoLocalizationUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appInfos/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppInfoUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appInfos/{id}/ageRatingDeclaration": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[ageRatingDeclarations]"
+}
+]
+}
+},
+"/v1/appInfos/{id}/appInfoLocalizations": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[locale]"
+},
+{
+"in": "query",
+"name": "fields[appInfoLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[appInfos]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/appPriceSchedules": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppPriceScheduleCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appPriceSchedules/{id}/manualPrices": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[startDate]"
+},
+{
+"in": "query",
+"name": "filter[endDate]"
+},
+{
+"in": "query",
+"name": "filter[territory]"
+},
+{
+"in": "query",
+"name": "fields[appPrices]"
+},
+{
+"in": "query",
+"name": "fields[appPricePoints]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/appScreenshotSets": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppScreenshotSetCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appScreenshotSets/{id}/appScreenshots": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[appScreenshots]"
+},
+{
+"in": "query",
+"name": "fields[appScreenshotSets]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/appScreenshots": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppScreenshotCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appScreenshots/{id}": {
+"delete": {
+"parameters": []
+},
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[appScreenshots]"
+},
+{
+"in": "query",
+"name": "fields[appScreenshotSets]"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+},
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppScreenshotUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appStoreReviewDetails": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppStoreReviewDetailCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appStoreReviewDetails/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppStoreReviewDetailUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appStoreVersionLocalizations": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppStoreVersionLocalizationCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appStoreVersionLocalizations/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppStoreVersionLocalizationUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appStoreVersionLocalizations/{id}/appScreenshotSets": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[screenshotDisplayType]"
+},
+{
+"in": "query",
+"name": "filter[appCustomProductPageLocalization]"
+},
+{
+"in": "query",
+"name": "filter[appStoreVersionExperimentTreatmentLocalization]"
+},
+{
+"in": "query",
+"name": "fields[appScreenshotSets]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersionLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[appCustomProductPageLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersionExperimentTreatmentLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[appScreenshots]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[appScreenshots]"
+}
+]
+}
+},
+"/v1/appStoreVersions": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppStoreVersionCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appStoreVersions/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppStoreVersionUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/appStoreVersions/{id}/appStoreReviewDetail": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[appStoreReviewDetails]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersions]"
+},
+{
+"in": "query",
+"name": "fields[appStoreReviewAttachments]"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[appStoreReviewAttachments]"
+}
+]
+}
+},
+"/v1/appStoreVersions/{id}/appStoreVersionLocalizations": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[locale]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersionLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersions]"
+},
+{
+"in": "query",
+"name": "fields[appScreenshotSets]"
+},
+{
+"in": "query",
+"name": "fields[appPreviewSets]"
+},
+{
+"in": "query",
+"name": "fields[appKeywords]"
+},
+{
+"in": "query",
+"name": "fields[appAssetLibraryPlacements]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[appScreenshotSets]"
+},
+{
+"in": "query",
+"name": "limit[appPreviewSets]"
+},
+{
+"in": "query",
+"name": "limit[searchKeywords]"
+},
+{
+"in": "query",
+"name": "limit[placements]"
+}
+]
+}
+},
+"/v1/apps": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[name]"
+},
+{
+"in": "query",
+"name": "filter[bundleId]"
+},
+{
+"in": "query",
+"name": "filter[sku]"
+},
+{
+"in": "query",
+"name": "filter[appStoreVersions.appStoreState]"
+},
+{
+"in": "query",
+"name": "filter[appStoreVersions.platform]"
+},
+{
+"in": "query",
+"name": "filter[appStoreVersions.appVersionState]"
+},
+{
+"in": "query",
+"name": "filter[reviewSubmissions.state]"
+},
+{
+"in": "query",
+"name": "filter[reviewSubmissions.platform]"
+},
+{
+"in": "query",
+"name": "filter[appStoreVersions]"
+},
+{
+"in": "query",
+"name": "filter[id]"
+},
+{
+"in": "query",
+"name": "exists[gameCenterEnabledVersions]"
+},
+{
+"in": "query",
+"name": "sort"
+},
+{
+"in": "query",
+"name": "fields[apps]"
+},
+{
+"in": "query",
+"name": "fields[appEncryptionDeclarations]"
+},
+{
+"in": "query",
+"name": "fields[buildIcons]"
+},
+{
+"in": "query",
+"name": "fields[ciProducts]"
+},
+{
+"in": "query",
+"name": "fields[betaGroups]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersions]"
+},
+{
+"in": "query",
+"name": "fields[preReleaseVersions]"
+},
+{
+"in": "query",
+"name": "fields[betaAppLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[builds]"
+},
+{
+"in": "query",
+"name": "fields[betaLicenseAgreements]"
+},
+{
+"in": "query",
+"name": "fields[betaAppReviewDetails]"
+},
+{
+"in": "query",
+"name": "fields[appInfos]"
+},
+{
+"in": "query",
+"name": "fields[appClips]"
+},
+{
+"in": "query",
+"name": "fields[endUserLicenseAgreements]"
+},
+{
+"in": "query",
+"name": "fields[inAppPurchases]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroups]"
+},
+{
+"in": "query",
+"name": "fields[retentionMessages]"
+},
+{
+"in": "query",
+"name": "fields[gameCenterEnabledVersions]"
+},
+{
+"in": "query",
+"name": "fields[appCustomProductPages]"
+},
+{
+"in": "query",
+"name": "fields[promotedPurchases]"
+},
+{
+"in": "query",
+"name": "fields[appEvents]"
+},
+{
+"in": "query",
+"name": "fields[reviewSubmissions]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGracePeriods]"
+},
+{
+"in": "query",
+"name": "fields[gameCenterDetails]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersionExperiments]"
+},
+{
+"in": "query",
+"name": "fields[androidToIosAppMappingDetails]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[androidToIosAppMappingDetails]"
+},
+{
+"in": "query",
+"name": "limit[appClips]"
+},
+{
+"in": "query",
+"name": "limit[appCustomProductPages]"
+},
+{
+"in": "query",
+"name": "limit[appEncryptionDeclarations]"
+},
+{
+"in": "query",
+"name": "limit[appEvents]"
+},
+{
+"in": "query",
+"name": "limit[appInfos]"
+},
+{
+"in": "query",
+"name": "limit[appStoreVersionExperimentsV2]"
+},
+{
+"in": "query",
+"name": "limit[appStoreVersions]"
+},
+{
+"in": "query",
+"name": "limit[betaAppLocalizations]"
+},
+{
+"in": "query",
+"name": "limit[betaGroups]"
+},
+{
+"in": "query",
+"name": "limit[builds]"
+},
+{
+"in": "query",
+"name": "limit[gameCenterEnabledVersions]"
+},
+{
+"in": "query",
+"name": "limit[inAppPurchases]"
+},
+{
+"in": "query",
+"name": "limit[inAppPurchasesV2]"
+},
+{
+"in": "query",
+"name": "limit[preReleaseVersions]"
+},
+{
+"in": "query",
+"name": "limit[promotedPurchases]"
+},
+{
+"in": "query",
+"name": "limit[retentionMessages]"
+},
+{
+"in": "query",
+"name": "limit[reviewSubmissions]"
+},
+{
+"in": "query",
+"name": "limit[subscriptionGroups]"
+}
+]
+}
+},
+"/v1/apps/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/apps/{id}/appAvailabilityV2": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[appAvailabilities]"
+},
+{
+"in": "query",
+"name": "fields[territoryAvailabilities]"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[territoryAvailabilities]"
+}
+]
+}
+},
+"/v1/apps/{id}/appInfos": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[appInfos]"
+},
+{
+"in": "query",
+"name": "fields[apps]"
+},
+{
+"in": "query",
+"name": "fields[ageRatingDeclarations]"
+},
+{
+"in": "query",
+"name": "fields[appInfoLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[appCategories]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[appInfoLocalizations]"
+}
+]
+}
+},
+"/v1/apps/{id}/appPricePoints": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[territory]"
+},
+{
+"in": "query",
+"name": "fields[appPricePoints]"
+},
+{
+"in": "query",
+"name": "fields[apps]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/apps/{id}/appPriceSchedule": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[appPriceSchedules]"
+},
+{
+"in": "query",
+"name": "fields[apps]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "fields[appPrices]"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[manualPrices]"
+},
+{
+"in": "query",
+"name": "limit[automaticPrices]"
+}
+]
+}
+},
+"/v1/apps/{id}/appStoreVersions": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[platform]"
+},
+{
+"in": "query",
+"name": "filter[versionString]"
+},
+{
+"in": "query",
+"name": "filter[appStoreState]"
+},
+{
+"in": "query",
+"name": "filter[appVersionState]"
+},
+{
+"in": "query",
+"name": "filter[id]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersions]"
+},
+{
+"in": "query",
+"name": "fields[apps]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersionLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[builds]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersionPhasedReleases]"
+},
+{
+"in": "query",
+"name": "fields[gameCenterAppVersions]"
+},
+{
+"in": "query",
+"name": "fields[routingAppCoverages]"
+},
+{
+"in": "query",
+"name": "fields[appStoreReviewDetails]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersionSubmissions]"
+},
+{
+"in": "query",
+"name": "fields[appClipDefaultExperiences]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersionExperiments]"
+},
+{
+"in": "query",
+"name": "fields[alternativeDistributionPackages]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[appStoreVersionLocalizations]"
+},
+{
+"in": "query",
+"name": "limit[appStoreVersionExperiments]"
+},
+{
+"in": "query",
+"name": "limit[appStoreVersionExperimentsV2]"
+}
+]
+}
+},
+"/v1/apps/{id}/subscriptionGroups": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[referenceName]"
+},
+{
+"in": "query",
+"name": "filter[subscriptions.state]"
+},
+{
+"in": "query",
+"name": "sort"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroups]"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroupLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroupVersions]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[subscriptions]"
+},
+{
+"in": "query",
+"name": "limit[subscriptionGroupLocalizations]"
+},
+{
+"in": "query",
+"name": "limit[versions]"
+}
+]
+}
+},
+"/v1/builds": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[version]"
+},
+{
+"in": "query",
+"name": "filter[expired]"
+},
+{
+"in": "query",
+"name": "filter[processingState]"
+},
+{
+"in": "query",
+"name": "filter[betaAppReviewSubmission.betaReviewState]"
+},
+{
+"in": "query",
+"name": "filter[usesNonExemptEncryption]"
+},
+{
+"in": "query",
+"name": "filter[preReleaseVersion.version]"
+},
+{
+"in": "query",
+"name": "filter[preReleaseVersion.platform]"
+},
+{
+"in": "query",
+"name": "filter[buildAudienceType]"
+},
+{
+"in": "query",
+"name": "filter[preReleaseVersion]"
+},
+{
+"in": "query",
+"name": "filter[app]"
+},
+{
+"in": "query",
+"name": "filter[betaGroups]"
+},
+{
+"in": "query",
+"name": "filter[appStoreVersion]"
+},
+{
+"in": "query",
+"name": "filter[id]"
+},
+{
+"in": "query",
+"name": "exists[usesNonExemptEncryption]"
+},
+{
+"in": "query",
+"name": "sort"
+},
+{
+"in": "query",
+"name": "fields[builds]"
+},
+{
+"in": "query",
+"name": "fields[preReleaseVersions]"
+},
+{
+"in": "query",
+"name": "fields[betaTesters]"
+},
+{
+"in": "query",
+"name": "fields[betaGroups]"
+},
+{
+"in": "query",
+"name": "fields[betaBuildLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[appEncryptionDeclarations]"
+},
+{
+"in": "query",
+"name": "fields[betaAppReviewSubmissions]"
+},
+{
+"in": "query",
+"name": "fields[apps]"
+},
+{
+"in": "query",
+"name": "fields[buildBetaDetails]"
+},
+{
+"in": "query",
+"name": "fields[appStoreVersions]"
+},
+{
+"in": "query",
+"name": "fields[buildIcons]"
+},
+{
+"in": "query",
+"name": "fields[buildBundles]"
+},
+{
+"in": "query",
+"name": "fields[buildUploads]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[betaBuildLocalizations]"
+},
+{
+"in": "query",
+"name": "limit[betaGroups]"
+},
+{
+"in": "query",
+"name": "limit[buildBundles]"
+},
+{
+"in": "query",
+"name": "limit[icons]"
+},
+{
+"in": "query",
+"name": "limit[individualTesters]"
+}
+]
+}
+},
+"/v1/builds/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/BuildUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionAppStoreReviewScreenshots": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionAppStoreReviewScreenshotCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionAppStoreReviewScreenshots/{id}": {
+"delete": {
+"parameters": []
+},
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionAppStoreReviewScreenshots]"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+},
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionAppStoreReviewScreenshotUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionGroupLocalizations": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionGroupLocalizationCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionGroupLocalizations/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionGroupLocalizationUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionGroups": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionGroupCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionGroups/{id}/subscriptionGroupLocalizations": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionGroupLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroups]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/subscriptionGroups/{id}/subscriptions": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[productId]"
+},
+{
+"in": "query",
+"name": "filter[name]"
+},
+{
+"in": "query",
+"name": "filter[state]"
+},
+{
+"in": "query",
+"name": "sort"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionAppStoreReviewScreenshots]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionGroups]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionIntroductoryOffers]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPromotionalOffers]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionOfferCodes]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPrices]"
+},
+{
+"in": "query",
+"name": "fields[promotedPurchases]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionAvailabilities]"
+},
+{
+"in": "query",
+"name": "fields[winBackOffers]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionImages]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPlanAvailabilities]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionVersions]"
+},
+{
+"in": "query",
+"name": "fields[retentionOffers]"
+},
+{
+"in": "query",
+"name": "fields[retentionMessages]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[subscriptionLocalizations]"
+},
+{
+"in": "query",
+"name": "limit[introductoryOffers]"
+},
+{
+"in": "query",
+"name": "limit[promotionalOffers]"
+},
+{
+"in": "query",
+"name": "limit[offerCodes]"
+},
+{
+"in": "query",
+"name": "limit[prices]"
+},
+{
+"in": "query",
+"name": "limit[winBackOffers]"
+},
+{
+"in": "query",
+"name": "limit[images]"
+},
+{
+"in": "query",
+"name": "limit[planAvailabilities]"
+},
+{
+"in": "query",
+"name": "limit[versions]"
+},
+{
+"in": "query",
+"name": "limit[retentionOffers]"
+},
+{
+"in": "query",
+"name": "limit[retentionMessageOffers]"
+}
+]
+}
+},
+"/v1/subscriptionLocalizations": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionLocalizationCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionLocalizations/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionLocalizationUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionPlanAvailabilities": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionPlanAvailabilityCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptionPlanAvailabilities/{id}/availableTerritories": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "limit"
+}
+]
+}
+},
+"/v1/subscriptionPrices": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionPriceCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptions": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionCreateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptions/{id}": {
+"patch": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/SubscriptionUpdateRequest"
+}
+}
+}
+}
+}
+},
+"/v1/subscriptions/{id}/appStoreReviewScreenshot": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionAppStoreReviewScreenshots]"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/subscriptions/{id}/planAvailabilities": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionPlanAvailabilities]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[availableTerritories]"
+}
+]
+}
+},
+"/v1/subscriptions/{id}/pricePoints": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[territory]"
+},
+{
+"in": "query",
+"name": "filter[upfrontPricePointId]"
+},
+{
+"in": "query",
+"name": "filter[planType]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPricePoints]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v1/subscriptions/{id}/prices": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "filter[planType]"
+},
+{
+"in": "query",
+"name": "filter[subscriptionPricePoint]"
+},
+{
+"in": "query",
+"name": "filter[territory]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPrices]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPricePoints]"
+},
+{
+"in": "query",
+"name": "fields[subscriptionPriceTiers]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+},
+{
+"in": "query",
+"name": "limit[additionalPriceTiers]"
+}
+]
+}
+},
+"/v1/subscriptions/{id}/subscriptionLocalizations": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[subscriptionLocalizations]"
+},
+{
+"in": "query",
+"name": "fields[subscriptions]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+},
+"/v2/appAvailabilities": {
+"post": {
+"parameters": [],
+"requestBody": {
+"content": {
+"application/json": {
+"schema": {
+"$ref": "#/components/schemas/AppAvailabilityV2CreateRequest"
+}
+}
+}
+}
+}
+},
+"/v2/appAvailabilities/{id}/territoryAvailabilities": {
+"get": {
+"parameters": [
+{
+"in": "query",
+"name": "fields[territoryAvailabilities]"
+},
+{
+"in": "query",
+"name": "fields[territories]"
+},
+{
+"in": "query",
+"name": "limit"
+},
+{
+"in": "query",
+"name": "include"
+}
+]
+}
+}
+}
+}
