@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Plans the Rivolt Pro subscriptions in App Store Connect from ios/store/subscriptions.md (GitOps, like asc_listing.py).
 
-  asc_subscriptions.py plan --spec openapi.oas.json [--review-shot PATH] [--subscriptions PATH]
+  asc_subscriptions.py plan|apply --spec openapi.oas.json [--review-shot PATH] [--subscriptions PATH]
 
-Plan reads from App Store Connect and prints every write it would make; it writes nothing. There is no apply mode yet:
-the same Run machinery can write (tests cover it), but the command line refuses until a later PR, after the owner approves.
+Plan reads from App Store Connect and prints every write it would make; it writes nothing. Apply makes those writes, after the same
+checks pass, and only from the ios-store-subscriptions workflow (the `testflight` environment the owner approves).
 It creates the subscription group (name, en-US display name), the monthly and yearly products (period, level, review note,
 en-US name and description, United States availability), their prices at the exact $3.99 and $34.99 price points, the review
 screenshot, and sets the App Store Server Notification URLs (production and sandbox, version 2) on the app.
@@ -344,7 +344,7 @@ def run(api, mode, md, shot, out=print, spec=None):
 
 def main(argv):
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["plan"], help="apply is not switched on yet")
+    ap.add_argument("mode", choices=["plan", "apply"], help="plan writes nothing; apply writes")
     ap.add_argument("--spec", required=True)
     ap.add_argument("--review-shot", default=None, help="PNG of the purchase screen for the App Review team")
     ap.add_argument("--subscriptions", default=os.path.join(HERE, "subscriptions.md"))
