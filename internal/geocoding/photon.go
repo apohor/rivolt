@@ -98,7 +98,50 @@ func (c *PhotonClient) SearchNear(ctx context.Context, name string, count int, n
 	if plain.err != nil || len(plain.res) == 0 {
 		return biased, nil
 	}
-	return mergeBiased(biased, plain.res, count), nil
+	return cityFirst(mergeBiased(biased, plain.res, count), plain.res), nil
+}
+
+// isTypedSettlement reports a city or town (place=city or place=town) whose name is the whole query, "Boston" for "boston".
+func isTypedSettlement(p photonProps, query string) bool {
+	return p.OSMKey == "place" && (p.OSMValue == "city" || p.OSMValue == "town") && p.Name != "" && strings.EqualFold(strings.TrimSpace(p.Name), strings.TrimSpace(query))
+}
+
+// cityFirst keeps the bias order but makes sure the most important city or town typed in full (the plain list's first such row; Photon
+// ranks by importance, so "boston" is Boston, Massachusetts) is among the first three. Already there: it stays and is marked. Otherwise it
+// goes second, or third when a nearby namesake (also a city or town of that name) is already first, so a trip planner near Springfield, MO
+// keeps that one on top and the famous far one is still in view. No such place in the plain list: the list is as the merge made it.
+func cityFirst(out, plain []Result) []Result {
+	var top *Result
+	for i := range plain {
+		if plain[i].Settlement {
+			top = &plain[i]
+			break
+		}
+	}
+	if top == nil || len(out) == 0 {
+		return out
+	}
+	for i := 0; i < len(out) && i < biasedFirst; i++ {
+		if duplicateOf([]Result{*top}, out[i]) {
+			out[i].Exact = true
+			return out
+		}
+	}
+	at := 1
+	if out[0].Settlement {
+		at = 2
+	}
+	at = min(at, len(out)-1)
+	first := *top
+	first.Exact = true
+	res := make([]Result, 0, len(out))
+	for _, r := range out {
+		if !duplicateOf([]Result{first}, r) {
+			res = append(res, r)
+		}
+	}
+	res = append(res[:min(at, len(res))], append([]Result{first}, res[min(at, len(res)):]...)...)
+	return res[:min(len(res), len(out))]
 }
 
 // mergeBiased keeps the first biasedFirst biased results, then the plain list's best places not already there, then the
@@ -178,6 +221,7 @@ func (c *PhotonClient) searchRows(ctx context.Context, name string, count int, n
 			break
 		}
 		r := searchResultFromProps(f.Properties, f.Geometry.Coordinates[1], f.Geometry.Coordinates[0])
+		r.Settlement = isTypedSettlement(f.Properties, name)
 		if duplicateOf(out, r) {
 			continue
 		}

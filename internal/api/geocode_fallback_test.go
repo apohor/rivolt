@@ -260,3 +260,36 @@ func TestHotelWithNoTownSkipsAOneWordSearch(t *testing.T) {
 		t.Errorf("three words, no city: %d rows", len(rows))
 	}
 }
+
+func TestMergeHotelResultsKeepsAnExactCityInTheFirstThree(t *testing.T) {
+	city := geocoding.Result{Name: "Boston", Admin1: "Massachusetts", Exact: true}
+	hotels := []geocoding.Result{{Name: "Boston Inn", EVCharging: true}, {Name: "Boston Suites", EVCharging: true}, {Name: "Boston Lodge", EVCharging: true}}
+	// The city is the second Photon row; three hotels in front push it to the third row, no further.
+	got := mergeHotelResults(hotels, []geocoding.Result{{Name: "Boston, CA"}, city, {Name: "Bostonia"}})
+	if got[2].Name != "Boston" || len(got) != 6 {
+		t.Errorf("got %+v, want Boston in the third row and every row kept", got)
+	}
+	plain := mergeHotelResults(hotels, []geocoding.Result{{Name: "Boston, CA"}})
+	if plain[0].Name != "Boston Inn" {
+		t.Errorf("without an exact city the hotels stay first: %+v", plain)
+	}
+}
+
+func TestMergeHotelResultsKeepsANearbyNamesakeAheadOfTheFarCity(t *testing.T) {
+	hotels := []geocoding.Result{{Name: "Springfield Inn", EVCharging: true}, {Name: "Springfield Suites", EVCharging: true}, {Name: "Springfield Lodge", EVCharging: true}}
+	mo := geocoding.Result{Name: "Springfield", Admin1: "Missouri", Settlement: true}
+	il := geocoding.Result{Name: "Springfield", Admin1: "Illinois", Settlement: true, Exact: true}
+	got := mergeHotelResults(hotels, []geocoding.Result{mo, {Name: "Springfield Township"}, il})
+	if got[0].Admin1 != "Missouri" {
+		t.Fatalf("got %+v, want the nearby Springfield first", got)
+	}
+	ilAt := -1
+	for i, r := range got {
+		if r.Admin1 == "Illinois" {
+			ilAt = i
+		}
+	}
+	if ilAt < 1 || ilAt > 2 || len(got) != 6 {
+		t.Errorf("got %+v, want Illinois in row 2 or 3 and every row kept", got)
+	}
+}
