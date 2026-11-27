@@ -1,0 +1,29 @@
+{
+ "cycle": "2027011212",
+ "credit": "NOAA RRFS",
+ "bounds": [
+  -135,
+  20,
+  -60,
+  55
+ ],
+ "hours": [
+  {
+   "fh": 1,
+   "valid_unix": 1799769600
+  },
+  {
+   "fh": 2,
+   "valid_unix": 1799773200
+  },
+  {
+   "fh": 3,
+   "valid_unix": 1799776800
+  },
+  {
+   "fh": 4,
+   "valid_unix": 1799780400
+  }
+ ],
+ "horizon_unix": 1799780400
+}
