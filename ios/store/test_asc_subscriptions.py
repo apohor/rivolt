@@ -3,6 +3,7 @@ import importlib.util
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -152,9 +153,13 @@ class PlanTests(unittest.TestCase):
         self.assertIn("subscriptionStatusUrlForSandbox", text)
         self.assertIn("price point can be looked up only once the product exists", text)
 
-    def test_apply_is_not_on_the_command_line(self):
-        with self.assertRaises(SystemExit):
+    def test_apply_is_on_the_command_line_and_stops_without_the_secrets(self):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("ASC_")}
+        with mock.patch.dict(os.environ, env, clear=True), self.assertRaises(SystemExit) as e:
             sub.main(["apply", "--spec", "x"])
+        self.assertIn("missing secret", str(e.exception))
+        with self.assertRaises(SystemExit):
+            sub.main(["delete", "--spec", "x"])
 
     def test_a_plan_with_no_screenshot_says_it_is_still_to_do(self):
         text = "\n".join(do("plan", FakeApi()))
