@@ -79,7 +79,12 @@ export function slotLine(slot: Slot | undefined, inside: boolean): string {
 
 // forecastLabel: "Forecast for 3 pm", in the viewer's time.
 export function forecastLabel(t: number): string {
-  return `Forecast for ${new Date(t * 1000).toLocaleTimeString([], { hour: "numeric" }).toLowerCase()}`;
+  return `Forecast for ${hourLabel(t)}`;
+}
+
+// hourLabel: "3 pm", the hour alone (what the strip says when there is no picture for it).
+export function hourLabel(t: number): string {
+  return new Date(t * 1000).toLocaleTimeString([], { hour: "numeric" }).toLowerCase();
 }
 
 export function showForecast(map: MLMap, cycle: string, fh: number): void {

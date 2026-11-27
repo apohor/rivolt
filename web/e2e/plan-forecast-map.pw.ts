@@ -27,7 +27,7 @@ const H0 = Date.parse("2026-12-01T16:00:00Z") / 1000;
 const HOURS = { cycle: "2026120112", credit: "NOAA RRFS", bounds: [-125, 21, -66, 53], hours: [0, 1, 2].map((fh) => ({ fh, valid_unix: H0 + fh * 3600 })), horizon_unix: H0 + 2 * 3600 };
 const ME = { user_id: "u-sample", username: "sample@example.com", role: "user", onboarding_completed: true, billing_enabled: true, history_days: null, plan_trial_ends: null, plan_cancels_at: null, plan_grace_ends: null, plan_ended_at: null, plan_ended_source: null };
 
-type Opts = { keys?: string[]; hours?: { status: number; body?: unknown }; view?: { width: number; height: number }; scheme?: "light" | "dark" };
+type Opts = { keys?: string[]; hours?: { status: number; body?: unknown }; view?: { width: number; height: number }; scheme?: "light" | "dark"; untimed?: boolean; flaky?: boolean };
 async function open(page: Page, o: Opts = {}) {
   const keys = o.keys ?? ["plan_forecast_map"];
   const tiles: string[] = [];
@@ -45,10 +45,10 @@ async function open(page: Page, o: Opts = {}) {
   await page.route("**/api/auth/me", (r) => r.fulfill(j({ ...ME, plan: "pro", plan_source: "stripe", plan_period_end: "2026-12-20T00:00:00Z" })));
   await page.route("**/api/maps/radar/frame", (r) => { frames++; return r.fulfill(j({ frame_unix: Math.floor(Date.now() / 1000) - 300 })); });
   await page.route("**/api/maps/radar/*/*/*/*.png", (r) => r.fulfill({ status: 200, contentType: "image/png", body: PNG }));
-  await page.route("**/api/maps/forecast-radar/hours", (r) => { hoursCalls++; const h = o.hours ?? { status: 200, body: HOURS }; return r.fulfill(j(h.body ?? { reason: "x" }, h.status)); });
+  await page.route("**/api/maps/forecast-radar/hours", (r) => { hoursCalls++; const h = o.flaky && hoursCalls === 1 ? { status: 503, body: { reason: "feed_down" } } : (o.hours ?? { status: 200, body: HOURS }); return r.fulfill(j(h.body ?? { reason: "x" }, h.status)); });
   await page.route("**/api/maps/forecast-radar/*/*/*/*/*.png", (r) => { tiles.push(new URL(r.request().url()).pathname); return r.fulfill({ status: 200, contentType: "image/png", body: PNG }); });
   await page.route("**/api/trips/saved", (r) => r.fulfill(j([{ id: "st-a", name: "Old trip", inputs: INPUTS, created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z" }])));
-  await page.route("**/api/trips/plan", (r) => r.fulfill(j(TIMED)));
+  await page.route("**/api/trips/plan", (r) => r.fulfill(j(o.untimed ? DEMO_PLAN : TIMED)));
   await page.goto("/trips/plan");
   await page.getByRole("tab", { name: "Saved" }).click();
   await page.getByRole("button", { name: /Old trip/ }).click();
@@ -67,7 +67,7 @@ const setStep = async (page: Page, v: number) => {
   }, v);
 };
 
-test("Pro with the key on: the forecast for the departure hour, a scrubber, the credit, no live radar", async ({ page }) => {
+test("@webkit Pro with the key on: the forecast for the departure hour, a scrubber, the credit, no live radar", async ({ page }) => {
   const seen = await open(page);
   await expect(radarButton(page)).toHaveAttribute("aria-pressed", "true"); // the Trip planner settings start it on
   await expect(slider(page)).toBeVisible();
@@ -79,7 +79,7 @@ test("Pro with the key on: the forecast for the departure hour, a scrubber, the 
   await expect(page.locator("[data-forecast-truck]")).toHaveCount(1);
 });
 
-test("moving the scrubber asks for that hour once it settles, and a quick sweep does not ask for every hour", async ({ page }) => {
+test("@webkit moving the scrubber asks for that hour once it settles, and a quick sweep does not ask for every hour", async ({ page }) => {
   const seen = await open(page);
   await expect(radarButton(page)).toHaveAttribute("aria-pressed", "true"); // the Trip planner settings start it on
   await expect.poll(() => seen.tiles.some((t) => t.includes("/2026120112/0/"))).toBe(true);
@@ -90,12 +90,15 @@ test("moving the scrubber asks for that hour once it settles, and a quick sweep 
   expect(seen.tiles.some((t) => t.includes("/2026120112/1/"))).toBe(false);
 });
 
-test("past the forecast's horizon: no layer, one plain line, the slider still moves", async ({ page }) => {
+test("@webkit past the forecast's horizon: no layer, one plain line, the slider still moves", async ({ page }) => {
   const seen = await open(page);
   await expect(radarButton(page)).toHaveAttribute("aria-pressed", "true"); // the Trip planner settings start it on
   await expect(slider(page)).toBeVisible();
   await setStep(page, 4);
   await expect(page.locator("[data-forecast-line]")).toHaveText("The forecast doesn't reach this hour.");
+  // No picture for this hour: just the hour, no legend, credit or "Forecast for" under the line.
+  await expect(page.locator("[data-radar-label]")).toHaveText(/^\d{1,2}\s?[ap]m$/i);
+  await expect(page.locator("[data-radar-label] [data-strip-bar]")).toHaveCount(0);
   await page.waitForTimeout(800); // the scrubber has settled and the old hour's last tiles are in
   const before = seen.tiles.length;
   await page.waitForTimeout(800);
@@ -105,7 +108,38 @@ test("past the forecast's horizon: no layer, one plain line, the slider still mo
   await expect(page.locator("[data-forecast-line]")).toHaveCount(0);
 });
 
-test("a trip outside the forecast's grid: no layer, one plain line", async ({ page }) => {
+test("a theme flip replaces the map style: the forecast layer comes back", async ({ page }) => {
+  const seen = await open(page);
+  await expect(radarButton(page)).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => seen.tiles.length).toBeGreaterThan(0);
+  await page.waitForTimeout(800);
+  const before = seen.tiles.length;
+  await page.evaluate(() => {
+    const r = document.documentElement;
+    r.setAttribute("data-theme", r.getAttribute("data-theme") === "light" ? "dark" : "light");
+  });
+  await expect.poll(() => seen.tiles.length, { timeout: 8000 }).toBeGreaterThan(before); // the hour is asked for again on the new style
+  await expect(page.locator("[data-radar-label]")).toContainText("NOAA RRFS · Forecast for");
+});
+
+test("a plan without times: no scrubber, no false line, the live radar as before", async ({ page }) => {
+  const seen = await open(page, { untimed: true });
+  await expect(radarButton(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(slider(page)).toHaveCount(0);
+  await expect(page.locator("[data-forecast-line]")).toHaveCount(0);
+  await expect(page.locator("[data-radar-label]")).toContainText("NOAA/NWS");
+  expect(seen.tiles).toEqual([]);
+});
+
+test("a blip on the hours is asked again within a minute", async ({ page }) => {
+  test.setTimeout(90000);
+  const seen = await open(page, { flaky: true });
+  await expect(page.locator("[data-forecast-line]")).toHaveText("Forecast unavailable");
+  await expect(slider(page)).toBeVisible({ timeout: 60000 });
+  expect(seen.hoursCalls()).toBe(2);
+});
+
+test("@webkit a trip outside the forecast's grid: no layer, one plain line", async ({ page }) => {
   const seen = await open(page, { hours: { status: 200, body: { ...HOURS, bounds: [-10, 35, 30, 60] } } });
   await expect(radarButton(page)).toHaveAttribute("aria-pressed", "true"); // the Trip planner settings start it on
   await expect(page.locator("[data-forecast-line]")).toHaveText("The forecast covers the contiguous US.");

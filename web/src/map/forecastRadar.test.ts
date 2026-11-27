@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forecastLabel, forecastSlots, forecastTileURL, inBounds, LINE_OUTSIDE_US, LINE_PAST_HORIZON, slotLine } from "./forecastRadar";
+import { forecastLabel, hourLabel, forecastSlots, forecastTileURL, inBounds, LINE_OUTSIDE_US, LINE_PAST_HORIZON, slotLine } from "./forecastRadar";
 
 const H = 3600;
 const base = 1_800_000_000 - (1_800_000_000 % H); // an hour boundary
@@ -43,5 +43,13 @@ describe("lines and labels", () => {
   });
   it("labels the hour", () => {
     expect(forecastLabel(base)).toMatch(/^Forecast for \d{1,2}\s?(am|pm)$/);
+  });
+});
+
+describe("hourLabel", () => {
+  it("is the hour alone, which forecastLabel prefixes", () => {
+    const t = Date.parse("2026-12-01T16:00:00Z") / 1000;
+    expect(forecastLabel(t)).toBe(`Forecast for ${hourLabel(t)}`);
+    expect(hourLabel(t)).toMatch(/^\d{1,2}\s?[ap]m$/i);
   });
 });

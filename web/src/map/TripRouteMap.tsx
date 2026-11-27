@@ -3,7 +3,7 @@ import "../styles/next-plan.css";
 // then Valhalla, else straight legs), markers for the origin (green), each charging stop (amber) and the destination (rose), and a
 // charger overlay along the route with add / preview popups. MapLibre loads as its own chunk when this mounts (loader.ts); without WebGL it
 // says the map is unavailable and the itinerary beside it stands.
-import { fetchForecastHours, forecastLabel, forecastSlots, hideForecast, inBounds, LINE_DOWN, showForecast, slotLine, FORECAST_CREDIT, FORECAST_DEBOUNCE_MS, type HoursResult } from "./forecastRadar";
+import { fetchForecastHours, forecastLabel, hourLabel, forecastSlots, hideForecast, inBounds, LINE_DOWN, showForecast, slotLine, FORECAST_CREDIT, FORECAST_DEBOUNCE_MS, type HoursResult } from "./forecastRadar";
 import { fetchRadarFrame, hideRadar, RADAR_DENIED, radarAsOf, radarEnabled, radarSpoken, RADAR_REFRESH_MS, showRadar as addRadar } from "./radar";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -312,9 +312,11 @@ export function TripRouteMap({
   // Forecast radar (design key plan_forecast_map): the hours are loaded below; until they answer, and while they are on offer, the live radar is not drawn.
   const forecastKey = useDesignPreview("plan_forecast_map") && !inDemo();
   const [forecast, setForecast] = useState<HoursResult | null>(null);
+  const times = useMemo(() => tripTimes(route), [route]);
+  const slots = useMemo(() => (forecast?.kind === "ok" ? forecastSlots(forecast.data.hours, times.depart, times.arrive) : []), [forecast, times]);
   scrubRoomRef.current = forecastKey && radarOn ? 44 : 0;
   const forecastWaiting = forecastKey && radarOn && showRadar && forecast === null;
-  const forecastMode = forecastKey && radarOn && showRadar && forecast !== null && forecast.kind !== "hidden";
+  const forecastMode = forecastKey && radarOn && showRadar && forecast !== null && forecast.kind !== "hidden" && !(forecast.kind === "ok" && slots.length === 0); // a plan without times has no hours to show: the live radar stays
   // Effect: while the radar button is on, draw the newest frame under the route and look for a newer one every few minutes.
   useEffect(() => {
     const map = mapReady;
@@ -347,8 +349,6 @@ export function TripRouteMap({
   }, [mapReady, radarOn, showRadar, forecastWaiting, forecastMode]);
   // The forecast radar: for a Pro account the radar button shows the forecast for an hour of the trip instead of the live
   // picture. The server decides who has it (402 for a free account, 404 where there is no forecast): then it stays the live radar, nothing said.
-  const times = useMemo(() => tripTimes(route), [route]);
-  const slots = useMemo(() => (forecast?.kind === "ok" ? forecastSlots(forecast.data.hours, times.depart, times.arrive) : []), [forecast, times]);
   const [slotIdx, setSlotIdx] = useState(0);
   const [drawnIdx, setDrawnIdx] = useState(0); // the scrubber's value once it has been still for FORECAST_DEBOUNCE_MS: what tiles are asked for
   const slot = slots[Math.min(slotIdx, slots.length - 1)];
@@ -358,9 +358,11 @@ export function TripRouteMap({
   }, [route]);
   const inside = forecast?.kind === "ok" && centre ? inBounds(forecast.data.bounds, centre.lat, centre.lon) : true;
   const forecastLine = forecast?.kind === "down" ? LINE_DOWN : forecast?.kind === "ok" ? slotLine(slot, inside) : "";
-  const fcLabel = forecastMode && forecast?.kind === "ok" && slot ? `${forecast.data.credit || FORECAST_CREDIT} · ${forecastLabel(slot.t)}` : "";
+  // No layer for this hour (past the horizon, outside the grid): only the hour, no legend, credit or "Forecast for" over a picture that is not there.
+  const hasLayer = inside && slot?.fh != null;
+  const fcLabel = forecastMode && forecast?.kind === "ok" && slot ? (hasLayer ? `${forecast.data.credit || FORECAST_CREDIT} · ${forecastLabel(slot.t)}` : hourLabel(slot.t)) : "";
   const stripLabel = forecastMode ? fcLabel : radarLabel;
-  const stripSpoken = forecastMode ? (fcLabel ? `light, moderate, heavy, ${fcLabel.replace(" · ", " radar, ")}` : "") : radarSpokenLabel;
+  const stripSpoken = forecastMode ? (fcLabel && hasLayer ? `light, moderate, heavy, ${fcLabel.replace(" · ", " radar, ")}` : fcLabel) : radarSpokenLabel;
   useEffect(() => { setSlotIdx(0); setDrawnIdx(0); }, [route]);
   useEffect(() => {
     const id = window.setTimeout(() => setDrawnIdx(slotIdx), FORECAST_DEBOUNCE_MS);
@@ -371,22 +373,30 @@ export function TripRouteMap({
     if (!forecastKey || !radarOn || !showRadar) { setForecast(null); return; }
     let alive = true;
     const ac = new AbortController();
-    const load = async () => { const r = await fetchForecastHours(ac.signal); if (alive) setForecast(r); };
+    let timer = 0;
+    // Every 10 minutes (a new cycle lands hourly); a blip is asked again in 30 seconds, not 10 minutes later.
+    const load = async () => {
+      const r = await fetchForecastHours(ac.signal);
+      if (!alive) return;
+      setForecast(r);
+      timer = window.setTimeout(() => void load(), r.kind === "down" ? 30 * 1000 : 10 * 60 * 1000);
+    };
     void load();
-    const timer = window.setInterval(() => void load(), 10 * 60 * 1000);
-    return () => { alive = false; ac.abort(); window.clearInterval(timer); };
+    return () => { alive = false; ac.abort(); window.clearTimeout(timer); };
   }, [forecastKey, radarOn, showRadar]);
   // Effect: draw the hour the scrubber has settled on; nothing where the forecast has none or the trip is outside its grid.
   const drawnSlot = slots[Math.min(drawnIdx, slots.length - 1)];
   const drawnFh = forecastMode && forecast?.kind === "ok" && inside ? (drawnSlot?.fh ?? null) : null;
   const forecastCycle = forecast?.kind === "ok" ? forecast.data.cycle : "";
+  const forecastRedrawRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     const map = mapReady;
     if (!map) return;
-    if (drawnFh == null) { hideForecast(map); return; }
+    if (drawnFh == null) { forecastRedrawRef.current = null; hideForecast(map); return; }
     let alive = true;
     const draw = () => { if (alive) showForecast(map, forecastCycle, drawnFh); };
-    if (styleReadyRef.current) draw(); else map.once("style.load", draw);
+    forecastRedrawRef.current = draw; // a theme flip replaces the style and drops the layer: style.load calls this again
+    if (styleReadyRef.current) draw();
     return () => { alive = false; };
   }, [mapReady, drawnFh, forecastCycle]);
   useEffect(() => {
@@ -878,6 +888,7 @@ export function TripRouteMap({
         draw();
         // The charger overlay goes back too.
         addChargerLayer(map);
+        forecastRedrawRef.current?.(); // and the forecast layer
       });
 
       // Waypoint markers: click selects the stops-table row; hovering shows the tooltip.
