@@ -1,0 +1,21 @@
+# CI render: sidecar only (pluginWalArchiver false) with no in-tree store configured, as the preview rehearsal does. spec.backup must be absent,
+# not null (rivolt-preview Argo error, Nov 27).
+secrets:
+  kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+cnpg:
+  enabled: true
+  backup:
+    enabled: true
+    method: plugin
+    pluginWalArchiver: false
+    scheduled:
+      enabled: false
+    objectStore:
+      name: rehearsal-dummy
+      serverName: rehearsal-dummy
+      configuration:
+        destinationPath: s3://rehearsal-dummy-bucket/
+        endpointURL: https://dummy.invalid
+        s3Credentials:
+          accessKeyId: {name: rehearsal-dummy, key: ACCESS_KEY_ID}
+          secretAccessKey: {name: rehearsal-dummy, key: ACCESS_SECRET_KEY}

@@ -327,6 +327,17 @@ jobs:
             echo "::endgroup::"
           done
 
+      # The API server rejects a null where the CRD wants an object ("spec.backup in body must be of type object: null"; preview, Nov 27) and kubeconform
+      # lets it through, so this looks for nulls in every rendered CNPG Cluster, per values case.
+      - name: No rendered CNPG Cluster has a null field
+        run: |
+          set -o pipefail
+          for f in "$CHART"/ci/*-values.yaml; do
+            n=$(helm template rivolt "$CHART" -f "$f" | yq 'select(.kind == "Cluster") | .. | select(tag == "!!null") | path | join(".")')
+            [ -z "$n" ] || { echo "::error::$(basename "$f"): null in the rendered Cluster: $n"; exit 1; }
+          done
+          echo "no nulls in rendered Clusters"
+
       # The pod template's checksum/config and checksum/secret hash only the CONTENT (data / stringData). The helm.sh/chart label moves with every chart
       # version, so hashing the whole rendered file made a version bump alone roll the pods (zero-impact deploys). A copy of the chart with another version must
       # render the same checksums; a changed config value must change them.
