@@ -1,0 +1,18 @@
+# CI render: backups enabled with the Barman Cloud plugin as the WAL archiver and NO in-tree store (the end state of the move, and a preview
+# with a dummy store). spec.backup must be absent, not null: the API server rejects "spec.backup: null".
+secrets:
+  kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+cnpg:
+  enabled: true
+  backup:
+    enabled: true
+    method: plugin
+    objectStore:
+      name: rivolt-pg-r2
+      serverName: rivolt-pg-r2
+      configuration:
+        destinationPath: s3://example-bucket/prod/
+        endpointURL: https://example.r2.cloudflarestorage.com
+        s3Credentials:
+          accessKeyId: {name: example-creds, key: ACCESS_KEY_ID}
+          secretAccessKey: {name: example-creds, key: ACCESS_SECRET_KEY}

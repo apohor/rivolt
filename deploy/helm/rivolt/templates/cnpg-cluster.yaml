@@ -137,7 +137,7 @@ spec:
         serverName: {{ . | quote }}
         {{- end }}
   {{- end }}
-  {{- if and .Values.cnpg.backup.enabled (or (not $plugin) (not $walArchiver)) }}
+  {{- if and .Values.cnpg.backup.enabled (or (not $plugin) (not $walArchiver)) (or .Values.cnpg.backup.barmanObjectStore .Values.cnpg.backup.retentionPolicy) }}
   backup:
     {{- with .Values.cnpg.backup.barmanObjectStore }}
     barmanObjectStore:
