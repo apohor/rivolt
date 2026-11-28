@@ -99,6 +99,15 @@ describe("PlanCard, PlanNotice and ProLimitNotice, against the server's fixtures
     expect(document.querySelector("[data-plan-notice]")).toBeNull();
   });
 
+  it("the lapsed Plan card says Pro ended and offers See Pro, the free card's label, not Keep Pro", async () => {
+    renderWith(lapsed, <PlanCard />);
+    expect(await screen.findByText(/Your Pro ended on/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "See Pro" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Keep Pro" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "See Pro" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
   it("a 402 limit says why, that nothing is lost, and offers Pro only where the server bills", async () => {
     const a = renderWith(free, <ProLimitNotice limit={{ code: "outside_free_window", freeFrom: "2025-11-01" }} />);
     expect(await screen.findByText(/before November 1, 2025/)).toBeInTheDocument();
