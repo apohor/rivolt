@@ -204,13 +204,15 @@ struct PlanMapScreen: View {
                 PlanSheetCompactHeader(title: PlanSheetLogic.title(origin: model.origin?.line, destination: model.destination?.line), wraps: true)
             }
             VStack(alignment: .leading, spacing: 8) {
+                // The day chips first: wrapped at this size they are two rows, and under the summary and Edit the second row sat beneath the tab
+                // bar on the smallest phone (iPhone 17e), out of reach until the details were scrolled.
+                if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
                 if let summary = model.plan?.best.map({ TripPlanLogic.summary($0, metric: metric) }) {
                     Text(summary).themeText(.subline, color: Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
                 Button("Edit", action: onEdit).font(Theme.sans(ThemeTokens.typeValue, .medium, relativeTo: .body)).tint(Theme.accent)
                     .frame(minWidth: 44, minHeight: 44, alignment: .leading)
                     .accessibilityHint("Change the trip or open a saved one")
-                if case .planned(let trip) = model.night, trip.days.count > 1 { dayChips(trip) }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { axLead = $0 }
             networksButton
