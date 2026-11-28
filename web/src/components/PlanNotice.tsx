@@ -70,7 +70,7 @@ export function PlanNotice() {
       <span>{lapseBanner(state)}</span>
       <span className="flex gap-3">
         <ProSheetPreload />
-        <button type="button" className="underline underline-offset-2" onClick={() => setOpen(true)}>Keep Pro</button>
+        <button type="button" className="underline underline-offset-2" onClick={() => setOpen(true)}>See Pro</button>
         <Link to="/settings#export" className="underline underline-offset-2">Export everything</Link>
         <button
           type="button"
