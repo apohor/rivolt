@@ -34,6 +34,59 @@ struct PlanMapScreen: View {
     private var metric: Bool { NowFormat.usesMetric }
     /// The Radar button's state lives with the session, so the server is asked once what it has.
     private var radar: RadarModel { state.radar }
+    private var forecast: ForecastRadarModel { state.forecast }
+
+    /// The forecast replaces the live radar on a one-route plan when the key is on, the account is signed in, the Radar button is on and the server has not
+    /// said "not for you" (a free account, 402, keeps the live radar as before).
+    private var forecastOn: Bool {
+        // A plan without times has no hours to scrub: the live radar stays.
+        if case .ready = forecast.load, forecastSlots.isEmpty { return false }
+        return plannedDays == nil && model.plan?.best != nil
+            && ForecastRadarModel.replacesLive(keyOn: state.designPreview.contains(ForecastRadarLogic.designKey), demo: state.isDemo, radarOn: radar.isOn, load: forecast.load)
+    }
+    /// Whether the hours should be asked for: the key, signed in, the Radar button on, one route.
+    private var forecastWants: Bool {
+        plannedDays == nil && model.plan?.best != nil && !state.isDemo && radar.isOn && state.designPreview.contains(ForecastRadarLogic.designKey)
+    }
+    private var forecastSlots: [ForecastRadarLogic.Slot] {
+        guard let h = forecast.hours, let r = model.plan?.best else { return [] }
+        let t = ForecastRadarLogic.tripTimes(r)
+        return ForecastRadarLogic.slots(hours: h.hours, depart: t.depart, arrive: t.arrive)
+    }
+    private var forecastSlot: ForecastRadarLogic.Slot? {
+        let s = forecastSlots
+        return s.isEmpty ? nil : s[min(forecast.index, s.count - 1)]
+    }
+    private var forecastInside: Bool {
+        guard let h = forecast.hours, let r = model.plan?.best, let c = ForecastRadarLogic.centre(r) else { return true }
+        return ForecastRadarLogic.inBounds(h.bounds, lat: c.lat, lon: c.lon)
+    }
+    /// The layer under the route: the forecast hour (nothing while its hours load, or for an hour it does not have), else the live frame.
+    private var radarLayer: RadarLayer? {
+        guard forecastOn else { return radar.layer(server: state.mapServer) }
+        return forecast.layer(server: state.mapServer, slots: forecastSlots, inside: forecastInside)
+    }
+    /// What rides on the sheet's edge for the forecast: its strip, and the scrubber (or the one line when there is only a line to say).
+    private var forecastEdge: PlanSheetEdge.Forecast? {
+        guard forecastOn else { return nil }
+        let line: String? = {
+            switch forecast.load {
+            case .down: return ForecastRadarLogic.lineDown
+            case .ready: return ForecastRadarLogic.line(slot: forecastSlot, inside: forecastInside)
+            default: return nil
+            }
+        }()
+        guard let slot = forecastSlot, case .ready(let h) = forecast.load else {
+            return line.map { PlanSheetEdge.Forecast(caption: "", spoken: "", scrubber: AnyView(ForecastScrubber(model: forecast, slotCount: 0, valueText: "", line: $0))) }
+        }
+        let scrubber: AnyView? = forecastSlots.count > 1 || line != nil
+            ? AnyView(ForecastScrubber(model: forecast, slotCount: forecastSlots.count, valueText: ForecastRadarLogic.label(unix: slot.t), line: line)) : nil
+        // No picture for this hour (past the forecast, outside its grid): only the hour, no legend, credit or "Forecast for" over a map that shows none.
+        guard forecastInside, slot.fh != nil else {
+            return PlanSheetEdge.Forecast(caption: ForecastRadarLogic.hour(unix: slot.t), spoken: ForecastRadarLogic.hour(unix: slot.t), legend: false, scrubber: scrubber)
+        }
+        return PlanSheetEdge.Forecast(caption: ForecastRadarLogic.caption(credit: h.credit, unix: slot.t), spoken: ForecastRadarLogic.spoken(credit: h.credit, unix: slot.t), scrubber: scrubber)
+    }
 
     private func sheetHeight(_ d: PlanSheetDetent, _ container: CGFloat) -> CGFloat {
         SheetLayout.height(d, in: container, peekNeed: peekNeed, headerNeed: headerNeed, contentLead: SheetLayout.lead(ax ? axLead : 0))
@@ -76,7 +129,7 @@ struct PlanMapScreen: View {
                 } header: {
                     headerExtras
                 } above: {
-                    PlanSheetEdge(frameUnix: radar.isOn ? radar.frame?.frameUnix : nil)
+                    PlanSheetEdge(frameUnix: radar.isOn && !forecastOn ? radar.frame?.frameUnix : nil, forecast: forecastEdge)
                 } content: {
                     ScrollViewReader { proxy in
                         VStack(alignment: .leading, spacing: 4 * Theme.unit) {
@@ -103,6 +156,10 @@ struct PlanMapScreen: View {
         .onChange(of: ax) { _, large in detent = large ? .peek : .half }
         .task { await radar.probe(source: state.client) }
         .task(id: radar.isOn) { if radar.isOn { await radar.keepFresh(source: state.client) } }
+        // The forecast's hours, once the key, the Radar button and a plan are all there; asked again every ten minutes while they stay.
+        .task(id: forecastWants) { if forecastWants { await forecast.fetch(source: state.client); await forecast.keepFresh(source: state.client) } }
+        .onChange(of: forecastSlots.count) { forecast.restart() }
+        .onChange(of: model.plan?.best?.waypoints.first?.departureTimeUTC?.date) { forecast.restart() }
         // The Trip planner settings' Radar default, once they are read (the Weather default is applied as they are read).
         .task(id: model.plannerMap) { if let m = model.plannerMap { await radar.applyDefault(on: m.radarOn, source: state.client) } }
         // Moving a stop needs the map: the sheet goes down to its peek, and back where it was when the move is done or cancelled.
@@ -160,13 +217,13 @@ struct PlanMapScreen: View {
             PlanMap(content: .days(.init(days: trip.days, day: day, weatherOn: model.weatherOn)), focus: model.focusedStop,
                     onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) }, along: model.markers,
                     onLine: { line, fromOrigin in Task { await model.setDayLines(line, startsAtOrigin: fromOrigin, source: state.client) } },
-                    radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom, reframe: reframe, showsCredit: false)
+                    radar: radarLayer, fills: true, bottomInset: coverHeight, topInset: chipsBottom, reframe: reframe, showsCredit: false)
         } else if let route = model.plan?.best {
             PlanMap(content: .route(.init(route: route, weather: model.weatherOn ? PlanRouteLogic.Weather(model.plan)?.forecasting(state.designPreview.contains("radar_forecast")) : nil, vias: model.vias,
                                           pendingVias: model.pendingVias, previewLine: model.previewLine)),
                     focus: model.focusedStop, onStop: { pickLeg(nil); model.focusedStop = $0 }, onLegTag: { pickLeg($0) },
                     cursorShare: model.elevationCursor, onCursorShare: PlanElevation.shown(model.plan?.elevationProfile, designPreview: state.designPreview) == nil ? nil : { model.elevationCursor = $0 }, along: model.markers,
-                    onLine: { line, _ in Task { await model.setRoadLine(line, source: state.client) } }, radar: radar.layer(server: state.mapServer), fills: true, bottomInset: coverHeight, topInset: chipsBottom,
+                    onLine: { line, _ in Task { await model.setRoadLine(line, source: state.client) } }, radar: radarLayer, truckAt: forecastOn ? forecastSlot?.t : nil, fills: true, bottomInset: coverHeight, topInset: chipsBottom,
                     showsCredit: false, onLongPress: { model.dropPin(lat: $0.lat, lon: $0.lon) },
                     onCenter: model.moving == nil ? nil : { model.moveCenter($0, source: state.client) })
         }
@@ -636,14 +693,38 @@ struct RadarControls: View {
 /// frame's time ("NOAA/NWS · 6:42 PM"). NOAA's colours are drawn as they are. A line that does not fit drops "moderate", then the words, and never
 /// wraps. An old frame says so after its time; nothing in it reads as "no rain".
 struct RadarStrip: View {
-    let frameUnix: Int
-    var now = Date()
+    /// The credit and time at the end of the line ("NOAA/NWS · 6:42 PM"), whether it says "not current", and what VoiceOver reads.
+    let caption: String
+    let stale: Bool
+    let spoken: String
+
+    init(frameUnix: Int, now: Date = Date()) {
+        caption = RadarLogic.asOf(unix: frameUnix, now: now)
+        stale = RadarLogic.isStale(unix: frameUnix, now: now)
+        spoken = RadarLogic.spoken(unix: frameUnix, now: now)
+    }
+
+    /// The forecast's strip: the same gradient, "NOAA RRFS · Forecast for 3 pm".
+    init(forecast caption: String, spoken: String, legend: Bool = true) {
+        self.caption = caption
+        stale = false
+        self.spoken = spoken
+        self.legend = legend
+    }
+    /// False: just the caption (the hour), no gradient.
+    var legend = true
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            line(words: RadarLogic.legendWords[0])
-            line(words: RadarLogic.legendWords[1])
-            line(words: [])
+        Group {
+            if legend {
+                ViewThatFits(in: .horizontal) {
+                    line(words: RadarLogic.legendWords[0])
+                    line(words: RadarLogic.legendWords[1])
+                    line(words: [])
+                }
+            } else {
+                Text(caption).foregroundStyle(Theme.textSecondary).lineLimit(1).fixedSize()
+            }
         }
         .mapCaption()
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -652,7 +733,7 @@ struct RadarStrip: View {
         .overlay(Capsule().strokeBorder(Theme.border, lineWidth: 1))
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("radar-strip")
-        .accessibilityLabel(RadarLogic.spoken(unix: frameUnix, now: now))
+        .accessibilityLabel(spoken)
     }
 
     private static let colors = [Color(red: 0, green: 0.93, blue: 0.93), Color(red: 0, green: 0.78, blue: 0), Color.yellow, Color(red: 1, green: 0.56, blue: 0), Color.red, Color(red: 1, green: 0, blue: 1)]
@@ -668,7 +749,7 @@ struct RadarStrip: View {
                     Text(word).foregroundStyle(Theme.textTertiary)
                 }
             }
-            Text(RadarLogic.asOf(unix: frameUnix, now: now)).foregroundStyle(RadarLogic.isStale(unix: frameUnix, now: now) ? Theme.estimate : Theme.textSecondary)
+            Text(caption).foregroundStyle(stale ? Theme.estimate : Theme.textSecondary)
                 .padding(.leading, 4)
         }
         .lineLimit(1)
@@ -688,12 +769,27 @@ struct RadarStrip: View {
 /// view at every height but fully open (where the map is out of sight).
 struct PlanSheetEdge: View {
     var frameUnix: Int?
+    /// The forecast radar in place of the live frame: its strip (credit and hour) and, above the strip, the scrubber.
+    var forecast: Forecast?
+
+    struct Forecast {
+        var caption: String
+        var spoken: String
+        /// False where there is no picture for the hour: the strip says only the hour.
+        var legend = true
+        var scrubber: AnyView?
+    }
 
     var body: some View {
-        let strip = Group { if let frameUnix { RadarStrip(frameUnix: frameUnix) } }
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .bottom, spacing: 8) { strip; Spacer(minLength: 0); MapAttribution() }
-            VStack(alignment: .trailing, spacing: 2) { MapAttribution(); strip.frame(maxWidth: .infinity, alignment: .leading) }
+        let strip = Group {
+            if let forecast { RadarStrip(forecast: forecast.caption, spoken: forecast.spoken, legend: forecast.legend) } else if let frameUnix { RadarStrip(frameUnix: frameUnix) }
+        }
+        VStack(alignment: .leading, spacing: 4) {
+            if let scrubber = forecast?.scrubber { scrubber }
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .bottom, spacing: 8) { strip; Spacer(minLength: 0); MapAttribution() }
+                VStack(alignment: .trailing, spacing: 2) { MapAttribution(); strip.frame(maxWidth: .infinity, alignment: .leading) }
+            }
         }
         .padding(.horizontal, 8).padding(.bottom, 4)
     }

@@ -475,6 +475,8 @@ struct RouteMapView: UIViewRepresentable {
     var gapDim = false
     /// Where the timeline's cursor is: a dot over the route (nil: none).
     var cursor: RouteSnap.Coord?
+    /// The cursor is the planner's truck at the forecast's hour: a bigger dot with a green ring, so it is the one dot to look for.
+    var cursorIsTruck = false
     /// Space at the bottom the camera keeps clear for what is drawn over the map there (the legend card and the credit), from their measured
     /// frames: the route and its pins fit above them, never under.
     var bottomInset: CGFloat = 0
@@ -547,6 +549,7 @@ struct RouteMapView: UIViewRepresentable {
         context.coordinator.onDrawnLegTags = onDrawnLegTags
         context.coordinator.gapDim = gapDim
         context.coordinator.setStyle(styleJSON, on: map)
+        context.coordinator.cursorIsTruck = cursorIsTruck
         context.coordinator.setCursor(cursor)
         context.coordinator.setBottomInset(bottomInset, on: map)
         context.coordinator.setTopInset(topInset, on: map)
@@ -763,6 +766,7 @@ struct RouteMapView: UIViewRepresentable {
             dot.circleStrokeWidth = NSExpression(forConstantValue: 2)
             if let tags = style.layer(withIdentifier: "\(RouteMapView.sourceID)-legtags") { style.insertLayer(dot, below: tags) } else { style.addLayer(dot) }
             self.cursorSource = cursorSource
+            cursorLayer = dot
             setCursor(cursorAt)
             if !keepCamera { fit(map) }
             RadarLayer.apply(radar, to: style)
@@ -903,8 +907,13 @@ struct RouteMapView: UIViewRepresentable {
         private var cursorAt: RouteSnap.Coord?
 
         /// The dot for the timeline's cursor, moved in place (no layer rebuild, the camera stays).
+        var cursorIsTruck = false
+        private var cursorLayer: MLNCircleStyleLayer?
         func setCursor(_ c: RouteSnap.Coord?) {
             cursorAt = c
+            cursorLayer?.circleRadius = NSExpression(forConstantValue: cursorIsTruck ? 10 : 6)
+            cursorLayer?.circleStrokeColor = NSExpression(forConstantValue: UIColor(cursorIsTruck ? Theme.accent : Theme.background))
+            cursorLayer?.circleStrokeWidth = NSExpression(forConstantValue: cursorIsTruck ? 4 : 2)
             cursorSource?.shape = c.map { c in
                 let f = MLNPointFeature()
                 f.coordinate = CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon)

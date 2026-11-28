@@ -65,6 +65,10 @@ final class FixtureURLProtocol: URLProtocol {
         // The iPhone elevation chart is a preview-only design (design_preview key ios_elevation): on only when the UI test asks.
         case ("GET", "/api/config") where ProcessInfo.processInfo.arguments.contains("-uitest-ios-elevation"):
             return ProcessInfo.processInfo.arguments.contains("-uitest-now-v2") ? "config_now_v2_elevation" : "config_ios_elevation"
+        // The planner's forecast radar (design_preview key plan_forecast_map, Pro): the server has radar, a forecast for the trip's first four hours and the key on.
+        case ("GET", "/api/config") where ProcessInfo.processInfo.arguments.contains("-uitest-forecast"): return "config_forecast"
+        case ("GET", "/api/maps/radar/frame") where ProcessInfo.processInfo.arguments.contains("-uitest-forecast"): return "radar_frame"
+        case ("GET", "/api/maps/forecast-radar/hours") where ProcessInfo.processInfo.arguments.contains("-uitest-forecast"): return "forecast_hours"
         case ("GET", "/api/auth/me"): return ProcessInfo.processInfo.arguments.contains("-uitest-planner-gated") ? (Self.boughtPro ? "me_plan_subscriber" : "me_plan_free_planner_pro") : "me"
         case ("GET", "/api/vehicles"): return "vehicles"
         case ("GET", "/api/trips/saved"): return "trip_saved_list"

@@ -83,6 +83,8 @@ final class AppState {
     private let session: URLSession?
     /// The planner's Radar button for this session and server (what the server advertises, whether it is on, the newest frame).
     let radar = RadarModel()
+    /// The planner's forecast radar (design key plan_forecast_map, Pro): what the server offers and where the scrubber is.
+    let forecast = ForecastRadarModel()
     private let signedInClient: APIClient
     let tokens: TokenStore
     /// Notifications on this iPhone (the Apple token, permission, the switches).
@@ -178,7 +180,7 @@ final class AppState {
         client = signedInClient
         Task { await refreshDesignPreview() }
         MapNetwork.reset()
-        radar.reset()
+        radar.reset(); forecast.reset()
         activityMap.clear()
         efficiency.clear()
         if let username = resumeAfterDemo {
@@ -292,7 +294,7 @@ final class AppState {
             DisplayUnits.reset()
             WidgetCenter.shared.reloadAllTimelines()
             MapNetwork.reset()
-            radar.reset()
+            radar.reset(); forecast.reset()
             activityMap.clear()
             efficiency.clear()
             serverURL = url
@@ -378,7 +380,7 @@ final class AppState {
         WidgetStore().clear()
         DisplayUnits.reset()
         MapNetwork.reset()
-        radar.reset()
+        radar.reset(); forecast.reset()
         activityMap.clear()
         efficiency.clear()
         WidgetCenter.shared.reloadAllTimelines()
@@ -481,7 +483,7 @@ final class AppState {
         WidgetStore().clear()
         DisplayUnits.reset()
         MapNetwork.reset()
-        radar.reset()
+        radar.reset(); forecast.reset()
         activityMap.clear()
         efficiency.clear()
         WidgetCenter.shared.reloadAllTimelines()

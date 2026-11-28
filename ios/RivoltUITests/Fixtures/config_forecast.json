@@ -1,0 +1,1 @@
+{"tiles":{"radar_url":"/api/maps/radar/{z}/{x}/{y}.png","radar_frame_url":"/api/maps/radar/frame","radar_minzoom":3,"radar_maxzoom":9},"features":{"design_preview":["plan_forecast_map"]}}

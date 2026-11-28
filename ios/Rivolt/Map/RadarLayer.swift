@@ -9,11 +9,29 @@ struct RadarLayer: Equatable {
     var minZoom: Int = 3
     var maxZoom: Int = 9
 
+    /// Set for the planner's forecast radar (design key plan_forecast_map, Pro): one forecast hour of NOAA RRFS from the server's own tiles, not the live frame.
+    struct Forecast: Equatable {
+        var cycle: String
+        var fh: Int
+    }
+    var forecast: Forecast?
+
     static let sourceID = "rivolt-radar"
     static let opacity = 0.6
 
     /// The tile URL template for this frame: a new frame is a new URL, so MapLibre never shows a cached older one.
-    var tileTemplate: String { "\(MapStyle.origin(server))/api/maps/radar/{z}/{x}/{y}.png?t=\(frameUnix)" }
+    var tileTemplate: String {
+        if let forecast {
+            let cycle = forecast.cycle.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? forecast.cycle
+            return "\(MapStyle.origin(server))/api/maps/forecast-radar/\(cycle)/\(forecast.fh)/{z}/{x}/{y}.png"
+        }
+        return "\(MapStyle.origin(server))/api/maps/radar/{z}/{x}/{y}.png?t=\(frameUnix)"
+    }
+
+    /// The forecast hour as a layer: the server renders z 3 to 7 only.
+    static func forecast(server: URL, cycle: String, fh: Int) -> RadarLayer {
+        RadarLayer(server: server, frameUnix: 0, minZoom: 3, maxZoom: 7, forecast: Forecast(cycle: cycle, fh: fh))
+    }
 
     /// Puts the radar on `style` (replacing any earlier frame), below the first of the route's own layers, or removes it when `layer` is nil.
     static func apply(_ layer: RadarLayer?, to style: MLNStyle) {

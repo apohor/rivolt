@@ -615,6 +615,11 @@ actor APIClient {
         try await request("GET", "/api/maps/radar/frame")
     }
 
+    /// The forecast radar's cycle and hours (Pro): a free account gets 402, a server without a forecast 404, a feed that is down 503.
+    func forecastHours() async throws -> ForecastHours {
+        try await request("GET", "/api/maps/forecast-radar/hours")
+    }
+
     func corridorLayers(_ body: CorridorLayersRequest) async throws -> CorridorLayers {
         try await request("POST", "/api/maps/corridor-layers", body: body)
     }

@@ -268,6 +268,7 @@ struct PlanMapCanvas: View {
     var onLegTag: ((RouteSnap.Drawing.LegTag) -> Void)?
     /// Where the elevation chart's cursor is on the route: a dot there (nil: none).
     var cursor: RouteSnap.Coord?
+    var cursorIsTruck = false
     /// A tap on the map that hit no pin or label: the place and the metres a thumb covers there.
     var onTapAt: ((RouteSnap.Coord, Double) -> Void)?
     /// A map to explore: pinch and pan (never rotate or tilt), filling the room it is given (the plan's full-height map), with the camera
@@ -297,7 +298,7 @@ struct PlanMapCanvas: View {
             if health == .failed {
                 MapMessage(text: "Map unavailable.")
             } else if let drawing, let style = MapStyle.json(dark: scheme == .dark, server: state.mapServer) {
-                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, recenter: reframe, radar: radar, cursor: cursor, bottomInset: bottomInset, topInset: topInset, onStop: onStop, onLegTag: onLegTag.map { cb in { i in if drawing.legTags.indices.contains(i) { cb(drawing.legTags[i]) } } }, onTapAt: onTapAt, onLongPress: onLongPress, onCenter: onCenter, onDrawnLegTags: drawnLegTagsReport)
+                RouteMapView(styleJSON: style, drawing: drawing, onHealth: { health = $0 }, interactive: fills, recenter: reframe, radar: radar, cursor: cursor, cursorIsTruck: cursorIsTruck, bottomInset: bottomInset, topInset: topInset, onStop: onStop, onLegTag: onLegTag.map { cb in { i in if drawing.legTags.indices.contains(i) { cb(drawing.legTags[i]) } } }, onTapAt: onTapAt, onLongPress: onLongPress, onCenter: onCenter, onDrawnLegTags: drawnLegTagsReport)
                     .accessibilityElement()
                     .accessibilityLabel("Map of the planned route with \(drawing.stops.count) \(drawing.stops.count == 1 ? "pin" : "pins")")
                     // The places drawn along the route (the layer chips' pins), for VoiceOver and for a UI test: nothing is said when there are none.
@@ -386,6 +387,8 @@ struct PlanMap: View {
     var onLine: ([RouteSnap.Coord], Bool) -> Void = { _, _ in }
     /// The radar frame under the route, when the Radar button is on.
     var radar: RadarLayer?
+    /// The forecast radar's hour as unix seconds (the one-route map only): a dot where the truck is then, on the road line (none before it leaves or after it arrives).
+    var truckAt: Int?
     var fills = false
     var bottomInset: CGFloat = 0
     var topInset: CGFloat = 0
@@ -436,6 +439,13 @@ struct PlanMap: View {
         return PlanElevation.point(on: line, at: cursorShare)
     }
 
+    /// The truck at the forecast's hour; it takes the cursor dot's place while the scrubber is on (the chart's cursor is not drawn then).
+    private var truckCoord: RouteSnap.Coord? {
+        guard let truckAt, case .route(let r) = content else { return nil }
+        let t = ForecastRadarLogic.tripTimes(r.route)
+        return ForecastRadarLogic.positionAt(r.route, line: lines.first ?? [], t: Double(max(truckAt, t.depart)))
+    }
+
     /// A tap within a thumb of the route's line puts the chart's cursor there.
     private func routeTapped(_ at: RouteSnap.Coord, _ reach: Double) {
         guard case .route = content, let line = lines.first, let hit = PlanElevation.share(of: at, on: line), hit.offMeters <= reach else { return }
@@ -449,7 +459,7 @@ struct PlanMap: View {
     }
 
     var body: some View {
-        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, cursor: cursorCoord, onTapAt: onCursorShare == nil ? nil : routeTapped, fills: fills, bottomInset: bottomInset, topInset: topInset, reframe: reframe, showsCredit: showsCredit, onLongPress: onLongPress, onCenter: onCenter)
+        PlanMapCanvas(drawing: shown, radar: radar, onStop: onStop, onLegTag: onLegTag, cursor: truckCoord ?? cursorCoord, cursorIsTruck: truckCoord != nil, onTapAt: onCursorShare == nil ? nil : routeTapped, fills: fills, bottomInset: bottomInset, topInset: topInset, reframe: reframe, showsCredit: showsCredit, onLongPress: onLongPress, onCenter: onCenter)
             .onChange(of: day) { reportLine() }
             .task(id: key) { await load() }
             // A stop just added or removed: our own roads line (Valhalla's route through the places with the new set) at once, while the planner works.
