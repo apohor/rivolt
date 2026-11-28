@@ -120,7 +120,8 @@ export function planCardCopy(state: PlanState): { title: string; line: string; a
       return {
         title: `Your Pro ended${planDate(state.endedOn) ? ` on ${planDate(state.endedOn)}` : ""}`,
         line: `Showing ${windowWords(state.months)}. Nothing is deleted; older history stays stored and is in your export any time (Settings → Data).`,
-        action: "Keep Pro",
+        // Pro has already ended here, so "Keep Pro" is wrong (it reads as cancelling an end that happened): the same label the free card uses.
+        action: "See Pro",
       };
   }
 }

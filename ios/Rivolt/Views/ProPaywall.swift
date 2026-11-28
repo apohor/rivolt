@@ -537,11 +537,11 @@ struct PlanNoticeView: View {
                     // Side by side where they fit, stacked at large text sizes.
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: 12) {
-                            Button("Keep Pro") { showing = true }.buttonStyle(ThemeButtonStyle())
+                            Button("See Pro") { showing = true }.buttonStyle(ThemeButtonStyle())
                             Button("Dismiss") { dismissedOn = id }.buttonStyle(ThemeSecondaryButtonStyle())
                         }
                         VStack(spacing: 8) {
-                            Button("Keep Pro") { showing = true }.buttonStyle(ThemeButtonStyle())
+                            Button("See Pro") { showing = true }.buttonStyle(ThemeButtonStyle())
                             Button("Dismiss") { dismissedOn = id }.buttonStyle(ThemeSecondaryButtonStyle())
                         }
                     }
