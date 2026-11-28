@@ -22,7 +22,10 @@ spec:
   schedule: {{ .Values.cnpg.backup.scheduled.schedule | quote }}
   immediate: {{ .Values.cnpg.backup.scheduled.immediate }}
   backupOwnerReference: self
-  {{- if eq (.Values.cnpg.backup.method | default "barmanObjectStore") "plugin" }}
+  {{- $walArchiver := true }}
+  {{- if hasKey .Values.cnpg.backup "pluginWalArchiver" }}{{- $walArchiver = .Values.cnpg.backup.pluginWalArchiver }}{{- end }}
+  {{- /* Base backups follow the WAL archiver: while the in-tree archiver is still on (sidecar-first step), they stay in-tree too. */}}
+  {{- if and (eq (.Values.cnpg.backup.method | default "barmanObjectStore") "plugin") $walArchiver }}
   method: plugin
   pluginConfiguration:
     name: barman-cloud.cloudnative-pg.io

@@ -615,6 +615,10 @@ cnpg:
     #   retentionPolicy: "364d"
     #   configuration: { destinationPath: "s3://bucket/prefix/", endpointURL: "...", s3Credentials: {...}, wal: {...}, data: {...} }
     objectStore: {}
+    # Used with method "plugin". false = sidecar first: the plugin sidecar is added to every instance while the in-tree barmanObjectStore below
+    # keeps archiving WAL and taking base backups. A second change (true, the default, and no barmanObjectStore) then makes the plugin
+    # the archiver; every instance already carries the sidecar by then, so none archives through a plugin it does not have.
+    # pluginWalArchiver: false
     # barmanObjectStore: { destinationPath: "s3://bucket/path", endpointURL: "...", s3Credentials: {...}, wal: {...}, data: {...} }
     # retentionPolicy: "30d"
     scheduled:

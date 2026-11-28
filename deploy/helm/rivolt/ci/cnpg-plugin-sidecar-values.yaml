@@ -1,0 +1,31 @@
+# CI render: CloudNativePG with the Barman Cloud plugin sidecar only (pluginWalArchiver false): the plugins block has isWALArchiver false,
+# spec.backup.barmanObjectStore stays, and the ScheduledBackup stays in-tree. The first step of the two-step move to the plugin.
+secrets:
+  kek: "v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+cnpg:
+  enabled: true
+  backup:
+    enabled: true
+    method: plugin
+    pluginWalArchiver: false
+    barmanObjectStore:
+      destinationPath: s3://example-minio/path
+      endpointURL: http://minio.example.svc:9000
+      s3Credentials:
+        accessKeyId: {name: example-minio-creds, key: ACCESS_KEY_ID}
+        secretAccessKey: {name: example-minio-creds, key: ACCESS_SECRET_KEY}
+    retentionPolicy: "30d"
+    objectStore:
+      name: rivolt-pg-r2
+      serverName: rivolt-pg-r2
+      retentionPolicy: "364d"
+      configuration:
+        destinationPath: s3://example-bucket/prod/
+        endpointURL: https://example.r2.cloudflarestorage.com
+        s3Credentials:
+          accessKeyId: {name: example-creds, key: ACCESS_KEY_ID}
+          secretAccessKey: {name: example-creds, key: ACCESS_SECRET_KEY}
+          region: {name: example-creds, key: REGION}
+          sseCustomerKey: {name: example-sse, key: key}
+        wal: {compression: gzip}
+        data: {compression: gzip}
