@@ -258,6 +258,13 @@ jobs:
               -only-testing:RivoltUITests/PlannerLayerPinsUITests
               -only-testing:RivoltUITests/ActivityRefreshUITests
               -only-testing:RivoltUITests/MyVehiclesUITests
+          # The planner sheet on the smallest supported phone (iPhone 17e), where the sheet's chips and the (i) have the least room. Only the two
+          # planner classes: the rest of the suite does not depend on the screen's height.
+          - shard: plan-small
+            device: iPhone 17e
+            select: >-
+              -only-testing:RivoltUITests/PlanSheetUITests
+              -only-testing:RivoltUITests/PlannerLayerPinsUITests
           - shard: rest
             select: >-
               -skip-testing:RivoltUITests/PlanSheetUITests
@@ -291,12 +298,12 @@ jobs:
         id: sim
         run: |
           set -euo pipefail
-          udid=$(xcrun simctl list devices available -j | jq -r --arg rt "$SIM_RUNTIME" '
+          udid=$(xcrun simctl list devices available -j | jq -r --arg rt "$SIM_RUNTIME" --arg dev "${{ matrix.device || 'iPhone' }}" '
             .devices | to_entries[]
             | select(.key | test("SimRuntime\\.iOS-" + ($rt | sub("^iOS "; "") | gsub("\\."; "-")) + "$"))
-            | .value[] | select(.name | startswith("iPhone")) | .udid' | head -n1)
+            | .value[] | select(.name | startswith($dev)) | .udid' | head -n1)
           if [ -z "$udid" ]; then
-            echo "no iPhone simulator for $SIM_RUNTIME"; xcrun simctl list runtimes; exit 1
+            echo "no ${{ matrix.device || 'iPhone' }} simulator for $SIM_RUNTIME"; xcrun simctl list runtimes; exit 1
           fi
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
 
