@@ -181,14 +181,15 @@ def click_list(privacy_md):
 class Api:
     """JSON over HTTPS with a short-lived ES256 token. The token and key never reach the output."""
 
-    def __init__(self, key_text, key_id, issuer):
+    def __init__(self, key_text, key_id, issuer, extra_claims=None):
         self.key_text, self.key_id, self.issuer = key_text, key_id, issuer
+        self.extra_claims = dict(extra_claims or {})
 
     def _token(self):
         b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
         now = int(time.time())
         head = b64(json.dumps({"alg": "ES256", "kid": self.key_id, "typ": "JWT"}).encode())
-        claims = b64(json.dumps({"iss": self.issuer, "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"}).encode())
+        claims = b64(json.dumps({"iss": self.issuer, "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1", **self.extra_claims}).encode())
         with tempfile.NamedTemporaryFile("w", delete=False) as f:
             os.chmod(f.name, 0o600)
             f.write(self.key_text + "\n")
