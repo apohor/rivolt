@@ -1,0 +1,36 @@
+name: ios-store-test-notification
+
+# Asks Apple to send a TEST App Store Server Notification to the Sandbox URL set in App Store Connect (the preview server) and prints Apple's
+# record of the send (ios/store/asc_test_notification.py). By hand only, inside the `testflight` environment (the owner approves the run and
+# only that environment holds the App Store Connect key). Changes no account and no product; the server ignores a TEST.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-store-test-notification
+  cancel-in-progress: false
+
+jobs:
+  test-notification:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: testflight
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Tests
+        run: |
+          python3 -I -m unittest discover -s ios/store -p 'test_asc_test_notification.py'
+          python3 -I -m unittest discover -s ios/store -p 'test_asc_listing.py'
+
+      - name: Request a Sandbox test notification
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: python3 -I ios/store/asc_test_notification.py
